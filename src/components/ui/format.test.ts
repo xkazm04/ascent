@@ -34,6 +34,22 @@ describe("delta formatters (noise-aware)", () => {
     expect(toneFor(-5)).toBe("falling");
   });
 
+  it("non-finite deltas (NaN/Infinity) render as a neutral placeholder, never a confident decline", () => {
+    // Before the guard: toneFor(NaN) fell through to "falling" (NaN > 0 is false), deltaHex(NaN)
+    // rendered the orange "falling" hex, and fmtDelta(NaN) rendered "▼NaN" — a styled, confident wrong
+    // decline arrow for what is actually a measurement gap (missing baseline / divide-by-zero).
+    expect(toneFor(NaN)).toBe("flat");
+    expect(toneFor(Infinity)).toBe("flat");
+    expect(toneFor(-Infinity)).toBe("flat");
+    expect(deltaHex(NaN)).toBe(DIRECTION_TONE.flat.color);
+    expect(deltaHex(Infinity)).toBe(DIRECTION_TONE.flat.color);
+    expect(fmtDelta(NaN)).toBe("—");
+    expect(fmtDelta(Infinity)).toBe("—");
+    expect(fmtDelta(-Infinity)).toBe("—");
+    expect(signedDelta(NaN)).toBe("—");
+    expect(signedDelta(Infinity)).toBe("—");
+  });
+
   it("DIRECTION_TONE hexes stay paired with the --color-tone-* CSS tokens (change BOTH together)", () => {
     // TS keeps literal hex (inline styles + tests can't resolve var()); globals.css re-declares the
     // triad as tokens for CSS-side surfaces. This pins the pairing so a rebrand can't move one side.

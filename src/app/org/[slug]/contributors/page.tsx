@@ -1,20 +1,18 @@
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { ExportCsvLink, MeterRow, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { getContributorInsights, type ContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { scoreHex, timeAgo } from "@/lib/ui";
+import { scoreHex } from "@/lib/ui";
 import { DecisionControl } from "@/components/org/DecisionControl";
 import { decisionMap, type DecisionMap } from "@/lib/org/decision-map";
+import { AiBar } from "./AiBar";
+import { IndividualInvolvement } from "./IndividualInvolvement";
 
 export const dynamic = "force-dynamic";
 
-function AiBar({ pct, color }: { pct: number; color?: string }) {
-  return <MeterRow layout="inline" value={pct} display={`${pct}%`} color={color} meterClassName="w-24" />;
-}
-
-// AI champions leaderboard — exemplars whose adoption the team could learn from. Rendered by the page
-// only once the population clears CHAMPION_MIN_POP (see the gate at the call site).
+// AI champions leaderboard — exemplars whose adoption the team could learn from. The population floor
+// is applied by getContributorInsights itself (it returns `champions: []` below CHAMPION_MIN_POP), so
+// this renders whatever the producer was willing to name — there is nothing left to gate here.
 function ChampionsGrid({ champions }: { champions: ContributorInsights["champions"] }) {
   return (
     <div className="mt-8">
@@ -43,85 +41,6 @@ function ChampionsGrid({ champions }: { champions: ContributorInsights["champion
   );
 }
 
-// Per-individual involvement — OPT-IN, default collapsed. The default contributor view is team-level
-// (the tiles, champions-when-population-allows, and Concentration / bus-factor below); naming individuals
-// is a deliberate drill-down for capability/coverage planning, never a passive performance scoreboard.
-// The per-person CSV lives here too, behind the same deliberate opt-in.
-function IndividualInvolvement({
-  insights,
-  slug,
-  segmentId,
-  stack,
-}: {
-  insights: ContributorInsights;
-  slug: string;
-  segmentId: string | null;
-  /** Active tech-stack group key — forwarded so the CSV matches the filtered view. */
-  stack: string | null;
-}) {
-  return (
-    <details id="individuals" className="mt-8 scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20">
-      <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-medium text-slate-200 marker:text-slate-600">
-        <span>
-          Individual involvement <span className="font-mono text-sm text-slate-500">({insights.contributors.length})</span>
-        </span>
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">names individuals — expand</span>
-      </summary>
-      <div className="border-t border-slate-800 px-4 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="max-w-2xl text-sm text-slate-400">
-            For capability and coverage planning — who could seed agent guidance, where key-person risk sits —{" "}
-            <span className="text-slate-300">not performance evaluation</span>. Breadth (repos) × depth (commits) and each
-            person&apos;s AI-commit share.
-          </p>
-          <ExportCsvLink org={slug} kind="contributors" segmentId={segmentId} stack={stack} className="shrink-0" />
-        </div>
-        <OrgTable
-          className="mt-3"
-          minWidth={720}
-          caption="Contributors by involvement — repos, commits, and AI-commit share"
-          head={
-            <tr>
-              <th className="px-4 py-2 text-left">Contributor</th>
-              <th className="px-3 py-2 text-right">Commits</th>
-              <th className="px-3 py-2 text-right">AI</th>
-              <th className="px-3 py-2 text-left">AI share</th>
-              <th className="px-3 py-2 text-left">Repos</th>
-              <th className="px-3 py-2 text-left">Last active</th>
-            </tr>
-          }
-        >
-          {insights.contributors.slice(0, 50).map((c) => (
-            <tr key={c.login} className="text-slate-300">
-              <td className="px-4 py-2">
-                <span className="font-mono text-sm text-white">{c.login}</span>
-                {c.name && <span className="ml-2 text-sm text-slate-500">{c.name}</span>}
-              </td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums">{c.commits}</td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums text-accent">{c.aiCommits}</td>
-              <td className="px-3 py-2"><AiBar pct={c.aiShare} /></td>
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap items-center gap-1">
-                  <span className="font-mono text-sm text-slate-400">{c.repos}</span>
-                  {c.repoNames.slice(0, 3).map((r) => (
-                    <span key={r} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
-                      {r.split("/")[1] ?? r}
-                    </span>
-                  ))}
-                  {c.repos > 3 && <span className="font-mono text-sm text-slate-600">+{c.repos - 3}</span>}
-                </div>
-              </td>
-              <td className="px-3 py-2 text-sm text-slate-500">{timeAgo(c.lastActiveAt ?? undefined)}</td>
-            </tr>
-          ))}
-        </OrgTable>
-        {insights.contributors.length > 50 && (
-          <p className="mt-2 font-mono text-sm text-slate-600">Showing top 50 of {insights.contributors.length} by commits.</p>
-        )}
-      </div>
-    </details>
-  );
-}
 
 // Concentration / bus factor — how spread out each repo's commits are; high top-share or bus-factor 1
 // flags key-person risk. A key-person repo is a DECISION, not just a warning chip: accept the risk,
@@ -244,17 +163,27 @@ export default async function ContributorInsightsPage({
             so the warn-colored key-person stat jumps straight to the concentration table + decisions. */}
         <div className={`mt-6 ${TILE_GRID}`}>
           <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" href="#individuals" />
-          <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} href="#individuals" />
-          <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
+          {/* Below the naming floor a percentage is the wrong unit: "100% AI-active" for a two-person
+              org is one person, stated as a fleet-wide claim (and colored green as if it were an
+              achievement). Show the raw count instead — same information, no false confidence. */}
+          {insights.namingAllowed ? (
+            <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} href="#individuals" />
+          ) : (
+            <Tile label="AI-active" value={`${insights.aiActive}/${insights.totalContributors}`} sub="too few contributors to read as a rate" />
+          )}
+          {insights.namingAllowed ? (
+            <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
+          ) : (
+            <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted — a very small sample" />
+          )}
           <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} href="#concentration" />
         </div>
 
         {/* AI champions — only a meaningful "leaderboard" once the population is large enough. Below 3
-            contributors a single Copilot user becomes a celebrated "#1 ★ champion" and the tiles read
-            "100% AI-active" for a team of one — success theater that overstates a barely-adopted fleet. */}
-        {insights.champions.length > 0 && insights.totalContributors >= CHAMPION_MIN_POP && (
-          <ChampionsGrid champions={insights.champions} />
-        )}
+            contributors a single Copilot user becomes a celebrated "#1 ★ champion" — success theater
+            that overstates a barely-adopted fleet. The floor is enforced in getContributorInsights,
+            not here, so every other consumer of it inherits the same suppression. */}
+        {insights.champions.length > 0 && <ChampionsGrid champions={insights.champions} />}
 
         <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} stack={activeStack?.key ?? null} />
 

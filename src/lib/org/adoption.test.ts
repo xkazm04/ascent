@@ -17,6 +17,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { buildAdoptionOverview, adoptionMarkdown, PAIRING_MIN_GAP, type AdoptionOverview } from "./adoption";
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 
 const fixture: AdoptionOverview = {
   org: "acme",
@@ -117,19 +118,35 @@ type Contrib = {
   lastActiveAt?: string | null;
 };
 
-const insightsOf = (contributors: Contrib[], over: Record<string, unknown> = {}) =>
-  ({
+/**
+ * Models getContributorInsights FAITHFULLY, including its population floor: below CHAMPION_MIN_POP
+ * humans the real producer emits `namingAllowed: false` with NO per-person rows and NO champions,
+ * while the aggregate `distribution` stays populated. A mock that handed back rows the producer
+ * would never emit would let a regression in adoption.ts pass unnoticed.
+ */
+const insightsOf = (contributors: Contrib[], over: Record<string, unknown> = {}) => {
+  const namingAllowed = contributors.length >= CHAMPION_MIN_POP;
+  const distribution = { high: 0, some: 0, none: 0 };
+  for (const c of contributors) {
+    if (c.aiShare >= 50) distribution.high += 1;
+    else if (c.aiShare > 0) distribution.some += 1;
+    else distribution.none += 1;
+  }
+  return {
     org: "acme",
     totalContributors: contributors.length,
     aiActive: contributors.filter((c) => c.aiCommits > 0).length,
     aiActiveShare: 0,
     orgAiShare: 0,
     soloMaintainerCount: 0,
-    contributors,
-    champions: contributors,
+    distribution,
+    namingAllowed,
+    contributors: namingAllowed ? contributors : [],
+    champions: namingAllowed ? contributors : [],
     concentration: [],
     ...over,
-  }) as unknown as Awaited<ReturnType<typeof import("@/lib/db").getContributorInsights>>;
+  } as unknown as Awaited<ReturnType<typeof import("@/lib/db").getContributorInsights>>;
+};
 
 const c = (login: string, aiShare: number, commits = 10): Contrib => ({
   login,

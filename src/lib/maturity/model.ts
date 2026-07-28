@@ -33,7 +33,11 @@ import type {
  */
 // r2 (2026-07-17): classifyArchetype now caps star-driven "org" escalation at "team" for repos with
 // ≤2 active human authors — the archetype lens (and therefore the weights) moved for viral solo repos.
-export const SCORING_RUBRIC_VERSION = "r2";
+// r3 (2026-07-28): the assessment SYSTEM prompt gained the untrusted-repo-data boundary (G3-02) and
+// the stated discrepancy budget, and the engine now enforces that budget — a scan may widen at most
+// MAX_FLAGGED_DIMENSIONS guardbands (and none at all beyond it, which also suppresses the D9
+// visibility hatch). Both move scores, so cached scores must re-derive.
+export const SCORING_RUBRIC_VERSION = "r3";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -295,6 +299,28 @@ export function weightsFor(archetype: RepoArchetype): Record<DimensionId, number
 }
 
 /**
+ * Look up a dimension's lens weight, distinguishing "no weight configured for this id" (`undefined`
+ * — lens drift: a dimension was added without updating every ARCHETYPE_WEIGHTS lens) from a
+ * legitimately-configured `0`. Both currently fall back to 0 in the weighted sum/denominator (a
+ * dropped dimension can't silently deflate the score any other way), but a MISSING entry additionally
+ * warns loudly — a genuine `0` never does. Today every archetype defines all 9 ids, so this is always
+ * silent in practice; it exists so a future dimension added to DIMENSIONS without a matching entry in
+ * every ARCHETYPE_WEIGHTS lens fails loudly instead of quietly vanishing from the headline (G3-05).
+ */
+function lensWeightFor(lensW: Record<DimensionId, number>, id: DimensionId): number {
+  const w = lensW[id];
+  if (w === undefined) {
+    console.warn(
+      `[maturity/model] no lens weight configured for dimension "${id}" — treating as 0. This is ` +
+        "likely rubric drift (a dimension added to DIMENSIONS without a matching entry in every " +
+        "ARCHETYPE_WEIGHTS lens); add an explicit weight (even 0) to silence this warning.",
+    );
+    return 0;
+  }
+  return w;
+}
+
+/**
  * Renormalized, archetype-weighted mean of per-dimension scores (0..100) — the single source of
  * truth for how an overall headline rolls up. Weights come from the archetype lens and are
  * renormalized over just the dimensions present, so a dropped or partial dimension (detector
@@ -307,10 +333,10 @@ export function overallScoreFor(
   archetype: RepoArchetype,
 ): number {
   const lensW = weightsFor(archetype);
-  const presentWsum = scored.reduce((acc, d) => acc + (lensW[d.id] ?? 0), 0);
+  const presentWsum = scored.reduce((acc, d) => acc + lensWeightFor(lensW, d.id), 0);
   if (presentWsum <= 0) return 0;
   return clamp(
-    Math.round(scored.reduce((acc, d) => acc + d.score * (lensW[d.id] ?? 0), 0) / presentWsum),
+    Math.round(scored.reduce((acc, d) => acc + d.score * lensWeightFor(lensW, d.id), 0) / presentWsum),
   );
 }
 
@@ -333,9 +359,9 @@ export function axisScore(
 ): number {
   const lensW = weightsFor(archetype);
   const dims = DIMENSIONS.filter((d) => d.axis === axis && isPresent(d.id));
-  const wsum = dims.reduce((a, d) => a + (lensW[d.id] ?? 0), 0);
+  const wsum = dims.reduce((a, d) => a + lensWeightFor(lensW, d.id), 0);
   if (wsum === 0) return 0;
-  return clamp(Math.round(dims.reduce((a, d) => a + scoreFor(d.id) * (lensW[d.id] ?? 0), 0) / wsum));
+  return clamp(Math.round(dims.reduce((a, d) => a + scoreFor(d.id) * lensWeightFor(lensW, d.id), 0) / wsum));
 }
 
 /**
@@ -356,7 +382,7 @@ export function axisMeasured(
   isPresent: (id: DimensionId) => boolean = () => true,
 ): boolean {
   const lensW = weightsFor(archetype);
-  return DIMENSIONS.some((d) => d.axis === axis && isPresent(d.id) && (lensW[d.id] ?? 0) > 0);
+  return DIMENSIONS.some((d) => d.axis === axis && isPresent(d.id) && lensWeightFor(lensW, d.id) > 0);
 }
 
 // ---- Two-axis posture (Adoption × Rigor) --------------------------------------

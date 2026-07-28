@@ -37,6 +37,7 @@ import {
   postureFor,
   weightsFor,
 } from "@/lib/maturity/model";
+import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
 import { buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
 import { computeContributors, detectAiUsage } from "@/lib/analyze";
@@ -94,14 +95,39 @@ export function assembleReport(
   // guardband is WIDENED below so the model's judgment (in either direction) isn't pinned to the broken
   // signal — closing the loop where the model correctly diagnosed the problem in prose but couldn't move
   // the number (reference-scan P1-1). D9 stays fully deterministic (its blind spots are fixed upstream).
+  //
+  // BUDGETED (G3-06): the widening is self-declared — nothing corroborates it — and the claim itself
+  // travels through a prompt that quotes repo-authored file content, so an unbounded channel would let
+  // a repository author text that buys the model double latitude over that same repository's score.
+  // The budget (scoring/discrepancy-policy.ts) is applied over the dimensions that could ACTUALLY be
+  // widened, and blows to zero — not "the first two" — when the model flags more than the budget.
   const flaggedDims = new Set((assessment.discrepancies ?? []).map((d) => d.dimension));
+  const widenBudget = applyDiscrepancyBudget(
+    signals
+      .filter((s) => flaggedDims.has(s.id) && !s.failed && !s.deterministic && DIMENSION_BY_ID[s.id])
+      .map((s) => s.id),
+  );
+  const widenedDims = widenBudget.widened;
   // D9 visibility escape hatch (see the note above hasD9VisibilityBlindSpot): a high-confidence,
   // D9-targeted "the security is real but the file scan can't see it" discrepancy makes D9's
   // deterministic signal UNMEASURABLE, so it is dropped + renormalized rather than counted as a
   // measured 0. Kept separate from flaggedDims because D9 never enters the guardband-widening blend.
-  const d9Unmeasurable = hasD9VisibilityBlindSpot(assessment.discrepancies ?? []);
+  // Same budget, same reason: the D9 hatch is the OTHER prose-triggered step change, and it is worth
+  // ~9% of the headline. When the discrepancy channel blew its budget (a blanket "your detectors are
+  // wrong" audit — the shape both a hallucination and a planted instruction produce) neither prose
+  // lever fires: the report stays pinned to what was actually measured.
+  const d9Unmeasurable = !widenBudget.capped && hasD9VisibilityBlindSpot(assessment.discrepancies ?? []);
   const lensW = weightsFor(archetype);
   const warnings: string[] = [];
+  if (widenBudget.capped) {
+    const msg =
+      `The AI assessment flagged ${widenBudget.flaggedCount} dimensions as detector discrepancies — more than the ` +
+      `${MAX_FLAGGED_DIMENSIONS} allowed per scan — so no dimension's guardband was widened and the Security (D9) ` +
+      `visibility exception was not applied. A self-audit that suspects most detectors is treated as unreliable, ` +
+      `not as licence to move further from the evidence; the scores below stay pinned to the deterministic signals.`;
+    warnings.push(msg);
+    console.warn(`[engine] ${msg}`);
+  }
   // Track which deterministic dimensions the LLM did NOT score: a missing dim falls back to its
   // signal floor below (fine numerically) but the report must not then read as fully AI-validated
   // — see the partial-coverage warning after the blend.
@@ -117,8 +143,14 @@ export function assembleReport(
   // straight through clamp (Math.max/min PROPAGATE NaN) and poison effectiveBlend — every blended
   // dimension score, the overall, axes, level, and posture would silently collapse to NaN with no
   // warning. Default a non-finite coverage to full (1) — the calibrated SCORE_BLEND path.
-  const coverage = Number.isFinite(snap.coverage) ? snap.coverage : 1;
-  const effectiveBlend = SCORE_BLEND * clamp(coverage, 0, 1);
+  // ONE sanitized coverage, used by BOTH the blend math and the persisted/rendered `confidence` (G3-07).
+  // The guard used to exist only as a local for the math while `confidence` was written from the raw
+  // `snap.coverage`, so a broken estimate produced a correctly-blended score next to `confidence: NaN`
+  // — which JSON-serializes to `null` and breaks every percentage render and threshold check
+  // downstream. Same value, one binding: they cannot drift again. (This also stops an out-of-range
+  // estimate rendering as e.g. "200% inspected"; the blend already clamped, the display did not.)
+  const coverage = clamp(Number.isFinite(snap.coverage) ? snap.coverage : 1, 0, 1);
+  const effectiveBlend = SCORE_BLEND * coverage;
 
   const dimensions: DimensionResult[] = signals.flatMap((s) => {
     const def = DIMENSION_BY_ID[s.id];
@@ -170,7 +202,7 @@ export function assembleReport(
     // Widen the guardband for a dimension the LLM flagged as a detector discrepancy (P1-1): its signal
     // is suspect, so trust the model's judgment further (still bounded, so it nuances rather than
     // fabricates). A dimension the model didn't flag keeps the calibrated ±LLM_GUARDBAND.
-    const band = flaggedDims.has(s.id) ? LLM_GUARDBAND * 2 : LLM_GUARDBAND;
+    const band = widenedDims.has(s.id) ? LLM_GUARDBAND * 2 : LLM_GUARDBAND;
     const guarded = clamp(
       Math.max(s.signalScore - band, Math.min(s.signalScore + band, llmScore)),
     );
@@ -227,7 +259,11 @@ export function assembleReport(
   // Total detector failure: when EVERY dimension was dropped (all detectors failed / returned no data),
   // `dimensions` is empty, overallScoreFor() returns 0, and the repo levels at L1 — indistinguishable
   // from a genuinely manual repo. Surface it loudly so the headline can't read as a real L1 result.
-  if (dimensions.length === 0) {
+  // `incomplete` is the STRUCTURED half of this (G3-10): every numeric consumer — the public badge, the
+  // CI gate, the fleet rollup — reads overallScore/level, not `warnings`, so a repo that could not be
+  // ingested at all still rendered as a confident, public L1. The prose warning below stays for humans.
+  const incomplete = dimensions.length === 0;
+  if (incomplete) {
     warnings.push(
       "No dimensions could be scored — every signal detector failed or returned no data. This is an " +
         "INCOMPLETE scan, not a genuine L1 (Manual) result; re-scan or check repository access.",
@@ -272,7 +308,10 @@ export function assembleReport(
 
   const roadmap = assessment.roadmap.length
     ? assessment.roadmap
-    : buildFallbackRoadmap(signals, overallScore, archetype);
+    // G3-09: rank the fallback roadmap by the BLENDED dimension scores the report actually shows,
+    // not the raw signal scores — otherwise the roadmap's "biggest gap" can contradict the card
+    // the reader is looking at.
+    : buildFallbackRoadmap(signals, overallScore, archetype, dimensions.map((d) => ({ id: d.id, score: d.score })));
 
   return {
     repo: snap.meta,
@@ -299,10 +338,15 @@ export function assembleReport(
     // anything, and listing it would overstate how much of this report the model was trusted on.
     scoreIntegrity: {
       d9Unmeasurable,
-      widenedDims: dimensions.map((d) => d.id).filter((id) => flaggedDims.has(id)),
+      widenedDims: dimensions.map((d) => d.id).filter((id) => widenedDims.has(id)),
+      // The model asked for more widening than the per-scan budget allows, so NOTHING was widened and
+      // the D9 hatch was suppressed. Recorded as data because "the audit was distrusted" is exactly the
+      // kind of run-over-run difference a consumer anchoring a number has to be able to attribute.
+      ...(widenBudget.capped ? { widenCapped: true as const } : {}),
       effectiveBlend,
     },
-    confidence: snap.coverage,
+    ...(incomplete ? { incomplete: true as const } : {}),
+    confidence: coverage,
     warnings: warnings.length ? warnings : undefined,
     scannedAt,
     engine: { provider: engine.name, model: engine.model },

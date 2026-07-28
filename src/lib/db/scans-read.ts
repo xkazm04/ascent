@@ -65,6 +65,41 @@ export async function findScanByCommit(
 }
 
 /**
+ * The CONTENT identity of a scored report — what makes two scans "the same result" independently of
+ * when they were persisted. Used by the sha-less dedup path (see {@link findScanByScannedAt}), where
+ * there is no commit to key on: a timestamp alone can't tell "the identical report persisted twice"
+ * apart from "two genuinely different scores computed in the same millisecond".
+ *
+ * Deliberately a plain canonical STRING, not a hash: dedup compares it for equality only, so a hash
+ * would add collision risk and lose debuggability for nothing. Dimension scores are sorted by id so
+ * the key is stable regardless of the order the detectors/LLM emitted them. Pure — the persist path
+ * derives it from the in-memory report, the read path from the persisted row, and they must agree.
+ */
+export function scanContentKey(input: {
+  overallScore: number;
+  level: string;
+  adoptionScore: number;
+  rigorScore: number;
+  engineProvider: string;
+  engineModel: string;
+  dimensions: Array<{ dimId: string; score: number }>;
+}): string {
+  const dims = [...input.dimensions]
+    .sort((a, b) => a.dimId.localeCompare(b.dimId))
+    .map((d) => `${d.dimId}:${d.score}`)
+    .join(",");
+  return [
+    input.overallScore,
+    input.level,
+    input.adoptionScore,
+    input.rigorScore,
+    input.engineProvider,
+    input.engineModel,
+    dims,
+  ].join("|");
+}
+
+/**
  * Dedup fallback for a scan with NO resolvable commit SHA. A sha-less report can't dedup by commit, so
  * the persist path matches on the report's own `scannedAt`: the SAME computed report persisted more
  * than once (coalesced followers, a double-submit, a retried lane) carries an identical timestamp and
@@ -72,21 +107,52 @@ export async function findScanByCommit(
  * a later `scannedAt`, so it is not suppressed. `engineProvider` rides along (mirroring
  * findScanByCommit) so the persist path can apply the same mock→live UPGRADE rule to a sha-less
  * re-persist instead of deduping a live result away in favor of a mock placeholder.
+ *
+ * `contentKey` ({@link scanContentKey}) rides along too, and it is what makes the timestamp match SAFE:
+ * equality on a high-precision timestamp is a proxy for "the same computed report", and a proxy that
+ * fails BOTH ways — two genuinely different sha-less scores landing in the same millisecond collided
+ * and the second was silently dropped, while a reused/injected clock value could suppress a legitimate
+ * re-score. The persist path now dedups only when the timestamp AND the content agree, so a same-ms
+ * DIFFERENT result is persisted as the distinct scan it is. (Timestamp+content is a read-then-decide
+ * key, not a DB constraint: two concurrent instances can still both insert a sha-less row, because
+ * `@@unique([repoId, headSha])` does not engage on a NULL headSha. Closing that needs a persisted,
+ * indexed idempotency column — a schema migration — and is still tracked as a follow-up.)
  */
 export async function findScanByScannedAt(
   repoId: string,
   scannedAt: Date,
-): Promise<{ id: string; engineProvider: string } | null> {
+): Promise<{ id: string; engineProvider: string; contentKey: string } | null> {
   if (!isDbConfigured()) return null;
-  return getPrisma().scan.findFirst({
+  const row = await getPrisma().scan.findFirst({
     where: { repoId, scannedAt },
-    // Deterministic on a timestamp tie (the only thing this sha-less fallback keys on): without an
-    // orderBy, findFirst returned an arbitrary matching row. NOTE: equality dedup on a high-precision
-    // timestamp is inherently fragile — a stable content/idempotency key would be the authoritative fix
-    // (tracked as a follow-up); this just makes the existing behavior deterministic.
+    // Deterministic on a timestamp tie (the coarse key this sha-less fallback narrows on): without an
+    // orderBy, findFirst returned an arbitrary matching row.
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { id: true, engineProvider: true },
+    select: {
+      id: true,
+      engineProvider: true,
+      engineModel: true,
+      overallScore: true,
+      level: true,
+      adoptionScore: true,
+      rigorScore: true,
+      dimensions: { select: { dimId: true, score: true } },
+    },
   });
+  if (!row) return null;
+  return {
+    id: row.id,
+    engineProvider: row.engineProvider,
+    contentKey: scanContentKey({
+      overallScore: row.overallScore,
+      level: row.level,
+      adoptionScore: row.adoptionScore,
+      rigorScore: row.rigorScore,
+      engineProvider: row.engineProvider,
+      engineModel: row.engineModel,
+      dimensions: row.dimensions,
+    }),
+  };
 }
 
 /**

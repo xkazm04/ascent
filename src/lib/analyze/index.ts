@@ -98,8 +98,8 @@ class Scorer {
   note(label: string, detail?: string) {
     this.signals.push({ label, detail });
   }
-  result(id: DimensionId, notes?: string): DimensionSignals {
-    return { id, signalScore: clamp(Math.round(this.score)), signals: this.signals, notes };
+  result(id: DimensionId): DimensionSignals {
+    return { id, signalScore: clamp(Math.round(this.score)), signals: this.signals };
   }
 }
 
@@ -232,6 +232,11 @@ const NONCORE =
 const ADR_PATH = /(adr|decisions?)\/.*\.(md|mdx)$/;
 const ADR_HINT = /architecture-decision/;
 
+// D2 "assert nothing" penalty (G3-11): the fraction of a repo's total detected test files that must
+// actually be in the content-sampled slice before the flat -15 fires. Below this, the sample is
+// treated as too small/unlucky to indict the whole suite.
+const MIN_SAMPLE_FRACTION = 0.3;
+
 const d2: Detector = (idx) => {
   const s = new Scorer();
   const testFiles = idx.lowerPaths.filter((p) => TEST_PATH.test(p) && !VENDOR.test(p));
@@ -312,14 +317,27 @@ const d2: Detector = (idx) => {
         /\.(toBe|toEqual|toStrictEqual|toThrow|toContain|toHaveBeen[A-Za-z]*|toMatchObject|toBeGreaterThan|toBeLessThan|toBeCloseTo|toBeTruthy|toBeFalsy|toBeNull|toBeDefined|toBeInstanceOf|resolves|rejects)\b|\b(require|assert)\.[A-Za-z]\w*\s*\(|\bassert[A-Za-z_]*\s*[(!]|\bassert\s+\w|\bt\.(Error|Errorf|Fatal|Fatalf|Fail|is|deepEqual|truthy|throws)\b|\b(EXPECT|ASSERT)_[A-Z]/gi,
       ) ?? []
     ).length;
+    // Minimum sampled-test coverage before the flat -15 penalty fires (G3-11): the ≤32-file ingest
+    // budget can happen to sample only a small, unlucky slice of a repo's full test suite (e.g. 3 of
+    // 40 test files, all snapshot-only) — penalizing the WHOLE suite off that slice isn't fair to a
+    // repo that's well-tested elsewhere. Require the sample to cover at least MIN_SAMPLE_FRACTION of
+    // the repo's total detected test files (`n`, from the untruncated path listing); below that,
+    // downgrade to a neutral, non-scoring note rather than assert the full suite asserts nothing.
+    const sampleFraction = n > 0 ? sampledTestBodies.length / n : 0;
     if (cases >= 4 && substantive === 0) {
-      s.add(-15, "Sampled tests assert nothing", `${sampledTestBodies.length} sampled test file(s), ~${cases} cases, 0 substantive assertions — counting files, not behavior`);
+      if (sampleFraction >= MIN_SAMPLE_FRACTION) {
+        s.add(-15, "Sampled tests assert nothing", `${sampledTestBodies.length} sampled test file(s), ~${cases} cases, 0 substantive assertions — counting files, not behavior`);
+      } else {
+        s.note(
+          `${sampledTestBodies.length} of ${n} test files sampled (~${Math.round(sampleFraction * 100)}%) show 0 substantive assertions — sample too small relative to the full suite to penalize`,
+        );
+      }
     } else if (substantive >= 4) {
       s.add(8, "Sampled tests assert behavior", `${substantive} substantive assertions across ${sampledTestBodies.length} sampled test file(s)`);
     }
   }
 
-  return s.result("D2", `tests=${n}, source=${sourceFiles.length}`);
+  return s.result("D2");
 };
 
 // ---------------------------------------------------------------------------
@@ -659,7 +677,7 @@ const d7: Detector = (idx, snap, nowMs) => {
     }
   }
 
-  return s.result("D7", `aiCommits=${genuineAi}/${commits.length} (bot+ai=${botOrAi})`);
+  return s.result("D7");
 };
 
 // ---------------------------------------------------------------------------
@@ -825,7 +843,6 @@ export function analyzeSignals(
         signals: [
           { label: "Signal extraction failed for this dimension", detail: "scored 0; other dimensions unaffected" },
         ],
-        notes: "detector error",
       };
     }
   });

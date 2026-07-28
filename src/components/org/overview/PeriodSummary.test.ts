@@ -123,11 +123,12 @@ function move(levelDelta: number): RepoMove {
     postureFrom: "manual",
     postureTo: "manual",
     sinceDays: 1,
+    baselineKind: "period",
   };
 }
 function movers(...levelDeltas: number[]): OrgMovers {
   const levelChanges = levelDeltas.map(move);
-  return { gainers: [], regressers: [], levelChanges, comparedRepos: levelChanges.length };
+  return { gainers: [], regressers: [], held: [], levelChanges, onboarded: [], comparedRepos: levelChanges.length };
 }
 
 describe("PeriodSummary derivation — cohort-now is the cohort's current avg, NOT the fleet-wide avg", () => {

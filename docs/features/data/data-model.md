@@ -142,7 +142,12 @@ RepoContributor + RepoTeam) and is the heart of the data layer:
 
 - **Dedup by `(repoId, headSha)`** — re-scanning the same commit reuses the existing `Scan`
   and returns `deduped: true` (so [usage](../billing/usage.md) never double-counts). A
-  sha-less report falls back to deduping on `scannedAt`.
+  sha-less report (head resolution failed, or a reconstructed snapshot) has no commit to key
+  on, so it falls back to `scannedAt` **plus a content check**: the timestamp narrows the
+  candidate row, and the row is only reused when its content identity (`scanContentKey` —
+  score, level, axes, engine, and the per-dimension scores) matches the incoming report. Two
+  genuinely different sha-less results computed in the same millisecond are therefore both
+  persisted, and a replayed/reused clock value can't suppress a real re-score.
 - **Engine upgrade (mock → live)** — if the only existing scan for a commit is the
   deterministic `mock`-engine floor and the new report is a real graded scan, the mock row is
   deleted and replaced in the same transaction (`upgraded: true`), rather than being kept
@@ -221,6 +226,11 @@ in that precedence) for an honest "served live from …" UI indicator.
 - **No FK cascades** (`relationMode = "prisma"`) — children must be deleted before parents
   (the [purge](./retention.md) job does this explicitly; `scans-persist.ts`
   does the same in-transaction for a mock→live scan upgrade).
+- **Sha-less rows have no DB-level uniqueness.** `@@unique([repoId, headSha])` does not engage
+  when `headSha` is NULL (Postgres treats NULLs as distinct), so the sha-less dedup above is a
+  read-then-decide guard, not a constraint: two concurrent instances persisting the same
+  sha-less report can still both insert. Closing that needs a persisted, indexed idempotency
+  column (a migration).
 - **Stripe billing is a stub** — `Subscription` exists with Stripe-shaped fields, but Polar is
   the actually-wired checkout/webhook path (`CreditLedger.externalId` carries the `polar:`
   idempotency prefix).

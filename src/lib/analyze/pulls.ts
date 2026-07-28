@@ -192,6 +192,12 @@ export function applyPrSignals(
   );
 
   return signals.map((s) => {
+    // A detector that crashed emits a placeholder signalScore:0 (not a real measurement) — blending
+    // real PR/governance evidence over that placeholder makes a crashed detector look like a
+    // genuinely-scored, evidenced dimension. engine.ts currently drops `failed` dimensions downstream
+    // (masking this today), but any future reader of `signals[]` that doesn't re-check `.failed` would
+    // surface fabricated evidence attached to a crashed detector (G3-08). Leave it untouched.
+    if (s.failed) return s;
     if (s.id === "D6") {
       return {
         ...s,
@@ -268,6 +274,9 @@ export function applyGovernanceSignals(
   if (gov.requiresSignatures) evidence.push({ label: "Signed commits required" });
 
   return signals.map((s) => {
+    // Same guard as applyPrSignals above: never decorate a crashed detector's placeholder score with
+    // real-looking governance evidence (G3-08).
+    if (s.failed) return s;
     if (s.id === "D6" && gov.requiresPullRequest) {
       const boost = (gov.requiredApprovals > 0 ? 8 : 4) + (gov.requiresCodeOwnerReview ? 4 : 0);
       return { ...s, signalScore: clamp(s.signalScore + boost), signals: [...s.signals, evidence.find((e) => /Pull requests/.test(e.label))!].filter(Boolean) };

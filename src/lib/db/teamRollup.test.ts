@@ -102,13 +102,16 @@ describe("rollupTeams", () => {
     expect(frontend.contributors).toBe(1); // alice only; build[bot] dropped
     expect(frontend.aiCommitShare).toBe(90); // 9/10
     expect(frontend.aiContributors).toBe(1);
-    expect(frontend.champions[0]).toMatchObject({ login: "alice", aiShare: 90 });
     expect(data.aiCommitShare).toBe(8); // 1 / (8+4)
+    // The AI-knowledge AGGREGATES are all present; the named list is not — a 1-person team is below
+    // the privacy floor (pinned in its own block below).
+    expect(frontend.champions).toEqual([]);
   });
 
   it("champion volume floor: a sub-3-commit AI contributor is not crowned (ambiguity-ui #3)", () => {
     // Aligned with getContributorInsights' picker (commits >= 3 && aiCommits > 0): a 1-commit
     // drive-by AI contributor must not headline a team card the Contributors tab would withhold.
+    // Three humans, so the POPULATION floor is satisfied and the volume floor is what's under test.
     const floored = rollupTeams("acme", [
       repo("acme/tiny", {
         teams: [{ slug: "@acme/tiny" }],
@@ -116,6 +119,7 @@ describe("rollupTeams", () => {
         contributors: [
           { login: "driveby", commits: 1, aiCommits: 1 },
           { login: "core", commits: 12, aiCommits: 4 },
+          { login: "pad", commits: 9, aiCommits: 0 },
         ],
       }),
     ]);
@@ -130,9 +134,11 @@ describe("rollupTeams", () => {
     expect(data.comparedRepos).toBe(0); // api has a single scan
   });
 
-  it("names the knowledge leader (most AI-attributed + AI-native)", () => {
-    expect(out.knowledgeLeader?.slug).toBe("@acme/frontend");
-    expect(out.knowledgeLeader?.aiCommitShare).toBe(90);
+  it("elects NO knowledge leader when every AI-active team is below the naming floor", () => {
+    // frontend has 1 contributor and data has 2 — both under CHAMPION_MIN_POP. "@acme/frontend is the
+    // org's AI knowledge leader" would name alice by proxy on the Teams tile, the Adoption spectrum
+    // and in the Copy-for-LLM brief, so the producer elects nobody (G4-01).
+    expect(out.knowledgeLeader).toBeNull();
   });
 
   it("suggests the biggest strong→weak cross-team pairing on a shared dimension", () => {
@@ -150,6 +156,50 @@ describe("rollupTeams", () => {
     // D1 (85→30) and D8 (80→25) both qualify with a 55 gap (tie → dimId order); D2 doesn't (learner 55 ≥ TEAM_WEAK).
     expect(out.pairings.map((p) => p.dimId)).toEqual(["D1", "D8"]);
     expect(out.pairings[0]).toEqual(out.pairing);
+  });
+});
+
+// ── the CHAMPION_MIN_POP privacy floor, enforced in the PRODUCER (G4-01) ───────────
+// TeamsStandings and TeamsMatrixDetail each re-implemented `contributors >= CHAMPION_MIN_POP` in JSX;
+// rollupTeams itself applied no population floor at all, so any non-React consumer (CSV export, the
+// briefing/digest paths, an OG image) could name the sole AI user of a two-person team. The floor now
+// lives here, which is why the fixtures above see empty champion lists.
+describe("rollupTeams — population floor on named individuals", () => {
+  const scan = { overall: 60, adoption: 60, rigor: 60, dims: [{ dimId: "D1", score: 60 }] };
+  const teamOf = (slug: string, contributors: { login: string; commits: number; aiCommits: number }[]) =>
+    repo(`acme/${slug}`, { teams: [{ slug: `@acme/${slug}` }], scans: [scan], contributors });
+
+  it("names NO champion on a 2-person team, however qualified, while keeping the aggregates", () => {
+    const out = rollupTeams("acme", [
+      teamOf("duo", [
+        { login: "ada", commits: 40, aiCommits: 36 },
+        { login: "bo", commits: 10, aiCommits: 0 },
+      ]),
+    ]);
+    const duo = out.teams[0]!;
+    expect(duo.contributors).toBe(2);
+    expect(duo.champions).toEqual([]);
+    expect(duo.aiCommitShare).toBe(72); // 36/50 — the aggregate is untouched
+    expect(duo.aiContributors).toBe(1);
+    expect(JSON.stringify(out)).not.toContain("ada"); // nothing to serialize downstream
+  });
+
+  it("names champions at exactly 3 contributors, and elects a knowledge leader only from such a team", () => {
+    const out = rollupTeams("acme", [
+      teamOf("trio", [
+        { login: "ada", commits: 40, aiCommits: 36 },
+        { login: "bo", commits: 10, aiCommits: 0 },
+        { login: "cy", commits: 8, aiCommits: 0 },
+      ]),
+      teamOf("duo", [
+        // Higher AI share, but 2 people — must NOT outrank (or even enter) the leader election.
+        { login: "eve", commits: 20, aiCommits: 20 },
+        { login: "fin", commits: 5, aiCommits: 0 },
+      ]),
+    ]);
+    const trio = out.teams.find((t) => t.slug === "@acme/trio")!;
+    expect(trio.champions.map((c) => c.login)).toEqual(["ada"]);
+    expect(out.knowledgeLeader?.slug).toBe("@acme/trio");
   });
 });
 

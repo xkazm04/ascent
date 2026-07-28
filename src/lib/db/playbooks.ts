@@ -100,15 +100,15 @@ export async function createPlaybook(
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.upsert({
-    where: { slug: orgSlug },
-    update: {},
-    create: { slug: orgSlug, name: orgSlug },
-    select: { id: true },
-  });
+  // Resolve an EXISTING org — never upsert one into being. Matches createSegment's fix
+  // (src/lib/db/segments.ts): on an auth-off deployment the route's access gate is permissive, so
+  // upserting here let any typo'd/attacker-chosen slug materialize a junk Organization row (name=slug)
+  // plus a playbook under it. Org creation belongs to the explicit install/onboarding flow only.
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
   return prisma.playbook.create({
     data: {
-      orgId: org.id,
+      orgId,
       title: oneLine(input.title.trim()).slice(0, 200),
       dimId: input.dimId,
       summary: (input.summary ?? "").trim().slice(0, 1000),

@@ -5,7 +5,6 @@
 // fabricated causal ROI. Powers /org/[slug]/adoption + its Copy-for-LLM brief.
 
 import { getContributorInsights, getOrgPrSignals, getOrgTeamRollup } from "@/lib/db";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 
 export interface AdoptionChampion {
   login: string;
@@ -83,19 +82,18 @@ export async function buildAdoptionOverview(
   ]);
   if (!insights || insights.totalContributors === 0) return null;
 
-  const distribution = { high: 0, some: 0, none: 0 };
-  for (const c of insights.contributors) {
-    if (c.aiShare >= 50) distribution.high += 1;
-    else if (c.aiShare > 0) distribution.some += 1;
-    else distribution.none += 1;
-  }
+  // The AI-share spread is an AGGREGATE, so it comes from getContributorInsights directly rather than
+  // being recomputed by walking the per-person rows — which the producer withholds below the privacy
+  // floor (G4-03). Deriving it here from `contributors` would have silently zeroed the spread for
+  // small orgs the moment the producer started suppressing rows.
+  const distribution = insights.distribution;
 
-  // CHAMPION_MIN_POP privacy guard, applied at the SOURCE so every consumer (page, ChampionsCard,
-  // the Copy-for-LLM brief) inherits it: below the population floor, naming individuals — either as
-  // celebrated champions or as a zero-AI enablement cohort — is a surveillance-y ranking of 1–2
-  // identifiable people. The guard used to live only in the React layer, so adoptionMarkdown leaked
-  // the named lists the page deliberately suppressed.
-  const namingAllowed = insights.totalContributors >= CHAMPION_MIN_POP;
+  // CHAMPION_MIN_POP privacy guard. It is now enforced by getContributorInsights / rollupTeams
+  // themselves (champions, per-person rows and the team knowledge leader all arrive already
+  // suppressed), so this flag only decides whether THIS builder names people in lists it derives
+  // itself — the zero-AI enablement cohort. Below the floor, naming 1–2 identifiable people is a
+  // surveillance-y ranking, and adoptionMarkdown would carry it into an LLM prompt.
+  const namingAllowed = insights.namingAllowed;
 
   // insights.contributors is sorted by commits desc, so filter order = volume order (leverage order).
   const enablement: EnablementTarget[] = !namingAllowed

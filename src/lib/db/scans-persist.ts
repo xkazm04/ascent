@@ -16,7 +16,7 @@ import {
   upsertRacing,
   withRepoLock,
 } from "@/lib/db/scans-shared";
-import { findScanByCommit, findScanByScannedAt } from "@/lib/db/scans-read";
+import { findScanByCommit, findScanByScannedAt, scanContentKey } from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
@@ -210,18 +210,37 @@ export async function persistScanReport(
       // report's own scannedAt so the SAME computed report persisted more than once — coalesced
       // followers, a double-submit, a retried lane — reuses the first row instead of duplicating it. A
       // genuinely new re-score carries a later scannedAt and is not suppressed.
+      //
+      // The timestamp alone is NOT the dedup key: matching on exact `scannedAt` equality failed both
+      // ways — two genuinely DIFFERENT sha-less scores computed in the same millisecond collided and the
+      // second was silently dropped, and a reused/replayed clock value could suppress a legitimate
+      // re-score. The timestamp is now only the cheap, indexed NARROWING step; the decision is made on
+      // the report's CONTENT identity (scanContentKey: score/level/axes/engine + per-dimension scores).
+      // Same timestamp AND same content ⇒ the same computed report ⇒ dedup. Same timestamp, different
+      // content ⇒ two distinct results ⇒ persist both.
+      const contentKey = scanContentKey({
+        overallScore: report.overallScore,
+        level: report.level.id,
+        adoptionScore: report.adoptionScore,
+        rigorScore: report.rigorScore,
+        engineProvider: report.engine.provider,
+        engineModel: report.engine.model,
+        dimensions: report.dimensions.map((d) => ({ dimId: d.id, score: d.score })),
+      });
       const existing = await findScanByScannedAt(repo.id, new Date(report.scannedAt));
       if (existing) {
         // Mirror the sha branch's engine-UPGRADE rule (scan-persistence-history 07-16 #2): a LIVE
         // sha-less re-persist that shares `scannedAt` with a MOCK placeholder must REPLACE it, not
         // dedup to it — plain dedup would return the mock row's id as if it were the live scan and the
-        // placeholder could never become authoritative. Every other case still dedups.
+        // placeholder could never become authoritative. Checked BEFORE the content comparison, since a
+        // live report never has the same content as the mock floor it is replacing.
         if (existing.engineProvider === "mock" && report.engine.provider !== "mock") {
           upgradeOldScanId = existing.id;
-        } else {
-          await advanceHead(); // a real scan exists for this scannedAt → safe freshness refresh, no duplicate
+        } else if (existing.contentKey === contentKey) {
+          await advanceHead(); // the SAME report is already persisted → freshness refresh, no duplicate
           return { scanId: existing.id, deduped: true, headSha: null };
         }
+        // else: same millisecond, different result — fall through and persist it as its own scan.
       }
     }
 

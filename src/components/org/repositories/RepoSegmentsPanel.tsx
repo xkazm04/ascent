@@ -16,8 +16,8 @@ import {
   SegmentEditor,
   AutoAddRow,
   CreateSegmentRow,
-  RepoTaggingList,
 } from "./RepoSegmentsPanel.parts";
+import { RepoTaggingList } from "./RepoTaggingList";
 
 export interface SegmentItem {
   id: string;

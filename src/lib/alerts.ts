@@ -370,7 +370,12 @@ export interface FleetDigestInput {
 export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const delta =
     d.overallDelta == null
-      ? ""
+      // G4-04: an empty string here silently drops the "this week" number with zero indication why —
+      // indistinguishable from "the fleet held exactly flat" to a reader. A null delta means no baseline
+      // could be computed for the window at all (a freshly-onboarded org, or one whose entire scan
+      // history is younger than the window boundary), which is a DIFFERENT fact than "flat" and must
+      // read as one.
+      ? " (not enough history yet for a week-over-week comparison)"
       : isWithinNoise(d.overallDelta)
         ? d.overallDelta === 0
           ? " (no change this week)"

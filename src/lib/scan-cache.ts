@@ -147,9 +147,14 @@ export async function lookupCachedScan(opts: {
   // Explicit re-test: re-run regardless, but keep the key/etag so the result is cached.
   if (fresh) return { cacheKey, headSha, etag, cached: null, source: null };
 
-  // Tier 1: warm in-memory instance.
+  // Tier 1: warm in-memory instance. Age-gated with the SAME isPersistedScanFresh the DB tier uses
+  // below — the memory TTL bounds how long an entry LIVES, not how old the report inside it may be. A
+  // DB-tier hit warms this tier with a report that was already days old (see the cacheSet below), so
+  // without this check a report that crossed scanMaxCacheAgeMs mid-TTL kept being served here while the
+  // DB tier had already started re-scanning it: the documented freshness contract held on one tier and
+  // not the other, purely by which instance you landed on. Both tiers now answer the same question.
   const mem = cacheGet(cacheKey);
-  if (mem) return { cacheKey, headSha, etag, cached: mem, source: "memory" };
+  if (mem && isPersistedScanFresh(mem.scannedAt)) return { cacheKey, headSha, etag, cached: mem, source: "memory" };
 
   // Tier 2: persistent (cross-instance) — rebuild the report pinned to this commit, then warm
   // the in-memory tier so the next reader on this instance skips the DB round-trip. A persisted

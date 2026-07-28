@@ -10,10 +10,39 @@ import type { Schedule } from "@/components/connect/installationRepoTypes";
 // from the route validators / UI options — a missing or extra key is a compile error here.
 const SCHEDULE_DAYS: Record<Schedule, number> = { off: 0, daily: 1, weekly: 7, monthly: 30 };
 
-function nextScanFor(schedule: string): Date | null {
+/**
+ * The next autoscan slot for a cadence, or null for "off"/unknown (which is also the "not claimable"
+ * signal — see claimRescan).
+ *
+ * "monthly" is CALENDAR arithmetic (same day-of-month next month), not a flat 30 days: a flat 30-day
+ * step walks the scan date backwards through the calendar (the 31st → the 30th → the 29th …), so a
+ * "monthly" report drifts off its slot and, over a year, fires 12.2 times instead of 12. Day-of-month
+ * overflow clamps to the last day of the target month (Jan 31 → Feb 28/29), which is the same rule
+ * users expect from every other monthly scheduler. `daily`/`weekly` stay exact-duration steps — DST
+ * shifting a scan by an hour is irrelevant, and a fixed step is the cheaper, more predictable rule.
+ *
+ * NOTE (G3-13, partial): this is still anchored on `from` (the moment the settling call runs), so
+ * cumulative catch-up latency — a delayed cron tick, a slow scan — still pushes the slot later over
+ * time. Anchoring on the PREVIOUS slot is not possible without a schema change: `claimRescan` overwrites
+ * `nextScanAt` with its short lease before the scan runs, so by the time `advanceToFullCadence` settles
+ * the repo, the only record of the intended slot is gone. Fixing that needs a separate persisted anchor
+ * column (a migration) — tracked as a follow-up.
+ */
+function nextScanFor(schedule: string, from: number = Date.now()): Date | null {
   // schedule arrives as a free string from the API; an unknown value falls through to 0 ("off").
   const d = SCHEDULE_DAYS[schedule as Schedule] ?? 0;
-  return d > 0 ? new Date(Date.now() + d * 86_400_000) : null;
+  if (d <= 0) return null;
+  if (schedule === "monthly") {
+    const next = new Date(from);
+    const day = next.getUTCDate();
+    next.setUTCDate(1); // step the month with no overflow into the month after next (e.g. Jan 31 + 1mo)
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    // Clamp to the target month's length: day 0 of the FOLLOWING month is its last day.
+    const daysInMonth = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+    next.setUTCDate(Math.min(day, daysInMonth));
+    return next;
+  }
+  return new Date(from + d * 86_400_000);
 }
 
 /** Is a repo watched (the gate for push-triggered re-scans)? False when DB off or repo unknown. */

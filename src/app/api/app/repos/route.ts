@@ -129,7 +129,11 @@ export async function GET(request: Request) {
         : null;
     const dByName: Record<string, number> = {};
     if (movers) {
-      for (const m of [...movers.gainers, ...movers.regressers, ...movers.levelChanges]) dByName[m.fullName] = m.dOverall;
+      // `onboarded` carries repos that had no baseline before the window (G4-06) — their delta is a
+      // lifetime-since-first-scan number, not a period one, but this overlay is a per-repo "how far did
+      // it move" map, not a period-gainer ranking, so it still belongs here (dropping it would just make
+      // a freshly-onboarded repo show no movement at all, which reads as "nothing happened").
+      for (const m of [...movers.gainers, ...movers.regressers, ...movers.levelChanges, ...movers.onboarded]) dByName[m.fullName] = m.dOverall;
     }
     const merged = repos.map((r) => ({
       ...r,

@@ -525,6 +525,26 @@ describe("playbooks steps serializer — round-trip (cleanSteps → store → pa
   });
 });
 
+describe("createPlaybook — resolve-or-fail on an unknown org slug (G4-09)", () => {
+  it("returns null and creates NO organization row for a typo'd/unknown slug", async () => {
+    // organization.findUnique (via getOrgId -> getOrgBySlug) resolves null for an unknown slug.
+    // createPlaybook must bail with null rather than upserting a phantom org into existence.
+    const findUnique = vi.fn(async () => null);
+    const upsert = vi.fn(async () => ({ id: "org_new" }));
+    const create = vi.fn(async () => ({ id: "pb_new" }));
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique, upsert },
+      playbook: { create },
+    });
+
+    const out = await createPlaybook("acme-typo", { title: "T", dimId: "D5" });
+
+    expect(out).toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
 describe("getPlaybookAdoption — guards", () => {
   it("returns {} when the db is not configured (no prisma access)", async () => {
     mockIsDbConfigured.mockReturnValue(false);

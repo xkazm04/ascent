@@ -362,6 +362,38 @@ describe("D2 test detection — testify + CI-run tests (P2-2)", () => {
   });
 });
 
+describe("D2 'assert nothing' penalty requires a representative sample (G3-11)", () => {
+  const ASSERTION_FREE = 'it("a", () => {}); it("b", () => {}); it("c", () => {}); it("d", () => {});';
+
+  it("still applies the -15 when the sampled slice covers most of the repo's test files", () => {
+    // 3 total test files, all 3 sampled with content — sample fraction 1.0 (>= the 0.3 floor).
+    const s = repoSnap([
+      { path: "a.test.js", content: ASSERTION_FREE },
+      { path: "b.test.js", content: ASSERTION_FREE },
+      { path: "c.test.js", content: ASSERTION_FREE },
+      { path: "src/index.js", content: "module.exports = {}" },
+    ]);
+    expect(labelText(dimOf(s, "D2").signals)).toMatch(/assert nothing/);
+  });
+
+  it("downgrades to a neutral note (no -15) when the sample is a small, unrepresentative slice of the full suite", () => {
+    // 20 total test files (by path), but only 3 were content-sampled (ingest-budget slice) — sample
+    // fraction 0.15, below the 0.3 floor. The full suite may be well-tested elsewhere; this sample
+    // can't indict it.
+    const unsampled = Array.from({ length: 17 }, (_, i) => ({ path: `test/unsampled-${i}.test.js` }));
+    const s = repoSnap([
+      { path: "a.test.js", content: ASSERTION_FREE },
+      { path: "b.test.js", content: ASSERTION_FREE },
+      { path: "c.test.js", content: ASSERTION_FREE },
+      ...unsampled,
+      { path: "src/index.js", content: "module.exports = {}" },
+    ]);
+    const labels = labelText(dimOf(s, "D2").signals);
+    expect(labels).not.toMatch(/assert nothing/);
+    expect(labels).toMatch(/too small relative to the full suite/);
+  });
+});
+
 describe("D5 docs — HTML/Setext headers + apps/docs (P2-3)", () => {
   it("counts HTML <h2> headers, not just markdown ##", () => {
     const s = repoSnap([{ path: "README.md", content: "x".repeat(1600) + "\n<h2>Install</h2>\n<h2>Usage</h2>\n<h2>API</h2>" }]);

@@ -69,9 +69,24 @@ describe("priceForModel", () => {
   it("prices the bare claude-cli model aliases (sonnet/haiku/opus) at first-party rates", () => {
     // A claude-cli scan persists engineModel: "sonnet"/"haiku"/"opus" (CLAUDE_MODEL); each bare
     // alias must price, not return null ("no estimate") on a first-class local/eval provider.
-    expect(priceForModel("sonnet")).toEqual({ prefix: "sonnet", inPerMTok: 3, outPerMTok: 15 });
-    expect(priceForModel("haiku")).toEqual({ prefix: "haiku", inPerMTok: 1, outPerMTok: 5 });
-    expect(priceForModel("opus")).toEqual({ prefix: "opus", inPerMTok: 5, outPerMTok: 25 });
+    expect(priceForModel("sonnet")).toEqual({
+      prefix: "sonnet",
+      inPerMTok: 3,
+      outPerMTok: 15,
+      exact: true,
+    });
+    expect(priceForModel("haiku")).toEqual({
+      prefix: "haiku",
+      inPerMTok: 1,
+      outPerMTok: 5,
+      exact: true,
+    });
+    expect(priceForModel("opus")).toEqual({
+      prefix: "opus",
+      inPerMTok: 5,
+      outPerMTok: 25,
+      exact: true,
+    });
   });
 
   it("prices the claude-cli default model (derived from claude-cli's own constant)", () => {
@@ -108,6 +123,19 @@ describe("priceForModel", () => {
     expect(priceForModel("")).toBeNull();
     expect(priceForModel(null)).toBeNull();
     expect(priceForModel(undefined)).toBeNull();
+  });
+
+  // G3-17: the bare claude-cli aliases ("sonnet"/"haiku"/"opus") used a plain prefix match, so a
+  // self-hosted/OpenAI-compatible model id sharing the word (e.g. "opus-7b") was billed at first-party
+  // Claude Opus rates instead of returning "no estimate" for an unpriced model.
+  it("does not overbill a self-hosted/compatible model id that merely shares a bare-alias prefix", () => {
+    expect(priceForModel("opus-7b")).toBeNull();
+    expect(priceForModel("sonnet-3-5-instruct")).toBeNull();
+    expect(priceForModel("haiku-mini")).toBeNull();
+    // The exact bare aliases still price (unchanged behavior).
+    expect(priceForModel("sonnet")).not.toBeNull();
+    expect(priceForModel("haiku")).not.toBeNull();
+    expect(priceForModel("opus")).not.toBeNull();
   });
 });
 

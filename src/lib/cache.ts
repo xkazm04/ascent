@@ -5,7 +5,7 @@
 // This module also owns the canonical cache KEY (makeCacheKey — folds in the scoring identity) and the
 // conditional-request head-hint store the read path uses to re-validate a repo's head for free.
 
-import type { ScanReport } from "@/lib/types";
+import type { ScanProgress, ScanReport } from "@/lib/types";
 import { getProvider } from "@/lib/llm";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
@@ -212,6 +212,11 @@ interface InflightScan {
   promise: Promise<ScanReport>;
   controller: AbortController;
   waiters: number;
+  /** Every interested caller's progress sink — the OWNER's factory emits once, all waiters receive it.
+   *  A Set so a caller can be detached exactly once when its await settles. */
+  listeners: Set<(p: ScanProgress) => void>;
+  /** The most recent frame, replayed to a late joiner so it isn't blank until the scan finishes. */
+  last: ScanProgress | null;
 }
 const inflightScans = new Map<string, InflightScan>();
 
@@ -232,33 +237,84 @@ export function inflightScanCount(): number {
  * "meter on commit, not attempt" policy (the same rule the credit side honors via `deduped`) the
  * joiner's slot must be refunded, or a StrictMode double-mount / two-tabs race silently double-charges
  * one shared computation. (scan-pipeline-ingestion #4)
+ *
+ * `onProgress` makes the coalescing INVISIBLE to a joined caller. The factory's progress callback only
+ * ever runs for whichever request actually starts the shared scan, so a second concurrent viewer of the
+ * same uncached commit used to receive nothing at all between joining and the final result — a
+ * multi-minute scan that looked completely stalled. The owner's factory now emits into `emit`, which
+ * fans out to EVERY registered caller, and a joiner is immediately replayed the last frame so its UI
+ * starts where the shared scan actually is. A caller that passes no `onProgress` (the JSON route)
+ * simply registers no sink.
  */
 export function coalesceScan(
   key: string,
-  factory: (signal: AbortSignal) => Promise<ScanReport>,
+  factory: (signal: AbortSignal, emit: (p: ScanProgress) => void) => Promise<ScanReport>,
   signal?: AbortSignal,
   onJoin?: () => void,
+  onProgress?: (p: ScanProgress) => void,
 ): Promise<ScanReport> {
   let entry = inflightScans.get(key);
+  const joined = Boolean(entry);
   if (!entry) {
     const controller = new AbortController();
-    const created: InflightScan = { controller, waiters: 0, promise: factory(controller.signal) };
-    const evict = () => {
-      if (inflightScans.get(key) === created) inflightScans.delete(key);
+    const created: InflightScan = {
+      controller,
+      waiters: 0,
+      listeners: new Set(),
+      last: null,
+      // Assigned below: the factory must not run until `created` (and this caller's listener) exist,
+      // or a frame emitted synchronously inside it would fan out to nobody.
+      promise: undefined as unknown as Promise<ScanReport>,
     };
-    created.promise.then(evict, evict);
     inflightScans.set(key, created);
     entry = created;
-  } else {
-    onJoin?.();
   }
   const e = entry;
+  if (onProgress) e.listeners.add(onProgress);
+  if (!joined) {
+    const evict = () => {
+      if (inflightScans.get(key) === e) inflightScans.delete(key);
+    };
+    try {
+      e.promise = factory(e.controller.signal, (p) => {
+        e.last = p;
+        for (const fn of e.listeners) {
+          try {
+            fn(p);
+          } catch {
+            // One caller's dead stream (a closed SSE controller) must never break the shared scan or
+            // starve the other waiters' progress.
+          }
+        }
+      });
+    } catch (err) {
+      // The entry is registered BEFORE the factory runs (so a synchronously-emitted frame has somewhere
+      // to go), which means a factory that throws SYNCHRONOUSLY would otherwise strand a promise-less
+      // entry in the map — every later scan of that key would "join" a run that does not exist and hang
+      // forever. Evict it and let the throw propagate to this caller only.
+      evict();
+      throw err;
+    }
+    e.promise.then(evict, evict);
+  } else {
+    onJoin?.();
+    // Replay the latest frame so the joiner's UI jumps straight to where the shared scan is, instead of
+    // sitting at 0% until the result lands.
+    if (onProgress && e.last) {
+      try {
+        onProgress(e.last);
+      } catch {
+        /* the joiner's own sink threw — its problem, not the shared scan's */
+      }
+    }
+  }
   e.waiters += 1;
   let released = false;
   const release = () => {
     if (released) return;
     released = true;
     e.waiters -= 1;
+    if (onProgress) e.listeners.delete(onProgress); // this caller left — stop feeding its (dead) stream
     // Abort the shared scan only when no interested caller remains (and this is still the live entry).
     if (e.waiters <= 0 && inflightScans.get(key) === e) e.controller.abort(signal?.reason);
   };
@@ -268,6 +324,7 @@ export function coalesceScan(
   }
   const detach = () => {
     released = true; // settled: stop this caller's abort from later decrementing/aborting a done scan
+    if (onProgress) e.listeners.delete(onProgress);
     if (signal) signal.removeEventListener("abort", release);
   };
   return e.promise.then(

@@ -107,6 +107,7 @@ export async function GET(request: Request) {
   let failed = 0;
   let skippedNoSink = 0;
   let skippedFlat = 0;
+  let skippedNoData = 0;
   let remaining = 0;
   let skippedAlreadySent = 0;
   const errors: string[] = [];
@@ -148,7 +149,12 @@ export async function GET(request: Request) {
         return;
       }
       const rollup = await getOrgRollup(org, win);
-      if (!rollup || rollup.scannedCount === 0) return; // nothing to report on yet
+      if (!rollup || rollup.scannedCount === 0) {
+        // Nothing to report on yet (no rollup, or zero scanned repos) — counted so `orgs.length`
+        // reconciles against the sum of all counters instead of these orgs silently vanishing.
+        skippedNoData += 1;
+        return;
+      }
       const [movers, recs, benchmark, credit] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
@@ -225,5 +231,5 @@ export async function GET(request: Request) {
     }
   });
 
-  return NextResponse.json({ orgs: orgs.length, sent, failed, skippedNoSink, skippedFlat, skippedAlreadySent, remaining, errors });
+  return NextResponse.json({ orgs: orgs.length, sent, failed, skippedNoSink, skippedFlat, skippedNoData, skippedAlreadySent, remaining, errors });
 }

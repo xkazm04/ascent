@@ -71,7 +71,9 @@ beforeEach(() => {
   mockRequireOrgRead.mockResolvedValue(null);
   mockListSegments.mockResolvedValue([]);
   mockListTechStackGroups.mockResolvedValue([] as never);
-  mockGetContributorInsights.mockResolvedValue({ contributors: [contributor()] } as never);
+  // `namingAllowed: true` mirrors the producer above the population floor — the route refuses to
+  // serialize per-person rows without it (see the floor test below).
+  mockGetContributorInsights.mockResolvedValue({ namingAllowed: true, contributors: [contributor()] } as never);
   mockGetOrgGovernance.mockResolvedValue({ perRepo: [] } as never);
   mockGetOrgRollup.mockResolvedValue({ repos: [] } as never);
   mockGetOrgTeamRollup.mockResolvedValue({ teams: [] } as never);
@@ -130,7 +132,7 @@ describe("GET /api/org/export — tenant gate (cross-tenant PII exfiltration gua
     });
     mockGetContributorInsights.mockImplementation(async () => {
       order.push("read");
-      return { contributors: [] } as never;
+      return { namingAllowed: true, contributors: [] } as never;
     });
 
     await get("?org=acme&kind=contributors");
@@ -157,6 +159,28 @@ describe("GET /api/org/export — authorized export", () => {
     const body = await res.text();
     expect(body).toContain("login,name,commits,aiCommits,aiSharePct,repos,lastActiveAt");
     expect(body).toContain("octocat");
+  });
+
+  it("refuses the per-contributor export below the population floor — no header-only CSV, no rows (G4-03)", async () => {
+    // The producer withholds every per-person row under CHAMPION_MIN_POP humans. The route must say so
+    // (403 + reason) rather than shipping an empty CSV that reads like "this org has no contributors" —
+    // and a CSV carries no scope marker once it leaves the app, so failing closed is the only honest
+    // option. Both the JSON and the CSV form of the request are covered.
+    mockGetContributorInsights.mockResolvedValue({
+      namingAllowed: false,
+      contributors: [],
+      totalContributors: 2,
+    } as never);
+
+    for (const qs of ["?org=acme&kind=contributors", "?org=acme&kind=contributors&format=csv"]) {
+      const res = await get(qs);
+      expect(res.status).toBe(403);
+      expect(res.headers.get("content-disposition")).toBeNull();
+      const body = await res.text();
+      expect(body).toContain("withheld");
+      expect(body).not.toContain("login,name,commits"); // not even the header shape leaks
+      expect(body).not.toContain("octocat");
+    }
   });
 
   it("returns JSON (not a CSV attachment) when format is omitted", async () => {
@@ -310,7 +334,9 @@ describe("GET /api/org/export — authorized export", () => {
   });
 
   it("still serves a header-only 200 for a genuinely empty (non-null) dataset", async () => {
-    mockGetContributorInsights.mockResolvedValue({ contributors: [] } as never);
+    // `namingAllowed: true` with zero rows = a real org that genuinely has no contributor data —
+    // distinct from the population-floor suppression (403) pinned above.
+    mockGetContributorInsights.mockResolvedValue({ namingAllowed: true, contributors: [] } as never);
 
     const res = await get("?org=acme&kind=contributors&format=csv");
 
@@ -359,6 +385,7 @@ describe("GET /api/org/export — filename sanitization + CSV quoting (injection
 
   it("RFC-4180 quotes a contributor name containing a comma, quote, or newline (csvField lock)", async () => {
     mockGetContributorInsights.mockResolvedValue({
+      namingAllowed: true,
       contributors: [contributor({ login: "evil", name: 'Doe, "Jane"\nInc' })],
     } as never);
 
@@ -373,6 +400,7 @@ describe("GET /api/org/export — filename sanitization + CSV quoting (injection
 
   it("neutralizes spreadsheet formula injection in a contributor name (=/+/-/@ forced to literal)", async () => {
     mockGetContributorInsights.mockResolvedValue({
+      namingAllowed: true,
       contributors: [contributor({ login: "evil", name: "=HYPERLINK(0)" })],
     } as never);
 

@@ -245,9 +245,13 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     // MOVERS: prev = first scan with scannedAt STRICTLY < start = NONE, so the onboarded fallback
     // kicks in and the baseline is the EARLIEST in-window scan = the 60 at start. Both the at-start (60)
     // and the later (75) scan are now on the SAME side of the boundary (the current window), so movers
-    // shows the in-window climb 60 -> 75 = +15 via the fallback (NOT by treating 60 as a prior baseline).
-    expect(movers!.gainers).toHaveLength(1);
-    expect(movers!.gainers[0]).toMatchObject({ name: "alpha", dOverall: 15 });
+    // captures the in-window climb 60 -> 75 = +15 via the fallback (NOT by treating 60 as a prior
+    // baseline) — but (G4-06) that fallback move is a LIFETIME delta, not a period one, so it lands in
+    // `onboarded`, NOT `gainers`, and does not count toward comparedRepos.
+    expect(movers!.gainers).toHaveLength(0);
+    expect(movers!.comparedRepos).toBe(0);
+    expect(movers!.onboarded).toHaveLength(1);
+    expect(movers!.onboarded[0]).toMatchObject({ name: "alpha", dOverall: 15, baselineKind: "onboarded" });
 
     // ROLLUP: baseline cohort is scans STRICTLY < start. The at-start scan is excluded, and there is
     // no other prior scan, so alpha is NOT in the baseline cohort -> no baseline, no deltas.
@@ -288,9 +292,12 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
     const rollup = await getOrgRollup("acme", WINDOW);
 
-    // Movers: onboarded repo shows its in-window climb 40 -> 65 = +25.
-    expect(movers!.gainers).toHaveLength(1);
-    expect(movers!.gainers[0]).toMatchObject({ name: "alpha", dOverall: 25 });
+    // Movers: onboarded repo shows its in-window climb 40 -> 65 = +25, but (G4-06) as a lifetime delta
+    // in the dedicated `onboarded` bucket — never as a period gainer, and never counted in comparedRepos.
+    expect(movers!.gainers).toHaveLength(0);
+    expect(movers!.comparedRepos).toBe(0);
+    expect(movers!.onboarded).toHaveLength(1);
+    expect(movers!.onboarded[0]).toMatchObject({ name: "alpha", dOverall: 25, baselineKind: "onboarded" });
 
     // Rollup: no scan strictly < start -> baseline cohort empty -> no phantom delta. The onboarded
     // repo does NOT manufacture a fake fleet climb in the headline tile. The movers-side fallback
@@ -315,10 +322,13 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
     const rollup = await getOrgRollup("acme", WINDOW);
 
-    // Movers: BOTH repos moved.
-    expect(movers!.comparedRepos).toBe(2);
+    // Movers: BOTH repos moved, but (G4-06) only alpha has a real period baseline — bravo's +60 is a
+    // lifetime delta since its first scan, not this period's, so it lands in `onboarded` and does NOT
+    // count toward comparedRepos or gainers.
+    expect(movers!.comparedRepos).toBe(1);
     const byName = Object.fromEntries(movers!.gainers.map((m) => [m.name, m.dOverall]));
-    expect(byName).toEqual({ alpha: 10, bravo: 60 });
+    expect(byName).toEqual({ alpha: 10 });
+    expect(movers!.onboarded.map((m) => [m.name, m.dOverall])).toEqual([["bravo", 60]]);
 
     // Rollup baseline cohort = only repos with a scan strictly < start = {alpha}. The cohort-matched
     // delta is alpha's +10 alone; bravo's onboarding does NOT inflate the headline movement. This is
@@ -494,9 +504,11 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     expect(movers!.comparedRepos).toBe(4); // all four were still compared
   });
 
-  it("an ONBOARDED repo (no scan ≤ start) appears via its EARLIEST in-window scan, not as a phantom", async () => {
+  it("an ONBOARDED repo (no scan ≤ start) appears via its EARLIEST in-window scan, in `onboarded` not `gainers` (G4-06)", async () => {
     // bravo is onboarded mid-window: earliest in-window 40 → latest 65 = +25. The fallback
-    // (arr.find(<=start) ?? earliest-in-window) keeps it visible instead of dropping it.
+    // (arr.find(<=start) ?? earliest-in-window) keeps it visible instead of dropping it — but that move
+    // is a LIFETIME delta (first scan → now), not a period one, so it must not inflate gainers or
+    // comparedRepos; it's surfaced separately via `onboarded`.
     const repos = [repo("r1", "acme/bravo")];
     const scans = [
       scan("r1", "2026-04-20T00:00:00.000Z", 40, { level: "L1" }),
@@ -506,8 +518,37 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
     const movers = await getOrgMovers("acme", WINDOW);
 
+    expect(movers!.gainers).toHaveLength(0);
+    expect(movers!.comparedRepos).toBe(0);
+    expect(movers!.onboarded).toHaveLength(1);
+    expect(movers!.onboarded[0]).toMatchObject({ name: "bravo", dOverall: 25, levelFrom: "L1", levelTo: "L2", baselineKind: "onboarded" });
+  });
+
+  it("mid-period-onboarded repo fixture (G4-06): distinguishes 'no baseline' from 'baseline of zero' — a repo whose earliest in-window scan is 0 is NOT confused with a repo that has no baseline at all", async () => {
+    // A subtle trap in an earlier fix shape: using `baseline ?? 0` (or falsy checks) to detect "no
+    // baseline" would misfire the instant a real baseline score of 0 existed. This fixture pins that a
+    // genuinely-onboarded repo (no scan at all before `start`) is tagged "onboarded" via presence in
+    // `baselineByRepo` (a Map.has check), never via the VALUE of the baseline score — so a future repo
+    // that legitimately scored 0 pre-period is never mistaken for one with no baseline, and vice versa.
+    const repos = [repo("r1", "acme/onboarded"), repo("r2", "acme/zeroBaseline")];
+    const scans = [
+      // onboarded: no scan before `start` at all — the true "no baseline" case.
+      scan("r1", "2026-04-15T00:00:00.000Z", 10, { level: "L1" }),
+      scan("r1", "2026-06-01T00:00:00.000Z", 40, { level: "L1" }), // +30 lifetime, NOT a period gain
+      // zeroBaseline: a REAL pre-start baseline whose score happens to be 0 — a period gain, not onboarding.
+      scan("r2", "2026-03-01T00:00:00.000Z", 0, { level: "L1" }),
+      scan("r2", "2026-05-01T00:00:00.000Z", 20, { level: "L1" }), // +20 period gain
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    // The genuinely-onboarded repo is excluded from gainers/comparedRepos and tagged "onboarded".
+    expect(movers!.onboarded).toHaveLength(1);
+    expect(movers!.onboarded[0]).toMatchObject({ name: "onboarded", dOverall: 30, baselineKind: "onboarded" });
+    // The zero-baseline repo is a REAL period comparison (baseline of 0 is a fact, not an absence) and
+    // must land in gainers, counted in comparedRepos, exactly like any other period-baselined repo.
     expect(movers!.gainers).toHaveLength(1);
-    expect(movers!.gainers[0]).toMatchObject({ name: "bravo", dOverall: 25, levelFrom: "L1", levelTo: "L2" });
+    expect(movers!.gainers[0]).toMatchObject({ name: "zeroBaseline", dOverall: 20, baselineKind: "period" });
     expect(movers!.comparedRepos).toBe(1);
   });
 
@@ -995,6 +1036,23 @@ describe("getOrgBenchmark — corpus eligibility", () => {
 
     // This org's side: same instrument, or the comparison is meaningless in the other direction.
     expect((calls[1].select as { scans: { where: unknown } }).scans.where).toEqual(eligible);
+  });
+
+  it("excludes OTHER TENANTS' PRIVATE repos from the cross-tenant corpus (G4-02)", async () => {
+    // The corpus is other orgs' data. Without `isPrivate: false`, another tenant's private repo scores
+    // fed corpusAvg*/the percentile this org reads back on /portfolio, in the digest and in the
+    // briefing PDF — a cross-tenant leak of exactly the repos a tenant marked not-for-sharing.
+    const { calls, prisma } = benchmarkPrisma([scoredRepo("org_other", 70)]);
+    mockGetPrisma.mockReturnValue(prisma as never);
+    await getOrgBenchmark("benchco");
+
+    const corpusWhere = calls[0].where as { orgId: unknown; isPrivate?: unknown };
+    expect(corpusWhere.orgId).toEqual({ not: "org_bench" }); // still cross-tenant…
+    expect(corpusWhere.isPrivate).toBe(false); // …but public repos ONLY
+
+    // This org's OWN side stays unfiltered — an org is always entitled to its own private repos, and
+    // filtering them would silently rank a partial version of the org against the corpus.
+    expect((calls[1].where as { isPrivate?: unknown }).isPrivate).toBeUndefined();
   });
 
   it("returns the corpus basis alongside the numbers, even when the corpus is empty", async () => {

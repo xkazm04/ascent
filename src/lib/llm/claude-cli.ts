@@ -127,6 +127,16 @@ export async function runClaudePrompt(
   prompt: string,
   opts: { model?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<string> {
+  // Mirror ClaudeCliProvider's production guard (enforced today only via the caller convention
+  // documented above: gate on providerAvailable("claude-cli") + a NODE_ENV-gated dynamic import).
+  // A caller that skips that convention — a new non-scan surface reaching this function directly —
+  // would otherwise shell out to a `claude` binary that doesn't exist on Vercel with no explicit
+  // "why did this fail" signal. Defense-in-depth, not the primary guard: the primary protection is
+  // still index.ts's LazyClaudeCliProvider dead-code-pruning this whole module out of prod builds; this
+  // check only fires for the rarer path where a caller imports claude-cli.ts directly. (G3-27)
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("runClaudePrompt is local-dev-only and is not available in production builds");
+  }
   const model = opts.model || process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL;
   const raw = await runClaude(model, prompt, opts.signal, opts.timeoutMs);
   return unwrapCliEnvelope(raw).result;

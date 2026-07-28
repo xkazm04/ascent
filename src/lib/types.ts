@@ -341,8 +341,6 @@ export interface DimensionSignals {
   /** Deterministic rubric score 0..100. */
   signalScore: number;
   signals: Signal[];
-  /** Optional notes passed to the LLM as extra context. */
-  notes?: string;
   /** Set when the detector THREW and this is a placeholder (signalScore is NOT a real measurement).
    *  The engine excludes a failed dimension from the overall instead of folding a fake 0 that would
    *  deflate the score as if the repo genuinely scored zero on it. */
@@ -561,6 +559,11 @@ export interface ScoreIntegrity {
    *  A dimension listed here could move up to twice as far from its deterministic signal as one that
    *  is not — so a run-over-run delta on these dims carries materially less confidence. */
   widenedDims: DimensionId[];
+  /** The model flagged MORE dimensions than the per-scan discrepancy budget allows
+   *  (MAX_FLAGGED_DIMENSIONS, scoring/discrepancy-policy.ts), so NO dimension was widened and the D9
+   *  visibility hatch was suppressed — the run is pinned to the deterministic signals. Absent on a
+   *  normal run; `widenedDims` is empty whenever this is true. */
+  widenCapped?: true;
   /** The REALIZED blend weight actually applied (SCORE_BLEND × coverage), not the configured constant.
    *  A truncated or rate-limited ingest lowers this and shifts the score toward the deterministic
    *  signal with zero repo change — the third way an unchanged commit can score differently. */
@@ -614,6 +617,13 @@ export interface ScanReport {
   passport?: AppPassport;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
+  /** NOTHING could be scored: every detector failed or returned no data, so `dimensions` is empty and
+   *  `overallScore`/`level` are the renormalized floor (0 / L1) — NOT a genuine "Manual" verdict.
+   *  Numeric consumers (badge, CI gate, fleet rollup) read the numbers, not `warnings`, so they must
+   *  read this flag and refuse to present or enforce the result. Absent on a normal scan; a
+   *  reconstructed report may predate it, so consumers should treat an empty `dimensions` array as
+   *  incomplete too (see `isIncompleteReport` in scoring/gate.ts). */
+  incomplete?: true;
   /** The structural step-changes that fired while scoring this report. See ScoreIntegrity — these are
    *  the levers that can move a headline on an UNCHANGED commit, so anything that anchors a number
    *  (a briefing, a percentile, a signed export, a diligence verdict) must be able to read them.

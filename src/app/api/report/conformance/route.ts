@@ -26,9 +26,22 @@ import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Require an ACTUAL number (or a numeric string a shell-built JSON payload might send) — not
+// "coerces to one". `Number(v)` before the finiteness check let null/""/false/[] all coerce to 0
+// (and true to 1), silently passing validation and persisting a fabricated score:0 for a buggy CI
+// client that sent score:null, instead of a 400 (G3-12). A bare `typeof v === "number"` gate would
+// also reject legitimate numeric strings (curl/shell JSON often sends `"score": "82"`), so strings are
+// still accepted but only after confirming they're non-empty/non-whitespace — "" must not silently
+// become 0 the way `Number("")` does.
 const int = (v: unknown): number | null => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
+  if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : null;
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (trimmed === "") return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? Math.trunc(n) : null;
+  }
+  return null; // null / boolean / array / object: no coercion trick, always rejected
 };
 
 export async function POST(request: Request) {

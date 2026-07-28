@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   ARCHETYPE_WEIGHTS,
@@ -8,9 +8,13 @@ import {
   POSTURE_THRESHOLD,
   SCORE_BLEND,
   SCORING_RUBRIC_VERSION,
+  axisMeasured,
+  axisScore,
   levelForScore,
+  overallScoreFor,
 } from "@/lib/maturity/model";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
+import type { DimensionId } from "@/lib/types";
 
 // The score -> level keystone. Every ring/radar/waterfall/heatmap/badge AND the CI
 // gate route through levelForScore, so a one-line band or off-by-one drift mis-colors
@@ -136,7 +140,7 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
   const actual = createHash("sha256").update(rubricSurface).digest("hex");
 
   it(`rubric surface hash is pinned to version "${SCORING_RUBRIC_VERSION}"`, () => {
-    const EXPECTED_RUBRIC_HASH = "5d4e8697aa40aaeb99bae6b1c51f429b27b9ad44689af1354316aa62c16516d9";
+    const EXPECTED_RUBRIC_HASH = "81f6d771307fbfe5341290c1a2288b1dc9ca8a0ed6310abd324a3458dbc78017";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +
@@ -182,5 +186,54 @@ describe("POSTURE_META — canonical posture taxonomy shape", () => {
       manual: "Manual",
       early: "Getting Started",
     });
+  });
+});
+
+// A dimension with NO configured lens weight (`undefined` — future rubric drift, e.g. a new
+// dimension added to DIMENSIONS without updating every ARCHETYPE_WEIGHTS lens) must be distinguished
+// from one legitimately weighted at 0: both fall back to 0 in the sum (a dropped dimension can't
+// silently deflate the score), but only the MISSING case should warn (G3-05). "D10" stands in for a
+// future/drifted id that isn't in any current ARCHETYPE_WEIGHTS lens.
+describe("lens weight: missing vs. genuinely-zero (G3-05)", () => {
+  const DRIFTED_ID = "D10" as DimensionId;
+
+  it("overallScoreFor warns when a scored dimension has no configured lens weight", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    overallScoreFor([{ id: "D1", score: 80 }, { id: DRIFTED_ID, score: 80 }], "org");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`no lens weight configured for dimension "D10"`));
+    warnSpy.mockRestore();
+  });
+
+  it("overallScoreFor does not warn when every scored dimension has a real (possibly small) weight", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    overallScoreFor(DIMENSIONS.map((d) => ({ id: d.id, score: 80 })), "org");
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("a missing weight is excluded from the renormalized mean exactly like a genuine 0 would be", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const withDrift = overallScoreFor([{ id: "D1", score: 80 }, { id: DRIFTED_ID, score: 0 }], "org");
+    const withoutDrift = overallScoreFor([{ id: "D1", score: 80 }], "org");
+    expect(withDrift).toBe(withoutDrift); // renormalizes over D1 alone either way
+    warnSpy.mockRestore();
+  });
+
+  it("axisScore and axisMeasured warn the same way when a REAL dimension's lens entry goes missing (e.g. a lens edited without updating every id)", () => {
+    // D1 is on the "adoption" axis and always configured — delete it from the org lens to simulate
+    // the drift this fix targets, then restore it so no other test observes the mutation.
+    const saved = ARCHETYPE_WEIGHTS.org.D1;
+    delete (ARCHETYPE_WEIGHTS.org as Partial<Record<DimensionId, number>>).D1;
+    try {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      axisScore("adoption", () => 80, "org");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`"D1"`));
+      warnSpy.mockClear();
+      axisMeasured("adoption", "org");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`"D1"`));
+      warnSpy.mockRestore();
+    } finally {
+      ARCHETYPE_WEIGHTS.org.D1 = saved;
+    }
   });
 });

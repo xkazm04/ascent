@@ -9,7 +9,6 @@ import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
 import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { Surface, Kicker } from "@/components/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
@@ -59,9 +58,10 @@ export default async function OrgAdoption({
 
   const md = adoptionMarkdown(a);
   const d = a.delivery;
-  // Same small-population guard as champions: naming low-AI individuals in a tiny org is a ranking,
-  // not an enablement plan.
-  const showEnablement = a.enablement.length > 0 && a.contributors.total >= CHAMPION_MIN_POP;
+  // No population re-check here on purpose: buildAdoptionOverview returns `enablement: []` below the
+  // floor (which getContributorInsights itself enforces), so an empty list IS the guard. A second
+  // copy of the threshold at the call site is what let three surfaces drift apart in the first place.
+  const showEnablement = a.enablement.length > 0;
 
   return (
     <div className="space-y-6">

@@ -89,18 +89,37 @@ export function parseJsonLoose<T>(text: string): T {
     throw new ProviderParseError(`Model output too large to recover (${text.length} bytes)`, text);
   }
 
-  // 2. Markdown code fences anywhere in the text (```json … ``` or ``` … ```). Try each
-  //    fenced block in order — the first that parses (directly or via balanced scan) wins.
+  // 2. Markdown code fences anywhere in the text (```json … ``` or ``` … ```). Collect every fence
+  //    that parses (directly or via balanced scan) instead of returning the FIRST one — a model can
+  //    emit a small illustrative example fence before the real answer, and returning first-parseable
+  //    silently discarded the real (often larger, shape-matching) assessment in favor of the example.
+  //    Among multiple candidates: prefer one that looks like a real assessment (a non-empty
+  //    `dimensions` array, duck-typed since this function is generic over T); among those (or when
+  //    none match), prefer the largest raw fence body — an illustrative example is typically shorter
+  //    than the real answer. Falls back to first-parseable only in the degenerate one-candidate case.
   const fenceRe = /```(?:json|jsonc)?\s*([\s\S]*?)```/gi;
+  const fenceCandidates: { value: unknown; raw: string }[] = [];
   for (let m = fenceRe.exec(text); m; m = fenceRe.exec(text)) {
     const inner = (m[1] ?? "").trim();
     if (!inner) continue;
     try {
-      return JSON.parse(inner) as T;
+      fenceCandidates.push({ value: JSON.parse(inner), raw: inner });
+      continue;
     } catch {
-      const bal = balancedParse<T>(inner);
-      if (bal.ok) return bal.value;
+      const bal = balancedParse<unknown>(inner);
+      if (bal.ok) fenceCandidates.push({ value: bal.value, raw: inner });
     }
+  }
+  if (fenceCandidates.length > 0) {
+    const looksLikeAssessment = (v: unknown): boolean =>
+      typeof v === "object" &&
+      v !== null &&
+      Array.isArray((v as { dimensions?: unknown }).dimensions) &&
+      ((v as { dimensions: unknown[] }).dimensions.length > 0);
+    const shaped = fenceCandidates.filter((c) => looksLikeAssessment(c.value));
+    const pool = shaped.length > 0 ? shaped : fenceCandidates;
+    const best = pool.reduce((a, b) => (b.raw.length > a.raw.length ? b : a));
+    return best.value as T;
   }
 
   // JSONC tolerance. The `jsonc` fence tag (fenceRe) advertises tolerance the strict parses don't

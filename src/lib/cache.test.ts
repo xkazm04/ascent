@@ -12,7 +12,7 @@ import {
   normalizeRepoName,
   type ScoringIdentity,
 } from "./cache";
-import type { ScanReport } from "@/lib/types";
+import type { ScanProgress, ScanReport } from "@/lib/types";
 
 const fakeReport = (id: string) => ({ id }) as unknown as ScanReport;
 
@@ -98,6 +98,132 @@ describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", ()
     const again = vi.fn();
     await coalesceScan("repo4::llm", vi.fn(async () => fakeReport("r2")), undefined, again);
     expect(again).not.toHaveBeenCalled();
+  });
+
+  // Progress fan-out (G3-21): the factory's onProgress only ever runs for the caller that STARTED the
+  // shared scan, so a joined caller used to receive nothing between joining and the final result — a
+  // multi-minute scan that looked completely stalled to every joiner.
+  describe("progress fan-out to joined callers", () => {
+    const frame = (pct: number, message = "working") =>
+      ({ stage: "analyze", message, pct }) as ScanProgress;
+
+    it("delivers the OWNER's progress frames to every joined caller", async () => {
+      const d = deferred<ScanReport>();
+      let emit!: (p: ScanProgress) => void;
+      const factory = vi.fn((_signal: AbortSignal, e: (p: ScanProgress) => void) => {
+        emit = e;
+        return d.promise;
+      });
+      const ownerSeen: ScanProgress[] = [];
+      const joinerSeen: ScanProgress[] = [];
+
+      const a = coalesceScan("p1::llm", factory, undefined, undefined, (p) => ownerSeen.push(p));
+      const b = coalesceScan("p1::llm", factory, undefined, undefined, (p) => joinerSeen.push(p));
+
+      emit(frame(40));
+      emit(frame(80));
+
+      expect(ownerSeen.map((p) => p.pct)).toEqual([40, 80]);
+      expect(joinerSeen.map((p) => p.pct)).toEqual([40, 80]); // the joiner is no longer blind
+
+      d.resolve(fakeReport("r"));
+      await Promise.all([a, b]);
+    });
+
+    it("REPLAYS the latest frame to a LATE joiner (its UI starts where the shared scan is)", async () => {
+      const d = deferred<ScanReport>();
+      let emit!: (p: ScanProgress) => void;
+      const factory = vi.fn((_s: AbortSignal, e: (p: ScanProgress) => void) => {
+        emit = e;
+        return d.promise;
+      });
+      const owner = coalesceScan("p2::llm", factory, undefined, undefined, () => {});
+      emit(frame(30));
+      emit(frame(60, "scoring"));
+
+      const lateSeen: ScanProgress[] = [];
+      const late = coalesceScan("p2::llm", factory, undefined, undefined, (p) => lateSeen.push(p));
+
+      // Exactly the last frame, not the whole history — the client only needs where the scan IS.
+      expect(lateSeen).toEqual([frame(60, "scoring")]);
+
+      emit(frame(90));
+      expect(lateSeen.map((p) => p.pct)).toEqual([60, 90]); // and it keeps receiving live frames
+
+      d.resolve(fakeReport("r"));
+      await Promise.all([owner, late]);
+    });
+
+    it("one caller's THROWING sink can't break the shared scan or starve the others", async () => {
+      const d = deferred<ScanReport>();
+      let emit!: (p: ScanProgress) => void;
+      const factory = vi.fn((_s: AbortSignal, e: (p: ScanProgress) => void) => {
+        emit = e;
+        return d.promise;
+      });
+      const healthy: ScanProgress[] = [];
+      const a = coalesceScan("p3::llm", factory, undefined, undefined, () => {
+        throw new Error("SSE controller closed"); // a client that already disconnected
+      });
+      const b = coalesceScan("p3::llm", factory, undefined, undefined, (p) => healthy.push(p));
+
+      expect(() => emit(frame(50))).not.toThrow();
+      expect(healthy.map((p) => p.pct)).toEqual([50]);
+
+      d.resolve(fakeReport("r"));
+      await Promise.all([a, b]);
+    });
+
+    it("stops feeding a caller that aborted, while the shared scan keeps running for the rest", async () => {
+      const d = deferred<ScanReport>();
+      let emit!: (p: ScanProgress) => void;
+      const factory = vi.fn((_s: AbortSignal, e: (p: ScanProgress) => void) => {
+        emit = e;
+        return d.promise;
+      });
+      const gone: ScanProgress[] = [];
+      const stays: ScanProgress[] = [];
+      const c = new AbortController();
+
+      const leaving = coalesceScan("p4::llm", factory, c.signal, undefined, (p) => gone.push(p));
+      const staying = coalesceScan("p4::llm", factory, undefined, undefined, (p) => stays.push(p));
+
+      emit(frame(20));
+      c.abort();
+      emit(frame(70));
+
+      expect(gone.map((p) => p.pct)).toEqual([20]); // detached on abort — no writes to a dead stream
+      expect(stays.map((p) => p.pct)).toEqual([20, 70]);
+
+      d.resolve(fakeReport("r"));
+      await Promise.all([leaving.catch(() => {}), staying]);
+    });
+
+    it("a factory that throws SYNCHRONOUSLY evicts the entry (no promise-less run for others to join)", async () => {
+      // The entry is registered before the factory runs (so a synchronously-emitted frame has a sink),
+      // so a sync throw must not strand a promise-less entry that later callers would "join" and hang on.
+      expect(() =>
+        coalesceScan("p6::llm", () => {
+          throw new Error("boom");
+        }),
+      ).toThrow("boom");
+      expect(inflightScanCount()).toBe(0);
+
+      // The key is reusable immediately — the next caller computes rather than joining a ghost.
+      await expect(coalesceScan("p6::llm", async () => fakeReport("r"))).resolves.toEqual(fakeReport("r"));
+    });
+
+    it("a caller with no progress sink still works (the JSON route's shape)", async () => {
+      const d = deferred<ScanReport>();
+      let emit!: (p: ScanProgress) => void;
+      const p = coalesceScan("p5::llm", (_s, e) => {
+        emit = e;
+        return d.promise;
+      });
+      expect(() => emit(frame(10))).not.toThrow(); // no listeners registered — a no-op fan-out
+      d.resolve(fakeReport("r"));
+      await expect(p).resolves.toEqual(fakeReport("r"));
+    });
   });
 });
 

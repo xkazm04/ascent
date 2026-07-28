@@ -235,8 +235,8 @@ describe("getContributorInsights excludes bots and unknown", () => {
     );
 
     const res = (await getContributorInsights("acme"))!;
-    expect(res.totalContributors).toBe(1);
-    expect(res.contributors.map((c) => c.login)).toEqual(["human"]);
+    expect(res.totalContributors).toBe(1); // the human is COUNTED (the bot/unknown rows are not)…
+    expect(res.contributors).toEqual([]); // …but not NAMED: n=1 is below the naming floor (see below)
     const c = conc(res, "svc");
     // The bot/unknown commits must not inflate the repo totals or skew the bus factor.
     expect(c.totalCommits).toBe(4);
@@ -267,9 +267,14 @@ describe("getContributorInsights empty / zero-commit safety", () => {
   });
 
   it("a zero-commit contributor does not trigger a divide-by-zero in shares", async () => {
-    // commits:0 is degenerate but must not produce NaN topShare/aiShare/orgAiShare.
+    // commits:0 is degenerate but must not produce NaN topShare/aiShare/orgAiShare. Three humans so
+    // the naming floor is met and the per-person share is actually observable.
     mockGetPrisma.mockReturnValue(
-      fakePrisma([{ login: "ghost", commits: 0, aiCommits: 0, repo: "acme/empty" }]),
+      fakePrisma([
+        { login: "ghost", commits: 0, aiCommits: 0, repo: "acme/empty" },
+        { login: "ghost2", commits: 0, aiCommits: 0, repo: "acme/empty" },
+        { login: "ghost3", commits: 0, aiCommits: 0, repo: "acme/empty" },
+      ]),
     );
 
     const res = (await getContributorInsights("acme"))!;
@@ -304,6 +309,9 @@ describe("getContributorInsights champion ranking", () => {
         { login: "A", commits: 7, aiCommits: 7, repo: "acme/r2" },
         { login: "A", commits: 7, aiCommits: 7, repo: "acme/r3" },
         { login: "B", commits: 21, aiCommits: 21, repo: "acme/solo" },
+        // A third human so the org clears the naming floor — no AI, so it can't be a champion and
+        // the ranking under test is unchanged.
+        { login: "pad", commits: 5, aiCommits: 0, repo: "acme/solo" },
       ]),
     );
 
@@ -336,6 +344,7 @@ describe("getContributorInsights champion ranking", () => {
       fakePrisma([
         { login: "tiny", commits: 3, aiCommits: 3, repo: "acme/r" }, // min commits to qualify
         { login: "big", commits: 30, aiCommits: 30, repo: "acme/r" },
+        { login: "pad", commits: 5, aiCommits: 0, repo: "acme/r" }, // clears the naming floor; no AI
       ]),
     );
 
@@ -371,56 +380,52 @@ describe("getContributorInsights champion ranking", () => {
   });
 });
 
-// ── small-population success-theater guards (finding #5) ─────────────────────────
-// Two load-bearing overstatement guards keep a barely-adopted fleet from being presented
-// as "100% AI-native":
-//   (1) DATA-LEVEL champion floor: the `champions` filter requires `commits >= 3 && aiCommits > 0`,
-//       so a single low-volume Copilot user can never become a celebrated "#1 ★ champion".
-//   (2) PAGE-LEVEL population gate (contributors/page.tsx): the AI-champions leaderboard only renders
-//       when `champions.length > 0 && totalContributors >= 3`. The data layer can't enforce the JSX
-//       gate, but it MUST report `totalContributors` truthfully so the page's `>= 3` floor sees the
-//       real population. We pin the boundary (1 / 2 / 3 contributors) and the canonical "team of one
-//       reads 100% AI-active" theater number that the gate exists to suppress.
-// The pinned floor for the page gate is `MIN_CONTRIBUTORS_FOR_CHAMPIONS = 3`; if the source ever
-// exports a shared constant, swap this local for the import — the boundary assertions stay identical.
+// ── small-population privacy floor, enforced by the PRODUCER (G4-01 / G4-03) ─────
+// Two load-bearing guards keep a barely-adopted fleet from being presented as "100% AI-native" and
+// keep 1–2 identifiable people from being published as a ranking:
+//   (1) VOLUME floor: the `champions` filter requires `commits >= 3 && aiCommits > 0`, so a single
+//       low-volume Copilot user can never become a celebrated "#1 ★ champion".
+//   (2) POPULATION floor (CHAMPION_MIN_POP): below 3 humans, getContributorInsights ITSELF emits
+//       `namingAllowed: false`, `champions: []`, `contributors: []` and a redacted `topLogin`.
+//       This used to be a JSX gate in contributors/page.tsx, which meant every other consumer
+//       (CSV export, adoption brief, teams cards) had to remember it — and several didn't. The
+//       tests below pin the boundary (1 / 2 / 3 contributors) AND that aggregates survive, because
+//       the fallback must be aggregation-only, not "no data".
 
-const MIN_CONTRIBUTORS_FOR_CHAMPIONS = 3;
-
-describe("getContributorInsights small-population champion guard", () => {
-  it("a single AI committer (team of one) is NOT a celebrated champion — data-level commits>=3 floor", async () => {
-    // The exact success-theater case the page comment warns about: one Copilot user, 1 commit, all AI.
-    // `aiActiveShare` is a true 100% for this one person, but `champions` must be EMPTY (commits < 3),
-    // so the data layer never hands the page a "#1 ★ champion" for a team of one.
+describe("getContributorInsights small-population privacy floor", () => {
+  it("a single AI committer (team of one) is NOT a celebrated champion — volume floor AND population floor", async () => {
+    // The canonical success-theater case: one Copilot user, 1 commit, all AI. `aiActiveShare` is a
+    // true 100% for this one person, but nothing individual may be emitted.
     mockGetPrisma.mockReturnValue(
       fakePrisma([{ login: "solo-copilot", commits: 1, aiCommits: 1, repo: "acme/r" }]),
     );
 
     const res = (await getContributorInsights("acme"))!;
     expect(res.totalContributors).toBe(1);
-    expect(res.aiActiveShare).toBe(100); // honest-but-misleading for n=1 — hence the page gate
+    expect(res.aiActiveShare).toBe(100); // honest-but-misleading for n=1 — hence the floor
     expect(res.orgAiShare).toBe(100);
-    expect(res.champions).toEqual([]); // commits<3 floor suppresses the lone Copilot user
-    expect(res.totalContributors).toBeLessThan(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // page would hide the section
+    expect(res.namingAllowed).toBe(false);
+    expect(res.champions).toEqual([]);
   });
 
-  it("a single HIGH-volume AI committer still falls below the page population floor (n=1 < 3)", async () => {
-    // Even with 50 commits the data layer DOES list this person as a champion (commits>=3, aiCommits>0),
-    // but totalContributors is 1 — so the page's `>= 3` gate, not the data floor, is what suppresses the
-    // "100% AI-active fleet" overstatement. Pin both halves: a populated champion list AND a sub-floor n.
+  it("a single HIGH-volume AI committer is withheld by the PRODUCER, not by a page gate (n=1 < 3)", async () => {
+    // 50 commits clears the volume floor, so only the population floor stands between this person and
+    // a "#1 ★ champion" card. It must be applied here: a page gate would leave the CSV export, the
+    // adoption brief and the digest each free to name them.
     mockGetPrisma.mockReturnValue(
       fakePrisma([{ login: "power-copilot", commits: 50, aiCommits: 50, repo: "acme/r" }]),
     );
 
     const res = (await getContributorInsights("acme"))!;
     expect(res.totalContributors).toBe(1);
-    expect(res.aiActiveShare).toBe(100);
-    expect(res.champions.map((c) => c.login)).toEqual(["power-copilot"]); // data layer lists it…
-    expect(res.totalContributors).toBeLessThan(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // …but the page hides it (n<3)
+    expect(res.namingAllowed).toBe(false);
+    expect(res.champions).toEqual([]); // nothing for a consumer to render, wire up, or forget to gate
+    expect(res.contributors).toEqual([]);
   });
 
-  it("a 2-contributor fleet is still below the population floor — page suppresses the leaderboard", async () => {
-    // 2 qualifying AI champions, but totalContributors === 2 < 3. The data layer surfaces them; the page
-    // gate (totalContributors >= 3) is the line that keeps a 2-person team off the "champions" podium.
+  it("a 2-contributor fleet emits NO per-person rows, NO champions, and no named top contributor", async () => {
+    // Both people qualify on volume and AI. n=2 < CHAMPION_MIN_POP, so every individual field is
+    // withheld — this is the exact row set the CSV export used to hand out unconditionally.
     mockGetPrisma.mockReturnValue(
       fakePrisma([
         { login: "a", commits: 10, aiCommits: 10, repo: "acme/r" },
@@ -430,8 +435,33 @@ describe("getContributorInsights small-population champion guard", () => {
 
     const res = (await getContributorInsights("acme"))!;
     expect(res.totalContributors).toBe(2);
-    expect(res.totalContributors).toBeLessThan(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // below the floor
-    expect(res.champions.length).toBeGreaterThan(0); // data has them, page must gate them out
+    expect(res.namingAllowed).toBe(false);
+    expect(res.champions).toEqual([]);
+    expect(res.contributors).toEqual([]);
+    // The per-repo top contributor is a named individual too.
+    expect(conc(res, "r").topLogin).toBe("—");
+    // …while every AGGREGATE survives: suppression must not look like "no data".
+    expect(res.orgAiShare).toBe(100);
+    expect(res.aiActive).toBe(2);
+    expect(res.distribution).toEqual({ high: 2, some: 0, none: 0 });
+    expect(conc(res, "r").contributorCount).toBe(2);
+    expect(conc(res, "r").busFactor).toBe(1);
+  });
+
+  it("no login string survives anywhere in the payload below the floor (serialization-level check)", async () => {
+    // The strongest form of the guarantee: whatever a future consumer JSON-serializes — a CSV, an OG
+    // image, an LLM prompt, a webhook — the identities are simply not in the object.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "ada", name: "Ada L", commits: 40, aiCommits: 30, repo: "acme/r" },
+        { login: "zed", name: "Zed", commits: 20, aiCommits: 0, repo: "acme/r" },
+      ]),
+    );
+
+    const json = JSON.stringify((await getContributorInsights("acme"))!);
+    expect(json).not.toContain("ada");
+    expect(json).not.toContain("Ada L");
+    expect(json).not.toContain("zed");
   });
 
   it("at exactly 3 contributors the population floor is met — champions surface normally", async () => {
@@ -447,7 +477,8 @@ describe("getContributorInsights small-population champion guard", () => {
 
     const res = (await getContributorInsights("acme"))!;
     expect(res.totalContributors).toBe(3);
-    expect(res.totalContributors).toBeGreaterThanOrEqual(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // floor met
+    expect(res.namingAllowed).toBe(true); // 3 is the INCLUSIVE threshold
+    expect(res.contributors.map((c) => c.login)).toEqual(["a", "b", "c"]); // per-person rows return
     expect(res.champions.map((c) => c.login)).toEqual(["a", "b", "c"]); // all three qualify, surfaced normally
   });
 

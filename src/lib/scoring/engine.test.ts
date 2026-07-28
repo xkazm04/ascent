@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { assembleReport, cheapestPathToNextLevel, contributions, diffReports, projectDimensionClose, projectScore, projectSandbox, projectedGain } from "./engine";
 import { ARCHETYPE_WEIGHTS, DIMENSIONS, LEVEL_BY_ID, LLM_GUARDBAND, SCORE_BLEND, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
+import { MAX_FLAGGED_DIMENSIONS } from "./discrepancy-policy";
 import { MockProvider } from "@/lib/llm/mock";
 import { classifyArchetype } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
@@ -490,10 +491,20 @@ describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () =
       expect(scoreOf(guarded, "D2")).toBe(scoreOf(full, "D2"));
       expect(Number.isFinite(guarded.overallScore)).toBe(true);
       expect(Number.isNaN(guarded.overallScore)).toBe(false);
-      // confidence echoes the raw snapshot coverage; the GUARD only protects the blend math.
-      expect(Number.isFinite(guarded.confidence as number)).toBe(false);
+      // G3-07: `confidence` is written from the SAME sanitized coverage as the blend, so a broken
+      // estimate can no longer produce a correct score next to `confidence: NaN` (which JSON-
+      // serializes to null and breaks every percentage render / threshold check downstream).
+      expect(guarded.confidence).toBe(1);
+      expect(JSON.parse(JSON.stringify(guarded)).confidence).toBe(1);
     });
   }
+
+  it("clamps an out-of-range coverage on the persisted confidence too (never '200% inspected')", () => {
+    const over = assembleReport(snapWithCoverage(2), signalsWith({ D1: { signalScore: 40 } }), assessmentWith({ D1: 55 }), eng, AT, "org");
+    expect(over.confidence).toBe(1);
+    // Same value the blend used — the two bindings cannot drift again.
+    expect(over.scoreIntegrity!.effectiveBlend).toBe(SCORE_BLEND * over.confidence);
+  });
 
   it("clamps an LLM score beyond +LLM_GUARDBAND to signalScore+25 before blending", () => {
     // signal 40, llm 100 → guarded = min(40+25, 100) = 65 → round(0.6·65 + 0.4·40) = round(55) = 55.
@@ -1038,6 +1049,115 @@ describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
     // D1 (unflagged) is identical with or without the D2 discrepancy; only the flagged D2 rises above it.
     expect(scoreOf(d2Flagged, "D1")).toBe(scoreOf(noDisc, "D1"));
     expect(scoreOf(d2Flagged, "D2")).toBeGreaterThan(scoreOf(d2Flagged, "D1"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — the discrepancy BUDGET (G3-06, coupled to the G3-02 prompt boundary)
+//
+// The widening is self-declared and uncorroborated, and the claim travels through a prompt that
+// quotes repo-authored file content — so without a budget a repository could author text that buys
+// the model double latitude over that repository's own score. The budget caps how many dimensions
+// may be widened per scan and blows to ZERO (not "the first N") beyond it.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — discrepancy budget caps self-declared widening (G3-06)", () => {
+  const base = () => signalsWith({ D1: { signalScore: 20 }, D2: { signalScore: 20 }, D3: { signalScore: 20 }, D4: { signalScore: 20 } });
+  const llm = () => assessmentWith({ D1: 90, D2: 90, D3: 90, D4: 90 });
+  const disc = (ids: string[]) =>
+    ids.map((id) => ({ dimension: id as "D1", claim: `${id} detector missed evidence that is plainly present in the tree.` }));
+
+  it("pins the budget so the expectations below are self-documenting", () => {
+    expect(MAX_FLAGGED_DIMENSIONS).toBe(2);
+  });
+
+  it("widens up to the budget exactly as before (no regression for an honest audit)", () => {
+    const report = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D1", "D2"]) }, eng, AT, "org");
+    // signal 20 + doubled band 50 → guarded 70 → round(0.6·70 + 0.4·20) = 50; unflagged dims stay 35.
+    expect(scoreOf(report, "D1")).toBe(50);
+    expect(scoreOf(report, "D2")).toBe(50);
+    expect(scoreOf(report, "D3")).toBe(35);
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D1", "D2"]);
+    expect(report.scoreIntegrity!.widenCapped).toBeUndefined();
+  });
+
+  it("flagging MORE than the budget widens NOTHING — every dim scores as if unflagged", () => {
+    const overBudget = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D1", "D2", "D3"]) }, eng, AT, "org");
+    const noDisc = assembleReport(snapWithCoverage(1), base(), llm(), eng, AT, "org");
+    for (const id of ["D1", "D2", "D3", "D4"]) {
+      expect(scoreOf(overBudget, id)).toBe(scoreOf(noDisc, id));
+    }
+    expect(overBudget.overallScore).toBe(noDisc.overallScore);
+    // Recorded as data (a consumer anchoring a number must be able to attribute "the audit was distrusted")…
+    expect(overBudget.scoreIntegrity!.widenCapped).toBe(true);
+    expect(overBudget.scoreIntegrity!.widenedDims).toEqual([]);
+    // …and said in prose, since the discrepancies themselves are still shown to the user.
+    expect((overBudget.warnings ?? []).some((w) => /more than the 2 allowed/i.test(w))).toBe(true);
+    expect(overBudget.discrepancies).toHaveLength(3);
+  });
+
+  it("counts only dimensions that could ACTUALLY be widened toward the budget", () => {
+    // D9 is deterministic (never widened) and D4's detector failed (dropped) — flagging them must not
+    // burn budget that an honest D1/D2 audit is entitled to.
+    const signals = [
+      ...signalsWith({ D1: { signalScore: 20 }, D2: { signalScore: 20 }, D4: { signalScore: 0, failed: true } }),
+      { id: "D9" as const, signalScore: 30, signals: [{ label: "D9" }], deterministic: true, gaps: [] },
+    ];
+    const report = assembleReport(
+      snapWithCoverage(1),
+      signals,
+      { ...assessmentWith({ D1: 90, D2: 90 }), discrepancies: disc(["D1", "D2", "D4", "D9"]) },
+      eng, AT, "org",
+    );
+    expect(report.scoreIntegrity!.widenCapped).toBeUndefined();
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D1", "D2"]);
+    expect(scoreOf(report, "D1")).toBe(50); // still widened
+  });
+
+  it("suppresses the D9 visibility hatch too when the budget is blown (both prose levers, one budget)", () => {
+    // The injection-shaped case: a blanket audit that also claims D9's security is invisible. Neither
+    // lever may fire — D9 stays a measured dimension and no guardband widens.
+    const signals = [
+      ...signalsWith({ D1: { signalScore: 20 }, D2: { signalScore: 20 }, D3: { signalScore: 20 } }),
+      { id: "D9" as const, signalScore: 0, signals: [{ label: "D9" }], deterministic: true, gaps: [] },
+    ];
+    const discrepancies = [
+      ...disc(["D1", "D2", "D3"]),
+      { dimension: "D9" as const, claim: "CodeQL runs via GitHub default-setup configured in repo settings, invisible to a file scan." },
+    ];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...assessmentWith({ D1: 90, D2: 90, D3: 90 }), discrepancies }, eng, AT, "org");
+    expect(report.scoreIntegrity!.d9Unmeasurable).toBe(false);
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
+    expect(report.scoreIntegrity!.widenedDims).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — the structured INCOMPLETE flag (G3-10)
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — incomplete flag on a totally-failed scan (G3-10)", () => {
+  it("stamps incomplete:true when nothing could be scored, and survives JSON round-trip", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    for (const d of DIMENSIONS) spec[d.id] = { signalScore: 0, failed: true };
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith({}), eng, AT, "org");
+    expect(report.incomplete).toBe(true);
+    // The numeric consumers read the serialized report, not the in-memory object.
+    expect(JSON.parse(JSON.stringify(report)).incomplete).toBe(true);
+    // The numbers are still the misleading floor — which is exactly why the flag has to exist.
+    expect(report.overallScore).toBe(0);
+    expect(report.level.id).toBe("L1");
+  });
+
+  it("omits the flag entirely on any scan that scored at least one dimension", () => {
+    const partial = assembleReport(
+      snapWithCoverage(1),
+      signalsWith({ D1: { signalScore: 60 }, D2: { signalScore: 0, failed: true } }),
+      assessmentWith({ D1: 60 }),
+      eng, AT, "org",
+    );
+    expect(partial.incomplete).toBeUndefined();
+    expect("incomplete" in JSON.parse(JSON.stringify(partial))).toBe(false);
   });
 });
 

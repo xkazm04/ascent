@@ -31,7 +31,7 @@ vi.mock("@/lib/db/org-shared", () => ({
   getOrgBySlug: vi.fn(async () => ({ id: "org_1" })),
 }));
 
-import { claimRescan, listDueRescans, recordConformance, reconcileListedRepos } from "./org-watch";
+import { advanceToFullCadence, claimRescan, listDueRescans, recordConformance, reconcileListedRepos } from "./org-watch";
 import { verifyAudit } from "./audit-integrity";
 
 beforeEach(() => {
@@ -117,6 +117,65 @@ describe("claimRescan CAS contract (claim-once, count===1)", () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await claimRescan("repo_1", "weekly")).toBe(false);
     expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+
+  // ── cadence arithmetic (G3-13): "monthly" is a calendar month, not a flat 30 days ───────────────
+  //
+  // advanceToFullCadence is the settle-after-a-successful-scan step, so the date it writes IS the
+  // repo's next autoscan slot (and what the dashboard shows). A flat 30-day step walked a "monthly"
+  // repo backwards through the calendar — the 31st → the 30th → the 29th … — firing 12.2 times a year
+  // instead of 12, on a date that drifts every month.
+  describe("advanceToFullCadence — cadence arithmetic", () => {
+    /** Run advanceToFullCadence at a frozen clock and return the nextScanAt it wrote. */
+    async function advancedAt(nowIso: string, schedule: string): Promise<Date> {
+      const update = vi.fn(async () => ({ id: "repo_1" }));
+      mockGetPrisma.mockReturnValue({ repository: { update } });
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(nowIso));
+      try {
+        await advanceToFullCadence("repo_1", schedule);
+      } finally {
+        vi.useRealTimers();
+      }
+      const arg = update.mock.calls[0]![0] as { data: { nextScanAt: Date } };
+      return arg.data.nextScanAt;
+    }
+
+    it("monthly keeps the same day-of-month next month (not +30 days)", async () => {
+      // +30d from Mar 15 is Apr 14 — the slot slips a day every month. Calendar arithmetic holds it.
+      expect((await advancedAt("2026-03-15T09:00:00.000Z", "monthly")).toISOString()).toBe(
+        "2026-04-15T09:00:00.000Z",
+      );
+    });
+
+    it("monthly CLAMPS a day-of-month the target month doesn't have (Jan 31 → Feb 28)", async () => {
+      expect((await advancedAt("2026-01-31T00:00:00.000Z", "monthly")).toISOString()).toBe(
+        "2026-02-28T00:00:00.000Z",
+      );
+    });
+
+    it("monthly crosses the year boundary (Dec → Jan of the next year)", async () => {
+      expect((await advancedAt("2026-12-10T12:00:00.000Z", "monthly")).toISOString()).toBe(
+        "2027-01-10T12:00:00.000Z",
+      );
+    });
+
+    it("daily / weekly stay exact-duration steps", async () => {
+      expect((await advancedAt("2026-03-15T09:00:00.000Z", "daily")).toISOString()).toBe(
+        "2026-03-16T09:00:00.000Z",
+      );
+      expect((await advancedAt("2026-03-15T09:00:00.000Z", "weekly")).toISOString()).toBe(
+        "2026-03-22T09:00:00.000Z",
+      );
+    });
+
+    it('an "off"/unknown schedule writes nothing at all', async () => {
+      const update = vi.fn(async () => ({ id: "repo_1" }));
+      mockGetPrisma.mockReturnValue({ repository: { update } });
+      await advanceToFullCadence("repo_1", "off");
+      await advanceToFullCadence("repo_1", "bogus");
+      expect(update).not.toHaveBeenCalled();
+    });
   });
 });
 

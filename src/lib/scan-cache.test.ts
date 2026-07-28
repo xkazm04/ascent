@@ -153,6 +153,61 @@ describe("lookupCachedScan — tier-2 (DB) honors the identity guard", () => {
   });
 });
 
+// G3-24: the documented freshness contract (max cache age before a re-scan is offered) used to be
+// enforced on the DB tier ONLY. The in-memory tier returned unconditionally, relying on its own short
+// TTL — but a DB-tier hit WARMS memory with a report that may already be days old, so a report that
+// crossed scanMaxCacheAgeMs mid-TTL kept being served from memory while the DB tier had already begun
+// re-scanning it. Which answer you got depended purely on which instance you landed on. Both tiers now
+// apply isPersistedScanFresh.
+describe("lookupCachedScan — tier-1 (memory) honors the SAME freshness gate as tier 2", () => {
+  const parsed = { owner: "octo", repo: "mem-age" };
+
+  beforeEach(() => {
+    mockResolveHead.mockReset();
+    mockGetHeadHint.mockReset().mockResolvedValue(null);
+    mockGetScanReportByCommit.mockReset();
+    delete process.env.SCAN_MAX_CACHE_AGE_DAYS;
+  });
+
+  it("a memory entry whose report has aged past the gate is a MISS (re-scan), not a memory hit", async () => {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    // 1) A DB-tier hit warms the in-memory tier with a report that is already 3 days old.
+    mockResolveHead.mockResolvedValue({ status: "ok", sha: "sha-age", etag: "e1" });
+    mockGetScanReportByCommit.mockResolvedValueOnce(
+      fakeReport({ provider: "mock", model: "deterministic-rubric" }, threeDaysAgo),
+    );
+    const warm = await lookupCachedScan({ parsed, useLLM: false });
+    expect(warm.source).toBe("db");
+
+    // 2) Same commit, but the report is now BEYOND the max cache age (1-day gate). The memory entry is
+    //    still within its own TTL — the old code served it here, contradicting the DB tier.
+    process.env.SCAN_MAX_CACHE_AGE_DAYS = "1";
+    mockGetScanReportByCommit.mockResolvedValueOnce(
+      fakeReport({ provider: "mock", model: "deterministic-rubric" }, threeDaysAgo),
+    );
+    const res = await lookupCachedScan({ parsed, useLLM: false });
+
+    expect(res.cached).toBeNull();
+    expect(res.source).toBeNull();
+    expect(res.headSha).toBe("sha-age"); // still keyed, so the re-scan is cached
+  });
+
+  it("a memory entry within the age gate is still served from memory (no DB round-trip)", async () => {
+    mockResolveHead.mockResolvedValue({ status: "ok", sha: "sha-fresh", etag: "e1" });
+    mockGetScanReportByCommit.mockResolvedValueOnce(
+      fakeReport({ provider: "mock", model: "deterministic-rubric" }),
+    );
+    await lookupCachedScan({ parsed: { owner: "octo", repo: "mem-fresh" }, useLLM: false });
+
+    mockGetScanReportByCommit.mockClear();
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "mem-fresh" }, useLLM: false });
+
+    expect(res.source).toBe("memory");
+    expect(res.cached).not.toBeNull();
+    expect(mockGetScanReportByCommit).not.toHaveBeenCalled(); // the fast path is intact
+  });
+});
+
 // The CI gate's warm path (ci-gate Direction 1): the gate endpoint holds an EXACT sha (?ref=<pr head>
 // or a head it resolved) and, before this, had only a per-instance memory cache — so every cold
 // serverless instance re-ingested the whole repo even though the App webhook had just scanned that

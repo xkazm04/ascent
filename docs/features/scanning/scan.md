@@ -46,6 +46,10 @@ The report page then drives the actual scan over the streaming endpoint — see
 `/api/scan` responses carry cache-provenance headers: `x-ascent-cache: hit | miss | hit-db`
 and `x-ascent-dedup: hit | miss`.
 
+Both routes reject an unparseable repo URL with `400 { code: "INVALID_URL" }` *before* any
+quota is consumed, so a typo can never burn one of the free tier's monthly scan slots. (On
+`/api/scan` this is checked after the cache-only `peek=1` probe, which keeps its cheap `204`.)
+
 **SSE protocol** (`/api/scan/stream`): named events on the stream —
 
 - `progress` — `{ stage, message, pct, provider?, region?, fallback? }` where `stage` ∈
@@ -114,6 +118,18 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
 - `src/lib/github/governance.ts:fetchBranchGovernance` — branch protection + rulesets.
   Folds into D6/D3/D8. `fetchCommitActivity` adds 52-week commit history.
 
+Both `applyPrSignals` and `applyGovernanceSignals` (`pulls.ts`) skip a dimension outright
+when `signals.failed` is set — a crashed detector's placeholder `signalScore: 0` is never
+blended with real PR/governance evidence or decorated with evidence text that would make a
+non-measurement look like a real, evidenced score.
+
+D2's "sampled tests assert nothing" −15 penalty (a high case count with zero substantive
+assertions in the content-sampled slice) only fires when the sampled test files cover at
+least `MIN_SAMPLE_FRACTION` (0.3) of the repo's *total* detected test files (by path, not
+just the ≤32-file content-ingest budget). Below that fraction the penalty downgrades to a
+neutral, non-scoring note — a small, unlucky slice of a large suite can't indict the whole
+suite as untested.
+
 ### 3 — Score with the LLM (`src/lib/scoring/prompt.ts` + a provider)
 
 `buildAssessmentPrompt()` renders a compact prompt: the rubric (levels + dimensions), the
@@ -169,7 +185,20 @@ Two tiers, keyed by `owner/repo@sha::{llm|mock}` (`makeCacheKey`):
    (`getScanReportByCommit`), then falls through to a fresh scan. `fresh=true` skips the
    cached *report* but still resolves the key/ETag.
 
+Both tiers apply the same **max cache age** (`SCAN_MAX_CACHE_AGE_DAYS`, default 7 — set 0 to
+disable): a report older than the gate is a miss and re-scans even when the head hasn't moved.
+The memory TTL bounds how long an *entry* lives; the age gate bounds how old the *report*
+inside it may be, so a DB hit that warms memory can't keep serving a report past the gate.
+
 This makes re-scans of an unchanged commit instant and dodges GitHub rate limits.
+
+**Coalescing.** Concurrent scans of the same uncached commit share ONE run
+(`coalesceScan`): the first caller computes, later callers join and await the same result
+(their quota slot is refunded — metering is on commit, not attempt). A joined SSE caller
+receives the *same* live progress frames as the computing owner — it gets a "joining a scan
+already in progress" frame, then a replay of the latest frame, then every subsequent one — so
+a shared scan never looks stalled to the second viewer. Abort is refcounted: the shared run is
+cancelled only when the last interested caller disconnects.
 
 ## Key files
 

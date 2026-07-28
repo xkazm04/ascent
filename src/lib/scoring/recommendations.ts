@@ -119,12 +119,23 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
   },
 };
 
-/** Build a prioritized fallback roadmap, ranked by weighted upside under the archetype. */
+/** Build a prioritized fallback roadmap, ranked by weighted upside under the archetype.
+ *
+ *  `blended` is the report's actual POST-BLEND dimension scores (e.g. engine.ts's `dimensions`), keyed
+ *  by id. When supplied, ranking and the rationale text use the blended score — the same number the
+ *  report headline and dimension cards show — instead of the pre-blend `signalScore`, which can differ
+ *  by up to the LLM guardband (G3-09: a dimension the blend lifted could otherwise be surfaced as the
+ *  #1 gap with a rationale citing a number never shown next to it). Omitted (or missing an id) falls
+ *  back to that dimension's raw `signalScore`, so existing callers (the mock provider, which has no
+ *  separate blend — signalScore IS its score) are unaffected. */
 export function buildFallbackRoadmap(
   signals: DimensionSignals[],
   overallScore: number,
   archetype: RepoArchetype = "org",
+  blended?: { id: DimensionId; score: number }[],
 ): LlmRoadmapItem[] {
+  const blendedById = new Map((blended ?? []).map((d) => [d.id, d.score]));
+  const scoreFor = (s: DimensionSignals) => blendedById.get(s.id) ?? s.signalScore;
   const current = levelForScore(overallScore);
   // Derive the next level from the canonical LEVELS ordering (the shared nextLevel helper, as
   // cheapestPathToNextLevel does), not by slicing + incrementing the id string: a top-band repo
@@ -143,7 +154,7 @@ export function buildFallbackRoadmap(
       console.warn(`[recommendations] skipped unknown dimension id "${s.id}" (no catalog entry).`);
       return false;
     })
-    .map((s) => ({ s, upside: (w[s.id] ?? 0) * (100 - s.signalScore) }))
+    .map((s) => ({ s, upside: (w[s.id] ?? 0) * (100 - scoreFor(s)) }))
     .sort((a, b) => b.upside - a.upside)
     .slice(0, 3)
     .map(({ s }) => {
@@ -153,7 +164,7 @@ export function buildFallbackRoadmap(
         dimension: s.id,
         impact: t.impact,
         effort: t.effort,
-        rationale: `${DIMENSION_BY_ID[s.id].name} scored ${s.signalScore}/100. ${t.rationale}`,
+        rationale: `${DIMENSION_BY_ID[s.id].name} scored ${scoreFor(s)}/100. ${t.rationale}`,
         explore: t.explore,
         levelUnlock: unlock,
       };

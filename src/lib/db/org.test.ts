@@ -4,11 +4,11 @@ import { computeWindowDeltas, type RepoScoreSnap } from "@/lib/db/org-rollup";
 
 // Pure due-date bucketing behind the org backlog's "by due date" grouping. Due dates are stored
 // date-only (UTC midnight when parsed) and interpreted as the literal day the user picked, while
-// `now` is bucketed on its LOCAL calendar day — matching the dashboard's unified local-day semantics
-// (window.ts). `now` is therefore constructed with LOCAL date fields so every assertion is
-// deterministic in any runner timezone.
+// `now` is bucketed on its CANONICAL-ORG-ZONE calendar day (src/lib/org/timezone.ts — UTC by
+// default), the one reference frame the whole dashboard now shares. `now` is constructed as an
+// explicit UTC instant so every assertion is deterministic in any runner timezone. (G4-07)
 describe("dueBucketFor", () => {
-  const now = new Date(2026, 5, 2, 12, 0, 0); // local noon, 2026-06-02
+  const now = new Date("2026-06-02T12:00:00Z"); // canonical-zone noon, 2026-06-02
   const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
   it("buckets a missing due date as no_date", () => {
@@ -36,18 +36,34 @@ describe("dueBucketFor", () => {
   });
 
   it("treats the due date as date-only (time of day on `now` doesn't shift the bucket)", () => {
-    const lateInDay = new Date(2026, 5, 2, 23, 59, 59); // local, still 2026-06-02
+    const lateInDay = new Date("2026-06-02T23:59:59Z"); // canonical zone, still 2026-06-02
     expect(dueBucketFor(day("2026-06-02"), lateInDay)).toBe("this_week"); // still today, not overdue
   });
 
-  // ambiguity-ui 2026-07-16 #4: the whole dashboard buckets on LOCAL calendar days (window.ts
-  // startOfDay); the old all-UTC daysUntil flipped overdue/this_week for hours around local
-  // midnight on any non-UTC deployment — on the bucket that drives the owner sort.
-  it("uses LOCAL calendar days, so the overdue flip happens at local midnight (not UTC midnight)", () => {
-    const justAfterLocalMidnight = new Date(2026, 5, 3, 0, 30); // local 2026-06-03 00:30
-    expect(dueBucketFor(day("2026-06-02"), justAfterLocalMidnight)).toBe("overdue");
-    const lateLocalEvening = new Date(2026, 5, 2, 23, 30); // local 2026-06-02 23:30
-    expect(dueBucketFor(day("2026-06-02"), lateLocalEvening)).toBe("this_week");
+  // G4-07: ONE reference frame. The flip happens at midnight in the CANONICAL org zone (UTC by
+  // default), not at the host's local midnight — the old code truncated `target` in UTC but `now`
+  // in the server's zone, differencing two different calendars, which flipped overdue/this_week for
+  // the hours between the two midnights on any non-UTC host (the bucket that drives the owner sort).
+  // These two assertions are the boundary either side of canonical midnight and are runner-TZ-proof.
+  it("flips overdue exactly at CANONICAL-zone midnight, independent of the runner's local zone", () => {
+    const justAfterMidnight = new Date("2026-06-03T00:30:00Z");
+    expect(dueBucketFor(day("2026-06-02"), justAfterMidnight)).toBe("overdue");
+    const lateEvening = new Date("2026-06-02T23:30:00Z");
+    expect(dueBucketFor(day("2026-06-02"), lateEvening)).toBe("this_week");
+    // The exact instant of midnight belongs to the NEW day (half-open `[midnight, nextMidnight)`).
+    expect(dueBucketFor(day("2026-06-02"), new Date("2026-06-03T00:00:00.000Z"))).toBe("overdue");
+    expect(dueBucketFor(day("2026-06-02"), new Date("2026-06-02T23:59:59.999Z"))).toBe("this_week");
+  });
+
+  // The host's zone must be irrelevant now. Simulate a westward and an eastward server by moving the
+  // SAME wall-clock-relevant instant around: at 2026-06-02T23:30Z it is already Jun 3 in Tokyo and
+  // still Jun 2 in New York, yet the bucket is identical because neither zone is consulted.
+  it("is invariant to the server's local zone (the deployment accident is gone)", () => {
+    const instant = new Date("2026-06-02T23:30:00Z");
+    expect(dueBucketFor(day("2026-06-02"), instant)).toBe("this_week");
+    // Same instant expressed via a local-fields constructor would have been Jun 3 on a UTC+2 host
+    // and bucketed `overdue` under the old mixed-frame maths; it no longer can.
+    expect(dueBucketFor(day("2026-06-02"), new Date(instant.getTime()))).toBe("this_week");
   });
 
   // ---- boundary edges: pin the exact day each bucket flips, tied to the dueInDays sign. The

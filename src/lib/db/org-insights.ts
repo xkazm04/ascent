@@ -18,7 +18,11 @@ import type { OrgWindow } from "@/lib/db/org-rollup";
 import { parseStringArray } from "@/lib/db/scans-shared";
 // The one "due soon" window (rolling days) shared with the UI tiles/labels — single-sourced in the
 // client-safe backlogShared module so both layers stay in sync (backlog-management 07-16 #4).
-import { DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
+import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
+// The canonical org time-zone policy — ONE reference frame for every calendar-day decision on the
+// dashboard (window presets, custom-range parsing, due-date bucketing). See its header for the policy
+// and for the per-org-timezone blocker. (G4-07)
+import { dayKeyInZone, dayKeyOfDateColumn, daysBetweenDayKeys } from "@/lib/org/timezone";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -35,6 +39,12 @@ export interface RepoMove {
   postureFrom: string;
   postureTo: string;
   sinceDays: number;
+  /** "period" = baseline is a genuine scan strictly before the window start — this move is a real
+   *  period delta. "onboarded" = the repo had NO scan before the window start, so the baseline fell
+   *  back to its earliest in-window scan: this move is the repo's LIFETIME delta since first scan, not
+   *  a period delta — it must never be counted toward gainers/regressers/comparedRepos (G4-06), or it
+   *  overstates fleet momentum for exactly the periods where an org is onboarding new repos. */
+  baselineKind: "period" | "onboarded";
 }
 
 export interface OrgMovers {
@@ -45,6 +55,13 @@ export interface OrgMovers {
    *  visible and countable; never merge these into gainers/regressers. */
   held: RepoMove[];
   levelChanges: RepoMove[]; // promotions + demotions
+  /** Repos onboarded mid-period (`baselineKind: "onboarded"`) — their first-scan→now move, kept OUT of
+   *  gainers/regressers/held/levelChanges/comparedRepos so a fleet's onboarding wave can't read as this
+   *  period's improvement. Sorted like gainers (largest climb first) so "new this period" is still
+   *  visible to any caller that wants it, without corrupting the period comparison (G4-06). */
+  onboarded: RepoMove[];
+  /** Count of repos with a REAL period-baseline comparison (baselineKind === "period"). Excludes
+   *  onboarded repos — see `onboarded` above. */
   comparedRepos: number;
 }
 
@@ -57,8 +74,10 @@ interface ScanLite {
   scannedAt: Date;
 }
 
-/** Construct a RepoMove from a baseline (`prev`) and current (`now`) scan of one repo. */
-function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite): RepoMove {
+/** Construct a RepoMove from a baseline (`prev`) and current (`now`) scan of one repo. `baselineKind`
+ *  defaults to "period" (a genuine prior scan) — the windowed path passes "onboarded" explicitly when
+ *  `prev` is a fallback to the repo's earliest in-window scan rather than a true pre-window baseline. */
+function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite, baselineKind: RepoMove["baselineKind"] = "period"): RepoMove {
   return {
     fullName,
     name,
@@ -72,6 +91,7 @@ function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite
     postureFrom: prev.posture,
     postureTo: now.posture,
     sinceDays: Math.max(0, Math.round((now.scannedAt.getTime() - prev.scannedAt.getTime()) / 86_400_000)),
+    baselineKind,
   };
 }
 
@@ -153,11 +173,15 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       // the movers panel and the headline period-delta tiles agree on the boundary. A repo ONBOARDED
       // mid-period has no scan before `start`, so fall back to its EARLIEST in-window scan (arr is desc,
       // so the last element) rather than dropping it from movers entirely — it genuinely moved (first
-      // score → now) within the window. A repo with a single in-window scan and no baseline collapses to
-      // prev === now and is skipped below.
-      const prev = baselineByRepo.get(repoId) ?? arr[arr.length - 1];
+      // score → now) within the window. That fallback move is tagged `baselineKind: "onboarded"` below
+      // and kept OUT of gainers/regressers/comparedRepos (G4-06): it's a LIFETIME delta since the
+      // repo's first scan, not a period delta, and reporting it as a period gain would inflate the
+      // mover list and comparedRepos exactly when an org is growing. A repo with a single in-window
+      // scan and no baseline collapses to prev === now and is skipped below.
+      const realBaseline = baselineByRepo.get(repoId);
+      const prev = realBaseline ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
-      moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev));
+      moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
   } else {
     const repos = await prisma.repository.findMany({
@@ -182,16 +206,23 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
   // Stable `fullName` tiebreak on each single-key sort (fleet-rollups-insights #6): repos with an equal
   // delta / level-change otherwise render in the query's arbitrary order, so the same fleet reshuffles
   // between renders.
+  // Split OUT onboarded repos (G4-06) before any bucketing: their move is a lifetime (first-scan→now)
+  // delta, not a period delta, so it must never feed gainers/regressers/held/levelChanges/comparedRepos —
+  // that would let a fleet's onboarding wave read as this period's improvement, and it would inflate
+  // comparedRepos with repos that were never actually cohort-compared against a period baseline.
+  const periodMoves = moves.filter((m) => m.baselineKind === "period");
+  const onboardedMoves = moves.filter((m) => m.baselineKind === "onboarded");
   // Partition on the NOISE BAND, not on strict sign. A +1 is arithmetically a gain but statistically
   // indistinguishable from two independent re-scans of an unchanged commit, and this function is the
   // raw feed the Executive Briefing, /portfolio and the digest all read — so a strict-sign split let a
   // wobble be reported as a "top gainer" in a document a customer files. Sub-band moves go to `held`.
   return {
-    gainers: moves.filter((m) => classifyDelta(m.dOverall) === "up").sort((a, b) => b.dOverall - a.dOverall || a.fullName.localeCompare(b.fullName)),
-    regressers: moves.filter((m) => classifyDelta(m.dOverall) === "down").sort((a, b) => a.dOverall - b.dOverall || a.fullName.localeCompare(b.fullName)),
-    held: moves.filter((m) => m.dOverall !== 0 && classifyDelta(m.dOverall) === "noise").sort((a, b) => a.fullName.localeCompare(b.fullName)),
-    levelChanges: moves.filter((m) => m.levelDelta !== 0).sort((a, b) => b.levelDelta - a.levelDelta || a.fullName.localeCompare(b.fullName)),
-    comparedRepos: moves.length,
+    gainers: periodMoves.filter((m) => classifyDelta(m.dOverall) === "up").sort((a, b) => b.dOverall - a.dOverall || a.fullName.localeCompare(b.fullName)),
+    regressers: periodMoves.filter((m) => classifyDelta(m.dOverall) === "down").sort((a, b) => a.dOverall - b.dOverall || a.fullName.localeCompare(b.fullName)),
+    held: periodMoves.filter((m) => m.dOverall !== 0 && classifyDelta(m.dOverall) === "noise").sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    levelChanges: periodMoves.filter((m) => m.levelDelta !== 0).sort((a, b) => b.levelDelta - a.levelDelta || a.fullName.localeCompare(b.fullName)),
+    onboarded: onboardedMoves.sort((a, b) => b.dOverall - a.dOverall || a.fullName.localeCompare(b.fullName)),
+    comparedRepos: periodMoves.length,
   };
 }
 
@@ -312,13 +343,16 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
 
 export type BacklogDueBucket = "overdue" | "this_week" | "this_month" | "later" | "no_date";
 
-// Labels state the ROLLING cutoffs honestly: "this_week"/"this_month" are ≤7 / ≤31 rolling days, not
-// calendar-aligned periods — "Due this month" read as calendar-month and mis-bucketed a July-29 vs
-// Aug-1 pair on July 1. (ambiguity-ui 2026-07-16 #4)
+// Labels state the ROLLING cutoffs honestly and NUMERICALLY: "this_week"/"this_month" are ≤7 / ≤31
+// rolling days, not calendar-aligned periods — "Due this month" read as calendar-month and mis-bucketed
+// a July-29 vs Aug-1 pair on July 1. Both labels are now interpolated from the constants that do the
+// bucketing (DUE_SOON_DAYS / DUE_MONTH_DAYS), so the words and the maths cannot disagree: the vaguer
+// "within a month" is gone, because "a month" is 28-31 days and the cutoff is exactly 31.
+// (G4-07; extends ambiguity-ui 2026-07-16 #4)
 const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
   overdue: "Overdue",
   this_week: `Due within ${DUE_SOON_DAYS} days`,
-  this_month: "Due within a month",
+  this_month: `Due within ${DUE_MONTH_DAYS} days`,
   later: "Later",
   no_date: "No due date",
 };
@@ -326,30 +360,33 @@ const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
 /** Fixed display order for the due-date columns (most urgent first; undated last). */
 const DUE_BUCKET_ORDER: BacklogDueBucket[] = ["overdue", "this_week", "this_month", "later", "no_date"];
 
-/** Whole calendar days from `now` to `target`, negative when `target` is past. The dashboard's time
- *  semantics are unified on LOCAL calendar days (window.ts startOfDay, the trend's localDayKey), so
- *  the buckets must use the same boundary: `target` is a stored date-only value (UTC midnight when
- *  parsed), so its UTC Y/M/D recovers the literal day the user picked, and it's compared against
- *  `now`'s LOCAL calendar day. The old all-UTC math flipped overdue/this_week for hours around local
- *  midnight on any non-UTC deployment — on the one bucket (Overdue) that drives the owner sort.
- *  (ambiguity-ui 2026-07-16 #4) */
+/** Whole calendar days from `now` to `target`, negative when `target` is past.
+ *
+ *  Both sides now resolve in the SINGLE CANONICAL ORG ZONE (`src/lib/org/timezone.ts` — UTC by
+ *  default). Previously this compared a UTC-truncated `target` against a SERVER-LOCAL-truncated
+ *  `now` — two different calendar frames differenced directly, which flipped overdue/this_week for
+ *  the hours between the two midnights on any non-UTC host, on the one bucket (Overdue) that drives
+ *  the owner sort. Half of that was deliberate and is preserved: `target` is a DATE-ONLY column
+ *  written as midnight UTC, so it is read back with `dayKeyOfDateColumn` (UTC getters) to recover the
+ *  literal day the user picked — re-truncating it in a westward zone would yield the previous day.
+ *  What changed is the OTHER side: `now` is truncated in the canonical zone, not the host's.
+ *  (G4-07; supersedes ambiguity-ui 2026-07-16 #4, which unified on the host's local day) */
 function daysUntil(target: Date, now: Date): number {
-  const t = new Date(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate()).getTime();
-  const n = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  return Math.round((t - n) / 86_400_000);
+  return daysBetweenDayKeys(dayKeyInZone(now), dayKeyOfDateColumn(target));
 }
 
 /**
  * Which due-date bucket a target date falls into, relative to `now`. Pure (no clock read) so the
- * bucketing is unit-testable: null → no_date; past → overdue; within 7 days → this_week; within ~a
- * month → this_month; beyond → later.
+ * bucketing is unit-testable: null → no_date; past → overdue; ≤ DUE_SOON_DAYS → this_week;
+ * ≤ DUE_MONTH_DAYS → this_month; beyond → later. Boundaries are HALF-OPEN in the same sense as the
+ * window's: a day belongs to exactly one bucket, and "due today" (d === 0) is this_week, never overdue.
  */
 export function dueBucketFor(targetDate: Date | null, now: Date): BacklogDueBucket {
   if (!targetDate) return "no_date";
   const d = daysUntil(targetDate, now);
   if (d < 0) return "overdue";
   if (d <= DUE_SOON_DAYS) return "this_week";
-  if (d <= 31) return "this_month";
+  if (d <= DUE_MONTH_DAYS) return "this_month";
   return "later";
 }
 
@@ -694,8 +731,15 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   // Both the `some` predicate and the per-repo `take: 1` are filtered by BENCHMARK_ELIGIBLE, so the cap
   // budget is spent on comparable repos and each repo contributes its latest ELIGIBLE scan rather than
   // its latest scan (a repo whose most recent run degraded to mock still counts, via its last real one).
+  // TENANCY (G4-02): the corpus is OTHER tenants' data, so it is restricted to `isPrivate: false`.
+  // Without it, another org's PRIVATE repo scores fed corpusAvg*/the percentile that this org reads
+  // back on /portfolio, in the digest and in the Executive Briefing PDF — a cross-tenant leak of
+  // exactly the repos a tenant marked as not-for-sharing (aggregated, but still derived from them,
+  // and observable: a small corpus moves measurably when one private repo enters it). Public repos
+  // are already world-readable, so they are the only defensible corpus. This org's OWN side (the
+  // `mine` query below) is deliberately unfiltered — an org is always entitled to its own repos.
   const repos = await prisma.repository.findMany({
-    where: { orgId: { not: org.id }, scans: { some: BENCHMARK_ELIGIBLE } },
+    where: { orgId: { not: org.id }, isPrivate: false, scans: { some: BENCHMARK_ELIGIBLE } },
     orderBy: { updatedAt: "desc" },
     take: BENCHMARK_CORPUS_CAP,
     select: {
@@ -852,6 +896,20 @@ export function summarizePracticePrs(
   return summary;
 }
 
+/**
+ * A repo's latest-scan dimension scores, or null when the repo has no scan yet OR its latest scan has
+ * an empty dimensions set (an incomplete/failed scan row). Shared by getOrgPractices and
+ * getOrgGapAnalysis so a zero-dimension scan can't slip past one function's guard and not the other's
+ * — they previously diverged (`!dims` vs `!dims?.length`), and `!dims?.length` is the CORRECT one:
+ * an empty array is not "no scan" for iteration purposes, but a repo with zero recorded dimensions
+ * has nothing usable for either function's per-dimension aggregates and must be excluded consistently
+ * (getOrgGapAnalysis in particular counts `perRepo.length` as its scanned-population denominator).
+ */
+function repoDims(r: { scans: { dimensions: { dimId: string; score: number }[] }[] }): { dimId: string; score: number }[] | null {
+  const dims = r.scans[0]?.dimensions;
+  return dims?.length ? dims : null;
+}
+
 /** The org's playbook: for each practice, who exemplifies it and who could adopt it next. */
 export async function getOrgPractices(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPractice[] | null> {
   if (!isDbConfigured()) return null;
@@ -881,7 +939,7 @@ export async function getOrgPractices(orgSlug: string, segmentId?: string | null
   // Per-dimension list of {repo, score} from each repo's latest scan.
   const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
   for (const r of repos) {
-    const dims = r.scans[0]?.dimensions;
+    const dims = repoDims(r);
     if (!dims) continue;
     for (const d of dims) {
       const arr = byDim.get(d.dimId) ?? [];
@@ -977,9 +1035,31 @@ const HEALTHY_AVG = 50; // …while the org generally handles that dimension
 export const GAP_MIN_REPOS = 3;
 
 /**
+ * Discriminated reason behind a bare `null` from getOrgPractices/getOrgGapAnalysis (and the several
+ * sibling org-insight functions with the identical `!isDbConfigured() → null; !org → null` shape,
+ * G4-21): "disabled" (no DATABASE_URL — a deployment/config problem), "not_found" (the slug doesn't
+ * resolve to an org — a routing/typo problem), or "ok" (safe to call the real function; it may still
+ * legitimately return an empty-but-non-null shape for zero scanned repos). A caller that needs to tell
+ * "go scan some repos" apart from "this deployment is misconfigured" apart from "this org doesn't
+ * exist" should call this FIRST rather than pattern-matching the target function's `null`, which
+ * collapses all three into one value. Not wired into every call site (that would be an app-wide,
+ * signature-breaking rewrite well beyond this fix's scope) — provided so new/fixed call sites have a
+ * real way to disambiguate instead of inheriting the ambiguity.
+ */
+export async function orgInsightAvailability(orgSlug: string): Promise<"disabled" | "not_found" | "ok"> {
+  if (!isDbConfigured()) return "disabled";
+  const org = await getOrgBySlug(orgSlug);
+  return org ? "ok" : "not_found";
+}
+
+/**
  * Separate **common organization gaps** (weak across most repos — fix once, systematically) from
  * **repo-specific gaps** (a repo lagging what the rest of the org already handles). The headline
  * cross-repo insight: is this an org problem or a repo problem?
+ *
+ * NOTE (G4-21): `null` here is a collapsed sentinel — it means "DB not configured" OR "org not found",
+ * with no way for a caller to tell them apart. Use `orgInsightAvailability` first if that distinction
+ * matters to the caller.
  */
 export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGapAnalysis | null> {
   if (!isDbConfigured()) return null;
@@ -1000,8 +1080,8 @@ export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | nu
   const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
   const perRepo: { name: string; fullName: string; dims: Record<string, number> }[] = [];
   for (const r of repos) {
-    const dims = r.scans[0]?.dimensions;
-    if (!dims?.length) continue;
+    const dims = repoDims(r);
+    if (!dims) continue;
     const map: Record<string, number> = {};
     for (const d of dims) {
       map[d.dimId] = d.score;

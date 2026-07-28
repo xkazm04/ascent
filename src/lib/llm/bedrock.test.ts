@@ -141,6 +141,47 @@ describe("BedrockProvider.assess — per-call timeout (#3)", () => {
   });
 });
 
+describe("BedrockProvider.assess — empty tool-input object doesn't discard a usable answer (G3-15)", () => {
+  it("falls through past an empty {} tool-input block to a LATER block with real dimensions", async () => {
+    // Some models/regions can return a forced-tool response whose FIRST toolUse.input is a
+    // placeholder {} — short-circuiting there (typeof === "object") threw away a later block (or the
+    // text-path safety net) that actually carried the answer.
+    h.send = async () => ({
+      output: {
+        message: {
+          content: [
+            { toolUse: { input: {} } },
+            { toolUse: { input: { dimensions: [{ id: "D1", score: 80 }] } } },
+          ],
+        },
+      },
+    });
+    const provider = new BedrockProvider({ region: "us-east-1" });
+    const outcome = provider.assess(input);
+    await vi.advanceTimersByTimeAsync(0);
+    const a = await outcome;
+    expect(a.dimensions[0]).toMatchObject({ id: "D1", score: 80 });
+  });
+
+  it("falls through to the text safety net when every toolUse.input is empty/dimension-less", async () => {
+    h.send = async () => ({
+      output: {
+        message: {
+          content: [
+            { toolUse: { input: {} } },
+            { text: JSON.stringify({ dimensions: [{ id: "D1", score: 55 }] }) },
+          ],
+        },
+      },
+    });
+    const provider = new BedrockProvider({ region: "us-east-1" });
+    const outcome = provider.assess(input);
+    await vi.advanceTimersByTimeAsync(0);
+    const a = await outcome;
+    expect(a.dimensions[0]).toMatchObject({ id: "D1", score: 55 });
+  });
+});
+
 describe("testBedrockConnection — exercises the forced tool schema, not a bare ping (#6)", () => {
   it("sends the REQUIRED report_assessment toolConfig so tool-capability is actually validated", async () => {
     // A bare `ping` green-checked models/regions that don't support Converse tool use — then every

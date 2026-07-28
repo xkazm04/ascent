@@ -54,7 +54,8 @@ export interface GovernanceOverview {
   failing: number;
   passRate: number; // 0..100
   /** How many repos fail on each condition (deduped per repo) — where the fleet is weakest. */
-  byReason: { level: number; overall: number; dimension: number; posture: number; governance: number };
+  /** Failing-condition tally. Keyed off GateFailure["code"] so a new code cannot be silently dropped. */
+  byReason: Record<GateFailure["code"], number>;
   failures: GovernanceFailure[]; // worst first (most failing conditions, then lowest overall)
   /** Failing repos CLOSEST to passing — single-condition + smallest gap first (PRAC-6). */
   closestToGreen: GreenPathItem[];
@@ -114,7 +115,12 @@ export async function buildGovernanceOverview(
   const policy = savedPolicy ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE);
   const scannedRepos = rollup.repos.filter((r) => r.latest);
 
-  const byReason = { level: 0, overall: 0, dimension: 0, posture: 0, governance: 0 };
+  // `incomplete` is carried for shape completeness: the fleet path scores from persisted numbers
+  // (evaluateGateLite) and cannot observe an empty-dimensions report, so it stays 0 here. The repo
+  // gate is the surface that fails such a scan closed.
+  const byReason: Record<GateFailure["code"], number> = {
+    level: 0, overall: 0, dimension: 0, posture: 0, governance: 0, incomplete: 0,
+  };
   const failures: GovernanceFailure[] = [];
   const greenPath: GreenPathItem[] = [];
   let passing = 0;
@@ -226,7 +232,7 @@ export function governanceMarkdown(o: GovernanceOverview): string {
   out.push("## Fleet status");
   out.push(`- ${o.passing}/${o.scanned} repos PASS the gate (${o.passRate}%)`);
   out.push(
-    `- Failing on: ${o.byReason.level} below level · ${o.byReason.dimension} dimension floor · ${o.byReason.posture} posture${o.byReason.overall ? ` · ${o.byReason.overall} overall` : ""}${o.byReason.governance ? ` · ${o.byReason.governance} unprotected branch` : ""}`,
+    `- Failing on: ${o.byReason.level} below level · ${o.byReason.dimension} dimension floor · ${o.byReason.posture} posture${o.byReason.overall ? ` · ${o.byReason.overall} overall` : ""}${o.byReason.governance ? ` · ${o.byReason.governance} unprotected branch` : ""}${o.byReason.incomplete ? ` · ${o.byReason.incomplete} incomplete scan` : ""}`,
   );
   if (o.failures.length) {
     out.push("");

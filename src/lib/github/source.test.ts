@@ -397,13 +397,13 @@ describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient 
 // `owner/repo@sha::mode` cache key, so a wrong status→SHA mapping silently defeats invalidation (a stale
 // report served after a push) or fragments/poisons the cache with a bogus SHA. We stub the global `fetch`
 // (the seam list.test.ts uses) and pin status→result per case. Invariants:
-//   - a returned ok.sha ALWAYS matches /^[0-9a-f]{7,40}$/ and is lowercased;
+//   - a returned ok.sha ALWAYS matches /^[0-9a-f]{40}$/ and is lowercased;
 //   - 304 maps to `unmodified` (the free-revalidation promise — GitHub doesn't bill a 304), and only then
 //     is `If-None-Match` sent (so the 304 path can actually be reached on a quiet repo);
 //   - every non-ok / non-304 status (404, 403, 500) AND a non-SHA 200 body AND a thrown fetch map to
 //     `error` — NEVER a fabricated `ok` SHA that would key (and serve) a stale scan.
 
-const SHA40 = /^[0-9a-f]{7,40}$/;
+const SHA40 = /^[0-9a-f]{40}$/;
 
 /** Capture the single request resolveHead makes so we can assert the headers/url it sent. */
 function captureHeadFetch(impl: (url: string, init: RequestInit) => Response | Promise<Response>) {
@@ -452,11 +452,18 @@ describe("resolveHead — status→HeadLookup mapping keys cache freshness; a wr
     expect(out.etag).toBe('W/"fresh"'); // captured for the next conditional lookup
   });
 
-  it("200 + a short-but-valid 7-hex body still maps to ok (the 7..40 guard lower bound)", async () => {
+  it("200 + a SHORT (7-hex) body → {status:'error'} — a partial sha is never a head commit (G3-22)", async () => {
+    // The endpoint's contract is a FULL 40-char commit sha, so a 7-char body is a truncated/garbled
+    // response, not a legitimate abbreviation. The old `{7,40}` guard accepted it and it would then be
+    // persisted as the repo's head identity — keying the cache, minting permalinks, and feeding the
+    // @@unique([repoId, headSha]) dedup with a value the next FULL sha can never match.
     vi.stubGlobal("fetch", captureHeadFetch(() => res("abc1234")));
-    const out = await resolveHead({ owner: "o", repo: "r" });
-    expect(out.status).toBe("ok");
-    if (out.status === "ok") expect(out.sha).toMatch(SHA40);
+    expect(await resolveHead({ owner: "o", repo: "r" })).toEqual({ status: "error" });
+  });
+
+  it("200 + a 39-hex body (one char short of a commit sha) → {status:'error'}", async () => {
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("a".repeat(39))));
+    expect(await resolveHead({ owner: "o", repo: "r" })).toEqual({ status: "error" });
   });
 
   it("200 + a NON-SHA body (an HTML error page) → {status:'error'} — a bogus SHA must NEVER key the cache", async () => {

@@ -460,3 +460,48 @@ describe("policyFromParams — min_overall / min_dimension threshold parsing", (
     expect(policyFromParams(new URLSearchParams("min_dimension=39.9"), "org").minDimension).toBe(39);
   });
 });
+
+// ---------------------------------------------------------------------------
+// An INCOMPLETE scan is not a verdict (G3-10).
+//
+// When every detector fails, `dimensions` is empty and overallScore/level are the renormalized floor
+// (0 / L1) — indistinguishable, numerically, from a genuinely manual repo. The gate reads numbers, so
+// it must read the structured flag and fail closed with one honest reason instead of certifying (or
+// condemning) a repository on an ingestion failure.
+// ---------------------------------------------------------------------------
+
+describe("evaluateGate — incomplete scan fails closed (G3-10)", () => {
+  const incomplete = (over: Partial<ScanReport> = {}) =>
+    ({
+      archetype: "org",
+      level: { id: "L1" },
+      overallScore: 0,
+      dimensions: [],
+      posture: { id: "manual", label: "Solid but Manual" },
+      incomplete: true,
+      ...over,
+    }) as unknown as ScanReport;
+
+  it("refuses to gate on a report flagged incomplete", () => {
+    const res = evaluateGate(incomplete());
+    expect(res.pass).toBe(false);
+    expect(res.failures).toHaveLength(1);
+    expect(res.failures[0]!.code).toBe("incomplete");
+    expect(res.failures[0]!.message).toMatch(/INCOMPLETE/);
+  });
+
+  it("also catches a legacy/reconstructed report that predates the flag (empty dimensions)", () => {
+    const res = evaluateGate(incomplete({ incomplete: undefined }));
+    expect(res.failures.map((f) => f.code)).toEqual(["incomplete"]);
+  });
+
+  it("does not emit per-dimension noise that would read as findings about the repo", () => {
+    const res = evaluateGate(incomplete(), { minOverall: 50, minDimension: 40, minLevel: "L3" });
+    expect(res.failures.map((f) => f.code)).toEqual(["incomplete"]);
+  });
+
+  it("leaves a report with at least one scored dimension on the normal path", () => {
+    const res = evaluateGate(report({ d9: 80 }));
+    expect(res.failures.every((f) => f.code !== "incomplete")).toBe(true);
+  });
+});

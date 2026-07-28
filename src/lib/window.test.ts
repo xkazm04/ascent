@@ -1,9 +1,16 @@
 // The org dashboard window does double duty: it bounds the trend AND fixes the period-over-period
-// baseline date. Pin that preset starts snap to a stable LOCAL-MIDNIGHT day boundary (not a raw
-// wall-clock ms offset that flickers within a day / drifts across DST) and the period cookie round-trips.
+// baseline date. Pin that preset starts snap to a stable CANONICAL-ZONE MIDNIGHT day boundary (not a
+// raw wall-clock ms offset that flickers within a day / drifts across DST) and the period cookie
+// round-trips.
+//
+// G4-07: the canonical zone is UTC by default (src/lib/org/timezone.ts). These assertions are
+// therefore written against explicit UTC instants and MUST hold in any runner timezone — that is the
+// whole point of the policy. The old suite asserted "some local midnight", which passed on a UTC CI
+// box and a CET laptop while meaning two different windows.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveWindow, parsePeriodCookie, serializePeriodCookie, DEFAULT_RANGE } from "./window";
+import { addDaysInZone, dayKeyInZone, orgTimeZone, partsInZone, zonedMidnight } from "./org/timezone";
 
 // resolveOrgWindow (src/lib/org/period.ts) is server-only: it reads the period cookie via
 // next/headers `cookies()`. Mock that boundary so we can drive the cookie value and assert the
@@ -15,24 +22,29 @@ vi.mock("next/headers", () => ({
 
 const DAY = 86_400_000;
 
-const NOW = new Date(2026, 5, 16, 14, 37, 22, 500); // local 2026-06-16 14:37:22.500 (a mid-afternoon instant)
-const atLocalMidnight = (d: Date | null) =>
-  d !== null && d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0;
+const NOW = new Date("2026-06-16T14:37:22.500Z"); // 2026-06-16 14:37:22.500 canonical (a mid-afternoon instant)
 
-describe("resolveWindow — preset starts snap to local midnight", () => {
-  it("30d start is a local-midnight day boundary, not a raw ms offset from now", () => {
+/** True when `d` is exactly midnight in the CANONICAL org zone (the only frame that matters now). */
+const atZoneMidnight = (d: Date | null) => {
+  if (d === null) return false;
+  const p = partsInZone(d, orgTimeZone());
+  return p.hour === 0 && p.minute === 0 && p.second === 0 && d.getTime() % 1000 === 0;
+};
+
+describe("resolveWindow — preset starts snap to canonical-zone midnight", () => {
+  it("30d start is a canonical-midnight day boundary, not a raw ms offset from now", () => {
     const w = resolveWindow({ range: "30d" }, NOW);
     expect(w.key).toBe("30d");
-    expect(atLocalMidnight(w.start)).toBe(true);
+    expect(atZoneMidnight(w.start)).toBe(true);
   });
 
-  it("90d start is a local-midnight day boundary", () => {
-    expect(atLocalMidnight(resolveWindow({ range: "90d" }, NOW).start)).toBe(true);
+  it("90d start is a canonical-midnight day boundary", () => {
+    expect(atZoneMidnight(resolveWindow({ range: "90d" }, NOW).start)).toBe(true);
   });
 
-  it("quarter + custom starts are local midnight too (consistent reference frame)", () => {
-    expect(atLocalMidnight(resolveWindow({ range: "quarter" }, NOW).start)).toBe(true);
-    expect(atLocalMidnight(resolveWindow({ range: "custom", from: "2026-01-01" }, NOW).start)).toBe(true);
+  it("quarter + custom starts are canonical midnight too (ONE reference frame, G4-07)", () => {
+    expect(atZoneMidnight(resolveWindow({ range: "quarter" }, NOW).start)).toBe(true);
+    expect(atZoneMidnight(resolveWindow({ range: "custom", from: "2026-01-01" }, NOW).start)).toBe(true);
   });
 
   it("all-time has no baseline; an unknown range falls back to the 90d default", () => {
@@ -64,47 +76,51 @@ describe("period cookie round-trip", () => {
 // in the cookie validation that accepts an unknown range and silently widens every user's window).
 
 describe("resolveWindow — exact rolling-window start value", () => {
-  it("90d start equals local midnight of (now − 90d), not the 14:37 render instant", () => {
+  it("90d start equals canonical midnight of the day 90 CALENDAR days back, not the 14:37 render instant", () => {
     const w = resolveWindow({ range: "90d" }, NOW);
-    const raw = new Date(NOW.getTime() - 90 * DAY);
-    const expected = new Date(raw.getFullYear(), raw.getMonth(), raw.getDate());
-    expect(w.start!.getTime()).toBe(expected.getTime());
+    expect(w.start!.getTime()).toBe(addDaysInZone(NOW, -90).getTime());
+    expect(dayKeyInZone(w.start!)).toBe("2026-03-18"); // 90 days before 2026-06-16
     expect(w.end).toBeNull(); // open-ended (now)
+    expect(w.endExclusive).toBeNull();
   });
 
-  it("30d start equals local midnight of (now − 30d)", () => {
-    const raw = new Date(NOW.getTime() - 30 * DAY);
-    const expected = new Date(raw.getFullYear(), raw.getMonth(), raw.getDate());
-    expect(resolveWindow({ range: "30d" }, NOW).start!.getTime()).toBe(expected.getTime());
+  it("30d start equals canonical midnight of the day 30 calendar days back", () => {
+    expect(resolveWindow({ range: "30d" }, NOW).start!.getTime()).toBe(addDaysInZone(NOW, -30).getTime());
+    expect(dayKeyInZone(resolveWindow({ range: "30d" }, NOW).start!)).toBe("2026-05-17");
   });
 
-  it("quarter start is the first day of the calendar quarter (June ⇒ Apr 1) at local midnight", () => {
-    expect(resolveWindow({ range: "quarter" }, NOW).start!.getTime()).toBe(new Date(2026, 3, 1).getTime());
+  it("quarter start is the first day of the calendar quarter (June ⇒ Apr 1) at canonical midnight", () => {
+    expect(resolveWindow({ range: "quarter" }, NOW).start!.getTime()).toBe(zonedMidnight(2026, 4, 1).getTime());
   });
 
-  it("most same-day renders collapse to one baseline (noon == night), and the start is always a midnight", () => {
-    // The midnight snap removes the WITHIN-day flicker a raw ms-instant baseline had: a noon render and
-    // a one-second-before-midnight render on the same calendar day resolve to the identical start.
-    const noon = resolveWindow({ range: "90d" }, new Date(2026, 5, 16, 12, 0, 0));
-    const night = resolveWindow({ range: "90d" }, new Date(2026, 5, 16, 23, 59, 59));
-    expect(noon.start!.getTime()).toBe(night.start!.getTime());
-    expect(atLocalMidnight(noon.start)).toBe(true);
+  it("every render hour of the same canonical day collapses to ONE baseline — including the DST seam", () => {
+    // The old `startOfDay(now − 90×86.4M ms)` fixed intra-day flicker but left a DST seam: a flat 90
+    // nominal days across a spring-forward boundary landed just before vs just after midnight depending
+    // on the render hour, snapping to ADJACENT calendar days. `addDaysInZone` is calendar arithmetic, so
+    // the gap is now always 0 — every hour of a given day yields the identical baseline. (G4-07)
+    const at = (h: number, m = 0, s = 0) =>
+      resolveWindow({ range: "90d" }, new Date(Date.UTC(2026, 5, 16, h, m, s))).start!.getTime();
+    const early = at(0, 0, 1);
+    const noon = at(12);
+    const night = at(23, 59, 59);
+    expect(Math.round((night - early) / DAY)).toBe(0);
+    expect(noon).toBe(early);
+    expect(atZoneMidnight(new Date(early))).toBe(true);
   });
 
-  it("KNOWN DST EDGE: when the 90d lookback straddles a DST transition, a very-early render can still shift the baseline one calendar day — pinned as current behavior", () => {
-    // The snap fixes intra-day flicker but NOT the residual DST seam: `startOfDay(now − 90*DAY)` subtracts
-    // a flat 90×86.4M ms, so when the lookback crosses a spring-forward boundary the resulting wall-clock
-    // can land just before vs just after local midnight depending on the render hour, snapping to adjacent
-    // days. This asserts the actual behavior (so it is a deliberate, test-breaking change to "fix"), and is
-    // tz-dependent — only meaningful where the lookback crosses a transition; elsewhere both renders agree.
-    const early = resolveWindow({ range: "90d" }, new Date(2026, 5, 16, 0, 0, 1)).start!.getTime();
-    const night = resolveWindow({ range: "90d" }, new Date(2026, 5, 16, 23, 59, 59)).start!.getTime();
-    const gapDays = Math.round((night - early) / DAY);
-    // 0 in a no-DST tz (e.g. UTC runner); 1 across a spring-forward seam (e.g. CET→CEST). Never > 1.
-    expect([0, 1]).toContain(gapDays);
-    // Whatever the seam does, BOTH ends remain clean local midnights — the snap invariant holds.
-    expect(atLocalMidnight(new Date(early))).toBe(true);
-    expect(atLocalMidnight(new Date(night))).toBe(true);
+  it("a spring-forward day inside the lookback does not shift the boundary (calendar, not nominal, days)", () => {
+    // 2026-03-08 is the US spring-forward date and 2026-03-29 the EU one; both sit inside a 90d lookback
+    // from mid-June. Under UTC (the default canonical zone) neither exists, and under an override the
+    // calendar arithmetic absorbs them — so the assertion is the same either way: exactly 90 day-keys back.
+    const start = resolveWindow({ range: "90d" }, NOW).start!;
+    let cursor = start;
+    let days = 0;
+    while (dayKeyInZone(cursor) !== dayKeyInZone(NOW)) {
+      cursor = addDaysInZone(cursor, 1);
+      days++;
+      if (days > 200) break; // guard against a non-terminating walk
+    }
+    expect(days).toBe(90);
   });
 
   it("unknown / missing range both fall back to DEFAULT_RANGE (90d)", () => {
@@ -117,19 +133,43 @@ describe("resolveWindow — exact rolling-window start value", () => {
   });
 });
 
-describe("resolveWindow — custom half-open boundary (to is inclusive of its whole day)", () => {
-  it("`to` end is local-midnight(to) + DAY − 1ms, so a scan anywhere on the to-day counts", () => {
+describe("resolveWindow — custom HALF-OPEN boundary [start, endExclusive)", () => {
+  it("endExclusive is canonical midnight of the day AFTER `to`; `end` is that minus 1ms", () => {
     const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
-    expect(w.start!.getTime()).toBe(new Date("2026-01-01T00:00:00").getTime());
-    const toMidnight = new Date("2026-03-31T00:00:00").getTime();
-    expect(w.end!.getTime()).toBe(toMidnight + DAY - 1); // 23:59:59.999, half-open boundary pinned
+    expect(w.start!.getTime()).toBe(zonedMidnight(2026, 1, 1).getTime());
+    // The canonical bound: the whole of 2026-03-31 is in, 2026-04-01T00:00 is out. (G4-07)
+    expect(w.endExclusive!.getTime()).toBe(zonedMidnight(2026, 4, 1).getTime());
+    expect(w.end!.getTime()).toBe(w.endExclusive!.getTime() - 1);
     expect(w.from).toBe("2026-01-01");
     expect(w.to).toBe("2026-03-31");
   });
 
-  it("custom with no `to` is open-ended (end null); a blank/invalid `from` ⇒ null start, no comparison", () => {
+  it("a scan just INSIDE and just OUTSIDE the exclusive end lands on the right side", () => {
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    const lastInstantIn = new Date(w.endExclusive!.getTime() - 1);
+    const firstInstantOut = w.endExclusive!;
+    expect(lastInstantIn.getTime() < w.endExclusive!.getTime()).toBe(true);
+    expect(dayKeyInZone(lastInstantIn)).toBe("2026-03-31");
+    expect(firstInstantOut.getTime() < w.endExclusive!.getTime()).toBe(false);
+    expect(dayKeyInZone(firstInstantOut)).toBe("2026-04-01");
+    // …and the same instants against the `lte: end` compat bound must agree with `lt: endExclusive`.
+    expect(lastInstantIn.getTime() <= w.end!.getTime()).toBe(true);
+    expect(firstInstantOut.getTime() <= w.end!.getTime()).toBe(false);
+  });
+
+  it("the start bound is INCLUSIVE — a scan exactly at midnight of `from` is inside the window", () => {
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    const exactlyStart = zonedMidnight(2026, 1, 1);
+    expect(exactlyStart.getTime() >= w.start!.getTime()).toBe(true);
+    const oneMsBefore = new Date(w.start!.getTime() - 1);
+    expect(oneMsBefore.getTime() >= w.start!.getTime()).toBe(false);
+    expect(dayKeyInZone(oneMsBefore)).toBe("2025-12-31");
+  });
+
+  it("custom with no `to` is open-ended (end + endExclusive null); a blank/invalid `from` ⇒ null start, no comparison", () => {
     const open = resolveWindow({ range: "custom", from: "2026-01-01" }, NOW);
     expect(open.end).toBeNull();
+    expect(open.endExclusive).toBeNull();
     expect(open.comparisonLabel).toBe("vs range start");
 
     const bad = resolveWindow({ range: "custom", from: "not-a-date" }, NOW);
@@ -137,12 +177,18 @@ describe("resolveWindow — custom half-open boundary (to is inclusive of its wh
     expect(bad.comparisonLabel).toBe("");
   });
 
+  it("an out-of-range date literal is rejected rather than silently rolling over (2026-02-31)", () => {
+    // `new Date("2026-02-31T00:00:00")` used to yield Mar 3 — a typo'd bound silently widened the window.
+    expect(resolveWindow({ range: "custom", from: "2026-02-31" }, NOW).start).toBeNull();
+    expect(resolveWindow({ range: "custom", from: "2026-13-01" }, NOW).start).toBeNull();
+  });
+
   it("a reversed range (from > to) is SWAPPED into a coherent period, not start > end", () => {
     // Without the guard, start > end → the trend query matches nothing (blank dashboard) while the
     // baseline (lt: start) returns an incoherent pre-start snapshot. Swap keeps both dates, ordered.
     const w = resolveWindow({ range: "custom", from: "2026-03-31", to: "2026-01-01" }, NOW);
-    expect(w.start!.getTime()).toBe(new Date("2026-01-01T00:00:00").getTime());
-    expect(w.end!.getTime()).toBe(new Date("2026-03-31T00:00:00").getTime() + DAY - 1);
+    expect(w.start!.getTime()).toBe(zonedMidnight(2026, 1, 1).getTime());
+    expect(w.endExclusive!.getTime()).toBe(zonedMidnight(2026, 4, 1).getTime());
     expect(w.start!.getTime()).toBeLessThan(w.end!.getTime());
     expect(w.from).toBe("2026-01-01");
     expect(w.to).toBe("2026-03-31");
@@ -176,11 +222,12 @@ describe("parsePeriodCookie — malformed-input fallthrough and round-trip into 
     });
   });
 
-  it("custom round-trip drives resolveWindow to the same inclusive-to window", () => {
+  it("custom round-trip drives resolveWindow to the same half-open window", () => {
     const cookie = serializePeriodCookie({ range: "custom", from: "2026-01-01", to: "2026-03-31" });
     const w = resolveWindow(parsePeriodCookie(cookie)!, NOW);
     expect(w.key).toBe("custom");
-    expect(w.end!.getTime()).toBe(new Date("2026-03-31T00:00:00").getTime() + DAY - 1);
+    expect(w.endExclusive!.getTime()).toBe(zonedMidnight(2026, 4, 1).getTime());
+    expect(w.end!.getTime()).toBe(w.endExclusive!.getTime() - 1);
   });
 
   it("empty custom parts normalize to undefined (not empty strings)", () => {

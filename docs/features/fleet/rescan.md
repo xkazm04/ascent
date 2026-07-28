@@ -104,6 +104,14 @@ later scan re-produces it.
 }
 ```
 
+## Cadences
+
+`scanSchedule` is one of `off | daily | weekly | monthly`. `daily` and `weekly` advance by an
+exact duration (+1d / +7d) from the moment the schedule is settled. `monthly` is **calendar**
+arithmetic — the same day-of-month next month, clamped to the last day when the target month is
+shorter (Jan 31 → Feb 28/29) — so a monthly repo holds its slot instead of walking backwards
+through the calendar (a flat 30-day step fires 12.2 times a year, one day earlier each month).
+
 ## Key files
 
 | File | Role |
@@ -118,6 +126,11 @@ later scan re-produces it.
 
 ## Known gaps
 
+- **Cadence anchors on the settle time, not the intended slot.** `nextScanAt` is computed from
+  the moment the scan finishes, so a delayed cron tick or a slow scan pushes the slot slightly
+  later each cycle. Anchoring on the previous slot needs a separate persisted anchor column —
+  `claimRescan` overwrites `nextScanAt` with its short lease before the scan runs, so by settle
+  time the intended slot is gone.
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this doc
   covers the handler's behavior once invoked, not the invocation cadence.
 - **Runs on the deployment's configured `LLM_PROVIDER`** (e.g. Bedrock/Gemini) —

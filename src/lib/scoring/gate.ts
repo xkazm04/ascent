@@ -31,9 +31,27 @@ export interface GatePolicy {
 }
 
 export interface GateFailure {
-  code: "level" | "overall" | "dimension" | "posture" | "governance";
+  code: "level" | "overall" | "dimension" | "posture" | "governance" | "incomplete";
   message: string;
 }
+
+/**
+ * The scan scored NOTHING — every detector failed or returned no data (`ScanReport.incomplete`), so
+ * `overallScore`/`level` are the renormalized floor (0 / L1) rather than a measurement. A gate must
+ * never certify or condemn a repo on that: it is an ingestion failure wearing a verdict's clothes.
+ *
+ * Derived, not just read: `incomplete` is stamped by the current engine, but a persisted/reconstructed
+ * report can predate the field — and an empty `dimensions` array means exactly the same thing — so both
+ * count. (Fail-closed by design: a gate that can't see the repo fails, it doesn't pass.)
+ */
+export function isIncompleteReport(report: Pick<ScanReport, "incomplete" | "dimensions">): boolean {
+  return report.incomplete === true || report.dimensions.length === 0;
+}
+
+const INCOMPLETE_MESSAGE =
+  "This scan is INCOMPLETE — no dimension could be scored (every detector failed or returned no data), " +
+  "so its 0 / L1 result is not a measurement. The gate fails closed rather than certify or condemn a " +
+  "repository on an ingestion failure; re-scan or check repository access.";
 
 export interface GateResult {
   pass: boolean;
@@ -278,6 +296,12 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
 /** Evaluate a report against a policy (defaults to the archetype policy), listing every failure. */
 export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResult {
   const pol = policy ?? defaultGatePolicy(report.archetype);
+  // An unscorable scan short-circuits: running the criteria would emit a wall of "D1 scored 0" style
+  // failures that read as findings about the repository, when the only true statement is that nothing
+  // was measured. One honest failure instead. (G3-10)
+  if (isIncompleteReport(report)) {
+    return { pass: false, policy: pol, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }] };
+  }
   const failures = evaluateNormalized(
     {
       // `|| 0` aligns the malformed-level parse with evaluateGateLite's (a bogus level id → NaN → 0

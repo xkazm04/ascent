@@ -151,6 +151,16 @@ export interface ModelPrice {
   inPerMTok: number;
   /** USD per million output tokens. */
   outPerMTok: number;
+  /**
+   * When true, `prefix` must equal the WHOLE candidate id (after geo/vendor-slug stripping), not just
+   * a leading substring. Used for the bare claude-cli aliases ("sonnet"/"haiku"/"opus"): those exact
+   * strings are the only real claude-cli engineModel values (CLAUDE_MODEL), so plain `startsWith`
+   * matching let any self-hosted/OpenAI-compatible model id sharing the prefix (e.g. "opus-7b") get
+   * billed at first-party Claude Opus rates in the /usage cost estimate — a real overbill, not a
+   * cosmetic mismatch. An unmatched id falls through to "no estimate" (the safe default this table
+   * already uses for genuinely unknown models) rather than a guessed rate. (G3-17)
+   */
+  exact?: boolean;
 }
 
 /**
@@ -174,9 +184,11 @@ export const MODEL_PRICES: ModelPrice[] = [
   { prefix: "anthropic.claude-haiku-4", inPerMTok: 1, outPerMTok: 5 },
   { prefix: "anthropic.claude-opus-4", inPerMTok: 5, outPerMTok: 25 },
   // Claude CLI aliases (CLAUDE_MODEL: "sonnet"/"haiku"/"opus") — same models, first-party rates.
-  { prefix: "sonnet", inPerMTok: 3, outPerMTok: 15 },
-  { prefix: "haiku", inPerMTok: 1, outPerMTok: 5 },
-  { prefix: "opus", inPerMTok: 5, outPerMTok: 25 },
+  // `exact: true` — see ModelPrice.exact: a bare prefix match here would overbill a self-hosted or
+  // OpenAI-compatible model id that happens to share the word (e.g. "opus-7b"). (G3-17)
+  { prefix: "sonnet", inPerMTok: 3, outPerMTok: 15, exact: true },
+  { prefix: "haiku", inPerMTok: 1, outPerMTok: 5, exact: true },
+  { prefix: "opus", inPerMTok: 5, outPerMTok: 25, exact: true },
   // OpenAI (OPENAI_MODEL default gpt-4o-mini; bare gpt-4o for the obvious upgrade).
   { prefix: "gpt-4o-mini", inPerMTok: 0.15, outPerMTok: 0.6 },
   { prefix: "gpt-4o", inPerMTok: 2.5, outPerMTok: 10 },
@@ -246,7 +258,8 @@ export function priceForModel(model: string | null | undefined): ModelPrice | nu
   let best: ModelPrice | null = null;
   for (const candidate of candidates) {
     for (const p of MODEL_PRICES) {
-      if (candidate.startsWith(p.prefix) && (best === null || p.prefix.length > best.prefix.length)) {
+      const matches = p.exact ? candidate === p.prefix : candidate.startsWith(p.prefix);
+      if (matches && (best === null || p.prefix.length > best.prefix.length)) {
         best = p;
       }
     }

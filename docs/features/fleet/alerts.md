@@ -126,7 +126,11 @@ silent rather than training the inbox filter.
   level, delta, scanned/repo counts, percentile), an optional trajectory line, a "Top
   gainers"/"Regressions" block, a "Highest-leverage gap" block, an optional "Credits
   remaining" line, and a link to the org's executive briefing (carrying the same
-  `?range=custom&from=&to=` window).
+  `?range=custom&from=&to=` window). A `null` `overallDelta` (no baseline exists for the
+  window at all — a freshly-onboarded org, or a fleet whose entire scan history is younger
+  than the window boundary) renders as an explicit "not enough history yet for a
+  week-over-week comparison" clause, never a silently-dropped delta — an empty string there
+  used to be indistinguishable from "the fleet held exactly flat."
 - **Shares webhook resolution with interactive alerts** — the digest resolves its sink
   through the exact same path as regression/promotion delivery: `getOrgAlertWebhook(org)` →
   the org's own `Organization.alertWebhookUrl` → falls back to the global

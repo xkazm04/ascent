@@ -4,6 +4,18 @@
 //
 // Pure + isomorphic: safe to import in server components (the date math) and in the client
 // selector (which only needs RANGE_OPTIONS / DEFAULT_RANGE).
+//
+// TIME ZONE: every boundary below is computed in the CANONICAL ORG ZONE (`src/lib/org/timezone.ts`,
+// UTC by default, `ASCENT_ORG_TZ`-overridable) — never in the server's local zone, which was only ever
+// whatever the host happened to be set to. Read that module's header for the full policy; it is the
+// single place the decision lives. Day arithmetic here is CALENDAR arithmetic (`addDaysInZone`), not
+// `n × 86.4M ms`, so a lookback that straddles a DST transition still lands on a clean day boundary.
+//
+// INTERVALS ARE HALF-OPEN: a window means `[start, endExclusive)`. `end` is kept as the last
+// representable instant of that same interval (endExclusive − 1ms) purely for callers whose query
+// builders still say `lte`; prefer `endExclusive` with `lt`. (G4-07)
+
+import { addDaysInZone, dayKeyInZone, parseDayKey, startOfQuarterInZone } from "@/lib/org/timezone";
 
 export type RangeKey = "30d" | "90d" | "quarter" | "all" | "custom";
 
@@ -47,8 +59,16 @@ export interface ResolvedWindow {
   key: RangeKey;
   /** Window start — also the baseline date for deltas. null = all-time (no baseline / no deltas). */
   start: Date | null;
-  /** Window end. null = now (open-ended). */
+  /**
+   * Window end as the LAST REPRESENTABLE INSTANT of the period (`endExclusive − 1ms`), for callers
+   * whose Prisma filter is `lte`. null = now (open-ended). Prefer `endExclusive` + `lt`.
+   */
   end: Date | null;
+  /**
+   * The canonical HALF-OPEN upper bound: the window is `[start, endExclusive)`. For a custom range
+   * this is the zoned midnight STARTING the day after `to`. null = open-ended.
+   */
+  endExclusive: Date | null;
   /** Human label for the period, e.g. "Last 90 days". */
   title: string;
   /** Short suffix on tile deltas, e.g. "vs 90d ago". Empty when there's no comparison. */
@@ -60,47 +80,26 @@ export interface ResolvedWindow {
   to?: string;
 }
 
-const DAY = 86_400_000;
+/** First day of the calendar quarter containing `now`, at canonical-zone midnight. */
+const startOfQuarter = (now: Date): Date => startOfQuarterInZone(now);
 
-/** Local midnight of the calendar day containing `d` (zeroes h/m/s/ms). */
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-/** First day of the calendar quarter containing `now`, at local midnight. */
-function startOfQuarter(now: Date): Date {
-  const q = Math.floor(now.getMonth() / 3);
-  return new Date(now.getFullYear(), q * 3, 1);
-}
-
-/** Parse a yyyy-mm-dd input into a local-midnight Date, or null when blank/invalid. */
-function parseDay(s: string | undefined): Date | null {
-  if (!s) return null;
-  const d = new Date(`${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
+/** Parse a yyyy-mm-dd input into a canonical-zone midnight Date, or null when blank/invalid. */
+const parseDay = (s: string | undefined): Date | null => parseDayKey(s);
 
 const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
-/** Format a Date as the local-calendar `yyyy-mm-dd` the custom-range inputs use (round-trips parseDay). */
-function toDayInput(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+/** Format a Date as the canonical-zone `yyyy-mm-dd` the custom-range inputs use (round-trips parseDay). */
+const toDayInput = (d: Date): string => dayKeyInZone(d);
 
 /**
- * The trailing-week window as `?range=custom&from=&to=` params, snapped to LOCAL CALENDAR DAYS so it
+ * The trailing-week window as `?range=custom&from=&to=` params, snapped to CANONICAL-ZONE CALENDAR DAYS so it
  * shares the dashboard's boundary semantics instead of a raw rolling 168h offset. `from` is 6 days
  * before today (inclusive) and `to` is today, i.e. a 7-day inclusive span. Feeding these through
  * resolveWindow (or the executive URL) makes a "this week" push and the page it links to agree on the
  * exact same period boundaries. (fleet-alerts-digests #5)
  */
 export function weekRangeParams(now: Date = new Date()): { range: "custom"; from: string; to: string } {
-  const today = startOfDay(now);
-  const from = new Date(today.getTime() - 6 * DAY);
-  return { range: "custom", from: toDayInput(from), to: toDayInput(today) };
+  return { range: "custom", from: toDayInput(addDaysInZone(now, -6)), to: toDayInput(now) };
 }
 
 /**
@@ -115,18 +114,21 @@ export function resolveWindow(
   const key: RangeKey = (RANGE_OPTIONS.some((o) => o.key === raw) ? raw : DEFAULT_RANGE) as RangeKey;
 
   switch (key) {
-    // Snap the rolling-window start to LOCAL MIDNIGHT (like quarter/custom), not a raw N×86.4M-ms
-    // offset from "right now". A bare offset made the baseline an arbitrary wall-clock instant (14:37…)
-    // that flickered within a calendar day and drifted an hour across DST — so a boundary-day scan
-    // landed on the wrong side of `start` depending on the hour the page rendered.
+    // Rolling-window starts are CANONICAL-ZONE MIDNIGHT of the day N calendar days back (like
+    // quarter/custom), not a raw N×86.4M-ms offset from "right now". A bare offset made the baseline
+    // an arbitrary wall-clock instant (14:37…) that flickered within a calendar day, so a boundary-day
+    // scan landed on the wrong side of `start` depending on the hour the page rendered. `addDaysInZone`
+    // additionally closes the DST seam the old `startOfDay(now − N×DAY)` still had: subtracting a flat
+    // 90 nominal days across a spring-forward transition could snap to the adjacent calendar day
+    // depending on the render hour. It is now exactly "N calendar days back", always. (G4-07)
     case "30d":
-      return { key, start: startOfDay(new Date(now.getTime() - 30 * DAY)), end: null, title: "Last 30 days", comparisonLabel: "vs 30d ago", reviewTitle: "Last 30 days in review" };
+      return { key, start: addDaysInZone(now, -30), end: null, endExclusive: null, title: "Last 30 days", comparisonLabel: "vs 30d ago", reviewTitle: "Last 30 days in review" };
     case "90d":
-      return { key, start: startOfDay(new Date(now.getTime() - 90 * DAY)), end: null, title: "Last 90 days", comparisonLabel: "vs 90d ago", reviewTitle: "Last 90 days in review" };
+      return { key, start: addDaysInZone(now, -90), end: null, endExclusive: null, title: "Last 90 days", comparisonLabel: "vs 90d ago", reviewTitle: "Last 90 days in review" };
     case "quarter":
-      return { key, start: startOfQuarter(now), end: null, title: "This quarter", comparisonLabel: "vs quarter start", reviewTitle: "Quarter in review" };
+      return { key, start: startOfQuarter(now), end: null, endExclusive: null, title: "This quarter", comparisonLabel: "vs quarter start", reviewTitle: "Quarter in review" };
     case "all":
-      return { key, start: null, end: null, title: "All time", comparisonLabel: "", reviewTitle: "All-time review" };
+      return { key, start: null, end: null, endExclusive: null, title: "All time", comparisonLabel: "", reviewTitle: "All-time review" };
     case "custom": {
       let from = first(params.from);
       let to = first(params.to);
@@ -140,8 +142,11 @@ export function resolveWindow(
         [start, toDay] = [toDay, start];
         [from, to] = [to, from];
       }
-      // Make `to` inclusive of its whole day; an absent `to` leaves the window open-ended (now).
-      const end = toDay ? new Date(toDay.getTime() + DAY - 1) : null;
+      // `to` names a whole calendar day, so the half-open upper bound is the START of the NEXT day in
+      // the canonical zone (calendar arithmetic, so a DST day is still one whole day). `end` is that
+      // bound minus 1ms for the remaining `lte` call sites. An absent `to` leaves both null (open to now).
+      const endExclusive = toDay ? addDaysInZone(toDay, 1) : null;
+      const end = endExclusive ? new Date(endExclusive.getTime() - 1) : null;
       // Echo the RESOLVED bounds in the title. Custom is the one period whose parameters aren't
       // implied by its name: a shared ?range=custom link, a remembered cookie, or the silent
       // reversed-range swap above would otherwise render "Custom range" while every number on the
@@ -151,6 +156,7 @@ export function resolveWindow(
         key,
         start,
         end,
+        endExclusive,
         title,
         comparisonLabel: start ? "vs range start" : "",
         reviewTitle: start ? `${title} in review` : "Range in review",

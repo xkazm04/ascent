@@ -10,6 +10,7 @@ import { buildAiDeliveryModel } from "@/components/org/delivery/ai/aiDeliveryMod
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
+import { deliveryEmptyMessage, settle } from "@/components/org/delivery/deliveryLoad";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,13 @@ export default async function OrgDelivery({
   // delivery/governance for one business unit or stack; the two filters compose.
   const { barProps, segmentId, techGroupId, activeStack } = await resolveOrgScope(slug, sp);
 
-  const [pr, gov, activity, usage] = await Promise.all([
+  // G4-10: Promise.all rejects on the FIRST failing query, which discarded all four panels — a
+  // transient DB blip on, say, the governance rollup used to blank the whole page, including the PR
+  // signals and activity chart that would have rendered fine. Promise.allSettled isolates each query so
+  // one failure degrades only its own panel. Each panel then gets an explicit "couldn't load" banner
+  // below (never a silent empty state) — an empty state reads as "nothing to show," which is a
+  // different, false claim when the real story is "the query errored."
+  const [prSettled, govSettled, activitySettled, usageSettled] = await Promise.allSettled([
     getOrgPrSignals(slug, segmentId, techGroupId),
     getOrgGovernance(slug, segmentId, techGroupId),
     getOrgActivity(slug, segmentId, techGroupId),
@@ -36,6 +43,20 @@ export default async function OrgDelivery({
     // layer is a single org-level total with no per-repo breakdown — it genuinely cannot be filtered.
     getOrgUsageRollup(slug),
   ]);
+  const { value: pr, failed: prFailed } = settle(prSettled);
+  const { value: gov, failed: govFailed } = settle(govSettled);
+  const { value: activity, failed: activityFailed } = settle(activitySettled);
+  const { value: usage, failed: usageFailed } = settle(usageSettled);
+  // Surface the rejection server-side — a swallowed error here would be the exact "no signal that
+  // anything went wrong" failure this fix exists to close, just moved from the page to the log.
+  for (const [label, r] of [
+    ["getOrgPrSignals", prSettled],
+    ["getOrgGovernance", govSettled],
+    ["getOrgActivity", activitySettled],
+    ["getOrgUsageRollup", usageSettled],
+  ] as const) {
+    if (r.status === "rejected") console.error(`[delivery/${slug}] ${label} failed:`, r.reason);
+  }
 
   // AI delivery intelligence: join the real per-repo AI signals above with connected-provider usage
   // (measured/allocated), falling back to a simulated placeholder when nothing is connected. Computed
@@ -63,17 +84,15 @@ export default async function OrgDelivery({
   );
 
   if (!pr && !gov && !activity) {
+    // G4-10: distinguish "nothing to show" from "couldn't load it" — if any of the three queries
+    // actually THREW (not just legitimately returned null for a token-less/unmatched-filter org), telling
+    // the reader to go configure a GitHub token they may already have is actively wrong. A query error
+    // gets its own honest copy and never the token-setup nudge. (deliveryEmptyMessage is pure/unit-tested.)
+    const anyFailed = prFailed || govFailed || activityFailed;
     return (
       <div className="space-y-4">
         {segmentBar}
-        <SectionEmpty>
-          {/* Finding #3: branch on the composed scope (segment OR stack), not `segmentId` alone — a
-              stack filter that matched no repo also empties the view, and blaming "no GitHub token"
-              sent the user to re-configure a token they already have instead of clearing the filter. */}
-          {segmentId || techGroupId
-            ? "No delivery signals for this filter — pick another segment/stack or scan more of its repos (signals need a GitHub token)."
-            : "Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab."}
-        </SectionEmpty>
+        <SectionEmpty>{deliveryEmptyMessage({ anyFailed, segmentId, techGroupId })}</SectionEmpty>
       </div>
     );
   }
@@ -84,6 +103,20 @@ export default async function OrgDelivery({
 
       {/* Fix first — the derived punch list; every priority links to the evidence below. */}
       {(pr || gov) && <DeliveryPriorities pr={pr} gov={gov} />}
+
+      {/* G4-10: a panel whose query THREW gets its own honest "couldn't load" banner instead of just
+          vanishing (the old Promise.all behavior blanked ALL FOUR panels on one rejection; the
+          allSettled fix above isolates the failure, but a silently-omitted section would still read as
+          "nothing here" — success theater by omission, not by false-positive copy). */}
+      {prFailed && <SectionEmpty>Pull request signals couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
+      {govFailed && <SectionEmpty>Branch governance couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
+      {activityFailed && <SectionEmpty>Commit activity couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
+      {usageFailed && pr && (
+        <SectionEmpty>
+          AI usage/spend data couldn&apos;t load right now — the AI delivery figures below (if shown) may be
+          missing spend context. Try refreshing this page.
+        </SectionEmpty>
+      )}
 
       {/* AI delivery intelligence — spend × AI output × governance, as a Table and a Map view. */}
       {aiModel && !withholdAllocatedRoi && <AiDeliveryModule model={aiModel} slug={slug} />}

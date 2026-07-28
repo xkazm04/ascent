@@ -15,6 +15,7 @@ import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
 import { dispatchScanCompletionEmail, emailSendingEnabled, isValidEmail } from "@/lib/email";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
+import type { ScanProgress } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -163,7 +164,12 @@ export async function POST(request: Request) {
           }
         }
 
-        const runScan = (signal: AbortSignal) =>
+        // Progress sink for THIS connection. When the scan is coalesced, coalesceScan fans the owner's
+        // frames out to every joined caller through this (and replays the latest frame on join), so a
+        // second viewer of the same uncached commit sees live progress instead of a stalled-looking bar.
+        // The non-coalesced (token/private) path calls it directly.
+        const sendProgress = (p: ScanProgress) => send("progress", p);
+        const runScan = (signal: AbortSignal, emit: (p: ScanProgress) => void = sendProgress) =>
           scanRepository(url, {
             token,
             noAmbientToken,
@@ -172,7 +178,7 @@ export async function POST(request: Request) {
             // personal-org standing decisions into the prompt (viewer was resolved in request scope
             // above — cookies aren't readable in start()). Org-persisted scans keep org scoping.
             decisionOrgSlug: orgSlug === "public" && viewer ? viewer.login.trim().toLowerCase() : undefined,
-            onProgress: (p) => send("progress", p),
+            onProgress: emit,
             // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
             // can't key the report under a different commit than it actually scored.
             headSha: lookup?.headSha ?? undefined,
@@ -189,9 +195,19 @@ export async function POST(request: Request) {
         // while landing 1s after completion (a cache hit) paid 1. (scan-pipeline-ingestion #4)
         let joinedInflight = false;
         const report = lookup
-          ? await coalesceScan(lookup.cacheKey, runScan, request.signal, () => {
-              joinedInflight = true;
-            })
+          ? await coalesceScan(
+              lookup.cacheKey,
+              runScan,
+              request.signal,
+              () => {
+                joinedInflight = true;
+                // Tell the joiner immediately that it attached to a run already under way — the replayed
+                // last frame (below, inside coalesceScan) may still be a stage or two behind, and an
+                // unexplained pause at 0% reads as a broken scan.
+                send("progress", { stage: "fetch", message: "Joining a scan already in progress…", pct: 5 });
+              },
+              sendProgress,
+            )
           : await runScan(request.signal);
         if (joinedInflight) await refundQuota();
 

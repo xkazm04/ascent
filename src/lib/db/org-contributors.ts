@@ -4,7 +4,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { aiShareOf, isBot, pickChampions, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { CHAMPION_LIMIT, MIN_CHAMPION_COMMITS } from "@/components/org/shared/champions";
+import { CHAMPION_LIMIT, MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
 
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
@@ -56,10 +56,26 @@ export interface ContributorInsights {
    *  by more than the ~6-month horizon (see the heterogeneous-recency guard above). Lets the UI
    *  annotate "N stale repos excluded" instead of silently blending mixed-age windows. */
   staleRepos: number;
-  contributors: ContributorInsight[]; // all humans, sorted by commits desc
-  champions: ContributorInsight[]; // top by championScore
-  concentration: RepoConcentration[]; // per repo, sorted by topShare desc
+  /** Contributors bucketed by personal AI share: high (≥50%), some (1–49%), none (0%). An AGGREGATE —
+   *  always populated, even below the naming floor, so a small org still gets an adoption spread
+   *  without any consumer having to walk the (withheld) per-person rows to compute it. */
+  distribution: { high: number; some: number; none: number };
+  /** False when fewer than CHAMPION_MIN_POP humans are in scope. This producer then withholds EVERY
+   *  per-individual field it emits (see below) — the privacy floor is enforced here, not at the call
+   *  sites, so a new consumer (CSV export, PDF brief, digest, OG image) inherits it by construction.
+   *  Consumers use this only to pick honest copy ("withheld", not "no data"). */
+  namingAllowed: boolean;
+  /** All humans, sorted by commits desc — EMPTY when `namingAllowed` is false. */
+  contributors: ContributorInsight[];
+  /** Top by championScore — EMPTY when `namingAllowed` is false. */
+  champions: ContributorInsight[];
+  /** Per repo, sorted by topShare desc. Counts/shares are aggregates and always present; `topLogin`
+   *  is a named individual and is redacted to "—" when `namingAllowed` is false. */
+  concentration: RepoConcentration[];
 }
+
+/** What `topLogin` reads when the population is below the naming floor (same sentinel as "no data"). */
+const REDACTED_LOGIN = "—";
 
 /** Contributor involvement, AI-native profiles, champions, and bus-factor across an org. */
 export async function getContributorInsights(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<ContributorInsights | null> {
@@ -173,13 +189,32 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
   const totalCommits = contributors.reduce((s, c) => s + c.commits, 0);
   const aiCommitsTotal = contributors.reduce((s, c) => s + c.aiCommits, 0);
   const aiActive = contributors.filter((c) => c.aiCommits > 0).length;
+
+  // Aggregate spread — computed over EVERY human, so it survives the naming floor below.
+  const distribution = { high: 0, some: 0, none: 0 };
+  for (const c of contributors) {
+    if (c.aiShare >= 50) distribution.high += 1;
+    else if (c.aiShare > 0) distribution.some += 1;
+    else distribution.none += 1;
+  }
+
+  // PRIVACY FLOOR, enforced in the producer (G4-01/G4-03). Below CHAMPION_MIN_POP humans, every
+  // per-individual field is withheld here: a 1–2 person org's sole AI user was otherwise crowned a
+  // celebrated "#1 ★ champion", listed by name in the involvement table, and shipped as per-person
+  // rows in the CSV — a surveillance-y ranking of identifiable people, not an adoption signal. The
+  // guard used to live only in the React layer, so every new consumer had to remember it (the CSV
+  // export and the Adoption brief both forgot). Aggregates (totals, shares, distribution, bus
+  // factor) are unaffected — the fallback is aggregation-only, not "no data".
+  const namingAllowed = canNameIndividuals(contributors.length);
   // Eligibility + cap live next to CHAMPION_MIN_POP in champions.ts, with their rationale — who
   // gets publicly named here is a deliberate, documented choice, not a magic number.
-  const champions = pickChampions(contributors, {
-    filter: (c) => c.commits >= MIN_CHAMPION_COMMITS && c.aiCommits > 0,
-    by: (c) => c.championScore,
-    limit: CHAMPION_LIMIT,
-  });
+  const champions = namingAllowed
+    ? pickChampions(contributors, {
+        filter: (c) => c.commits >= MIN_CHAMPION_COMMITS && c.aiCommits > 0,
+        by: (c) => c.championScore,
+        limit: CHAMPION_LIMIT,
+      })
+    : [];
 
   return {
     org: orgSlug,
@@ -189,8 +224,12 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
     orgAiShare: totalCommits ? Math.round((aiCommitsTotal / totalCommits) * 100) : 0,
     soloMaintainerCount: concentration.filter((r) => r.soloMaintainer).length,
     staleRepos: staleRepoNames.size,
-    contributors,
+    distribution,
+    namingAllowed,
+    contributors: namingAllowed ? contributors : [],
     champions,
-    concentration,
+    // The per-repo top contributor is a named individual too — redact it below the floor while
+    // keeping the concentration/bus-factor numbers the key-person-risk view is actually built on.
+    concentration: namingAllowed ? concentration : concentration.map((r) => ({ ...r, topLogin: REDACTED_LOGIN })),
   };
 }

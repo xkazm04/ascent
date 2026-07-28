@@ -175,4 +175,39 @@ describe("parseJsonLoose", () => {
   it("still throws on genuinely unparseable JSONC (no valid value hidden by comments/commas)", () => {
     expect(() => parseJsonLoose("// just a comment\n/* and another */")).toThrow(ProviderParseError);
   });
+
+  // --- G3-16: multi-fence replies must prefer the real answer, not whichever fence parses first ---
+
+  it("prefers a LATER fence with a non-empty `dimensions` array over an earlier illustrative example", () => {
+    const text = [
+      "Here's the shape I'll use, for example:",
+      "```json",
+      '{ "dimensions": [] }',
+      "```",
+      "Now the actual assessment:",
+      "```json",
+      '{ "dimensions": [{ "id": "D1", "score": 80 }] }',
+      "```",
+    ].join("\n");
+    const result = parseJsonLoose<{ dimensions: { id: string; score: number }[] }>(text);
+    expect(result.dimensions).toEqual([{ id: "D1", score: 80 }]);
+  });
+
+  it("falls back to the LARGEST fence when no candidate has a non-empty `dimensions` array", () => {
+    const text = [
+      "```json",
+      '{ "note": "short" }',
+      "```",
+      "```json",
+      '{ "note": "this one is a longer fence body" }',
+      "```",
+    ].join("\n");
+    const result = parseJsonLoose<{ note: string }>(text);
+    expect(result.note).toBe("this one is a longer fence body");
+  });
+
+  it("still returns the sole candidate when only one fence parses (unchanged single-fence behavior)", () => {
+    const text = "```json\n{ \"score\": 42 }\n```";
+    expect(parseJsonLoose<{ score: number }>(text)).toEqual({ score: 42 });
+  });
 });

@@ -6,10 +6,10 @@
 // surface as null, not a fabricated "0% reviewed" that drags D6 and misinforms the LLM auditor.
 
 import { describe, it, expect, vi } from "vitest";
-import { applyPrSignals, extractAiChanges, fetchPrStats, summarizePullRequests } from "./pulls";
+import { applyGovernanceSignals, applyPrSignals, extractAiChanges, fetchPrStats, summarizePullRequests } from "./pulls";
 import type { PrNode } from "@/lib/github/graphql";
 import { fetchPullRequests } from "@/lib/github/graphql";
-import type { DimensionSignals, PrStats } from "@/lib/types";
+import type { DimensionSignals, Governance, PrStats } from "@/lib/types";
 
 // fetchPrStats reaches GitHub via fetchPullRequests; mock that so we can assert the `partial`
 // flag round-trips out of fetchPrStats (github-repo-data-access #1) without a live GraphQL call.
@@ -178,6 +178,60 @@ describe("applyPrSignals — D6 fold with a null reviewedRate (maturity #3)", ()
     // prRigor = 0.5*90 + 0.3*70 + 0.2*100 = 86 → D6 = round(0.65*80 + 0.35*86) ≈ 82.
     expect(out!.signalScore).toBe(82);
     expect(out!.signals[0]!.label).toBe("PR review coverage 90%");
+  });
+});
+
+describe("applyPrSignals / applyGovernanceSignals — a failed detector's placeholder is never blended (G3-08)", () => {
+  const failedD6 = (): DimensionSignals[] => [{ id: "D6", signalScore: 0, signals: [], failed: true }];
+  const base: PrStats = {
+    analyzed: 10,
+    totalCount: 10,
+    open: 0,
+    merged: 10,
+    closedUnmerged: 0,
+    mergeRate: 100,
+    reviewedRate: 90,
+    avgReviews: 0,
+    avgComments: 0,
+    medianHoursToMerge: 4,
+    medianHoursToFirstReview: null,
+    avgLineChanges: 60,
+    avgChangedFiles: 3,
+    smallPrRate: 70,
+    botAuthoredRate: 100,
+    aiInvolvedRate: 0,
+    aiGovernedRate: null,
+    revertRate: 0,
+    draftRate: 0,
+    tools: [],
+  };
+  const gov: Governance = {
+    defaultBranch: "main",
+    protected: true,
+    requiresPullRequest: true,
+    requiredApprovals: 1,
+    requiresCodeOwnerReview: false,
+    requiresStatusChecks: true,
+    requiresSignatures: false,
+    linearHistory: false,
+    ruleCount: 2,
+    readable: true,
+  };
+
+  it("applyPrSignals leaves a failed dimension's placeholder score and signals untouched", () => {
+    const [out] = applyPrSignals(failedD6(), base);
+    expect(out).toEqual(failedD6()[0]); // byte-identical: no blend, no fabricated evidence appended
+  });
+
+  it("applyGovernanceSignals leaves a failed dimension's placeholder score and signals untouched", () => {
+    const [out] = applyGovernanceSignals(failedD6(), gov);
+    expect(out).toEqual(failedD6()[0]);
+  });
+
+  it("a non-failed dimension is unaffected by the guard (sanity check)", () => {
+    const healthy: DimensionSignals[] = [{ id: "D6", signalScore: 80, signals: [] }];
+    const [out] = applyPrSignals(healthy, base);
+    expect(out!.signalScore).not.toBe(80); // still blends normally
   });
 });
 

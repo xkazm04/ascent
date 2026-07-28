@@ -251,6 +251,30 @@ describe("POST /api/report/conformance — clamping the self-attested values", (
   });
 });
 
+// G3-12: `Number(v)` before the finiteness check let null/""/false/[] all coerce to a "valid" 0 (and
+// true to 1), passing the "not null" gate and persisting a FABRICATED score:0/fails:0/warns:0 for a
+// buggy client that sent no real number at all — instead of the 400 it should get.
+describe("POST /api/report/conformance — rejects values that coerce to a number instead of BEING one (G3-12)", () => {
+  it.each([
+    ["null score", { ...OK, score: null }],
+    ["empty-string score", { ...OK, score: "" }],
+    ["boolean score", { ...OK, score: false }],
+    ["array score", { ...OK, score: [] }],
+    ["whitespace-only score", { ...OK, score: "   " }],
+  ])("returns 400 for %s instead of silently persisting a fabricated 0", async (_label, body) => {
+    const res = await post(body);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Provide numeric score, fails, warns." });
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("still coerces `true` to null (rejected), not a fabricated 1", async () => {
+    const res = await post({ ...OK, fails: true });
+    expect(res.status).toBe(400);
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/report/conformance — validation and the recorded:false path", () => {
   it("returns 503 when the DB is off, before parsing or authing", async () => {
     mockIsDbConfigured.mockReturnValue(false);

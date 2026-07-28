@@ -34,7 +34,10 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-vi.mock("@/lib/db/scans-read", () => ({
+// The two dedup LOOKUPS are faked (they're DB reads); `scanContentKey` stays REAL — it is the pure
+// content-identity builder both sides of the sha-less dedup must agree on, so a copy here could drift.
+vi.mock("@/lib/db/scans-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./scans-read")>()),
   findScanByCommit: mockFindScanByCommit,
   findScanByScannedAt: mockFindScanByScannedAt,
 }));
@@ -168,6 +171,16 @@ function makeReport(over: {
   } as unknown as ScanReport;
 }
 
+/**
+ * The CONTENT identity `makeReport()` produces — the sha-less dedup path now compares this (not the
+ * bare timestamp) before reusing a row, so a fake "existing row" must carry the matching key to model
+ * "the same report was already persisted". Kept in sync with the fixture's scores/engine by hand
+ * (the real key builder is exercised directly in scans-read.test.ts).
+ */
+function fixtureContentKey(engineProvider = "anthropic"): string {
+  return `70|L3|60|80|${engineProvider}|claude|`;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockIsDbConfigured.mockReturnValue(true);
@@ -205,7 +218,11 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
   it("sha-less report dedups on scannedAt: an existing same-time row reuses it, no scan.create", async () => {
     const { prisma, scanCreate } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
-    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_sameTime", engineProvider: "anthropic" });
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_sameTime",
+      engineProvider: "anthropic",
+      contentKey: fixtureContentKey(),
+    });
 
     const res = await persistScanReport(makeReport({ headSha: null }));
 
@@ -220,7 +237,11 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
     // to the mock row and returned its id as if it were the live scan, with no `upgraded` signal.
     const { prisma, scanCreate, tx } = fakePrisma({ previousRecs: null });
     mockGetPrisma.mockReturnValue(prisma);
-    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_mock",
+      engineProvider: "mock",
+      contentKey: fixtureContentKey("mock"),
+    });
 
     const res = await persistScanReport(makeReport({ headSha: null, engineProvider: "anthropic" }));
 
@@ -236,7 +257,11 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
   it("a sha-less MOCK re-persist over a mock row still dedups (mock never replaces mock)", async () => {
     const { prisma, scanCreate } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
-    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_mock",
+      engineProvider: "mock",
+      contentKey: fixtureContentKey("mock"),
+    });
 
     const res = await persistScanReport(makeReport({ headSha: null, engineProvider: "mock" }));
 
@@ -628,7 +653,11 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     // scannedAt fallback consulted instead — inverting this guard re-enables duplicate sha-less rows.
     const { prisma } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
-    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_sameTime" });
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_sameTime",
+      engineProvider: "anthropic",
+      contentKey: fixtureContentKey(),
+    });
 
     const scannedAt = "2026-06-18T08:30:00.000Z";
     await persistScanReport(makeReport({ headSha: null, scannedAt }));
@@ -645,13 +674,54 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     // row — zero new metered rows, no carry-forward read reached.
     const { prisma, scanCreate } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
-    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_first" });
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_first",
+      engineProvider: "anthropic",
+      contentKey: fixtureContentKey(),
+    });
 
     const res = await persistScanReport(makeReport({ headSha: null }));
 
     expect(res).toMatchObject({ scanId: "scan_first", deduped: true, headSha: null });
     expect(scanCreate).not.toHaveBeenCalled(); // no duplicate sha-less metered row
     expect(prisma.scan.findFirst).not.toHaveBeenCalled(); // short-circuited before carry-forward
+  });
+
+  it("SAME timestamp, DIFFERENT content: both scans persist (a same-ms distinct score is no longer dropped)", async () => {
+    // G3-01: the old fallback deduped on exact `scannedAt` equality ALONE, so two genuinely different
+    // sha-less results computed in the same millisecond collided and the second was silently discarded
+    // (and a reused/replayed clock value could suppress a legitimate re-score). The timestamp is now
+    // only the narrowing step — the decision is the CONTENT key — so a different result at the same
+    // instant is persisted as the distinct scan it is.
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_other",
+      engineProvider: "anthropic",
+      contentKey: "41|L2|30|50|anthropic|claude|", // a DIFFERENT score at the same timestamp
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // not suppressed by the timestamp collision
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+  });
+
+  it("DIFFERENT per-dimension scores at the same timestamp still count as different content", async () => {
+    // The content key folds in per-dimension scores, so two reports that agree on the headline number
+    // but disagree per dimension are still distinct results — not one duplicate persist.
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_other",
+      engineProvider: "anthropic",
+      contentKey: `${fixtureContentKey()}D1:40`, // same headline identity, different dimension detail
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ deduped: false });
   });
 
   it("MISS: a genuinely new sha-less report persists EXACTLY ONE row (deduped:false, headSha:null)", async () => {

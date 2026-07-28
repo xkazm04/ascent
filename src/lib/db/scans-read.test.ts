@@ -102,7 +102,7 @@ vi.mock("@/lib/db/scans-shared", () => {
   };
 });
 
-import { getLatestRecommendations, getScanReportByCommit } from "./scans-read";
+import { findScanByScannedAt, getLatestRecommendations, getScanReportByCommit, scanContentKey } from "./scans-read";
 
 // ── Faked Prisma returning ONE scan row whose JSON columns we craft per-test ──────────────────────
 
@@ -485,5 +485,78 @@ describe("DB-down degrade — readers wrapped in dbReadSafe", () => {
     });
     mockGetPrisma.mockReturnValue(prisma);
     await expect(getScanReportByCommit("acme", "widget")).rejects.toThrow("column does not exist");
+  });
+});
+
+// ── G3-01: sha-less dedup keys on CONTENT, not bare timestamp equality ────────────────────────────
+//
+// A sha-less report has no commit to dedup on, so persist matched the report's own `scannedAt`. Exact
+// equality on a high-precision timestamp is a proxy for "the same computed report" that fails BOTH
+// ways: two genuinely different results computed in the same millisecond collided (the second was
+// silently dropped), and a reused/replayed clock value could suppress a legitimate re-score. The
+// timestamp is now only the narrowing step; findScanByScannedAt returns a CONTENT key the persist path
+// compares before it reuses a row.
+describe("scanContentKey / findScanByScannedAt — content identity for sha-less dedup", () => {
+  const base = {
+    overallScore: 70,
+    level: "L3",
+    adoptionScore: 60,
+    rigorScore: 80,
+    engineProvider: "anthropic",
+    engineModel: "claude",
+    dimensions: [
+      { dimId: "D2", score: 55 },
+      { dimId: "D1", score: 90 },
+    ],
+  };
+
+  it("is STABLE across dimension ordering (detector/LLM emission order must not change identity)", () => {
+    const reversed = { ...base, dimensions: [...base.dimensions].reverse() };
+    expect(scanContentKey(reversed)).toBe(scanContentKey(base));
+  });
+
+  it("CHANGES when the headline score changes", () => {
+    expect(scanContentKey({ ...base, overallScore: 71 })).not.toBe(scanContentKey(base));
+  });
+
+  it("CHANGES when only a per-dimension score changes (a same-headline, different-detail result)", () => {
+    const drifted = { ...base, dimensions: [{ dimId: "D2", score: 55 }, { dimId: "D1", score: 89 }] };
+    expect(scanContentKey(drifted)).not.toBe(scanContentKey(base));
+  });
+
+  it("CHANGES when the engine that produced it changes (mock floor vs a live grade)", () => {
+    expect(scanContentKey({ ...base, engineProvider: "mock" })).not.toBe(scanContentKey(base));
+  });
+
+  it("findScanByScannedAt derives the key from the persisted row (same builder, so both sides agree)", async () => {
+    const findFirst = vi.fn(async () => ({
+      id: "scan_1",
+      engineProvider: "anthropic",
+      engineModel: "claude",
+      overallScore: 70,
+      level: "L3",
+      adoptionScore: 60,
+      rigorScore: 80,
+      dimensions: [{ dimId: "D1", score: 90 }, { dimId: "D2", score: 55 }],
+    }));
+    mockGetPrisma.mockReturnValue({ scan: { findFirst } });
+
+    const at = new Date("2026-06-18T00:00:00.000Z");
+    const row = await findScanByScannedAt("repo_1", at);
+
+    expect(row).toEqual({ id: "scan_1", engineProvider: "anthropic", contentKey: scanContentKey(base) });
+    // Still narrowed by (repoId, exact scannedAt) with a deterministic tie-break — the cheap indexed step.
+    const args = findFirst.mock.calls[0][0] as { where: unknown; orderBy: unknown };
+    expect(args.where).toEqual({ repoId: "repo_1", scannedAt: at });
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+  });
+
+  it("returns null when no row shares the timestamp, and when persistence is off", async () => {
+    mockGetPrisma.mockReturnValue({ scan: { findFirst: vi.fn(async () => null) } });
+    await expect(findScanByScannedAt("repo_1", new Date())).resolves.toBeNull();
+
+    mockIsDbConfigured.mockReturnValue(false);
+    await expect(findScanByScannedAt("repo_1", new Date())).resolves.toBeNull();
+    mockIsDbConfigured.mockReturnValue(true);
   });
 });

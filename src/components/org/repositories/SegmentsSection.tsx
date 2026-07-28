@@ -52,7 +52,12 @@ function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary; org: s
           </div>
         </>
       )}
-      <div className="mt-1 font-mono text-sm text-slate-600">{s.scannedCount}/{s.repoCount} scanned</div>
+      {/* G4-08: repoCount here is the watched-or-scanned rollup universe, NOT every repo tagged into the
+          segment (that count lives on the Repositories tab's tagging chips) — the title disambiguates
+          so the two screens' numbers are never read as contradicting each other. */}
+      <div className="mt-1 font-mono text-sm text-slate-600" title="Repos in this segment that are watched or have a scan — may be fewer than the total tagged into the segment">
+        {s.scannedCount}/{s.repoCount} scanned
+      </div>
       {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}
     </div>
   );

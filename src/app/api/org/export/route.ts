@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, isDbConfigured, listSegments, listTechStackGroups } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
@@ -57,6 +58,17 @@ export async function GET(request: Request) {
     // header-only 200 in the null case is success theater, so surface it as a 404 instead.
     if (!insights) {
       return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
+    // Population floor (G4-03). getContributorInsights already withholds every per-person row below
+    // CHAMPION_MIN_POP humans, so this branch would otherwise emit a header-only CSV — the same
+    // "success theater" the null case above rejects. Say why instead: an export naming 1–2
+    // identifiable people is a dossier, not an adoption metric, and unlike the page there is no
+    // scope marker on a CSV once it leaves the app. The aggregate view stays available in-app.
+    if (!insights.namingAllowed) {
+      return NextResponse.json(
+        { error: `Per-contributor export is withheld below ${CHAMPION_MIN_POP} contributors — it would name identifiable individuals.` },
+        { status: 403 },
+      );
     }
     header = ["login", "name", "commits", "aiCommits", "aiSharePct", "repos", "lastActiveAt"];
     rows = insights.contributors.map((c) => [c.login, c.name ?? "", c.commits, c.aiCommits, c.aiShare, c.repos, c.lastActiveAt ?? ""]);

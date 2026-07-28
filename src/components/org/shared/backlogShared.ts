@@ -43,6 +43,14 @@ export function statusAccent(status: string): string {
  */
 export const DUE_SOON_DAYS = 7;
 
+/**
+ * The rolling-day cutoff behind the `this_month` due bucket. It is 31 ROLLING days, NOT a calendar
+ * month — the enum key is historical. Single-sourced here so the bucket maths and the label that
+ * states it ("Due within 31 days") can never drift apart again; the old "Due this month" label read
+ * as calendar-aligned and mis-bucketed a Jul-29 vs Aug-1 pair on Jul 1. (G4-07)
+ */
+export const DUE_MONTH_DAYS = 31;
+
 /** The overdue accent shared by the row's left border, the Overdue tile, and the due chip family. */
 export const OVERDUE_ACCENT = "#f97316";
 

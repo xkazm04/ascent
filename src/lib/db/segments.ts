@@ -52,7 +52,13 @@ export interface SegmentRow {
   id: string;
   name: string;
   color: string;
-  repoCount: number; // repos currently tagged into this segment
+  /** Repos currently TAGGED into this segment — every repo ever added via setRepoSegment(s), whether
+   *  or not it's watched or has ever been scanned. (G4-08) This is a DIFFERENT universe than
+   *  `SegmentSummary.repoCount` below, which counts only the segment's watched-or-scanned repos (the
+   *  fleet-rollup universe getOrgRollup already restricts to). A segment can legitimately show a
+   *  different repoCount here than on the Segments comparison tab — that's "tagged" vs "scored" repos,
+   *  not a bug — so any UI surfacing both MUST label which one it's showing. */
+  repoCount: number;
   createdAt: string;
 }
 
@@ -105,12 +111,15 @@ export async function updateSegment(id: string, data: { name?: string; color?: s
   return true;
 }
 
-/** Delete a segment and its membership rows (no DB cascade under relationMode="prisma"). */
+/** Delete a segment and its membership rows atomically (no DB cascade under relationMode="prisma",
+ *  so an unwrapped failure between the two deletes could otherwise leave an orphaned empty segment). */
 export async function deleteSegment(id: string): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  await prisma.repoSegment.deleteMany({ where: { segmentId: id } });
-  await prisma.segment.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.repoSegment.deleteMany({ where: { segmentId: id } }),
+    prisma.segment.delete({ where: { id } }),
+  ]);
   return true;
 }
 
@@ -218,6 +227,11 @@ export async function getRepoSegmentMap(
 export interface SegmentSummary {
   id: string | null; // null = the whole fleet (the comparison baseline)
   name: string;
+  /** Repos in the FLEET-ROLLUP universe (watched OR has-scans) that belong to this segment — NOT every
+   *  tagged repo. (G4-08) `SegmentRow.repoCount` (listSegments, above) counts ALL tagged repos
+   *  regardless of watch/scan status, so the two can legitimately disagree for a segment with
+   *  tagged-but-unwatched/unscanned repos. Every UI rendering this repoCount must read it as "repos
+   *  scored in this rollup", not "repos tagged into this segment". */
   repoCount: number;
   scannedCount: number;
   avgOverall: number;

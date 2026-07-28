@@ -231,7 +231,12 @@ export async function resolveHead(
     if (res.status === 304) return { status: "unmodified" };
     if (!res.ok) return { status: "error" };
     const sha = (await res.text()).trim();
-    if (!/^[0-9a-f]{7,40}$/i.test(sha)) return { status: "error" };
+    // EXACTLY 40 hex chars. The endpoint's contract (`/commits/HEAD` + the sha media type) is a full
+    // commit sha, so anything shorter is a truncated/garbled body, not a legitimate short sha — and it
+    // would be persisted as the repo's head identity (cache key, permalink, @@unique([repoId, headSha])
+    // dedup) and sent back as an abbreviation that never matches the next full one. The old
+    // `{7,40}` accepted it. (G3-22)
+    if (!/^[0-9a-f]{40}$/i.test(sha)) return { status: "error" };
     return { status: "ok", sha: sha.toLowerCase(), etag: res.headers.get("etag") };
   } catch {
     return { status: "error" };

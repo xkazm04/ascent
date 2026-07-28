@@ -12,7 +12,7 @@ import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
 import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
-import { MIN_CHAMPION_COMMITS } from "@/components/org/shared/champions";
+import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
 
@@ -61,7 +61,9 @@ export interface TeamRollup {
   contributors: number;
   aiContributors: number; // humans with ≥1 AI-attributed commit
   aiCommitShare: number; // 0..100, commit-weighted across the team's repos
-  champions: TeamChampion[]; // top humans by AI commits — the culture carriers
+  /** Top humans by AI commits — the culture carriers. EMPTY below CHAMPION_MIN_POP contributors:
+   *  the privacy floor is applied by the producer, so no surface can name a two-person team. */
+  champions: TeamChampion[];
   knowledgeScore: number; // 0..100 blend of aiCommitShare + avgAdoption ("most AI knowledge")
   // Movers: per-repo overall delta, aggregated. PERIOD-SCOPED when the caller threads an OrgWindow
   // through getOrgTeamRollup (baseline = latest scan strictly before the window start — the same
@@ -98,7 +100,8 @@ export interface OrgTeamRollup {
   unowned: { fullName: string; name: string; overall: number }[];
   teams: TeamRollup[]; // sorted: most repos first, then maturity
   /** The team whose recent work is most AI-attributed and whose repos are most AI-native — an input
-   *  for "who could mentor", never a ranking. Null when no team shows AI activity. */
+   *  for "who could mentor", never a ranking. Null when no team shows AI activity, and null when no
+   *  eligible team clears CHAMPION_MIN_POP contributors (naming a 1–2 person team names a person). */
   knowledgeLeader: {
     slug: string;
     name: string;
@@ -238,19 +241,26 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const totAi = people.reduce((s, p) => s + p.aiCommits, 0);
       const aiContributors = people.filter((p) => p.aiCommits > 0).length;
       const aiCommitShare = totCommits ? Math.round((totAi / totCommits) * 100) : 0;
-      // Volume floor aligned with getContributorInsights' champion picker (MIN_CHAMPION_COMMITS &&
-      // aiCommits > 0): without it a 1-commit contributor could headline a team's standings card
-      // while the Contributors tab deliberately withheld them. (ambiguity-ui 2026-07-16 #3)
-      const champions: TeamChampion[] = pickChampions(people, {
-        filter: (p) => p.commits >= MIN_CHAMPION_COMMITS && p.aiCommits > 0,
-        by: (p) => p.aiCommits,
-        limit: 3,
-      }).map((p) => ({
-        login: p.login,
-        name: p.name,
-        aiCommits: p.aiCommits,
-        aiShare: aiShareOf(p.commits, p.aiCommits),
-      }));
+      // TWO floors, both enforced HERE in the producer rather than at each call site (G4-01):
+      //  • population — CHAMPION_MIN_POP humans on the team before anyone is named at all. On a 1–2
+      //    person team, "champion" identifies a specific individual and the card reads as a ranking
+      //    of two people. TeamsStandings/TeamsMatrixDetail each re-checked this and a third surface
+      //    (the CSV/brief path) never did; now no consumer can surface what this never emits.
+      //  • volume — MIN_CHAMPION_COMMITS && aiCommits > 0, aligned with getContributorInsights'
+      //    picker: a 1-commit drive-by must not headline a card the Contributors tab withheld.
+      //    (ambiguity-ui 2026-07-16 #3)
+      const champions: TeamChampion[] = !canNameIndividuals(people.length)
+        ? []
+        : pickChampions(people, {
+            filter: (p) => p.commits >= MIN_CHAMPION_COMMITS && p.aiCommits > 0,
+            by: (p) => p.aiCommits,
+            limit: 3,
+          }).map((p) => ({
+            login: p.login,
+            name: p.name,
+            aiCommits: p.aiCommits,
+            aiShare: aiShareOf(p.commits, p.aiCommits),
+          }));
       // Blend "how much of the team's recent work is AI-attributed" with "how AI-native its repos'
       // tooling is" — two equal, explainable inputs, not an opaque score.
       const knowledgeScore = Math.round(aiCommitShare * 0.5 + avgAdoption * 0.5);
@@ -284,10 +294,13 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
     .sort((a, b) => b.repoCount - a.repoCount || b.avgOverall - a.avgOverall || a.slug.localeCompare(b.slug));
 
   // Knowledge leader: the team carrying the most institutional AI knowledge. Requires real AI
-  // activity so an all-manual fleet surfaces none (no false "leader").
+  // activity so an all-manual fleet surfaces none (no false "leader"), AND the same population floor
+  // as the champions above: a "@acme/x is the org's AI knowledge leader" headline on a one-person
+  // team names that person by proxy across the Teams tile, the Adoption spectrum and the Copy-for-LLM
+  // brief. Withheld at the producer, so none of those three can re-surface it.
   const knowledgeLeader =
     [...teams]
-      .filter((t) => t.aiContributors > 0)
+      .filter((t) => t.aiContributors > 0 && canNameIndividuals(t.contributors))
       .sort((a, b) => b.knowledgeScore - a.knowledgeScore || b.aiCommitShare - a.aiCommitShare)[0] ?? null;
 
   // Pairings: the biggest learnable gaps, one per shared dimension — a strong team next to a weak

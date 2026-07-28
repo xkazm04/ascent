@@ -174,7 +174,19 @@ export class BedrockProvider implements LLMProvider {
           /* malformed tool-input string — fall through to the text path */
         }
       }
-      if (input && typeof input === "object") return validateAssessment(input);
+      // Only short-circuit on an object input that actually carries a usable answer (a non-empty
+      // `dimensions` array). Bedrock/some regions can return a forced-tool response whose input is a
+      // (possibly empty `{}`) placeholder object — accepting ANY object here discarded the chance for
+      // a later tool-use block or the text-path safety net below to supply the real answer, wasting a
+      // retry/failover round trip on an assessment that was going to score 0 dimensions anyway. (G3-15)
+      if (
+        input &&
+        typeof input === "object" &&
+        Array.isArray((input as { dimensions?: unknown }).dimensions) &&
+        (input as { dimensions: unknown[] }).dimensions.length > 0
+      ) {
+        return validateAssessment(input);
+      }
     }
 
     // Safety net: a model/region that ignores forced tool use may still answer

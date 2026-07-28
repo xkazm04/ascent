@@ -144,6 +144,19 @@ async function runScan(
     return new NextResponse(null, { status: 204, headers: peekHeaders });
   }
 
+  // Reject a provably-invalid URL BEFORE the quota block below — mirroring /api/scan/stream, which
+  // already 400s on an unparseable URL before touching quota. scanRepository would throw INVALID_URL
+  // anyway, but only AFTER the monthly slot was consumed, and the refund for that lives in a catch
+  // block: it is fail-open, so a refund-write hiccup permanently burns one of the anonymous tier's free
+  // weekly slots for a typo. Placed after the peek/salvage returns above so a cache probe keeps its
+  // cheap 204 contract. (G3-18)
+  if (!parsed) {
+    return NextResponse.json(
+      { error: "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.", code: "INVALID_URL" },
+      { status: 400 },
+    );
+  }
+
   // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,
   // so viewing a SAVED report, a permalink, or the badge stays free; only a REAL new scan (which
   // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.

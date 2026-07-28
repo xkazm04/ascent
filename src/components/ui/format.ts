@@ -4,16 +4,6 @@
 import { isWithinNoise } from "@/lib/maturity/noise";
 
 /**
- * Color a score delta on the dark canvas: lime up · orange down · slate for flat OR within-noise.
- * A within-noise delta (|d| <= SCORE_NOISE_BAND) is muted to slate so a re-scan wobble never wears
- * the confident green/orange of a real move — see @/lib/maturity/noise.
- */
-export const deltaHex = (d: number): string => DIRECTION_TONE[toneFor(d)].color;
-
-/** "+8" / "-5" / "0" — signed delta for inline text. */
-export const signedDelta = (d: number): string => `${d > 0 ? "+" : ""}${d}`;
-
-/**
  * The single source of truth for the direction-tone triad — the rising/falling/flat →
  * {arrow, color, label} mapping used by every fleet "which way is it moving" surface (trajectory,
  * movers, portfolio). Lime up · orange down · slate flat, with ▲/▼/→. Keep this the only copy so a
@@ -32,17 +22,34 @@ export const DIRECTION_TONE = {
 /**
  * Classify a numeric delta into a direction-tone key. A within-noise non-zero delta
  * (|d| <= SCORE_NOISE_BAND) maps to "flat" so it never wears the confident rising/falling tone of a
- * real move — matching the noise mute that `deltaHex`/`fmtDelta` already enforce.
+ * real move — matching the noise mute that `deltaHex`/`fmtDelta` already enforce. A non-finite delta
+ * (NaN from a missing baseline, Infinity from a divide-by-zero) also maps to "flat": before this guard
+ * `NaN > 0` is false, so a NaN silently fell through to "falling" — a confident, wrong decline arrow
+ * for what is actually a measurement gap, not a real move.
  */
 export function toneFor(delta: number): keyof typeof DIRECTION_TONE {
+  if (!Number.isFinite(delta)) return "flat";
   return isWithinNoise(delta) ? "flat" : delta > 0 ? "rising" : "falling";
 }
 
 /**
+ * Color a score delta on the dark canvas: lime up · orange down · slate for flat, within-noise, OR
+ * non-finite (see toneFor).
+ */
+export const deltaHex = (d: number): string => DIRECTION_TONE[toneFor(d)].color;
+
+/** "+8" / "-5" / "0" — signed delta for inline text. Non-finite input renders as "—" rather than the
+ *  literal "NaN"/"Infinity", since neither is a real measurement worth displaying with confidence. */
+export const signedDelta = (d: number): string => (Number.isFinite(d) ? `${d > 0 ? "+" : ""}${d}` : "—");
+
+/**
  * "▲+8" / "▼-5" / "≈+1" / "→0" — arrowed delta badge. Within-noise non-zero deltas use "≈" (held,
  * within the scan-to-scan noise band) instead of ▲/▼, so a small wobble is not shown as real movement.
+ * A non-finite delta (missing baseline / divide-by-zero) renders as a bare "—" — never a styled arrow —
+ * so a measurement gap can't be mistaken for a confident decline/incline.
  */
 export function fmtDelta(d: number): string {
+  if (!Number.isFinite(d)) return "—";
   const arrow = d === 0 ? "→" : isWithinNoise(d) ? "≈" : d > 0 ? "▲" : "▼";
   return `${arrow}${signedDelta(d)}`;
 }

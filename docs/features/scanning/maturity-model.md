@@ -72,10 +72,31 @@ is announced once and does not un-announce itself on the next scan's wobble.
 **Scoring-integrity record.** Every report carries `scoreIntegrity` (`ScanReport`), recording the
 structural step-changes that can move a headline on an *unchanged* commit: `d9Unmeasurable` (the D9
 visibility escape hatch fired, renormalizing a 9%-weight dimension out), `widenedDims` (dimensions
-whose LLM guardband doubled because the model flagged the detector as suspect), and `effectiveBlend`
-(the *realized* `SCORE_BLEND × coverage`, not the configured constant). Both hatch and widening are
-triggered by LLM prose, so anything anchoring a number must be able to attribute a move rather than
-report it as repository change.
+whose LLM guardband doubled because the model flagged the detector as suspect), `widenCapped` (the
+discrepancy budget below was blown, so *nothing* widened), and `effectiveBlend` (the *realized*
+`SCORE_BLEND × coverage`, not the configured constant). Both hatch and widening are triggered by LLM
+prose, so anything anchoring a number must be able to attribute a move rather than report it as
+repository change.
+
+**Untrusted repo content + the discrepancy budget.** Repo file excerpts, file paths and commit
+messages are authored by the repository being scored, and the score gates PR merges — so they are
+quoted inside a named `<untrusted_repo_data>` block whose contents the SYSTEM role explicitly denies
+any authority (data to evaluate, never instructions; forged boundary markers and triple-backtick runs
+are stripped before interpolation; an attempted instruction is reported as a *risk*, never as a
+discrepancy). That matters because a `discrepancies` entry **doubles** its dimension's guardband:
+without a boundary, a repository could author the text that widens the latitude over its own score.
+The second half is a **budget** (`src/lib/scoring/discrepancy-policy.ts`): at most
+`MAX_FLAGGED_DIMENSIONS = 2` dimensions may be widened on a scan, and flagging *more* widens **none**
+of them and suppresses the D9 hatch — a self-audit that suspects most detectors is treated as
+unreliable, not as licence to move further from the evidence. The prompt states the same budget, so
+an honest model spends it on its clearest findings.
+
+**Incomplete scans are not verdicts.** When every detector fails, `dimensions` is empty and the
+renormalized roll-up floors at 0 / L1 — numerically indistinguishable from a genuinely manual repo.
+The report carries `incomplete: true` alongside the prose warning, because the numeric consumers
+(public badge, CI gate, fleet rollup) read scores, not `warnings`. `evaluateGate` fails closed on it
+with a single `incomplete` failure rather than certifying — or condemning — a repository on an
+ingestion failure (see gate.md).
 
 ### Dimension detail
 
@@ -170,8 +191,10 @@ For each dimension D:
   # Guardband: the LLM may nuance but not contradict the evidence. The band is DOUBLED for
   # a dimension the LLM's self-audit flagged as a detector discrepancy (a missed signal or a
   # false positive) — the deterministic signal is suspect there, so the model's judgment is
-  # trusted further, still bounded.
-  band(D)    = flagged_discrepancy(D) ? 2 * GUARDBAND : GUARDBAND      # GUARDBAND = 25
+  # trusted further, still bounded. BUDGETED: the widening is self-declared and uncorroborated,
+  # so at most MAX_FLAGGED_DIMENSIONS (2) dimensions may widen per scan; flag more and none do.
+  widened    = (count of widen-eligible flagged dims) <= 2 ? those dims : {}
+  band(D)    = D in widened ? 2 * GUARDBAND : GUARDBAND                # GUARDBAND = 25
   guarded(D) = clamp(llmScore(D), signalScore(D) - band(D), signalScore(D) + band(D))
 
   # Coverage-scaled blend: the LLM's pull is scaled by how much of the repo we inspected. A
@@ -198,7 +221,8 @@ Design principles:
 - **Guardbanding:** the LLM score for a dimension is clamped to within ±25
   (`LLM_GUARDBAND`) of the signal score to prevent hallucinated extremes; the band
   doubles (±50) only where the LLM's self-audit flagged the detector signal itself as
-  suspect. Evidence must back any score.
+  suspect, for at most 2 dimensions per scan (see the discrepancy budget above).
+  Evidence must back any score.
 - **Coverage-weighted blend:** the LLM's blend weight scales with inspection coverage,
   so a partially-seen repo leans on the coverage-robust deterministic signals rather
   than blending a low-information LLM read at full weight.
@@ -207,11 +231,19 @@ Design principles:
   can't silently deflate the headline. Deterministic D9 anchors security to the check
   battery alone — the LLM narrates but never re-scores it; its only escape is the
   *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.
+- **Missing lens weight vs. a genuine zero:** `lensWeight(D)` for a dimension with no
+  entry in the active archetype's lens (rubric drift — a dimension added to the base
+  rubric without updating every `ARCHETYPE_WEIGHTS` lens) both fall back to 0 in the
+  sum, but only the *missing* case logs a loud warning; a dimension deliberately
+  weighted at 0 never does. Today every archetype defines all 9 dimension ids, so this
+  is latent — it exists so a future drift fails loudly instead of silently vanishing a
+  dimension from the headline.
 - **Evidence-first:** every dimension returns the concrete signals/files it found, so
   the score is auditable.
 - **Confidence:** each report carries a confidence value driven by how much of the repo
-  we could actually inspect (file budget, rate-limit truncation) — the same coverage
-  that scales the blend.
+  we could actually inspect (file budget, rate-limit truncation) — literally the same
+  sanitized 0..1 coverage that scales the blend (one binding, so a broken estimate can
+  never yield a valid score next to a `NaN`/out-of-range confidence).
 
 ## 4. Report Output (per scan)
 
