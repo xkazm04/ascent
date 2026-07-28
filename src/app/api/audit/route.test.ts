@@ -73,7 +73,7 @@ describe("GET /api/audit — authorized read", () => {
   it("serves the audit rows for an org the caller may read", async () => {
     const page = {
       entries: [
-        { id: "a1", action: "scan.run", actorId: "actor_1", orgId: "org_acme", at: "2026-01-02T00:00:00.000Z", meta: {}, scan: null },
+        { id: "a1", action: "scan.run", actorId: "actor_1", orgId: "org_acme", at: "2026-01-02T00:00:00.000Z", meta: {}, scan: null, integrity: "ok" as const },
       ],
       nextCursor: null,
     };
@@ -113,8 +113,10 @@ describe("GET /api/audit?format=csv — formula-injection neutralization + RFC-4
     action: "scan.completed",
     actorId: "user_1",
     at: "2026-01-02T00:00:00.000Z",
+    orgId: "org_acme",
     meta: { scanId: "scan_1" },
     scan: { id: "scan_1", repo: "acme/web", level: "L2", overall: 87, headSha: "abc123" },
+    integrity: "ok",
     ...over,
   });
   // Return one page of the given entries then stop (single do/while iteration).
@@ -163,8 +165,56 @@ describe("GET /api/audit?format=csv — formula-injection neutralization + RFC-4
     // `orgId` is now part of the header: it's a SIGNED field (the per-row HMAC `_sig` is computed over
     // it), so the export must carry it for the stated row-level tamper-evidence to be verifiable. The
     // prior assertion omitted it, encoding the very bug this fix closes.
-    expect(lines[0]).toBe("at,action,actorId,orgId,repo,level,overall,headSha,meta");
+    expect(lines[0]).toBe("at,action,actorId,orgId,repo,level,overall,headSha,integrity,meta");
     expect(lines).toHaveLength(3); // header + 2 entries
+  });
+});
+
+// G2-06: the signature was written but never CHECKED, so the filed CSV carried a stale `_sig` and no
+// verdict — an examiner couldn't tell a verified row from a tampered or an unsigned one without
+// re-implementing the canonical serialization. The export now states the read-time verdict per row.
+describe("GET /api/audit?format=csv — per-row integrity verdict column", () => {
+  const entry = (over: Record<string, unknown> = {}) => ({
+    id: "audit_1",
+    action: "org.plan",
+    actorId: "alice",
+    orgId: "org_acme",
+    at: "2026-01-02T00:00:00.000Z",
+    meta: { plan: "team", _sig: "sig" },
+    scan: null,
+    integrity: "ok",
+    ...over,
+  });
+
+  it("carries each row's verdict into the export, keeping ok / tampered / unsigned distinct", async () => {
+    mockGetAuditLog.mockResolvedValue({
+      entries: [
+        entry({ id: "a1", integrity: "ok" }),
+        entry({ id: "a2", integrity: "tampered" }),
+        entry({ id: "a3", integrity: "unsigned", meta: { plan: "team" } }), // legacy row: no _sig at all
+      ],
+      nextCursor: null,
+    } as never);
+
+    const lines = (await (await get("?org=acme&format=csv")).text()).trim().split("\n");
+
+    const col = lines[0]!.split(",").indexOf("integrity");
+    expect(col).toBeGreaterThan(-1);
+    // Quoted uniformly like every other audit cell.
+    expect(lines[1]).toContain('"ok"');
+    expect(lines[2]).toContain('"tampered"');
+    // The legacy unsigned row must NOT be filed as tampered — that would cry wolf on every old entry.
+    expect(lines[3]).toContain('"unsigned"');
+    expect(lines[3]).not.toContain('"tampered"');
+  });
+
+  it("still emits the signed `_sig` alongside the verdict so the file stays independently verifiable", async () => {
+    mockGetAuditLog.mockResolvedValue({ entries: [entry()], nextCursor: null } as never);
+
+    const body = await (await get("?org=acme&format=csv")).text();
+
+    expect(body).toContain("_sig"); // the raw signature is preserved in the meta cell
+    expect(body).toContain("org_acme"); // ...as is orgId, a signed field needed to recompute it
   });
 });
 

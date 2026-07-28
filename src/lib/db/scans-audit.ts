@@ -5,7 +5,7 @@ import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { resolveOrgId } from "@/lib/db/scans-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
-import { withAuditSignature } from "@/lib/db/audit-integrity";
+import { withAuditSignature, verifyAudit, type AuditVerdict } from "@/lib/db/audit-integrity";
 
 /**
  * Append an entry to the audit trail. Returns `true` when the entry was durably
@@ -164,6 +164,20 @@ export interface AuditLogEntry {
   at: string; // ISO timestamp
   meta: Record<string, unknown>;
   scan: AuditScanRef | null;
+  /**
+   * Per-row tamper-evidence verdict, recomputed on READ from the row's own content.
+   *
+   * The HMAC has been written since audit-integrity landed, but nothing ever checked it: verification
+   * was write-side only, which is not tamper-EVIDENCE — evidence requires someone to look. Recomputing
+   * here means every surface that reads the trail (the API, the CSV export, the dashboard panel) states
+   * a verdict, and a row altered at rest shows up as `tampered` instead of being served as fact.
+   *
+   * `unsigned` is a real and expected value, not a failure: rows written before signing landed, and rows
+   * written through a path that bypasses withAuditSignature, carry no `_sig`. It must be rendered
+   * distinctly from `ok` — "we cannot vouch for this row" is not "this row is fine".
+   * `no-secret` means the deployment has no signing secret at all, so nothing can be verified.
+   */
+  integrity: AuditVerdict;
 }
 
 export interface AuditLogPage {
@@ -304,6 +318,15 @@ export async function getAuditLog(
       scan: s
         ? { id: s.id, repo: s.repo?.fullName ?? null, level: s.level, overall: s.overallScore, headSha: s.headSha }
         : null,
+      // Verified against the SAME canonical field set the writer signed (action/orgId/actorId/createdAt/
+      // meta) — `at` is the stored timestamp, so it must be passed as the ISO string that was signed.
+      integrity: verifyAudit({
+        action: row.action,
+        orgId: row.orgId,
+        actorId: row.actorId,
+        createdAt: row.at.toISOString(),
+        meta,
+      }),
     };
   });
 

@@ -43,6 +43,7 @@ inline comments (most models carry a multi-line design-rationale comment there).
 | `Scan` | **The metered unit** — one persisted report. | `headSha?`, `overallScore`, `level`/`levelName`, `archetype`, `adoptionScore`/`rigorScore`, `posture`, `confidence`, `engineProvider`/`engineModel`, `headline`, JSON `strengths`/`risks`/`discrepancies`, nullable JSON `prStats`/`governance`/`commitActivity`/`techStackJson`/`passportJson`/`warningsJson`/`aiUsageJson`, `rubricVersion?` (self-invalidation), `engineByom?` (whose AWS account ran inference), `inputTokens?`/`outputTokens?`/`llmLatencyMs?` (cost/usage metering), `scannedAt`; `@@unique([repoId, headSha])` is also the cross-instance dedup backstop |
 | `ScanDimension` | Per-scan D1–D9 breakdown. | `dimId`, `name`, `weight`, `score`, `signalScore`, `llmScore`, `summary`, JSON `evidence`/`strengths`/`gaps` |
 | `RepoContributor` | Recent committers + AI attribution — a per-repo latest-scan snapshot (replaced wholesale each scan, not accumulated). | `login`, `commits`, `aiCommits`, `lastActiveAt?`; `@@unique([repoId, login])` |
+| `AiChange` | One AI-attributed pull request as an **evidence row**, not a rate — the population behind `prStats.aiInvolvedRate` / `aiGovernedRate`. Answers "show me the AI-assisted changes in the period and who approved each one", which a percentage structurally cannot. Extracted from the PR nodes ingest already fetches (no extra GitHub calls). | `prNumber`, `authorLogin?`, `authorIsBot`, `aiSignal` (`authored`\|`marked`), `aiTools`, `state`, `approved`, `approverLogin?`, `approvedAt?`, `reviewCount`; `@@unique([repoId, prNumber])`. **Upserted, not replaced** — a sliding PR window must not discard evidence that aged out of the latest page. Empty on tokenless scans (PRs aren't observable), which never means "no AI changes". Logins are internal; customer-facing exports pseudonymize unless the org opts into named evidence. |
 | `RepoTeam` | A team owning part of a repo, parsed from CODEOWNERS at scan time — backs the org team rollup. | `slug` (normalized `@org/team`), `ownedPaths`, `isDefaultOwner`, `source` (codeowners\|github_teams); `@@unique([repoId, slug])`. The latest scan replaces the repo's whole set. |
 | `TeamStandingSnapshot` | Team-standings snapshot captured as a durable output of a full org scan, so the leader/laggard decomposition can be trended over time (fully deterministic, no LLM). | `teamCount`, `fleetAvgOverall`, `spread`, `leaderSlug`/`leaderScore`, `laggardSlug`/`laggardScore`, `standingsJson` |
 | `TechStackGroup` | Auto-derived tech-stack grouping (frontend/backend:\<lang\>/mobile/data_ml/infra/library), maintained per scan — parallel to the user-owned `Segment`, deliberately kept separate. | `key`, `label`; `@@unique([orgId, key])` |
@@ -72,8 +73,35 @@ inline comments (most models carry a multi-line design-rationale comment there).
 
 | Model | Purpose | Notable fields |
 | --- | --- | --- |
-| `AuditLog` | Compliance trail. | `orgId?` (null for anonymous public scans), `actorId?`, `action`, JSON `meta`, `at`; indexed `[orgId, at]` for keyset pagination |
+| `AuditLog` | Compliance trail. Tamper-**evident**: every write folds a per-row HMAC into `meta._sig`, and every read recomputes it (see below). | `orgId?` (null for anonymous public scans), `actorId?`, `action`, JSON `meta` (incl. `_sig`), `at`; indexed `[orgId, at]` for keyset pagination |
 | `OrgDecision` | A human decision on a derived, recomputed-every-render finding (a failing check, a solo-maintained repo, a passport blocker) — the state layer that lets a rail badge's count actually go down. Upsert on `(orgId, module, itemKey)`; `itemKey` must be the finding's deterministic identity. | `module` (security\|teams\|passports\|contributors), `itemKey`, `status` (open\|accepted\|dismissed\|snoozed), `rationale`, `title`, `decidedBy?`, `memoryId?` (the `OrgMemory` row it writes through to), `snoozedUntil?`; `@@unique([orgId, module, itemKey])` |
+
+#### Audit-trail tamper-evidence (sign on write, verify on read)
+
+`src/lib/db/audit-integrity.ts` is the whole mechanism; it is migration-free (no new column) and
+inert when no `AUDIT_SIGNING_SECRET` / `AUTH_SECRET` is set.
+
+1. **Write** — `recordAudit` / `claimOrgAuditOnce` stamp `at` explicitly, then `withAuditSignature()`
+   folds an HMAC-SHA256 over the canonical `(action, orgId, actorId, createdAt, meta)` into
+   `meta._sig`. The secret never leaves the server; each row is independently verifiable (no chain,
+   so concurrent writers can't fork it).
+2. **Read** — `getAuditLog` recomputes the HMAC per row and attaches an `integrity` verdict to every
+   `AuditLogEntry`. One HMAC over a few hundred bytes per row, so a 25-row page stays a cheap read
+   and the 10k-row CSV cap costs single-digit milliseconds.
+3. **Surface** — both consumers of that one verdict: the org dashboard viewer
+   (`components/org/audit/`) renders an Integrity badge per row plus a banner when any row is
+   `tampered`, and `/api/audit?format=csv` exports an `integrity` column alongside the raw `_sig`
+   and `orgId`, so the filed artifact states its own verdict *and* stays independently re-verifiable.
+
+| Verdict | Meaning |
+| --- | --- |
+| `ok` | Recomputed signature matched — the row is unchanged since it was written. |
+| `tampered` | Signature MISMATCH — the row was altered at rest (e.g. edited directly in the DB). |
+| `unsigned` | No `_sig` at all: a row written before signing landed. **Expected, not an alarm** — rendering these as `tampered` would fire on every legacy row and train reviewers to ignore the badge. |
+| `no-secret` | The deployment configures no signing secret, so nothing can be verified. The UI hides the column entirely rather than showing a column of non-answers. |
+
+A file-level SHA-256 of the CSV bytes also ships in the `x-ascent-content-sha256` response header —
+that proves the *download* wasn't edited; the per-row `_sig` proves the *rows* weren't.
 
 ### Org knowledge & skills
 
@@ -149,7 +177,7 @@ Other key functions (from the sibling modules, re-exported through the `scans.ts
 | `getRepositoryHistory` | Recent scans + per-dimension scores for trend charts. |
 | `getScanComparison` | Diffs two scans' dimensions/recommendations for the compare view. |
 | `getPublicScanGallery` | Public-corpus scan cards for the leaderboard/gallery. |
-| `recordAudit` / `recordOrgAudit` / `getAuditLog` | Append an audit entry / read the paginated audit log. |
+| `recordAudit` / `recordOrgAudit` / `getAuditLog` | Append an audit entry (signing it) / read the paginated audit log (verifying each row). |
 | `getLatestRecommendations` / `updateRecommendation` / `getRecommendationEvents` | Recommendations API backing — read, apply a status/assignee/due-date patch (recording a `RecommendationEvent`), and read an item's activity timeline. |
 | `getOrgBacklog` (`org.ts`) | The org-wide recommendation backlog — actionable items from the fleet's latest scans grouped by owner and by due-date bucket, with overdue/due-soon counts. |
 

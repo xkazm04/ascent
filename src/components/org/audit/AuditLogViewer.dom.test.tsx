@@ -30,6 +30,7 @@ function entry(over: Partial<AuditLogEntry> = {}): AuditLogEntry {
     at: new Date().toISOString(),
     meta: {},
     scan: null,
+    integrity: "ok",
     ...over,
   };
 }
@@ -74,6 +75,61 @@ describe("AuditLogViewer — CSV follows the applied filters (#5)", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(String(fetchMock.mock.calls[0]![0])).toContain("actorId=mallory");
     expect(csvLink().getAttribute("href")).toContain("actorId=mallory"); // now — and only now — the CSV follows
+  });
+});
+
+// G2-06: the per-row HMAC was signed on write but nothing ever CHECKED it on read, so a row edited
+// directly in the DB was served — and exported — as fact. getAuditLog now recomputes a verdict per row;
+// these pin that the viewer actually SHOWS it, and that the three states stay distinguishable.
+describe("AuditLogViewer — per-row integrity verdict", () => {
+  it("flags a tampered row with a badge AND a loud banner", () => {
+    render(<AuditLogViewer org="acme" initial={page([entry({ integrity: "tampered" })])} />);
+    expect(screen.getByText("Tampered")).toBeInTheDocument();
+    // A mismatch is not a quiet cell state — it must be announced above the table.
+    expect(screen.getByRole("alert").textContent).toContain("Integrity failure");
+  });
+
+  it("shows an intact row as verified, with no alarm raised", () => {
+    render(<AuditLogViewer org="acme" initial={page([entry({ integrity: "ok" })])} />);
+    expect(screen.getByText("Verified")).toBeInTheDocument();
+    expect(screen.queryByText("Tampered")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("reports a legacy unsigned row as Unsigned — never as Tampered (no crying wolf)", () => {
+    // Rows written before the migration-free `_sig` fold landed carry no signature. Painting them red
+    // would fire on every old row and train reviewers to ignore the badge entirely.
+    render(<AuditLogViewer org="acme" initial={page([entry({ integrity: "unsigned" })])} />);
+    const badge = screen.getByText("Unsigned");
+    expect(badge).toBeInTheDocument();
+    expect(badge.getAttribute("title")).toContain("NOT evidence of tampering");
+    expect(screen.queryByText("Tampered")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the three verdicts distinguishable in one mixed page, and counts only the tampered one", () => {
+    render(
+      <AuditLogViewer
+        org="acme"
+        initial={page([
+          entry({ id: "a1", integrity: "ok" }),
+          entry({ id: "a2", integrity: "unsigned" }),
+          entry({ id: "a3", integrity: "tampered" }),
+        ])}
+      />,
+    );
+    expect(screen.getByText("Verified")).toBeInTheDocument();
+    expect(screen.getByText("Unsigned")).toBeInTheDocument();
+    expect(screen.getByText("Tampered")).toBeInTheDocument();
+    expect(screen.getByRole("alert").textContent).toContain("1 entry does not match");
+  });
+
+  it("hides the integrity column entirely when the deployment has no signing secret", () => {
+    // Every row would read "no-secret" — that's noise, not evidence, so the column is suppressed.
+    render(<AuditLogViewer org="acme" initial={page([entry({ integrity: "no-secret" })])} />);
+    expect(screen.queryByText("Integrity")).toBeNull();
+    expect(screen.queryByText("Verified")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

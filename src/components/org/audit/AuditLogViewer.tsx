@@ -6,84 +6,10 @@
 // who triggered the scan that moved a score.
 
 import { useRef, useState } from "react";
-import Link from "next/link";
 import type { AuditLogEntry, AuditLogPage } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
 import { EmptyState } from "@/components/EmptyState";
-
-// One ordered list of the audit actions the app actually records, driving BOTH the badge metadata
-// and the filter dropdown — so they can't drift apart (the prior bug keyed on
-// `recommendation.status_changed`, which is never written; the real action is `recommendation.updated`,
-// and scan.regression / org.alerts.* / *.pr_opened / member.* / plan / retention were unrecognized).
-const ACTIONS: { value: string; label: string; cls: string }[] = [
-  { value: "scan.created", label: "Scan", cls: "border-accent/40 bg-accent/10 text-accent" },
-  { value: "recommendation.updated", label: "Rec update", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "scan.regression", label: "Regression", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
-  { value: "org.alerts.webhook", label: "Alert sink", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org.alerts.thresholds", label: "Alert rules", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "practice.pr_opened", label: "Practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "playbook.pr_opened", label: "Playbook PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "org.member.removed", label: "Member removed", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
-];
-
-const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
-  ACTIONS.map((a) => [a.value, { label: a.label, cls: a.cls }]),
-);
-
-const ACTION_FILTERS = [{ value: "", label: "All actions" }, ...ACTIONS.map((a) => ({ value: a.value, label: a.label }))];
-
-function ActionBadge({ action }: { action: string }) {
-  const m = ACTION_META[action] ?? { label: action, cls: "border-slate-600 bg-slate-700/30 text-slate-300" };
-  return (
-    <span className={`rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest ${m.cls}`}>
-      {m.label}
-    </span>
-  );
-}
-
-function Details({ entry }: { entry: AuditLogEntry }) {
-  if (entry.scan) {
-    const s = entry.scan;
-    const permalink = s.repo ? `/report/${s.repo}${s.headSha ? `@${s.headSha}` : ""}` : null;
-    return (
-      <div className="flex flex-wrap items-center gap-2">
-        {s.repo && (
-          <span className="max-w-[16rem] truncate font-mono text-sm text-white" title={s.repo}>
-            {s.repo}
-          </span>
-        )}
-        {s.level && (
-          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-300">
-            {s.level}
-            {s.overall != null ? ` · ${s.overall}` : ""}
-          </span>
-        )}
-        {s.headSha && <span className="font-mono text-sm text-slate-500">{s.headSha.slice(0, 7)}</span>}
-        {permalink && (
-          <Link href={permalink} className="font-mono text-sm text-accent hover:text-accent-soft">
-            view report →
-          </Link>
-        )}
-      </div>
-    );
-  }
-  // Non-scan entries: surface the most useful meta field(s) compactly.
-  const status = typeof entry.meta.status === "string" ? entry.meta.status : null;
-  const id = typeof entry.meta.id === "string" ? entry.meta.id : null;
-  if (status) {
-    return (
-      <span className="block max-w-[22rem] truncate font-mono text-sm text-slate-300" title={status}>
-        {id ? `${id.slice(0, 8)}… → ` : ""}
-        <span className="text-white">{status}</span>
-      </span>
-    );
-  }
-  return <span className="text-sm text-slate-600">—</span>;
-}
+import { ACTION_FILTERS, ActionBadge, Details, IntegrityBadge } from "./AuditLogCells";
 
 interface Filters {
   action: string;
@@ -165,6 +91,13 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   /** Download href for the APPLIED filter set — the CSV always matches the rows on screen. */
   const csvHref = `/api/audit?${buildQs(applied).toString()}&format=csv`;
 
+  // Per-row tamper-evidence, verified on READ by getAuditLog (the same verdict the CSV export carries).
+  // The column is hidden entirely when the deployment has no signing secret — every row would read
+  // "no-secret", which is noise, not evidence. `unsigned` legacy rows keep the column meaningful without
+  // being alarming; only a genuine signature MISMATCH raises the banner below.
+  const showIntegrity = entries.some((e) => e.integrity && e.integrity !== "no-secret");
+  const tamperedCount = entries.filter((e) => e.integrity === "tampered").length;
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
@@ -212,6 +145,15 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
         </div>
       </div>
 
+      {tamperedCount > 0 && (
+        <div role="alert" className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-base text-red-300">
+          <span className="font-mono text-sm uppercase tracking-widest">Integrity failure</span> —{" "}
+          {tamperedCount} {tamperedCount === 1 ? "entry does" : "entries do"} not match the signature recorded
+          when {tamperedCount === 1 ? "it was" : "they were"} written. {tamperedCount === 1 ? "That row" : "Those rows"}{" "}
+          may have been altered directly in the database; do not file {tamperedCount === 1 ? "it" : "them"} as evidence.
+        </div>
+      )}
+
       {error && (
         <div role="alert" className="mb-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-base text-red-300">
           {error}
@@ -251,6 +193,7 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
                 <th className="px-4 py-2 text-left">When</th>
                 <th className="px-3 py-2 text-left">Action</th>
                 <th className="px-3 py-2 text-left">Actor</th>
+                {showIntegrity && <th className="px-3 py-2 text-left">Integrity</th>}
                 <th className="px-4 py-2 text-left">Details</th>
               </tr>
             </thead>
@@ -271,6 +214,11 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
                       {e.actorId ?? "—"}
                     </div>
                   </td>
+                  {showIntegrity && (
+                    <td className="px-3 py-2">
+                      <IntegrityBadge verdict={e.integrity} />
+                    </td>
+                  )}
                   <td className="max-w-[24rem] px-4 py-2">
                     <Details entry={e} />
                   </td>

@@ -25,6 +25,7 @@ const INITIAL: AuditLogPage = {
       at: new Date().toISOString(),
       meta: {},
       scan: null,
+      integrity: "ok",
     },
   ],
   nextCursor: null,

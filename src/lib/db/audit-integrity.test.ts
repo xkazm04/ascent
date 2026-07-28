@@ -56,6 +56,42 @@ describe("audit-integrity — per-row HMAC signing", () => {
   });
 });
 
+// G2-06: verification had ZERO production callers — it was signed on write and never checked on read.
+// The read path (getAuditLog, and through it the dashboard + the CSV export) reconstructs the signed
+// input from a STORED row, where the timestamp lives on `at`, not `createdAt`. Getting that mapping
+// wrong would silently report every row as `tampered`, so pin the stored-row shape end to end.
+describe("audit-integrity — read-path verification over a STORED row shape", () => {
+  beforeEach(() => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+  });
+  afterEach(() => {
+    delete process.env.AUDIT_SIGNING_SECRET;
+  });
+
+  // What a read sees: the DB row's fields, with `at` re-serialized from a Date.
+  const stored = (meta: Record<string, unknown>) => ({
+    action: ROW.action,
+    orgId: ROW.orgId,
+    actorId: ROW.actorId,
+    createdAt: new Date(ROW.createdAt).toISOString(), // getAuditLog passes row.at.toISOString()
+    meta,
+  });
+
+  it("verifies an intact stored row as ok (write-time signature survives the Date round-trip)", () => {
+    expect(verifyAudit(stored(withAuditSignature(ROW)))).toBe("ok");
+  });
+
+  it("flags a row edited at rest as tampered", () => {
+    const signed = withAuditSignature(ROW);
+    // Simulate a direct DB edit: the content changes, the stale `_sig` stays.
+    expect(verifyAudit(stored({ ...signed, plan: "enterprise" }))).toBe("tampered");
+  });
+
+  it("reports a legacy row written before signing existed as unsigned, not tampered", () => {
+    expect(verifyAudit(stored({ plan: "team", org: "acme" }))).toBe("unsigned");
+  });
+});
+
 describe("audit-integrity — export checksum (sha256Hex)", () => {
   it("is a 64-char hex digest, stable, and changes when the content changes", () => {
     const body = "at,action\n2026-06-20,org.plan\n";

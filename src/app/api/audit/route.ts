@@ -20,7 +20,12 @@ export const dynamic = "force-dynamic";
 // over — omitting it (as this export used to) made the stated row-level tamper-evidence unverifiable
 // from the file alone, since the canonical signed input couldn't be reconstructed (the filename carries
 // only the org slug, not the DB orgId).
-const CSV_COLUMNS = ["at", "action", "actorId", "orgId", "repo", "level", "overall", "headSha", "meta"] as const;
+// `integrity` is the per-row HMAC verdict recomputed at read time (ok / tampered / unsigned / no-secret).
+// Without it the file carried the signature but never the CHECK, so an examiner had to re-implement the
+// canonical serialization to learn anything from it — and an `unsigned` row was indistinguishable from a
+// verified one. Stating the verdict per row is what makes the export self-describing rather than merely
+// self-hashing.
+const CSV_COLUMNS = ["at", "action", "actorId", "orgId", "repo", "level", "overall", "headSha", "integrity", "meta"] as const;
 const CSV_MAX_ROWS = 10000; // safety cap so one export can't loop the whole table unbounded
 
 /** Stream the full filtered audit trail as a CSV download (cursor-looped over getAuditLog). */
@@ -45,6 +50,7 @@ async function exportCsv(
           e.scan?.level,
           e.scan?.overall,
           e.scan?.headSha,
+          e.integrity,
           JSON.stringify(e.meta),
         ]
           .map((v) => csvField(v, true)) // audit trail quotes every field uniformly
