@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Card, InlineEmpty, SectionHeader, TILE_LEDGER } from "@/components/org/shared/ui";
 import { Kicker } from "@/components/ui";
-import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
+import { dimShort, scoreHex } from "@/lib/ui";
 import type { OrgGapAnalysis } from "@/lib/db";
 
 // The headline cross-repo reading, and the one a lead has to make before spending anything: is a weak
@@ -10,8 +10,6 @@ import type { OrgGapAnalysis } from "@/lib/db";
 // The two answers buy completely different work, so they render as two hairline-separated columns,
 // never one merged list. Deliberately NOT a second practice list: `getOrgPractices`' gapRepos covers
 // per-practice rollout; this panel only makes the org-vs-repo call.
-
-const short = (dimId: string) => DIMENSION_SHORT[dimId as keyof typeof DIMENSION_SHORT] ?? dimId;
 
 /** One column of the decomposition — its own eyebrow, count, and body, on an opaque ledger cell. */
 function Column({ kicker, count, sub, children }: { kicker: string; count: number; sub: string; children: React.ReactNode }) {
@@ -96,7 +94,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                   {g.practiceId ? (
                     <Link
                       href={`/org/${slug}/practices#practice-${g.practiceId}`}
-                      title={`See the ${short(g.dimId)} practice — the reusable shape that lifts this dimension`}
+                      title={`See the ${dimShort(g.dimId)} practice — the reusable shape that lifts this dimension`}
                       className="focus-ring rounded font-medium text-slate-200 transition hover:text-accent"
                     >
                       {g.dimId} · {g.label}
@@ -113,7 +111,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                   {g.exemplar && (
                     <Link
                       href={`/report/${g.exemplar.fullName}`}
-                      title={`${g.exemplar.fullName} already scores ${g.exemplar.score} on ${short(g.dimId)} — copy from its report`}
+                      title={`${g.exemplar.fullName} already scores ${g.exemplar.score} on ${dimShort(g.dimId)} — copy from its report`}
                       className="focus-ring rounded font-mono text-xs tabular-nums text-slate-400 transition hover:text-accent"
                     >
                       copy {g.exemplar.name} ({g.exemplar.score}) →
@@ -138,7 +136,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                 <li key={`${r.fullName}:${r.dimId}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
                   <Link
                     href={`/report/${r.fullName}`}
-                    title={`Open ${r.fullName} — ${short(r.dimId)} is ${r.delta} below the org average`}
+                    title={`Open ${r.fullName} — ${dimShort(r.dimId)} is ${r.delta} below the org average`}
                     className="focus-ring rounded font-medium text-slate-200 transition hover:text-accent"
                   >
                     {r.name}
