@@ -8,8 +8,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { ScanReport } from "@/lib/types";
 import { ReportHeader } from "./ReportHeader";
+import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
 
-// Minimal cast — ReportHeader + FreshnessControl only read repo/archetype/aiUsage/engine/confidence/scannedAt.
+// Minimal cast — the header reads repo/archetype/aiUsage/engine/confidence/scannedAt, plus (since
+// G5-17) the score/level/dimension fields the "Copy for LLM" payload is rendered from.
 function report(owner: string, engine?: Partial<ScanReport["engine"]>): ScanReport {
   return {
     repo: {
@@ -28,6 +30,30 @@ function report(owner: string, engine?: Partial<ScanReport["engine"]>): ScanRepo
     engine: { provider: "anthropic", model: "claude", ...engine },
     confidence: 0.9,
     scannedAt: "2026-01-01T00:00:00Z",
+    overallScore: 61,
+    level: { id: "L3", name: "Practicing", band: [50, 69], tagline: "t", description: "d" },
+    adoptionScore: 58,
+    rigorScore: 64,
+    posture: { id: "ai-native", label: "AI-native", blurb: "b" },
+    dimensions: [
+      {
+        id: "D1",
+        name: "Context Engineering",
+        weight: 0.15,
+        score: 70,
+        signalScore: 66,
+        llmScore: 74,
+        summary: "solid",
+        evidence: [],
+        strengths: [],
+        gaps: ["no per-package context"],
+      },
+    ],
+    headline: "A capable team repo.",
+    strengths: ["CI is fast"],
+    risks: ["thin tests"],
+    roadmap: [],
+    discrepancies: [],
   } as unknown as ScanReport;
 }
 
@@ -97,6 +123,34 @@ describe("ReportHeader", () => {
     expect(alert).toHaveTextContent("No report for this repo yet — scan it first.");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toContain("/api/report/pdf?repo=");
+  });
+
+  // G5-17 — the UI half of the "one generator" proof. The chip's payload is not inspectable directly
+  // (it goes to the clipboard), so both copy paths are forced to fail: the manual-copy textarea then
+  // holds the EXACT bytes the button would have copied. Those bytes must equal reportLlmMarkdown(),
+  // which src/app/api/report/llm/route.test.ts independently asserts is the endpoint's body — so a
+  // format change that reached only one surface fails one of the two tests.
+  it("G5-17: the Copy-for-LLM chip carries exactly reportLlmMarkdown(report)", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("blocked")) },
+      configurable: true,
+    });
+    (document as unknown as { execCommand: () => boolean }).execCommand = vi.fn(() => false);
+
+    const r = report("acme");
+    render(<ReportHeader report={r} isMock={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /copy the acme\/web maturity briefing/i }));
+
+    const ta = await screen.findByLabelText<HTMLTextAreaElement>("Markdown briefing to copy manually");
+    expect(ta.value).toBe(reportLlmMarkdown(r));
+    expect(ta.value).toContain("# Ascent maturity report — acme/web"); // and it is the real briefing
+  });
+
+  it("G5-04: offers the share card as a download of the SAME image the permalink unfurls", () => {
+    render(<ReportHeader report={report("acme")} isMock={false} />);
+    const link = screen.getByRole("link", { name: /share card/i });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/api/report/share-card?repo="));
+    expect(link.getAttribute("href")).toContain(encodeURIComponent("acme/web@abc123"));
   });
 
   it("pdf-llm-export #1: the export button shows a busy state while the render is in flight and ignores re-clicks", async () => {

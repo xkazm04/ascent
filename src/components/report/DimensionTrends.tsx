@@ -12,11 +12,21 @@ import { parseRepositoryHistory } from "@/lib/report/validate";
 import { EmptyState } from "@/components/EmptyState";
 import { Kicker, Surface } from "@/components/ui";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
+import type { TrendAnnotation } from "@/app/trends/annotations";
 import { DeltaTag } from "@/components/report/deltas";
 import { DimLine, type ScanMeta } from "@/components/report/DimLine";
+import { MOCK_POINT_NOTE, hasMockPoint } from "@/components/report/chartEngine";
 import { RANGES, RangeToggle, withinRange, type RangeKey } from "@/components/report/DimensionTrendsRange";
 
-export function DimensionTrends({ history }: { history: RepositoryHistory }) {
+export function DimensionTrends({
+  history,
+  annotations = [],
+}: {
+  history: RepositoryHistory;
+  /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart,
+   *  which resolves each one to a visible point by timestamp and drops those outside the range. */
+  annotations?: TrendAnnotation[];
+}) {
   const [range, setRange] = useState<RangeKey>("all");
   const days = RANGES.find((r) => r.key === range)?.days ?? null;
 
@@ -54,6 +64,16 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
       if (!res.ok) throw new Error(`history ${res.status}`);
       const parsed = parseRepositoryHistory(await res.json());
       if (controller.signal.aborted) return; // superseded during parse — don't paint stale data
+      // A successful fetch+parse is NOT the same as having per-dimension data. A degraded or
+      // partially-validated payload (scans present, every `dimensions` array empty) used to flip
+      // straight to "done", rendering all 8 dimension cards as "—" as though the load had
+      // succeeded — real data loss presented as a finished, empty result, right beside an overall
+      // chart that plainly has data. Treat that as a load failure and offer the existing retry.
+      const hasDims = parsed.scans.some((s) => s.dimensions.length > 0);
+      if (parsed.scans.length > 0 && !hasDims) {
+        setDimState("error");
+        return;
+      }
       setFull(parsed);
       setDimState("done");
     } catch (err) {
@@ -155,7 +175,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
           <Surface radius="2xl" className="p-6">
             <h2 className="text-lg font-semibold text-white">Overall maturity</h2>
             <div className="mt-3">
-              <TrendChart points={overall} />
+              <TrendChart points={overall} annotations={annotations} />
             </div>
           </Surface>
 
@@ -170,6 +190,17 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                 {(dimState === "done" ? dimChrono.length : overallChrono.length)} scans
               </Kicker>
             </div>
+
+            {/* One legend for the whole small-multiples grid — every card shares the same scan meta,
+                so repeating the hollow-point key on nine cards would be noise. */}
+            {dimState === "done" && hasMockPoint(meta.map((m) => m.engine)) && (
+              <p className="mt-2 flex items-start gap-2 text-sm text-slate-500">
+                <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
+                  <circle cx={6} cy={6} r={4} fill="var(--color-surface-strong)" stroke="currentColor" strokeWidth={2} />
+                </svg>
+                <span>{MOCK_POINT_NOTE}</span>
+              </p>
+            )}
 
             {dimState === "done" ? (
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

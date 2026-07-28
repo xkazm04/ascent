@@ -7,7 +7,13 @@ import type { DimensionId, DimensionResult } from "@/lib/types";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
+import { RadarFallback } from "@/components/report/RadarFallback";
 import { r2 } from "@/components/report/svgCoord";
+
+/** Fixed radius the zero MARKER is parked at. It is not a vertex — the polygon still closes through
+ *  the true centre — only the place the "this dimension scored zero" ring is drawn so it is legible
+ *  and hoverable instead of stacking on the centre pixel with every other zero. */
+const ZERO_MARK_FRAC = 0.04;
 
 export function RadarChart({
   dimensions,
@@ -45,6 +51,13 @@ export function RadarChart({
     );
   }
 
+  // 1 or 2 dimensions: the polygon math is valid but degenerate (a point, or a zero-area line), so
+  // the radar would render as an invisible shape over data that exists. Degrade to labeled bars —
+  // the honest form for one or two magnitudes — instead of a shape with no area. See RadarFallback.
+  if (dimensions.length < 3) {
+    return <RadarFallback dimensions={dimensions} highlightId={highlightId} onSelect={onSelect} />;
+  }
+
   const cx = size / 2;
   const cy = size / 2;
   const radius = size / 2 - 56;
@@ -66,15 +79,24 @@ export function RadarChart({
 
   const rings = [0.25, 0.5, 0.75, 1];
   const highlightIdx = highlightId ? dimensions.findIndex((d) => d.id === highlightId) : -1;
-  const dataPts = dimensions.map((d, i) => point(i, Math.max(0.04, d.score / 100)));
+  // The plotted polygon uses each dimension's TRUE fraction. The old `Math.max(0.04, score/100)`
+  // floor gave a zero-scoring dimension a visible spoke, inflating the shape for exactly the
+  // dimensions the chart most needs to represent honestly — a 0 read as a small positive.
+  const polyPts = dimensions.map((d, i) => point(i, d.score / 100));
+  // A vertex sitting AT the centre is neither legible nor grabbable, and every zero would stack on
+  // the same pixel — so a zero gets its own MARKER instead: parked at a fixed small radius on its
+  // own axis and drawn as a hollow dashed ring rather than a solid dot. The ring reads as "empty",
+  // contributes no area to the polygon (which still closes through the centre), and stays hoverable.
+  const markPts = dimensions.map((d, i) => (d.score === 0 ? point(i, ZERO_MARK_FRAC) : polyPts[i]!));
+  const anyZero = dimensions.some((d) => d.score === 0);
   // Validate `active` against the CURRENT arrays before use: it persists across renders but is only
   // checked at set-time, so if a parent swaps `dimensions` for a shorter (non-empty) array while a
   // vertex tooltip is open, `dataPts[active]` is undefined and `undefined![0]` would throw mid-render.
   // Resolve to a concrete point/dim once and gate the ring + tooltip on them (the DimLine pattern),
   // dropping the non-null assertions.
-  const actPt = active != null ? dataPts[active] : undefined;
+  const actPt = active != null ? markPts[active] : undefined;
   const actDim = active != null ? dimensions[active] : undefined;
-  const dataPath = dataPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const dataPath = polyPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -82,7 +104,7 @@ export function RadarChart({
     const vy = ((e.clientY - rect.top) / rect.height) * size;
     let best = -1;
     let bestDist = Infinity;
-    dataPts.forEach(([x, y], i) => {
+    markPts.forEach(([x, y], i) => {
       const dist = Math.hypot(x - vx, y - vy);
       if (dist < bestDist) {
         bestDist = dist;
@@ -114,7 +136,10 @@ export function RadarChart({
       >
         <title id={titleId}>Maturity radar</title>
         <desc id={descId}>
-          {`Scores across ${n} maturity dimensions on a 0 to 100 scale. Per-dimension values are listed in the adjacent table.`}
+          {`Scores across ${n} maturity dimensions on a 0 to 100 scale. Per-dimension values are listed in the adjacent table.` +
+            (anyZero
+              ? " Dimensions scoring zero plot at the centre and are marked with a hollow dashed ring rather than a plotted vertex."
+              : "")}
         </desc>
         {/* grid rings */}
       {rings.map((rg) => (
@@ -134,12 +159,20 @@ export function RadarChart({
       {/* data polygon — follows the brand tokens (--color-accent + its soft tint) so a re-skin /
           white-label retunes the chart with the buttons instead of leaving it on the old azure. */}
       <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={0.22} stroke="var(--color-accent)" strokeWidth={2} />
-      {dataPts.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={i === active || i === highlightIdx ? 4.5 : 3} fill="var(--color-accent-soft)" />
-      ))}
+      {markPts.map(([x, y], i) => {
+        const r = i === active || i === highlightIdx ? 4.5 : 3;
+        // Zero → a hollow dashed ring, never a filled dot. A filled dot at any radius asserts a
+        // measured magnitude; the open, broken outline reads as an absence, and the axis numeral
+        // beside it already says "0".
+        return dimensions[i]!.score === 0 ? (
+          <circle key={i} data-zero cx={x} cy={y} r={r + 1.5} fill="none" stroke={scoreHex(0)} strokeWidth={1.5} strokeDasharray="2 2" />
+        ) : (
+          <circle key={i} cx={x} cy={y} r={r} fill="var(--color-accent-soft)" />
+        );
+      })}
       {/* selected vertex — a persistent ring synced to the external selection (the bar list) */}
       {highlightIdx >= 0 && (
-        <circle cx={dataPts[highlightIdx]![0]} cy={dataPts[highlightIdx]![1]} r={7} fill="none" stroke={scoreHex(dimensions[highlightIdx]!.score)} strokeWidth={2.5} />
+        <circle cx={markPts[highlightIdx]![0]} cy={markPts[highlightIdx]![1]} r={7} fill="none" stroke={scoreHex(dimensions[highlightIdx]!.score)} strokeWidth={2.5} />
       )}
       {/* hovered vertex highlight */}
       {actPt && actDim && (
@@ -188,6 +221,16 @@ export function RadarChart({
             </div>
           </div>
         </ChartTooltip>
+      )}
+      {anyZero && (
+        // Legend for the zero mark. Shape-only encoding needs a key, and this is the one mark on the
+        // chart that means "no magnitude" rather than "a small magnitude".
+        <p className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+          <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3 shrink-0">
+            <circle cx={6} cy={6} r={4} fill="none" stroke="currentColor" strokeWidth={1.5} strokeDasharray="2 2" />
+          </svg>
+          <span>Dashed ring = scored 0 (plotted at the centre, not as a spoke).</span>
+        </p>
       )}
       {/* Visually-hidden equivalent of the radar — lets screen readers read every dimension's
           score (and band) instead of a single opaque "radar" image. When the radar is a picker,

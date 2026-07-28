@@ -78,6 +78,36 @@ describe("BadgeGenerator gate badge (explicit, disclosed policy)", () => {
   });
 });
 
+// G5-28: the client's `parseRepo` must reject exactly what the server's `validName` rejects (both now
+// share `validRepoNamePart` from @/lib/badge) — a name that passes here but fails server-side used to
+// produce a snippet whose badge always rendered "unknown".
+describe("BadgeGenerator repo validation (agrees with the server's name grammar)", () => {
+  it("rejects a leading-dot repo segment (owner/.git) with the invalid-repo message, no snippet", () => {
+    render(<BadgeGenerator />);
+    typeRepo("owner/.git");
+
+    expect(screen.getByText(/enter a valid repository/i)).toBeInTheDocument();
+    const snippet = document.querySelector("pre")?.textContent ?? "";
+    expect(snippet).toContain("enter a repository");
+  });
+
+  it("rejects a consecutive-dot repo segment (owner/a..b)", () => {
+    render(<BadgeGenerator />);
+    typeRepo("owner/a..b");
+
+    expect(screen.getByText(/enter a valid repository/i)).toBeInTheDocument();
+  });
+
+  it("still accepts a legitimate dotted repo name (owner/node.js)", () => {
+    render(<BadgeGenerator />);
+    typeRepo("owner/node.js");
+
+    expect(screen.queryByText(/enter a valid repository/i)).toBeNull();
+    const img = screen.getByRole("img", { name: "Ascent maturity" });
+    expect(img.getAttribute("src") ?? "").toContain("/api/badge/owner/node.js");
+  });
+});
+
 describe("BadgeGenerator copy button (no success theater)", () => {
   beforeEach(() => {
     render(<BadgeGenerator />);

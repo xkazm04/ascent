@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { withinRange } from "@/components/report/DimensionTrendsRange";
+import { rangeCutoff, withinRange } from "@/components/report/DimensionTrendsRange";
 import type { HistoryPoint } from "@/lib/db/scans";
 
 // Pins the range-toggle window slice (trends-comparison test-mastery #5, Low). `withinRange` is the
 // pure pre-filter every 5d/30d/90d/All chart maps over, and the header's "N scans shown" count is
 // derived from it. Two non-obvious contracts are pinned here because a refactor could silently flip
 // either with no other test catching it:
-//   1. BOUNDARY: a scan whose timestamp is exactly at the cutoff is KEPT (the predicate is `t >= cutoff`,
-//      inclusive). Only points STRICTLY older than the window are dropped.
+//   1. BOUNDARY: the window is CALENDAR days in the canonical org zone (`addDaysInZone`), half-open at
+//      the bottom — a scan exactly at the cutoff midnight is KEPT, one 1ms older is dropped — and
+//      UNBOUNDED at the top, so a clock-skewed future scan stays visible.
 //   2. NaN RULE (by window): a scan whose `scannedAt` is unparseable (Date.parse → NaN) is DROPPED when
 //      a finite `days` window is active — an undateable point has no place in a 5d/30d/90d range, so the
 //      user must be able to narrow it out (DimensionTrendsRange.tsx — `Number.isNaN(t) ? false : ...`).
@@ -53,13 +54,28 @@ describe("withinRange", () => {
     expect(result.map((s) => s.id)).toEqual(["inside"]);
   });
 
-  it("BOUNDARY: a scan exactly at the cutoff is KEPT (predicate is `t >= cutoff`, inclusive)", () => {
+  it("BOUNDARY: the window is CALENDAR days in the canonical zone, half-open [midnight, ∞)", () => {
     pinNow();
-    const atCutoff = pt(iso(NOW - 5 * DAY), "atCutoff"); // exactly 5d ago === cutoff
-    const justOlder = pt(iso(NOW - 5 * DAY - 1), "justOlder"); // 1ms past the cutoff
-    const result = withinRange([atCutoff, justOlder], 5);
-    // The cutoff point survives; the one strictly older (by 1ms) is dropped.
-    expect(result.map((s) => s.id)).toEqual(["atCutoff"]);
+    // "5d" = today plus the four calendar days before it. With NOW = 2026-06-19 (UTC, the canonical
+    // default zone) the cutoff is 2026-06-15T00:00:00Z — NOT `now − 5 × 86_400_000` (2026-06-14T12:00Z).
+    // Calendar arithmetic via addDaysInZone is what keeps a DST day (23 or 25 hours) from sliding the
+    // boundary into the neighbouring day. (Canonical time-zone policy, src/lib/org/timezone.ts.)
+    const atMidnight = pt("2026-06-15T00:00:00.000Z", "atMidnight"); // exactly the cutoff → KEPT
+    const justOlder = pt("2026-06-14T23:59:59.999Z", "justOlder"); // 1ms before it → DROPPED
+    const result = withinRange([atMidnight, justOlder], 5);
+    expect(result.map((s) => s.id)).toEqual(["atMidnight"]);
+  });
+
+  it("has NO upper bound — a clock-skewed future-dated scan is still shown, not filtered away", () => {
+    pinNow();
+    const future = pt(iso(NOW + 2 * DAY), "future");
+    expect(withinRange([future], 5).map((s) => s.id)).toEqual(["future"]);
+  });
+
+  it("rangeCutoff returns the zoned midnight `days - 1` calendar days back", () => {
+    expect(rangeCutoff(5, new Date(NOW)).toISOString()).toBe("2026-06-15T00:00:00.000Z");
+    expect(rangeCutoff(1, new Date(NOW)).toISOString()).toBe("2026-06-19T00:00:00.000Z"); // today only
+    expect(rangeCutoff(30, new Date(NOW)).toISOString()).toBe("2026-05-21T00:00:00.000Z");
   });
 
   it("NaN RULE: with a finite window, an unparseable `scannedAt` is DROPPED (an undateable point has no place in a date range)", () => {

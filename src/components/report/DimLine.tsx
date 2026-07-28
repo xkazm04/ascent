@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
+import { MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 import { scoreHex } from "@/lib/ui";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips + deep links). */
@@ -111,6 +112,24 @@ export function DimLine({
   // svg (role="img" + onClick) opens; unlinked points contribute their value as plain text.
   const srPoints = present;
 
+  // All values null → this dimension has no trajectory at all. The line was already suppressed
+  // (`drawnCount > 1`), but the level bands, gridlines and "65" axis label still rendered, so an
+  // empty series looked like a real chart whose line happened to sit off-frame. Mirror RadarChart's
+  // labeled placeholder instead. Placed AFTER every hook (useChartHover / useCoarseTapToOpen /
+  // useRouter above) to satisfy the Rules of Hooks, and sized to the svg's own 320×90 aspect so
+  // swapping between states costs no layout shift.
+  if (drawnCount === 0) {
+    return (
+      <div
+        className="mt-2 flex aspect-[320/90] w-full items-center justify-center rounded-lg border border-dashed border-divider text-sm text-slate-500"
+        role="img"
+        aria-label={name ? `${name}: no trend data` : "No trend data"}
+      >
+        No trend data
+      </div>
+    );
+  }
+
   return (
     <div className="relative mt-2">
       <svg
@@ -154,11 +173,20 @@ export function DimLine({
         </text>
         {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />}
         {drawnCount > 1 && <path d={path.trim()} fill="none" stroke={scoreHex(lastReal)} strokeWidth={2.25} />}
-        {values.map((v, i) =>
-          v === null ? null : (
-            <circle key={i} cx={x(i)} cy={y(v)} r={i === values.length - 1 ? 4 : 2.5} fill={scoreHex(v)} />
-          ),
-        )}
+        {values.map((v, i) => {
+          if (v === null) return null;
+          const r = i === values.length - 1 ? 4 : 2.5;
+          // A mock-engine scan is a deterministic rubric run with no model contribution — it is not
+          // comparable to an LLM-scored point, and a solid dot on the same line asserted that it was
+          // (see MOCK_ENGINE / DimensionTrends' footnote). Draw it HOLLOW: same score hue on the
+          // stroke so the value ramp is untouched, surface-colored fill so the mark reads as "not
+          // filled in". Shape carries the caveat, not colour.
+          return isMockEngine(meta[i]?.engine) ? (
+            <circle key={i} data-mock cx={x(i)} cy={y(v)} r={r + 0.5} fill="var(--color-surface-strong)" stroke={scoreHex(v)} strokeWidth={1.75} />
+          ) : (
+            <circle key={i} cx={x(i)} cy={y(v)} r={r} fill={scoreHex(v)} />
+          );
+        })}
         {act && (
           <circle cx={x(act.i)} cy={y(act.v)} r={5.5} fill="none" stroke={scoreHex(act.v)} strokeWidth={1.75} />
         )}
@@ -182,7 +210,11 @@ export function DimLine({
           {srPoints.map((p) => {
             const mp = meta[p.i];
             const when = mp?.at ? srDate(mp.at) : "";
-            const label = `${name ? name + " " : ""}${p.v} of 100${when ? ` on ${when}` : ""}`;
+            // The hollow-dot caveat is visual only; repeat it in words so a screen-reader user isn't
+            // told a demo score and a model score in the same neutral voice.
+            const label =
+              `${name ? name + " " : ""}${p.v} of 100${when ? ` on ${when}` : ""}` +
+              (isMockEngine(mp?.engine) ? MOCK_SR_SUFFIX : "");
             return (
               <li key={p.i}>
                 {mp?.href ? <a href={mp.href}>{`${label} — open this scan's report`}</a> : label}

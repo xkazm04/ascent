@@ -26,7 +26,7 @@ import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
 import { recordBadgeImpression, recordQuotaEvent } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX, relLuminance, rgbOf } from "@/lib/ui";
-import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
+import { BADGE_STYLES, type BadgeStyle, badgeReportHref, validRepoNamePart } from "@/lib/badge";
 import type { LevelId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -34,13 +34,12 @@ export const dynamic = "force-dynamic";
 
 // ---- validation -------------------------------------------------------------
 
-// GitHub's name grammar: owners ≤39 chars, repos ≤100, [A-Za-z0-9._-], and never "."/"..".
-const NAME_RE = /^[A-Za-z0-9_.-]+$/;
+// GitHub's name grammar: owners ≤39 chars, repos ≤100, [A-Za-z0-9._-], and never "."/"..". The
+// character-class + dot-position rule is single-sourced in `validRepoNamePart` (@/lib/badge, G5-28) so
+// the client `BadgeGenerator`'s `parseRepo` can't drift from what this route actually accepts; only the
+// per-segment length cap is local to the server (the client never needs it before the round-trip).
 function validName(s: string, max: number): boolean {
-  // Reject a LEADING dot (".", "..", ".git", "..foo") and any CONSECUTIVE dots ("a..b"): GitHub names
-  // never start with a dot, and the prior "s !== '.' && s !== '..'" only caught the two bare forms — the
-  // comment promised path-traversal-style segments were blocked but `.git`/`a..b`/`..foo` slipped through.
-  return Boolean(s) && s.length <= max && NAME_RE.test(s) && !s.startsWith(".") && !s.includes("..");
+  return s.length <= max && validRepoNamePart(s);
 }
 
 // Caps on caller-supplied badge customization. The SVG width and response size scale with these, and
@@ -419,10 +418,15 @@ export async function GET(
     // falls back to the caller's custom color / neutral, matching the other neutral states.
     const levelHex = LEVEL_HEX[report.level.id as LevelId];
     const color = levelHex ?? resolveColor(customColor, neutral);
+    // G5-29: the "· demo" qualifier previously only reached the LABEL (verdictLabel). A README author
+    // can crop/restyle a badge so only the value half survives (or a screenshot shows just the value
+    // chip), and a bare "63/100" / "L3 Established" is exactly as credible-looking as a real LLM-scored
+    // verdict — so the value string itself must carry the qualifier too, not just the label next to it.
+    const valueSuffix = isMock ? " · demo" : "";
     // Score variant (USE-2): the numeric headline (with the level glyph + colour) instead of the level name.
     if (scoreMode) {
       return respond(
-        badgeSvg({ label: verdictLabel, value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.overallScore}/100`, color, style, logo, href }),
+        badgeSvg({ label: verdictLabel, value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.overallScore}/100${valueSuffix}`, color, style, logo, href }),
         { cache: customized ? CACHE_CUSTOM : resolvedCache },
       );
     }
@@ -431,7 +435,7 @@ export async function GET(
       // same non-color redundancy lib/ui.ts mandates everywhere a level color appears in the app.
       badgeSvg({
         label: verdictLabel,
-        value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.level.id} ${report.level.name}`,
+        value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.level.id} ${report.level.name}${valueSuffix}`,
         color,
         style,
         logo,

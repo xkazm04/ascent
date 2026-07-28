@@ -8,6 +8,8 @@ import { DownloadButton } from "@/components/report/DownloadButton";
 import { pillClass } from "@/components/report/pill";
 import { SkillDownload } from "@/components/report/SkillDownload";
 import { FoundationPrButton } from "@/components/report/FoundationPrButton";
+import { CopyForLlm } from "@/components/CopyForLlm";
+import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
 
 // Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
@@ -148,6 +150,23 @@ export function ReportHeader({
           >
             <span aria-hidden>↓</span> Export PDF
           </DownloadButton>
+          {/* The same 1200×630 card the permalink already advertises as its social unfurl, as a
+              download for a slide or a Slack message (G5-04) — one renderer, so what you paste is
+              what the link previews. */}
+          <DownloadButton
+            href={`/api/report/share-card?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
+            className={pillClass({ focusRing: true, textSm: true })}
+            title="Download a shareable score card (PNG)"
+          >
+            <span aria-hidden>↓</span> Share card
+          </DownloadButton>
+          {/* The same briefing `GET /api/report/llm?repo=…` serves — one generator (reportLlmMarkdown),
+              so the clipboard payload and the endpoint body are identical by construction (G5-17). */}
+          <CopyForLlm
+            text={reportLlmMarkdown(report)}
+            label="Copy for LLM"
+            ariaLabel={`Copy the ${repo.owner}/${repo.name} maturity briefing for an LLM`}
+          />
           {/* The pill keeps its one-click default download; the co-located picker beside it exposes the
               generator's maintainer multiselect (?dims=) so a session can be scoped to chosen dimensions. */}
           <SkillDownload

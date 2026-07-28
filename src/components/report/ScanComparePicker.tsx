@@ -38,6 +38,15 @@ export function ScanComparePicker({
   // same-day scans with the same score stay distinguishable in the dropdowns (trends-comparison #4).
   const captions = scanOptionCaptions(scans, latestId);
 
+  // G5-26: nothing enforced or hinted that the baseline should be chronologically OLDER than the
+  // comparison — a user could invert the pair and get an all-red "What changed" panel that reads as a
+  // regression while actually looking backward in time. `scannedAt` is an ISO string, so string
+  // comparison is safe. Missing either scan (shouldn't happen — both ids come from `scans`) skips the
+  // hint rather than throwing.
+  const beforeScan = scans.find((s) => s.id === beforeId);
+  const afterScan = scans.find((s) => s.id === afterId);
+  const isInverted = Boolean(beforeScan && afterScan && beforeScan.scannedAt > afterScan.scannedAt);
+
   // Navigate to a new (after, before) pair — shareable URL, server re-renders the diff. Use push (not
   // replace) so each selection is its own history entry and Back steps through the prior selections,
   // matching this component's documented "the back button works" contract.
@@ -98,6 +107,12 @@ export function ScanComparePicker({
           </select>
         </Field>
       </div>
+      {isInverted && (
+        <p className="mt-3 font-mono text-sm text-warn">
+          ⚠ Baseline is newer than the compared scan — this diff looks backward in time and may read as a
+          regression that&apos;s actually a prior improvement. Swap to compare chronologically.
+        </p>
+      )}
     </Surface>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import type { HistoryPoint } from "@/lib/db/scans";
+import { addDaysInZone } from "@/lib/org/timezone";
 
 export const RANGES = [
   { key: "5d", label: "5d", days: 5 },
@@ -11,10 +12,23 @@ export const RANGES = [
 
 export type RangeKey = (typeof RANGES)[number]["key"];
 
+/**
+ * Start of the "last `days` days" window, in the canonical org zone: the zoned midnight `days - 1`
+ * calendar days before today, so "5d" means today plus the four calendar days before it. Calendar
+ * arithmetic (`addDaysInZone`), never `days × 86_400_000` — a DST day is 23 or 25 hours, and a flat
+ * multiply silently slid the boundary an hour into the neighbouring day twice a year. The window is
+ * HALF-OPEN at the bottom (`t >= cutoff`) and unbounded at the top, so a clock-skewed future-dated
+ * scan is still shown rather than filtered into invisibility. (Canonical time-zone policy,
+ * `src/lib/org/timezone.ts`.)
+ */
+export function rangeCutoff(days: number, now: Date = new Date()): Date {
+  return addDaysInZone(now, -(days - 1));
+}
+
 /** Keep scans within `days` of now (newest-first order preserved); `null` keeps all. */
 export function withinRange(scans: HistoryPoint[], days: number | null): HistoryPoint[] {
   if (days === null) return scans;
-  const cutoff = Date.now() - days * 86_400_000;
+  const cutoff = rangeCutoff(days).getTime();
   return scans.filter((s) => {
     const t = Date.parse(s.scannedAt);
     // An undateable point has, by definition, no place in a time window — excluding it lets the user

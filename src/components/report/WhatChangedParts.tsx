@@ -107,14 +107,54 @@ export function Transition({
   );
 }
 
+/** 45° hatch over the neutral fill — the "this is not a comparable measurement" texture. Reserved
+ *  for the one-sided diff below; a hatched bar can never be mistaken for a plotted score. */
+const UNCOMPARABLE_HATCH =
+  "repeating-linear-gradient(45deg, rgba(148,163,184,0.55) 0 3px, rgba(148,163,184,0) 3px 6px)";
+
+/** The structural-change badge for a dimension that only one side of the comparison measured. */
+function OneSidedBadge({ kind }: { kind: "added" | "removed" | "neither" }) {
+  // Deliberately NOT emerald/red: a dimension appearing or disappearing is a change in WHAT was
+  // measured, not an improvement or a regression, and borrowing the gain/loss hues would assert a
+  // direction the data doesn't have. Sky = informational-new (the report header's demo chip hue),
+  // amber = attention/gap (the "New gaps" list hue). Both ship glyph + label, never color alone.
+  const spec = {
+    added: { cls: "border-sky-500/40 bg-sky-500/10 text-sky-300", glyph: "+", text: "New in this scan — no baseline to compare" },
+    removed: { cls: "border-amber-500/40 bg-amber-500/10 text-amber-300", glyph: "−", text: "No longer scored — nothing to compare" },
+    neither: { cls: "border-slate-600 bg-slate-800/60 text-slate-400", glyph: "·", text: "Not scored in either scan" },
+  }[kind];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-sm font-semibold ${spec.cls}`}>
+      <span aria-hidden>{spec.glyph}</span>
+      {spec.text}
+    </span>
+  );
+}
+
 /** GitHub-style diff bar: neutral base to the unchanged level, then a green (gain) or red
- *  (loss) segment spanning the delta. Falls back to a plain colored bar when a side is absent. */
+ *  (loss) segment spanning the delta.
+ *
+ *  When exactly ONE side is present there is no delta to draw at all — the dimension was added or
+ *  dropped by a model/rubric change. The old fallback painted the present value as an ordinary
+ *  score-colored bar, visually identical to a dimension that held steady, so a real structural
+ *  change in what was measured read as "nothing happened". It now carries an explicit badge naming
+ *  which side is missing, and a hatched neutral fill that reads as "not a comparable measurement". */
 function DiffBar({ before, after }: { before: number | null; after: number | null }) {
   if (before === null || after === null) {
-    const v = after ?? before ?? 0;
+    const v = after ?? before;
+    const kind = v === null ? "neither" : before === null ? "added" : "removed";
     return (
-      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full" style={{ width: `${v}%`, backgroundColor: scoreHex(v) }} />
+      <div className="mt-2">
+        <OneSidedBadge kind={kind} />
+        <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+          {v !== null && (
+            <div
+              data-uncomparable
+              className="h-full"
+              style={{ width: `${v}%`, backgroundColor: "#475569", backgroundImage: UNCOMPARABLE_HATCH }}
+            />
+          )}
+        </div>
       </div>
     );
   }

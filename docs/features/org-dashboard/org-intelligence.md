@@ -176,6 +176,63 @@ default, would diverge the moment `ASCENT_ORG_TZ` is set):
 `src/components/org/live/LiveWarRoomHeader.tsx` (genuinely viewer-local, and therefore able
 to disagree with the server's bucket by a day).
 
+## Executive briefing (`src/lib/org/briefing.ts`)
+
+`buildExecBriefing(org, window, periodTitle, segmentId, techGroupId)` is pure assembly over the
+rollups above. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
+Briefing tab (`src/app/org/[slug]/executive/page.tsx`), the board PDF
+(`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`), and the "Copy for LLM"
+markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
+same builder against the token's window.
+
+**One ranked source for "what to do next" (G5-02).** The briefing carries
+`recommendations: OrgRec[]` — the top-5 `getOrgRecommendations` rows, fetched once inside
+`buildExecBriefing` under the same segment/stack scope as everything else. Read it through
+`briefingNextMove(b)`, and render the sentence with `nextMoveLine(rec)`. Previously the page
+queried this itself while the export path kept an older `risks[0] ?? b.security` heuristic: on a
+small, high-scoring fleet with an empty `risks` list the PDF and the markdown printed the security
+dimension as "the fleet's weakest dimension" **even when it was the fleet's strongest** — a board
+document naming a strength as the weakness. There is deliberately **no dimension fallback** now: an
+empty list means the section is omitted, never replaced by a second notion of "weakest".
+
+**Window resolution matches the page (G5-10).** The PDF route resolves its window with
+`resolveOrgWindow` (`src/lib/org/period.ts`) — the same cookie-aware precedence every org tab uses:
+explicit `?range=` › the remembered-period cookie › the default. It previously called the
+cookie-blind `resolveWindow`, so a bookmarked or shared PDF URL with no `?range=` silently exported
+the 90d default while the page beside it showed the org's remembered period. Boundary arithmetic is
+inherited unchanged from the canonical time-zone policy above.
+
+**Download affordance (G5-23).** The Briefing tab's "Download PDF" uses `DownloadButton`, not a bare
+anchor: the render is CPU-bound (`maxDuration = 60`) and every error branch returns JSON, which a
+plain anchor would display as the whole page. Same treatment as the Security tab's export.
+
+### LLM narrative (`src/lib/org/briefing-narrative.ts`, G5-03)
+
+The board PDF may open with a short LLM-written narrative. Because a briefing PDF is the surface most
+likely to leave the building unedited, this is not a general "summarize it" call — three guarantees
+are enforced in code:
+
+1. **Grounded by construction.** The only input the model sees is `narrativeFacts(b)` — the
+   briefing's own markdown (minus the trailing `## Ask`, which is an instruction, not a fact).
+2. **No new numbers.** Every numeric token in the returned prose must already be in the briefing —
+   `isGrounded(text, allowedNumbers(b))`, where `allowedNumbers` unions the numbers in the briefing
+   object with the ones the markdown prints. One invented figure — including one the model *derived*,
+   like a coverage percentage — discards the whole narrative. The model chooses emphasis and wording;
+   never a quantity.
+3. **Degrades to deterministic copy.** Unconfigured, disabled, non-2xx, refusal, timeout, malformed,
+   markdown-structured, tag-leaking, or ungrounded ⇒ `deterministicNarrative(b)`, assembled from the
+   same figures by template. There is no error state to render.
+
+**Off by default**, requiring both `BRIEFING_NARRATIVE=1` and `ANTHROPIC_API_KEY`; with neither
+(the default, including CI) the module performs no network I/O. `BRIEFING_NARRATIVE_MODEL` and
+`BRIEFING_NARRATIVE_TIMEOUT_MS` (default 20s) tune it. Transport is raw `fetch` against the Anthropic
+Messages API, matching `src/lib/llm/openai.ts`'s "no SDK dependency added" convention and reusing the
+scan providers' `withLlmTimeout`.
+
+`ExecBriefing.narrative` is **not** populated by `buildExecBriefing` — a deliverable opts in via
+`attachBriefingNarrative(b)`. Only the PDF route does, deliberately: the "Copy for LLM" markdown is
+consumed by another model, which gains nothing from prose we generated for it.
+
 ## Getting repos into an org
 
 | Route | Method | Role |
@@ -232,6 +289,8 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 | `src/lib/org/timezone.ts` | **The canonical org time-zone policy** — one reference frame (UTC by default, `ASCENT_ORG_TZ`-overridable) for every calendar-day boundary: zoned midnights, calendar-day arithmetic, day keys, date-literal parsing. See [above](#canonical-time-zone-policy-srcliborgtimezonets). |
 | `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, `end` compat bound, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
+| `src/lib/org/briefing.ts` | `buildExecBriefing` (the one assembly behind page/PDF/markdown/share), `briefingMarkdown`, and the single ranked next move (`briefingNextMove` / `nextMoveLine`). |
+| `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
 | `src/components/org/shared/OrgNav.tsx` | Persistent nav rail (two-level `SectionRailNav`). |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
 | `src/components/org/Trajectory.tsx` | Forecast "GPS" card. |

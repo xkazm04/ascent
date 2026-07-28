@@ -40,6 +40,7 @@ import { GET } from "./route";
 import { isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { isDbConfigured, getRepositoryHistory } from "@/lib/db";
+import { HISTORY_SCAN_CAP } from "@/lib/history/limits";
 
 const mockGateEnabled = vi.mocked(authGateEnabled);
 const mockViewerLogin = vi.mocked(resolveViewerLogin);
@@ -153,6 +154,30 @@ describe("GET /api/history — org-scoping & auth gate", () => {
       "private-repo",
       expect.objectContaining({ orgSlug: "public" }),
     );
+  });
+
+  // --- Depth parity: the CSV and the chart read the SAME history (G5-24) -------------------------
+
+  it("defaults the CSV export to HISTORY_SCAN_CAP — the same depth the /trends page fetches", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+
+    await get("?repo=acme/repo&format=csv");
+
+    expect(mockGetHistory).toHaveBeenCalledWith(
+      "acme",
+      "repo",
+      expect.objectContaining({ limit: HISTORY_SCAN_CAP, includeDimensions: true }),
+    );
+  });
+
+  it("still honours an explicit ?limit= over the CSV default", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+
+    await get("?repo=acme/repo&format=csv&limit=10");
+
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ limit: 10 }));
   });
 
   // --- Precondition guards (cheap, also pinned by the finding) -----------------------------------

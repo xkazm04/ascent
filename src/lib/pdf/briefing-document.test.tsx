@@ -10,7 +10,8 @@
 // (same approach as security-document.test.tsx) — no @react-pdf binary render needed.
 
 import { describe, it, expect } from "vitest";
-import { isValidElement, type ReactNode } from "react";
+import { isValidElement, type ReactElement, type ReactNode } from "react";
+import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefingDocument } from "./briefing-document";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
@@ -37,6 +38,54 @@ function collectText(node: ReactNode, out: string[] = []): string[] {
 // Call the component function directly (like security-document.test.tsx) so the returned element
 // tree is walkable — wrapping it in JSX would leave it un-rendered.
 const text = (b: ExecBriefing) => collectText(BriefingDocument({ briefing: b })).join(" ");
+
+// ── Element-tree walker (for prop-level assertions — G5-06's wrap/minPresenceAhead orphan guards
+// aren't visible to collectText, which only gathers strings) ───────────────────────────────────────
+type El = ReactElement<{ style?: unknown; children?: ReactNode; wrap?: boolean; minPresenceAhead?: number }>;
+
+/** Walks the tree ONCE, resolving function components (DimLine, MoveLine, SectionHeading,
+ *  ColumnHeading) inline — they aren't rendered by React in this direct-call test harness, so
+ *  without this an unexpanded `<DimLine .../>` element (no `children` prop) hides its wrap/
+ *  minPresenceAhead-carrying View entirely. Also records each host element's parent, resolved
+ *  THROUGH any function-component wrappers (a heading's parent is the layout View around the
+ *  <SectionHeading> call site, not something inside SectionHeading's own render). Built in one
+ *  pass so every element is a stable reference — re-invoking a function component on a second walk
+ *  would produce a structurally-identical but referentially-different subtree. */
+function walkTree(b: ExecBriefing): { nodes: El[]; parentOf: Map<El, El | null> } {
+  const nodes: El[] = [];
+  const parentOf = new Map<El, El | null>();
+  function walk(node: ReactNode, parent: El | null) {
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n, parent);
+      return;
+    }
+    if (!isValidElement(node)) return;
+    const el = node as El;
+    if (typeof el.type === "function") {
+      walk((el.type as (props: unknown) => ReactNode)(el.props), parent);
+      return;
+    }
+    nodes.push(el);
+    parentOf.set(el, parent);
+    walk(el.props?.children, el);
+  }
+  walk(BriefingDocument({ briefing: b }), null);
+  return { nodes, parentOf };
+}
+
+function textOf(node: ReactNode): string {
+  if (node == null || node === false || node === true) return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement(node)) {
+    const el = node as El;
+    if (typeof el.type === "function") return textOf((el.type as (props: unknown) => ReactNode)(el.props));
+    return textOf(el.props?.children);
+  }
+  return "";
+}
+
+const tree = (b: ExecBriefing) => walkTree(b).nodes;
 
 function briefing(over: Partial<ExecBriefing> = {}): ExecBriefing {
   return {
@@ -99,5 +148,123 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     expect(empty).not.toContain("Fleet adoption");
     expect(empty).not.toContain("compared repos moved");
     expect(empty).not.toMatch(/undefined|NaN/);
+  });
+});
+
+// ── G5-05: Strengths/Weakest-dimensions column guards ───────────────────────────────────────────────
+describe("BriefingDocument — Strengths/Weakest-dimensions column guards (G5-05)", () => {
+  it("omits the Strengths heading when strengths is empty (risks present)", () => {
+    const t = text(briefing({ strengths: [], risks: [{ dimId: "D9", label: "Security", avg: 41 }] }));
+    expect(t).not.toContain("Strengths");
+    expect(t).toContain("Weakest dimensions");
+  });
+
+  it("omits the Weakest-dimensions heading when risks is empty (strengths present)", () => {
+    const t = text(briefing({ strengths: [{ dimId: "D2", label: "Testing", avg: 80 }], risks: [] }));
+    expect(t).toContain("Strengths");
+    expect(t).not.toContain("Weakest dimensions");
+  });
+
+  it("omits both headings when both arrays are empty", () => {
+    const t = text(briefing({ strengths: [], risks: [] }));
+    expect(t).not.toContain("Strengths");
+    expect(t).not.toContain("Weakest dimensions");
+  });
+
+  it("renders both headings when both arrays are populated", () => {
+    const t = text(briefing());
+    expect(t).toContain("Strengths");
+    expect(t).toContain("Weakest dimensions");
+  });
+});
+
+// ── G5-06: orphan protection on dimension/movement rows + section headings ─────────────────────────
+describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
+  it("wrap={false} on every dimension row (Strengths/Weakest columns)", () => {
+    const els = tree(briefing());
+    // Restrict to elements that actually carry an explicit `wrap` prop — a Text descendant's text
+    // also matches the substring search, but only the row View itself sets `wrap`.
+    const dimRows = els.filter(
+      (el) => el.props?.wrap !== undefined && (textOf(el).includes("D2 · Testing") || textOf(el).includes("D9 · Security")),
+    );
+    expect(dimRows.length).toBeGreaterThan(0);
+    for (const row of dimRows) expect(row.props.wrap).toBe(false);
+  });
+
+  it("wrap={false} on every movement row (top gainers/regressions)", () => {
+    const els = tree(briefing());
+    const moveRows = els.filter(
+      (el) => el.props?.wrap !== undefined && (textOf(el).includes("api") || textOf(el).includes("legacy")),
+    );
+    expect(moveRows.length).toBeGreaterThan(0);
+    for (const row of moveRows) expect(row.props.wrap).toBe(false);
+  });
+
+  it("wrap={false} on the prior-period delta rows", () => {
+    const els = tree(
+      briefing({
+        priorPeriod: {
+          overall: 58,
+          adoption: 55,
+          rigor: 60,
+          dOverall: 4,
+          dAdoption: 2,
+          dRigor: 1,
+          dims: [{ dimId: "D2", label: "Testing", prior: 70, now: 80, delta: 10 }],
+        },
+      }),
+    );
+    const priorRows = els.filter(
+      (el) => el.props?.wrap !== undefined && textOf(el).includes("70") && textOf(el).includes("80"),
+    );
+    expect(priorRows.length).toBeGreaterThan(0);
+    for (const row of priorRows) expect(row.props.wrap).toBe(false);
+  });
+
+  it("section headings (Movement/Goals/vs previous period) carry wrap={false} + minPresenceAhead so they can't orphan from their first row", () => {
+    const { nodes, parentOf } = walkTree(
+      briefing({
+        priorPeriod: {
+          overall: 58,
+          adoption: 55,
+          rigor: 60,
+          dOverall: 4,
+          dAdoption: 2,
+          dRigor: 1,
+          dims: [],
+        },
+        goals: [{ label: "Reach L4", current: 60, target: 80, pct: 75, pace: "on track", etaDays: 30 }],
+      }),
+    );
+    for (const heading of ["Movement this period", "Goals", "vs previous period"]) {
+      // Match the TEXT leaf specifically — the wrapping VIEW's own concatenated text is identical
+      // to its sole Text child's ("Movement this period"), so a type-agnostic equality match picks
+      // up both; only the TEXT leaf's PARENT is the wrap/minPresenceAhead-carrying View.
+      const el = nodes.find((e) => e.type === "TEXT" && textOf(e) === heading);
+      expect(el, `missing heading: ${heading}`).toBeDefined();
+      const parent = parentOf.get(el!);
+      expect(parent?.props.wrap).toBe(false);
+      expect(parent?.props.minPresenceAhead).toBeGreaterThan(0);
+    }
+  });
+
+  it("renders end-to-end through the real @react-pdf pipeline without throwing", async () => {
+    const buf = await renderToBuffer(
+      BriefingDocument({
+        briefing: briefing({
+          priorPeriod: {
+            overall: 58,
+            adoption: 55,
+            rigor: 60,
+            dOverall: 4,
+            dAdoption: 2,
+            dRigor: 1,
+            dims: [{ dimId: "D2", label: "Testing", prior: 70, now: 80, delta: 10 }],
+          },
+          goals: [{ label: "Reach L4", current: 60, target: 80, pct: 75, pace: "on track", etaDays: 30 }],
+        }),
+      }) as unknown as ReactElement,
+    );
+    expect(buf.length).toBeGreaterThan(0);
   });
 });

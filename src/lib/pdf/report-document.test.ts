@@ -233,6 +233,149 @@ describe("ReportDocument — scannedAt date guard (must not crash the render)", 
   });
 });
 
+// ── G5-07: sparse/incomplete-scan caveats ───────────────────────────────────────────────────────────
+describe("ReportDocument — sparse/incomplete-scan caveats (G5-07)", () => {
+  it("shows the fallback 'No per-dimension scoring available' line and omits the heading when dimensions is empty", () => {
+    const texts = tree(makeReport({ dimensions: [] })).map(textOf);
+    expect(texts).not.toContain("Scoring by dimension");
+    expect(texts).toContain("No per-dimension scoring available.");
+  });
+
+  it("renders report.warnings as a caveat block", () => {
+    const texts = tree(makeReport({ warnings: ["Low coverage: only 40% of the repo could be inspected."] })).map(textOf);
+    expect(texts.some((t) => t.includes("Low coverage: only 40% of the repo could be inspected."))).toBe(true);
+  });
+
+  it("renders NO caveat block when warnings is absent and the report is complete", () => {
+    const texts = tree(makeReport()).map(textOf);
+    expect(texts.some((t) => t.includes("⚠"))).toBe(false);
+  });
+
+  it("shows a standalone 'Incomplete scan' banner when dimensions is empty and no matching warning exists (reconstructed report predating `warnings`)", () => {
+    const texts = tree(makeReport({ dimensions: [], warnings: undefined })).map(textOf);
+    expect(texts.some((t) => /incomplete scan/i.test(t))).toBe(true);
+  });
+
+  it("does NOT duplicate the incomplete banner when the engine's own INCOMPLETE warning is already present", () => {
+    const texts = tree(
+      makeReport({
+        dimensions: [],
+        incomplete: true,
+        warnings: ["No dimensions could be scored — every signal detector failed. This is an INCOMPLETE scan."],
+      }),
+    ).map(textOf);
+    const incompleteBadges = texts.filter((t) => t.trim() === "⚠ Incomplete scan");
+    expect(incompleteBadges.length).toBe(0);
+    expect(texts.some((t) => /INCOMPLETE scan/.test(t))).toBe(true);
+  });
+
+  it("a complete report (dimensions present, incomplete undefined) shows no incomplete banner", () => {
+    const texts = tree(makeReport()).map(textOf);
+    expect(texts.some((t) => /incomplete scan/i.test(t))).toBe(false);
+  });
+});
+
+// ── G5-08: long dimension summaries are capped ──────────────────────────────────────────────────────
+describe("ReportDocument — dimension summary length cap (G5-08)", () => {
+  it("truncates a very long summary with an ellipsis instead of rendering it in full", () => {
+    const long = "x".repeat(1000);
+    const texts = tree(makeReport({ dimensions: [dim({ summary: long })] })).map(textOf);
+    const rendered = texts.find((t) => t.startsWith("xxxx"));
+    expect(rendered).toBeDefined();
+    expect(rendered!.length).toBeLessThan(long.length);
+    expect(rendered!.endsWith("…")).toBe(true);
+  });
+
+  it("leaves a short summary untouched", () => {
+    const texts = tree(makeReport({ dimensions: [dim({ summary: "Short and fine." })] })).map(textOf);
+    expect(texts).toContain("Short and fine.");
+  });
+});
+
+// ── G5-09: roadmap/recommendations section ──────────────────────────────────────────────────────────
+describe("ReportDocument — roadmap & recommendations section (G5-09)", () => {
+  const roadmapItem = (over: Partial<ScanReport["roadmap"][number]> = {}): ScanReport["roadmap"][number] => ({
+    title: "Add CI-enforced test coverage gates",
+    dimension: "D2",
+    impact: "high",
+    effort: "low",
+    rationale: "Coverage regressed twice this quarter with no gate to catch it.",
+    ...over,
+  });
+
+  it("omits the section entirely when roadmap is empty", () => {
+    const texts = tree(makeReport({ roadmap: [] })).map(textOf);
+    expect(texts).not.toContain("Roadmap & recommendations");
+  });
+
+  it("renders the section with title, impact/effort, and rationale when roadmap items exist", () => {
+    const texts = tree(makeReport({ roadmap: [roadmapItem()] })).map(textOf);
+    expect(texts).toContain("Roadmap & recommendations");
+    expect(texts.some((t) => t.includes("Add CI-enforced test coverage gates"))).toBe(true);
+    expect(texts.some((t) => t.includes("high impact") && t.includes("low effort"))).toBe(true);
+    expect(texts.some((t) => t.includes("Coverage regressed twice this quarter"))).toBe(true);
+  });
+
+  it("orders items quick-wins-first: high-impact/low-effort before low-impact/high-effort", () => {
+    const els = tree(
+      makeReport({
+        roadmap: [
+          roadmapItem({ title: "Low priority item", impact: "low", effort: "high" }),
+          roadmapItem({ title: "High priority item", impact: "high", effort: "low" }),
+        ],
+      }),
+    );
+    // Match the exact numbered title <Text> (not any ancestor whose concatenated text happens to
+    // contain the substring — the Document/Page root's text includes BOTH titles).
+    const highIdx = els.findIndex((el) => /^\d+\.\s*High priority item$/.test(textOf(el).trim()));
+    const lowIdx = els.findIndex((el) => /^\d+\.\s*Low priority item$/.test(textOf(el).trim()));
+    expect(highIdx).toBeGreaterThanOrEqual(0);
+    expect(lowIdx).toBeGreaterThan(highIdx);
+  });
+
+  it("truncates a very long rationale instead of rendering it in full", () => {
+    const long = "gap ".repeat(200);
+    const texts = tree(makeReport({ roadmap: [roadmapItem({ rationale: long })] })).map(textOf);
+    const rendered = texts.find((t) => t.startsWith("gap gap"));
+    expect(rendered).toBeDefined();
+    expect(rendered!.length).toBeLessThan(long.length);
+    expect(rendered!.endsWith("…")).toBe(true);
+  });
+});
+
+// ── G5-22: long owner/name soft-break + auto-scale ──────────────────────────────────────────────────
+describe("ReportDocument — long ref title (G5-22)", () => {
+  // Match the h1 <Text>'s OWN text exactly (stripping the soft-break zero-width space) rather than
+  // "includes both owner and name" — the outer Document/Page elements' concatenated descendant text
+  // also contains both substrings, so a loose `.includes` match picks the wrong (outermost) element.
+  function findH1(els: El[], owner: string, name: string): El | undefined {
+    return els.find((el) => textOf(el).replace(/​/gi, "").trim() === `${owner}/${name}`);
+  }
+
+  it("scales the h1 font size down for a long owner/name and does not throw", () => {
+    const longRepo = repo({ owner: "a-very-long-organization-name-indeed", name: "an-equally-long-repository-name" });
+    const els = tree(makeReport({ repo: longRepo }));
+    const h1 = findH1(els, longRepo.owner, longRepo.name);
+    expect(h1).toBeDefined();
+    const style = h1!.props?.style as { fontSize?: number } | undefined;
+    expect(style?.fontSize).toBeLessThan(22);
+  });
+
+  it("keeps the normal font size for a short owner/name", () => {
+    const els = tree(makeReport({ repo: repo({ owner: "acme", name: "widget" }) }));
+    const h1 = findH1(els, "acme", "widget");
+    expect(h1).toBeDefined();
+    const style = h1!.props?.style as { fontSize?: number } | undefined;
+    expect(style?.fontSize).toBe(22);
+  });
+
+  it("renders a long ref through the real @react-pdf pipeline without throwing", async () => {
+    const longRepo = repo({ owner: "a-very-long-organization-name-indeed", name: "an-equally-long-repository-name-that-keeps-going" });
+    const buf = await renderToBuffer(ReportDocument({ report: makeReport({ repo: longRepo }) }) as ReactElement);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+});
+
 // ── Full @react-pdf render smoke (the real no-crash invariant the route depends on) ─────────────────
 // The element-tree assertions above never invoke @react-pdf's binary renderer. These do: a
 // structurally-valid ScanReport must render to a non-empty Buffer no matter the edge shape — empty
@@ -257,6 +400,36 @@ describe("ReportDocument — full renderToBuffer never throws on edge reports", 
 
   it("renders with boundary scores (0 and 100) and no dimensions without throwing", async () => {
     const report = makeReport({ overallScore: 0, adoptionScore: 100, rigorScore: 0, dimensions: [] });
+    const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it("renders a fully-incomplete, all-zero report (a true zero-dimension scan) without throwing", async () => {
+    const report = makeReport({
+      dimensions: [],
+      incomplete: true,
+      overallScore: 0,
+      adoptionScore: 0,
+      rigorScore: 0,
+      strengths: [],
+      risks: [],
+      roadmap: [],
+      warnings: ["No dimensions could be scored — every signal detector failed or returned no data. This is an INCOMPLETE scan, not a genuine L1 (Manual) result."],
+    });
+    const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it("renders a report with a full roadmap + warnings + long content without throwing", async () => {
+    const report = makeReport({
+      warnings: ["Pull-request data was incomplete (GitHub returned a truncated page)."],
+      dimensions: [dim({ summary: "y".repeat(2000) })],
+      roadmap: [
+        { title: "Item A", dimension: "D1", impact: "high", effort: "low", rationale: "z".repeat(2000) },
+        { title: "Item B", dimension: "D2", impact: "medium", effort: "medium", rationale: "Short rationale." },
+        { title: "Item C", dimension: "D3", impact: "low", effort: "high", rationale: "" },
+      ],
+    });
     const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
     expect(buf.length).toBeGreaterThan(0);
   });

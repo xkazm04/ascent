@@ -5,8 +5,9 @@
 // Shares its light-theme scaffolding (palette, scoreColor, base styles, Stat, Footer) with
 // report-document.tsx + security-document.tsx via ./theme.
 
+import type { ReactNode } from "react";
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
+import { briefingNextMove, engineMixCaveat, engineMixLabel, forecastConfidenceNote, nextMoveLine, valueRealizedLine } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -29,11 +30,18 @@ const styles = StyleSheet.create({
   moveRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 3 },
   goalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   goalLabel: { color: INK },
+  // G5-03: the optional LLM narrative. Set in prose-body type, not the metric styles — it is the one
+  // block on the page a human reads as sentences rather than scans as figures.
+  narrative: { marginTop: 10, color: INK, lineHeight: 1.5 },
+  nextMove: { marginTop: 4, color: INK, lineHeight: 1.45 },
 });
 
+// G5-06: `wrap={false}` was previously applied only to the goal row, so a content-rich briefing could
+// split a dimension/movement row's label from its value across a page break. Both row components now
+// get the same unsplittable-row treatment as the goal row.
 function DimLine({ d }: { d: BriefingDim }) {
   return (
-    <View style={styles.dimRow}>
+    <View style={styles.dimRow} wrap={false}>
       <Text>{d.dimId} · {d.label}</Text>
       <Text style={{ fontFamily: "Helvetica-Bold", color: scoreColor(d.avg) }}>{d.avg}/100</Text>
     </View>
@@ -43,9 +51,34 @@ function DimLine({ d }: { d: BriefingDim }) {
 function MoveLine({ tone, m }: { tone: "up" | "down"; m: BriefingMove }) {
   const color = tone === "up" ? "#16a34a" : "#d97706";
   return (
-    <View style={styles.moveRow}>
+    <View style={styles.moveRow} wrap={false}>
       <Text>{tone === "up" ? "+ " : "- "}{m.name}{m.levelFrom !== m.levelTo ? ` (${m.levelFrom} -> ${m.levelTo})` : ""}</Text>
       <Text style={{ fontFamily: "Helvetica-Bold", color }}>{m.dOverall >= 0 ? "+" : ""}{m.dOverall}</Text>
+    </View>
+  );
+}
+
+// G5-06: a section heading (with its preceding rule) had no protection against being stranded alone
+// at the bottom of a page while every row under it was pushed to the next — `wrap={false}` keeps the
+// rule+heading together as one block, and `minPresenceAhead` refuses to place that block at all unless
+// there's room left for at least the start of its first row, so the whole block moves to the next page
+// together instead of splitting.
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <View wrap={false} minPresenceAhead={28}>
+      <View style={baseStyles.rule} />
+      <Text style={baseStyles.sectionH}>{children}</Text>
+    </View>
+  );
+}
+
+// Same orphan protection as SectionHeading, minus the rule — for headings inside the Strengths/
+// Weakest-dimensions two-column layout, where the rule is shared above both columns rather than
+// per-column.
+function ColumnHeading({ children }: { children: ReactNode }) {
+  return (
+    <View wrap={false} minPresenceAhead={20}>
+      <Text style={baseStyles.sectionH}>{children}</Text>
     </View>
   );
 }
@@ -65,6 +98,11 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         <Text style={{ ...baseStyles.kicker, color: accent }}>{brandLabel} · Executive briefing</Text>
         <Text style={baseStyles.h1}>{org}</Text>
         <Text style={baseStyles.meta}>{b.periodTitle} · generated {b.generatedOn}</Text>
+
+        {/* G5-03: optional executive narrative. `narrative` is null unless a deliverable path opted in
+            via attachBriefingNarrative, and every number in it is gated against the briefing's own
+            figures — so it can restate the data below but cannot introduce any. Plain prose, no markdown. */}
+        {b.narrative ? <Text style={styles.narrative}>{latin1Safe(b.narrative)}</Text> : null}
 
         <View style={baseStyles.rule} />
         <View style={baseStyles.statsRow}>
@@ -118,30 +156,40 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           </Text>
         )}
 
-        <View style={baseStyles.rule} />
-        <View style={styles.twoCol}>
-          <View style={styles.col}>
-            <Text style={baseStyles.sectionH}>Strengths</Text>
-            {b.strengths.map((d) => <DimLine key={d.dimId} d={d} />)}
-          </View>
-          <View style={styles.col}>
-            <Text style={baseStyles.sectionH}>Weakest dimensions</Text>
-            {b.risks.map((d) => <DimLine key={d.dimId} d={d} />)}
-          </View>
-        </View>
+        {/* G5-05: Strengths/Weakest-dimensions used to render both column headings unconditionally,
+            leaving a labeled-but-blank column when one array is empty (unlike goals/movement, which
+            already gate on length). */}
+        {(b.strengths.length > 0 || b.risks.length > 0) && (
+          <>
+            <View style={baseStyles.rule} />
+            <View style={styles.twoCol}>
+              {b.strengths.length > 0 && (
+                <View style={styles.col}>
+                  <ColumnHeading>Strengths</ColumnHeading>
+                  {b.strengths.map((d) => <DimLine key={d.dimId} d={d} />)}
+                </View>
+              )}
+              {b.risks.length > 0 && (
+                <View style={styles.col}>
+                  <ColumnHeading>Weakest dimensions</ColumnHeading>
+                  {b.risks.map((d) => <DimLine key={d.dimId} d={d} />)}
+                </View>
+              )}
+            </View>
+          </>
+        )}
 
         {b.priorPeriod && (
           <View>
-            <View style={baseStyles.rule} />
-            <Text style={baseStyles.sectionH}>vs previous period</Text>
-            <View style={styles.moveRow}>
+            <SectionHeading>vs previous period</SectionHeading>
+            <View style={styles.moveRow} wrap={false}>
               <Text>Overall {b.priorPeriod.overall} {"->"} {b.maturity.overall}</Text>
               <Text style={baseStyles.muted}>
                 {sgn(b.priorPeriod.dOverall)} · Adoption {sgn(b.priorPeriod.dAdoption)} · Rigor {sgn(b.priorPeriod.dRigor)}
               </Text>
             </View>
             {b.priorPeriod.dims.filter((d) => d.delta !== 0).map((d) => (
-              <View key={d.dimId} style={styles.dimRow}>
+              <View key={d.dimId} style={styles.dimRow} wrap={false}>
                 <Text>{d.dimId} · {d.label}</Text>
                 <Text style={{ fontFamily: "Helvetica-Bold", color: d.delta > 0 ? "#16a34a" : "#d97706" }}>
                   {d.prior} {"->"} {d.now} ({sgn(d.delta)})
@@ -153,8 +201,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
 
         {(b.topGainers.length > 0 || b.topRegressions.length > 0) && (
           <View>
-            <View style={baseStyles.rule} />
-            <Text style={baseStyles.sectionH}>Movement this period</Text>
+            <SectionHeading>Movement this period</SectionHeading>
             {/* The FULL fleet movement scale (not just the capped top-3 rows below) — same line the
                 markdown carries, so a 200-repo fleet's PDF shows the spread. ASCII up/down: the
                 built-in Helvetica has no ▲/▼ glyphs (see ./latin1). */}
@@ -170,8 +217,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
 
         {b.goals.length > 0 && (
           <View>
-            <View style={baseStyles.rule} />
-            <Text style={baseStyles.sectionH}>Goals</Text>
+            <SectionHeading>Goals</SectionHeading>
             {b.goals.map((g) => (
               <View key={g.label} style={styles.goalRow} wrap={false}>
                 <Text style={styles.goalLabel}>{latin1Safe(g.label)}</Text>
@@ -182,6 +228,22 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
             ))}
           </View>
         )}
+
+        {/* G5-02: the recommended next move comes from the SAME ranked getOrgRecommendations rows the
+            on-screen briefing and the markdown export use — via briefingNextMove/nextMoveLine, so the
+            three surfaces cannot name different dimensions. Omitted entirely when the list is empty:
+            the old `risks[0] ?? security` fallback is what let a board PDF name a STRENGTH as the
+            weakness, and substituting a second notion of "weakest" is the bug, not the fix. */}
+        {(() => {
+          const rec = briefingNextMove(b);
+          if (!rec) return null;
+          return (
+            <View>
+              <SectionHeading>Recommended next move</SectionHeading>
+              <Text style={styles.nextMove}>{latin1Safe(nextMoveLine(rec))}</Text>
+            </View>
+          );
+        })()}
 
         <Footer note={`Scored by ${brandLabel} · AI-native engineering maturity`} />
       </Page>

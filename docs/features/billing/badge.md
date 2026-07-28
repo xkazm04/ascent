@@ -13,7 +13,11 @@ Markdown / HTML / AsciiDoc snippets.
 
 1. **Normalize + validate** owner/repo (case-insensitive, GitHub name grammar) *before*
    touching cache or scanning — a malformed name returns a neutral "unknown" badge
-   immediately.
+   immediately. The name-grammar predicate (`validRepoNamePart` in `src/lib/badge.ts`,
+   character class + no leading/consecutive dots) is single-sourced between this route's
+   `validName` (which layers the per-segment length cap on top) and the client
+   `BadgeGenerator`'s `parseRepo`, so a name the generator accepts is guaranteed to be one
+   this endpoint also resolves — never a snippet that renders "unknown" on paste.
 2. **Per-IP rate limit** — in-memory sliding window, 60 req/min per IP. Over budget →
    static "rate limited" badge + `429` + `retry-after: 60` (never runs a scan on a flood).
 3. **Cache** — checks the LLM cache key, then the mock key; on a miss runs
@@ -32,6 +36,12 @@ Markdown / HTML / AsciiDoc snippets.
 
 When loaded directly (not via `<img>`), the SVG is wrapped in an `<a xlink:href>`
 click-through to the report.
+
+**Mock-engine honesty:** when the resolved report was scored by the deterministic mock
+engine (no LLM), the badge appends a `· demo` qualifier to **both** the label and the
+value text (e.g. `63/100 · demo`, `L3 Established · demo`) — not just the label — so a
+cropped or restyled badge (only the value half surviving) can't present a mock score as a
+credible LLM-scored verdict.
 
 ## Generator (`src/app/badge/page.tsx`, `src/components/badge/BadgeGenerator.tsx`)
 

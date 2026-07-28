@@ -525,6 +525,40 @@ describe("GET /api/badge/[owner]/[repo] — mock-vs-live verdict honesty", () =>
     expect(body).not.toContain("demo");
     expect(body).toContain("L4");
   });
+
+  // G5-29: before this fix only the LABEL carried "· demo" — the numeric VALUE ("63/100" or
+  // "L4 Autonomous") was bare and could be cropped/restyled apart from the label, presenting a
+  // deterministic mock score as a credible LLM-scored one. Assert the demo qualifier is now IN the
+  // value text node itself, not just the label, for both the score-mode and level-mode variants.
+  function valueTextOf(body: string): string {
+    // Two <text> nodes: label, then value. Grab the second.
+    const texts = [...body.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+    return texts[1] ?? "";
+  }
+
+  it("qualifies the score-mode VALUE (not just the label) as demo for a mock-scored badge", async () => {
+    mockCacheGet.mockReturnValue(reportScoredBy("mock"));
+    const body = await (await get("?metric=score")).text();
+    const value = valueTextOf(body);
+    expect(value).toContain("87/100");
+    expect(value).toContain("demo");
+  });
+
+  it("does NOT qualify the score-mode value as demo for a live-scored badge", async () => {
+    mockCacheGet.mockReturnValue(reportScoredBy("claude-cli"));
+    const body = await (await get("?metric=score")).text();
+    const value = valueTextOf(body);
+    expect(value).toContain("87/100");
+    expect(value).not.toContain("demo");
+  });
+
+  it("qualifies the level-mode VALUE (not just the label) as demo for a mock-scored badge", async () => {
+    mockCacheGet.mockReturnValue(reportScoredBy("mock"));
+    const body = await (await get()).text();
+    const value = valueTextOf(body);
+    expect(value).toContain("Autonomous");
+    expect(value).toContain("demo");
+  });
 });
 
 describe("badge text width — wide glyphs and the textLength fail-soft (usage-metering 2026-07-16 #4)", () => {

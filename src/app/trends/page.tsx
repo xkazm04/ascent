@@ -2,12 +2,16 @@ import Link from "next/link";
 import { ReportShell } from "@/components/report/ReportShell";
 import { RepoScanNotice } from "@/components/EmptyState";
 import { DimensionTrends } from "@/components/report/DimensionTrends";
-import { Trajectory } from "@/components/org/overview/Trajectory";
+import { TrajectoryPanel } from "@/app/trends/TrajectoryPanel";
+import { ExportCsvButton } from "@/app/trends/ExportCsvButton";
+import { TimelineAnnotations } from "@/app/trends/TimelineAnnotations";
+import { deriveTrendAnnotations } from "@/app/trends/annotations";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
+import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
-import { forecastTrajectory } from "@/lib/maturity/forecast";
+import { fitTrendForecast } from "@/app/trends/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
 import { LevelBadge } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
@@ -83,8 +87,12 @@ export default async function TrendsPage({
   // Lightweight first paint: fetch the overall-only series (no per-dimension fan-out) for the page
   // shell + overall chart. DimensionTrends lazy-loads the per-dimension rows client-side (via
   // /api/history) when its section nears the viewport.
+  // Fetch to the SAME depth the CSV export uses (HISTORY_SCAN_CAP). The page used to stop at 60 while
+  // `?format=csv` pulled 200, so "All" was a silent truncation: the chart and the spreadsheet
+  // downloaded from the button beside it described different histories, with nothing saying so
+  // (G5-24). One cap now, and `historyCapNote` says out loud when even that cap is binding.
   const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
-    limit: 60,
+    limit: HISTORY_SCAN_CAP,
     orgSlug,
     includeDimensions: false,
   });
@@ -102,13 +110,15 @@ export default async function TrendsPage({
 
   const latest = history.scans[0]!; // safe: history.scans.length === 0 returned above
 
-  // Forward-looking GPS for THIS repo — the same trajectory fit the org rollup already renders,
-  // but the per-repo trends page only ever drew rear-view lines. Fit over the (overall-only)
-  // history we already fetched; null until there are two distinct scan days to fit a line through,
-  // which lines up with the single-scan "baseline only" note below.
-  const forecast = forecastTrajectory(
-    history.scans.map((s) => ({ date: s.scannedAt, value: s.overallScore })),
-  );
+  // Forward-looking GPS for THIS repo. Fit over the FULL fetched history — deliberately NOT over the
+  // 5d/30d/90d slice the chart below renders. The range toggle is a zoom control; a projection that
+  // moves when the viewer zooms is not a projection (G5-01), and re-fitting per range is exactly what
+  // makes a 5-day window hand back a confident ETA read off noise (G4-16). `TrajectoryPanel` states
+  // the basis on screen and refuses to project at all below the shared sample floor.
+  const forecast = fitTrendForecast(history.scans);
+  // Timeline events (band crossings + threshold regressions) derived from the same series.
+  const annotations = deriveTrendAnnotations(history.scans);
+  const capNote = historyCapNote(history.scans.length);
 
   return (
     <Shell>
@@ -136,13 +146,7 @@ export default async function TrendsPage({
             >
               Full report →
             </Link>
-            <a
-              href={`/api/history?repo=${encodeURIComponent(history.repo.fullName)}&format=csv`}
-              className={HEADER_ACTION_LINK_CLASS}
-              title="Download this repo's scan history as CSV"
-            >
-              Export CSV ↓
-            </a>
+            <ExportCsvButton repo={history.repo.fullName} />
           </div>
         </div>
 
@@ -152,14 +156,19 @@ export default async function TrendsPage({
           </p>
         )}
 
-        {forecast && (
-          <div className="mt-8">
-            <Trajectory forecast={forecast} />
-          </div>
+        {capNote && (
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-sm text-slate-400">
+            {capNote}
+          </p>
         )}
 
         <div className="mt-8">
-          <DimensionTrends history={history} />
+          <TrajectoryPanel forecast={forecast} scanCount={history.scans.length} />
+        </div>
+
+        <div className="mt-8">
+          <DimensionTrends history={history} annotations={annotations} />
+          <TimelineAnnotations annotations={annotations} repoFullName={history.repo.fullName} />
         </div>
       </div>
     </Shell>

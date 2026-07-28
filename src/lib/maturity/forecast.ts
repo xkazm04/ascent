@@ -320,6 +320,38 @@ export function projectGoal(opts: {
   };
 }
 
+// ── Presentability of a fit ──────────────────────────────────────────────────
+// `forecastTrajectory` will happily fit a line through two scans a day apart and hand back an ETA:
+// the maths is sound, the *claim* is not. A slope read off a 1-day span extrapolated to a promotion
+// date is noise wearing a lab coat. `lowData` catches the degenerate n < 3 case (R² = 1 by
+// construction), but n alone is not enough — five scans inside one busy afternoon are still one
+// afternoon. So presentation also requires a real calendar SPAN behind the slope.
+//
+// This is the shared gate for every surface that renders a forecast, so "we don't project from a
+// 5-day sample" means the same thing on the repo trends page and on the org rollup.
+// (G5-01 / G4-16.)
+
+/** Distinct scan days a fit needs before its ETA may be shown (below this, R² is 1 by construction). */
+export const MIN_FORECAST_POINTS = 3;
+
+/** Calendar days a fit must SPAN before its ETA may be shown — a slope off a few days is noise. */
+export const MIN_FORECAST_SPAN_DAYS = 14;
+
+/** Why a fit isn't presentable, or null when it is. Copy-ready, caller renders it verbatim. */
+export function forecastInsufficiency(f: Forecast | null): string | null {
+  if (!f) return "Not enough history to project — a trend needs at least two scans on different days.";
+  if (f.points < MIN_FORECAST_POINTS)
+    return `Not enough history to project — ${f.points} distinct scan ${f.points === 1 ? "day" : "days"} (a line through ≤ 2 points fits perfectly no matter how noisy the data).`;
+  if (f.spanDays < MIN_FORECAST_SPAN_DAYS)
+    return `Not enough history to project — this fit spans ${f.spanDays} ${f.spanDays === 1 ? "day" : "days"}; a trajectory needs at least ${MIN_FORECAST_SPAN_DAYS}.`;
+  return null;
+}
+
+/** True when a fit rests on enough distinct days AND enough calendar span to be worth projecting. */
+export function isProjectable(f: Forecast | null): f is Forecast {
+  return forecastInsufficiency(f) === null;
+}
+
 /** Coarse, friendly duration for a forecast horizon ("~3 days", "~8 weeks", "~5 months"). */
 export function humanizeDays(days: number): string {
   if (days <= 1) return "~1 day";

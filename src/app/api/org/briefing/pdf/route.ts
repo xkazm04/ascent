@@ -12,13 +12,17 @@ import { buildExecBriefing } from "@/lib/org/briefing";
 import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgRead } from "@/lib/authz";
-import { resolveWindow } from "@/lib/window";
+import { resolveOrgWindow } from "@/lib/org/period";
+import { attachBriefingNarrative } from "@/lib/org/briefing-narrative";
 import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { safeFilenameSegment } from "@/lib/export/filename";
 import { pdfAttachmentResponse } from "@/lib/pdf/export-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The document render is CPU-bound and may additionally wait on the (opt-in, bounded) narrative pass;
+// give it the same headroom the sibling security export takes.
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Briefing export requires a database." }, { status: 503 });
@@ -28,7 +32,13 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(org);
   if (denied) return denied;
 
-  const period = resolveWindow({
+  // G5-10: resolve the window the SAME way the Executive page does — `resolveOrgWindow`, which layers
+  // the remembered-period cookie UNDER an explicit ?range= (so the page's own download link, which
+  // always carries ?range=, is authoritative and unaffected). The cookie-blind `resolveWindow` used
+  // here before meant a bookmarked or shared PDF URL with no ?range= silently exported the 90d default
+  // while the page beside it showed the org's remembered period. Window arithmetic (canonical zone,
+  // calendar days, half-open bounds) is inherited unchanged from `@/lib/org/timezone` via resolveWindow.
+  const period = await resolveOrgWindow({
     range: sp.get("range") ?? undefined,
     from: sp.get("from") ?? undefined,
     to: sp.get("to") ?? undefined,
@@ -44,12 +54,17 @@ export async function GET(request: Request) {
   if (stackKey && !techGroupId) {
     return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
   }
-  const briefing = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId, techGroupId).catch(
+  const built = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId, techGroupId).catch(
     () => null,
   );
-  if (!briefing) {
+  if (!built) {
     return NextResponse.json({ error: "No scanned repositories yet for this organization." }, { status: 404 });
   }
+  // G5-03: the board PDF is the one deliverable that opts into the narrative pass. It is grounded
+  // strictly in the figures already assembled above, and `attachBriefingNarrative` never throws —
+  // an unconfigured/failed/ungrounded model call yields the deterministic paragraph instead, so this
+  // can neither fail the download nor introduce a figure that isn't in the briefing.
+  const briefing = await attachBriefingNarrative(built);
 
   // EXEC-5: white-label branding for the PDF. A bad/unreachable logo could fail rendering, so fall
   // back to an unbranded render rather than 500 the download.

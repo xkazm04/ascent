@@ -6,7 +6,7 @@
 // the async Clipboard API with a legacy execCommand fallback for non-secure contexts.
 
 import { useEffect, useRef, useState } from "react";
-import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
+import { attemptCopy, isCopyableText, nextCopyState } from "./copy-for-llm.logic";
 import { chipButtonClass } from "@/components/ui";
 
 export function CopyForLlm({
@@ -46,6 +46,12 @@ export function CopyForLlm({
   // timer flips the button back to idle 500ms after a later successful copy.
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // G5-27: an empty/whitespace-only payload can never be a success — `attemptCopy` refuses it, and
+  // the button must say so rather than flashing "Copied". Derived from the current `text` (no extra
+  // state to fall out of sync), and it also suppresses the manual-copy textarea, which would
+  // otherwise open holding nothing — a dead end offering the user an empty box to Ctrl+C.
+  const nothingToCopy = !isCopyableText(text);
+
   async function copy() {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -61,7 +67,8 @@ export function CopyForLlm({
       } else {
         setCopied(false);
         setFailed(true);
-        setFallbackOpen(true); // failure is not terminal: hand the user the payload to copy manually
+        // Only offer the manual-copy surface when there IS a payload to hand over (G5-27).
+        setFallbackOpen(!nothingToCopy);
       }
       resetTimer.current = setTimeout(() => {
         setCopied(false);
@@ -83,13 +90,19 @@ export function CopyForLlm({
         className={chipButtonClass(copied ? "success" : failed ? "danger" : "idle", className)}
       >
         <span aria-hidden>{copied ? "✓" : failed ? "⚠" : "⧉"}</span>
-        {copied ? "Copied" : failed ? "Copy failed" : label}
+        {copied ? "Copied" : failed ? (nothingToCopy ? "Nothing to copy" : "Copy failed") : label}
       </button>
       {/* pdf-llm-export #2: the button's accessible NAME is a fixed aria-label, so its visible
           Copied / Copy-failed swap was invisible to screen readers (and aria-live on the button
           itself is unreliable). Announce the outcome through a dedicated polite live region. */}
       <span role="status" aria-live="polite" className="sr-only">
-        {copied ? "Copied to clipboard." : failed ? "Copy failed. The text is shown below — select it and copy manually." : ""}
+        {copied
+          ? "Copied to clipboard."
+          : failed
+            ? nothingToCopy
+              ? "Nothing to copy — this brief is empty."
+              : "Copy failed. The text is shown below — select it and copy manually."
+            : ""}
       </span>
       {fallbackOpen && (
         <div className="mt-2 w-full max-w-xl rounded-lg border border-slate-700 bg-slate-950/80 p-3">

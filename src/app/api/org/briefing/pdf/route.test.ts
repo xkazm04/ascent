@@ -23,6 +23,20 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
 vi.mock("@/lib/org/briefing", () => ({ buildExecBriefing: vi.fn() }));
+// G5-10: the route now resolves its window through the cookie-aware `resolveOrgWindow`, so the
+// next/headers cookie store has to exist in this environment. Individual tests set the jar.
+const cookieJar = new Map<string, string>();
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({
+    get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name)! } : undefined),
+  })),
+}));
+// G5-03: the narrative pass is an explicit opt-in the route makes. It is exercised on its own in
+// src/lib/org/briefing-narrative.test.ts; here we only assert the route runs it and hands the
+// RESULT to the document (identity pass-through by default so the other assertions are unaffected).
+vi.mock("@/lib/org/briefing-narrative", () => ({
+  attachBriefingNarrative: vi.fn(async (b: unknown) => b),
+}));
 vi.mock("@/lib/db", () => ({
   getOrgBranding: vi.fn(),
   getCreditState: vi.fn(),
@@ -40,8 +54,10 @@ vi.mock("@/lib/pdf/briefing-document", () => ({ BriefingDocument: () => null }))
 import { GET } from "./route";
 import { requireOrgRead } from "@/lib/authz";
 import { buildExecBriefing } from "@/lib/org/briefing";
-import { getOrgBranding, getCreditState, isDbConfigured } from "@/lib/db";
+import { getOrgBranding, getCreditState, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { renderToBuffer } from "@react-pdf/renderer";
+import { attachBriefingNarrative } from "@/lib/org/briefing-narrative";
+import { PERIOD_COOKIE } from "@/lib/window";
 
 const mockRequireOrgRead = vi.mocked(requireOrgRead);
 const mockBuild = vi.mocked(buildExecBriefing);
@@ -60,6 +76,12 @@ function get(org?: string) {
 describe("GET /api/org/briefing/pdf", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    cookieJar.clear();
+    vi.mocked(attachBriefingNarrative).mockImplementation(async (b) => b);
+    // `clearAllMocks` clears calls but NOT implementations, so a `mockResolvedValue("tg_1")` set by
+    // one stack-scope test used to leak into every later test's buildExecBriefing args. Re-arm the
+    // unscoped default here.
+    vi.mocked(getTechGroupIdByKey).mockResolvedValue(null);
     // Happy-path defaults; individual tests override what they exercise.
     mockIsDbConfigured.mockReturnValue(true);
     mockRequireOrgRead.mockResolvedValue(null); // read allowed
@@ -150,6 +172,73 @@ describe("GET /api/org/briefing/pdf", () => {
     const res = await get("acme");
     expect(res.status).toBe(404);
     expect(mockRender).not.toHaveBeenCalled();
+  });
+
+  // ── G5-10: the window must be resolved the SAME way the Executive page resolves it ────────────
+  // The page reads the remembered-period cookie under an explicit ?range=. This route used to call
+  // the cookie-blind resolveWindow, so a bookmarked/shared PDF URL with no ?range= silently exported
+  // the 90d default while the page beside it showed the org's remembered period.
+
+  it("honours the saved-period cookie when the URL carries no ?range=", async () => {
+    cookieJar.set(PERIOD_COOKIE, "30d");
+    await get("acme");
+
+    // periodTitle is the observable: the third buildExecBriefing arg.
+    expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), "Last 30 days", null, null);
+  });
+
+  it("honours a remembered CUSTOM range (bounds and title come from the cookie, not the default)", async () => {
+    cookieJar.set(PERIOD_COOKIE, "custom|2026-01-01|2026-03-31");
+    await get("acme");
+
+    const [, window, title] = mockBuild.mock.calls[0]!;
+    expect(title).toBe("2026-01-01 → 2026-03-31");
+    // Half-open interval semantics from the canonical time-zone policy: the window starts at the
+    // zoned midnight of `from`, and `end` is the last instant of `to`'s calendar day.
+    expect((window as { start: Date | null }).start?.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+    expect((window as { end: Date | null }).end?.toISOString()).toBe("2026-03-31T23:59:59.999Z");
+  });
+
+  it("an explicit ?range= still WINS over the cookie (a shared link stays authoritative)", async () => {
+    cookieJar.set(PERIOD_COOKIE, "30d");
+    await GET(new Request("http://localhost/api/org/briefing/pdf?org=acme&range=quarter"));
+
+    expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), "This quarter", null, null);
+  });
+
+  it("falls back to the default period when there is no ?range= and no cookie", async () => {
+    await get("acme");
+    expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), "Last 90 days", null, null);
+  });
+
+  it("ignores a malformed period cookie rather than exporting a garbage window", async () => {
+    cookieJar.set(PERIOD_COOKIE, "not-a-range");
+    await get("acme");
+    expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), "Last 90 days", null, null);
+  });
+
+  // ── G5-03: the narrative pass is applied to the built briefing, before rendering ───────────────
+
+  it("renders the NARRATIVE-ATTACHED briefing, not the raw build result", async () => {
+    const withNarrative = { ...BRIEFING, narrative: "Acme stands at 62/100." } as unknown as ExecBriefing;
+    vi.mocked(attachBriefingNarrative).mockResolvedValue(withNarrative);
+
+    const res = await get("acme");
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(attachBriefingNarrative)).toHaveBeenCalledWith(BRIEFING);
+    // The document receives the attached briefing — the narrative can't be dropped between the two.
+    expect(mockRender).toHaveBeenCalled();
+    const element = mockRender.mock.calls[0]![0] as unknown as { props: { briefing: ExecBriefing } };
+    expect(element.props.briefing).toBe(withNarrative);
+  });
+
+  it("never attaches a narrative when there is no briefing to attach it to (404 path)", async () => {
+    mockBuild.mockResolvedValue(null);
+    const res = await get("acme");
+
+    expect(res.status).toBe(404);
+    expect(vi.mocked(attachBriefingNarrative)).not.toHaveBeenCalled();
   });
 
   // ── Branding-fetch / render degradation ladder ────────────────────────────────────────────────

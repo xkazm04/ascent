@@ -46,6 +46,46 @@ describe("CopyForLlm live-region announcement (pdf-llm-export #2)", () => {
   });
 });
 
+// G5-27 — the button must never claim success for a copy that transferred nothing. The clipboard
+// mock here RESOLVES (as the real one does for ""), so any regression that drops the emptiness guard
+// turns these into "Copied" and fails loudly.
+describe("CopyForLlm cannot claim success on an empty payload (G5-27)", () => {
+  it.each([
+    ["empty string", ""],
+    ["whitespace only", "  \n\t "],
+  ])("says 'Nothing to copy' for %s and never announces success", async (_label, text) => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setClipboard(writeText);
+    render(<CopyForLlm text={text} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy for LLM" }));
+
+    await waitFor(() => expect(screen.getByRole("button")).toHaveTextContent("Nothing to copy"));
+    expect(screen.getByRole("button")).not.toHaveTextContent("Copied");
+    // The truthful announcement, and no false "Copied to clipboard." for a screen-reader user.
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing to copy — this brief is empty.");
+    // Nothing was even attempted — no empty write reached the platform clipboard, so a previously
+    // copied payload is left intact rather than being wiped by an empty write.
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("does not fire onCopied when there was nothing to copy", async () => {
+    setClipboard(vi.fn().mockResolvedValue(undefined));
+    const onCopied = vi.fn();
+    render(<CopyForLlm text="" onCopied={onCopied} />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy for LLM" }));
+    await waitFor(() => expect(screen.getByRole("button")).toHaveTextContent("Nothing to copy"));
+    expect(onCopied).not.toHaveBeenCalled(); // a "use" must not be counted for a no-op
+  });
+
+  it("a non-empty payload still reports success normally", async () => {
+    setClipboard(vi.fn().mockResolvedValue(undefined));
+    render(<CopyForLlm text="# brief" />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy for LLM" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Copied to clipboard."));
+  });
+});
+
 describe("CopyForLlm manual-copy fallback (pdf-llm-export #4)", () => {
   function forceBothPathsToFail() {
     setClipboard(vi.fn().mockRejectedValue(new Error("blocked")));
@@ -78,6 +118,14 @@ describe("CopyForLlm manual-copy fallback (pdf-llm-export #4)", () => {
     expect(screen.getByLabelText("Markdown briefing to copy manually")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close manual copy panel" }));
+    expect(screen.queryByLabelText("Markdown briefing to copy manually")).not.toBeInTheDocument();
+  });
+
+  it("empty payload: no fallback textarea either — an empty box to Ctrl+C is a dead end", async () => {
+    setClipboard(vi.fn().mockResolvedValue(undefined));
+    render(<CopyForLlm text="   " />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy for LLM" }));
+    await waitFor(() => expect(screen.getByRole("button")).toHaveTextContent("Nothing to copy"));
     expect(screen.queryByLabelText("Markdown briefing to copy manually")).not.toBeInTheDocument();
   });
 

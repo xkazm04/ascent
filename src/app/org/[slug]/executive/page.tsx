@@ -13,12 +13,13 @@ import {
   BriefingTiles,
 } from "@/components/org/executive/briefingCards";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { DownloadButton } from "@/components/report/DownloadButton";
 import { BriefingShareButton } from "@/components/org/executive/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/executive/BrandingSettings";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { OrgLeverageMoves } from "@/components/org/executive/OrgLeverageMoves";
 import { briefingShareEnabled } from "@/lib/briefing-share";
-import { getCreditState, getOrgBranding, getOrgRecommendations } from "@/lib/db";
+import { getCreditState, getOrgBranding } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
@@ -53,8 +54,11 @@ export default async function OrgExecutive({
 
   // Highest-leverage fleet moves — the ranked, projected-gain recommendations. Moved here from the
   // Overview so the Briefing owns the "what to do next" narrative (it supersedes the old single
-  // "Recommended next move" line below). Scoped to the same segment/stack as the rest of the briefing.
-  const orgRecs = await getOrgRecommendations(slug, 5, segmentId, techGroupId).catch(() => null);
+  // "Recommended next move" line). G5-02: this list now rides ON the briefing (already scoped to the
+  // same segment/stack), rather than being queried a second time here — so the screen, the markdown
+  // export and the board PDF are literally reading the same ranked rows and cannot name different
+  // moves.
+  const orgRecs = briefing.recommendations ?? [];
 
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
@@ -81,7 +85,10 @@ export default async function OrgExecutive({
         />
         <div className="flex flex-wrap items-center gap-2">
           {techGroups.length > 0 && <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />}
-          <a
+          {/* G5-23: DownloadButton, not a bare anchor — the render is CPU-bound (and may run the
+              narrative pass), so a click needs a busy state and an inline error instead of navigating
+              the board reader onto a raw JSON error page. Matches the sibling security page. */}
+          <DownloadButton
             // EXEC #1: carry the active ?segment= (and the ?stack= tech scope, 3b) into the export so a
             // per-client / per-stack briefing downloads the SAME scope being viewed, not the whole org.
             href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
@@ -89,7 +96,7 @@ export default async function OrgExecutive({
             title="Download the briefing as a board-ready PDF"
           >
             <span aria-hidden>↓</span> Download PDF
-          </a>
+          </DownloadButton>
           {/* EXEC #1: carry the active segment + tech-stack scope into the share link too, so the
               read-only board link re-runs scoped to the same view the owner is sharing. */}
           {canShare && <BriefingShareButton org={slug} range={period.key} from={period.from} to={period.to} segment={segmentId} stack={activeStack?.key ?? null} />}
@@ -176,7 +183,7 @@ export default async function OrgExecutive({
 
       {/* Highest-leverage moves — the ranked "what to do next", replacing the old single-line
           "Recommended next move" (which named only the weakest dimension). */}
-      {orgRecs && orgRecs.length > 0 && <OrgLeverageMoves recs={orgRecs} slug={slug} />}
+      {orgRecs.length > 0 && <OrgLeverageMoves recs={orgRecs} slug={slug} />}
 
       {/* Practice deep-links + the security row are the two authenticated-only affordances of this
           block; the share page renders the same component without them. */}

@@ -5,6 +5,12 @@ import { contributions } from "@/lib/scoring/engine";
 import { DIMENSION_SHORT, fmtPts, scoreHex } from "@/lib/ui";
 import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { ScoreBarTrack } from "@/components/report/FillBar";
+import {
+  AGGREGATE_HEX,
+  MICRO_POINTS,
+  waterfallHeadroom,
+  waterfallSegments,
+} from "@/components/report/scoreWaterfallSegments";
 import { Kicker, Surface } from "@/components/ui";
 
 /**
@@ -24,6 +30,12 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
   const ranked = [...dimensions].sort(
     (a, b) => b.points - a.points || a.dimension.localeCompare(b.dimension),
   );
+  // Segment widths are the contributions' TRUE shares — no pixel floor (see scoreWaterfallSegments):
+  // floors summed past the track and squeezed the headroom tail to zero. Sub-1.5pt contributions are
+  // rolled into one neutral sliver instead of being either overstated or hidden.
+  const segments = waterfallSegments(ranked);
+  const aggregated = segments.find((s) => s.count > 1);
+  const headroom = waterfallHeadroom(total);
 
   return (
     <Surface radius="2xl" className="p-6">
@@ -48,19 +60,35 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
         role="img"
         aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions`}
       >
-        {ranked.map((c, i) => {
-          const { width, transition } = fillBarStyle({ pct: c.points, index: i, mounted, reduced, stagger: 50, cap: 400 });
+        {segments.map((s, i) => {
+          const { width, transition } = fillBarStyle({ pct: s.points, index: i, mounted, reduced, stagger: 50, cap: 400 });
           return (
             <div
-              key={c.dimension}
+              key={s.key}
+              data-segment={s.key}
               className="h-full shrink-0 border-r border-slate-950/40 last:border-r-0"
-              style={{ width, minWidth: c.points > 0 ? "0.375rem" : 0, backgroundColor: scoreHex(c.score), transition }}
-              title={`${c.dimension} ${c.name}: ${c.score}/100 × ${Math.round(c.normalizedWeight * 100)}% weight = +${fmtPts(c.points)} pts`}
+              style={{ width, backgroundColor: s.score === null ? AGGREGATE_HEX : scoreHex(s.score), transition }}
+              title={s.title}
             />
           );
         })}
-        <div className="h-full flex-1" title={`${fmtPts(Math.max(0, 100 - total))} pts of headroom to 100`} />
+        {/* Headroom to 100. Its width is the honest remainder (flex-1 absorbs the float residue), but
+            a non-zero headroom keeps a 2px floor so the "distance left" indicator can never be
+            rounded out of existence — a zero headroom (a perfect 100) still renders nothing. */}
+        <div
+          data-headroom
+          className="h-full flex-1"
+          style={{ minWidth: headroom > 0 ? "0.125rem" : 0 }}
+          title={`${fmtPts(headroom)} pts of headroom to 100`}
+        />
       </ScoreBarTrack>
+
+      {aggregated && (
+        <p className="mt-2 text-sm text-slate-500">
+          The grey sliver aggregates {aggregated.count} dimensions contributing under {fmtPts(MICRO_POINTS)} pts each —
+          each is itemized in full below.
+        </p>
+      )}
 
       {/* Itemized contributions — biggest first; ▲ lifts the overall, ▼ drags it below the mean. */}
       <ul className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">

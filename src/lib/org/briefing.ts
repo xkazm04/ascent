@@ -6,8 +6,10 @@
 import {
   getOrgBenchmark,
   getOrgMovers,
+  getOrgRecommendations,
   getOrgRollup,
   listGoals,
+  type OrgRec,
   type OrgWindow,
   type RepoMove,
 } from "@/lib/db";
@@ -143,6 +145,23 @@ export interface ExecBriefing {
   topRegressions: BriefingMove[];
   goals: BriefingGoal[];
   regressionCount: number;
+  /** THE ONE RANKED SOURCE for "what to do next" (G5-02). The same top-N `getOrgRecommendations`
+   *  list the exec page renders through `OrgLeverageMoves`, carried on the briefing so the screen,
+   *  the board PDF and the "Copy for LLM" markdown all name the SAME move. It replaced a
+   *  `risks[0] ?? security` heuristic that lived only in the export path and could label a dimension
+   *  the fleet's *strongest* as "the fleet's weakest dimension" on a small, high-scoring fleet.
+   *  Empty when the DB is unavailable or nothing qualifies — consumers OMIT the section rather than
+   *  falling back to a second, divergent notion of "weakest".
+   *
+   *  OPTIONAL only so fixtures and previously-serialized briefings that predate the field still type
+   *  (the `BriefingMove.fullName` precedent). `buildExecBriefing` ALWAYS sets it; read it through
+   *  `briefingNextMove(b)` rather than indexing it directly. */
+  recommendations?: OrgRec[];
+  /** Optional LLM-written executive narrative (G5-03). NEVER produced by `buildExecBriefing` — a
+   *  deliverable path opts in explicitly via `attachBriefingNarrative` (see ./briefing-narrative),
+   *  which is grounded strictly in the figures above and degrades to deterministic copy. Null/absent
+   *  means "not requested", which every renderer must treat as "render no narrative". */
+  narrative?: string | null;
 }
 
 const named = (d: { dimId: string; avg: number }): BriefingDim => ({
@@ -176,7 +195,7 @@ export async function buildExecBriefing(
       }
     : undefined;
 
-  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity] = await Promise.all([
+  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs] = await Promise.all([
     getOrgRollup(orgSlug, window, segmentId, techGroupId),
     getOrgBenchmark(orgSlug),
     getOrgMovers(orgSlug, window, segmentId, techGroupId),
@@ -184,6 +203,11 @@ export async function buildExecBriefing(
     priorWindow ? getOrgRollup(orgSlug, priorWindow, segmentId, techGroupId) : Promise.resolve(null),
     getOrgEngineMix(orgSlug, window, segmentId, techGroupId),
     getOrgRecsActioned(orgSlug, window, segmentId, techGroupId),
+    // G5-02: the ranked next-move source moves ONTO the briefing so every renderer reads it from
+    // here. Same args the exec page used when it queried this itself (top-5, same segment/stack
+    // scope). `.catch(() => null)` mirrors that page: a recommendations failure must degrade the
+    // section, never 500 the whole briefing/PDF.
+    getOrgRecommendations(orgSlug, 5, segmentId, techGroupId).catch(() => null),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
@@ -299,7 +323,30 @@ export async function buildExecBriefing(
       etaDays: g.etaDays,
     })),
     regressionCount: movers?.regressers.length ?? 0,
+    recommendations: orgRecs ?? [],
+    narrative: null,
   };
+}
+
+/** The single ranked next move, resolved from the briefing's own `recommendations` list. Null when
+ *  nothing qualifies — callers omit the section. This is the ONLY sanctioned way to answer "what
+ *  should this fleet do next"; there is deliberately no dimension-based fallback (G5-02). */
+export function briefingNextMove(b: ExecBriefing): OrgRec | null {
+  // Defensive `?? []`: older fixtures / previously-serialized briefings predate this field, and the
+  // failure mode of reading it blind is a crashed board PDF (same reasoning as BriefingMove.fullName).
+  return (b.recommendations ?? [])[0] ?? null;
+}
+
+/** One prose line for the ranked next move — the exact sentence the markdown export and the board
+ *  PDF both print, so the two can't drift. Every number in it comes from the rec row itself. */
+export function nextMoveLine(rec: OrgRec): string {
+  const dimLabel = DIMENSION_BY_ID[rec.dimId as DimensionId]?.name ?? rec.dimId;
+  const repos = `${rec.repoCount} repositor${rec.repoCount === 1 ? "y" : "ies"}`;
+  const gain =
+    rec.projectedPoints != null
+      ? ` Closing it is worth about +${rec.projectedPoints} maturity points on each affected repository${rec.liftsRepos > 0 ? `, advancing ${rec.liftsRepos} of them to the next level` : ""}.`
+      : "";
+  return `${rec.title} — the widest shared gap across the fleet (${rec.dimId} ${dimLabel}, ${rec.impact} impact, shared by ${repos}).${gain}`;
 }
 
 /**
@@ -372,21 +419,30 @@ export function briefingMarkdown(b: ExecBriefing): string {
       out.push(`- ${g.label}: ${g.current}/${g.target} (${g.pct}%, ${g.pace}${g.etaDays != null ? `, ETA ~${g.etaDays}d` : ""})`);
     }
   }
-  // Name the recommended next move ON-SCREEN — the product makes the call (the fleet's weakest
-  // dimension is its highest-leverage lift) instead of offloading the decision to the reader's LLM.
-  const focus = b.risks[0] ?? b.security ?? null;
-  if (focus) {
+  // Name the recommended next move from the SAME ranked list the on-screen page renders (G5-02).
+  // This used to be `risks[0] ?? security`, computed only here: on a small, high-scoring fleet with
+  // an empty `risks` list it printed "the fleet's weakest dimension" about D9 even when D9 was the
+  // fleet's STRONGEST dimension — a board document naming a strength as the weakness. There is no
+  // dimension fallback any more: no qualifying recommendation ⇒ no section.
+  const move = briefingNextMove(b);
+  if (move) {
     out.push("");
     out.push("## Recommended next move");
-    out.push(
-      `Raise **${focus.dimId} ${focus.label}** — the fleet's weakest dimension at ${focus.avg}/100. It carries the most headroom, so closing it is the highest-leverage lift toward the next maturity level.`,
-    );
+    out.push(nextMoveLine(move));
+    const rest = (b.recommendations ?? []).slice(1);
+    if (rest.length > 0) {
+      out.push("");
+      out.push("Next-widest gaps:");
+      for (const rec of rest) {
+        out.push(`- ${rec.title} (${rec.dimId}, ${rec.impact} impact, ${rec.repoCount} repo${rec.repoCount === 1 ? "" : "s"})`);
+      }
+    }
   }
   out.push("");
   out.push("## Ask");
   out.push(
-    focus
-      ? `Elaborate the recommended move above (raise ${focus.dimId} ${focus.label}) into concrete, repo-level steps: for the repositories weakest on this dimension, the specific change to make and the practice that addresses it — then any second-order move across the other weak dimensions.`
+    move
+      ? `Elaborate the recommended move above ("${move.title}", ${move.dimId}) into concrete, repo-level steps: for each affected repository, the specific change to make and the practice that addresses it — then any second-order move across the next-widest gaps listed above.`
       : "Given this AI-native engineering maturity briefing, propose the highest-leverage actions to raise overall maturity next quarter, focused on the weakest dimensions above. For each action give: the concrete change, which repositories it applies to, and which dimension it should move.",
   );
   return out.join("\n");

@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   attemptCopy,
+  isCopyableText,
   nextCopyState,
   COPIED_RESET_MS,
   FAILED_RESET_MS,
@@ -67,6 +68,39 @@ describe("attemptCopy (clipboard + legacy fallback)", () => {
     const ok = await attemptCopy("payload", undefined, legacy);
 
     expect(ok).toBe(false);
+  });
+});
+
+// G5-27: `navigator.clipboard.writeText("")` RESOLVES, so an empty payload used to come back as a
+// success and the button flipped to "Copied" having transferred nothing. The refusal lives in the
+// shared primitive (not at one call site) so no caller can reintroduce a false success.
+describe("attemptCopy refuses an empty payload (G5-27)", () => {
+  it.each([
+    ["empty string", ""],
+    ["spaces", "   "],
+    ["newlines + tabs", "\n\t \r\n"],
+  ])("returns false for %s without touching EITHER copy path", async (_label, text) => {
+    const writeText = vi.fn().mockResolvedValue(undefined); // would have "succeeded"
+    const legacy = vi.fn().mockReturnValue(true); // as would this
+
+    const ok = await attemptCopy(text, { writeText }, legacy);
+
+    expect(ok).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("still copies a payload that is merely small", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    expect(await attemptCopy("x", { writeText }, () => false)).toBe(true);
+    expect(writeText).toHaveBeenCalledWith("x");
+  });
+
+  it("isCopyableText is the single definition of 'nothing to copy'", () => {
+    expect(isCopyableText("")).toBe(false);
+    expect(isCopyableText("  \n ")).toBe(false);
+    expect(isCopyableText("# brief")).toBe(true);
+    expect(isCopyableText(" 0 ")).toBe(true); // whitespace-padded content is still content
   });
 });
 

@@ -9,10 +9,24 @@ export interface ClipboardLike {
 }
 
 /**
+ * Is there anything worth copying? (G5-27)
+ *
+ * `navigator.clipboard.writeText("")` RESOLVES — the platform happily "copies" nothing — so a
+ * payload that failed to assemble (an empty playbook markdown, a brief built from a report that
+ * hadn't loaded) put the button into its success state having transferred nothing. Emptiness is
+ * decided here, on the pure side, so every caller and every test share one definition: whitespace
+ * only is nothing.
+ */
+export function isCopyableText(text: string): boolean {
+  return text.trim().length > 0;
+}
+
+/**
  * Try the async Clipboard API, falling back to `legacy` (execCommand textarea) when the API is
  * absent OR when `writeText` rejects (insecure-context / older-browser path). Returns whether the
  * copy ultimately succeeded.
  *
+ * - empty/whitespace-only text     -> false immediately; NEITHER path is invoked (G5-27)
  * - clipboard present + resolves   -> true, `legacy` NOT called
  * - clipboard present + rejects    -> falls through to `legacy`, returns its result
  * - clipboard absent (no writeText)-> `legacy` invoked with the exact `text`
@@ -23,6 +37,10 @@ export async function attemptCopy(
   clipboard: ClipboardLike | undefined,
   legacy: (text: string) => boolean,
 ): Promise<boolean> {
+  // Guard FIRST, inside the shared primitive rather than at one call site: a success here is the
+  // component's only evidence that the clipboard holds the payload, so it must never be true when
+  // nothing was transferred.
+  if (!isCopyableText(text)) return false;
   let ok = false;
   try {
     if (clipboard?.writeText) {

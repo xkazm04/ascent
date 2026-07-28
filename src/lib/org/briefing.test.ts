@@ -13,6 +13,9 @@ vi.mock("@/lib/db", () => ({
   getOrgBenchmark: vi.fn(),
   getOrgMovers: vi.fn(),
   listGoals: vi.fn(),
+  // G5-02: the ranked next-move list is now assembled INTO the briefing (one source for screen,
+  // PDF and markdown), so the db boundary gains this read.
+  getOrgRecommendations: vi.fn(),
 }));
 
 // buildExecBriefing reads the engine mix through the @/lib/db/org barrel (the same barrel every
@@ -61,6 +64,33 @@ const fixture: ExecBriefing = {
   topRegressions: [{ name: "legacy", dOverall: -5, levelFrom: "L3", levelTo: "L3" }],
   goals: [{ label: "Lift security", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 }],
   regressionCount: 1,
+  recommendations: [
+    {
+      title: "Add a dependency-scanning workflow",
+      dimId: "D9",
+      impact: "high",
+      rationale: "",
+      explore: [],
+      repoCount: 6,
+      repos: ["api", "web"],
+      leverage: 9.9,
+      projectedPoints: 7,
+      liftsRepos: 2,
+    },
+    {
+      title: "Adopt a shared test-coverage gate",
+      dimId: "D2",
+      impact: "medium",
+      rationale: "",
+      explore: [],
+      repoCount: 3,
+      repos: ["api"],
+      leverage: 4.2,
+      projectedPoints: null,
+      liftsRepos: 0,
+    },
+  ],
+  narrative: null,
 };
 
 describe("valueRealizedLine — the renewal-justification, only when there's value to show", () => {
@@ -141,14 +171,48 @@ describe("briefingMarkdown", () => {
     expect(md).toContain("7 of 8 compared repos moved (5 ▲ / 2 ▼)");
   });
 
-  it("NAMES the recommended next move (weakest dim) instead of offloading the decision to the LLM", () => {
-    // The product makes the call on-screen — the fleet's weakest dimension (D9 Security, 41) — and the
-    // trailing Ask now asks the LLM to ELABORATE that move into steps, not to GENERATE the recommendation.
+  it("NAMES the recommended next move from the RANKED list (not the old risks[0]/security heuristic)", () => {
+    // G5-02: the move is the top row of `recommendations` — the same ranked source the on-screen
+    // OrgLeverageMoves list renders — and the trailing Ask asks the LLM to ELABORATE it into steps,
+    // not to GENERATE the recommendation.
     expect(md).toContain("## Recommended next move");
-    expect(md).toMatch(/Raise \*\*D9 Security\*\*/);
+    expect(md).toContain("Add a dependency-scanning workflow — the widest shared gap across the fleet");
+    expect(md).toContain("shared by 6 repositories");
+    expect(md).toContain("+7 maturity points on each affected repository, advancing 2 of them to the next level");
+    // The next-widest gaps come from the same list, in rank order.
+    expect(md).toContain("- Adopt a shared test-coverage gate (D2, medium impact, 3 repos)");
     expect(md).toContain("## Ask");
-    expect(md).toMatch(/Elaborate the recommended move above/);
-    expect(md).not.toMatch(/propose the 3 highest-leverage actions/);
+    expect(md).toMatch(/Elaborate the recommended move above \("Add a dependency-scanning workflow", D9\)/);
+    // The retired heuristic must not come back: it phrased the move as "Raise **<dim>** — the fleet's
+    // weakest dimension", which on an empty risks[] fell through to `security` and could name a
+    // STRENGTH as the weakness.
+    expect(md).not.toMatch(/the fleet's weakest dimension/);
+  });
+
+  it("OMITS the next-move section entirely when no recommendation qualifies (no dimension fallback)", () => {
+    // The old code fell back to `risks[0] ?? security` here. On a small, high-scoring fleet that is
+    // exactly where it printed a strength as "the fleet's weakest dimension" — so the correct
+    // behavior with an empty ranked list is silence, plus the generic Ask.
+    const md2 = briefingMarkdown({ ...fixture, recommendations: [] });
+    expect(md2).not.toContain("## Recommended next move");
+    expect(md2).not.toMatch(/the fleet's weakest dimension/);
+    expect(md2).toContain("## Ask");
+    expect(md2).toMatch(/propose the highest-leverage actions/);
+  });
+
+  it("a high-scoring fleet whose security dim is a STRENGTH never gets it named as the weakness", () => {
+    // The regression this item was filed for, reproduced end-to-end: risks empty + D9 at 92 (a top
+    // strength). The export used to read `b.risks[0] ?? b.security` and print D9 as the weakest.
+    const strongSecurity = {
+      ...fixture,
+      risks: [],
+      strengths: [{ dimId: "D9", label: "Security", avg: 92 }],
+      security: { dimId: "D9", label: "Security", avg: 92 },
+      recommendations: [],
+    };
+    const md2 = briefingMarkdown(strongSecurity);
+    expect(md2).not.toMatch(/weakest dimension at 92/);
+    expect(md2).not.toContain("## Recommended next move");
   });
 
   it("omits the period-delta suffix when there is no baseline", () => {
@@ -166,12 +230,13 @@ describe("briefingMarkdown", () => {
 // ---------------------------------------------------------------------------
 
 import { buildExecBriefing } from "./briefing";
-import { getOrgRollup, getOrgBenchmark, getOrgMovers, listGoals, type OrgWindow } from "@/lib/db";
+import { getOrgRollup, getOrgBenchmark, getOrgMovers, getOrgRecommendations, listGoals, type OrgWindow } from "@/lib/db";
 
 const mockRollup = vi.mocked(getOrgRollup);
 const mockBenchmark = vi.mocked(getOrgBenchmark);
 const mockMovers = vi.mocked(getOrgMovers);
 const mockGoals = vi.mocked(listGoals);
+const mockRecs = vi.mocked(getOrgRecommendations);
 
 // Minimal OrgRollup-shaped fixture. Only the fields buildExecBriefing reads matter; the unused
 // shape (repos/trend/postureCounts/deltas) is filled with inert values so the typed mock is happy.
@@ -208,6 +273,7 @@ beforeEach(() => {
   mockBenchmark.mockResolvedValue(null);
   mockMovers.mockResolvedValue({ gainers: [], regressers: [], levelChanges: [], comparedRepos: 0 });
   mockGoals.mockResolvedValue([]);
+  mockRecs.mockResolvedValue([]);
 });
 
 describe("buildExecBriefing — null / empty fleet", () => {
@@ -446,6 +512,61 @@ describe("buildExecBriefing — strengths / risks selection", () => {
     const sIds = new Set(b.strengths.map((d) => d.dimId));
     const rIds = new Set(b.risks.map((d) => d.dimId));
     expect([...sIds].filter((id) => rIds.has(id))).toEqual([]); // disjoint when N ≥ 6
+  });
+});
+
+// ── G5-02: ONE ranked source for "what to do next" ─────────────────────────────────────────────
+// The screen, the board PDF and the "Copy for LLM" markdown must all name the SAME move. They do
+// that by all reading `briefing.recommendations`, which buildExecBriefing fetches ONCE with the
+// briefing's own segment/stack scope.
+describe("buildExecBriefing — recommendations (the single ranked next-move source)", () => {
+  const rec = (over: Partial<NonNullable<Awaited<ReturnType<typeof getOrgRecommendations>>>[number]> = {}) => ({
+    title: "Add a dependency-scanning workflow",
+    dimId: "D9",
+    impact: "high",
+    rationale: "",
+    explore: [],
+    repoCount: 6,
+    repos: ["api"],
+    leverage: 9.9,
+    projectedPoints: 7,
+    liftsRepos: 2,
+    ...over,
+  });
+
+  it("fetches the top-5 recommendations under the SAME segment/stack scope as the rest of the briefing", async () => {
+    await buildExecBriefing("acme", undefined, "all time", "seg_1", "tg_1");
+    expect(mockRecs).toHaveBeenCalledWith("acme", 5, "seg_1", "tg_1");
+  });
+
+  it("carries the ranked rows onto the briefing in upstream order", async () => {
+    mockRecs.mockResolvedValue([rec(), rec({ title: "Adopt a coverage gate", dimId: "D2", leverage: 4.2 })]);
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.recommendations.map((r) => r.title)).toEqual([
+      "Add a dependency-scanning workflow",
+      "Adopt a coverage gate",
+    ]);
+    // …and that is exactly what the markdown names, so screen and export cannot diverge.
+    expect(briefingMarkdown(b)).toContain("Add a dependency-scanning workflow — the widest shared gap");
+  });
+
+  it("degrades to an EMPTY list (never a dimension fallback) when the recommendations read rejects", async () => {
+    mockRecs.mockRejectedValue(new Error("recs db exploded"));
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.recommendations).toEqual([]);
+    // The briefing itself still builds — a recs failure must not 404 the board PDF…
+    expect(b.maturity.overall).toBe(70);
+    // …and the export stays silent rather than reviving the wrong-dimension heuristic.
+    expect(briefingMarkdown(b)).not.toContain("## Recommended next move");
+  });
+
+  it("degrades to an empty list when the upstream returns null (DB not configured)", async () => {
+    mockRecs.mockResolvedValue(null);
+    expect((await buildExecBriefing("acme"))!.recommendations).toEqual([]);
+  });
+
+  it("never populates `narrative` — that is an explicit opt-in, not part of assembly", async () => {
+    expect((await buildExecBriefing("acme"))!.narrative).toBeNull();
   });
 });
 

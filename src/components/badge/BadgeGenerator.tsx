@@ -6,20 +6,24 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
+import { BADGE_STYLES, type BadgeStyle, badgeReportHref, validRepoNamePart } from "@/lib/badge";
 import { attemptCopy, nextCopyState } from "@/components/copy-for-llm.logic";
 import { GateSection } from "@/components/badge/GateSection";
 
 /** Minimal owner/repo parser (kept local so this client component doesn't pull the
- *  server-side ingestion module). Accepts `owner/repo` or a github.com URL. */
+ *  server-side ingestion module). Accepts `owner/repo` or a github.com URL.
+ *
+ *  G5-28: the per-segment validity check is `validRepoNamePart` from @/lib/badge — the SAME rule
+ *  `/api/badge/[owner]/[repo]`'s `validName` applies (character class + no leading/consecutive dots).
+ *  Before this, this function had its own subset regex that didn't reject leading/consecutive dots, so
+ *  a name like `owner/.git` passed here but the server always rendered it "unknown". */
 function parseRepo(input: string): { owner: string; repo: string } | null {
   let s = input.trim().replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\.git$/i, "");
   s = s.replace(/^@/, "");
   const parts = s.split("/").filter(Boolean);
   if (parts.length < 2) return null;
   const [owner = "", repo = ""] = parts;
-  const ok = /^[A-Za-z0-9_.-]+$/;
-  if (!ok.test(owner) || !ok.test(repo)) return null;
+  if (!validRepoNamePart(owner) || !validRepoNamePart(repo)) return null;
   return { owner, repo };
 }
 

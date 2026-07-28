@@ -13,6 +13,7 @@ import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvTable } from "@/lib/export/csv";
+import { HISTORY_SCAN_CAP } from "@/lib/history/limits";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
@@ -79,11 +80,13 @@ export async function GET(request: Request) {
     const includeDimensions = wantCsv || searchParams.get("dims") !== "0";
     // Honor `?limit=` so callers (DimensionTrends sends the overall series' length) can align ranges
     // with the server-fetched trend series; the DB layer clamps it to 1..200 and coerces junk to 30.
-    // CSV defaults to the 200 retention cap so an export isn't silently truncated to the newest 30
-    // scans of a possibly years-long history; JSON keeps the default (30) when no limit is given.
+    // CSV defaults to HISTORY_SCAN_CAP (the retention cap) so an export isn't silently truncated to
+    // the newest 30 scans of a possibly years-long history; JSON keeps the default (30) when no limit
+    // is given. That constant is the SAME one the /trends page fetches with — the two views of one
+    // history must not disagree about how deep "all of it" goes (G5-24).
     const limitParam = searchParams.get("limit");
     const limitRaw = limitParam == null ? NaN : Number(limitParam);
-    const limit = Number.isFinite(limitRaw) ? limitRaw : wantCsv ? 200 : undefined;
+    const limit = Number.isFinite(limitRaw) ? limitRaw : wantCsv ? HISTORY_SCAN_CAP : undefined;
     const history = await getRepositoryHistory(parsed.owner, parsed.repo, { orgSlug, includeDimensions, limit });
     const payload =
       history ??

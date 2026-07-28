@@ -171,9 +171,17 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}${asOf ? `, as of ${asOf} (window frozen when the link was created)` : ""}.`}
         />
 
-        {/* No `orgSlug` and no `deltaLabel`: the tiles stay static cells. A read-only board link must
-            not lead into the authenticated app, so every link-bearing prop is left unpassed. */}
-        <BriefingTiles maturity={maturity} benchmark={benchmark} delta={briefing.periodDelta} className="mt-6" />
+        {/* No `orgSlug`: the tiles stay static cells (non-null orgSlug is what turns them into deep
+            links into the authenticated app). `deltaLabel` IS passed (G5-12) — it's a plain comparison
+            string ("vs last 90 days"), not a link or internal identifier, so it's safe on a public
+            link and gives a board viewer the "vs what" context the internal page already shows. */}
+        <BriefingTiles
+          maturity={maturity}
+          benchmark={benchmark}
+          delta={briefing.periodDelta}
+          deltaLabel={`vs ${briefing.periodTitle.toLowerCase()}`}
+          className="mt-6"
+        />
 
         {/* executive-briefing 07-16 #4: the audience the "value this period" line was built for
             (leadership/renewal) is exactly the audience holding this link — carry it here like the
@@ -197,14 +205,26 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           </p>
         )}
 
-        {briefing.forecastHeadline && (
+        {/* G5-11: mirror the internal page's regression caveat here too. `regressionCount` is a plain
+            number already returned on this page's own `briefing` object (no internal-only field, no
+            link) — a board viewer reading a shared link is the LEAST equipped to know a caveat is
+            missing, so gate the whole card on either signal, exactly like executive/page.tsx does. */}
+        {(briefing.forecastHeadline || briefing.regressionCount > 0) && (
           <Card className="mt-6">
             <SectionHeader size="sm" title="Trajectory" />
-            <p className="mt-2 text-base text-slate-300">{briefing.forecastHeadline}</p>
+            <p className="mt-2 text-base text-slate-300">
+              {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
+            </p>
             {/* Carry the same trend-confidence hedge the owner's page + PDF show, so a shared board link
                 can't present a noisy, low-R² projection as a firm commitment. */}
-            {forecastConfidenceNote(briefing.forecastConfidence) && (
+            {briefing.forecastHeadline && forecastConfidenceNote(briefing.forecastConfidence) && (
               <p className="mt-1 font-mono text-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
+            )}
+            {briefing.regressionCount > 0 && (
+              <p className="mt-1 font-mono text-sm text-orange-300">
+                ⚠ {briefing.regressionCount} repo{briefing.regressionCount > 1 ? "s" : ""} regressed{" "}
+                {start ? "this period" : "since last scan"}.
+              </p>
             )}
           </Card>
         )}

@@ -966,6 +966,8 @@
             "src/app/org/[slug]/executive/page.tsx",
             "src/lib/org/briefing.ts",
             "src/lib/org/briefing.test.ts",
+            "src/lib/org/briefing-narrative.ts",
+            "src/lib/org/briefing-narrative.test.ts",
             "src/app/api/org/briefing/pdf/route.ts",
             "src/lib/pdf/briefing-document.tsx",
             "src/app/api/org/briefing/share/route.ts",
@@ -1259,11 +1261,16 @@
       "contexts": [
         {
           "name": "PDF & LLM Export",
-          "description": "## Purpose\nTake a report out of the app: a print-ready PDF and a copy-for-LLM block that lets users paste the full scan context into their own AI tools.\n\n## Key Flows\n- /api/report/pdf streams a @react-pdf document from pdf/report-document; CopyForLlm renders the LLM-ready text block in the report UI.\n\n## Entry Points\n- src/app/api/report/pdf/route.ts\n- src/lib/pdf/report-document.tsx",
+          "description": "## Purpose\nTake a report out of the app: a print-ready PDF, a machine-readable LLM briefing (markdown, served by both a copy button and an endpoint), and a downloadable PNG share card.\n\n## Key Flows\n- /api/report/pdf streams a @react-pdf document from pdf/report-document; report/llm-markdown builds the LLM briefing consumed identically by CopyForLlm and /api/report/llm; /api/report/share-card re-serves the permalink's OG artwork (og/report-card) as an attachment.\n\n## Entry Points\n- src/app/api/report/pdf/route.ts\n- src/lib/report/llm-markdown.ts\n- src/lib/pdf/report-document.tsx",
           "businessFeature": "Report Export",
           "category": "api",
           "filePaths": [
             "src/app/api/report/pdf/route.ts",
+            "src/app/api/report/llm/route.ts",
+            "src/app/api/report/llm/route.test.ts",
+            "src/app/api/report/share-card/route.ts",
+            "src/lib/report/llm-markdown.ts",
+            "src/lib/og/report-card.tsx",
             "src/lib/pdf/report-document.tsx",
             "src/components/CopyForLlm.tsx",
             "src/app/api/org/export/route.ts",
@@ -1284,7 +1291,9 @@
           ],
           "target": null,
           "apiRoutes": [
-            "/api/report/pdf"
+            "/api/report/pdf",
+            "/api/report/llm",
+            "/api/report/share-card"
           ]
         },
         {
@@ -1345,7 +1354,21 @@
             "src/app/api/history/route.test.ts",
             "src/components/report/DimensionTrendsRange.test.tsx",
             "src/components/report/WhatChangedParts.caption.test.ts",
-            "src/lib/report/validate.test.ts"
+            "src/components/report/WhatChangedParts.dom.test.tsx",
+            "src/components/report/TrendChart.dom.test.tsx",
+            "src/components/report/DimensionTrends.dom.test.tsx",
+            "src/lib/report/validate.test.ts",
+            "src/app/trends/forecast.ts",
+            "src/app/trends/forecast.test.ts",
+            "src/app/trends/annotations.ts",
+            "src/app/trends/annotations.test.ts",
+            "src/app/trends/TrajectoryPanel.tsx",
+            "src/app/trends/TrajectoryPanel.dom.test.tsx",
+            "src/app/trends/TimelineAnnotations.tsx",
+            "src/app/trends/ExportCsvButton.tsx",
+            "src/app/trends/ExportCsvButton.dom.test.tsx",
+            "src/lib/history/limits.ts",
+            "src/lib/history/limits.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1381,6 +1404,13 @@
             "src/components/report/pill.ts",
             "src/components/report/PrSignalsPanel.dom.test.tsx",
             "src/components/report/RadarChart.dom.test.tsx",
+            "src/components/report/RadarFallback.tsx",
+            "src/components/report/scoreWaterfallSegments.ts",
+            "src/components/report/scoreWaterfallSegments.test.ts",
+            "src/components/report/ScoreWaterfall.dom.test.tsx",
+            "src/components/report/chartEngine.ts",
+            "src/components/report/chartEngine.test.ts",
+            "src/components/report/DimLine.dom.test.tsx",
             "src/lib/ui.test.ts"
           ],
           "target": null,
