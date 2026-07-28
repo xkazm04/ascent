@@ -7,7 +7,7 @@ tags: [moc, home]
 
 # 🐅 Tiger vault — Map of Content
 
-The home note. Open this folder as an Obsidian vault; start here. Tiger certifies the **highest-value part of this app — its LLM call sites** — across three lenses, and memorizes everything here so each run builds on the last. Engine skill: `.claude/skills/tiger.md`.
+The home note. Open this folder as an Obsidian vault; start here. Tiger certifies the **highest-value part of this app — its LLM call sites** — across three lenses, and memorizes everything here so each run builds on the last. Engine skill: `.claude/skills/tiger/SKILL.md`.
 
 ## The engine (memorized LLM call sites — "the kills")
 - [[scan-assess]] — **the app's single LLM touchpoint**: the maturity assessor. `src/lib/scan.ts:206` → `provider.assess()`. Dials: wrapping 9/10 · observability 4/10 · caching 4/10 · grounding 5/5 (depth-capped).

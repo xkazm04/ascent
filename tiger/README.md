@@ -1,6 +1,6 @@
 # tiger/ — the Tiger vault (open me in Obsidian)
 
-This folder is an **Obsidian vault** and the per-app overlay for the `/tiger` skill (`.claude/skills/tiger.md`). Tiger certifies the **LLM call sites** of this app — the highest-value, highest-cost, highest-variance part — across three lenses, and stores everything here so each run extends the last.
+This folder is an **Obsidian vault** and the per-app overlay for the `/tiger` skill (`.claude/skills/tiger/SKILL.md`). Tiger certifies the **LLM call sites** of this app — the highest-value, highest-cost, highest-variance part — across three lenses, and stores everything here so each run extends the last.
 
 **Start at [[MOC]]** (`MOC.md`) — the home note linking everything.
 
