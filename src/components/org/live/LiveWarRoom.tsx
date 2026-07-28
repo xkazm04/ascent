@@ -161,7 +161,16 @@ export function LiveWarRoom({
           )}
 
           {/* ── Headline command strip: four metrics, campaign deltas, trend spark ── */}
-          <HeadlineStrip stats={wall.stats} deltas={campaignDeltas} trend={trend} />
+          {/* G6-01: the read-only share screen exists to be projected ("show this wall on an
+              unauthenticated screen"), so it gets the wall type scale; the authenticated wall is
+              read on a laptop and keeps the panel scale. */}
+          <HeadlineStrip
+            stats={wall.stats}
+            deltas={campaignDeltas}
+            trend={trend}
+            scale={readOnly ? "wall" : "panel"}
+            running={wall.running}
+          />
 
           {/* ── Standing panels: leaderboard + live movers + posture mix. Mounted on the FLAT wall
               and the read-only kiosk — not only inside Dynamic TV stages — so the header's promise

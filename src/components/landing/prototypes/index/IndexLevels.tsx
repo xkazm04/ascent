@@ -24,7 +24,7 @@ const TrajectoryChart = dynamic(() => import("./TrajectoryChart").then((m) => m.
 
 export function IndexLevels() {
   return (
-    <DeckSection id="levels">
+    <DeckSection id="levels" justify="startLgCenter">
       <SectionHeading
         size="page"
         kicker="The ladder"

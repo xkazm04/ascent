@@ -18,6 +18,20 @@ import {
   type Mover,
 } from "@/components/org/shared/liveWarRoomShared";
 
+/**
+ * Run progress as a whole percent, CLAMPED to [0,100].
+ *
+ * G6-08: the raw `done/total` ratio can exceed 1. A credit-truncated run rewrites the denominator
+ * mid-scan (the `notice` event shrinks `total` to the slice the prepaid balance actually covers)
+ * while `done` keeps counting, and the SSE `progress` event's own `total` can arrive stale. The
+ * unclamped value fed BOTH `aria-valuenow` (an out-of-range progressbar) and the bar's CSS width
+ * (a fill overrunning its track on a projected wall). Non-finite input floors to 0.
+ */
+export function progressPct(done: number, total: number): number {
+  if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+}
+
 /** The outcome of folding one `repo` SSE event into the live wall state. */
 export interface RepoFoldResult {
   /** The repos map to commit. `null` ⇒ leave the map untouched (error / skip / invalid / no-name). */

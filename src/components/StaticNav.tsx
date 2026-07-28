@@ -7,7 +7,31 @@
 // because SiteHeader awaits getSession()/DB and could cascade a 404 into the 500 document. Do NOT
 // import @/lib/auth, @/lib/db, or anything else that can throw at render here — next/link only.
 
+import Image from "next/image";
 import Link from "next/link";
+
+/** Generated ascending-chevron mark + mono wordmark (Altimeter identity). Lives here (not Brand.tsx)
+ *  because it must stay importable from a CLIENT component with no server-only baggage — Brand.tsx
+ *  pulls @/lib/auth (session/DB reads) at module scope, which can't be bundled into a client component
+ *  (see RouteError.tsx, the reason this got split out: G6-13). Brand.tsx re-exports this for its own
+ *  (server-only) callers so nothing else has to change import paths. */
+export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
+  return (
+    <span className={`inline-flex items-center gap-2 ${className}`}>
+      <Image
+        src="/brand/logo-mark-nobg.png"
+        alt=""
+        width={size}
+        height={size}
+        priority
+        style={{ width: size, height: size }}
+      />
+      <span className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">
+        Ascent
+      </span>
+    </span>
+  );
+}
 
 /** Header shell classes shared by every sticky top bar (marketing, 404, org dashboard).
  *  Height contract: the bar renders ~56px tall, mirrored by `--header-h` in globals.css — the token

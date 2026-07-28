@@ -447,6 +447,10 @@ export interface BacklogDueGroup {
 
 export interface OrgBacklog extends BacklogCounts {
   org: string;
+  /** True when the grouped lists also carry done/dismissed rows (the "show closed" recovery view).
+   *  The headline counts are IDENTICAL either way — they always describe the active working backlog —
+   *  so the summary strip can't swing when the toggle flips. */
+  includesClosed: boolean;
   /** Scanned repos contributing recommendations. */
   repos: number;
   /** Total recommendations across the fleet's latest scans (all statuses). */
@@ -468,8 +472,21 @@ export interface OrgBacklog extends BacklogCounts {
  * status/assignee/due-date layer feeds — see updateRecommendation + getRecommendationEvents for the
  * per-item history. Segment-aware (scopes to a tagged slice when `segmentId` is given). Returns null
  * when persistence is off or the org doesn't exist.
+ *
+ * `opts.includeClosed` is the RECOVERY view (G6-02). By default the grouped lists carry only
+ * open/in_progress items, which is what made a mis-picked "Dismissed" effectively irreversible: the row
+ * left every view on the next read and nothing could bring it back. With the flag set, done/dismissed
+ * rows are grouped too, so their status control is reachable again and the item can be set back to Open.
+ * The headline counts never change with the flag — they always describe the ACTIVE backlog.
  */
-export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, now: Date = new Date(), techGroupId?: string | null): Promise<OrgBacklog | null> {
+export async function getOrgBacklog(
+  orgSlug: string,
+  segmentId?: string | null,
+  now: Date = new Date(),
+  techGroupId?: string | null,
+  opts?: { includeClosed?: boolean },
+): Promise<OrgBacklog | null> {
+  const includeClosed = opts?.includeClosed === true;
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
@@ -544,11 +561,15 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
       else if (r.status === "done") counts.done += 1;
       else if (r.status === "dismissed") counts.dismissed += 1;
 
-      // Only open / in_progress items make up the working backlog the views group and surface.
-      if (!ACTIVE.has(r.status)) continue;
+      // Only open / in_progress items make up the working backlog the views group and surface —
+      // unless the caller asked for the closed-item recovery view (G6-02).
+      const active = ACTIVE.has(r.status);
+      if (!active && !includeClosed) continue;
 
       const dueInDays = r.targetDate ? daysUntil(r.targetDate, now) : null;
-      const overdue = dueInDays != null && dueInDays < 0;
+      // "Overdue" is a property of work still to be done: a dismissed item with a past due date is not
+      // a debt, so it must never inflate the overdue tile just because the recovery view is open.
+      const overdue = active && dueInDays != null && dueInDays < 0;
       if (overdue) counts.overdue += 1;
       const gain = gainFor(r.dimId);
       items.push({
@@ -579,6 +600,11 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
   // impact, then most recently touched.
   const impactRank = (i: string) => IMPACT_WEIGHT[i] ?? 0;
   const sortItems = (a: BacklogItem, b: BacklogItem) => {
+    // In the recovery view, closed rows sink below the live work — they are there to be found and
+    // restored, not to compete with the working backlog for the top of a group.
+    const aActive = ACTIVE.has(a.status);
+    const bActive = ACTIVE.has(b.status);
+    if (aActive !== bActive) return aActive ? -1 : 1;
     const ad = a.dueInDays ?? Number.POSITIVE_INFINITY;
     const bd = b.dueInDays ?? Number.POSITIVE_INFINITY;
     if (ad !== bd) return ad - bd;
@@ -595,9 +621,11 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
       ownerMap.get(key) ??
       { login: key, active: 0, open: 0, inProgress: 0, done: 0, dismissed: 0, overdue: 0, items: [] as BacklogItem[] };
     g.items.push(it);
-    g.active += 1;
+    if (ACTIVE.has(it.status)) g.active += 1;
     if (it.status === "open") g.open += 1;
     else if (it.status === "in_progress") g.inProgress += 1;
+    else if (it.status === "done") g.done += 1;
+    else if (it.status === "dismissed") g.dismissed += 1;
     if (it.overdue) g.overdue += 1;
     ownerMap.set(key, g);
   }
@@ -622,21 +650,25 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
     items: dueMap.get(bucket)!,
   }));
 
-  const assigned = items.filter((i) => i.assigneeLogin).length;
-  const dueSoon = items.filter((i) => i.dueInDays != null && i.dueInDays >= 0 && i.dueInDays <= DUE_SOON_DAYS).length;
+  // The headline numbers always describe the ACTIVE working backlog, whether or not the closed rows
+  // are being shown — a recovery toggle that also moved every summary tile would read as data changing.
+  const activeItems = items.filter((i) => ACTIVE.has(i.status));
+  const assigned = activeItems.filter((i) => i.assigneeLogin).length;
+  const dueSoon = activeItems.filter((i) => i.dueInDays != null && i.dueInDays >= 0 && i.dueInDays <= DUE_SOON_DAYS).length;
 
   return {
     org: orgSlug,
+    includesClosed: includeClosed,
     repos: contributingRepos,
     tracked,
-    active: items.length,
+    active: activeItems.length,
     open: counts.open,
     inProgress: counts.inProgress,
     done: counts.done,
     dismissed: counts.dismissed,
     overdue: counts.overdue,
     assigned,
-    unassigned: items.length - assigned,
+    unassigned: activeItems.length - assigned,
     dueSoon,
     byOwner,
     byDue,

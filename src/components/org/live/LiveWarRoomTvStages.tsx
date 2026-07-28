@@ -91,7 +91,10 @@ export function TvScanning({ data }: { data: TvStageData }) {
             </p>
           )}
         </div>
-        <HeadlineStrip stats={data.stats} deltas={data.deltas} trend={data.trend} />
+        {/* Dynamic TV mode is fullscreen + wake-locked: the surface has declared itself a wall, so
+            the strip takes the wall type scale (G6-01). `running` keeps its announcer quiet while
+            the header's progress count is speaking. */}
+        <HeadlineStrip stats={data.stats} deltas={data.deltas} trend={data.trend} scale="wall" running />
       </div>
       <MoversTicker ticker={data.ticker} running />
     </div>

@@ -5,8 +5,9 @@ import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { OVERDUE_ACCENT, statusAccent, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
+import { OVERDUE_ACCENT, statusAccent, type PatchOutcome } from "@/components/org/shared/backlogShared";
 import { BacklogRowControls } from "@/components/org/backlog/BacklogItemRow.controls";
+import { DueChip } from "@/components/org/backlog/BacklogItemRow.due";
 import { BacklogRowExplore } from "@/components/org/backlog/BacklogItemRow.explore";
 import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.history";
 
@@ -189,8 +190,6 @@ export function BacklogItemRow({
     return outcome;
   }
 
-  const due = dueLabel(item);
-
   return (
     <div
       aria-busy={saving}
@@ -220,11 +219,9 @@ export function BacklogItemRow({
             )}
           </div>
         </div>
-        {due && (
-          <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-sm ${item.overdue ? "bg-orange-500/10 text-orange-300" : "text-slate-400"}`}>
-            {due}
-          </span>
-        )}
+        {/* Always rendered — an undated item gets an explicit "no due date" affordance rather than an
+            empty slot that reads as a rendering bug (G6-28). */}
+        <DueChip item={item} />
       </div>
 
       <BacklogRowControls

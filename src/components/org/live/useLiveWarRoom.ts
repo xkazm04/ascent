@@ -18,7 +18,7 @@ import {
   type Mover,
   type Phase,
 } from "@/components/org/shared/liveWarRoomShared";
-import { computeLeaderboard, computeStats, foldRepoEvent } from "@/components/org/live/liveWarRoomFold";
+import { computeLeaderboard, computeStats, foldRepoEvent, progressPct } from "@/components/org/live/liveWarRoomFold";
 
 export function useLiveWarRoom({
   slug,
@@ -300,7 +300,9 @@ export function useLiveWarRoom({
   const leaderboard = useMemo(() => computeLeaderboard(repos), [repos]);
 
   const running = phase === "running";
-  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+  // G6-08: clamped to [0,100] — see progressPct in liveWarRoomFold.ts for why the raw ratio can
+  // exceed 1 on a credit-truncated run.
+  const pct = progressPct(progress.done, progress.total);
   const launchLabel =
     phase === "idle" ? "▶ Launch live scan" : phase === "done" ? "↻ Re-run live scan" : phase === "error" ? "↻ Retry scan" : "Scanning…";
 

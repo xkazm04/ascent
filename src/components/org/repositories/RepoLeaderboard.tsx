@@ -130,10 +130,12 @@ export function RepoLeaderboard({
     <>
       <OrgTable
         className="mt-3"
+        caption="Repository maturity leaderboard with segment selection"
         head={
           <LeaderboardHead
             hasSegments={segments.length > 0}
             allSelected={allSelected}
+            indeterminate={selected.size > 0 && selected.size < rows.length}
             onToggleAll={toggleAll}
             sort={sort}
             onCycle={cycleSort}

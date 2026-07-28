@@ -18,10 +18,40 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org.alerts.thresholds", label: "Alert rules", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "practice.pr_opened", label: "Practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.pr_opened", label: "Playbook PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  // G6-06: `org.gate_policy`/`playbook.updated` are genuinely recorded (see the route files below) but
+  // were missing from this hand-maintained list, so they rendered as an unlabeled grey badge AND could
+  // not be selected in the Action filter. See AuditLogCells.actions.test.ts, which walks every
+  // recordAudit/recordOrgAudit call site in src/ and fails if a recorded action has no entry here — so
+  // the next new action can't silently fall off the same way.
+  { value: "org.gate_policy", label: "Gate policy", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.member.removed", label: "Member removed", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "org.member.invite_accepted", label: "Invite accepted", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "org.llm_provider.updated", label: "LLM provider updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org.llm_provider.disabled", label: "LLM provider disabled", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "org_api_token.created", label: "API token created", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org_api_token.revoked", label: "API token revoked", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "org_skill.created", label: "Skill created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "org_skill.updated", label: "Skill updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org_skill.archived", label: "Skill archived", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  { value: "org_memory.created", label: "Memory created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "org_memory.updated", label: "Memory updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org_memory.archived", label: "Memory archived", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  { value: "org_memory.reflected", label: "Memory reflected", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "org_memory.decayed", label: "Memory decayed", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  { value: "org_decision.recorded", label: "Decision recorded", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "passport.pr_opened", label: "Passport PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "passport.overrides_set", label: "Passport overrides", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "passport.declines_set", label: "Passport declines", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "foundation.pr_opened", label: "Foundation PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "issue.create", label: "Issue created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "billing.autorecharge", label: "Auto-recharge", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "conformance.reported", label: "Conformance report", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "data.erased", label: "Data erased", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
 ];
 

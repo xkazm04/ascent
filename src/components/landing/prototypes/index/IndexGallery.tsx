@@ -22,7 +22,7 @@ const GRID = "grid grid-cols-[1.75rem_minmax(0,1fr)_3.25rem] gap-x-3 md:grid-col
 
 /** A single 0..100 score cell, colored by the rubric ramp; an em dash when the scan lacks it. */
 function ScoreCell({ score, big = false, className = "" }: { score?: number; big?: boolean; className?: string }) {
-  if (score == null) return <span className={`text-center font-mono text-sm text-slate-700 ${className}`}>—</span>;
+  if (score == null) return <span className={`text-center font-mono text-sm text-slate-500 ${className}`}>—</span>;
   return (
     <span
       className={`text-center font-mono font-bold tabular-nums ${big ? "text-xl" : "text-sm"} ${className}`}
@@ -44,7 +44,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const latestScannedAt = recent[0]?.scannedAt;
   return (
     <DeckSection id="gallery" justify="startLgCenter">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
         <div>
           <Kicker>{ranked ? "Live from the index" : "Latest public scans"}</Kicker>
           <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">The register</h2>
@@ -66,7 +66,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       </div>
 
       {/* Column header — aligned to the row track; dimension labels only show where their columns do. */}
-      <div className={`${GRID} border-b border-slate-800/70 pb-2 pt-3 font-mono text-[10px] uppercase tracking-wider text-slate-500`}>
+      <div className={`${GRID} border-b border-divider/70 pb-2 pt-3 font-mono text-[10px] uppercase tracking-wider text-slate-500`}>
         <span aria-hidden />
         <span>Repository</span>
         {FEATURED_DIMS.map((d) => (
@@ -85,7 +85,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
         </p>
       )}
 
-      <div className="divide-y divide-slate-800">
+      <div className="divide-y divide-divider">
         {board.map((c, i) => (
           <Link
             key={c.fullName}
@@ -111,7 +111,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
 
       {/* Growth loop: convert a register viewer into a scanned repo + a README badge embed (every embed
           links back with ?ref=badge, so a published badge feeds the funnel). */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">
         <span className="text-sm text-slate-500">Want your repo on the register?</span>
         <div className="flex flex-wrap gap-2">
           <Link

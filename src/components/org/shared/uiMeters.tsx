@@ -11,17 +11,34 @@ export function Meter({
   threshold,
   size = "md",
   className = "",
+  ariaLabel,
 }: {
   value: number;
   color?: string;
   threshold?: number;
   size?: "sm" | "md";
   className?: string;
+  /** Accessible name for the progressbar. Omit only when a visible label already precedes this Meter
+   *  and is programmatically associated with it (e.g. via `aria-labelledby` on a wrapping element) —
+   *  MeterRow's `labelled`/`stacked` layouts render bare text next to the bar, so most call sites
+   *  should pass one. */
+  ariaLabel?: string;
 }) {
   const h = size === "sm" ? "h-1.5" : "h-2";
-  const pct = Math.max(0, Math.min(100, value));
+  // A NaN/Infinity `value` (e.g. a done/total ratio with total === 0) must not reach `style.width` —
+  // that renders as `width: NaN%`, a silently broken bar. Match the neutral treatment `fmtDelta`
+  // already uses for non-finite deltas: fall back to 0 instead of propagating the NaN.
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const pct = Math.max(0, Math.min(100, safeValue));
   return (
-    <div className={`relative ${h} overflow-hidden rounded-full bg-slate-800 ${className}`}>
+    <div
+      role="progressbar"
+      aria-label={ariaLabel}
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className={`relative ${h} overflow-hidden rounded-full bg-slate-800 ${className}`}
+    >
       <div
         className={`animate-meter h-full rounded-full ${color ? "" : "bg-accent"}`}
         style={{ width: `${pct}%`, backgroundColor: color }}
@@ -54,6 +71,7 @@ export function MeterRow({
   valueClassName,
   valueColor,
   labelClassName,
+  ariaLabel,
 }: {
   layout?: "inline" | "labelled" | "stacked";
   value: number;
@@ -67,8 +85,12 @@ export function MeterRow({
   valueClassName?: string;
   valueColor?: string;
   labelClassName?: string;
+  /** Accessible name for the underlying `Meter`. Defaults to `label` when it's a plain string;
+   *  `inline` layout has no on-screen label, so pass one explicitly there. */
+  ariaLabel?: string;
 }) {
   const readout = display ?? value;
+  const meterLabel = ariaLabel ?? (typeof label === "string" ? label : undefined);
   if (layout === "stacked") {
     return (
       <div>
@@ -76,7 +98,7 @@ export function MeterRow({
           <span>{label}</span>
           <span style={valueColor ? { color: valueColor } : undefined}>{readout}</span>
         </div>
-        <Meter className={meterClassName ?? "mt-1"} size={meterSize} value={value} color={color} threshold={threshold} />
+        <Meter className={meterClassName ?? "mt-1"} size={meterSize} value={value} color={color} threshold={threshold} ariaLabel={meterLabel} />
       </div>
     );
   }
@@ -84,7 +106,7 @@ export function MeterRow({
   return (
     <div className={layout === "labelled" ? "flex items-center gap-3 text-sm" : "flex items-center gap-2"}>
       {layout === "labelled" && <span className={labelClassName ?? "w-36 shrink-0 text-slate-400"}>{label}</span>}
-      <Meter className={meterClassName} size={meterSize} value={value} color={color} threshold={threshold} />
+      <Meter className={meterClassName} size={meterSize} value={value} color={color} threshold={threshold} ariaLabel={meterLabel} />
       <span className={valueClassName ?? "w-9 font-mono text-sm text-slate-500"} style={valueColor ? { color: valueColor } : undefined}>
         {readout}
       </span>

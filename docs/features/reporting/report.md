@@ -18,6 +18,19 @@ All charts are **dependency-free inline SVG** — no D3/recharts — to keep the
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). Picks two scans via `?a=`/`?b=`, renders the diff. |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP` — the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
 
+### Cold permalink (`ColdScanGate` + `ColdScanTeaser`)
+
+A `/report/{owner}/{repo}` hit with **no persisted snapshot** never auto-starts a scan — it renders
+`ColdScanGate`, which asks first (a shared link shouldn't spend minutes of model time uninvited) and
+keeps any pinned `@sha` on the ref handed to `ReportClient`.
+
+Under the CTA, `ColdScanTeaser` shows **what a scan produces**, derived from the maturity model: the
+`DIMENSIONS` chips, the `LEVELS` ladder (all five, none marked), and the terms — free for public
+repos, no account, minutes not seconds, a capped free monthly allowance that ends in a sign-in prompt,
+nothing cloned, and a public report saved at the URL. It deliberately shows **no sample score, blurred
+ring, or "typical result"**: the same honesty rule the charts follow (below) applies before a scan
+exists. The no-wait alternative is a link to the real demo org, not a mock-up.
+
 ## Rendering (`ReportClient` → `ReportView`)
 
 `ReportClient` (`src/components/report/ReportClient.tsx`) drives a **live** scan: it POSTs

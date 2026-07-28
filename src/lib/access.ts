@@ -8,6 +8,7 @@
 // component — mirrors the convention in src/lib/auth.ts.
 
 import { cache } from "react";
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 // The pure env predicates live in @/lib/env so the next/headers-free proxy (src/proxy.ts) can share
@@ -75,13 +76,58 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 });
 
 /**
+ * True when the CURRENT request looks like a top-level browser navigation (address bar, a clicked
+ * `<a href>`, a plain GET form submit) rather than a programmatic `fetch`/`XHR` call.
+ *
+ * Discrimination (G6-12): browsers attach the Fetch Metadata headers to every request, and reserve
+ * `Sec-Fetch-Mode: navigate` EXCLUSIVELY for top-level navigations — a same-origin `fetch()` call
+ * (e.g. ExportCsvButton, or any of this app's client-side API calls) sends `cors`/`same-origin`/
+ * `no-cors`, never `navigate`, and cannot set this header itself (it's a forbidden header name, so an
+ * XHR caller can't spoof it into getting a redirect it would then blindly `follow` and misread as a
+ * 200 success). When that header is present it is authoritative. Only when a client omits it entirely
+ * (older browsers without Fetch Metadata support; most non-browser HTTP clients) do we fall back to
+ * `Accept: text/html`, which every top-level navigation sends and no JSON-expecting caller normally
+ * does — still never true for a `fetch()` call made with the default/`application/json` Accept header.
+ */
+async function looksLikeNavigation(): Promise<boolean> {
+  const h = await headers();
+  const mode = h.get("sec-fetch-mode");
+  if (mode) return mode === "navigate";
+  return (h.get("accept") ?? "").includes("text/html");
+}
+
+/**
  * API-route gate, the Supabase sibling of requireOrgAccess: returns a 401 NextResponse when the
  * login wall is enforced and there is no viewer, or null when the request may proceed. No-op (null)
  * when the gate is disabled (Supabase unconfigured / bypass on), so existing open behavior is kept.
+ *
+ * G6-12: a lapsed session hitting a gated route via top-level navigation used to get a raw JSON 401
+ * body with no path back to login — a dead end for a human, since nothing on that screen is clickable.
+ * Navigable requests (per `looksLikeNavigation`) now get a 303 redirect to the sign-in page instead;
+ * every other caller (fetch/XHR — the overwhelming majority of this gate's callers, which parse the
+ * JSON body themselves) is completely unaffected and still gets the 401 JSON it already handles.
  */
 export async function requireViewer(): Promise<NextResponse | null> {
   if (!authGateEnabled()) return null;
   if (await getViewer()) return null;
+  if (await looksLikeNavigation()) {
+    // No request/pathname is threaded through this gate (it's called deep inside mutating API routes
+    // with no page context to return to), so this sends the visitor to the app's normal sign-in
+    // landing rather than guessing at a `next` target it can't verify. Origin is rebuilt from headers
+    // the same way publicOriginForRequest (src/lib/auth.ts) does for a proxied deployment — prefer the
+    // EXTERNAL forwarded host/proto over any internal one, validating the forwarded host against a
+    // plain hostname[:port] grammar so an attacker-controlled header can't rewrite the redirect target
+    // (this module deliberately avoids a static import of @/lib/auth's copy — see resolveViewerLogin's
+    // comment on keeping this file's Edge-safe import graph).
+    const h = await headers();
+    const fwdProto = h.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+    const proto = fwdProto === "http" ? "http" : "https";
+    const fwdHost = h.get("x-forwarded-host")?.split(",")[0]?.trim();
+    const host = fwdHost && /^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(fwdHost) ? fwdHost : h.get("host");
+    if (host) return NextResponse.redirect(new URL("/connect", `${proto}://${host}`), { status: 303 });
+    // No usable host header at all (unexpected outside a real HTTP request, e.g. a malformed proxy) —
+    // fail back to the JSON 401 rather than constructing an invalid redirect URL.
+  }
   return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
 }
 

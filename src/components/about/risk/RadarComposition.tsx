@@ -7,7 +7,7 @@
 // count open risks down and mitigations up. Frame-deterministic via useCurrentFrame.
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
-import { CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END } from "./radar";
+import { CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END, deriveGateState } from "./radar";
 import { ACCENT, ACCENT_SOFT, DANGER, GREEN, INK, MONO, WARN, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
 
 export const RadarComposition: React.FC = () => {
@@ -22,9 +22,12 @@ export const RadarComposition: React.FC = () => {
   const mitigated = BLIPS.filter((b) => frame >= b.mitigate).length;
   const criticalOpen = BLIPS.filter((b) => b.critical && frame >= b.detect && frame < b.mitigate).length;
 
-  const gate = detected === 0 ? "scan" : criticalOpen > 0 ? "fail" : "pass";
-  const gateColor = gate === "pass" ? GREEN : gate === "fail" ? DANGER : ACCENT;
-  const gateText = gate === "pass" ? "Gate Pass" : gate === "fail" ? "Gate Fail" : "Scanning";
+  // "clear" (every CRITICAL resolved, but a non-critical blip is still open — see deriveGateState)
+  // reads as a distinct amber "Critical-Clear" state, never the green "Gate Pass" claim: that label
+  // is reserved for openRisks === 0, so it can never render in the same frame as "open risks: 1".
+  const gate = deriveGateState(detected, criticalOpen, openRisks);
+  const gateColor = gate === "pass" ? GREEN : gate === "fail" ? DANGER : gate === "clear" ? WARN : ACCENT;
+  const gateText = gate === "pass" ? "Gate Pass" : gate === "fail" ? "Gate Fail" : gate === "clear" ? "Critical-Clear" : "Scanning";
 
   return (
     <AbsoluteFill

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pins the deadline-countdown branches of `daysUntil` (LiveWarRoomHeader.tsx).
+// Pins the deadline-countdown branches of `daysUntil` (LiveWarRoomGoalBanner.tsx).
 //
 // The production helper is module-private inside a `"use client"` component and
 // reads the wall clock directly (`Date.now()`), with no exported seam — so the
 // clock is pinned with `vi.useFakeTimers()` and the helper is reproduced here
-// VERBATIM from LiveWarRoomHeader.tsx so the assertions describe the real code's
+// VERBATIM from LiveWarRoomGoalBanner.tsx so the assertions describe the real code's
 // contract. If that source helper changes, this mirror (and its tests) must
 // change in lockstep — that coupling is the point: it locks the behaviour.
 //
@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 //     deadline`, so the sign IS the user-facing direction — it must never invert.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** VERBATIM mirror of LiveWarRoomHeader.tsx `daysUntil` — see header comment. */
+/** VERBATIM mirror of LiveWarRoomGoalBanner.tsx `daysUntil` — see header comment. */
 function daysUntil(date: string | null): number | null {
   if (!date) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);

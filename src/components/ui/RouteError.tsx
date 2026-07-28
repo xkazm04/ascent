@@ -2,14 +2,21 @@
 
 // Shared App Router error-boundary card. An error.tsx MUST be a Client Component and stay self-contained
 // (no @/components/Brand — that pulls in server-only @/lib/auth, which can't be bundled into a client
-// component), so this depends only on react + next/link + the pure-string @/lib/ui constants. The root
-// boundary renders it full-screen; a segment boundary renders the compact card inside its own persistent
-// layout (e.g. the org shell keeps SiteHeader + OrgNav). One card, one bounded telemetry line — so the
-// three boundaries can't drift.
+// component), so this depends only on react + next/link + the pure-string @/lib/ui constants + the
+// dependency-free StaticNav leaf. The root boundary renders it full-screen; a segment boundary renders
+// the compact card inside its own persistent layout (e.g. the org shell keeps SiteHeader + OrgNav). One
+// card, one bounded telemetry line — so the three boundaries can't drift.
+//
+// G6-13: the full-screen case used to render with ZERO brand chrome — no logo, nothing — while the 404
+// page (not-found.tsx) solved the identical "can't use the real async SiteHeader here" problem with a
+// dependency-free static header. A genuine runtime error is the most stressful screen a user can hit;
+// it shouldn't look less trustworthy than a 404. Logo now lives in StaticNav.tsx specifically so it can
+// be imported here (next/image + next/link only, no server-only auth import) — see that file's comment.
 
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { HEADER_INNER, HEADER_SHELL, Logo } from "@/components/StaticNav";
 import { CTA_OUTLINE, CTA_PRIMARY } from "@/lib/ui";
 
 export function RouteError({
@@ -66,12 +73,21 @@ export function RouteError({
 
   if (fullScreen) {
     return (
-      <main
-        id="main"
-        className="mx-auto flex min-h-screen w-full max-w-2xl flex-1 flex-col items-center justify-center px-5 py-24 text-center"
-      >
-        {inner}
-      </main>
+      <>
+        <header className={HEADER_SHELL}>
+          <div className={HEADER_INNER}>
+            <Link href="/" className="focus-ring rounded-sm">
+              <Logo />
+            </Link>
+          </div>
+        </header>
+        <main
+          id="main"
+          className="mx-auto flex min-h-[calc(100vh-var(--header-h))] w-full max-w-2xl flex-1 flex-col items-center justify-center px-5 py-24 text-center"
+        >
+          {inner}
+        </main>
+      </>
     );
   }
   return <div className="mx-auto w-full max-w-2xl px-5 py-20 text-center">{inner}</div>;

@@ -1026,6 +1026,13 @@
             "src/components/org/live/LiveWarRoomHeader.dom.test.tsx",
             "src/components/org/live/LiveWarRoomHeader.test.ts",
             "src/components/org/live/LiveWarRoomWakeLock.dom.test.ts",
+            "src/components/org/live/LiveWarRoomGoalBanner.tsx",
+            "src/components/org/live/warRoomScale.ts",
+            "src/components/org/live/warRoomAnnounce.ts",
+            "src/components/org/live/warRoomAnnounce.test.ts",
+            "src/components/org/live/warRoomProgress.test.ts",
+            "src/components/org/live/LiveWarRoomStat.dom.test.tsx",
+            "src/components/org/live/LiveWarRoomPanels.dom.test.tsx",
             "src/lib/live-share.test.ts"
           ],
           "target": null,

@@ -63,12 +63,17 @@ function SortTh({
 export function LeaderboardHead({
   hasSegments,
   allSelected,
+  indeterminate,
   onToggleAll,
   sort,
   onCycle,
 }: {
   hasSegments: boolean;
   allSelected: boolean;
+  /** True when some (but not all) rows are selected — renders the header checkbox as a dash rather
+   *  than fully unchecked, so a partial selection doesn't read as "none selected." `indeterminate` is a
+   *  DOM property, not an HTML attribute, so it can't be set from JSX and is applied via a ref below. */
+  indeterminate: boolean;
   onToggleAll: () => void;
   sort: SortState;
   onCycle: (key: SortKey) => void;
@@ -78,7 +83,16 @@ export function LeaderboardHead({
     <tr>
       <th className="px-3 py-2 text-left">
         {hasSegments && (
-          <input type="checkbox" checked={allSelected} onChange={onToggleAll} aria-label="Select all repositories" className="accent-accent" />
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = indeterminate;
+            }}
+            onChange={onToggleAll}
+            aria-label="Select all repositories"
+            className="accent-accent"
+          />
         )}
       </th>
       <th className="px-4 py-2 text-left">Repo</th>

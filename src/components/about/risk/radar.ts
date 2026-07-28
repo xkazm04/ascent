@@ -43,3 +43,20 @@ export const BLIPS: Blip[] = RAW.map((b) => {
       : Infinity;
   return { ...b, dist, mitigate };
 });
+
+export type GateState = "scan" | "fail" | "clear" | "pass";
+
+/**
+ * Gate label derivation, pulled out of RadarComposition so it's unit-testable without a Remotion
+ * render. `criticalOpen === 0` alone is NOT "pass": one blip is deliberately placed beyond WAVE_MAX
+ * (see RAW above) so it is never mitigated, and it is non-critical — without this the composition
+ * could show "Gate Pass" in the same frame the "open risks" metric reads 1, a claim the data
+ * contradicts. "clear" is the honest label for that state: every CRITICAL risk is resolved but a
+ * non-critical one is still open, distinct from "pass" (zero open risks of any kind).
+ */
+export function deriveGateState(detected: number, criticalOpen: number, openRisks: number): GateState {
+  if (detected === 0) return "scan";
+  if (criticalOpen > 0) return "fail";
+  if (openRisks > 0) return "clear";
+  return "pass";
+}

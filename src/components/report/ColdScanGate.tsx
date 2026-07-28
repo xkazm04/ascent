@@ -7,8 +7,13 @@
 // that mounts ReportClient (which then runs the live scan with its full progress checklist). The
 // scan-form flow is unaffected — it routes through /report?repo=…, an explicit "I asked to scan" action.
 
+// G6-26: the gate is also the highest-intent moment in the funnel, so below the CTA it now carries
+// ColdScanTeaser — what a scan PRODUCES (the rubric, the ladder, the honest terms), never a
+// fabricated preview of what this repo would score. See that file for the reasoning.
+
 import { Suspense, useState } from "react";
 import { ReportClient } from "@/components/report/ReportClient";
+import { ColdScanTeaser } from "@/components/report/ColdScanTeaser";
 import { EmptyState } from "@/components/EmptyState";
 
 export function ColdScanGate({ repo }: { repo: string }) {
@@ -36,21 +41,30 @@ export function ColdScanGate({ repo }: { repo: string }) {
   }
 
   return (
-    <EmptyState
-      icon="🛰️"
-      title={`No report yet for ${display}`}
-      body={`This repository hasn't been scanned on Ascent. A fresh scan reads it through the GitHub API (no clone, nothing stored) and takes about a minute.${
-        sha ? ` This link pins commit ${sha.slice(0, 7)} — the scan will score that commit.` : ""
-      }`}
-      actions={[{ label: "← Back home", href: "/" }]}
-    >
-      <button
-        type="button"
-        onClick={() => setScanning(true)}
-        className="focus-ring rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
+    <div>
+      <EmptyState
+        icon="🛰️"
+        // The old body claimed the scan "takes about a minute" and stores nothing. Both were untrue:
+        // a live scan is dominated by the model call (scanEstimate.ts measures ~90s hosted to ~6 min
+        // on claude-cli), and an anonymous public scan IS persisted — that is exactly how this
+        // permalink resolves for the next visitor. The honest terms are spelled out in the teaser.
+        title={`No report yet for ${display}`}
+        body={`This repository hasn't been scanned on Ascent yet. Scanning it runs a live model assessment, so it takes a few minutes — it's free for public repositories and needs no account.${
+          sha ? ` This link pins commit ${sha.slice(0, 7)} — the scan will score that commit.` : ""
+        }`}
+        actions={[{ label: "← Back home", href: "/" }]}
       >
-        Scan {display}{sha ? ` @ ${sha.slice(0, 7)}` : ""} now
-      </button>
-    </EmptyState>
+        <button
+          type="button"
+          onClick={() => setScanning(true)}
+          className="focus-ring rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
+        >
+          Scan {display}{sha ? ` @ ${sha.slice(0, 7)}` : ""} now
+        </button>
+      </EmptyState>
+      <div className="mx-auto -mt-12 w-full max-w-3xl pb-16">
+        <ColdScanTeaser />
+      </div>
+    </div>
   );
 }

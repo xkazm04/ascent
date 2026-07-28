@@ -52,7 +52,7 @@ const ORG_USE_CASES: OrgUseCase[] = [
 export function IndexOrg() {
   return (
     <DeckSection id="org" justify="startLgCenter">
-      <div className="grid gap-6 border-y border-slate-800 py-8 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="grid gap-6 border-y border-divider py-8 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="max-w-2xl">
           <Kicker>Organization edition</Kicker>
           <h2 className="mt-2 text-2xl font-bold text-white">Index the whole organization</h2>
@@ -79,7 +79,7 @@ export function IndexOrg() {
           <Link
             key={u.title}
             href={u.href}
-            className="focus-ring group flex flex-col rounded-xl border border-slate-800 bg-slate-950/40 p-5 transition hover:border-accent/60 hover:bg-slate-900/40"
+            className="focus-ring group flex flex-col rounded-xl border border-divider bg-surface-strong/40 p-5 transition hover:border-accent/60 hover:bg-surface/40"
           >
             <span className="flex items-center justify-between gap-2">
               <span className="text-base font-semibold text-white group-hover:text-accent">{u.title}</span>

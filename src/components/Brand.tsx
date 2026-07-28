@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { SupabaseSignInButton, SignOutButton } from "@/components/SupabaseAuthButtons";
@@ -8,27 +7,12 @@ import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 import { demoOrgHref } from "@/lib/site";
 import { SiteFooterCore } from "@/components/SiteFooterCore";
-import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, MarketingNavLinks } from "@/components/StaticNav";
+import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, Logo, MarketingNavLinks } from "@/components/StaticNav";
 import { scoreHex } from "@/lib/ui";
 
-/** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
-export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
-  return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      <Image
-        src="/brand/logo-mark-nobg.png"
-        alt=""
-        width={size}
-        height={size}
-        priority
-        style={{ width: size, height: size }}
-      />
-      <span className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">
-        Ascent
-      </span>
-    </span>
-  );
-}
+// Logo now lives in the dependency-free StaticNav.tsx (G6-13) — re-exported here so existing
+// server-component importers (not-found.tsx, share/briefing) keep their `@/components/Brand` path.
+export { Logo };
 
 /**
  * The account cluster shared by both headers: org switcher (when the viewer has installations) + the

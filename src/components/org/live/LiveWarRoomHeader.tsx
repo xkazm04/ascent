@@ -1,34 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { shortName } from "@/components/org/shared/liveWarRoomShared";
-import { Meter } from "@/components/org/shared/ui";
-import { PaceChip, type GoalProgressView } from "@/components/org/shared/goalView";
-import { freshness, scoreHex } from "@/lib/ui";
+import { type GoalProgressView } from "@/components/org/shared/goalView";
+import { freshness } from "@/lib/ui";
+import { GoalBanner } from "./LiveWarRoomGoalBanner";
 import { enterTvMode, releaseWakeLock } from "./liveWakeLock";
 
 // Wake-lock / TV-mode manager lives in ./liveWakeLock.ts; re-exported here so existing importers
 // (LiveWarRoom.tsx, LiveWarRoomWakeLock.dom.test.ts) keep their import path unchanged.
 export { enterTvMode, releaseWakeLock };
-
-/** Days until a YYYY-MM-DD deadline (negative = past, 0 = due today). null when no date.
- *
- *  DECISION (live-war-room 07-16 #2): the deadline is INCLUSIVE and ends at END OF DAY in the
- *  VIEWER'S LOCAL timezone. `Date.parse("YYYY-MM-DD")` is UTC midnight at the *start* of the day,
- *  so the old diff flipped to "past deadline" up to a day early for viewers west of UTC (and a day
- *  late east of it) — on a projected wall, exactly on review day. We parse the date parts into a
- *  LOCAL instant at midnight AFTER the deadline day, so the whole deadline day reads "0d to
- *  deadline" everywhere, and "past" starts the local day after. */
-function daysUntil(date: string | null): number | null {
-  if (!date) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
-  if (!m) return null;
-  // Local midnight AFTER the deadline day = the instant the (inclusive) deadline lapses.
-  const end = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime();
-  if (Number.isNaN(end)) return null;
-  return Math.ceil((end - Date.now()) / 86_400_000) - 1;
-}
 
 /** LIVE state + launch/stop controls + run progress bar + currently-scanning caption + error,
  *  plus (WAR-1/2) the rallying goal banner and (WAR-3) the auto-relaunch toggle. */
@@ -79,8 +60,7 @@ export function WarRoomHeader({
   /** Enter Dynamic-UI TV mode (state-driven single-stage wall). Undefined on the kiosk view. */
   onEnterTv?: () => void;
 }) {
-  const countdown = goal ? daysUntil(goal.targetDate) : null;
-  const toGoal = goal ? Math.max(0, goal.target - goal.current) : 0;
+  const safePct = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
   const [share, setShare] = useState<{ busy: boolean; copied: boolean; error: string | null; manualUrl: string | null }>(
     { busy: false, copied: false, error: null, manualUrl: null },
   );
@@ -194,7 +174,10 @@ export function WarRoomHeader({
               fleet scanned {freshness(fleetScannedAt)}
             </p>
           )}
-          {onToggleSound && (
+          {/* G6-09: session-gated like every other control. A shared/TV viewer has no scan to
+              celebrate and no persisted preference worth setting, so a checkbox that can never do
+              anything for them is worse than no checkbox. */}
+          {!readOnly && onToggleSound && (
             <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Play a short chime when a repo crosses into AI-Native">
               <input type="checkbox" checked={sound} onChange={onToggleSound} className="accent-accent" />
               Sound
@@ -217,45 +200,8 @@ export function WarRoomHeader({
         </div>
       </header>
 
-      {/* WAR-1/2: the goal the wall rallies around — target meter, pace, deadline countdown, and
-          movement since the campaign (goal) kicked off. */}
-      {goal && (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-sm uppercase tracking-widest text-accent">Goal</span>
-              <span className="font-medium text-white">{goal.label}</span>
-              <PaceChip pace={goal.pace} />
-            </div>
-            <Link href={`/org/${slug}/plan`} className="font-mono text-sm text-accent hover:text-white">
-              manage →
-            </Link>
-          </div>
-          <Meter
-            className="mt-2.5"
-            value={goal.current}
-            threshold={goal.target}
-            color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
-          />
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
-            <span>
-              {goal.metricLabel} {goal.current}/{goal.target}
-              {goal.achieved ? " · reached 🎉" : ` · ${toGoal} to goal`}
-            </span>
-            {campaignDelta != null && (
-              <span className={campaignDelta > 0 ? "text-emerald-300" : campaignDelta < 0 ? "text-orange-300" : "text-slate-500"}>
-                {campaignDelta > 0 ? "+" : ""}
-                {campaignDelta} since kickoff
-              </span>
-            )}
-            {countdown != null && (
-              <span className={countdown < 0 ? "text-orange-300" : countdown <= 7 ? "text-amber-300" : "text-slate-400"}>
-                {countdown < 0 ? `${-countdown}d past deadline` : `${countdown}d to deadline`}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+      {/* WAR-1/2: the goal the wall rallies around (./LiveWarRoomGoalBanner). */}
+      {goal && <GoalBanner slug={slug} goal={goal} campaignDelta={campaignDelta} />}
 
       {/* run progress bar + currently-scanning caption */}
       {running && (
@@ -264,12 +210,15 @@ export function WarRoomHeader({
             className="h-1.5 overflow-hidden rounded-full bg-slate-800"
             role="progressbar"
             aria-label="Scan progress"
-            aria-valuenow={pct}
+            aria-valuenow={safePct}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuetext={`${progress.done} of ${progress.total} repos scanned`}
           >
-            <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, pct)}%` }} />
+            {/* Floor of 3% so a just-started run still shows a sliver; ceiling of 100 so a
+                credit-truncated run can't overrun the track (G6-08 — clamped at source in
+                useLiveWarRoom, re-clamped here because `pct` is a prop). */}
+            <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.min(100, Math.max(3, safePct))}%` }} />
           </div>
           {progress.current && (
             // NOT a live region: the currently-scanning repo name changes on every landed result, so

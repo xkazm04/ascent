@@ -67,14 +67,18 @@ const FIGURE = {
   },
 } as const;
 
-export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goal, raw = false, variant = "ledger", className = "" }: StatProps) {
+export function Stat({ label, value, sub, color, delta, deltaLabel, goal, raw = false, variant = "ledger", className = "" }: StatProps) {
   const display = typeof value === "number" && !raw ? value.toLocaleString() : value;
   const figure = variant === "ledger" ? null : FIGURE[variant];
+  // Default value color is a class (`text-white`), not an inline `#fff` style — a real palette-derived
+  // `color` prop still wins via the inline style (see the StatProps doc comment above).
+  const valueClass = color ? "" : " text-white";
+  const valueStyle = color ? { color } : undefined;
   return (
     <div className={className}>
       {figure ? (
         <>
-          <div className={figure.value} style={{ color }}>
+          <div className={figure.value + valueClass} style={valueStyle}>
             {display}
           </div>
           <div className={figure.label}>{label}</div>
@@ -82,7 +86,7 @@ export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goa
       ) : (
         <>
           <div className="font-mono text-[13px] uppercase leading-snug tracking-[0.12em] text-slate-400">{label}</div>
-          <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums" style={{ color }}>
+          <div className={`mt-0.5 font-mono text-2xl font-bold tabular-nums${valueClass}`} style={valueStyle}>
             {display}
           </div>
         </>

@@ -148,7 +148,11 @@ async function ReportPermalinkBody({
   const canInstallFoundation = orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "member").catch(() => false));
 
   return (
-    <ReportErrorBoundary>
+    // No onRetry: this is the pinned-permalink reader (deterministic, persisted data), so the boundary
+    // renders a terminal "scan fresh" escape hatch instead of a reload button that would re-crash on
+    // the same bad snapshot (G6-03). repoRef carries the pinned @sha (when present) so "scan fresh"
+    // targets the exact commit the visitor was viewing, same grammar as FreshnessControl's re-test link.
+    <ReportErrorBoundary repoRef={sha ? `${repoRef}@${sha}` : repoRef}>
       {/* ReportView carries its own animate-fade-up entrance (and its own repo header, which lands over
           the masthead at the same position). The panels below stagger in after it. */}
       <ReportView

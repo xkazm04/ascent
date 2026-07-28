@@ -185,6 +185,58 @@ describe("getOrgBacklog — ACTIVE-only filter (done/dismissed never grouped)", 
   });
 });
 
+// ── G6-02: the closed-item recovery view ──────────────────────────────────────────────────────────
+// The ACTIVE filter is what made a mis-picked "Dismissed" unrecoverable — the row left every view and
+// nothing could bring it back. `includeClosed` groups the closed rows too, WITHOUT moving any headline
+// number (the counts always describe the active working backlog).
+describe("getOrgBacklog — includeClosed recovery view (G6-02)", () => {
+  it("groups done/dismissed rows so a dismissed item is reachable again", async () => {
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const b = (await getOrgBacklog("acme", null, NOW, null, { includeClosed: true }))!;
+
+    const groupedIds = b.byOwner.flatMap((g) => g.items.map((i) => i.id));
+    expect(groupedIds.sort()).toEqual(["r1", "r2", "r3", "r4", "r5", "r6", "r7"]);
+    expect(b.byDue.flatMap((g) => g.items.map((i) => i.id))).toContain("r4");
+    expect(b.includesClosed).toBe(true);
+  });
+
+  it("leaves every headline count identical to the default view", async () => {
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const base = (await getOrgBacklog("acme", null, NOW))!;
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const withClosed = (await getOrgBacklog("acme", null, NOW, null, { includeClosed: true }))!;
+
+    for (const k of ["tracked", "active", "open", "inProgress", "done", "dismissed", "overdue", "assigned", "unassigned", "dueSoon", "repos"] as const) {
+      expect([k, withClosed[k]]).toEqual([k, base[k]]);
+    }
+    // r3 is done with a PAST due date — it must not be counted as overdue debt just because it's shown.
+    expect(withClosed.overdue).toBe(2);
+    expect(withClosed.byOwner.flatMap((g) => g.items).find((i) => i.id === "r3")!.overdue).toBe(false);
+  });
+
+  it("defaults to the ACTIVE-only view when no option is passed", async () => {
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+    expect(b.includesClosed).toBe(false);
+    expect(b.byOwner.flatMap((g) => g.items.map((i) => i.id))).not.toContain("r4");
+  });
+
+  it("sinks closed rows below the live work inside each owner group", async () => {
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const b = (await getOrgBacklog("acme", null, NOW, null, { includeClosed: true }))!;
+    for (const g of b.byOwner) {
+      const closedAt = g.items.findIndex((i) => i.status === "done" || i.status === "dismissed");
+      if (closedAt === -1) continue;
+      // Once a closed row appears, everything after it is closed too.
+      expect(g.items.slice(closedAt).every((i) => i.status === "done" || i.status === "dismissed")).toBe(true);
+    }
+    // Per-owner `active` still counts only the live rows, so the header numbers don't inflate.
+    for (const g of b.byOwner) {
+      expect(g.active).toBe(g.items.filter((i) => i.status === "open" || i.status === "in_progress").length);
+    }
+  });
+});
+
 describe("getOrgBacklog — group ordering", () => {
   it("orders byOwner by overdue-desc, then active-desc, with Unassigned last", async () => {
     mockGetPrisma.mockReturnValue(mixedFleet());

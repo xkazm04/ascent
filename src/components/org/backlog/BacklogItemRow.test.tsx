@@ -132,6 +132,34 @@ describe("BacklogItemRow accessibility", () => {
   });
 });
 
+// ── G6-28: an undated item gets an explicit due-date affordance, not an empty slot ────────────────
+describe("BacklogItemRow due-date chip (G6-28)", () => {
+  it("renders a 'no due date' control for an undated item instead of nothing", () => {
+    renderRow(); // default item: targetDate null, dueInDays null
+    const chip = screen.getByRole("button", { name: "no due date" });
+    expect(chip).toHaveAttribute("title", "No due date set — click to set one");
+  });
+
+  it("the 'no due date' control focuses this row's due input so a date can be added", () => {
+    renderRow();
+    screen.getByRole("button", { name: "no due date" }).click();
+    expect(document.activeElement).toBe(screen.getByLabelText("Due date"));
+  });
+
+  it("a dated item still shows its relative label, with the stored date literal on hover", () => {
+    renderRow({ item: item({ targetDate: "2026-02-01", dueInDays: 3, dueBucket: "this_week" }) });
+    expect(screen.queryByRole("button", { name: "no due date" })).toBeNull();
+    // The literal `yyyy-mm-dd` is shown verbatim — never re-parsed into an instant in the browser's
+    // zone, which is how a date-only column reads back as the previous day (timezone policy note 5).
+    expect(screen.getByText("due in 3 days")).toHaveAttribute("title", "Due 2026-02-01");
+  });
+
+  it("an overdue item keeps the orange treatment", () => {
+    renderRow({ item: item({ targetDate: "2026-01-01", dueInDays: -2, overdue: true, dueBucket: "overdue" }) });
+    expect(screen.getByText("2 days overdue")).toHaveClass("text-orange-300");
+  });
+});
+
 describe("BacklogItemRow gap-exploration (companion-voice parity)", () => {
   it("surfaces the gap's rationale and explore questions in a collapsed disclosure", () => {
     renderRow({

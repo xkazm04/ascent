@@ -23,9 +23,9 @@ function ChampionsGrid({ champions }: { champions: ContributorInsights["champion
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {champions.map((c, i) => (
           <div key={c.login} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-base text-white">{c.login}</span>
-              <span className="font-mono text-sm uppercase tracking-widest text-accent">#{i + 1} ★</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-base text-white" title={c.login}>{c.login}</span>
+              <span className="shrink-0 font-mono text-sm uppercase tracking-widest text-accent">#{i + 1} ★</span>
             </div>
             {c.name && <div className="text-sm text-slate-500">{c.name}</div>}
             <div className="mt-3"><AiBar pct={c.aiShare} /></div>

@@ -33,6 +33,7 @@ const item: BacklogItem = {
 
 const backlog: OrgBacklog = {
   org: "acme",
+  includesClosed: false,
   repos: 1,
   tracked: 1,
   active: 1,
@@ -99,6 +100,109 @@ describe("BacklogPanel — optimistic override lifetime (DOM)", () => {
     const select = await changeStatusToDone();
     await waitFor(() => expect(select.value).toBe("open")); // reverted to the server value
     expect(screen.getByText("server unavailable")).toBeInTheDocument();
+  });
+});
+
+// ── G6-02: a terminal status change is REVERSIBLE, not gated behind a confirm ──────────────────────
+// Picking "Done"/"Dismissed" drops the row from the ACTIVE-filtered backlog on the next read, so it
+// used to be a one-click, unrecoverable loss. The panel now offers the change back (undo) and can
+// re-read with the closed rows included so an older mistake is still findable.
+
+describe("BacklogPanel — reversible terminal status changes (G6-02)", () => {
+  it("offers the change back after a successful Done, and undo PATCHes the prior status", async () => {
+    const calls: { url: string; body?: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, body: typeof init?.body === "string" ? init.body : undefined });
+        if (u.includes("/api/org/backlog")) {
+          // The item is closed now, so the ACTIVE view legitimately no longer contains it.
+          return ok({ backlog: { ...backlog, active: 0, open: 0, done: 1, byOwner: [], byDue: [] } });
+        }
+        return ok();
+      }),
+    );
+    render(<BacklogPanel slug="acme" initial={backlog} />);
+    await changeStatusToDone();
+
+    // The row is gone from the list — the undo affordance is the only thing standing between the user
+    // and a silently lost item, so it must be present and name the restore target.
+    const undoBtn = await screen.findByRole("button", { name: /Undo \(back to Open\)/ });
+    expect(screen.getByText("Add CI gate")).toBeInTheDocument(); // named in the undo bar
+    // No confirm dialog was ever shown — the action itself stays one click.
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await act(async () => {
+      undoBtn.click();
+    });
+
+    const patches = calls.filter((c) => c.url.includes("/api/recommendations/"));
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(patches[0].body!)).toEqual({ status: "done" });
+    expect(JSON.parse(patches[1].body!)).toEqual({ status: "open" }); // restored, not guessed
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Undo/ })).toBeNull());
+  });
+
+  it("keeps the undo offer up when the undo PATCH itself fails (still the only way back)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("/api/recommendations/")) {
+          const body = typeof init?.body === "string" ? init.body : "";
+          return body.includes("open") ? fail(500) : ok(); // the close works, the undo doesn't
+        }
+        if (u.includes("/api/org/backlog")) return ok({ backlog: { ...backlog, active: 0, byOwner: [], byDue: [] } });
+        return ok();
+      }),
+    );
+    render(<BacklogPanel slug="acme" initial={backlog} />);
+    await changeStatusToDone();
+    const undoBtn = await screen.findByRole("button", { name: /Undo \(back to Open\)/ });
+    await act(async () => {
+      undoBtn.click();
+    });
+    expect(screen.getByRole("button", { name: /Undo \(back to Open\)/ })).toBeInTheDocument();
+  });
+
+  it("re-reads with includeClosed=1 when 'Show done & dismissed' is pressed, restoring the row's controls", async () => {
+    const urls: string[] = [];
+    const closedItem: BacklogItem = { ...item, status: "dismissed" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        urls.push(u);
+        if (u.includes("includeClosed=1")) {
+          return ok({
+            backlog: {
+              ...backlog,
+              includesClosed: true,
+              active: 0,
+              open: 0,
+              dismissed: 1,
+              byOwner: [{ login: null, active: 0, open: 0, inProgress: 0, done: 0, dismissed: 1, overdue: 0, items: [closedItem] }],
+            },
+          });
+        }
+        return ok({ backlog: { ...backlog, active: 0, open: 0, dismissed: 1, byOwner: [], byDue: [] } });
+      }),
+    );
+    // Start from the state a mis-click leaves behind: nothing active, one dismissed item.
+    render(<BacklogPanel slug="acme" initial={{ ...backlog, active: 0, open: 0, dismissed: 1, byOwner: [], byDue: [] }} />);
+    // Even the empty state points at the recovery route rather than dead-ending.
+    expect(screen.getByText(/to review or restore the 1 closed item/)).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Show done & dismissed/ }).click();
+    });
+
+    await waitFor(() => expect(urls.some((u) => u.includes("includeClosed=1"))).toBe(true));
+    // The dismissed row is back on screen WITH its status control — the route back to Open.
+    const status = (await screen.findByLabelText("Status")) as HTMLSelectElement;
+    expect(status.value).toBe("dismissed");
+    expect(status.disabled).toBe(false);
   });
 });
 

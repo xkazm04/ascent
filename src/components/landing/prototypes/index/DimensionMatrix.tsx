@@ -25,7 +25,7 @@ function CellBar({ w }: { w: number }) {
   const target = `${(frac * 100).toFixed(0)}%`;
   return (
     <div className="flex items-center gap-2">
-      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-divider">
         <motion.span
           className="absolute inset-y-0 left-0 block rounded-full bg-accent"
           initial={reduced ? false : { width: 0 }}
@@ -72,7 +72,7 @@ export function DimensionMatrix() {
           </thead>
           <tbody>
             {ROWS.map((r) => (
-              <tr key={r.id} className="border-b border-slate-800/70 last:border-0">
+              <tr key={r.id} className="border-b border-divider/70 last:border-0">
                 <th scope="row" className="py-3.5 pr-4 align-top">
                   <span className="flex items-center gap-2">
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.axis === "adoption" ? "bg-accent" : "bg-slate-500"}`} title={AXIS_LABEL[r.axis]} />

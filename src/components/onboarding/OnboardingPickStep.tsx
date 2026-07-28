@@ -11,6 +11,12 @@ export interface Installation {
 
 const SUGGESTIONS = ["vercel", "anthropics", "openai"];
 
+/** Which of the three entry points on this step produced the current `error`. Used to route the
+ *  error to the control that actually caused it — G6-10: focus/announcement used to always jump to
+ *  the handle input even when an installation or suggested-org button failed, disorienting keyboard
+ *  and screen-reader users mid-task on a control they never touched. */
+export type PickErrorSource = "installation" | "suggested" | "form";
+
 /** The first phase: seeded-org CTA + installed-org / suggested-org shortcuts + public-handle form. */
 export function PickStep({
   seededOrg,
@@ -20,6 +26,7 @@ export function PickStep({
   setOrg,
   loading,
   error,
+  errorSource,
   onLoadInstallation,
   onSubmit,
   onPickOrg,
@@ -31,9 +38,12 @@ export function PickStep({
   setOrg: (v: string) => void;
   loading: boolean;
   error: string | null;
+  /** Which control produced `error`; null before any attempt. Defaults every branch to "not mine"
+   *  when absent so an older caller (or a test) that never wires it renders no error anywhere. */
+  errorSource?: PickErrorSource | null;
   onLoadInstallation: (login: string, id: string) => void;
   onSubmit: (e: React.FormEvent) => void;
-  onPickOrg: (name: string) => void;
+  onPickOrg: (name: string, source: PickErrorSource) => void;
 }) {
   const hasShortcuts = installations.length > 0 || suggestedOrgs.length > 0;
   return (
@@ -49,18 +59,28 @@ export function PickStep({
       </h2>
       {seededOrg && <SeededOrgBanner org={seededOrg} />}
       {installations.length > 0 && (
-        <InstallationPicker installations={installations} onPick={onLoadInstallation} loading={loading} />
+        <InstallationPicker
+          installations={installations}
+          onPick={onLoadInstallation}
+          loading={loading}
+          error={errorSource === "installation" ? error : null}
+        />
       )}
       {suggestedOrgs.length > 0 && (
-        <SuggestedOrgs orgs={suggestedOrgs} onPick={onPickOrg} loading={loading} />
+        <SuggestedOrgs
+          orgs={suggestedOrgs}
+          onPick={(name) => onPickOrg(name, "suggested")}
+          loading={loading}
+          error={errorSource === "suggested" ? error : null}
+        />
       )}
       <PickForm
         org={org}
         setOrg={setOrg}
         loading={loading}
-        error={error}
+        error={errorSource === "form" ? error : null}
         onSubmit={onSubmit}
-        onPick={onPickOrg}
+        onPick={(name) => onPickOrg(name, "form")}
         dimmed={hasShortcuts}
       />
       {/* ONB-6: a zero-setup escape hatch — jump straight to a real, already-scanned org rollup
@@ -87,10 +107,14 @@ export function InstallationPicker({
   installations,
   onPick,
   loading,
+  error = null,
 }: {
   installations: Installation[];
   onPick: (login: string, id: string) => void;
   loading: boolean;
+  /** G6-10: an error from THIS control's own attempt, announced right here (role="alert" is
+   *  self-announcing) instead of yanking focus to the unrelated handle input below. */
+  error?: string | null;
 }) {
   return (
     <div className="rounded-2xl border border-accent/30 bg-accent/5 p-6">
@@ -113,6 +137,11 @@ export function InstallationPicker({
           </button>
         ))}
       </div>
+      {error && (
+        <p role="alert" className="mt-3 text-base text-danger-soft">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -153,10 +182,14 @@ export function SuggestedOrgs({
   orgs,
   onPick,
   loading,
+  error = null,
 }: {
   orgs: string[];
   onPick: (name: string) => void;
   loading: boolean;
+  /** G6-10: an error from THIS control's own attempt, announced right here instead of stealing
+   *  focus to the unrelated handle input below. */
+  error?: string | null;
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
@@ -182,6 +215,11 @@ export function SuggestedOrgs({
           </button>
         ))}
       </div>
+      {error && (
+        <p role="alert" className="mt-3 text-base text-danger-soft">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -206,6 +244,9 @@ export function PickForm({
   const inputRef = useRef<HTMLInputElement>(null);
   // Return focus to the org field when a submit error appears so keyboard/SR users land on the
   // control that produced it (the error is also wired via aria-invalid + aria-describedby below).
+  // G6-10: the caller (PickStep) now only forwards `error` here when it actually came from THIS
+  // form's own submit/try-chip — an installation or suggested-org failure renders inline on its own
+  // control instead, so this effect can no longer steal focus for an error the user never caused here.
   useEffect(() => {
     if (error) inputRef.current?.focus();
   }, [error]);

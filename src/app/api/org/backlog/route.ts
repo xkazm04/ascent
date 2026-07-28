@@ -1,4 +1,5 @@
-// GET /api/org/backlog?org=slug[&segment=segmentId][&techGroup=techGroupId] -> { backlog: OrgBacklog | null }
+// GET /api/org/backlog?org=slug[&segment=segmentId][&techGroup=techGroupId][&includeClosed=1]
+//   -> { backlog: OrgBacklog | null }
 // The org-wide recommendation backlog (owners + due dates), grouped by owner and by due-date
 // bucket. Read-only; lets the client panel refresh after a status/assignee/due-date change.
 // `segment`/`techGroup` mirror the page's ?segment=/?stack= scope (backlog-management 07-16 #2) so a
@@ -20,6 +21,10 @@ export async function GET(request: Request) {
   if (denied) return denied;
   const segment = searchParams.get("segment");
   const techGroup = searchParams.get("techGroup");
-  const backlog = await getOrgBacklog(org, segment, new Date(), techGroup);
+  // `includeClosed=1` is the recovery view (G6-02): done/dismissed rows are grouped too, so an item
+  // dismissed by a mis-click can be found and set back to Open. Read-only; the headline counts are
+  // unchanged by it.
+  const includeClosed = searchParams.get("includeClosed") === "1";
+  const backlog = await getOrgBacklog(org, segment, new Date(), techGroup, { includeClosed });
   return NextResponse.json({ backlog });
 }

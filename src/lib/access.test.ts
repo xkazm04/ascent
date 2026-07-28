@@ -6,11 +6,13 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockCreateSupabaseServerClient } = vi.hoisted(() => ({
+const { mockCreateSupabaseServerClient, mockHeaders } = vi.hoisted(() => ({
   mockCreateSupabaseServerClient: vi.fn(),
+  mockHeaders: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: mockCreateSupabaseServerClient }));
+vi.mock("next/headers", () => ({ headers: mockHeaders }));
 
 /** A Supabase server-client double whose getUser() returns the given user row. */
 function fakeSupabase(user: Record<string, unknown> | null) {
@@ -77,5 +79,77 @@ describe("getViewer — only a CONFIRMED Supabase email is surfaced", () => {
     const getViewer = await freshGetViewer();
 
     expect((await getViewer())?.email).toBeUndefined();
+  });
+});
+
+// G6-12: a lapsed session hitting a gated route must get a redirect on a top-level NAVIGATION and a
+// bare 401 JSON on a programmatic fetch/XHR call — never the other way around (a redirect handed to a
+// fetch caller would be silently `follow`ed and misread as a 200 success).
+describe("requireViewer — navigation vs. XHR discrimination (G6-12)", () => {
+  async function freshRequireViewer() {
+    vi.resetModules();
+    const mod = await import("./access");
+    return mod.requireViewer;
+  }
+
+  function mockRequestHeaders(entries: Record<string, string>) {
+    const map = new Map(Object.entries(entries).map(([k, v]) => [k.toLowerCase(), v]));
+    mockHeaders.mockResolvedValue({ get: (key: string) => map.get(key.toLowerCase()) ?? null });
+  }
+
+  beforeEach(() => {
+    // No viewer: every call in this describe block exercises the signed-out path.
+    mockCreateSupabaseServerClient.mockResolvedValue(fakeSupabase(null));
+  });
+
+  it("a top-level navigation (Sec-Fetch-Mode: navigate) gets a 303 redirect to /connect, not JSON", async () => {
+    mockRequestHeaders({ "sec-fetch-mode": "navigate", host: "app.example.com", "x-forwarded-proto": "https" });
+    const requireViewer = await freshRequireViewer();
+
+    const res = await requireViewer();
+
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(303);
+    expect(res!.headers.get("location")).toBe("https://app.example.com/connect");
+  });
+
+  it("a same-origin fetch (Sec-Fetch-Mode: cors) still gets the bare 401 JSON, never a redirect", async () => {
+    mockRequestHeaders({ "sec-fetch-mode": "cors", host: "app.example.com" });
+    const requireViewer = await freshRequireViewer();
+
+    const res = await requireViewer();
+
+    expect(res!.status).toBe(401);
+    const body = await res!.json();
+    expect(body).toEqual({ error: "Sign in to continue." });
+  });
+
+  it("an XHR with no Sec-Fetch-Mode but a JSON Accept header gets the 401 JSON, not a redirect", async () => {
+    mockRequestHeaders({ accept: "application/json", host: "app.example.com" });
+    const requireViewer = await freshRequireViewer();
+
+    expect((await requireViewer())!.status).toBe(401);
+  });
+
+  it("falls back to Accept: text/html when Sec-Fetch-Mode is absent (older browser navigation)", async () => {
+    mockRequestHeaders({ accept: "text/html,application/xhtml+xml", host: "app.example.com" });
+    const requireViewer = await freshRequireViewer();
+
+    const res = await requireViewer();
+    expect(res!.status).toBe(303);
+  });
+
+  it("never redirects to an attacker-controlled Host — falls back to JSON 401 when the forwarded host fails the hostname grammar", async () => {
+    mockRequestHeaders({
+      "sec-fetch-mode": "navigate",
+      host: "app.example.com",
+      "x-forwarded-host": "evil.example.com/\\@attacker.test",
+    });
+    const requireViewer = await freshRequireViewer();
+
+    const res = await requireViewer();
+    // The malformed forwarded host is rejected; falls back to the trusted `host` header.
+    expect(res!.status).toBe(303);
+    expect(res!.headers.get("location")).toBe("https://app.example.com/connect");
   });
 });

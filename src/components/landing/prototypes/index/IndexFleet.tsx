@@ -23,7 +23,7 @@ export function IndexFleet() {
     // No inner container: IndexVariant already wraps the mid-deck sections in the editorial
     // `mx-auto max-w-6xl px-5` shell (same as IndexOrg / IndexLevels).
     <DeckSection id="fleet">
-      <div className="grid items-center gap-10 border-y border-slate-800 py-8 lg:grid-cols-[1fr_minmax(0,26rem)]">
+      <div className="grid items-center gap-10 border-y border-divider py-8 lg:grid-cols-[1fr_minmax(0,26rem)]">
         <div className="max-w-2xl">
           <Kicker>Mission control</Kicker>
           <h2 className="mt-2 text-2xl font-bold text-white">Your whole fleet, read at a glance</h2>
@@ -33,7 +33,7 @@ export function IndexFleet() {
             frame — where the light is, and where it is not.
           </p>
 
-          <dl className="mt-6 grid gap-px overflow-hidden rounded-xl bg-slate-800 sm:grid-cols-3">
+          <dl className="mt-6 grid gap-px overflow-hidden rounded-xl bg-divider sm:grid-cols-3">
             {FLEET_NOTES.map((n) => (
               <div key={n.term} className="bg-ink p-4">
                 <dt className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">{n.term}</dt>
@@ -58,7 +58,7 @@ export function IndexFleet() {
         {/* The vignette. `launch-sky` is the same deep-field wash Mission Control uses; the
             constellation inside carries no data at all (see PublicConstellation). It is NOT
             aria-hidden — the SVG names itself — only the gradient frame is decorative. */}
-        <div className="launch-sky relative mx-auto w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <div className="launch-sky relative mx-auto w-full max-w-sm rounded-2xl border border-divider bg-surface-strong/40 p-4">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 rounded-2xl"

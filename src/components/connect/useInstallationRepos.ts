@@ -297,7 +297,12 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
     if (targets.length === 0 || bulkBusy) return;
     setBulkBusy(true);
     setBulkMsg(null);
-    targets.forEach((r) => patch(r.fullName, { watched: true }));
+    // Clear any stale per-row error from a prior failed attempt before this one lands — otherwise a
+    // row that succeeds THIS time would still show last time's "not saved" message.
+    targets.forEach((r) => {
+      patch(r.fullName, { watched: true });
+      setRowError(r.fullName, null);
+    });
     try {
       const res = await fetch("/api/org/watch", {
         method: "POST",
@@ -315,11 +320,21 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
         responseOk: res.ok,
         error: d.error,
       });
-      revertFullNames.forEach((fn) => patch(fn, { watched: false }));
+      // G6-14: the aggregate `bulkMsg` ("8 watched · 2 failed") told the user SOMETHING failed but
+      // never which repos, unlike the per-row toggle path (toggleWatch), which calls setRowError on
+      // every failure branch. Mirror that here so each reverted row carries its own visible reason —
+      // the row's optimistic watch is gone AND the row explains why, instead of silently reverting.
+      revertFullNames.forEach((fn) => {
+        patch(fn, { watched: false });
+        setRowError(fn, "Couldn't watch — not saved. Try again.");
+      });
       setBulkMsg(message);
       if (!res.ok) return;
     } catch {
-      targets.forEach((r) => patch(r.fullName, { watched: false }));
+      targets.forEach((r) => {
+        patch(r.fullName, { watched: false });
+        setRowError(r.fullName, "Network error — change not saved. Try again.");
+      });
       setBulkMsg({ kind: "error", text: "Network error — bulk watch not saved." });
     } finally {
       setBulkBusy(false);

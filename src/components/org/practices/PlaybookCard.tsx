@@ -9,6 +9,7 @@ import { useState } from "react";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
+import { PlaybookApplyControls } from "@/components/org/practices/PlaybookCard.actions";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 export function PlaybookCard({
@@ -72,7 +73,6 @@ export function PlaybookCard({
     }
   }
   const lift = adoption?.lift ?? null;
-  const available = repoOptions.filter((r) => !applied.includes(r));
 
   async function apply() {
     const repo = pick;
@@ -241,29 +241,15 @@ export function PlaybookCard({
         </div>
       )}
 
-      {available.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {/* aria-label: without it a screen reader announces this select only by its current option
-              ("Pick a repo…") — every field in the sibling NewPracticeModal is labeled (playbooks #4). */}
-          <select
-            value={pick}
-            onChange={(e) => setPick(e.target.value)}
-            aria-label="Repo to apply this playbook to"
-            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
-          >
-            <option value="">Pick a repo…</option>
-            {available.map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
-          <button onClick={apply} disabled={!pick} className="focus-ring shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Just record that this repo adopted the playbook">
-            Mark applied
-          </button>
-          <button onClick={() => setConfirmingPr(true)} disabled={!pick || prBusy} className="focus-ring shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50" title="Open a draft PR seeding this playbook into the repo">
-            {prBusy ? "Opening PR…" : "Open draft PR →"}
-          </button>
-        </div>
-      )}
+      <PlaybookApplyControls
+        repoOptions={repoOptions}
+        applied={applied}
+        pick={pick}
+        onPick={setPick}
+        onApply={apply}
+        onOpenPr={() => setConfirmingPr(true)}
+        prBusy={prBusy}
+      />
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect
           runs. `pick` can't change while the overlay is up, so openPr() reads the confirmed repo. */}

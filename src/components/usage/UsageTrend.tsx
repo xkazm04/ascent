@@ -10,7 +10,7 @@
 import type { UsageDay } from "@/lib/db";
 
 const BILLABLE = "var(--color-accent)"; // billable (private) — brand accent token
-const FREE = "#94a3b8"; // free (public) — one slate for legend swatch, bars, and summary text
+const FREE = "var(--color-tone-flat)"; // free (public) — slate-400, the token already defined in globals.css (matches the prior #94a3b8 literal exactly), reused for legend swatch, bars, and summary text
 
 /**
  * Above this many days, render WEEKLY aggregates instead of per-day bars. The data layer

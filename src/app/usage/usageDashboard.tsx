@@ -149,7 +149,7 @@ export function UsageDashboard({
               <p className="text-slate-500">No scans in this period.</p>
             ) : (
               <>
-                <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#94a3b8" pattern />
+                <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="var(--color-tone-flat)" pattern />
                 <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
               </>
             )}

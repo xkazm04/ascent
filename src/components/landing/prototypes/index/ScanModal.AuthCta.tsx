@@ -32,7 +32,7 @@ export function AuthCta({ auth, consent }: { auth: AuthMode; consent: boolean })
       <button
         type="button"
         disabled
-        className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-800 px-5 py-2.5 text-base font-semibold text-slate-500"
+        className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-divider px-5 py-2.5 text-base font-semibold text-slate-500"
       >
         <GitHubMark size={18} /> Continue with GitHub
       </button>

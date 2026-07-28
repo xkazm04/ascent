@@ -67,6 +67,10 @@ export function OnboardingChecklist({ steps }: { steps: ChecklistStep[] }) {
               </span>
               <div className="min-w-0 flex-1">
                 <span className={`text-base ${step.done ? "text-slate-400 line-through decoration-slate-700" : "text-white"}`}>
+                  {/* G6-11: the ✓/number circle above is aria-hidden, so a screen-reader user heard
+                      only the bare label with no completion state at all. This sr-only prefix carries
+                      the same information the glyph conveys visually. */}
+                  <span className="sr-only">{step.done ? "Completed: " : "To do: "}</span>
                   {step.label}
                 </span>
                 {step.hint && !step.done && <p className="text-sm text-slate-500">{step.hint}</p>}
@@ -80,7 +84,10 @@ export function OnboardingChecklist({ steps }: { steps: ChecklistStep[] }) {
             </div>
           );
           return (
-            <li key={step.label}>
+            // G6-11: aria-current="step" on the suggested-next item gives screen-reader users the
+            // same "you are here / do this next" signal the accent border + "next" pill give sighted
+            // users, which previously had no non-visual equivalent at all.
+            <li key={step.label} aria-current={isNext && !step.done ? "step" : undefined}>
               {step.href && !step.done ? (
                 <Link href={step.href} className="focus-ring block rounded-lg">
                   {inner}

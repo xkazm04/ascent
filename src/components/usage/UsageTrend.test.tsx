@@ -23,7 +23,7 @@ function flatten(node: ReactNode, out: El[] = []): El[] {
 }
 
 const BILLABLE = "var(--color-accent)";
-const FREE = "#94a3b8";
+const FREE = "var(--color-tone-flat)"; // matches UsageTrend's FREE constant (G6-04: token, not the literal #94a3b8)
 
 /** Bar-segment divs of a given fill colour — the ones with an inline height (excludes the fixed-size
  *  legend swatch, which shares the fill but carries no height). */

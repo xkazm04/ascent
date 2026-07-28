@@ -46,6 +46,7 @@ export function OnboardingFlow({
     selected,
     rows,
     error,
+    errorSource,
     loading,
     announce,
     credit,
@@ -58,6 +59,7 @@ export function OnboardingFlow({
     gate,
     setGate,
     flowRef,
+    stepNumber,
     stepAnnounce,
     loadRepos,
     loadInstallationRepos,
@@ -96,7 +98,7 @@ export function OnboardingFlow({
   // behind it and "Back to repositories" restores it untouched.
   if (gate) {
     return (
-      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
+      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce} step={stepNumber}>
         <GateStep
           gate={gate}
           auth={auth}
@@ -111,7 +113,7 @@ export function OnboardingFlow({
   // ---- pick phase: choose an installed org (private repos) or enter a handle ----------
   if (phase === "pick") {
     return (
-      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
+      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce} step={stepNumber}>
         <PickStep
           seededOrg={seededOrg}
           installations={installations}
@@ -120,9 +122,10 @@ export function OnboardingFlow({
           setOrg={setOrg}
           loading={loading}
           error={error}
+          errorSource={errorSource}
           onLoadInstallation={loadInstallationRepos}
           onSubmit={loadRepos}
-          onPickOrg={(name) => loadRepos(undefined, name)}
+          onPickOrg={(name, source) => loadRepos(undefined, name, source)}
         />
       </Shell>
     );
@@ -131,7 +134,7 @@ export function OnboardingFlow({
   // ---- select phase: choose up to MAX_SELECT repos -------------------------
   if (phase === "select") {
     return (
-      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
+      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce} step={stepNumber}>
         <SelectStep
           repos={repos}
           selected={selected}
@@ -153,7 +156,7 @@ export function OnboardingFlow({
 
   // ---- scanning + done phases ---------------------------------------------
   return (
-    <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
+    <Shell flowRef={flowRef} stepAnnounce={stepAnnounce} step={stepNumber}>
       <ScanStep
         phase={phase}
         rows={rows}

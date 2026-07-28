@@ -7,6 +7,8 @@ import { OwnerHeader, SummaryStrip } from "@/components/org/backlog/BacklogSumma
 import { BacklogItemRow, type BacklogRowState } from "@/components/org/backlog/BacklogItemRow";
 import { useSavingIds } from "@/components/org/shared/recStatusUi";
 import type { PatchOutcome } from "@/components/org/shared/backlogShared";
+import { BacklogUndoBar, BacklogViewControls, type BacklogUndo } from "@/components/org/backlog/BacklogPanel.controls";
+import type { RecStatus } from "@/lib/types";
 // Impact-word tiebreak ranking for the "Projected points" cross-repo sort (canonical map).
 import { IMPACT_RANK } from "@/lib/scoring/impact";
 
@@ -31,6 +33,14 @@ export function BacklogPanel({
 }) {
   const [backlog, setBacklog] = useState<OrgBacklog>(initial);
   const [view, setView] = useState<"owner" | "due" | "points">("owner");
+  // G6-02 (reversibility). Two affordances, no confirm dialog:
+  //  1. `undo` — the last completed change to a terminal status, offered back for one click. The row is
+  //     already gone from the list by then, so the affordance has to live HERE, in the panel.
+  //  2. `showClosed` — re-reads the backlog with done/dismissed rows included, so an item dismissed
+  //     long ago (past the undo bar) is still findable and can be set back to Open.
+  const [showClosed, setShowClosed] = useState(false);
+  const [undo, setUndo] = useState<BacklogUndo | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
   const { savingIds, errors, setSaving, setError, clearError } = useSavingIds<string>();
   // Volatile per-row state (PR result, expanded history, promote flag) lifted out of BacklogItemRow and
   // keyed by item id, so it SURVIVES the remount that happens when an edit re-groups a row into a
@@ -70,6 +80,7 @@ export function BacklogPanel({
     const qs = new URLSearchParams({ org: slug });
     if (segmentId) qs.set("segment", segmentId);
     if (techGroupId) qs.set("techGroup", techGroupId);
+    if (showClosed) qs.set("includeClosed", "1");
     const res = await fetch(`/api/org/backlog?${qs}`);
     if (!res.ok) return false;
     const data = (await res.json()) as { backlog: OrgBacklog | null };
@@ -79,12 +90,28 @@ export function BacklogPanel({
     if (!data.backlog) return false;
     setBacklog(data.backlog);
     return true;
-  }, [slug, segmentId, techGroupId]);
+  }, [slug, segmentId, techGroupId, showClosed]);
+
+  // Re-read when the closed-items toggle flips (the scope of the query changed, not just the view).
+  // Skipped on mount so the server-rendered `initial` snapshot isn't immediately refetched.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    void refresh();
+  }, [showClosed, refresh]);
 
   const patch = useCallback(
     async (id: string, body: Record<string, unknown>): Promise<PatchOutcome> => {
       setSaving(id, true);
       clearError(id);
+      // Capture the pre-change status/title from the CURRENT snapshot so a terminal change can be
+      // offered back exactly (see `undo` above). Read before the write; the refresh replaces `backlog`.
+      const before = backlog.byOwner.flatMap((g) => g.items).find((i) => i.id === id);
+      const next = body.status;
+      const terminal = next === "done" || next === "dismissed";
       try {
         const res = await fetch(`/api/recommendations/${id}`, {
           method: "PATCH",
@@ -99,6 +126,11 @@ export function BacklogPanel({
           const refreshed = res.status === 409 ? await refresh() : false;
           return { patched: false, refreshed };
         }
+        // Only a SUCCEEDED terminal change gets an undo offer — offering to undo a rejected patch
+        // would misreport what the server holds.
+        if (terminal && before) {
+          setUndo({ id, title: before.title, from: before.status as RecStatus, to: next as RecStatus });
+        }
         const refreshed = await refresh();
         return { patched: true, refreshed };
       } catch {
@@ -108,8 +140,20 @@ export function BacklogPanel({
         setSaving(id, false);
       }
     },
-    [refresh, setSaving, setError, clearError],
+    [refresh, setSaving, setError, clearError, backlog],
   );
+
+  // Put the item back where it was. Restoring `from` (not a hardcoded "open") means undoing a
+  // Done on an in-progress item returns it to In progress, and the timeline records the reversal as a
+  // normal status event — the audit trail stays truthful about both changes.
+  const runUndo = useCallback(async () => {
+    if (!undo || undoBusy) return;
+    setUndoBusy(true);
+    const outcome = await patch(undo.id, { status: undo.from });
+    setUndoBusy(false);
+    // Keep the bar up on failure: the row is still closed, so this is still the only way back.
+    if (outcome.patched) setUndo(null);
+  }, [undo, undoBusy, patch]);
 
   const groups: { key: string; header: React.ReactNode; items: BacklogItem[] }[] =
     view === "owner"
@@ -155,27 +199,32 @@ export function BacklogPanel({
     <div className="space-y-5">
       <SummaryStrip b={backlog} />
 
-      <div role="group" aria-label="Group backlog by" className="flex items-center gap-1 text-sm">
-        <span className="mr-1 font-mono text-sm uppercase tracking-widest text-slate-500">Group by</span>
-        {(["owner", "due", "points"] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            aria-pressed={view === v}
-            className={`rounded-lg border px-3 py-1.5 font-medium transition ${
-              view === v ? "border-accent/50 bg-accent/10 text-white" : "border-slate-700 text-slate-400 hover:text-white"
-            }`}
-          >
-            {v === "owner" ? "Owner" : v === "due" ? "Due date" : "Projected points"}
-          </button>
-        ))}
-      </div>
+      <BacklogViewControls
+        view={view}
+        onView={setView}
+        showClosed={showClosed}
+        onToggleClosed={() => setShowClosed((v) => !v)}
+        closedCount={backlog.done + backlog.dismissed}
+      />
+
+      {undo && (
+        <BacklogUndoBar undo={undo} busy={undoBusy} onUndo={() => void runUndo()} onDismiss={() => setUndo(null)} />
+      )}
 
       {groups.length === 0 ? (
         <Card>
           <p className="text-base text-slate-500">
-            Nothing active in the backlog — every recommendation is done or dismissed. 🎉
+            {showClosed
+              ? "No recommendations at all — nothing has been tracked for this scope yet."
+              : "Nothing active in the backlog — every recommendation is done or dismissed. 🎉"}
           </p>
+          {/* Never a terminal dead end: name the route to the closed items even from the empty state. */}
+          {!showClosed && backlog.done + backlog.dismissed > 0 && (
+            <p className="mt-1 text-sm text-slate-500">
+              Use “Show done &amp; dismissed” above to review or restore the{" "}
+              {backlog.done + backlog.dismissed} closed item{backlog.done + backlog.dismissed === 1 ? "" : "s"}.
+            </p>
+          )}
         </Card>
       ) : (
         <div className="space-y-4">

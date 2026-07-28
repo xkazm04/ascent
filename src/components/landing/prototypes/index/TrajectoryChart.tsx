@@ -32,7 +32,7 @@ const DATA: Pt[] = LEVELS.map((l) => ({
 
 function Waypoint({ cx, cy, payload }: { cx?: number; cy?: number; payload?: Pt }) {
   if (cx == null || cy == null || !payload) return null;
-  const color = LEVEL_HEX[payload.level as LevelId] ?? "#3b9eff";
+  const color = LEVEL_HEX[payload.level as LevelId] ?? "var(--color-accent)";
   return (
     <g>
       <rect x={cx - 5} y={cy - 5} width={10} height={10} fill="#0b1322" stroke={color} strokeWidth={1.5} transform={`rotate(45 ${cx} ${cy})`} />
@@ -91,7 +91,7 @@ export function TrajectoryChart() {
             </linearGradient>
           </defs>
           <CartesianGrid stroke="#16233b" strokeDasharray="2 4" />
-          <XAxis dataKey="level" tick={<AxisTick />} tickLine={false} axisLine={{ stroke: "#1e293b" }} interval={0} height={44} />
+          <XAxis dataKey="level" tick={<AxisTick />} tickLine={false} axisLine={{ stroke: "var(--color-divider)" }} interval={0} height={44} />
           <YAxis
             domain={[0, 100]}
             ticks={[0, 25, 50, 75, 100]}
@@ -102,12 +102,12 @@ export function TrajectoryChart() {
           />
           <ReferenceLine
             y={POSTURE_THRESHOLD}
-            stroke="#3b9eff"
+            stroke="var(--color-accent)"
             strokeDasharray="5 4"
             strokeOpacity={0.6}
-            label={{ value: "AI-NATIVE", position: "right", fill: "#7bbcff", fontSize: 10, fontFamily: "var(--font-mono)" }}
+            label={{ value: "AI-NATIVE", position: "right", fill: "var(--color-accent-soft)", fontSize: 10, fontFamily: "var(--font-mono)" }}
           />
-          <Tooltip content={<ChartTip />} cursor={{ stroke: "#3b9eff", strokeDasharray: "3 3" }} />
+          <Tooltip content={<ChartTip />} cursor={{ stroke: "var(--color-accent)", strokeDasharray: "3 3" }} />
           <Line
             type="linear"
             dataKey="altitude"

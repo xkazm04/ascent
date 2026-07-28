@@ -10,6 +10,7 @@ import { runRepoRetry } from "@/components/onboarding/retryRepo";
 import { byProminence } from "@/components/onboarding/byProminence";
 import { getAutoWatchOptIn, resetAutoWatchOptIn } from "@/components/onboarding/OnboardingSelectStep.watchOptIn";
 import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
+import type { PickErrorSource } from "@/components/onboarding/OnboardingPickStep";
 import {
   MAX_LIST,
   MAX_SELECT,
@@ -42,6 +43,11 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rows, setRows] = useState<Record<string, ScanRow>>({});
   const [error, setError] = useState<string | null>(null);
+  // G6-10: which of the pick step's three entry points (installation button, suggested-org button,
+  // handle text form) produced `error`, so the UI can route the error/focus to that control instead
+  // of always yanking focus to the unrelated handle input. Set at the start of each loader (so it's
+  // always in sync with whichever attempt is in flight/just failed); read alongside `error` by PickStep.
+  const [errorSource, setErrorSource] = useState<PickErrorSource>("form");
   const [loading, setLoading] = useState(false);
   const [announce, setAnnounce] = useState("");
   // Prepaid balance for the picked installation org — feeds the select step's cost disclosure
@@ -123,6 +129,11 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // render (initial autofocus belongs to the pick form's input).
   const flowRef = useRef<HTMLDivElement>(null);
   const [stepAnnounce, setStepAnnounce] = useState("");
+  // G6-11: the numeric step behind both the sr-only announcement above AND the visible stepper the
+  // Shell now renders — one source of truth so the two can never drift. A gate always surfaces while
+  // `phase` is still "select" (see startScan/the personal-org check below), so no separate branch
+  // is needed for it.
+  const stepNumber: 1 | 2 | 3 = phase === "pick" ? 1 : phase === "select" ? 2 : 3;
   const firstPhaseRender = useRef(true);
   useEffect(() => {
     if (firstPhaseRender.current) {
@@ -135,8 +146,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
       scanning: "Scanning repositories",
       done: "Scan complete",
     };
-    const step = phase === "pick" ? 1 : phase === "select" ? 2 : 3;
-    setStepAnnounce(`Step ${step} of 3: ${titles[phase]}`);
+    setStepAnnounce(`Step ${stepNumber} of 3: ${titles[phase]}`);
     // Focus the new step's heading so keyboard/SR users land on the step that just rendered.
     const heading = flowRef.current?.querySelector<HTMLElement>("[data-step-heading]");
     heading?.focus();
@@ -209,13 +219,14 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     if (snap.selected.length) setSelected(new Set(snap.selected));
   }
 
-  async function loadRepos(e?: React.FormEvent, preset?: string) {
+  async function loadRepos(e?: React.FormEvent, preset?: string, source: PickErrorSource = "form") {
     e?.preventDefault();
     const handle = (preset ?? org).trim().replace(/^@/, "");
     if (!handle) return;
     if (preset) setOrg(preset);
     setLoading(true);
     setError(null);
+    setErrorSource(source);
     setGate(null); // a fresh source starts clean — the previous source's access gate no longer applies
     setRepos([]);
     setSourceInstallId(null); // public-handle path — no installation token
@@ -249,6 +260,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setOrg(login);
     setLoading(true);
     setError(null);
+    setErrorSource("installation");
     setGate(null); // a fresh source starts clean — the previous source's access gate no longer applies
     setRepos([]);
     setSourceInstallId(id);
@@ -489,6 +501,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setRows,
     error,
     setError,
+    errorSource,
     loading,
     announce,
     credit,
@@ -501,6 +514,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     gate,
     setGate,
     flowRef,
+    stepNumber,
     // The gate's title wins while a gate is up — it IS the step the user is looking at.
     stepAnnounce: gate ? gateAnnouncement(gate) : stepAnnounce,
     loadRepos,
