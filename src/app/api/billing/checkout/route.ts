@@ -13,7 +13,7 @@
 // is refused, and the request must be same-origin (mirroring /api/org/plan). It also returns a UNIFORM
 // unknown-org error. Without these, a browser/link prefetcher, crawler, or chat-unfurl bot following the
 // link would mint a real Polar session per probe, and the differentiated unknown-org 404 vs existing-org
-// 303 would leak which org slugs exist. See docs/BILLING.md.
+// 303 would leak which org slugs exist. See docs/features/billing/billing.md.
 
 import { NextResponse } from "next/server";
 import { creditsForProduct, getPolar, planForProduct, polarEnabled } from "@/lib/polar";

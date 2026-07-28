@@ -3,7 +3,7 @@
 // token is used only server-side during the callback and never persisted to the client.
 //
 // OAuth credentials are the GitHub App's own Client ID / secret, so a user's token can
-// list *their* installations of the App (GET /user/installations) — see docs/GITHUB_APP.md.
+// list *their* installations of the App (GET /user/installations) — see docs/features/github/setup.md.
 // Server-only module (uses next/headers); never import from a client component.
 
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";

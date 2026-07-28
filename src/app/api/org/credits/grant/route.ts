@@ -3,7 +3,7 @@
 // Owner-only manual credit grant/adjustment. Disabled unless ASCENT_ALLOW_CREDIT_GRANTS is set: in
 // production, credits are added by the Polar top-up webhook (src/app/api/billing/webhook) calling
 // grantCredits() server-side, NOT by a self-serve endpoint (that would let an owner mint free scans).
-// This is the dev / demo / manual-reconciliation path. See docs/BILLING.md.
+// This is the dev / demo / manual-reconciliation path. See docs/features/billing/billing.md.
 //
 // PARTIAL APPLICATION: negative amounts (reason "adjustment") are CLAMPED to the available balance
 // by grantCredits — a -500 against a balance of 30 removes 30, and a debit against 0 removes nothing.

@@ -1,15 +1,15 @@
 // The versioned CONTRACT the standard claims conformance to, shipped WITH the foundation as
 // `.ai/SPEC.md`.
 //
-// It used to live only at `docs/AI_MANIFEST_SPEC.md` inside Ascent's own repo — so every generated
+// It used to live only at `docs/features/onboarding/ai-manifest-spec.md` inside Ascent's own repo — so every generated
 // manifest, memory seed and doctor header pointed an adopting repo at a path that does not exist
 // there. The spec now travels with the artifacts that reference it: simpler than hosting it (no
 // route, no network) and it still resolves in an air-gapped clone.
 //
-// SOURCE OF TRUTH: `docs/AI_MANIFEST_SPEC.md`. This constant is a VERBATIM mirror and
+// SOURCE OF TRUTH: `docs/features/onboarding/ai-manifest-spec.md`. This constant is a VERBATIM mirror and
 // standard.test.ts fails if the two drift — edit the doc, then re-mirror; never edit only one side.
 // Re-mirror (from the repo root) by replacing the SPEC_MD array with:
-//   node -e "console.log(require('fs').readFileSync('docs/AI_MANIFEST_SPEC.md','utf8').split(/\r?\n/).slice(0,-1).map(l=>'  '+JSON.stringify(l)+',').join('\n'))"
+//   node -e "console.log(require('fs').readFileSync('docs/features/onboarding/ai-manifest-spec.md','utf8').split(/\r?\n/).slice(0,-1).map(l=>'  '+JSON.stringify(l)+',').join('\n'))"
 // (A constant, not a runtime fs read: the route must work from a bundled/standalone build.)
 
 import type { GeneratedFile } from "./types";
@@ -17,7 +17,7 @@ import type { GeneratedFile } from "./types";
 /** Where the spec lives inside an adopting repo (what the manifest's `spec` field points at). */
 export const SPEC_PATH = ".ai/SPEC.md";
 
-/** Verbatim mirror of docs/AI_MANIFEST_SPEC.md (pinned by a drift test). */
+/** Verbatim mirror of docs/features/onboarding/ai-manifest-spec.md (pinned by a drift test). */
 export const SPEC_MD: string = [
   "# The AI-Native Repo Standard — `.ai/` (spec v0.1.0)",
   "",

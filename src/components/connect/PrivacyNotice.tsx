@@ -12,7 +12,7 @@ function effectiveProvider(): ProviderName {
 }
 
 // Where a private scan's sampled file contents actually go, per provider — accurate, no overclaiming.
-// Only Bedrock carries the documented no-training / in-boundary guarantee (see docs/features/llm-providers.md).
+// Only Bedrock carries the documented no-training / in-boundary guarantee (see docs/features/scanning/llm-providers.md).
 const WHERE: Record<ProviderName, string> = {
   bedrock:
     "Claude on AWS Bedrock — your code stays within the AWS boundary and is never used for model training.",

@@ -78,7 +78,7 @@ export default async function ConnectPage({
             <p className="mt-2 text-base text-slate-400">
               Set <code className="font-mono text-slate-300">GITHUB_APP_ID</code> and{" "}
               <code className="font-mono text-slate-300">GITHUB_APP_PRIVATE_KEY</code> (see{" "}
-              <span className="font-mono text-slate-300">docs/GITHUB_APP.md</span>) to enable
+              <span className="font-mono text-slate-300">docs/features/github/setup.md</span>) to enable
               private-repo scanning. Public scans work without it.
             </p>
             <Link href="/" className="mt-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 hover:border-accent hover:text-white">

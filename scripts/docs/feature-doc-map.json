@@ -1,0 +1,302 @@
+{
+  "_comment": "Source -> doc map used by scripts/docs/check-doc-sync.mjs (Stop hook). One target type per entry: `doc` (the feature doc; exit-2 nag when source matched but no docs/features/* file was edited in the same turn). `area` is the docs/features/<area>/ folder, which mirrors a context-map.json group. Skip patterns (tests, generated code, docs themselves, migrations) are handled inside the script. When you add a feature area, add an entry here in the same change.",
+  "entries": [
+    {
+      "area": "scanning",
+      "doc": "docs/features/scanning/scan.md",
+      "sourceGlobs": [
+        "src/lib/scan.ts",
+        "src/lib/scan-cache.ts",
+        "src/lib/scan-finalize.ts",
+        "src/lib/scan-credit.ts",
+        "src/lib/analyze/**",
+        "src/app/api/scan/**",
+        "src/components/ScanForm.tsx",
+        "src/components/scan/**"
+      ]
+    },
+    {
+      "area": "scanning",
+      "doc": "docs/features/scanning/maturity-model.md",
+      "sourceGlobs": [
+        "src/lib/maturity/**",
+        "src/lib/scoring/engine.ts",
+        "src/lib/scoring/impact.ts"
+      ]
+    },
+    {
+      "area": "scanning",
+      "doc": "docs/features/scanning/gate.md",
+      "sourceGlobs": [
+        "src/lib/scoring/gate.ts",
+        "src/lib/scoring/gate-comment.ts",
+        "src/app/api/gate/**",
+        "src/app/api/org/gate-policy/**",
+        "src/lib/github/checks.ts",
+        "src/lib/github/pr-gate.ts",
+        "src/lib/db/org-gate.ts",
+        "src/components/org/governance/GatePolicyEditor.tsx"
+      ]
+    },
+    {
+      "area": "scanning",
+      "doc": "docs/features/scanning/llm-providers.md",
+      "sourceGlobs": [
+        "src/lib/llm/**",
+        "src/components/org/settings/LlmProviderSettings.tsx",
+        "src/components/org/settings/OpenRouterByomSettings.tsx",
+        "src/components/org/settings/ModelScorecard.tsx",
+        "src/lib/db/org-llm.ts"
+      ]
+    },
+    {
+      "area": "github",
+      "doc": "docs/features/github/auth.md",
+      "sourceGlobs": [
+        "src/lib/auth.ts",
+        "src/lib/access.ts",
+        "src/lib/authz.ts",
+        "src/lib/signin-gate.ts",
+        "src/lib/supabase/**",
+        "src/proxy.ts",
+        "src/app/auth/**",
+        "src/app/api/auth/**",
+        "src/components/SupabaseAuthButtons.tsx",
+        "src/components/GitHubSignInButton.tsx"
+      ]
+    },
+    {
+      "area": "github",
+      "doc": "docs/features/github/github-app.md",
+      "sourceGlobs": [
+        "src/lib/github/**",
+        "src/lib/viewer-installations.ts",
+        "src/app/api/app/**",
+        "src/app/connect/**",
+        "src/components/connect/**",
+        "src/lib/db/installations.ts"
+      ]
+    },
+    {
+      "area": "onboarding",
+      "doc": "docs/features/onboarding/wizard.md",
+      "sourceGlobs": [
+        "src/components/onboarding/**",
+        "src/app/onboarding/**",
+        "src/lib/onboarding/**",
+        "src/app/launch/**",
+        "src/components/launch/**"
+      ]
+    },
+    {
+      "area": "onboarding",
+      "doc": "docs/features/onboarding/ai-manifest-spec.md",
+      "sourceGlobs": [
+        "src/lib/standard/**",
+        "src/app/api/report/skill/**",
+        "src/app/api/report/foundation/**"
+      ]
+    },
+    {
+      "area": "fleet",
+      "doc": "docs/features/fleet/alerts.md",
+      "sourceGlobs": [
+        "src/lib/alerts.ts",
+        "src/lib/scan-alerts.ts",
+        "src/lib/db/org-alerts.ts",
+        "src/app/api/org/alerts/**",
+        "src/app/api/cron/digest/**"
+      ]
+    },
+    {
+      "area": "fleet",
+      "doc": "docs/features/fleet/rescan.md",
+      "sourceGlobs": [
+        "src/app/api/cron/rescan/**",
+        "src/lib/cron-auth.ts",
+        "src/lib/pool.ts",
+        "src/lib/scan-credit.ts",
+        "src/lib/db/org-watch.ts",
+        "src/app/api/org/import/**",
+        "src/app/api/org/repos/**",
+        "src/app/api/org/scan/**"
+      ]
+    },
+    {
+      "area": "data",
+      "doc": "docs/features/data/retention.md",
+      "sourceGlobs": [
+        "src/app/api/cron/purge/**",
+        "src/lib/db/retention.ts"
+      ]
+    },
+    {
+      "area": "org-dashboard",
+      "doc": "docs/features/org-dashboard/practices.md",
+      "sourceGlobs": [
+        "src/lib/practices/**",
+        "src/lib/practices.ts",
+        "src/lib/practice-artifact.ts",
+        "src/app/api/practices/**",
+        "src/components/org/practices/**",
+        "src/lib/org/governance.ts",
+        "src/lib/org/adoption.ts"
+      ]
+    },
+    {
+      "area": "org-dashboard",
+      "doc": "docs/features/org-dashboard/org-intelligence.md",
+      "sourceGlobs": [
+        "src/app/org/**",
+        "src/components/org/overview/**",
+        "src/components/org/repositories/**",
+        "src/components/org/shared/**",
+        "src/components/org/security/**",
+        "src/components/org/integrations/**",
+        "src/components/org/delivery/**",
+        "src/components/org/tech-stacks/**",
+        "src/lib/org/**",
+        "src/lib/db/org-rollup.ts",
+        "src/lib/db/org-insights.ts",
+        "src/lib/db/segments.ts",
+        "src/lib/db/branding.ts",
+        "src/lib/integrations/**"
+      ]
+    },
+    {
+      "area": "org-planning",
+      "doc": "docs/features/org-planning/plan.md",
+      "sourceGlobs": [
+        "src/lib/scoring/orgsim.ts",
+        "src/lib/maturity/forecast.ts",
+        "src/lib/db/plan.ts",
+        "src/lib/db/playbooks.ts",
+        "src/lib/org/briefing.ts",
+        "src/lib/org/playbook-brief.ts",
+        "src/lib/pdf/**",
+        "src/lib/live-share.ts",
+        "src/lib/briefing-share.ts",
+        "src/components/org/plan/**",
+        "src/components/org/backlog/**",
+        "src/components/org/live/**",
+        "src/components/org/executive/**",
+        "src/app/api/org/goals/**",
+        "src/app/api/org/initiatives/**",
+        "src/app/api/org/backlog/**",
+        "src/app/api/org/simulate/**",
+        "src/app/api/org/playbooks/**",
+        "src/app/api/org/briefing/**",
+        "src/app/api/org/ops/**",
+        "src/app/api/org/live-share/**"
+      ]
+    },
+    {
+      "area": "org-knowledge",
+      "doc": "docs/features/org-knowledge/memory.md",
+      "sourceGlobs": [
+        "src/lib/memory/**",
+        "src/lib/db/org-memory.ts",
+        "src/lib/db/org-memory-lifecycle.ts",
+        "src/components/org/Memory*.tsx",
+        "src/components/org/memoryCheck.ts",
+        "src/app/api/org/memory/**"
+      ]
+    },
+    {
+      "area": "org-knowledge",
+      "doc": "docs/features/org-knowledge/skills.md",
+      "sourceGlobs": [
+        "src/lib/db/org-skills.ts",
+        "src/lib/db/org-api-tokens.ts",
+        "src/lib/org/skill-*.ts",
+        "src/lib/api-token-auth.ts",
+        "src/components/org/skills/**",
+        "src/app/api/org/skills/**",
+        "src/app/api/org/tokens/**"
+      ]
+    },
+    {
+      "area": "reporting",
+      "doc": "docs/features/reporting/report.md",
+      "sourceGlobs": [
+        "src/app/report/**",
+        "src/components/report/**",
+        "src/lib/report/**",
+        "src/lib/analyze/passport*.ts",
+        "src/components/org/passports/**",
+        "src/app/trends/**",
+        "src/app/portfolio/**",
+        "src/app/leaderboard/**",
+        "src/components/leaderboard/**",
+        "src/app/api/recommendations/**",
+        "src/app/api/report/**",
+        "src/app/api/history/**"
+      ]
+    },
+    {
+      "area": "billing",
+      "doc": "docs/features/billing/billing.md",
+      "sourceGlobs": [
+        "src/lib/plans.ts",
+        "src/lib/polar.ts",
+        "src/lib/entitlement.ts",
+        "src/lib/credit-estimate.ts",
+        "src/lib/db/credits.ts",
+        "src/app/api/billing/**",
+        "src/app/api/org/credits/**",
+        "src/app/api/org/plan/**",
+        "src/app/pricing/**",
+        "src/components/pricing/**",
+        "src/components/credit/**"
+      ]
+    },
+    {
+      "area": "billing",
+      "doc": "docs/features/billing/usage.md",
+      "sourceGlobs": [
+        "src/lib/db/usage.ts",
+        "src/app/api/usage/**",
+        "src/app/usage/**",
+        "src/components/usage/**",
+        "src/lib/rate-limit.ts",
+        "src/lib/public-scan-quota.ts",
+        "src/components/QuotaMeter.tsx"
+      ]
+    },
+    {
+      "area": "billing",
+      "doc": "docs/features/billing/badge.md",
+      "sourceGlobs": [
+        "src/app/api/badge/**",
+        "src/app/badge/**",
+        "src/components/badge/**",
+        "src/lib/badge.ts",
+        "src/lib/db/badge-analytics.ts"
+      ]
+    },
+    {
+      "area": "data",
+      "doc": "docs/features/data/data-model.md",
+      "sourceGlobs": [
+        "prisma/schema.prisma",
+        "src/lib/db/client.ts",
+        "src/lib/db/index.ts",
+        "src/lib/db/scans.ts",
+        "src/lib/db/scans-persist.ts",
+        "src/lib/db/mode.ts",
+        "src/instrumentation.ts"
+      ]
+    },
+    {
+      "area": "design-system",
+      "doc": "docs/features/design-system/README.md",
+      "sourceGlobs": [
+        "src/components/ui/**",
+        "src/components/deck/**",
+        "src/components/landing/**",
+        "src/app/about/**",
+        "src/components/about/**"
+      ]
+    }
+  ]
+}

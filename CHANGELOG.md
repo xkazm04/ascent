@@ -12,7 +12,7 @@ versioned for release.
 - **Prepaid scan credits** — `Organization.scanCredits` + an append-only `CreditLedger`, an entitlement
   gate on every private-scan path (`/api/scan`, `/api/org/scan`, `/api/org/import`, `/api/cron/rescan`),
   and `GET /api/org/credits` + owner-gated grant endpoint. Public/mock scans stay free. See
-  [`docs/BILLING.md`](./docs/BILLING.md).
+  [`docs/features/billing/billing.md`](./docs/features/billing/billing.md).
 - **RBAC** — `Membership.role` is now enforced (`requireOrgRole`); installation-owners are seeded as
   `owner`; owner-gated `/api/org/members`.
 - **PDF export** — server-rendered report PDF (`GET /api/report/pdf`) + an export action on the report.

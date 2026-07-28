@@ -119,15 +119,15 @@
   ],
 
   "links": {
-    "manifest": ".ai/manifest.yaml (generated for scanned repos; see docs/AI_MANIFEST_SPEC.md)",
+    "manifest": ".ai/manifest.yaml (generated for scanned repos; see docs/features/onboarding/ai-manifest-spec.md)",
     "contextMap": "context-map.json",
     "docs": "docs/",
-    "report": "docs/PRODUCTION_READINESS.md"
+    "report": "docs/archive/2026-audits/PRODUCTION_READINESS.md"
   },
 
   "evidence": {
     "confidence": 0.7,
     "source": "manual-audit (repo read on 2026-06-17; readiness scores are estimates, not a calibrated scan)",
-    "files": ["package.json", ".github/workflows/ci.yml", "prisma/migrations/", "docs/PRODUCTION_READINESS.md", "context-map.json", "CLAUDE.md", "AGENTS.md"]
+    "files": ["package.json", ".github/workflows/ci.yml", "prisma/migrations/", "docs/archive/2026-audits/PRODUCTION_READINESS.md", "context-map.json", "CLAUDE.md", "AGENTS.md"]
   }
 }

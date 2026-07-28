@@ -1,5 +1,5 @@
 {
-  "_comment": "Labeled benchmark set for calibrating Ascent's deterministic scoring. Expected levels are PROVISIONAL hand estimates — refine them as you build consensus. Run with: npm run bench (server must be running). See docs/CALIBRATION.md.",
+  "_comment": "Labeled benchmark set for calibrating Ascent's deterministic scoring. Expected levels are PROVISIONAL hand estimates — refine them as you build consensus. Run with: npm run bench (server must be running). See docs/features/scanning/calibration.md.",
   "repos": [
     { "repo": "jwasham/coding-interview-university", "expected": "L1", "note": "Curated study list; markdown only — no tests/CI/AI tooling" },
     { "repo": "sindresorhus/slugify", "expected": "L2", "note": "Small lib; tests + CI but minimal process" },

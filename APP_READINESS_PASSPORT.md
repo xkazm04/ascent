@@ -13,7 +13,7 @@
 ## 1. Why this exists, and why it's a *sibling* to what Ascent already ships
 
 Ascent already defines a standard for "is this repo ready for coding agents": the vendor-neutral
-[`.ai/manifest.yaml`](./docs/AI_MANIFEST_SPEC.md). Its single most important rule is **"capabilities,
+[`.ai/manifest.yaml`](./docs/features/onboarding/ai-manifest-spec.md). Its single most important rule is **"capabilities,
 not tools"** — it declares `test → "npm test"`, **never** `framework: vitest`. That's correct *for an
 agent*: an agent needs to know an ability exists and how to invoke it; which tool is behind it is an
 implementation detail that will churn.
@@ -51,7 +51,7 @@ the Passport keeps them separate, each with a **0–100 score** (sortable) and a
 ### 2a. `automationReadiness` — ready for full LLM-automated development
 
 Reuses Ascent's existing **L1–L5 ladder** so it plugs straight into the maturity model
-([`docs/MATURITY_MODEL.md`](./docs/MATURITY_MODEL.md)):
+([`docs/features/scanning/maturity-model.md`](./docs/features/scanning/maturity-model.md)):
 
 | Level | Name | What it means for autonomy |
 |---|---|---|
@@ -229,7 +229,7 @@ Two deliberate modelling choices:
 ## 7. Worked example — Ascent's own passport (the "final state" to evaluate)
 
 The full object is in [`app-passport.example.json`](./app-passport.example.json), filled from the real
-repo (CI workflow, committed Prisma migrations, `package.json`, `docs/PRODUCTION_READINESS.md`). The
+repo (CI workflow, committed Prisma migrations, `package.json`, `docs/archive/2026-audits/PRODUCTION_READINESS.md`). The
 headline:
 
 - **Automation readiness: `L4` (Integrated), 76.** Has `CLAUDE.md`/`AGENTS.md`, a full `context-map.json`

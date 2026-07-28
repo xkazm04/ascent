@@ -1,6 +1,6 @@
 // The AI-Native Maturity Model — the rubric is configuration, not hard-coded logic.
 // Tune levels / dimensions / weights here without touching the engine.
-// See docs/MATURITY_MODEL.md.
+// See docs/features/scanning/maturity-model.md.
 
 import type {
   Axis,
@@ -27,7 +27,7 @@ import type {
  * MECHANICAL BACKSTOP: model.test.ts pins a sha256 of the rubric surface (weights+criteria, bands,
  * blend, guardband, posture threshold, lenses, and the assessment SYSTEM prompt) — any change there
  * fails the suite until the hash is re-pinned, putting the bump decision in the same diff.
- * DETECTOR POINT TABLES COUNT TOO: a calibration retune (docs/CALIBRATION.md step 3) moves signal
+ * DETECTOR POINT TABLES COUNT TOO: a calibration retune (docs/features/scanning/calibration.md step 3) moves signal
  * scores and therefore final scores — bump for those as well, even though they live in analyze/*
  * where the hash test can't see them.
  */
@@ -369,7 +369,7 @@ export function axisMeasured(
  * the POSTURE asserts each axis independently — and a quadrant claim like "AI-Native" off a sub-half
  * axis would overstate more than the mixed headline understates. Aligning the cut to 45 would instead
  * let a 45/45 repo claim AI-Native. The 45–55 corridor is inherently borderline (±1-point noise can
- * flip the quadrant; there is no hysteresis) — documented in docs/MATURITY_MODEL.md §2b.
+ * flip the quadrant; there is no hysteresis) — documented in docs/features/scanning/maturity-model.md §2b.
  * (ambiguity-ui maturity-model #4)
  */
 export const POSTURE_THRESHOLD = 50;

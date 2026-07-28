@@ -4,7 +4,7 @@
 // and records its own audit entry. Guarded by CRON_SECRET when set. Requires DATABASE_URL.
 //
 // Retention is opt-in: with no RETENTION_* env vars and no per-org override set, every window is
-// 0 and this is a no-op. See src/lib/db/retention.ts and docs/ENTERPRISE.md.
+// 0 and this is a no-op. See src/lib/db/retention.ts and docs/features/fleet/enterprise.md.
 
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";

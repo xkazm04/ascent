@@ -13,7 +13,7 @@
 // and the immediate-cancel case of `subscription.canceled` — plus a FULL refund/chargeback of a plan
 // order. All downgrades go through setOrgPlan(org, "free"), which is naturally idempotent (updateMany to
 // a fixed value), so a webhook redelivery or two lifecycle events for the same cancellation converge on
-// the same state without a per-event ledger key. See docs/BILLING.md + src/lib/db/credits.ts.
+// the same state without a per-event ledger key. See docs/features/billing/billing.md + src/lib/db/credits.ts.
 //
 // Fails CLOSED when POLAR_WEBHOOK_SECRET is unset — no secret means no way to verify authenticity, so
 // the route 503s instead of trusting an unverified body.

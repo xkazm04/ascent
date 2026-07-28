@@ -947,7 +947,7 @@
     "impact": { "frequency": "high", "reachability": "high", "trust_erosion": "high" },
     "dimension": "missing",
     "title": "The privacy-safe engine is a deployment-level Phase-2 choice, not a per-org toggle — a Pro-tier Owen can't actually select Bedrock on the SaaS",
-    "evidence": ["src/lib/llm/index.ts:27-34", "src/lib/llm/index.ts:101", "docs/features/llm-providers.md:63-68"],
+    "evidence": ["src/lib/llm/index.ts:27-34", "src/lib/llm/index.ts:101", "docs/features/scanning/llm-providers.md:63-68"],
     "code_check": "unreachable",
     "verdict": "confirmed"
   },

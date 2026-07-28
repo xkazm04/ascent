@@ -1,7 +1,7 @@
 // Emits `.ai/doctor.mjs` — the executable conformance check that PROVES what the manifest claims,
 // in-repo and pre-push (the maturity rubric shifted left, out of the remote scanner). Zero runtime
 // dependencies (only Node built-ins) so any repo with Node can run it; the check *contract* is
-// language-neutral (docs/AI_MANIFEST_SPEC.md, shipped to the repo as .ai/SPEC.md) so it can be
+// language-neutral (docs/features/onboarding/ai-manifest-spec.md, shipped to the repo as .ai/SPEC.md) so it can be
 // reimplemented elsewhere.
 //
 // The script is authored with NO backticks or ${...} so it embeds verbatim in this template literal
@@ -223,7 +223,7 @@ if (!existsSync(path)) {
 
 // Weighted pass ratio over the findings THIS run emitted — the denominator varies with --run and
 // with which optional surfaces (hooks, CI) exist, so treat fails/warns as the stable numbers and
-// only compare percentages between same-shaped runs (documented in docs/AI_MANIFEST_SPEC.md).
+// only compare percentages between same-shaped runs (documented in docs/features/onboarding/ai-manifest-spec.md).
 const weight = { pass: 1, warn: 0.5, fail: 0 };
 const score = findings.length ? Math.round(100 * findings.reduce((a, f) => a + weight[f.level], 0) / findings.length) : 0;
 const icon = { pass: 'OK  ', warn: 'WARN', fail: 'FAIL' };

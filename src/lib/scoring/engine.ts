@@ -49,7 +49,7 @@ function evidenceStrings(s: DimensionSignals): string[] {
 // D9 (Supply Chain & Security) is the ONE fully-deterministic dimension: its score is the security
 // check battery's risk-weighted mean and the LLM only narrates it (never moves the number), so it is
 // excluded from the P1-1 guardband-widening loop below. That left it with no correction path for the
-// documented "config-as-code only" ceiling (docs/CALIBRATION.md): GitHub "default-setup" CodeQL is
+// documented "config-as-code only" ceiling (docs/features/scanning/calibration.md): GitHub "default-setup" CodeQL is
 // configured in repo settings and leaves NO workflow file, and an org-level SECURITY.md / dependabot
 // policy lives in the org's `.github` repo — both real, both invisible to a read-only file scan, so the
 // affected sub-checks score a false 0 and floor D9 with no escape (pallets/flask, vercel/next.js hit

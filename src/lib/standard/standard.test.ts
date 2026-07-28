@@ -84,7 +84,7 @@ describe("ai-manifest", () => {
   it("points `spec` at the copy that SHIPS with the foundation, not a path inside Ascent's repo", () => {
     const d = buildManifestData(makeReport());
     expect(d.spec).toBe(".ai/SPEC.md");
-    expect(serializeManifestYaml(d)).not.toContain("docs/AI_MANIFEST_SPEC.md");
+    expect(serializeManifestYaml(d)).not.toContain("docs/features/onboarding/ai-manifest-spec.md");
   });
 
   it("records provenance for drift detection and carries a semver", () => {
@@ -309,10 +309,13 @@ describe("foundation", () => {
 });
 
 describe("spec (shipped in-repo, mirrored from the doc)", () => {
-  it("the .ai/SPEC.md body is byte-identical to docs/AI_MANIFEST_SPEC.md (drift guard)", () => {
+  it("the .ai/SPEC.md body is byte-identical to docs/features/onboarding/ai-manifest-spec.md (drift guard)", () => {
     // SPEC_MD is a hand-mirrored copy of the doc so it survives bundling (no fs at runtime). If the
     // doc is edited without re-mirroring, the adopting repo ships a stale contract — fail loudly.
-    const onDisk = readFileSync(join(process.cwd(), "docs", "AI_MANIFEST_SPEC.md"), "utf8").replace(/\r\n/g, "\n");
+    const onDisk = readFileSync(
+      join(process.cwd(), "docs", "features", "onboarding", "ai-manifest-spec.md"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
     expect(buildSpec().body).toBe(onDisk);
     expect(buildSpec().path).toBe(".ai/SPEC.md");
   });

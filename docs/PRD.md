@@ -126,7 +126,7 @@ usage-based private tier converts the free funnel without a subscription barrier
 
 ## 10. Risks & Mitigations
 - **Scoring credibility** → hybrid (deterministic signals + LLM), always show evidence,
-  publish the rubric. → see [MATURITY_MODEL.md](./MATURITY_MODEL.md).
+  publish the rubric. → see [MATURITY_MODEL.md](./features/scanning/maturity-model.md).
 - **GitHub rate limits** → optional token, file sampling/budget, cache.
 - **LLM cost/latency** → cheap fast model (Gemini Flash) for MVP; cache; sample files.
 - **Enterprise data privacy** → Bedrock in-account inference, no training on data, VPC,

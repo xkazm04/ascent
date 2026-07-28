@@ -1,5 +1,5 @@
 // First direct tests for the OpenRouter adapter — the fleet path the baked model matrix is measured
-// on. Pins the strict json_schema decode (docs/LLM_MODEL_MATRIX.md attributes glm/deepseek/sonnet's
+// on. Pins the strict json_schema decode (docs/features/scanning/llm-model-matrix.md attributes glm/deepseek/sonnet's
 // low reliability to json_object-only decoding), the per-upstream fallback so no previously-working
 // model starts hard-failing, and the shared withLlmTimeout cancellation contract. fetch is stubbed.
 

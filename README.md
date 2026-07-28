@@ -69,7 +69,7 @@ source mapping is OFF until you relaunch with `npm run dev:inspect`. A gated Tur
 - **Two axes → a posture quadrant** — *adoption* (D1/D4/D7) × *rigor* (the rest) place a
   repo in **AI-Native**, **Fast & Ungoverned**, **Solid but Manual**, or **Getting Started**.
 
-Full rubric: [`docs/MATURITY_MODEL.md`](./docs/MATURITY_MODEL.md) · source of truth:
+Full rubric: [`docs/features/scanning/maturity-model.md`](./docs/features/scanning/maturity-model.md) · source of truth:
 [`src/lib/maturity/model.ts`](./src/lib/maturity/model.ts).
 
 ## How it works
@@ -87,7 +87,7 @@ Full rubric: [`docs/MATURITY_MODEL.md`](./docs/MATURITY_MODEL.md) · source of t
    evidence + provenance, contributors, PR signals, and a prioritized roadmap — streamed
    live over Server-Sent Events, plus a shareable SVG badge.
 
-Deep dive: [`docs/features/scan.md`](./docs/features/scan.md).
+Deep dive: [`docs/features/scanning/scan.md`](./docs/features/scanning/scan.md).
 
 ## Features
 
@@ -99,15 +99,15 @@ Everything here works anonymously, with or without an LLM key.
 - **Live streaming report** — determinate progress UI over SSE; score ring, level ladder,
   adoption × rigor posture, dimension radar, per-dimension evidence/gaps with a
   signal→LLM→blended **provenance track**, contributor AI-attribution, PR signals, a
-  prioritized roadmap, and LLM-vs-detector discrepancies. ([report.md](./docs/features/report.md))
+  prioritized roadmap, and LLM-vs-detector discrepancies. ([report.md](./docs/features/reporting/report.md))
 - **Shareable maturity badge** — Shields-style SVG (level *or* pass/fail gate mode), cached
   and rate-limited, with a [`/badge`](./src/app/badge/page.tsx) generator that copies
-  ready-to-paste Markdown / HTML / AsciiDoc. ([badge.md](./docs/features/badge.md))
+  ready-to-paste Markdown / HTML / AsciiDoc. ([badge.md](./docs/features/billing/badge.md))
 - **PR maturity gate** — a published GitHub Action scores a PR head and fails CI if the repo
   falls short of an archetype-aware policy, so teams can **block merges** on AI-native
-  maturity. ([gate.md](./docs/features/gate.md))
+  maturity. ([gate.md](./docs/features/scanning/gate.md))
 - **Onboarding** — scan a *whole public org* (pick → select repos → stream) without
-  installing anything; feeds straight into the org dashboard. ([onboarding.md](./docs/features/onboarding.md))
+  installing anything; feeds straight into the org dashboard. ([onboarding.md](./docs/features/onboarding/wizard.md))
 - **Landing leaderboard** — when persistence is on, the homepage shows a live
   recently-scanned rail and a most-AI-native leaderboard.
 
@@ -129,8 +129,8 @@ The B2B layer. Requires the GitHub App and `DATABASE_URL`; auth-scoped when OAut
 
 - **GitHub App** — install on an org to reach private & org-wide repos, mint short-lived
   installation tokens, **auto-gate PRs** (Check Run + sticky comment), and **re-scan on
-  push**. ([github-app.md](./docs/features/github-app.md))
-- **Org intelligence dashboards** ([org-intelligence](./docs/features/org-intelligence/README.md)) under `/org/[slug]`:
+  push**. ([github-app.md](./docs/features/github/github-app.md))
+- **Org intelligence dashboards** ([org-intelligence](./docs/features/org-dashboard/org-intelligence.md)) under `/org/[slug]`:
   - **Overview** — fleet maturity, adoption/rigor, a **Trajectory forecast** (ETA to next
     level), gap analysis, movers, posture distribution, and highest-leverage fleet moves.
   - **Repositories** — repo leaderboard + repo × dimension heatmap.
@@ -138,20 +138,20 @@ The B2B layer. Requires the GitHub App and `DATABASE_URL`; auth-scoped when OAut
   - **Delivery** — PR signals, branch governance, 12-week fleet commit activity.
   - **Practices** — the Practice Library (below).
   - **Plan** — goals, a what-if **simulator**, initiatives, and the detector calibration
-    backlog. ([plan.md](./docs/features/org-intelligence/plan.md))
+    backlog. ([plan.md](./docs/features/org-planning/plan.md))
   - **Audit** — searchable, keyset-paginated audit trail.
 - **Practices** — turn a roadmap insight into a concrete, language-aware starter file and
-  **open it as a draft PR** in the target repo (one practice per dimension). ([practices.md](./docs/features/practices.md))
+  **open it as a draft PR** in the target repo (one practice per dimension). ([practices.md](./docs/features/org-dashboard/practices.md))
 - **Usage metering** — public (free) vs private (billable) scans, by provider, with a daily
-  trend and CSV/JSON export ([`/usage`](./src/app/usage/page.tsx); IDOR-guarded). ([usage.md](./docs/features/usage.md))
+  trend and CSV/JSON export ([`/usage`](./src/app/usage/page.tsx); IDOR-guarded). ([usage.md](./docs/features/billing/usage.md))
 - **Regression alerts** — re-scans that demote a repo (or slide it into "ungoverned") post a
-  Slack-compatible alert and an audit entry. ([alerts.md](./docs/features/alerts.md))
+  Slack-compatible alert and an audit entry. ([alerts.md](./docs/features/fleet/alerts.md))
 - **Scheduled jobs** — cron-driven autoscans of watched repos + retention/purge enforcement.
-  ([cron-and-retention.md](./docs/features/cron-and-retention.md))
+  ([cron-and-retention.md](./docs/features/fleet/cron-and-retention.md))
 - **Private inference via AWS Bedrock** — `LLM_PROVIDER=bedrock` routes code to Claude on
-  Bedrock; code never leaves the AWS boundary and is never used for training. ([llm-providers.md](./docs/features/llm-providers.md))
+  Bedrock; code never leaves the AWS boundary and is never used for training. ([llm-providers.md](./docs/features/scanning/llm-providers.md))
 - **Optional GitHub OAuth** — signs users in to scope private org data and their App
-  installations; entirely env-gated (the app works fully anonymous when unset). ([auth.md](./docs/features/auth.md))
+  installations; entirely env-gated (the app works fully anonymous when unset). ([auth.md](./docs/features/github/auth.md))
 
 ## API
 
@@ -181,7 +181,7 @@ curl -s -X PATCH 'localhost:3000/api/recommendations/<id>' -H 'content-type: app
 curl -s 'localhost:3000/api/usage?org=acme&days=30&format=csv'
 ```
 
-Full request/response shapes and the SSE protocol: [`docs/features/scan.md`](./docs/features/scan.md).
+Full request/response shapes and the SSE protocol: [`docs/features/scanning/scan.md`](./docs/features/scanning/scan.md).
 
 ## Persistence (Phase 2)
 
@@ -201,7 +201,7 @@ Scripts: `db:push` (sync schema in dev), `db:migrate` (create a migration), `db:
 (browse), `db:generate` (regenerate client). Migrations live in
 [`prisma/migrations/`](./prisma/migrations) (baseline `0_init`). Schema: [`prisma/schema.prisma`](./prisma/schema.prisma)
 — DSQL-safe (`relationMode = "prisma"`, UUID PKs, no FK constraints). See
-[`docs/features/data-model.md`](./docs/features/data-model.md) and
+[`docs/features/data/data-model.md`](./docs/features/data/data-model.md) and
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) §"Local development & Aurora DSQL".
 
 ## Connecting private repos (GitHub App)
@@ -209,8 +209,8 @@ Scripts: `db:push` (sync schema in dev), `db:migrate` (create a migration), `db:
 Install the Ascent GitHub App to scan **private** repos via short-lived installation
 tokens (Ascent stores only derived scores, never source). Visit **`/connect`** →
 **Install on GitHub** → pick which repos to **watch** and their autoscan schedule.
-Setup + env: [`docs/GITHUB_APP.md`](./docs/GITHUB_APP.md) and
-[`docs/features/github-app.md`](./docs/features/github-app.md). Private scans are
+Setup + env: [`docs/features/github/setup.md`](./docs/features/github/setup.md) and
+[`docs/features/github/github-app.md`](./docs/features/github/github-app.md). Private scans are
 attributed to the installing org and counted as billable in [`/usage`](./src/app/usage/page.tsx).
 
 ## Layout
@@ -249,7 +249,7 @@ GitHub App (private repos, PR auto-gate, push re-scans) · usage metering · reg
 alerts · Bedrock enterprise inference · optional GitHub OAuth.
 Next: a live **Aurora DSQL** cluster (IAM-token auth), enforced **multi-user org roles**,
 **Stripe** billing on the existing usage meter, and **PDF/report export**.
-See [`docs/PLAN.md`](./docs/PLAN.md).
+See [`docs/archive/2026-hackathon/PLAN.md`](./docs/archive/2026-hackathon/PLAN.md).
 
 ## Deploying
 

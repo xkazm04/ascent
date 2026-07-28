@@ -34,7 +34,7 @@ describe("ModelScorecard — adapter-artifact rows", () => {
     expect(within(row).getByText(short(artifacts[0]!.model))).toBeInTheDocument();
     expect(within(row).queryByText("0.0")).toBeNull();
     expect(within(row).queryByText(/⚠\s*0%/)).toBeNull();
-    expect(within(row).getByText(/docs\/LLM_MODEL_MATRIX\.md/)).toBeInTheDocument();
+    expect(within(row).getByText(/docs\/features\/scanning\/llm-model-matrix\.md/)).toBeInTheDocument();
   });
 
   it("never awards the ★ top pin to an artifact row", () => {

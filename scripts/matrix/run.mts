@@ -21,7 +21,7 @@ import type { MatrixFixture } from "@/lib/llm/matrix-capture";
 import type { TokenUsage } from "@/lib/types";
 
 // The fleet. Diverse vendors so no single family dominates; the judge (JUDGE_MODEL) is one of them —
-// the self-preference caveat is documented in docs/LLM_MODEL_MATRIX.md.
+// the self-preference caveat is documented in docs/features/scanning/llm-model-matrix.md.
 const MODELS = [
   "openai/gpt-4o-mini",
   "openai/gpt-5.4-mini",

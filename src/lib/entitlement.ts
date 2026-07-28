@@ -4,7 +4,7 @@
 // non-mock engine, and a DB is configured to track it. Public scans are always free. The gate refuses a
 // metered scan when the org is out of credits and isn't on an unlimited plan; the debit itself happens
 // AFTER the scan actually produces real inference (so a cache/dedup or a degraded-to-mock run is free).
-// See src/lib/db/credits.ts for the accounting and docs/BILLING.md for the purchase flow.
+// See src/lib/db/credits.ts for the accounting and docs/features/billing/billing.md for the purchase flow.
 
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";

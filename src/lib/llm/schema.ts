@@ -158,7 +158,7 @@ export const STRICT_ASSESSMENT_JSON_SCHEMA = strictifyNode(ASSESSMENT_JSON_SCHEM
  * `response_format` for a schema-constrained decode on an OpenAI-compatible endpoint (OpenAI itself,
  * Azure, vLLM/Ollama/LM Studio, and OpenRouter — which proxies OpenAI's contract). This constrains the
  * SHAPE, not merely "is JSON": the baked model matrix shows json_object-only decoding is where
- * glm/deepseek/sonnet lose reliability (docs/LLM_MODEL_MATRIX.md).
+ * glm/deepseek/sonnet lose reliability (docs/features/scanning/llm-model-matrix.md).
  */
 export function assessmentResponseFormat() {
   return {

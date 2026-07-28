@@ -1,6 +1,6 @@
 // Deterministic calibration guards for the dimensions added/extended in the 8→9 rubric
 // change (D9 Supply Chain & Security; D2 advanced testing; D3 delivery-as-code). These pin
-// the signal-layer behavior that the live benchmark (docs/CALIBRATION.md) validated against
+// the signal-layer behavior that the live benchmark (docs/features/scanning/calibration.md) validated against
 // real repos, so a detector regex change can't silently drift the scores. Pure + offline.
 
 import { describe, it, expect } from "vitest";

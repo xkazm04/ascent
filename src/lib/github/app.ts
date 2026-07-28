@@ -3,7 +3,7 @@
 // with the customer's installation. Everything degrades to "not configured" when the
 // GITHUB_APP_* env vars are absent, so the rest of the app keeps working.
 //
-// Setup: see docs/GITHUB_APP.md.
+// Setup: see docs/features/github/setup.md.
 
 import { createHmac, createSign, timingSafeEqual } from "crypto";
 import { githubApiBase } from "@/lib/github/host";

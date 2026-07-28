@@ -12,7 +12,7 @@
 //      read private/org repos. The GitHub source needs a token for any private metadata/tree/
 //      contents — even a mock-LLM scan fetches the real snapshot — so without it a private
 //      repo would 404. Falls back to GITHUB_TOKEN for the public funnel, unchanged.
-//   3. Local demo/seeding (see scripts/seed-org.mjs and docs/ENTERPRISE.md §5).
+//   3. Local demo/seeding (see scripts/seed-org.mjs and docs/features/fleet/enterprise.md §5).
 //
 // Needs DATABASE_URL. A GITHUB_TOKEN (env) is strongly recommended to avoid rate limits.
 

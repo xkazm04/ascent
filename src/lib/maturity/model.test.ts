@@ -115,7 +115,7 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
   // To update after a DELIBERATE rubric change:
   //   1. Bump SCORING_RUBRIC_VERSION in src/lib/maturity/model.ts (e.g. "r2" -> "r3").
   //   2. Re-run this test, copy the printed hash into EXPECTED_RUBRIC_HASH below.
-  // Detector point-table changes (docs/CALIBRATION.md tuning loop step 3) also move scores and also
+  // Detector point-table changes (docs/features/scanning/calibration.md tuning loop step 3) also move scores and also
   // require a bump; they aren't hashable here (they live across analyze/*), so treat any calibration
   // retune as a bump trigger even though this test can't catch it.
   const rubricSurface = JSON.stringify({

@@ -7,7 +7,7 @@
 // PRESENT vs ENFORCED is the design's core distinction and the token boundary: the "gated" rungs of CI
 // and Security require branch protection (report.governance), which is null on a tokenless scan. When
 // governance is absent we HONESTLY CAP ci/security at the present rung and say so in evidence/blockers —
-// never claim an enforcement we couldn't observe. See docs/concepts/2026-06-22-app-passport-scan-integration.md.
+// never claim an enforcement we couldn't observe. See docs/archive/2026-concepts/2026-06-22-app-passport-scan-integration.md.
 //
 // This file is the BUILDER + the barrel. The themed pieces live beside it and are re-exported here so no
 // caller's import path changes: passport-grades.ts (the 0.2.0 memory/skills ladders), passport-score.ts

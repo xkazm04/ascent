@@ -1,7 +1,7 @@
 // The AI-native repo STANDARD — generators for the `.ai/` foundation Ascent installs into a repo:
 // the manifest (spine), the doctor (executable conformance), structured memory, and the CONTEXT
 // graph, the guardrails, and the spec itself. Vendor-neutral and future-proof by design: the contract
-// is authored at docs/AI_MANIFEST_SPEC.md and SHIPS with the foundation as .ai/SPEC.md. Thin barrel.
+// is authored at docs/features/onboarding/ai-manifest-spec.md and SHIPS with the foundation as .ai/SPEC.md. Thin barrel.
 
 import type { ScanReport } from "@/lib/types";
 import type { GeneratedFile } from "./types";

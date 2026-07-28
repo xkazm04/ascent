@@ -3,7 +3,7 @@
 // gemfile, composer.json, …), the file tree, and the GitHub primary language to derive a repo's
 // languages, frameworks, roles (frontend / backend / mobile / data_ml / infra / library — MULTI), the
 // primary backend language (for "Backend·<lang>" grouping), and a confidence. It is NOT fed to the LLM
-// prompt or the score (Option A, display-only) so scans stay byte-identical — see docs/CALIBRATION.md.
+// prompt or the score (Option A, display-only) so scans stay byte-identical — see docs/features/scanning/calibration.md.
 //
 // DETERMINISM IS LOAD-BEARING: snapshot-only, no Date.now / IO / env / Math.random. Same snapshot →
 // byte-identical TechStack (pinned by a re-run test). Detection is conservative + manifest-first:

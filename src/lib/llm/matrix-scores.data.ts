@@ -1,6 +1,6 @@
 // Measured model-quality scores for the repo-maturity assess op — output of the Python-free bench
 // matrix (scripts/matrix/run.mts), judged by an LLM, baked by scripts/matrix/bake.mts. GENERATED —
-// re-bake, don't hand-edit. See docs/LLM_MODEL_MATRIX.md.
+// re-bake, don't hand-edit. See docs/features/scanning/llm-model-matrix.md.
 // Baked from a run at 2026-07-07T13:27:49.460Z.
 import type { MatrixScores } from "@/lib/llm/matrix-scores";
 

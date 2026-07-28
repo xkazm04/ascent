@@ -4,7 +4,7 @@
 // inference debits one credit. The `enterprise` plan is unlimited (never debited). Every movement is
 // recorded in CreditLedger (append-only) with the resulting balance, so the running total is auditable
 // and reconcilable against Polar top-ups. The route-level gate is src/lib/entitlement.ts; the purchase
-// flow (Polar checkout + webhook) is src/app/api/billing/* and docs/BILLING.md.
+// flow (Polar checkout + webhook) is src/app/api/billing/* and docs/features/billing/billing.md.
 
 import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";

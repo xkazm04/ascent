@@ -71,7 +71,7 @@ export class OpenRouterProvider implements LLMProvider {
       });
     try {
       // Constrain the SHAPE, not just "is JSON". This is the decode path the baked model matrix was
-      // measured on: docs/LLM_MODEL_MATRIX.md attributes glm/deepseek/sonnet's low reliability to
+      // measured on: docs/features/scanning/llm-model-matrix.md attributes glm/deepseek/sonnet's low reliability to
       // json_object-only decoding, so a strict json_schema is the lever. OpenRouter fans out to many
       // upstreams and not all of them accept it — a rejection naming response_format retries ONCE on
       // the old json_object path so no model that worked before starts hard-failing.

@@ -1,5 +1,5 @@
 // Shared domain types for Ascent — the AI-native maturity index.
-// See docs/MATURITY_MODEL.md for the conceptual model behind these types.
+// See docs/features/scanning/maturity-model.md for the conceptual model behind these types.
 
 export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";

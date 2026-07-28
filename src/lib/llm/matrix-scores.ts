@@ -2,7 +2,7 @@
 // assess). The measured data (scripts/matrix/run.mts → bake.mts) is baked into ./matrix-scores.data;
 // this module is pure + client-safe (no data, no I/O) so the org settings scorecard can rank models on
 // evidence: judged output quality, CALIBRATION accuracy against the labeled bench (does the model land
-// the right maturity level), reliability, and speed. See docs/LLM_MODEL_MATRIX.md.
+// the right maturity level), reliability, and speed. See docs/features/scanning/llm-model-matrix.md.
 
 export interface ModelScore {
   /** OpenRouter model slug, e.g. "google/gemini-3.5-flash". */
@@ -84,7 +84,7 @@ const ARTIFACT_RELIABILITY_MAX = 0.05;
  * Is this row a DECODE-ADAPTER artifact rather than a model verdict?
  *
  * A model that scored zero because its every attempt ran into the output cap didn't "fail the
- * assessment" — the harness truncated it (docs/LLM_MODEL_MATRIX.md). Rendering that as
+ * assessment" — the harness truncated it (docs/features/scanning/llm-model-matrix.md). Rendering that as
  * "claude-sonnet-5 · 0.0 · ⚠ 0%" discredits the scorecard, not the model, in front of the enterprise
  * buyer using it to choose. Detected structurally (near-zero reliability AND mean output pinned at the
  * cap) so the rule keeps working after a re-bake — never a hardcoded model name.

@@ -5,7 +5,7 @@
 // multi-instance / serverless deployment each instance keeps its own window, so the effective
 // global limit is (instances × limit). This is a cost-control BACKSTOP against a single abusive
 // client hammering an expensive LLM scan, not a precise distributed quota — for a hard
-// cross-instance limit, back it with Redis/Upstash (see docs/PRODUCTION_READINESS.md, Wave 2).
+// cross-instance limit, back it with Redis/Upstash (see docs/archive/2026-audits/PRODUCTION_READINESS.md, Wave 2).
 // (The badge route also uses this shared limiter via BADGE_RATE_LIMIT.)
 
 /**

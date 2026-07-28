@@ -13,7 +13,7 @@
 //   BENCH_URL=https://… npm run bench
 //
 // For subscription-based eval (no API credits): run the server with `LLM_PROVIDER=claude-cli`
-// (and the `claude` CLI logged in), then `npm run bench -- --live --save`. See docs/CALIBRATION.md.
+// (and the `claude` CLI logged in), then `npm run bench -- --live --save`. See docs/features/scanning/calibration.md.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

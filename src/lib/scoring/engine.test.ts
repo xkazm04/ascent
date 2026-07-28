@@ -1046,7 +1046,7 @@ describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
 //
 // D9 is the ONE fully-deterministic dimension (score = the security battery's signalScore, LLM narrates
 // only) and is excluded from the P1-1 guardband-widening loop, so it had no correction path for the
-// documented "config-as-code only" ceiling (docs/CALIBRATION.md): GitHub default-setup CodeQL and
+// documented "config-as-code only" ceiling (docs/features/scanning/calibration.md): GitHub default-setup CodeQL and
 // org-level security policy are real controls invisible to a file scan, flooring D9 at a false 0. When
 // the model flags such a HIGH-CONFIDENCE, D9-targeted VISIBILITY blind spot, D9 becomes UNMEASURABLE
 // (n/a) — excluded + renormalized, never a measured 0 and never raised by the LLM.

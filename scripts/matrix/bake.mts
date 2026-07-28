@@ -67,7 +67,7 @@ function main(): void {
   const ts =
     "// Measured model-quality scores for the repo-maturity assess op — output of the Python-free bench\n" +
     "// matrix (scripts/matrix/run.mts), judged by an LLM, baked by scripts/matrix/bake.mts. GENERATED —\n" +
-    "// re-bake, don't hand-edit. See docs/LLM_MODEL_MATRIX.md.\n" +
+    "// re-bake, don't hand-edit. See docs/features/scanning/llm-model-matrix.md.\n" +
     `// Baked from a run at ${payload.measuredAt}.\n` +
     'import type { MatrixScores } from "@/lib/llm/matrix-scores";\n\n' +
     `export const MATRIX_SCORES: MatrixScores = ${JSON.stringify(payload, null, 2)};\n\n` +

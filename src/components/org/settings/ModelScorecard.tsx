@@ -43,7 +43,7 @@ function ArtifactRow({ m }: { m: ModelScore }) {
         <span className="text-amber-300">{ADAPTER_ARTIFACT_LABEL}</span>{" "}
         <span className="text-slate-500">
           — output was truncated at the {m.outTok.toLocaleString()}-token cap on every attempt, so nothing was
-          scored. See <span className="font-mono">docs/LLM_MODEL_MATRIX.md</span>.
+          scored. See <span className="font-mono">docs/features/scanning/llm-model-matrix.md</span>.
         </span>
       </span>
       <span className="text-sm tabular-nums text-slate-400 sm:text-right" title="Median assess latency">

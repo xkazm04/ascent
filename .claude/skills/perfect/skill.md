@@ -97,7 +97,7 @@ Pick 1–3 contexts for the round (thin is fine); loop over them unless the user
    **Weight the slate by `config.md → ## User taste`** — the lens spread is a starting point, not a quota. Default depth is the *engine*, not the chrome: for any context with backend/algorithmic substance, most directions should be architecture-level (data model, algorithms, lifecycle, prompt/scoring paths, cost structure); UI surfacing appears at most once-twice unless the user steers otherwise. Scout prompts must match this depth (trace the full pipeline, not just the components).
 4. **Challenge before presenting** (the Director argues against itself; a direction that fails any check is replaced, not presented):
    - Does it already exist in code? (scout evidence, not assumption)
-   - Was it already proposed/rejected/shipped? (check `contexts/<name>.md` history + memory + `docs/BACKLOG.md` — don't re-pitch a backlog item verbatim)
+   - Was it already proposed/rejected/shipped? (check `contexts/<name>.md` history + memory + `docs/archive/2026-hackathon/BACKLOG.md` — don't re-pitch a backlog item verbatim)
    - Does it conflict with an active arc or a "removed, don't re-suggest" memory?
    - Is the value claim concrete — can I name the user moment it improves?
    - Can one Opus session genuinely ship it behind the acceptance criteria?

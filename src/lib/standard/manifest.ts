@@ -1,6 +1,6 @@
 // The `.ai/manifest.yaml` generator — the spine of the standard. Maps a ScanReport to a structured
 // ManifestData, then serializes it as YAML (a human/diff-friendly VIEW of the object; the object is
-// the contract). Pure and deterministic. See docs/AI_MANIFEST_SPEC.md for the versioned contract.
+// the contract). Pure and deterministic. See docs/features/onboarding/ai-manifest-spec.md for the versioned contract.
 
 import type { ScanReport } from "@/lib/types";
 import { commandsFor, type LangCommands } from "@/lib/practice-artifact";

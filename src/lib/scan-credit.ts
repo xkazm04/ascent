@@ -4,7 +4,7 @@
 // dashboard bulk scan, and the cron — a billing-correctness hazard. These helpers are the exact union
 // of the three former inline copies; callers keep their own per-route progress/SSE/counter emission.
 //
-// See src/lib/db/credits.ts for the underlying ledger accounting and docs/BILLING.md.
+// See src/lib/db/credits.ts for the underlying ledger accounting and docs/features/billing/billing.md.
 
 import { consumeScanCredit, CREDIT_REASON, grantCredits } from "@/lib/db";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";

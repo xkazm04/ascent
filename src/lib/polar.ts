@@ -1,7 +1,7 @@
 // Polar (polar.sh) billing config — the one place that reads the POLAR_* env and turns it into a
 // configured client + the credit-pack catalog. Everything is env-driven and degrades to a clean no-op
 // when unconfigured: with no access token, polarEnabled() is false and the UI hides "Buy credits",
-// mirroring how the rest of Ascent treats optional integrations. Sandbox by default. See docs/BILLING.md.
+// mirroring how the rest of Ascent treats optional integrations. Sandbox by default. See docs/features/billing/billing.md.
 //
 // The grant AMOUNT is derived here from the PRODUCT purchased (server-authoritative, the pack map),
 // never from anything the client sends — so a crafted checkout can't pay for a small pack and then

@@ -35,7 +35,7 @@ _Last updated: 2026-06-26._
 ## 5. Async scan processing (backup architecture)
 
 - [ ] **Adopt only if:** a Flash scan trends past the request budget (~250s), **or** you need a guaranteed "survive tab close" + email even when the browser closes mid-scan. _Why deferred:_ synchronous Flash is simpler and the persist+peek already covers browser **refresh**.
-- [ ] Design is documented: **`docs/concepts/async-scan-aws.md`** (Vercel → SQS → Lambda worker → persist → SES; Fargate-Spot fallback for >15-min scans; ~$0 on AWS free tiers). Reuses `scanRepository` / `cacheAndPersistScan` / `src/lib/email` verbatim.
+- [ ] Design is documented: **`docs/features/scanning/async-scan-aws.md`** (Vercel → SQS → Lambda worker → persist → SES; Fargate-Spot fallback for >15-min scans; ~$0 on AWS free tiers). Reuses `scanRepository` / `cacheAndPersistScan` / `src/lib/email` verbatim.
 
 ## 6. Data & infra
 
