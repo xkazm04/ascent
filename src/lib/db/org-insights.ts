@@ -892,12 +892,32 @@ export interface OrgGapAnalysis {
   scanned: number;
   commonGaps: CommonGap[]; // systemic — fix once, apply across the fleet
   repoSpecific: RepoOutlier[]; // outliers — a repo lags what the rest of the org has handled
+  /** The population floor this fleet was measured against (GAP_MIN_REPOS). Below it both lists are
+   *  empty and the surface must say "too few repos" rather than present a classification. */
+  minRepos: number;
 }
 
 const GAP_SCORE = 45; // a repo is "weak" on a dimension below this
 const COMMON_RATIO = 0.5; // weak in ≥ half the repos → a common org gap
 const OUTLIER_DELTA = 18; // repo lags the org average by this much → repo-specific
 const HEALTHY_AVG = 50; // …while the org generally handles that dimension
+
+/**
+ * Minimum scanned repos before the org-vs-repo split is a real reading rather than an artifact of a
+ * tiny fleet. Chosen as 3 to match CHAMPION_MIN_POP (`@/components/org/shared/champions`) — the
+ * codebase's floor for "is this pattern real WITHIN one org's own population". The other floors,
+ * CORPUS_MIN / COHORT_MIN = 5, gate ranking a fleet against OTHER ORGS, which is a different (and
+ * larger) sampling problem; borrowing 5 here would mute the decomposition for most real fleets.
+ *
+ * 3 is also the smallest N where neither half of the split can be produced by a single repo:
+ *  - at N = 2, one weak repo is already "weak in ≥ half the fleet" (COMMON_RATIO = 0.5) and gets
+ *    reported as a SYSTEMIC ORG GAP — the most expensive possible misread, since the answer is
+ *    "roll out a practice across the fleet" when the truth is "one repo is behind";
+ *  - at N = 2, an "outlier" is just the lower of two repos measured against an average it itself
+ *    half-defines, so the org-handles-it-generally premise of HEALTHY_AVG doesn't hold either.
+ * This is a POPULATION guard, not a re-calibration: the thresholds above are untouched.
+ */
+export const GAP_MIN_REPOS = 3;
 
 /**
  * Separate **common organization gaps** (weak across most repos — fix once, systematically) from
@@ -936,6 +956,9 @@ export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | nu
   }
   const scanned = perRepo.length;
   if (scanned === 0) return null;
+  // Population guard (see GAP_MIN_REPOS): report the count and classify NOTHING. A 2-repo fleet with
+  // one weak repo would otherwise clear COMMON_RATIO and be told it has a systemic org gap.
+  if (scanned < GAP_MIN_REPOS) return { scanned, commonGaps: [], repoSpecific: [], minRepos: GAP_MIN_REPOS };
 
   const dimAvg: Record<string, number> = {};
   const commonGaps: CommonGap[] = [];
@@ -981,7 +1004,7 @@ export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | nu
   // order, so which outliers survive the cap could differ run-to-run. fullName then dimId make it fixed.
   repoSpecific.sort((a, b) => b.delta - a.delta || a.fullName.localeCompare(b.fullName) || a.dimId.localeCompare(b.dimId));
 
-  return { scanned, commonGaps, repoSpecific: repoSpecific.slice(0, 12) };
+  return { scanned, commonGaps, repoSpecific: repoSpecific.slice(0, 12), minRepos: GAP_MIN_REPOS };
 }
 
 // ── Calibration: LLM-as-auditor detector backlog ──────────────────────────────

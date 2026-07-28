@@ -7,8 +7,10 @@ import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { GoalsPanel } from "@/components/org/plan/GoalsPanel";
 import { Simulator } from "@/components/org/plan/Simulator";
 import { InitiativesPanel } from "@/components/org/plan/InitiativesPanel";
+import { GapDecompositionPanel } from "@/components/org/plan/GapDecompositionPanel";
 import {
   getOrgDiscrepancies,
+  getOrgGapAnalysis,
   getOrgRecommendations,
   getOrgRollup,
   listGoals,
@@ -23,12 +25,16 @@ export const dynamic = "force-dynamic";
 
 export default async function OrgPlan({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const [goals, initiatives, rollup, recs, discrepancies] = await Promise.all([
+  // One parallel batch — the gap decomposition rides along with the reads this page already made
+  // rather than adding a round-trip, and takes the same (unscoped) slug argument as its siblings so
+  // every panel on the tab reads the same slice of the fleet.
+  const [goals, initiatives, rollup, recs, discrepancies, gapAnalysis] = await Promise.all([
     listGoals(slug),
     listInitiatives(slug),
     getOrgRollup(slug),
     getOrgRecommendations(slug),
     getOrgDiscrepancies(slug),
+    getOrgGapAnalysis(slug),
   ]);
 
   const scannedRepos = (rollup?.repos ?? []).filter((r) => r.latest);
@@ -97,6 +103,9 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
         title="Plan"
         description="From insight to plan — set targets, simulate the impact of a fix across the fleet, and track the work. The calibration backlog keeps the score honest."
       />
+
+      {/* The call that precedes every target below: is the weakness the fleet's or one repo's? */}
+      <GapDecompositionPanel slug={slug} analysis={gapAnalysis} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <GoalsPanel slug={slug} initial={goals ?? []} metricOptions={metricOptions} initiativesByGoal={initiativesByGoal} suggestions={goalSuggestions} />
