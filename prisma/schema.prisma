@@ -262,6 +262,7 @@ model Repository {
   scans        Scan[]
   contributors RepoContributor[]
   teams        RepoTeam[]
+  aiChanges    AiChange[]
   segments     RepoSegment[]
   techGroups   TechStackGroupMember[]
 
@@ -321,6 +322,56 @@ model RepoContributor {
 
   @@unique([repoId, login])
   @@index([repoId])
+}
+
+// One AI-attributed pull request, as an EVIDENCE ROW rather than an aggregate.
+//
+// Why this exists: `Scan.prStats` stores rates (aiInvolvedRate, aiGovernedRate) computed in a loop and
+// then thrown away, so ascent could say "62% of AI PRs were approved" but could never answer the only
+// question an auditor actually asks — "show me the population of AI-assisted changes in the period, let
+// me sample it, and evidence the review control for each sampled item." A percentage is not evidence;
+// the row is. This table is the population.
+//
+// It costs nothing extra to collect: fetchPullRequests already pages these PR nodes over GraphQL for
+// the rate math and discards them. The only added field on the wire is the review author's login.
+//
+// PRIVACY: `authorLogin` / `approverLogin` are real GitHub logins (public on the PR itself, but durable
+// and exportable here). The customer-facing pack pseudonymizes them unless the org opts into named
+// evidence; the raw logins stay internal so a sample can be re-verified against GitHub. Rows age out
+// under the org's normal retention window like every other scan artifact.
+model AiChange {
+  id           String   @id @default(uuid())
+  repoId       String
+  orgId        String // denormalized so the org-wide population is one query, not a join per repo
+  prNumber     Int
+  title        String
+  authorLogin  String?  // null for a deleted GitHub account
+  authorIsBot  Boolean  @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
+  // How this PR was identified as AI-involved: "authored" (an AI agent opened it) or "marked" (an AI
+  // marker in the title/body/labels — a human using a tool). Kept because the two carry very different
+  // governance weight and an auditor will ask which one a sampled row was.
+  aiSignal     String
+  /** Tools named in the PR, comma-separated (from the same taxonomy prStats counts). */
+  aiTools      String   @default("")
+  state        String // OPEN | CLOSED | MERGED
+  mergedAt     DateTime?
+  // THE CONTROL: was this AI-attributed change approved by a human before merge, and by whom.
+  // `approved=false` with `approverLogin=null` is the finding an auditor is looking for.
+  approved     Boolean  @default(false)
+  approverLogin String?
+  approvedAt   DateTime?
+  /** Reviews submitted on the PR (any state) — distinguishes "unreviewed" from "reviewed, not approved". */
+  reviewCount  Int      @default(0)
+  createdAt    DateTime // the PR's own creation time, not the row's
+  recordedAt   DateTime @default(now())
+
+  repo Repository @relation(fields: [repoId], references: [id])
+
+  // A PR is one change: re-ingesting the same window must UPDATE the row (its state/approval can move
+  // between scans), never append a duplicate that would double-count the population.
+  @@unique([repoId, prNumber])
+  @@index([orgId, createdAt])
+  @@index([orgId, approved])
 }
 
 // A team that owns part of a repo, parsed from its CODEOWNERS file at scan time. The unit behind

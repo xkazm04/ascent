@@ -92,7 +92,7 @@ The Overview page composes several server queries, all scoped to the org:
 | `getOrgMovers(slug, window?, segmentId?)` | Per-repo delta over the window — latest scan vs the baseline scan at-or-before `window.start` (gainers / regressions). Without a window, falls back to the two most recent scans ("since last scan"). Optional `segmentId` scopes to a segment. |
 | `getOrgRecommendations(slug, limit, segmentId?)` | Open recs aggregated across latest scans, ranked by leverage `repoCount × impactWeight × (1 + dimWeight)`. Optional `segmentId` scopes to a segment. |
 | `getOrgBacklog(slug, segmentId?, now?)` | The recommendation **backlog**: actionable per-repo recs (open + in_progress) from the latest scans — carrying owner + due date — grouped by owner and by due-date bucket (overdue / this week / this month / later / no date), with overdue/due-soon/unassigned counts and the fleet's contributor logins for the assignee picker. Pure `dueBucketFor(date, now)` (unit-tested) does the bucketing. Backs the Backlog tab; mutations go through `updateRecommendation` (`src/lib/db/scans.ts`), which records a `RecommendationEvent` per change. |
-| `getOrgBenchmark(slug)` | The org's average-overall percentile vs every other org's repos (the corpus). |
+| `getOrgBenchmark(slug)` | The org's average-overall percentile vs every other org's repos (the corpus). **Corpus eligibility (2026-07-28):** both sides of the comparison are filtered to non-`mock` engines at the *current* `SCORING_RUBRIC_VERSION` — a percentile is a claim that two numbers came out of the same instrument, and demo/keyless `mock` scans plus retired-rubric rows were previously ranked as peers. `corpusBasis` is returned with every result so a percentile always travels with the population it was computed on. |
 | `getOrgGapAnalysis(slug, segmentId?)` | Common org gaps (weak in ≥ 50% of repos) vs repo-specific outliers, each linked to a [practice](./practices.md). Optional `segmentId` scopes to a segment. |
 | `getOrgPractices(slug)` | Per-dimension exemplars (score ≥ 70) and gap repos (< 40) for the Practice Library. |
 | `getContributorInsights(slug, segmentId?)` | Champions, involvement, concentration/bus-factor. Optional `segmentId` scopes to a segment. |
@@ -125,7 +125,7 @@ level, and an R² fit-quality confidence. Shared layout primitives (`Tile`, `Car
 
 | Route | Method | Role |
 | --- | --- | --- |
-| `/api/audit` | `GET` | `?org=&action=&cursor=&limit=` → `{ entries, nextCursor }`. Keyset pagination, filterable by action, org-scoped. |
+| `/api/audit` | `GET` | `?org=&action=&cursor=&limit=` → `{ entries, nextCursor }`. Keyset pagination, filterable by action, org-scoped. Each entry carries `integrity` — the per-row HMAC verdict (`ok` \| `tampered` \| `unsigned` \| `no-secret`) recomputed on read, so tamper-evidence is actually *checked* rather than only written. `format=csv` carries it as a column. |
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
 `practice.pr_opened`, `scan.regression`, `retention.purged`.

@@ -10,7 +10,7 @@
 // configuration. Per-org routing keeps one tenant's fleet intelligence out of another's channel.
 
 import type { ScanDiff } from "@/lib/report/compare";
-import { isWithinNoise } from "@/lib/maturity/noise";
+import { isWithinNoise, postureTransition } from "@/lib/maturity/noise";
 import { isPrivateOrInternalHost } from "@/lib/net/ssrf";
 
 /**
@@ -89,7 +89,15 @@ export function detectRegression(
   }
 
   // Sliding INTO "ungoverned" (heavy AI, light guardrails) is the posture we most want to catch.
-  if (diff.posture.changed && diff.posture.after.id === "ungoverned" && diff.posture.before.id !== "ungoverned") {
+  // Gated on postureTransition, not on `changed` alone: the quadrant cuts at exactly 50 per axis, so a
+  // repo hovering at 49/51 flips its label on a re-scan of an unchanged commit and fires this CRITICAL
+  // alert on pure wobble. The corridor test (enter ≥52 / leave <48) keeps the classification untouched
+  // and only asks whether the crossing is far enough from the cut to be evidence rather than noise.
+  const postureNews = postureTransition(diff.posture.before.id, diff.posture.after.id, {
+    adoption: diff.adoption.after,
+    rigor: diff.rigor.after,
+  });
+  if (postureNews !== "held" && diff.posture.after.id === "ungoverned" && diff.posture.before.id !== "ungoverned") {
     reasons.push({
       severity: "critical",
       code: "posture-ungoverned",

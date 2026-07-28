@@ -12,8 +12,14 @@ where `severity` ∈ `critical | warning | null`:
 
 | Severity | Triggers |
 | --- | --- |
-| **critical** | A level demotion (e.g. L4 → L3); sliding **into** the "ungoverned" posture. |
+| **critical** | A level demotion (e.g. L4 → L3); sliding **into** the "ungoverned" posture — gated on `postureTransition` (below), not on a bare label change. |
 | **warning** | Overall score drop ≥ 5 (configurable `thresholds.overallDrop`); any single-dimension drop ≥ 15 (configurable). |
+
+**Posture-transition hysteresis.** The quadrant cuts at exactly 50 per axis, so a repo hovering at
+49/51 flipped its label on a re-scan of an unchanged commit and fired the *critical* ungoverned alert
+on pure wobble. `postureTransition` (`src/lib/maturity/noise.ts`) now gates it: a crossing is news only
+once an axis is clear of the corridor — **enter at ≥52, leave at <48**. The classification itself is
+untouched (`postureFor` stays pure), so nothing re-labels; only the announcement is damped.
 
 `detectPromotion(diff)` → `PromotionVerdict { promoted, severity: "celebration" | null, reasons[] }`
 is the sibling condition in the same module: an **upward** band crossing (L3 → L4). It is a

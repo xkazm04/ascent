@@ -43,7 +43,15 @@ export function llmTimeoutMs(): number {
  * Per-call sampling temperature (the determinism knob) — the single source ALL the real providers
  * (gemini/openai/bedrock/openrouter) read, mirroring llmTimeoutMs so the env name and the `0.2`
  * default live in one place instead of being re-inlined per provider. Read at CALL time via envNumber
- * (same parsing: blank → fallback, Number.isFinite-guarded). Default 0.2.
+ * (same parsing: blank → fallback, Number.isFinite-guarded). Default **0**.
+ *
+ * The default was 0.2 until 2026-07-28. It is now 0 because ascent's scores are anchored numbers: a
+ * customer files them in a briefing, a percentile, or a signed export, and an unchanged repo whose
+ * score moves between two filed artifacts destroys the artifact's credibility permanently. Sampling
+ * nuance is worth nothing on a number and is still available in the prose the model writes around it.
+ * This is `docs/VALUE-CASE.md` D29 (score reproducibility). Note `claude-cli` has NO temperature knob,
+ * so it remains non-reproducible regardless of this default — never anchor a customer-facing number on
+ * a claude-cli scan.
  * Clamped to [0, 2] — the widest range any of the real providers accepts. An out-of-range value
  * (LLM_TEMPERATURE=5, or a negative) would otherwise flow into the request, 400 EVERY call, and
  * silently degrade 100% of scans to the deterministic mock floor — the identical hard-to-diagnose
@@ -51,7 +59,7 @@ export function llmTimeoutMs(): number {
  * to the whole knob family, not just the timeout. (llm-provider-abstraction #3)
  */
 export function llmTemperature(): number {
-  return Math.min(2, Math.max(0, envNumber("LLM_TEMPERATURE", 0.2)));
+  return Math.min(2, Math.max(0, envNumber("LLM_TEMPERATURE", 0)));
 }
 
 /**

@@ -394,6 +394,39 @@ export async function persistScanReport(
           }
         }
 
+        // The AI-change population (the evidence rows behind prStats' AI rates). Unlike contributors
+        // and teams this is NOT replace-the-set: a PR window slides, so a delete-all would discard
+        // evidence of AI changes that fell out of the most recent 40-PR page — silently shrinking the
+        // very population an auditor samples, and making an older period un-evidenceable. Instead each
+        // row is upserted on (repoId, prNumber), so a PR seen again UPDATES (its state and approval
+        // legitimately change between scans) and one that aged out of the window simply stays.
+        // Guarded on `report.aiChanges` being defined: a reconstructed snapshot that never ran
+        // ingestion carries none, and must not be read as "this repo has no AI changes".
+        if (report.aiChanges?.length) {
+          for (const c of report.aiChanges) {
+            const row = {
+              orgId: repo.orgId,
+              title: c.title,
+              authorLogin: c.authorLogin,
+              authorIsBot: c.authorIsBot,
+              aiSignal: c.aiSignal,
+              aiTools: c.aiTools.join(","),
+              state: c.state,
+              mergedAt: c.mergedAt ? new Date(c.mergedAt) : null,
+              approved: c.approved,
+              approverLogin: c.approverLogin,
+              approvedAt: c.approvedAt ? new Date(c.approvedAt) : null,
+              reviewCount: c.reviewCount,
+              createdAt: new Date(c.createdAt),
+            };
+            await tx.aiChange.upsert({
+              where: { repoId_prNumber: { repoId: repo.id, prNumber: c.prNumber } },
+              create: { repoId: repo.id, prNumber: c.prNumber, ...row },
+              update: row,
+            });
+          }
+        }
+
         // Audit entry through the same tx, so a scan is never persisted unaudited (the compliance
         // gap the old best-effort write could leave). Mirrors recordAudit's "scan.created" shape.
         await tx.auditLog.create({

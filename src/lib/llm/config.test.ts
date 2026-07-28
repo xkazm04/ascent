@@ -205,16 +205,21 @@ describe("providerLabel (provenance vocabulary — /usage bars + briefing 'Score
 describe("llmTemperature (clamped to [0,2] — same misconfig hardening as the timeout floor)", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("defaults to 0.2 when unset/blank/garbage", () => {
+  // The default is 0, not 0.2 (changed 2026-07-28, VALUE-CASE D29): every score ascent shows is an
+  // anchored number a customer files, so reproducibility beats sampling nuance. Pinned here because a
+  // silent drift back to a sampling default would make filed artifacts disagree with a re-scan.
+  it("defaults to 0 when unset/blank/garbage", () => {
     vi.stubEnv("LLM_TEMPERATURE", "");
-    expect(llmTemperature()).toBe(0.2);
+    expect(llmTemperature()).toBe(0);
     vi.stubEnv("LLM_TEMPERATURE", "warm");
-    expect(llmTemperature()).toBe(0.2);
+    expect(llmTemperature()).toBe(0);
   });
 
-  it("honors an in-range configured value, including a deliberate 0", () => {
+  it("honors an in-range configured value, including a deliberate non-zero", () => {
     vi.stubEnv("LLM_TEMPERATURE", "0");
     expect(llmTemperature()).toBe(0);
+    vi.stubEnv("LLM_TEMPERATURE", "0.2");
+    expect(llmTemperature()).toBe(0.2);
     vi.stubEnv("LLM_TEMPERATURE", "1.5");
     expect(llmTemperature()).toBe(1.5);
   });

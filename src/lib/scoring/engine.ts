@@ -292,6 +292,16 @@ export function assembleReport(
     risks: assessment.risks,
     roadmap,
     discrepancies: assessment.discrepancies ?? [],
+    // The two LLM-prose-triggered step changes, recorded as data rather than only as a warnings
+    // sentence, so a consumer comparing two scans of the SAME commit can attribute a headline move
+    // instead of reporting it as repository change. `widenedDims` is intersected with the dimensions
+    // that actually reached the blend: a discrepancy naming a dropped/unknown dim never widened
+    // anything, and listing it would overstate how much of this report the model was trusted on.
+    scoreIntegrity: {
+      d9Unmeasurable,
+      widenedDims: dimensions.map((d) => d.id).filter((id) => flaggedDims.has(id)),
+      effectiveBlend,
+    },
     confidence: snap.coverage,
     warnings: warnings.length ? warnings : undefined,
     scannedAt,

@@ -3,12 +3,15 @@
 // analysis, and the corpus benchmark (F6). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID, SCORING_RUBRIC_VERSION, weightsFor } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+// The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
+// and a digest line can never disagree about whether a delta was real.
+import { classifyDelta } from "@/lib/maturity/noise";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
@@ -37,6 +40,10 @@ export interface RepoMove {
 export interface OrgMovers {
   gainers: RepoMove[];
   regressers: RepoMove[];
+  /** Repos whose overall moved, but by no more than SCORE_NOISE_BAND — a delta indistinguishable from
+   *  scan-to-scan wobble. Kept as a separate bucket rather than dropped so "nothing really moved" stays
+   *  visible and countable; never merge these into gainers/regressers. */
+  held: RepoMove[];
   levelChanges: RepoMove[]; // promotions + demotions
   comparedRepos: number;
 }
@@ -175,9 +182,14 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
   // Stable `fullName` tiebreak on each single-key sort (fleet-rollups-insights #6): repos with an equal
   // delta / level-change otherwise render in the query's arbitrary order, so the same fleet reshuffles
   // between renders.
+  // Partition on the NOISE BAND, not on strict sign. A +1 is arithmetically a gain but statistically
+  // indistinguishable from two independent re-scans of an unchanged commit, and this function is the
+  // raw feed the Executive Briefing, /portfolio and the digest all read — so a strict-sign split let a
+  // wobble be reported as a "top gainer" in a document a customer files. Sub-band moves go to `held`.
   return {
-    gainers: moves.filter((m) => m.dOverall > 0).sort((a, b) => b.dOverall - a.dOverall || a.fullName.localeCompare(b.fullName)),
-    regressers: moves.filter((m) => m.dOverall < 0).sort((a, b) => a.dOverall - b.dOverall || a.fullName.localeCompare(b.fullName)),
+    gainers: moves.filter((m) => classifyDelta(m.dOverall) === "up").sort((a, b) => b.dOverall - a.dOverall || a.fullName.localeCompare(b.fullName)),
+    regressers: moves.filter((m) => classifyDelta(m.dOverall) === "down").sort((a, b) => a.dOverall - b.dOverall || a.fullName.localeCompare(b.fullName)),
+    held: moves.filter((m) => m.dOverall !== 0 && classifyDelta(m.dOverall) === "noise").sort((a, b) => a.fullName.localeCompare(b.fullName)),
     levelChanges: moves.filter((m) => m.levelDelta !== 0).sort((a, b) => b.levelDelta - a.levelDelta || a.fullName.localeCompare(b.fullName)),
     comparedRepos: moves.length,
   };
@@ -599,6 +611,11 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
 export interface OrgBenchmark {
   corpusRepos: number; // repos in the comparison corpus (other orgs)
+  /** What the corpus was filtered to — carried so every surface that renders a percentile can state
+   *  the basis rather than implying "every repo Ascent has ever seen". `rubric` is the scoring rubric
+   *  version both sides were required to match; `excludesMockEngine` records that deterministic-floor
+   *  scans were held out. A percentile without its basis is not an auditable number. */
+  corpusBasis: { rubric: string; excludesMockEngine: true };
   overallPercentile: number | null; // org mean overall vs OTHER ORGS' means (null below CORPUS_MIN peer orgs — a 1-org corpus would rank everyone 0th or 100th)
   corpusAvgOverall: number;
   corpusAvgAdoption: number;
@@ -614,6 +631,32 @@ export interface OrgBenchmark {
     avgOverall: number;
   } | null;
 }
+
+/**
+ * Which scans may enter a percentile comparison.
+ *
+ * A percentile is a claim that two numbers were produced the same way. Two things break that, and both
+ * were silently in the corpus before this filter existed:
+ *
+ * 1. **Engine.** A `mock` scan is the deterministic rubric with NO model nuance — the keyless/demo floor
+ *    (`docs/features/scanning/llm-providers.md`). Seeded demo orgs and keyless deploys both produce them
+ *    in bulk, so the corpus was partly a different scoring function, ranked as if it were a peer.
+ * 2. **Rubric version.** Weights and detectors change; `SCORING_RUBRIC_VERSION` is stamped on each scan
+ *    precisely so a pre-bump score is identifiable. Nothing re-bases persisted scans, so an old-rubric
+ *    row is a number from a retired instrument. `null` (legacy, pre-stamping) is excluded for the same
+ *    reason — unknown provenance is not evidence of comparability.
+ *
+ * Applied to BOTH sides: filtering only the corpus would rank this org's mock-scored repos against a
+ * live-scored corpus, which is the same error mirrored.
+ */
+const BENCHMARK_ELIGIBLE = {
+  engineProvider: { not: "mock" },
+  rubricVersion: SCORING_RUBRIC_VERSION,
+} as const;
+
+/** The rendered form of BENCHMARK_ELIGIBLE, returned with every benchmark so a percentile always
+ *  travels with the basis it was computed on. */
+const CORPUS_BASIS = { rubric: SCORING_RUBRIC_VERSION, excludesMockEngine: true } as const;
 
 /** Minimum same-language peer ORGS before a cohort percentile is statistically worth showing. */
 const COHORT_MIN = 5;
@@ -648,14 +691,22 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   // corpus, not this tenant. Bound it to the most-recently-active CORPUS_CAP scored repos (`updatedAt`
   // bumps on every scan upsert) and require `scans: { some: {} }` so the cap budget isn't spent on
   // never-scanned repos the loop below discards anyway. A representative recent sample, not the universe.
+  // Both the `some` predicate and the per-repo `take: 1` are filtered by BENCHMARK_ELIGIBLE, so the cap
+  // budget is spent on comparable repos and each repo contributes its latest ELIGIBLE scan rather than
+  // its latest scan (a repo whose most recent run degraded to mock still counts, via its last real one).
   const repos = await prisma.repository.findMany({
-    where: { orgId: { not: org.id }, scans: { some: {} } },
+    where: { orgId: { not: org.id }, scans: { some: BENCHMARK_ELIGIBLE } },
     orderBy: { updatedAt: "desc" },
     take: BENCHMARK_CORPUS_CAP,
     select: {
       orgId: true,
       primaryLanguage: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true, rigorScore: true } },
+      scans: {
+        where: BENCHMARK_ELIGIBLE,
+        orderBy: { scannedAt: "desc" },
+        take: 1,
+        select: { overallScore: true, adoptionScore: true, rigorScore: true },
+      },
     },
   });
   const corpus: { orgId: string; lang: string | null; overall: number; adoption: number; rigor: number }[] = [];
@@ -664,7 +715,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     if (s) corpus.push({ orgId: r.orgId, lang: r.primaryLanguage, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore });
   }
   if (corpus.length === 0) {
-    return { corpusRepos: 0, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0, cohort: null };
+    return { corpusRepos: 0, corpusBasis: CORPUS_BASIS, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0, cohort: null };
   }
 
   // This org's averages + dominant language (latest scan per repo).
@@ -672,7 +723,12 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     where: { orgId: org.id },
     select: {
       primaryLanguage: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true } },
+      scans: {
+        where: BENCHMARK_ELIGIBLE, // same instrument on both sides, or the comparison means nothing
+        orderBy: { scannedAt: "desc" },
+        take: 1,
+        select: { overallScore: true, adoptionScore: true },
+      },
     },
   });
   const myOverall: number[] = [];
@@ -727,6 +783,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   return {
     corpusRepos: corpus.length,
+    corpusBasis: CORPUS_BASIS,
     // Org mean vs other orgs' means (CORPUS_MIN is now a floor on the number of peer ORGS, not repos).
     overallPercentile: percentileOf(orgMeans(corpus, (c) => c.overall), myAvgOverall, CORPUS_MIN),
     corpusAvgOverall: avg(corpus.map((c) => c.overall)),

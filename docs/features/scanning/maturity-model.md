@@ -60,7 +60,22 @@ logic lives in `src/lib/maturity/model.ts` + `src/lib/scoring/engine.ts`.
 design, not drift: the level is a weighted average that partial strength can carry into L3,
 while the posture quadrant is a claim about each axis independently, and we'd rather
 under-claim a quadrant than assert "AI-Native" off a sub-half axis. Treat the 45–55 corridor
-as borderline: a ±1-point re-scan can flip the quadrant there (there is no hysteresis).
+as borderline: a ±1-point re-scan can flip the quadrant there.
+
+**Transition hysteresis (2026-07-28).** The *classification* still has no hysteresis — `postureFor`
+stays a pure function of the two axis scores, so no repo re-labels and no call site needs prior state.
+What is damped is the *announcement*: `postureTransition` (`src/lib/maturity/noise.ts`) reports a
+quadrant change as news only once an axis is clear of the corridor — **enter at ≥52, leave at <48** —
+and the ungoverned-slide alert is gated on it. Asymmetric on purpose, so a repo that genuinely climbs
+is announced once and does not un-announce itself on the next scan's wobble.
+
+**Scoring-integrity record.** Every report carries `scoreIntegrity` (`ScanReport`), recording the
+structural step-changes that can move a headline on an *unchanged* commit: `d9Unmeasurable` (the D9
+visibility escape hatch fired, renormalizing a 9%-weight dimension out), `widenedDims` (dimensions
+whose LLM guardband doubled because the model flagged the detector as suspect), and `effectiveBlend`
+(the *realized* `SCORE_BLEND × coverage`, not the configured constant). Both hatch and widening are
+triggered by LLM prose, so anything anchoring a number must be able to attribute a move rather than
+report it as repository change.
 
 ### Dimension detail
 

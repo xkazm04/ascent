@@ -24,6 +24,11 @@ const TIMEOUT_MS = 15_000;
 export interface PrReview {
   state: string; // APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED | PENDING
   submittedAt: string | null;
+  /** Who submitted the review. Null for a deleted account (GitHub nulls `author` on those), so a
+   *  consumer must treat "reviewed but no name" as a real, expected case rather than an error — the
+   *  approval still happened. This is what makes a NAMED approver derivable at all: the aggregate
+   *  rates never needed it, so the field was simply not requested. */
+  author: { login: string } | null;
 }
 
 export interface PrNode {
@@ -137,7 +142,7 @@ const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String
         additions deletions changedFiles
         author{ login __typename }
         labels(first:10){ nodes{ name } }
-        reviews(first:20){ totalCount nodes{ state submittedAt } }
+        reviews(first:20){ totalCount nodes{ state submittedAt author{ login } } }
         comments{ totalCount }
       }
     }

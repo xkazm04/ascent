@@ -1100,6 +1100,33 @@ describe("assembleReport — D9 visibility escape hatch (Direction 1)", () => {
     expect(withDisc.discrepancies).toEqual(blindspot);
   });
 
+  // scoreIntegrity is the machine-readable record of the two LLM-prose-triggered step changes. It
+  // exists because a consumer that ANCHORS a number (briefing, percentile, signed export, diligence
+  // verdict) has to be able to attribute a headline move on an unchanged commit rather than report it
+  // as repository change. Asserting it here — the only place both levers can be driven deterministically
+  // — because nothing downstream would notice if it silently stopped being populated.
+  it("records the D9 escape hatch, the widened dims, and the realized blend on scoreIntegrity", () => {
+    const signals = d9Signals(0);
+    // One D9 blind-spot claim (drops D9) plus one D2 discrepancy (doubles D2's guardband) — the two
+    // levers fire independently, so drive both at once and assert they are reported separately.
+    const discrepancies = [...blindspot, { dimension: "D2" as const, claim: "Tests exist but run in a separate repo." }];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies }, eng, AT, "org");
+
+    expect(report.scoreIntegrity).toMatchObject({ d9Unmeasurable: true, effectiveBlend: SCORE_BLEND });
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D2"]);
+    // D9 was flagged too, but it was DROPPED — it never reached the blend, so listing it as "widened"
+    // would overstate how far the model was trusted on this report.
+    expect(report.scoreIntegrity!.widenedDims).not.toContain("D9");
+  });
+
+  it("scoreIntegrity reports a clean run honestly: no hatch, no widening, and the realized blend", () => {
+    // The realized blend is SCORE_BLEND × coverage, not the configured constant — a half-seen repo
+    // leans on the deterministic signal and scores differently with zero repo change, which is the
+    // third way an unchanged commit moves. Pin that the field reports the REALIZED value.
+    const half = assembleReport(snapWithCoverage(0.5), d9Signals(40), llmAll(), eng, AT, "org");
+    expect(half.scoreIntegrity).toEqual({ d9Unmeasurable: false, widenedDims: [], effectiveBlend: SCORE_BLEND * 0.5 });
+  });
+
   it("leaves the D9 deterministic path byte-identical when no visibility discrepancy is present", () => {
     const signals = d9Signals(0);
     const report = assembleReport(snapWithCoverage(1), signals, llmAll(), eng, AT, "org");

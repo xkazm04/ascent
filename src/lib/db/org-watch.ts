@@ -3,6 +3,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { segmentScope } from "@/lib/db/org-shared";
+import { withAuditSignature } from "@/lib/db/audit-integrity";
 import type { Schedule } from "@/components/connect/installationRepoTypes";
 
 // Keyed on the canonical Schedule vocabulary (installationRepoTypes) so the cadence set can't drift
@@ -420,12 +421,28 @@ export async function recordConformance(
   if (res.count > 0) {
     // Append to the ledger AFTER a successful row update, so untracked-repo reports (recorded:false)
     // never seed ordering state. Stable key order — the ordering reads above depend on it.
+    // SIGNED like every other audit write. This path used to JSON.stringify the meta directly, so
+    // conformance rows landed with no `_sig` and verified as "unsigned" — in the one table whose whole
+    // purpose is tamper-evidence, and for the one action a customer reports FROM their own CI (i.e. the
+    // rows most worth forging). `createdAt` is stamped explicitly so the value signed is the value
+    // stored: the signature covers the timestamp, and letting the DB default it would sign a different
+    // instant than the row carries, making every row verify as tampered.
+    const createdAt = new Date();
     await prisma.auditLog.create({
       data: {
         orgId,
         actorId: null,
+        at: createdAt,
         action: "conformance.reported",
-        meta: JSON.stringify({ repo: fullName, sha: headSha, score, fails, warns }),
+        meta: JSON.stringify(
+          withAuditSignature({
+            action: "conformance.reported",
+            orgId,
+            actorId: null,
+            createdAt: createdAt.toISOString(),
+            meta: { repo: fullName, sha: headSha, score, fails, warns },
+          }),
+        ),
       },
     });
   }

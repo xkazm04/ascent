@@ -32,6 +32,7 @@ vi.mock("@/lib/db/org-shared", () => ({
 }));
 
 import { claimRescan, listDueRescans, recordConformance, reconcileListedRepos } from "./org-watch";
+import { verifyAudit } from "./audit-integrity";
 
 beforeEach(() => {
   mockIsDbConfigured.mockReset();
@@ -275,6 +276,38 @@ describe("recordConformance stale-re-run guard (conformance.reported ledger)", (
     const written = auditLog.create.mock.calls[0][0] as { data: { action: string; meta: string } };
     expect(written.data.action).toBe("conformance.reported");
     expect(JSON.parse(written.data.meta)).toMatchObject({ repo: REPO, sha: "c".repeat(40), score: 95 });
+  });
+
+  // This write used to JSON.stringify its meta directly, bypassing withAuditSignature — so conformance
+  // rows landed unsigned in the one table whose purpose is tamper-evidence, and for the one action a
+  // customer self-reports from their own CI (the rows most worth forging). The signature covers the
+  // timestamp, so `at` must be stamped explicitly and match what was signed; letting the DB default it
+  // would sign a different instant than the row stores and verify every row as `tampered`.
+  it("SIGNS the ledger row, over the timestamp it actually stores (verifies ok on the read path)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, auditLog } = fakeConformancePrisma([{ meta: meta("b".repeat(40), 90) }]);
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await recordConformance("acme", REPO, { score: 95, fails: 0, warns: 1, headSha: "c".repeat(40) });
+
+      const written = auditLog.create.mock.calls[0][0] as { data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string } };
+      const stored = JSON.parse(written.data.meta) as Record<string, unknown>;
+      expect(typeof stored._sig).toBe("string"); // signed at all — the regression this pins
+
+      // Reconstruct exactly what the read path (getAuditLog) reconstructs from the stored row.
+      expect(
+        verifyAudit({
+          action: written.data.action,
+          orgId: written.data.orgId,
+          actorId: written.data.actorId,
+          createdAt: written.data.at.toISOString(),
+          meta: stored,
+        }),
+      ).toBe("ok");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
   });
 
   it("allows re-reporting the SAME latest commit (a legitimate same-sha CI re-run updates the score)", async () => {

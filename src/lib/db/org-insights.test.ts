@@ -17,7 +17,8 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { percentileOf, getOrgMovers, getOrgRecommendations, getOrgPractices, summarizePracticePrs } from "@/lib/db/org-insights";
+import { percentileOf, getOrgMovers, getOrgBenchmark, getOrgRecommendations, getOrgPractices, summarizePracticePrs } from "@/lib/db/org-insights";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getOrgRollup } from "@/lib/db/org-rollup";
 import { IMPACT_WEIGHT } from "@/lib/db/org-shared";
 import { weightsFor } from "@/lib/maturity/model";
@@ -446,7 +447,8 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
 
   it("a repo whose overall is unchanged (delta 0) is in NEITHER gainers nor regressers", async () => {
     // Same overall at both ends but a real second scan ⇒ buildMove still runs (prev !== now), and the
-    // strict `> 0` / `< 0` partition keeps a 0-delta repo out of both buckets.
+    // noise-band partition keeps a 0-delta repo out of every bucket (`held` excludes an exact 0 too —
+    // it is for repos that moved but not measurably, not for repos that did not move).
     const repos = [repo("r1", "acme/alpha")];
     const scans = [
       scan("r1", "2026-03-01T00:00:00.000Z", 70, { level: "L2" }),
@@ -461,6 +463,35 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     // levelChanges still partitions on levelDelta independently of dOverall.
     expect(movers!.levelChanges).toHaveLength(1);
     expect(movers!.levelChanges[0]).toMatchObject({ name: "alpha", levelDelta: 1 });
+  });
+
+  // The noise band (SCORE_NOISE_BAND = 2) is the difference between "this fleet improved" and "these
+  // two scans disagreed by a point". getOrgMovers is the RAW feed the Executive Briefing, /portfolio
+  // and the digest all read, so a sub-band delta reaching `gainers` puts a wobble into a document the
+  // customer files. Pinned at the boundary (2 = still noise, 3 = real) in BOTH directions.
+  it("a sub-band move lands in `held`, not gainers/regressers — the boundary is 2 (noise) vs 3 (real)", async () => {
+    const repos = [repo("r1", "acme/alpha"), repo("r2", "acme/bravo"), repo("r3", "acme/charlie"), repo("r4", "acme/delta")];
+    const scans = [
+      // alpha +2 → exactly at the band ⇒ noise
+      scan("r1", "2026-03-01T00:00:00.000Z", 70, { level: "L3" }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 72, { level: "L3" }),
+      // bravo +3 → first point past the band ⇒ a real gain
+      scan("r2", "2026-03-01T00:00:00.000Z", 70, { level: "L3" }),
+      scan("r2", "2026-05-01T00:00:00.000Z", 73, { level: "L3" }),
+      // charlie -2 → noise on the way down too (the band is symmetric)
+      scan("r3", "2026-03-01T00:00:00.000Z", 70, { level: "L3" }),
+      scan("r3", "2026-05-01T00:00:00.000Z", 68, { level: "L3" }),
+      // delta -3 → a real regression
+      scan("r4", "2026-03-01T00:00:00.000Z", 70, { level: "L3" }),
+      scan("r4", "2026-05-01T00:00:00.000Z", 67, { level: "L3" }),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.gainers.map((m) => m.name)).toEqual(["bravo"]);
+    expect(movers!.regressers.map((m) => m.name)).toEqual(["delta"]);
+    expect(movers!.held.map((m) => m.name)).toEqual(["alpha", "charlie"]); // fullName-sorted
+    expect(movers!.comparedRepos).toBe(4); // all four were still compared
   });
 
   it("an ONBOARDED repo (no scan ≤ start) appears via its EARLIEST in-window scan, not as a phantom", async () => {
@@ -911,5 +942,70 @@ describe("getOrgPractices — PR lifecycle is folded into the projection", () =>
 
     expect(p.prs).toEqual({ open: 1, merged: 0, lift: null }); // prax/elsewhere is not in the slice
     expect(p.openPrs).toEqual([{ repoFullName: "prax/app", prNumber: 4, prUrl: "u4" }]);
+  });
+});
+
+// ── Benchmark corpus eligibility ──────────────────────────────────────────────
+// A percentile is a claim that two numbers came out of the same instrument. Before this filter the
+// corpus was every other org's latest scan regardless of HOW it was produced, so `mock`-engine scans
+// (the keyless/demo deterministic floor, which seeded demo orgs emit in bulk) and scans from a retired
+// rubric version were ranked as peers — and the resulting percentile shipped in the Executive Briefing
+// PDF and on /portfolio. These pin the eligibility predicate on BOTH sides of the comparison, because
+// filtering only the corpus mirrors the same error onto this org's own numbers.
+describe("getOrgBenchmark — corpus eligibility", () => {
+  /** `rows` is what BOTH repository reads return — enough to get past the empty-corpus early return
+   *  when we need to observe the second (this-org) query too. */
+  function benchmarkPrisma(rows: unknown[] = []) {
+    const calls: { where?: Record<string, unknown>; select?: Record<string, unknown> }[] = [];
+    return {
+      calls,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_bench", slug: "benchco", plan: "enterprise" })) },
+        repository: {
+          findMany: vi.fn(async (args: { where?: Record<string, unknown>; select?: Record<string, unknown> }) => {
+            calls.push(args);
+            return rows;
+          }),
+        },
+      },
+    };
+  }
+
+  const scoredRepo = (orgId: string, overall: number) => ({
+    orgId,
+    primaryLanguage: "TypeScript",
+    scans: [{ overallScore: overall, adoptionScore: overall, rigorScore: overall }],
+  });
+
+  it("requires a non-mock engine and the CURRENT rubric version, on the corpus AND on this org", async () => {
+    const { calls, prisma } = benchmarkPrisma([scoredRepo("org_other", 70)]);
+    mockGetPrisma.mockReturnValue(prisma as never);
+    await getOrgBenchmark("benchco");
+
+    // Two reads: the cross-tenant corpus, then this org's own repos.
+    expect(calls).toHaveLength(2);
+    const eligible = { engineProvider: { not: "mock" }, rubricVersion: SCORING_RUBRIC_VERSION };
+
+    // Corpus side: the `some` predicate spends the CORPUS_CAP budget on comparable repos, and the
+    // per-repo `take: 1` picks the latest ELIGIBLE scan rather than the latest scan outright — so a
+    // repo whose most recent run degraded to mock still contributes its last real measurement.
+    const corpus = calls[0];
+    expect((corpus.where as { scans: unknown }).scans).toEqual({ some: eligible });
+    expect((corpus.select as { scans: { where: unknown } }).scans.where).toEqual(eligible);
+
+    // This org's side: same instrument, or the comparison is meaningless in the other direction.
+    expect((calls[1].select as { scans: { where: unknown } }).scans.where).toEqual(eligible);
+  });
+
+  it("returns the corpus basis alongside the numbers, even when the corpus is empty", async () => {
+    // The basis has to travel WITH the percentile — a rank whose population is undisclosed is not an
+    // auditable number, and the empty-corpus early return is the easiest place for it to get dropped.
+    const { prisma } = benchmarkPrisma();
+    mockGetPrisma.mockReturnValue(prisma as never);
+    const b = await getOrgBenchmark("benchco");
+
+    expect(b!.corpusRepos).toBe(0);
+    expect(b!.overallPercentile).toBeNull(); // no corpus ⇒ no rank, never a hard 0/100
+    expect(b!.corpusBasis).toEqual({ rubric: SCORING_RUBRIC_VERSION, excludesMockEngine: true });
   });
 });

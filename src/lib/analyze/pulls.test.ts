@@ -6,7 +6,7 @@
 // surface as null, not a fabricated "0% reviewed" that drags D6 and misinforms the LLM auditor.
 
 import { describe, it, expect, vi } from "vitest";
-import { applyPrSignals, fetchPrStats, summarizePullRequests } from "./pulls";
+import { applyPrSignals, extractAiChanges, fetchPrStats, summarizePullRequests } from "./pulls";
 import type { PrNode } from "@/lib/github/graphql";
 import { fetchPullRequests } from "@/lib/github/graphql";
 import type { DimensionSignals, PrStats } from "@/lib/types";
@@ -184,3 +184,86 @@ describe("applyPrSignals — D6 fold with a null reviewedRate (maturity #3)", ()
 // D9 (Supply Chain & Security) is now scored by the deterministic check battery
 // (src/lib/security/checks.ts + its unit tests), NOT a pulls.ts post-processor. The old
 // applySecurityPostureSignals (advisory-tier boost) was removed when the battery subsumed it.
+
+// ── extractAiChanges: the evidence rows behind the AI rates ───────────────────
+// summarizePullRequests reduces these same nodes to percentages and drops the PRs, so ascent could
+// state "62% of AI PRs were approved" but could never produce the population an auditor samples. These
+// pin the two properties that make the rows usable as evidence: they RECONCILE with the rate shown
+// beside them (same detectors), and the approver is the reviewer who actually unblocked the merge.
+describe("extractAiChanges — the AI-change population", () => {
+  const review = (state: string, login: string | null, submittedAt: string | null) => ({
+    state,
+    submittedAt,
+    author: login ? { login } : null,
+  });
+
+  it("selects exactly the PRs the AI rate counts — the row count reconciles with aiInvolvedRate", () => {
+    // A governance artifact whose row count disagreed with its own percentage would be worse than no
+    // artifact, so both readings must come from the same detectors.
+    const nodes = [
+      pr({ number: 1, title: "chore: bump deps", author: { login: "renovate[bot]", __typename: "Bot" } }), // a bot, but NOT an AI agent
+      pr({ number: 2, title: "feat: parser\n\n🤖 Generated with Claude Code" }), // human, AI-marked
+      pr({ number: 3, title: "fix: typo" }), // no AI signal at all
+      pr({ number: 4, title: "feat: agent work", author: { login: "copilot-swe-agent[bot]", __typename: "Bot" } }),
+    ];
+    const rows = extractAiChanges(nodes);
+    const stats = summarizePullRequests(nodes, nodes.length);
+
+    expect(rows.map((r) => r.prNumber)).toEqual([2, 4]);
+    expect(stats.aiInvolvedRate).toBe(50); // 2 of 4 — the same two
+    // The two signals carry different governance weight and are the first thing asked of a sampled row.
+    expect(rows.map((r) => r.aiSignal)).toEqual(["marked", "authored"]);
+    expect(rows[0]!.aiTools).toContain("Claude");
+  });
+
+  it("names the FIRST approver by submission time — the reviewer who unblocked the merge", () => {
+    const rows = extractAiChanges([
+      pr({
+        number: 7,
+        title: "feat: thing (github copilot)",
+        reviews: {
+          totalCount: 3,
+          nodes: [
+            review("COMMENTED", "carol", "2026-01-01T09:00:00Z"), // earlier, but not an approval
+            review("APPROVED", "bob", "2026-01-01T12:00:00Z"),
+            review("APPROVED", "dave", "2026-01-01T10:00:00Z"), // earliest APPROVAL — out of array order
+          ],
+        },
+      }),
+    ]);
+
+    expect(rows[0]).toMatchObject({ approved: true, approverLogin: "dave", approvedAt: "2026-01-01T10:00:00Z", reviewCount: 3 });
+  });
+
+  it("records an UNAPPROVED AI change as the finding it is — reviewed is not approved", () => {
+    // `approved:false` with a null approver is exactly what an auditor is hunting for, and it must be
+    // distinguishable from "never reviewed at all" — hence reviewCount alongside the boolean.
+    const [reviewedNotApproved, untouched] = extractAiChanges([
+      pr({ number: 8, title: "claude code: refactor", reviews: { totalCount: 1, nodes: [review("CHANGES_REQUESTED", "bob", "2026-01-01T10:00:00Z")] } }),
+      pr({ number: 9, title: "claude code: hotfix", reviews: { totalCount: 0, nodes: [] } }),
+    ]);
+
+    expect(reviewedNotApproved).toMatchObject({ approved: false, approverLogin: null, approvedAt: null, reviewCount: 1 });
+    expect(untouched).toMatchObject({ approved: false, reviewCount: 0 });
+  });
+
+  it("keeps `approved` true when the approver's account was deleted (a real case, not an error)", () => {
+    // GitHub nulls `author` on a deleted account. The approval still happened, so the control passed —
+    // which is why the boolean and the name are separate fields rather than one nullable name.
+    const rows = extractAiChanges([
+      pr({ number: 10, title: "made with cursor", reviews: { totalCount: 1, nodes: [review("APPROVED", null, "2026-01-01T10:00:00Z")] } }),
+    ]);
+    expect(rows[0]).toMatchObject({ approved: true, approverLogin: null });
+  });
+
+  it("never picks a PENDING review (null submittedAt) as the approval ahead of a real one", () => {
+    const rows = extractAiChanges([
+      pr({
+        number: 11,
+        title: "claude code: thing",
+        reviews: { totalCount: 2, nodes: [review("APPROVED", "pending-person", null), review("APPROVED", "bob", "2026-01-02T00:00:00Z")] },
+      }),
+    ]);
+    expect(rows[0]!.approverLogin).toBe("bob");
+  });
+});

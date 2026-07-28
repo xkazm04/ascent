@@ -207,8 +207,13 @@ silent all-scans-to-mock degrade:
   openai/openrouter, composed with the caller's abort signal via `withLlmTimeout()`
   (`AbortSignal.any`) so either a client disconnect or the timeout cancels the in-flight
   request.
-- `LLM_TEMPERATURE` (default 0.2, clamped to `[0, 2]`) — sampling temperature, read by all
-  four real HTTP/SDK providers.
+- `LLM_TEMPERATURE` (**default 0**, clamped to `[0, 2]`) — sampling temperature, read by all
+  four real HTTP/SDK providers. The default was `0.2` until 2026-07-28; it is now `0` because
+  every score ascent shows is an anchored number a customer files (a briefing, a percentile, a
+  signed export), and an unchanged repo whose score moves between two filed artifacts destroys
+  their credibility. Sampling nuance still reaches the prose the model writes around the number.
+  **`claude-cli` has no temperature knob**, so it stays non-reproducible regardless of this
+  default — never anchor a customer-facing number on a claude-cli scan.
 - `BEDROCK_MAX_TOKENS` / `OPENAI_MAX_TOKENS` / `OPENROUTER_MAX_TOKENS` (default 4096,
   floored at 256) — per-provider max-output-tokens knob.
 - `LLM_FALLBACK_PROVIDER` — the scan pipeline's failover: retry with this named provider

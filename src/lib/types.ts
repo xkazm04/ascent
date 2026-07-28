@@ -144,6 +144,31 @@ export interface CommitInfo {
   committedAt?: string;
 }
 
+/**
+ * One AI-attributed pull request, as a durable evidence ROW rather than a contribution to a rate.
+ *
+ * `PrStats` answers "what share of AI changes were approved"; this answers "which changes, and by
+ * whom" — the population an auditor samples. Shapes the AiChange table without importing Prisma, so
+ * the analyzer and the persistence layer agree on one definition.
+ */
+export interface AiChangeRecord {
+  prNumber: number;
+  title: string;
+  authorLogin: string | null;
+  authorIsBot: boolean;
+  /** How it was identified: an AI agent opened it, or a human marked AI assistance. */
+  aiSignal: "authored" | "marked";
+  aiTools: string[];
+  state: string;
+  mergedAt: string | null;
+  approved: boolean;
+  /** The human who approved it. Null when unapproved, or when the reviewer's account was deleted. */
+  approverLogin: string | null;
+  approvedAt: string | null;
+  reviewCount: number;
+  createdAt: string;
+}
+
 /** A contributor's recent activity, incl. how much of it is AI-attributed. */
 export interface Contributor {
   login: string;
@@ -515,6 +540,33 @@ export interface Posture {
   blurb: string;
 }
 
+/**
+ * Which structural score levers fired on this run — the auditable record of the two places where a
+ * score can take a STEP change without the repository changing at all.
+ *
+ * Both triggers are LLM prose: whether the model happened to word a D9 discrepancy so it matched the
+ * visibility-blind-spot regex, and whether it happened to emit a `discrepancies` entry for a dimension
+ * (which DOUBLES that dimension's guardband, from ±25 to ±50). Neither is a defect — both exist for
+ * good reasons documented in scoring/engine.ts — but before this field they were recorded only as a
+ * prose `warnings` string, so a consumer holding two scans of the same commit could see the headline
+ * move and have no machine-readable way to attribute it. An assurance or benchmarking surface must be
+ * able to say "D9 was renormalized out on this run" rather than "the score changed."
+ */
+export interface ScoreIntegrity {
+  /** D9 (Security) was treated as UNMEASURABLE and renormalized out of the overall + rigor axis,
+   *  because the model asserted the repo's security runs where a file scan can't see it. At D9's ~9%
+   *  weight this alone is a multi-point headline step on an identical commit. */
+  d9Unmeasurable: boolean;
+  /** Dimensions whose LLM guardband was DOUBLED because the model flagged the detector as suspect.
+   *  A dimension listed here could move up to twice as far from its deterministic signal as one that
+   *  is not — so a run-over-run delta on these dims carries materially less confidence. */
+  widenedDims: DimensionId[];
+  /** The REALIZED blend weight actually applied (SCORE_BLEND × coverage), not the configured constant.
+   *  A truncated or rate-limited ingest lowers this and shifts the score toward the deterministic
+   *  signal with zero repo change — the third way an unchanged commit can score differently. */
+  effectiveBlend: number;
+}
+
 export interface ScanReport {
   repo: RepoMeta;
   overallScore: number;
@@ -535,6 +587,12 @@ export interface ScanReport {
   teams?: TeamOwnership[];
   /** Pull-request process signals (GraphQL). Null/absent when no token was available. */
   prStats?: PrStats | null;
+  /** The AI-attributed pull requests behind `prStats`' AI rates, as durable evidence rows rather than
+   *  percentages — the population an auditor samples from ("show me the AI-assisted changes and who
+   *  approved each one"), which a rate structurally cannot answer. Persisted, never scored. Empty on a
+   *  tokenless scan, where PRs aren't observable; undefined on reconstructed snapshots that never ran
+   *  ingestion, so persistence leaves any stored population untouched rather than wiping it. */
+  aiChanges?: AiChangeRecord[];
   /** Default-branch governance (branch protection / rulesets). Null when no token. */
   governance?: Governance | null;
   /** Commit volume for the last ~12 weeks (oldest→newest), from /stats/commit_activity. */
@@ -556,6 +614,11 @@ export interface ScanReport {
   passport?: AppPassport;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
+  /** The structural step-changes that fired while scoring this report. See ScoreIntegrity — these are
+   *  the levers that can move a headline on an UNCHANGED commit, so anything that anchors a number
+   *  (a briefing, a percentile, a signed export, a diligence verdict) must be able to read them.
+   *  Undefined on reconstructed snapshots that predate the field. */
+  scoreIntegrity?: ScoreIntegrity;
   /** The PR slice this report's D6/D7/D8 signals were derived from was INCOMPLETE — GraphQL returned a
    *  truncated page (null nodes / an `errors` array on a 200). The scores understate reality, so the
    *  report must not be cached or persisted as authoritative. `graphql.ts` computes this and `pulls.ts`

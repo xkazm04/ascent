@@ -163,6 +163,29 @@ CREATE TABLE "RepoTeam" (
 );
 
 -- CreateTable
+CREATE TABLE "AiChange" (
+    "id" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "prNumber" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "authorLogin" TEXT,
+    "authorIsBot" BOOLEAN NOT NULL DEFAULT false,
+    "aiSignal" TEXT NOT NULL,
+    "aiTools" TEXT NOT NULL DEFAULT '',
+    "state" TEXT NOT NULL,
+    "mergedAt" TIMESTAMP(3),
+    "approved" BOOLEAN NOT NULL DEFAULT false,
+    "approverLogin" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "reviewCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL,
+    "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AiChange_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Scan" (
     "id" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
@@ -469,6 +492,15 @@ CREATE INDEX "RepoTeam_repoId_idx" ON "RepoTeam"("repoId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RepoTeam_repoId_slug_key" ON "RepoTeam"("repoId", "slug");
+
+-- CreateIndex
+CREATE INDEX "AiChange_orgId_createdAt_idx" ON "AiChange"("orgId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "AiChange_orgId_approved_idx" ON "AiChange"("orgId", "approved");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AiChange_repoId_prNumber_key" ON "AiChange"("repoId", "prNumber");
 
 -- CreateIndex
 CREATE INDEX "Scan_repoId_idx" ON "Scan"("repoId");

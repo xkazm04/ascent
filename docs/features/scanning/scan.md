@@ -103,6 +103,14 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
 
 - `src/lib/analyze/pulls.ts:fetchPrStats` — recent PR stats over GraphQL (merge/review
   rates, time-to-merge, AI-involved/AI-governed rates, tool taxonomy). Folds into D6/D7/D8.
+  The same call also returns `aiChanges` — the **AI-change population** (`extractAiChanges`):
+  one evidence row per AI-attributed PR carrying the author, how it was identified
+  (`authored` by an agent vs `marked` by a human), the tools named, and **who approved it and
+  when**. Same detectors as the rates, so the row count always reconciles with
+  `aiInvolvedRate`. Persisted (never scored) as `AiChange`; costs no extra GitHub calls — the
+  PR nodes were already fetched and previously discarded. `approved: false` with a null
+  approver is the finding an auditor is looking for, and `reviewCount` distinguishes it from
+  "never reviewed at all".
 - `src/lib/github/governance.ts:fetchBranchGovernance` — branch protection + rulesets.
   Folds into D6/D3/D8. `fetchCommitActivity` adds 52-week commit history.
 

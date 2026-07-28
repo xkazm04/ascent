@@ -7,7 +7,7 @@ import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
 import { AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT } from "./ai-tools";
 import { SMALL_PR_MAX_LINES } from "./pr-thresholds";
-import type { DimensionSignals, Governance, PrStats } from "@/lib/types";
+import type { AiChangeRecord, DimensionSignals, Governance, PrStats } from "@/lib/types";
 
 // AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot"). Derived from the
 // single AI vocabulary (ai-tools.ts) so it can't drift from the commit/marker/counter detectors.
@@ -302,8 +302,75 @@ export async function fetchPrStats(
   token: string,
   signal?: AbortSignal,
   limit = 40,
-): Promise<{ stats: PrStats; partial: boolean }> {
+): Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] }> {
   const { totalCount, nodes, partial } = await fetchPullRequests(owner, repo, token, limit, signal);
   // `partial` is omitted upstream on a complete result, so coerce to a definite boolean here.
-  return { stats: summarizePullRequests(nodes, totalCount), partial: Boolean(partial) };
+  // The evidence rows come off the SAME nodes as the rates — one fetch, two readings, no extra cost.
+  return { stats: summarizePullRequests(nodes, totalCount), partial: Boolean(partial), aiChanges: extractAiChanges(nodes) };
+}
+
+// ── The AI-change population (evidence rows, not rates) ───────────────────────
+//
+// summarizePullRequests reduces these same nodes to percentages and discards the PRs. That is enough
+// to say "62% of AI PRs were approved" and NOT enough to answer the question an auditor actually asks:
+// show me the population of AI-assisted changes in the period, let me sample it, and evidence the
+// review control for each sampled item. Extracting the rows costs one more pass over data already in
+// memory — no extra GitHub calls.
+//
+// Deliberately kept as a PURE function beside the summarizer, so both readings of "is this PR
+// AI-involved" come from the same detectors and can never drift apart.
+
+/**
+ * The AI-involved subset of a PR page, as evidence rows.
+ *
+ * Detection is IDENTICAL to summarizePullRequests (same AI_AGENT / AI_MARKER / AI_TOOLS), so the
+ * population here always reconciles with the `aiInvolvedRate` shown next to it — a governance artifact
+ * whose row count disagreed with its own percentage would be worse than no artifact.
+ *
+ * The approver is the FIRST approving review in submission order, which is the reviewer who actually
+ * unblocked the merge. `approved: true` with a null `approverLogin` is a real case (deleted account),
+ * not an error — and is exactly why the boolean and the name are separate fields rather than one
+ * nullable name.
+ */
+export type { AiChangeRecord };
+
+export function extractAiChanges(nodes: PrNode[]): AiChangeRecord[] {
+  const out: AiChangeRecord[] = [];
+  for (const pr of nodes) {
+    const login = pr.author?.login ?? "";
+    const isBotAuthor = pr.author?.__typename === "Bot";
+    const haystack = `${login} ${pr.title} ${pr.bodyText?.slice(0, 1500) ?? ""} ${pr.labels.nodes
+      .map((l) => l.name)
+      .join(" ")}`;
+    const aiAuthored = isBotAuthor && AI_AGENT.test(login);
+    const aiMarked = AI_MARKER.test(haystack);
+    if (!aiAuthored && !aiMarked) continue;
+
+    // Earliest APPROVED review by submission time. A null submittedAt (a pending review) sorts last so
+    // it can never be picked as "the approval" ahead of a real, timestamped one.
+    const approvals = pr.reviews.nodes
+      .filter((r) => r.state === "APPROVED")
+      .sort((a, b) => (a.submittedAt ?? "\uffff").localeCompare(b.submittedAt ?? "\uffff"));
+    const first = approvals[0];
+
+    out.push({
+      prNumber: pr.number,
+      title: pr.title,
+      authorLogin: pr.author?.login ?? null,
+      authorIsBot: isBotAuthor,
+      // An agent-authored PR and a human-marked one carry very different governance weight, and it is
+      // the first thing asked about a sampled row — so record which test matched rather than re-deriving
+      // it later from a title regex that may have moved on.
+      aiSignal: aiAuthored ? "authored" : "marked",
+      aiTools: AI_TOOLS.filter((t) => t.re.test(haystack)).map((t) => t.name),
+      state: pr.state,
+      mergedAt: pr.mergedAt,
+      approved: Boolean(first),
+      approverLogin: first?.author?.login ?? null,
+      approvedAt: first?.submittedAt ?? null,
+      reviewCount: pr.reviews.totalCount,
+      createdAt: pr.createdAt,
+    });
+  }
+  return out;
 }
