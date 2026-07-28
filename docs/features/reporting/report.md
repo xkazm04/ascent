@@ -115,10 +115,31 @@ each save. When the DB isn't configured it degrades to the read-only `RoadmapSte
 returns `{ ok: true, report }` or `{ ok: false, error }`, catching truncated or
 schema-drifted payloads before they can crash a render.
 
+## Conformance ingest (`POST /api/report/conformance`)
+
+A repo's own `.ai/doctor.mjs` posts `{ repo, headSha?, score, fails, warns }` here; the route bounds
+the self-attested numbers (score 0-100, fails/warns 0-100 000, truncated to integers) and writes them
+onto the Repository row via `recordConformance`, which uses `headSha` to reject a stale re-run of a
+superseded commit (`{ stale: true }`).
+
+This is a **cross-tenant write**, so the credential must name the org it may write. Accepted, in order:
+
+| Credential | Binding |
+| --- | --- |
+| `Authorization: Bearer askl_…` (org API token, `telemetry:write` scope) | `authorizeOrgApi` refuses unless the token's org equals the owner of `repo` — a token for org A cannot post org B's score. **Preferred for CI.** |
+| Session cookie | `requireOrgAccess(owner)` — the interactive maintainer path. |
+| `Authorization: Bearer $CONFORMANCE_INGEST_TOKEN` | **Legacy, deprecated.** One deployment-wide value bound to no org, so any holder could overwrite any repo's score. Still accepted (live runners depend on it) but logs a warning on every use. |
+
+Set `CONFORMANCE_INGEST_STRICT=1` once every runner has moved to a per-org token: the legacy shared
+token is then refused with a 403 and only the two bound credentials work. Clamping applies on every
+path — the unattended reporter is not more trusted than a browser.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
+| `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. |
+| `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, Pro and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
 | `src/components/report/ReportView.tsx` | The full report render (all sections + trackers/panels). |
 | `src/components/report/Charts.tsx` | `ScoreRing`, `RadarChart`, `PostureQuadrant`. |
@@ -133,7 +154,6 @@ schema-drifted payloads before they can crash a render.
 
 ## Known gaps
 
-- **No PDF / export** of a single report — reports are shareable only as links.
 - **Textual, not semantic, diffing** — `norm()` collapses whitespace/case but won't equate
   reworded evidence ("uses GitHub Actions" vs "GitHub Actions detected").
 - **No LLM-reasoning drill-down** — `ProvenanceTrack` shows *that* the LLM adjusted a

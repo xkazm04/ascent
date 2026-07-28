@@ -33,6 +33,19 @@ export function authBypassEnabled(): boolean {
 }
 
 /**
+ * Whether the self-serve manual credit-grant endpoint (POST /api/org/credits/grant) is open —
+ * HARD-DISABLED in production, exactly like `authBypassEnabled` above, so a single stray
+ * `ASCENT_ALLOW_CREDIT_GRANTS` (misconfiguration, leaked env, a staging env reused for a real
+ * deployment) can never open a credit mint on a real deployment. In production, credits move ONLY via
+ * the Polar top-up webhook. The guard lives HERE, not at the route, so the flag has one definition and
+ * the production floor cannot be lost by a caller reading the raw env var instead.
+ */
+export function creditGrantsEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return envBool("ASCENT_ALLOW_CREDIT_GRANTS");
+}
+
+/**
  * Whether the login wall is actually enforced right now: Supabase configured AND the dev bypass off.
  * The COMPOSED predicate lives here (next/headers-free) alongside its two operands so the server gate
  * (src/lib/access.ts, which re-exports it) and the proxy's cookie-refresh decision (src/proxy.ts) share

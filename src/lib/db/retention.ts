@@ -29,6 +29,9 @@ import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 /** Audit action recorded by the purge job for each org it enforces a policy on. */
 export const PURGE_ACTION = "retention.purged";
 
+/** Audit action recorded by the ON-DEMAND erasure path ({@link eraseOrgData}) — the DSR trace. */
+export const ERASE_ACTION = "data.erased";
+
 const DAY_MS = 86_400_000;
 export const RETENTION_DEFAULT_BATCH_SIZE = 500;
 const RETENTION_MAX_BATCH_SIZE = 5000;
@@ -663,5 +666,221 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     stoppedEarly,
     orgsRemaining,
     dryRun: opts.dryRun === true,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// On-demand erasure (DSR / right-to-erasure)
+//
+// Retention above is SCHEDULE-only: an org's data leaves on the cron's timetable, which is not what a
+// GDPR Art.17 / SOC2 vendor-review checklist asks for ("erase my data on request, now"). eraseOrgData
+// is the owner-triggered counterpart, and it deliberately reuses the SAME primitives the cron uses —
+// pruneRepoScans (with a keep-window of 0, i.e. keep nothing) and pruneAudit — so the erasure path can
+// never drift from the delete graph the purge path maintains (grandchildren → children → parent, no FK
+// cascades under relationMode = "prisma"), and inherits its DSQL batching + conflict retries for free.
+//
+// BOUNDED, exactly like the cron: every delete is a small batched transaction (never one mega-tx), the
+// repo enumeration is cursor-paged, and a wall-clock budget is polled between repos and between delete
+// batches. An org too large to drain inside one request stops at a batch boundary and returns
+// `complete: false` — every committed batch is durable, so the caller simply calls again to resume.
+// This is why the endpoint is idempotent and safe to repeat.
+//
+// AUDIT ORDERING (deliberate): the erase entry is written AFTER the deletes, never before. An
+// org-scoped audit sweep here has NO date cutoff — it removes every AuditLog row for the org — so an
+// entry written first would be deleted by the very operation it documents, leaving an erasure with no
+// trace. Writing last means the `data.erased` row is the ONLY audit row that survives an
+// audit-including erasure: the trail is emptied, and the record of why is what remains. The trade-off
+// is that a crash between the deletes and the audit write loses the trace (the deletes still stand);
+// the caller surfaces that as `audited: false` rather than reporting a clean success.
+
+/** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
+ *  config to be a literal, so the route can't import this — a route test pins the two together instead
+ *  (same contract as {@link PURGE_MAX_DURATION_S}). */
+export const ERASE_MAX_DURATION_S = 60;
+/** Headroom before the declared cap so a large erase stops at a batch boundary and can still answer. */
+export const ERASE_BUDGET_HEADROOM_MS = 10_000;
+/** Default wall-clock budget for one erase call, DERIVED from the route's declared cap. */
+export const ERASE_DEFAULT_TIME_BUDGET_MS = ERASE_MAX_DURATION_S * 1000 - ERASE_BUDGET_HEADROOM_MS;
+
+/** What one erase call should remove. */
+export interface EraseRequest {
+  /** Org slug (the tenant being erased). */
+  orgSlug: string;
+  /** Repo-scoped variant: erase only this `owner/name`'s scans. Audit is never repo-scoped, so an
+   *  audit sweep is not available (and not attempted) for this variant. */
+  repoFullName?: string;
+  /** Org-scope only: also erase the org's ENTIRE audit trail (no date cutoff). Off by default —
+   *  destroying the compliance trail is a separate, explicit ask from erasing scan data. */
+  includeAudit?: boolean;
+  actorId?: string;
+  /** Rows deleted per batch; clamped through {@link clampBatchSize}. */
+  batchSize?: number;
+  /** Wall-clock budget (ms); `0` = unlimited, matching the module's 0-sentinel. */
+  timeBudgetMs?: number;
+  /** Injectable clock (tests). */
+  now?: () => number;
+}
+
+/** What an erase call actually removed. */
+export interface EraseResult {
+  orgSlug: string;
+  scope: "org" | "repo";
+  repoFullName?: string;
+  /** Repos whose scan graph was walked this call (1 for the repo-scoped variant). */
+  reposProcessed: number;
+  scansDeleted: number;
+  dimensionsDeleted: number;
+  recommendationsDeleted: number;
+  recommendationEventsDeleted: number;
+  auditDeleted: number;
+  /** True when the wall-clock budget stopped this call at a batch boundary — call again to resume. */
+  stoppedEarly: boolean;
+  /** True when everything in scope was erased in this call (`!stoppedEarly`). */
+  complete: boolean;
+  /** False when the `data.erased` trace could not be written (deletes still stand — see the ordering
+   *  note above). Callers must surface this rather than reporting a clean success. */
+  audited: boolean;
+}
+
+/** Erase outcome: a refusal the caller maps to an HTTP status, or the result of a performed erase. */
+export type EraseOutcome =
+  | { ok: false; reason: "no-db" | "unknown-org" | "unknown-repo" }
+  | ({ ok: true } & EraseResult);
+
+/** Scan-DERIVED caches denormalized onto Repository. Erasing the scans without clearing these would
+ *  leave the analysis (tech stack, passport, head pins, last-attempt status) readable on the dashboard
+ *  after an "erasure" — so they are reset as part of the same operation. Owner-AUTHORED config
+ *  (watch flag, schedule, segment tags, passport overrides) is configuration, not scan output, and is
+ *  left alone: erasure removes the data, it does not silently unconfigure the tenant. */
+const ERASED_REPO_CACHE_RESET = {
+  techStackJson: null,
+  passportJson: null,
+  headSha: null,
+  headEtag: null,
+  lastScanAt: null,
+  lastScanStatus: null,
+  lastScanError: null,
+  lastScanAttemptAt: null,
+} as const;
+
+/**
+ * Owner-triggered, on-demand erasure of a tenant's scan data (and optionally its audit trail).
+ *
+ * Reuses the cron's pruneRepoScans/pruneAudit primitives with a keep-window of 0 and no date cutoff.
+ * Bounded and resumable (see the section header); writes a `data.erased` audit entry LAST so the trace
+ * survives an audit-including erasure. Never deletes the Organization / Repository / Membership rows
+ * themselves — the tenant keeps existing, it just has no analysis history left.
+ */
+export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
+  if (!isDbConfigured()) return { ok: false, reason: "no-db" };
+  const prisma = getPrisma();
+  const now = req.now ?? Date.now;
+  const startedAt = now();
+  const batchSize = clampBatchSize(req.batchSize ?? null);
+  const timeBudgetMs = req.timeBudgetMs ?? ERASE_DEFAULT_TIME_BUDGET_MS;
+  const overBudget = () => timeBudgetMs > 0 && now() - startedAt >= timeBudgetMs;
+
+  const slug = req.orgSlug.trim().toLowerCase();
+  const org = await prisma.organization.findUnique({ where: { slug }, select: { id: true } });
+  if (!org) return { ok: false, reason: "unknown-org" };
+
+  const repoFullName = req.repoFullName?.trim();
+  const scope: "org" | "repo" = repoFullName ? "repo" : "org";
+
+  let reposProcessed = 0;
+  let scansDeleted = 0;
+  let dimensionsDeleted = 0;
+  let recommendationsDeleted = 0;
+  let recommendationEventsDeleted = 0;
+  let auditDeleted = 0;
+  let stoppedEarly = false;
+
+  // Erase ONE repo's scan graph + reset its scan-derived caches. Each batch inside pruneRepoScans is
+  // its own committed transaction (bounded); the cache reset follows the deletes so a mid-erase stop
+  // never leaves "no scans but a stale passport" — worst case the caches are reset on the resume call.
+  const eraseRepo = async (repoId: string) => {
+    const r = await pruneRepoScans(prisma, repoId, 0, batchSize, overBudget);
+    scansDeleted += r.scans;
+    dimensionsDeleted += r.dimensions;
+    recommendationsDeleted += r.recommendations;
+    recommendationEventsDeleted += r.events;
+    reposProcessed++;
+    await withRetry(() => prisma.repository.update({ where: { id: repoId }, data: { ...ERASED_REPO_CACHE_RESET } }), {
+      label: "erase.reset-repo-cache",
+    });
+  };
+
+  if (repoFullName) {
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId: org.id, fullName: repoFullName } },
+      select: { id: true },
+    });
+    if (!repo) return { ok: false, reason: "unknown-repo" };
+    await eraseRepo(repo.id);
+    if (overBudget()) stoppedEarly = true;
+  } else {
+    // Cursor-paged repo enumeration (never one unbounded read), budget polled between repos.
+    let repoCursor: string | undefined;
+    repoPages: for (;;) {
+      const repos = await prisma.repository.findMany({
+        where: { orgId: org.id },
+        orderBy: { id: "asc" },
+        select: { id: true },
+        take: REPO_PAGE_SIZE,
+        ...(repoCursor ? { cursor: { id: repoCursor }, skip: 1 } : {}),
+      });
+      if (repos.length === 0) break;
+      for (const repo of repos) {
+        if (overBudget()) {
+          stoppedEarly = true;
+          break repoPages;
+        }
+        await eraseRepo(repo.id);
+      }
+      if (repos.length < REPO_PAGE_SIZE) break;
+      repoCursor = repos[repos.length - 1]!.id;
+    }
+
+    // Audit trail: org-scoped, NO date cutoff (this is erasure, not retention). Opt-in, and skipped
+    // once the budget is spent so the resume call does it instead.
+    if (req.includeAudit && !stoppedEarly) {
+      auditDeleted = await pruneAudit(prisma, { orgId: org.id }, batchSize, overBudget);
+      if (overBudget()) stoppedEarly = true;
+    }
+  }
+
+  // Written LAST, on purpose — see the AUDIT ORDERING note above. This row is what remains of the
+  // trail after an audit-including erasure.
+  const audited = await recordAudit(
+    ERASE_ACTION,
+    {
+      scope,
+      ...(repoFullName ? { repo: repoFullName } : {}),
+      includeAudit: scope === "org" && req.includeAudit === true,
+      reposProcessed,
+      scansDeleted,
+      dimensionsDeleted,
+      recommendationsDeleted,
+      recommendationEventsDeleted,
+      auditDeleted,
+      complete: !stoppedEarly,
+    },
+    { orgId: org.id, actorId: req.actorId },
+  );
+
+  return {
+    ok: true,
+    orgSlug: slug,
+    scope,
+    ...(repoFullName ? { repoFullName } : {}),
+    reposProcessed,
+    scansDeleted,
+    dimensionsDeleted,
+    recommendationsDeleted,
+    recommendationEventsDeleted,
+    auditDeleted,
+    stoppedEarly,
+    complete: !stoppedEarly,
+    audited,
   };
 }

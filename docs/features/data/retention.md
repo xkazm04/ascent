@@ -72,6 +72,59 @@ delete (per-repo stale-scan totals, in-window audit rows) without deleting anyth
 an audit entry; the summary carries `dryRun: true`. The safety floor above is not enforced in
 a dry run.
 
+## On-demand erasure (DSR / right-to-erasure)
+
+Retention above is **schedule-only** — data leaves on the cron's timetable. `POST /api/org/erase`
+is the owner-triggered counterpart an enterprise/regulated buyer's vendor review expects (GDPR
+Art. 17, SOC 2): erase this tenant's data *now*.
+
+```jsonc
+// org-wide
+POST /api/org/erase  { "org": "acme", "confirm": "acme", "includeAudit": false }
+// one repo
+POST /api/org/erase  { "org": "acme", "repo": "acme/api", "confirm": "acme/api" }
+```
+
+The route follows the org-API convention (tenant in the body, no `[slug]` path segment) like every
+sibling under `src/app/api/org`. Three guards, in order:
+
+1. **Same-origin** (`requireSameOrigin`) — CSRF. The session cookie is only `SameSite=Lax`, which
+   does not stop a cross-site form POST, and a bare cross-site POST must never be able to erase a
+   tenant. Same helper the other destructive/money-adjacent routes use.
+2. **Typed confirmation** — `confirm` must echo the *target's own name*: the org slug (matched
+   case-insensitively, as slugs are everywhere) or, for the repo variant, the repo's exact full name.
+   A `{ org }`-only payload is a `400` before any authz work, so an accidental or replayed POST
+   deletes nothing. Confirming an org-wide erase can never be satisfied by a repo-scoped payload.
+3. **Owner role** (`requireOrgRole(org, "owner")`) — irreversible, so not a member action.
+
+`eraseOrgData()` (`src/lib/db/retention.ts`) then reuses the cron's own primitives — `pruneRepoScans`
+with a keep-window of **0** (keep nothing) and `pruneAudit` with **no date cutoff** — so the erasure
+path can never drift from the delete graph the purge maintains, and inherits its DSQL batching and
+conflict retries.
+
+- **Scope.** Scans + dimensions + recommendations + recommendation events for the org's repos, plus
+  the *scan-derived caches* denormalized onto `Repository` (`techStackJson`, `passportJson`,
+  `headSha`/`headEtag`, `lastScan*`) — otherwise an "erased" repo would still render its cached
+  passport. Owner-authored configuration (watch flag, schedule, segment tags, passport overrides) and
+  the `Organization` / `Repository` / `Membership` rows themselves are **kept**: erasure removes the
+  data, it does not unconfigure or delete the tenant.
+- **Audit trail.** Erased only with `includeAudit: true`, and org scope only (audit rows are not
+  repo-scoped). Destroying compliance evidence is a separate, explicit ask from erasing scan data.
+- **Bounded + resumable.** Never one mega-transaction: every delete is a small batched transaction,
+  the repo enumeration is cursor-paged, and a wall-clock budget (`ERASE_MAX_DURATION_S` − headroom,
+  mirroring the cron's derivation and pinned to the route's `maxDuration` by a test) is polled
+  between repos and between batches. A tenant too large for one request stops at a batch boundary and
+  returns `complete: false` — every committed batch is durable, so **repeating the identical request
+  resumes** it (the endpoint is idempotent).
+- **Audit ordering.** The `data.erased` entry is written **after** the deletes, never before. An
+  org-scoped audit sweep here has no cutoff, so an entry written first would be deleted by the very
+  operation it documents; written last, it is the *only* audit row that survives an audit-including
+  erasure — the trail is emptied and the record of why remains. The trade-off: a crash between the
+  deletes and the audit write loses the trace, which surfaces as `audited: false`.
+- **Status mapping.** `200` on a complete, audited erasure; **`207`** when it stopped early
+  (`resumable: true`) or the `data.erased` write failed — "mostly erased" and "erased with no record"
+  are degraded outcomes a caller must act on, not green results; `404` unknown org/repo, `503` no DB.
+
 ## Return shape (`PurgeSummary`)
 
 ```ts
@@ -100,13 +153,16 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
 | File | Role |
 | --- | --- |
 | `src/app/api/cron/purge/route.ts` | Route handler: auth, DB-configured gate, dry-run flag, degraded-status (207) mapping. |
-| `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated). |
-| `src/lib/db/retention.test.ts` | Policy + purge tests. |
+| `src/app/api/org/erase/route.ts` | On-demand DSR erasure: CSRF + typed-confirmation + owner gates, 207 degraded mapping. |
+| `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`. |
+| `src/lib/db/retention.test.ts` | Policy + purge + erasure tests. |
 
 ## Known gaps
 
 - **With no retention env set, nothing is deleted** — existing deployments keep all
-  history by default (opt-in).
+  history by default (opt-in). On-demand erasure (above) does not depend on a policy.
+- **Erasure keeps the tenant's shell** — `Organization`, `Repository`, `Membership` and
+  owner-authored config rows survive an erase; there is no "close the account" endpoint yet.
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this
   doc covers the handler and purge mechanics, not the cadence.
 - The round-robin rotation's "every org reached within N ticks" guarantee assumes exactly one

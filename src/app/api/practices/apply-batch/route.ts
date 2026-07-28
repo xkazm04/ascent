@@ -1,5 +1,5 @@
 // POST /api/practices/apply-batch  { repos: ["owner/name", ...], practiceId, base? }
-//   -> { results: [{ repo, ok, url?, number?, reused?, error? }], attempted, skipped }
+//   -> { results: [{ repo, ok, url?, reused?, error? }], attempted, skipped }
 // Fleet rollout of the "systematic apply" step: open a draft PR seeding a practice's leak-free
 // starter into EVERY gap repo in one action, instead of clicking through a dropdown N times. Same
 // trust model as /api/practices/apply (App installed + signed-in + org-owned) — all repos must
@@ -7,15 +7,16 @@
 // hammer GitHub or trip the function timeout. One bad repo never aborts the rest.
 
 import { NextResponse } from "next/server";
-import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgAccess } from "@/lib/authz";
-import { requirePrWriteContext } from "@/lib/github/pr-route";
+import { requireOrgRole } from "@/lib/authz";
+import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
+import type { BatchResult } from "@/components/org/practices/practice-apply-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,15 +24,6 @@ export const maxDuration = 120;
 
 /** Cap a single batch so one click can't open hundreds of PRs / run past the function ceiling. */
 const MAX_BATCH = 25;
-
-interface RepoResult {
-  repo: string;
-  ok: boolean;
-  url?: string;
-  number?: number;
-  reused?: boolean;
-  error?: string;
-}
 
 export async function POST(request: Request) {
   if (!isAppConfigured()) {
@@ -67,8 +59,10 @@ export async function POST(request: Request) {
   }
   const owner = parsed[0]!.ref.owner;
 
-  // Tenant gate: this opens PRs (WRITES) with the org's installation token — require org ownership.
-  const denied = await requireOrgAccess(owner);
+  // Tenant gate: this opens PRs (WRITES) with the org's installation token — require at least the
+  // "admin" role, matching other org-wide mutations of comparable blast radius (segment delete,
+  // credit grants), not merely "member".
+  const denied = await requireOrgRole(owner, "admin");
   if (denied) return denied;
 
   // Dedupe before the cap: the API is a public surface (the UI sends from a Set, but a raw caller
@@ -94,7 +88,7 @@ export async function POST(request: Request) {
     const orgId = (await getOrgId(owner.toLowerCase()).catch(() => null)) ?? undefined;
 
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.
-    const results = await mapPool<typeof batch[number], RepoResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
+    const results = await mapPool<typeof batch[number], BatchResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
       try {
         const result = await applyPracticeToRepo(token, ref, body.practiceId!, body.base, {
           orgId,
@@ -110,15 +104,13 @@ export async function POST(request: Request) {
           return { repo: result.ctx.fullName, ok: false, error: "Content changed since preview — re-preview." };
         }
         const { pr, ctx } = result;
-        return { repo: ctx.fullName, ok: true, url: pr.url, number: pr.number, reused: pr.reused };
+        return { repo: ctx.fullName, ok: true, url: pr.url, reused: pr.reused };
       } catch (err) {
-        let msg = "Failed to open the starter PR.";
-        if (err instanceof AppApiError) {
-          msg = err.status === 403 ? "Installation lacks contents/PR write access." : "GitHub rejected the write.";
-        } else if (err instanceof GitHubError) {
-          msg = err.message;
-        }
-        return { repo: raw, ok: false, error: msg };
+        // Single-sourced with the other PR-write routes' error mapping (@/lib/github/pr-route); only
+        // the message is used here (the aggregate response is a 200 whatever the per-repo mix), unlike
+        // mapPrWriteError's callers which map the whole route to one HTTP status.
+        const classified = classifyPrWriteError(err);
+        return { repo: raw, ok: false, error: classified?.message ?? "Failed to open the starter PR." };
       }
     });
 

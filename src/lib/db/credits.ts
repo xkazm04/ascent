@@ -7,7 +7,7 @@
 // flow (Polar checkout + webhook) is src/app/api/billing/* and docs/features/billing/billing.md.
 
 import { randomUUID } from "node:crypto";
-import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
+import { getPrisma, isDbConfigured, isP2002Error, withRetry } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isUnlimitedPlan, resolveScanCharge } from "@/lib/plans";
 
@@ -91,11 +91,13 @@ export async function getCreditState(orgSlug: string): Promise<CreditState> {
   return { balance: org.scanCredits ?? 0, plan, unlimited: isUnlimitedPlan(plan), orgExists: true };
 }
 
-/** Prisma "unique constraint failed" (P2002) — here, a duplicate externalId from a webhook redelivery. */
+/** Prisma "unique constraint failed" (P2002) — here, a duplicate externalId from a webhook redelivery.
+ *  Delegates to the general {@link isP2002Error} (db/client.ts): this file's tests exercise it with
+ *  plain-object error doubles (not real `PrismaClientKnownRequestError` instances), so it deliberately
+ *  keeps the duck-typed, non-instanceof check rather than the stricter `isUniqueConstraintError` used
+ *  by the scans persist path. */
 function isDuplicateExternalId(err: unknown): boolean {
-  return (
-    typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "P2002"
-  );
+  return isP2002Error(err);
 }
 
 /**
@@ -398,6 +400,29 @@ export async function consumeScanCredit(
     }
     throw err;
   }
+}
+
+/**
+ * NET credits an org has ever minted through the MANUAL (self-serve, owner-gated) grant endpoint —
+ * the persisted basis for its lifetime grant cap (`/api/org/credits/grant`). Sums the ledger rows the
+ * manual path writes (`grant` / `adjustment`) and nothing else: Polar top-ups (`polar`), scan debits
+ * (`scan`), scan refunds (`refund`) and Polar clawbacks (`polar-refund`) are all deliberately excluded,
+ * so a paying org's purchases never consume its manual-grant headroom.
+ *
+ * NET, not gross: a negative `adjustment` is a genuine reversal of a manual grant (it can only remove
+ * credits the org still holds — `grantCredits` clamps a debit to the balance), so it restores exactly
+ * the headroom it gave back. Credits that were SPENT are stamped `scan`, so spending them never frees
+ * headroom — an owner cannot loop grant → spend → grant to mint past the cap. 0 when no DB / unknown org.
+ */
+export async function sumManualGrants(orgSlug: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return 0;
+  const agg = await getPrisma().creditLedger.aggregate({
+    where: { orgId, reason: { in: [CREDIT_REASON.GRANT, CREDIT_REASON.ADJUSTMENT] } },
+    _sum: { delta: true },
+  });
+  return agg._sum.delta ?? 0;
 }
 
 /** Set an org's plan tier (owner-gated at the route). Returns false for an unknown org / no DB. */

@@ -4,10 +4,13 @@
 // Repository row that every org-dashboard aggregate reads. It had no direct test, and it carries three
 // separately load-bearing behaviors:
 //
-//  1. AUTH — a deployment-wide CI token (the unattended doctor/CI path) OR an interactive org owner.
-//     The token path must be an EXACT match against a CONFIGURED token: if the deployment sets no
-//     token, no bearer may authenticate, and the org gate must still run. A denied caller must never
-//     reach the write — this is a cross-tenant write, not just a read.
+//  1. AUTH — an ORG-SCOPED API token (askl_…, telemetry:write), an interactive org owner, or the
+//     legacy deployment-wide CI token. The org token must be bound to the org being written: a token
+//     for org A may not post org B's score (the G2-02 finding). The legacy shared token stays
+//     accepted for back-compat unless CONFORMANCE_INGEST_STRICT is set, and it must still be an EXACT
+//     match against a CONFIGURED token: if the deployment sets no token, no bearer may authenticate,
+//     and the org gate must still run. A denied caller must never reach the write — this is a
+//     cross-tenant write, not just a read.
 //  2. CLAMPING — the post-security-finding bound on the self-attested values. Without it a buggy or
 //     hostile reporter persists score=999999 (or a negative) and poisons every aggregate downstream.
 //     It must hold on BOTH auth paths, the CI-token one included.
@@ -27,16 +30,28 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn() }));
-vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(), recordConformance: vi.fn() }));
+// authz + the db seam are mocked; `@/lib/api-token-auth` is REAL, so the org-binding rule under test
+// is the shipped one (it resolves the bearer via verifyOrgApiToken and compares to the repo's owner).
+vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(), requireOrgRead: vi.fn() }));
+vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn() }));
+vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(), recordConformance: vi.fn(), verifyOrgApiToken: vi.fn() }));
 
 import { POST } from "./route";
 import { requireOrgAccess } from "@/lib/authz";
-import { isDbConfigured, recordConformance } from "@/lib/db";
+import { isDbConfigured, recordConformance, verifyOrgApiToken } from "@/lib/db";
 
 const mockRequireOrgAccess = vi.mocked(requireOrgAccess);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockRecord = vi.mocked(recordConformance);
+const mockVerifyToken = vi.mocked(verifyOrgApiToken);
+
+/** A verified org token principal, as verifyOrgApiToken would return it. */
+const orgToken = (orgSlug: string, scopes: string[] = ["telemetry:write"]) => ({
+  tokenId: "tok_1",
+  orgSlug,
+  name: "ci",
+  scopes: scopes as never,
+});
 
 const deny = (status: number) => new Response(JSON.stringify({ error: "denied" }), { status });
 
@@ -58,9 +73,88 @@ beforeEach(() => {
   mockIsDbConfigured.mockReturnValue(true);
   mockRequireOrgAccess.mockResolvedValue(null); // allowed
   mockRecord.mockResolvedValue({ recorded: true, stale: false });
+  mockVerifyToken.mockResolvedValue(null);
 });
 
 afterEach(() => vi.unstubAllEnvs());
+
+describe("POST /api/report/conformance — org-scoped API token (G2-02: a token may only write its own org)", () => {
+  it("accepts an askl_ token whose org owns the repo, and skips the session gate", async () => {
+    mockVerifyToken.mockResolvedValue(orgToken("acme"));
+
+    const res = await post(OK, { authorization: "Bearer askl_acme" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null });
+  });
+
+  it("REFUSES to write another org's score with a valid token bound elsewhere", async () => {
+    mockVerifyToken.mockResolvedValue(orgToken("acme")); // token belongs to acme…
+
+    // …but the body names victim
+    const res = await post({ ...OK, repo: "victim/api", score: 0 }, { authorization: "Bearer askl_acme" });
+
+    expect(res.status).toBe(403);
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("refuses a token that lacks the telemetry:write scope", async () => {
+    mockVerifyToken.mockResolvedValue(orgToken("acme", ["skills:read"]));
+
+    const res = await post(OK, { authorization: "Bearer askl_acme" });
+
+    expect(res.status).toBe(403);
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invalid/revoked askl_ token instead of falling back to the session", async () => {
+    mockVerifyToken.mockResolvedValue(null);
+
+    const res = await post(OK, { authorization: "Bearer askl_revoked" });
+
+    expect(res.status).toBe(401);
+    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("does not let an askl_ token bypass the org bind even if it equals the legacy shared token", async () => {
+    vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "askl_shared");
+    mockVerifyToken.mockResolvedValue(orgToken("acme"));
+
+    const res = await post({ ...OK, repo: "victim/api" }, { authorization: "Bearer askl_shared" });
+
+    expect(res.status).toBe(403);
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("clamps on the org-token path too", async () => {
+    mockVerifyToken.mockResolvedValue(orgToken("acme"));
+    await post({ ...OK, score: 999 }, { authorization: "Bearer askl_acme" });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3, headSha: null });
+  });
+});
+
+describe("POST /api/report/conformance — CONFORMANCE_INGEST_STRICT retires the shared token", () => {
+  it("rejects the legacy shared token with 403 when strict mode is on", async () => {
+    vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
+    vi.stubEnv("CONFORMANCE_INGEST_STRICT", "1");
+
+    const res = await post({ ...OK, repo: "victim/api" }, { authorization: "Bearer s3cret" });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("CONFORMANCE_INGEST_STRICT") });
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("still accepts a properly bound org token in strict mode", async () => {
+    vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
+    vi.stubEnv("CONFORMANCE_INGEST_STRICT", "1");
+    mockVerifyToken.mockResolvedValue(orgToken("acme"));
+
+    expect((await post(OK, { authorization: "Bearer askl_acme" })).status).toBe(200);
+  });
+});
 
 describe("POST /api/report/conformance — auth (CI token vs org access)", () => {
   it("accepts an exact CI-token bearer and SKIPS the interactive org gate", async () => {

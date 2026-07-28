@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { acceptInvite, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { getSession, isAuthConfigured, isSameOrigin } from "@/lib/auth";
+import { getSession, isAuthConfigured, requireSameOrigin } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -20,9 +20,8 @@ export async function POST(request: Request) {
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, reason: "db", error: "Invites require a database." }, { status: 503 });
   }
-  if (!isSameOrigin(request)) {
-    return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  }
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   // Resolve the accepting identity from whichever auth is active: the Supabase login wall (getViewer —
   // carries the VERIFIED email used to bind an email-only invite) or the dormant custom OAuth. The old
   // route gated only on the custom session, so under the Supabase wall (the documented prod config)

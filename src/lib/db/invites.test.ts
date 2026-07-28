@@ -34,7 +34,7 @@ vi.mock("@/lib/db/members", async (orig) => {
 import { acceptInvite } from "./invites";
 
 /** Fake prisma for the invite rows: a pending, unexpired, unpinned invite for org "acme". */
-function fakeInvitePrisma(opts: { role?: string } = {}) {
+function fakeInvitePrisma(opts: { role?: string; email?: string | null } = {}) {
   const statusFlips: Array<{ where: { status: string }; to: string }> = [];
   const prisma = {
     invite: {
@@ -44,7 +44,7 @@ function fakeInvitePrisma(opts: { role?: string } = {}) {
         expiresAt: new Date(Date.now() + 60_000),
         role: opts.role ?? "viewer",
         githubLogin: null,
-        email: null,
+        email: opts.email ?? null,
         org: { slug: "acme" },
       })),
       updateMany: vi.fn(async (args: { where: { status: string }; data: { status: string } }) => {
@@ -106,6 +106,45 @@ describe("acceptInvite — never downgrade an existing member", () => {
     const res = await acceptInvite("tok", { login: "dave" });
 
     expect(res).toEqual({ ok: true, org: "acme", role: "member" });
+  });
+});
+
+// The email pin is only as strong as the address getViewer hands over. getViewer now omits the email
+// entirely when Supabase has NOT confirmed it (src/lib/access.ts), so an attacker holding an
+// unconfirmed victim@example.com account reaches acceptInvite with NO email and lands here — the
+// closed branch — instead of matching the victim's pin and joining their org.
+describe("acceptInvite — an email-pinned invite binds to a confirmed address only", () => {
+  it("refuses (wrong_email) when the viewer carries no email — the unconfirmed-account case", async () => {
+    const { prisma, statusFlips } = fakeInvitePrisma({ role: "admin", email: "victim@example.com" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await acceptInvite("tok", { login: "attacker" });
+
+    expect(res).toEqual({ ok: false, reason: "wrong_email" });
+    expect(mockSetMembershipRole).not.toHaveBeenCalled();
+    expect(statusFlips).toEqual([]); // the invite is not even consumed
+  });
+
+  it("refuses (wrong_email) when the viewer's confirmed email is a DIFFERENT address", async () => {
+    const { prisma } = fakeInvitePrisma({ role: "admin", email: "victim@example.com" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await acceptInvite("tok", { login: "attacker", email: "attacker@example.com" });
+
+    expect(res).toEqual({ ok: false, reason: "wrong_email" });
+    expect(mockSetMembershipRole).not.toHaveBeenCalled();
+  });
+
+  it("grants when the viewer's confirmed email matches the pin (case/space-insensitively)", async () => {
+    const { prisma } = fakeInvitePrisma({ role: "admin", email: "victim@example.com" });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockSetMembershipRole.mockResolvedValue("ok");
+
+    const res = await acceptInvite("tok", { login: "victim", email: "  Victim@Example.com " });
+
+    expect(res).toEqual({ ok: true, org: "acme", role: "admin" });
+    expect(mockSetMembershipRole).toHaveBeenCalledWith("acme", "victim", "admin");
   });
 });
 

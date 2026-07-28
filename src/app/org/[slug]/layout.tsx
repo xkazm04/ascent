@@ -12,7 +12,7 @@ import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { creditPacks, polarEnabled } from "@/lib/polar";
-import { envBool } from "@/lib/env";
+import { creditGrantsEnabled } from "@/lib/env";
 import { scanAllowance } from "@/lib/plans";
 import { levelForScore } from "@/lib/maturity/model";
 
@@ -163,7 +163,9 @@ export default async function OrgLayout({
   const watched = summary.watchedCount;
   const level = levelForScore(summary.avgOverall);
 
-  const grantsEnabled = envBool("ASCENT_ALLOW_CREDIT_GRANTS");
+  // Must match the endpoint's own gate (creditGrantsEnabled hard-disables in production), or the
+  // control renders for an owner whose every submission then 403s.
+  const grantsEnabled = creditGrantsEnabled();
   // Polar credit purchase (CRED-1): show the "Buy credits" packs when billing is configured. The packs
   // are plain serializable data; the SDK stays server-side (CreditsControl declares its own Pack type).
   const buyEnabled = polarEnabled();

@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -33,7 +33,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOriginPost = requireSameOrigin(request);
+  if (crossOriginPost) return crossOriginPost;
   const body = (await request.json().catch(() => ({}))) as { org?: string; role?: string; email?: string; githubLogin?: string };
   if (!body.org || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
@@ -83,7 +84,8 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOriginDelete = requireSameOrigin(request);
+  if (crossOriginDelete) return crossOriginDelete;
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org");
   const id = searchParams.get("id");

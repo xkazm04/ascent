@@ -22,6 +22,10 @@ export interface OpenPrRef {
   prUrl: string;
 }
 
+// Single-sourced with the server (src/app/api/practices/apply-batch/route.ts imports this type). It
+// used to declare its own equivalent `RepoResult` including a `number` (PR number) field that no
+// client ever read — confirmed by a repo-wide grep of PracticeApplyBatch.tsx / PracticeApplyBatchResults
+// before dropping it, so it shipped on the wire for nothing.
 export interface BatchResult {
   repo: string;
   ok: boolean;

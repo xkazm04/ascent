@@ -49,32 +49,50 @@ export async function requirePrWriteContext(org: string): Promise<{ token: strin
 }
 
 /**
- * Map a thrown PR-write error to the route's HTTP response. `AppApiError` → 403/404/409 passed through
- * (else 502) with the matching hint; `GitHubError` → its own status (default 502) + message; anything
- * else → a logged generic 500. The 409 branch (a base-file collision openDraftPr refuses to clobber)
- * is included for every caller — single-sourcing it fixed playbooks/apply, which previously dropped 409
- * to a 502 "write rejected". `genericError` is the route's 500 copy; `conflict` overrides the 409 hint
- * (passport/pr surfaces the AppApiError's own message instead of the generic "won't overwrite" copy).
+ * Classify a thrown PR-write error into a status + user-facing message, WITHOUT wrapping it in a
+ * NextResponse or handling the "anything else" case — each call site owns its own generic-error
+ * message and logging tag for that branch (`null` return here means "not an AppApiError/GitHubError,
+ * you handle it"). `AppApiError` → 403/404/409 passed through (else 502) with the matching hint;
+ * `GitHubError` → its own status (default 502) + message. The 409 branch (a base-file collision
+ * openDraftPr refuses to clobber) is included for every caller — single-sourcing it fixed
+ * playbooks/apply, which previously dropped 409 to a 502 "write rejected". `conflict` overrides the
+ * 409 hint (passport/pr surfaces the AppApiError's own message instead of the generic "won't
+ * overwrite" copy). Shared by {@link mapPrWriteError} (single-error routes, whole-route 500 response)
+ * and apply-batch's per-repo worker (aggregates many classified errors into one 200 response).
+ */
+export function classifyPrWriteError(
+  err: unknown,
+  opts?: { conflict?: (err: AppApiError) => string },
+): { status: number; message: string } | null {
+  if (err instanceof AppApiError) {
+    const status = err.status === 403 || err.status === 404 || err.status === 409 ? err.status : 502;
+    const message =
+      status === 409
+        ? opts?.conflict
+          ? opts.conflict(err)
+          : CONFLICT_DEFAULT
+        : status === 403
+          ? NO_WRITE_SCOPE
+          : WRITE_REJECTED;
+    return { status, message };
+  }
+  if (err instanceof GitHubError) {
+    return { status: err.status ?? 502, message: err.message };
+  }
+  return null;
+}
+
+/**
+ * Map a thrown PR-write error to the route's HTTP response. Delegates the AppApiError/GitHubError
+ * classification to {@link classifyPrWriteError}; anything else → a logged generic 500. `genericError`
+ * is the route's 500 copy; `conflict` overrides the 409 hint (see classifyPrWriteError).
  */
 export function mapPrWriteError(
   err: unknown,
   opts: { tag: string; genericError: string; conflict?: (err: AppApiError) => string },
 ): NextResponse {
-  if (err instanceof AppApiError) {
-    const status = err.status === 403 || err.status === 404 || err.status === 409 ? err.status : 502;
-    const hint =
-      err.status === 409
-        ? opts.conflict
-          ? opts.conflict(err)
-          : CONFLICT_DEFAULT
-        : err.status === 403
-          ? NO_WRITE_SCOPE
-          : WRITE_REJECTED;
-    return NextResponse.json({ error: hint }, { status });
-  }
-  if (err instanceof GitHubError) {
-    return NextResponse.json({ error: err.message }, { status: err.status ?? 502 });
-  }
+  const classified = classifyPrWriteError(err, opts);
+  if (classified) return NextResponse.json({ error: classified.message }, { status: classified.status });
   console.error(`[${opts.tag}] failed`, err);
   return NextResponse.json({ error: opts.genericError }, { status: 500 });
 }

@@ -53,6 +53,11 @@ writes).
 
 - GitHub App installed with `contents: write` + `pull_requests: write` (else `503`).
 - If auth is configured, a signed-in session (else `401`).
+- Caller holds at least the **admin** role in the target org (`requireOrgRole(owner,
+  "admin")`, else `403`) — this route pushes a branch/commit and opens a draft PR into a
+  real customer repo using the org's installation token, so it requires the same floor as
+  other mutations of comparable blast radius (segment delete, credit grants), not merely
+  "member". The batch route (below) applies the same gate.
 - Ascent installed on `owner` (`getInstallationIdForOwner`, else `403`).
 
 `openDraftPr()` then drives the GitHub git-data API with the installation token:

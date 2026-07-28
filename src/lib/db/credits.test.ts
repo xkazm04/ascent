@@ -13,6 +13,11 @@ vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
   getPrisma: mockGetPrisma,
   withRetry: (fn: () => unknown) => fn(),
+  // credits.ts's isDuplicateExternalId now delegates to the general isP2002Error (db/client.ts) —
+  // reimplement its real (duck-typed, non-instanceof) semantics here since this mock replaces the
+  // whole module.
+  isP2002Error: (err: unknown) =>
+    typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "P2002",
 }));
 
 import { clawbackOrderRefund, consumeScanCredit, grantCredits } from "./credits";

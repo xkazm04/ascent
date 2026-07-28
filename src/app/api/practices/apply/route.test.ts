@@ -1,10 +1,12 @@
 // Pins the single-repo PR-write tenant gate (practices-governance #2). /api/practices/apply opens a
 // DRAFT PR (a WRITE) into a customer repo using the org installation token, so the load-bearing
-// safety properties are: (a) a caller without org access is DENIED (the cross-tenant write IDOR
-// guard) and NO PR-write / token mint happens; (b) an unauthenticated session is 401'd before any
-// write; (c) a missing installation is 403'd; (d) the authorized happy path opens exactly one PR and
-// audit-logs it; (e) the 409 "file already exists on base" AppApiError surfaces as 409 (the
-// won't-overwrite-real-content guard). The GitHub-App / DB / write boundaries are mocked — no real PR.
+// safety properties are: (a) a caller without at least the "admin" role is DENIED (the cross-tenant
+// write IDOR guard, and — since G2-01 — the least-privilege guard: a plain "member" is NOT enough for
+// an action of this blast radius) and NO PR-write / token mint happens; (b) an unauthenticated session
+// is 401'd before any write; (c) a missing installation is 403'd; (d) the authorized (admin/owner)
+// happy path opens exactly one PR and audit-logs it; (e) the 409 "file already exists on base"
+// AppApiError surfaces as 409 (the won't-overwrite-real-content guard). The GitHub-App / DB / write
+// boundaries are mocked — no real PR.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -86,7 +88,7 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 
 import { POST } from "./route";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
@@ -95,7 +97,7 @@ import { fetchRepoContext } from "@/lib/github/source";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
 import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 
 const mockOpenPr = vi.mocked(openDraftPr);
 const mockFetchCtx = vi.mocked(fetchRepoContext);
@@ -103,7 +105,7 @@ const mockToken = vi.mocked(getInstallationToken);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockRecordAudit = vi.mocked(recordAudit);
 const mockSession = vi.mocked(getSession);
-const mockRequireOrgAccess = vi.mocked(requireOrgAccess);
+const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
 function run(body: Record<string, unknown>) {
   return POST(
@@ -117,7 +119,7 @@ function run(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRequireOrgAccess.mockResolvedValue(null);
+  mockRequireOrgRole.mockResolvedValue(null);
   mockInstallId.mockResolvedValue("inst-1");
   mockToken.mockResolvedValue("installation-token");
   mockSession.mockResolvedValue({ login: "alice" } as never);
@@ -126,7 +128,7 @@ beforeEach(() => {
 
 describe("POST /api/practices/apply — tenant gate", () => {
   it("DENIES a caller without org access (403) and opens NO PR (no token mint / fetch / write)", async () => {
-    mockRequireOrgAccess.mockResolvedValue(
+    mockRequireOrgRole.mockResolvedValue(
       Response.json({ error: "You don't have access to this organization." }, { status: 403 }) as never,
     );
 
@@ -137,7 +139,34 @@ describe("POST /api/practices/apply — tenant gate", () => {
     expect(mockFetchCtx).not.toHaveBeenCalled();
     expect(mockOpenPr).not.toHaveBeenCalled();
     expect(mockRecordAudit).not.toHaveBeenCalled();
-    expect(mockRequireOrgAccess).toHaveBeenCalledWith("victim");
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("victim", "admin");
+  });
+
+  it("DENIES a plain 'member' (below the admin floor) with 403 and opens NO PR — G2-01", async () => {
+    // requireOrgRole is the real gate; here it stands in for a member whose role fails the "admin"
+    // minimum this route now requires (opening a PR/committing to a customer repo is a write of the
+    // same blast radius as segment delete / credit grants, which already require admin).
+    mockRequireOrgRole.mockResolvedValue(
+      Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 }) as never,
+    );
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS an admin/owner (requireOrgRole passes) through to open the PR", async () => {
+    mockRequireOrgRole.mockResolvedValue(null);
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockOpenPr).toHaveBeenCalledTimes(1);
   });
 
   it("denies an unauthenticated session (401) before any write", async () => {
@@ -162,7 +191,7 @@ describe("POST /api/practices/apply — tenant gate", () => {
   it("returns 400 with no writes for a malformed repo coordinate", async () => {
     const res = await run({ repo: "not-a-repo", practiceId: "ci-gates" });
     expect(res.status).toBe(400);
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
     expect(mockOpenPr).not.toHaveBeenCalled();
   });
 });

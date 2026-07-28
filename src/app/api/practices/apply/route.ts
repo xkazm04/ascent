@@ -11,7 +11,7 @@ import { isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
@@ -54,9 +54,9 @@ export async function POST(request: Request) {
   parsed.owner = parsed.owner.toLowerCase();
 
   // Tenant gate: this opens a PR (a WRITE) using the org's installation token, so require the caller
-  // to OWN that org — not merely be signed in. Without this, any signed-in user could open a draft PR
-  // in any org that has the App installed (a cross-tenant write IDOR).
-  const denied = await requireOrgAccess(parsed.owner);
+  // to hold at least the "admin" role in that org — not merely be a member. This has the same blast
+  // radius as other org-wide mutations (segment delete, credit grants), which already require admin.
+  const denied = await requireOrgRole(parsed.owner, "admin");
   if (denied) return denied;
 
   try {

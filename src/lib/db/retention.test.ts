@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clampBatchSize,
   envRetentionDefaults,
+  eraseOrgData,
   purgeExpiredData,
+  ERASE_ACTION,
+  ERASE_BUDGET_HEADROOM_MS,
+  ERASE_DEFAULT_TIME_BUDGET_MS,
+  ERASE_MAX_DURATION_S,
   resolveRetention,
   rotateForTick,
   PURGE_MAX_DURATION_S,
@@ -1463,5 +1468,233 @@ describe("purgeExpiredData — partial committed counts survive a mid-org throw 
     expect(summary!.orgsProcessed).toBe(0);
     expect(summary!.scansDeleted).toBe(0);
     expect(summary!.errors.some((e) => e.startsWith("acme:"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// On-demand erasure (DSR / right-to-erasure). Same delete graph as the cron, triggered by an owner.
+
+/**
+ * Stateful fake for eraseOrgData: scans and audit rows are really removed from the fixture, so the
+ * paging loops terminate for the same reason they do in production (a short/empty page) rather than
+ * because the mock keeps returning the same rows.
+ */
+function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
+  const repoIds = seed?.repos ?? ["repo_1", "repo_2"];
+  const scansByRepo: Record<string, string[]> = {};
+  for (const r of repoIds) scansByRepo[r] = [`${r}_s1`, `${r}_s2`];
+  const auditRows = [...(seed?.audit ?? ["audit_1", "audit_2", "audit_3"])];
+  const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
+
+  const tx = {
+    recommendation: {
+      findMany: vi.fn(async () => [{ id: "rec_1" }]),
+      deleteMany: vi.fn(async () => ({ count: 1 })),
+    },
+    recommendationEvent: { deleteMany: vi.fn(async () => ({ count: 2 })) },
+    scanDimension: { deleteMany: vi.fn(async () => ({ count: 4 })) },
+    scan: {
+      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+        const gone = new Set(where.id.in);
+        let count = 0;
+        for (const [repoId, ids] of Object.entries(scansByRepo)) {
+          const kept = ids.filter((id) => !gone.has(id));
+          count += ids.length - kept.length;
+          scansByRepo[repoId] = kept;
+        }
+        return { count };
+      }),
+    },
+  };
+
+  const prisma = {
+    organization: {
+      findUnique: vi.fn(async ({ where }: { where: { slug: string } }) =>
+        where.slug === "acme" ? { id: "org_1" } : null,
+      ),
+    },
+    repository: {
+      findMany: vi.fn(async () => repoIds.map((id) => ({ id }))),
+      findUnique: vi.fn(async ({ where }: { where: { orgId_fullName: { fullName: string } } }) =>
+        where.orgId_fullName.fullName === "acme/api" ? { id: "repo_1" } : null,
+      ),
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        cacheResets.push({ id: where.id, data });
+        return { id: where.id };
+      }),
+    },
+    scan: {
+      findMany: vi.fn(async ({ where, take }: { where: { repoId: string }; take: number }) =>
+        (scansByRepo[where.repoId] ?? []).slice(0, take).map((id) => ({ id })),
+      ),
+    },
+    auditLog: {
+      findMany: vi.fn(async ({ take }: { take: number }) => auditRows.slice(0, take).map((id) => ({ id }))),
+      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+        let count = 0;
+        for (const id of where.id.in) {
+          const at = auditRows.indexOf(id);
+          if (at >= 0) {
+            auditRows.splice(at, 1);
+            count++;
+          }
+        }
+        return { count };
+      }),
+    },
+    $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+  };
+  return { prisma, tx, scansByRepo, auditRows, cacheResets };
+}
+
+describe("eraseOrgData — on-demand DSR erasure", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("refuses cleanly when persistence is off / the org is unknown (no deletes, no audit)", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await eraseOrgData({ orgSlug: "acme" })).toEqual({ ok: false, reason: "no-db" });
+
+    mockIsDbConfigured.mockReturnValue(true);
+    const { prisma } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await eraseOrgData({ orgSlug: "ghost" })).toEqual({ ok: false, reason: "unknown-org" });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("org scope: ACTUALLY removes every repo's scan graph and resets the scan-derived repo caches", async () => {
+    const { prisma, scansByRepo, cacheResets } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // The rows are gone from the fixture — not merely "deleteMany was called".
+    expect(scansByRepo).toEqual({ repo_1: [], repo_2: [] });
+    expect(outcome.scansDeleted).toBe(4); // 2 repos x 2 scans
+    expect(outcome.reposProcessed).toBe(2);
+    expect(outcome.dimensionsDeleted).toBe(8);
+    expect(outcome.recommendationsDeleted).toBe(2);
+    expect(outcome.recommendationEventsDeleted).toBe(4);
+    expect(outcome.complete).toBe(true);
+    expect(outcome.stoppedEarly).toBe(false);
+    // Keep-window 0 — the erase keeps NOTHING (what separates it from the retention prune).
+    expect(prisma.scan.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0 }));
+    // Scan-derived caches on Repository are cleared too, so an "erased" repo can't still render its
+    // cached passport / tech stack on the dashboard.
+    expect(cacheResets.map((c) => c.id).sort()).toEqual(["repo_1", "repo_2"]);
+    expect(cacheResets[0]!.data).toMatchObject({ techStackJson: null, passportJson: null, lastScanAt: null });
+  });
+
+  it("org scope leaves the audit trail alone unless includeAudit is set (erasing evidence is a separate ask)", async () => {
+    const { prisma, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(prisma.auditLog.deleteMany).not.toHaveBeenCalled();
+    expect(auditRows).toHaveLength(3);
+    expect(outcome.ok && outcome.auditDeleted).toBe(0);
+  });
+
+  it("includeAudit erases the WHOLE org trail (no date cutoff) and still records data.erased LAST", async () => {
+    const { prisma, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", includeAudit: true, actorId: "owner-login" });
+
+    expect(auditRows).toHaveLength(0); // the trail is emptied
+    expect(outcome.ok && outcome.auditDeleted).toBe(3);
+    // No `at` cutoff — retention prunes by age, erasure removes everything for the org.
+    expect(prisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { orgId: "org_1" } }));
+    // ORDERING TRAP: the data.erased entry is written AFTER the sweep, so it survives the erasure it
+    // documents. Written first, the sweep (which has no cutoff) would have deleted it.
+    const sweepOrder = prisma.auditLog.deleteMany.mock.invocationCallOrder[0]!;
+    const auditOrder = vi.mocked(recordAudit).mock.invocationCallOrder[0]!;
+    expect(auditOrder).toBeGreaterThan(sweepOrder);
+    expect(recordAudit).toHaveBeenCalledTimes(1);
+    expect(recordAudit).toHaveBeenCalledWith(
+      ERASE_ACTION,
+      expect.objectContaining({ scope: "org", includeAudit: true, scansDeleted: 4, auditDeleted: 3, complete: true }),
+      { orgId: "org_1", actorId: "owner-login" },
+    );
+  });
+
+  it("repo scope erases ONLY that repo (and never touches the audit trail)", async () => {
+    const { prisma, scansByRepo, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api", includeAudit: true });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(scansByRepo.repo_1).toEqual([]);
+    expect(scansByRepo.repo_2).toEqual(["repo_2_s1", "repo_2_s2"]); // untouched
+    expect(outcome.scope).toBe("repo");
+    expect(outcome.reposProcessed).toBe(1);
+    expect(prisma.repository.findMany).not.toHaveBeenCalled(); // no org-wide enumeration
+    expect(auditRows).toHaveLength(3); // includeAudit is org-scope only
+    expect(recordAudit).toHaveBeenCalledWith(
+      ERASE_ACTION,
+      expect.objectContaining({ scope: "repo", repo: "acme/api", includeAudit: false }),
+      expect.anything(),
+    );
+  });
+
+  it("returns unknown-repo for a repo outside the org, deleting nothing", async () => {
+    const { prisma, scansByRepo } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await eraseOrgData({ orgSlug: "acme", repoFullName: "someone/else" })).toEqual({
+      ok: false,
+      reason: "unknown-repo",
+    });
+    expect(scansByRepo.repo_1).toHaveLength(2);
+    expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("is BOUNDED: an exhausted wall-clock budget stops at a boundary and reports a resumable partial", async () => {
+    const { prisma, scansByRepo } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    // The clock jumps past the budget almost immediately, so the second repo is never started.
+    let t = 0;
+    const now = () => (t += 60);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", timeBudgetMs: 100, now });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.stoppedEarly).toBe(true);
+    expect(outcome.complete).toBe(false);
+    expect(outcome.reposProcessed).toBeLessThan(2);
+    expect(scansByRepo.repo_2).toEqual(["repo_2_s1", "repo_2_s2"]); // resumes on the next call
+    // The partial is still audited — a partial erasure is exactly the state that needs a trace.
+    expect(recordAudit).toHaveBeenCalledWith(
+      ERASE_ACTION,
+      expect.objectContaining({ complete: false }),
+      expect.anything(),
+    );
+  });
+
+  it("reports audited:false (not a clean success) when the data.erased write fails — deletes still stand", async () => {
+    const { prisma, scansByRepo } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    vi.mocked(recordAudit).mockResolvedValue(false);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok && outcome.audited).toBe(false);
+    expect(scansByRepo.repo_1).toEqual([]); // the erasure itself happened
+  });
+
+  it("derives its default budget from the route's declared cap (they can never drift apart)", () => {
+    expect(ERASE_DEFAULT_TIME_BUDGET_MS).toBe(ERASE_MAX_DURATION_S * 1000 - ERASE_BUDGET_HEADROOM_MS);
   });
 });

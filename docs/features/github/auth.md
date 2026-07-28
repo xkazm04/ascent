@@ -36,13 +36,33 @@ component.
 
 | Export | Role |
 | --- | --- |
-| `getViewer()` | The signed-in `Viewer` (`id`, `login`, `email?`, `avatar?`, `name?`) or null. Returns a synthetic `DEV_VIEWER` (`login: "developer"`) when the bypass is on. Uses `supabase.auth.getUser()`, which validates the JWT against the auth server, so the result is trustworthy. Memoized per render with React `cache()`. A transient auth-server error is treated as signed-out rather than crashing the render. |
+| `getViewer()` | The signed-in `Viewer` (`id`, `login`, `email?`, `avatar?`, `name?`) or null. Returns a synthetic `DEV_VIEWER` (`login: "developer"`) when the bypass is on. Uses `supabase.auth.getUser()`, which validates the JWT against the auth server, so the result is trustworthy. Memoized per render with React `cache()`. A transient auth-server error is treated as signed-out rather than crashing the render. **`email` is surfaced only when Supabase reports it confirmed (`email_confirmed_at`)** — see below. |
 | `requireViewer()` | API-route gate — returns a 401 `NextResponse` when the wall is enforced and there's no viewer, else null. No-op when the gate is disabled. |
 | `resolveViewerLogin()` | Identity across **both** stacks: the custom-OAuth session wins, then the Supabase / bypass viewer, else null. Used where data is keyed on identity (e.g. Org Memory's `visibility='private'` filter). |
 
 > ⚠️ `resolveViewerLogin()` and `getViewer()` must be awaited in a route or render
 > body — **never inside a `ReadableStream` start()**, where the cookie-scoped reads
 > they depend on return null.
+
+### `viewer.email` is a confirmed address or nothing
+
+Supabase sets `user.email` at *registration*, confirmed or not, so the raw field
+proves nothing about who owns the address. `getViewer()` therefore surfaces `email`
+only when `user.email_confirmed_at` is non-null; an unconfirmed account is still a
+signed-in viewer (with its `login`), just one with no email. Everything keyed on the
+address fails closed as a result:
+
+| Consumer | Unconfirmed viewer |
+| --- | --- |
+| `acceptInvite()` email-pinned binding (`POST /api/org/invites/accept`) | `wrong_email` — registering an unconfirmed account at the invited address can no longer hijack someone else's invite. |
+| `POST /api/scan/stream` completion email | No notification is sent (the client-supplied `email` is honored only on the anonymous funnel), so Ascent's verified sending domain never mails an unproven address. |
+| `GET /api/auth/viewer` → `NotifyToggle` | `email: null` — the toggle shows the existing "no account email" explanation instead of an address. |
+
+`login` deliberately keeps its raw-email fallback: it is a display/attribution key,
+never an ownership proof, and re-keying it mid-session would move login-scoped data
+(e.g. Org Memory's private filter). Production sign-ins are GitHub OAuth, which
+arrive already confirmed, so this only bites accounts created straight against
+Supabase without confirming.
 
 **Cookie refresh** — `src/proxy.ts` (Next.js 16 Proxy, formerly Middleware) reads the
 session on each request so supabase-js can re-mint an expiring token, and writes the

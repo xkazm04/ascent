@@ -1,10 +1,11 @@
 // Pins the fleet PR-write tenant gate + batch invariants (practices-governance #2). This route fans
 // destructive PR-writes across up to MAX_BATCH repos with ONE org installation token, so the
-// load-bearing safety properties are: (a) a caller without org access is DENIED and NO PR-write is
-// attempted for any repo; (b) a batch spanning two owners is refused (the same-org cross-tenant
+// load-bearing safety properties are: (a) a caller without at least the "admin" role is DENIED and NO
+// PR-write is attempted for any repo — since G2-01, a plain "member" is NOT enough for a fleet-wide
+// write of this blast radius; (b) a batch spanning two owners is refused (the same-org cross-tenant
 // guard) with no writes; (c) the batch is capped at MAX_BATCH (over-cap → attempted=25, skipped=N-25)
-// and the in-org happy path proceeds. The GitHub-App / DB / write boundaries are mocked so no real PR
-// is opened — the test asserts the *gate*, never the network.
+// and the admin/owner in-org happy path proceeds. The GitHub-App / DB / write boundaries are mocked so
+// no real PR is opened — the test asserts the *gate*, never the network.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -87,21 +88,21 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 
 import { POST } from "./route";
 import { openDraftPr } from "@/lib/github/write";
 import { fetchRepoContext, GitHubError } from "@/lib/github/source";
 import { getInstallationToken } from "@/lib/github/app";
 import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 
 const mockOpenPr = vi.mocked(openDraftPr);
 const mockFetchCtx = vi.mocked(fetchRepoContext);
 const mockToken = vi.mocked(getInstallationToken);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockRecordAudit = vi.mocked(recordAudit);
-const mockRequireOrgAccess = vi.mocked(requireOrgAccess);
+const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
 function run(body: Record<string, unknown>) {
   return POST(
@@ -115,7 +116,7 @@ function run(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRequireOrgAccess.mockResolvedValue(null);
+  mockRequireOrgRole.mockResolvedValue(null);
   mockInstallId.mockResolvedValue("inst-1");
   mockToken.mockResolvedValue("installation-token");
   mockOpenPr.mockResolvedValue({ url: "https://github.com/pr/1", number: 1, reused: false } as never);
@@ -123,8 +124,8 @@ beforeEach(() => {
 
 describe("POST /api/practices/apply-batch — tenant gate", () => {
   it("DENIES a caller without org access (403) and opens NO PR for any repo", async () => {
-    // requireOrgAccess returns a denying Response — the cross-tenant write IDOR guard.
-    mockRequireOrgAccess.mockResolvedValue(
+    // requireOrgRole returns a denying Response — the cross-tenant write IDOR guard.
+    mockRequireOrgRole.mockResolvedValue(
       Response.json({ error: "You don't have access to this organization." }, { status: 403 }) as never,
     );
 
@@ -136,8 +137,33 @@ describe("POST /api/practices/apply-batch — tenant gate", () => {
     expect(mockFetchCtx).not.toHaveBeenCalled();
     expect(mockOpenPr).not.toHaveBeenCalled();
     expect(mockRecordAudit).not.toHaveBeenCalled();
-    // The gate was checked for the batch's single owner.
-    expect(mockRequireOrgAccess).toHaveBeenCalledWith("victim");
+    // The gate was checked for the batch's single owner, requiring at least "admin".
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("victim", "admin");
+  });
+
+  it("DENIES a plain 'member' (below the admin floor) with 403 and opens NO PR — G2-01", async () => {
+    // A fleet-wide PR-write across up to 25 real customer repos is at least as sensitive as
+    // segment delete / credit grants, which already require admin — a plain member must be refused.
+    mockRequireOrgRole.mockResolvedValue(
+      Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 }) as never,
+    );
+
+    const res = await run({ repos: ["acme/app", "acme/api"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS an admin/owner (requireOrgRole passes) through to run the batch", async () => {
+    mockRequireOrgRole.mockResolvedValue(null);
+
+    const res = await run({ repos: ["acme/app", "acme/api"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockOpenPr).toHaveBeenCalledTimes(2);
   });
 
   it("denies an unauthenticated session (401) before any write", async () => {
@@ -169,7 +195,7 @@ describe("POST /api/practices/apply-batch — same-org (cross-tenant) guard", ()
     const json = await res.json();
     expect(String(json.error)).toMatch(/same org/i);
     // Refused before the gate / any write: a mixed-owner batch must never reach a token mint.
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
     expect(mockOpenPr).not.toHaveBeenCalled();
   });
 

@@ -49,10 +49,22 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     const u = data.user;
     if (!u) return null;
     const meta = (u.user_metadata ?? {}) as Record<string, string | undefined>;
+    // ONLY surface an address Supabase reports as CONFIRMED (`email_confirmed_at`). `user.email` is
+    // populated the moment an account is registered — verified or not — so passing it through made
+    // "the viewer's VERIFIED email" a promise nothing checked: anyone could register an UNCONFIRMED
+    // victim@example.com account and satisfy an email-pinned org invite meant for the victim
+    // (src/lib/db/invites.ts acceptInvite). Omitting the field for an unconfirmed address makes that
+    // binding fail closed (`wrong_email`) and keeps the scan completion email from being sent to an
+    // address the account holder never proved they own. GitHub OAuth sign-ins (the production path)
+    // arrive already confirmed, so legitimate viewers are unaffected.
+    const email = u.email_confirmed_at ? (u.email ?? undefined) : undefined;
     return {
       id: u.id,
+      // `login` keeps its raw-email fallback: it is a DISPLAY/attribution key (never an ownership
+      // proof for an email pin), and changing it for unconfirmed accounts would silently re-key
+      // login-scoped data (e.g. Shared Org Memory's private filter) mid-session.
       login: meta.user_name ?? meta.preferred_username ?? u.email ?? u.id,
-      email: u.email ?? undefined,
+      email,
       avatar: meta.avatar_url,
       name: meta.full_name ?? meta.name,
     };

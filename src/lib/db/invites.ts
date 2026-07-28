@@ -151,7 +151,10 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
     if (invite.githubLogin !== gh) return { ok: false, reason: "wrong_user" };
   } else if (invite.email) {
     // Email-pinned, no login: require the accepter's verified email to match (case-insensitively). A
-    // viewer with no verified email (e.g. the dormant custom-OAuth session) can't claim it — fail closed.
+    // viewer with no verified email can't claim it — fail closed. "Verified" is enforced upstream by
+    // getViewer (src/lib/access.ts), which surfaces `email` ONLY when Supabase has confirmed it, so an
+    // unconfirmed account registered at the invited address arrives here with no email and is refused;
+    // the dormant custom-OAuth session likewise carries none.
     // Use a DISTINCT reason from the login pin so the UI can show email-specific copy: switching GitHub
     // accounts won't change the verified email, so the "sign in as that GitHub account" guidance is wrong.
     if (!viewerEmail || invite.email.trim().toLowerCase() !== viewerEmail) return { ok: false, reason: "wrong_email" };
