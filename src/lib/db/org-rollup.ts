@@ -608,9 +608,13 @@ export async function getOrgRepoHistories(
 /** A lightweight org header summary — repo/scan/watch counts + avg maturity. The org shell wraps EVERY
  *  tab but consumes only these four fields (header chip + the has-data guard), so running the full
  *  getOrgRollup there (all repos + latest scans + per-dim rows + governance/passport parsing, then
- *  trend/forecast/deltas) inflated TTFB on every dashboard view to throw most of it away — and ran it
- *  TWICE on the Overview tab (unscoped here + scoped in the page). This mirrors the rollup's repo set
- *  (watched OR has-scans) and avg-of-latest-overall math, but as one cheap query. */
+ *  trend/forecast/deltas) inflated TTFB on every dashboard view to throw most of it away. This mirrors
+ *  the rollup's repo set (watched OR has-scans) and avg-of-latest-overall math, but as one cheap query.
+ *
+ *  It also backs the Overview's `generateMetadata`, which needs only avgOverall/scannedCount/repoCount
+ *  for the unfurl description: that call site used to run its OWN unscoped getOrgRollup, so the Overview
+ *  paid for TWO full rollups per render (metadata + the page's scoped one) even after the shell was
+ *  moved onto this summary. Both extra rollups are gone; the page keeps exactly one, scoped. */
 export interface OrgHeaderSummary {
   repoCount: number;
   scannedCount: number;

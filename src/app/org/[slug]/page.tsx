@@ -21,11 +21,17 @@ export const dynamic = "force-dynamic";
 // private fleet aggregates to whoever holds the link. The OG image advertises summary_large_image.
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const rollup = (await canReadOrg(slug)) ? await getOrgRollup(slug).catch(() => null) : null;
+  // The description prints exactly three numbers (avgOverall, scannedCount, repoCount) — all carried
+  // by the cheap, request-memoized getOrgHeaderSummary the page (and the org shell) already ran. The
+  // full getOrgRollup that used to run here pulled every repo's dimension/passport/techStack/governance
+  // JSON plus the trend + forecast queries to throw all of it away. Same repo set (watched OR
+  // has-scans, unscoped) and the same `roundedMean` over latest overall scores, so the unfurl copy is
+  // byte-identical — this is purely the second rollup the Overview stopped paying for.
+  const summary = (await canReadOrg(slug)) ? await getOrgHeaderSummary(slug).catch(() => null) : null;
   const title = `${slug} — fleet maturity · Ascent`;
   const description =
-    rollup && rollup.repoCount > 0
-      ? `${slug}'s fleet averages ${rollup.avgOverall}/100 (${levelForScore(rollup.avgOverall).id} · ${levelForScore(rollup.avgOverall).name}) across ${rollup.scannedCount}/${rollup.repoCount} scanned repos on Ascent.`
+    summary && summary.repoCount > 0
+      ? `${slug}'s fleet averages ${summary.avgOverall}/100 (${levelForScore(summary.avgOverall).id} · ${levelForScore(summary.avgOverall).name}) across ${summary.scannedCount}/${summary.repoCount} scanned repos on Ascent.`
       : `AI-native engineering maturity across ${slug}'s fleet on Ascent — a 5-level ladder across 9 dimensions, with evidence.`;
   return {
     title,
