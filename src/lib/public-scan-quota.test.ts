@@ -19,7 +19,17 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/client", () => ({ readDsqlConfig: mockReadDsqlConfig }));
 vi.mock("@/lib/db/quota-events", () => ({ recordQuotaEvent: mockRecordQuotaEvent }));
-vi.mock("@/lib/rate-limit", () => ({ clientIp: () => "203.0.113.99" }));
+vi.mock("@/lib/rate-limit", () => ({
+  clientIp: () => "203.0.113.99",
+  // G8-29: monthlyQuotaExceeded now builds its Response via rate-limit's shared tooManyResponse
+  // helper, so the mock needs the real implementation (status 429 + content-type + given headers) —
+  // not just a stub — for the monthlyQuotaExceeded suite to inspect the resulting Response.
+  tooManyResponse: (body: unknown, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify(body), {
+      status: 429,
+      headers: { "content-type": "application/json; charset=utf-8", ...headers },
+    }),
+}));
 
 import {
   consumePublicScanQuota,

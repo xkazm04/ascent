@@ -2,27 +2,21 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
-import { Kicker } from "@/components/ui";
+import { HairlineGrid, Kicker, Stat } from "@/components/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { ScoreGauge } from "@/components/landing/prototypes/index/ScoreGauge";
 import { LEVELS, DIMENSIONS } from "@/lib/maturity/model";
 import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
-import { demoOrgHref } from "@/lib/site";
+import { AboutCtaButtons } from "./AboutCtaButtons";
 
 const INTRO =
   "Ascent turns your organization's scattered AI adoption into one comparable index, then shows the highest-ROI path from manual development to a fully LLM-based, governed engineering org.";
 
+/** A masthead ledger cell whose number counts up on reveal — the brand Stat in its inverted `figure`
+ *  form, with the count-up span passed as the value so useCountUp's ref lands on the digits. */
 function StatNum({ target, label }: { target: number; label: string }) {
   const { ref, display } = useCountUp(target);
-  return (
-    <div className="bg-ink p-5">
-      <div className="font-mono text-3xl font-bold tabular-nums text-white">
-        <span ref={ref}>{display}</span>
-      </div>
-      <div className="mt-1 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{label}</div>
-    </div>
-  );
+  return <Stat variant="figure" className="bg-ink p-5" label={label} value={<span ref={ref}>{display}</span>} />;
 }
 
 /** Masthead: editorial headline + the animated index ring (ScoreGauge) as the instrument, with
@@ -62,29 +56,13 @@ export function AboutHero({ bg }: { bg?: string }) {
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-300">{INTRO}</p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href="/connect"
-              className="focus-ring rounded-xl bg-accent px-5 py-2.5 font-semibold text-on-accent transition hover:bg-accent-soft"
-            >
-              Scan your org
-            </Link>
-            <Link
-              href={demoOrgHref()}
-              className="focus-ring rounded-xl border border-divider px-5 py-2.5 font-medium text-slate-200 transition hover:border-accent hover:text-white"
-            >
-              Explore the live demo →
-            </Link>
-          </div>
+          <AboutCtaButtons className="mt-8" />
 
-          <div className="mt-10 grid max-w-md grid-cols-3 gap-px overflow-hidden rounded-2xl border border-divider bg-divider">
+          <HairlineGrid className="mt-10 max-w-md grid-cols-3">
             <StatNum target={LEVELS.length} label="Levels" />
             <StatNum target={DIMENSIONS.length} label="Dimensions" />
-            <div className="bg-ink p-5">
-              <div className="font-mono text-3xl font-bold tabular-nums text-white">0–100</div>
-              <div className="mt-1 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">Index</div>
-            </div>
-          </div>
+            <Stat variant="figure" className="bg-ink p-5" label="Index" value="0–100" />
+          </HairlineGrid>
         </div>
 
         <div className="flex justify-center lg:justify-end">

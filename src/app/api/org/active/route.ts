@@ -6,25 +6,11 @@
 // installations (plus "public"), so the persisted value can only ever be one the viewer can read.
 
 import { NextResponse } from "next/server";
-import { ACTIVE_ORG_COOKIE, PUBLIC_ORG, sessionMaxAgeSeconds } from "@/lib/auth";
+import { ACTIVE_ORG_COOKIE, PUBLIC_ORG, isSameOrigin, sessionMaxAgeSeconds } from "@/lib/auth";
 import { canReadOrg } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** True when the request demonstrably comes from this same origin. */
-function isSameOrigin(request: Request): boolean {
-  const host = request.headers.get("host");
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      return new URL(origin).host === host;
-    } catch {
-      return false;
-    }
-  }
-  return request.headers.get("sec-fetch-site") === "same-origin";
-}
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) {

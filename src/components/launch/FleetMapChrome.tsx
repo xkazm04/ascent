@@ -20,6 +20,11 @@ export function Pill({
   );
 }
 
+/** The launch map's metric chip. Deliberately NOT the brand `ui/Stat`: this is a horizontal pill where
+ *  the value and its label share ONE line inside the Pill chrome, so a dozen of them wrap as a chip
+ *  row. `ui/Stat` is a two-line block in both of its variants (label-over-value, or value-over-caption);
+ *  there is no version of it that is this shape, and adding an inline mode would be a third layout
+ *  bolted onto a primitive whose whole job is the stacked one. Keep this local. */
 export function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <Pill className="text-slate-400">

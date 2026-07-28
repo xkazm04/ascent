@@ -50,7 +50,14 @@ vi.mock("@/lib/db", () => ({
   getInstallationIdForOwner: h.getInstallationIdForOwner,
   recordOrgAudit: h.recordOrgAudit,
 }));
-vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: h.readableOrgForOwner, isSameOrigin: h.isSameOrigin, isAuthConfigured: h.isAuthConfigured }));
+vi.mock("@/lib/auth", () => ({
+  PUBLIC_ORG: "public",
+  readableOrgForOwner: h.readableOrgForOwner,
+  isSameOrigin: h.isSameOrigin,
+  requireSameOrigin: (req: Request) =>
+    h.isSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+  isAuthConfigured: h.isAuthConfigured,
+}));
 vi.mock("@/lib/access", () => ({ authGateEnabled: h.authGateEnabled, resolveViewerLogin: h.resolveViewerLogin }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: h.requireOrgAccess }));
 

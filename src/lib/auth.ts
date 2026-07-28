@@ -12,6 +12,7 @@ import { cookies, headers } from "next/headers";
 import { isDbConfigured } from "@/lib/db/client";
 import { bumpSessionVersion, getSessionVersion } from "@/lib/db/sessions";
 import { PUBLIC_ORG } from "@/lib/org-constants";
+import { ghHeaders, githubApiBase } from "@/lib/github/host";
 
 export const SESSION_COOKIE = "ascent_session";
 export const STATE_COOKIE = "ascent_oauth_state";
@@ -165,6 +166,21 @@ export function sessionCookieAttrs(secure: boolean) {
     secure,
     path: "/",
     maxAge: sessionMaxAgeSeconds,
+  };
+}
+
+/** Shared attribute set for the short-lived OAuth-round-trip cookies (STATE/NEXT/RESYNC) the login
+ *  route mints — same security-relevant shape (`httpOnly`, `sameSite`, `path`) as the session cookie,
+ *  but scoped to the flow's own lifetime rather than the session's. `maxAge` defaults to the flow's
+ *  10-minute window; pass `0` to clear a cookie (same attributes, so the clear reliably matches the
+ *  original Set-Cookie — a delete with mismatched attributes can leave the original in place). */
+export function oauthFlightCookieAttrs(secure: boolean, maxAge = 600) {
+  return {
+    httpOnly: true as const,
+    sameSite: "lax" as const,
+    secure,
+    path: "/",
+    maxAge,
   };
 }
 
@@ -542,13 +558,12 @@ async function withGithubRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T>
 }
 
 async function gh<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`https://api.github.com${path}`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "ascent-maturity-scanner",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
+  // Single-sourced host + header plumbing (@/lib/github/host) so GHES/self-hosted deployments (which
+  // override the API base via GITHUB_API_URL) work for OAuth calls too, not just the App/write paths.
+  // ghHeaders' defaults (Accept/User-Agent/X-GitHub-Api-Version) are byte-identical to what this used
+  // to hand-roll, so this is a pure plumbing swap.
+  const res = await fetch(`${githubApiBase()}${path}`, {
+    headers: ghHeaders(token),
     cache: "no-store",
   });
   if (!res.ok) throw new GitHubError(res.status, path);

@@ -1,4 +1,5 @@
 import { UsageTrend } from "@/components/usage/UsageTrend";
+import { Surface } from "@/components/ui";
 import { AllotmentPanel } from "./AllotmentPanel";
 import { Stat, Bar, providerMeta } from "./usagePanels";
 import { BadgeReachPanel, AbuseLimitsPanel } from "./usageAllTimePanels";
@@ -112,7 +113,7 @@ export function UsageDashboard({
       {/* Reconciliation (USE-4): metered private scans vs the credit ledger for the same period —
           does what was billed line up with what was debited? Refunds (failed/deduped scans) net it back. */}
       {recon && recon.entries > 0 && (
-        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <Surface className="mt-6 p-6">
           <h2 className="text-base font-semibold text-white">
             Reconciliation <span className="font-normal text-slate-500">· scans vs credit ledger · last {usage.periodDays}d</span>
           </h2>
@@ -132,11 +133,11 @@ export function UsageDashboard({
               come from unlimited-plan scans (not debited), grants, or scans/ledger rows straddling the window edge.
             </p>
           )}
-        </div>
+        </Surface>
       )}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <Surface className="p-6">
           <h2 className="text-base font-semibold text-white">
             Public vs private{" "}
             <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
@@ -153,8 +154,8 @@ export function UsageDashboard({
               </>
             )}
           </div>
-        </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        </Surface>
+        <Surface className="p-6">
           <h2 className="text-base font-semibold text-white">
             By inference engine{" "}
             <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
@@ -168,12 +169,12 @@ export function UsageDashboard({
               ))
             )}
           </div>
-        </div>
+        </Surface>
       </div>
 
       {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
       {usage.byRepo.length > 0 && (
-        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <Surface className="mt-6 p-6">
           <h2 className="text-base font-semibold text-white">
             Top repositories{" "}
             <span className="font-normal text-slate-500">· by metered scans · last {usage.periodDays}d</span>
@@ -189,7 +190,7 @@ export function UsageDashboard({
               </div>
             ))}
           </div>
-        </div>
+        </Surface>
       )}
 
       <BadgeReachPanel badgeReach={badgeReach} />

@@ -15,7 +15,7 @@ import {
   setOrgLlmConfig,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
@@ -40,7 +40,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "BYOM requires a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOriginPost = requireSameOrigin(request);
+  if (crossOriginPost) return crossOriginPost;
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     provider?: string;
@@ -97,7 +98,8 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "BYOM requires a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOriginDelete = requireSameOrigin(request);
+  if (crossOriginDelete) return crossOriginDelete;
   const body = (await request.json().catch(() => ({}))) as { org?: string };
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
   const denied = await requireOrgRole(body.org, "owner");

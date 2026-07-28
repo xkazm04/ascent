@@ -23,11 +23,18 @@
 
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { clientIp } from "@/lib/rate-limit";
+import { clientIp, tooManyResponse } from "@/lib/rate-limit";
 import { envBool } from "@/lib/env";
 import { isDbConfigured, withDb, withRetry } from "@/lib/db";
 import { readDsqlConfig } from "@/lib/db/client";
 import { recordQuotaEvent } from "@/lib/db/quota-events";
+
+/** Free monthly public-scan allowance attribution: which bucket a scan was counted against
+ *  (anonymous per-IP vs. signed-in per-user, elevated). Canonical home for this literal — G8-30
+ *  moved it here from src/components/report/QuotaNotice.tsx (a client component is not the right
+ *  home for a type shared by server-side quota code); that module now re-exports it for its
+ *  existing importers. */
+export type QuotaScope = "anon" | "user";
 
 /**
  * Isolation for the quota's read-modify-write transactions. Vanilla Postgres defaults to READ
@@ -95,7 +102,7 @@ export function hashIp(ip: string): string {
 function bucketContext(
   req: Request,
   identity: QuotaIdentity,
-): { signedIn: boolean; ipHash: string; scope: "anon" | "user"; unidentifiable: boolean } {
+): { signedIn: boolean; ipHash: string; scope: QuotaScope; unidentifiable: boolean } {
   const signedIn = Boolean(identity.viewerId);
   if (signedIn) {
     return { signedIn, ipHash: hashKey(`u:${identity.viewerId}`), scope: "user", unidentifiable: false };
@@ -275,7 +282,7 @@ export interface QuotaPeek {
   remaining: number;
   limit: number;
   resetAt: number | null;
-  scope: "anon" | "user";
+  scope: QuotaScope;
 }
 
 /**
@@ -386,17 +393,17 @@ export function monthlyQuotaExceeded(result: QuotaResult): Response {
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
   const error =
     `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to Pro for more monthly scans, or add scan credits — or try again once the window resets.`;
-  return new Response(
-    JSON.stringify({ error, code: "monthly_quota", remaining: 0, resetAt: result.resetAt, scope }),
+  // G8-29: shares tooManyResponse's status/content-type construction with rate-limit.ts's
+  // tooManyRequests, but is NOT the same response — this body carries `code`/`remaining`/`resetAt`/
+  // `scope` for the client meter, and the headers add the `x-ascent-quota-*` fields the per-minute
+  // rate limiter has no equivalent for. See tooManyResponse's doc comment for why these aren't flattened.
+  return tooManyResponse(
+    { error, code: "monthly_quota", remaining: 0, resetAt: result.resetAt, scope },
     {
-      status: 429,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "retry-after": String(result.retryAfterSec),
-        "x-ascent-quota-remaining": "0",
-        "x-ascent-quota-scope": scope,
-        ...(result.resetAt ? { "x-ascent-quota-reset": String(result.resetAt) } : {}),
-      },
+      "retry-after": String(result.retryAfterSec),
+      "x-ascent-quota-remaining": "0",
+      "x-ascent-quota-scope": scope,
+      ...(result.resetAt ? { "x-ascent-quota-reset": String(result.resetAt) } : {}),
     },
   );
 }

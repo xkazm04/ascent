@@ -2,6 +2,13 @@
 // -> assembled report. Emits progress at each stage (for SSE) and falls back to the
 // MockProvider if the LLM call fails OR returns an empty/unusable assessment, so a scan
 // always returns a usable report and flags when the AI layer didn't really contribute.
+//
+// Each leg lives in its own phase module so it is readable and testable on its own; this file is the
+// sequencing + the cross-phase wiring only:
+//   • scan-ingest.ts       — GitHub I/O: snapshot + PR/governance/security/activity enrichment.
+//   • scan-score-input.ts  — deterministic signals → the LlmScoreInput the model sees.
+//   • scan-assess.ts       — the LLM call with its retry / failover / budget / mock-degrade policy.
+//   • scan-compose.ts      — report assembly, eval-log capture, and the reliability caveats.
 
 import {
   GitHubError,
@@ -11,144 +18,23 @@ import {
   type ProgressFn,
   type RepoSource,
 } from "@/lib/github/source";
-import { analyzeSignals, classifyArchetype, detectAiUsage, offPlatformReview } from "@/lib/analyze";
-import { detectStackFit } from "@/lib/analyze/stack-fit";
-import { extractTechStack } from "@/lib/analyze/tech-extract";
-import { buildPassport } from "@/lib/analyze/passport";
-import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
-import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
-import { fetchSecurityPosture } from "@/lib/github/security-posture";
-import { fetchSecurityExposure } from "@/lib/security/exposure";
-import { computeSecurityChecks } from "@/lib/security/checks";
-import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
-import { techStackPromptEnabled } from "@/lib/llm/config";
+import { getProviderForOrg } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
-import { isAssessmentUsable } from "@/lib/llm/provider";
-import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
+import type { LLMProvider } from "@/lib/llm/provider";
 import { matrixCaptureEnabled, captureMatrixInput } from "@/lib/llm/matrix-capture";
-import { captureAssessment, evalLogEnabled } from "@/lib/llm/eval-log";
-import { trackLlmCall } from "@/lib/llm/tracklight";
-import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { assembleReport } from "@/lib/scoring/engine";
-import { DIMENSIONS } from "@/lib/maturity/model";
-import { extractTeamOwnership } from "@/lib/github/codeowners";
-import type { Governance, PrStats, ScanReport, SecurityExposure, SecurityPosture, TokenUsage } from "@/lib/types";
+import { evalLogEnabled } from "@/lib/llm/eval-log";
+import type { ScanReport } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { decisionsForRepo, getInstallationIdForOwner } from "@/lib/db";
+import { getInstallationIdForOwner } from "@/lib/db";
 import { canMintInstallationToken } from "@/lib/authz";
+import { ingestRepository } from "@/lib/scan-ingest";
+import { buildScanScoreInput } from "@/lib/scan-score-input";
+import { runAssessmentPhase } from "@/lib/scan-assess";
+import { buildScanWarnings, captureScanEvalLog, composeScanReport } from "@/lib/scan-compose";
 
-/** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
-const LLM_RETRY_MS = 500;
-/**
- * Total wall-clock budget for ALL LLM attempts (primary + retry + failover) in one scan. When it
- * expires the in-flight call and every remaining attempt abort and the scan degrades to the
- * deterministic mock floor. An explicit `LLM_TOTAL_BUDGET_MS` env always wins; otherwise the default is
- * PROVIDER-AWARE so a slow provider isn't silently mocked out of the box:
- *   • Fast hosted models (Gemini Flash, Bedrock) → 90s, which sits under a serverless route's
- *     maxDuration so the mock degrade is reached before the platform hard-kills the function.
- *   • `claude-cli` spawns a full local CLI session per call (~6 min median). A 90s budget would abort
- *     EVERY scan into the mock floor before the model ever answered; it runs on a long-lived server
- *     (never serverless), so default it generously (15 min). This makes a stock
- *     `LLM_PROVIDER=claude-cli` deploy stay LIVE with no env tuning, instead of silently mocking.
- */
-function llmTotalBudgetMs(providerName: string): number {
-  const raw = process.env.LLM_TOTAL_BUDGET_MS;
-  const override = raw ? Number(raw) : NaN;
-  if (Number.isFinite(override) && override > 0) return override;
-  return providerName === "claude-cli" ? 15 * 60_000 : 90_000;
-}
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// AWS SDK (Bedrock) exception NAMES that mean the SAME provider cannot succeed on a re-call: bad/absent
-// credentials, a malformed request, or a model id that doesn't exist. Throttling / ServiceUnavailable /
-// ModelTimeout / ModelNotReady are deliberately ABSENT — those are transient and should still retry.
-const HARD_AWS_ERROR_NAMES = new Set([
-  "AccessDeniedException",
-  "UnauthorizedException",
-  "UnrecognizedClientException",
-  "InvalidSignatureException",
-  "IncompleteSignatureException",
-  "MissingAuthenticationTokenException",
-  "ValidationException",
-  "ResourceNotFoundException",
-  "MalformedInputException",
-]);
-
-/** Best-effort HTTP status extraction across the providers' error shapes: AWS SDK `$metadata`, the
- *  Gemini SDK's `status`/`statusCode`, and the fetch-based openai/openrouter adapters, which embed it
- *  in the message ("… request failed (401): …"). Undefined when no status is discoverable. */
-function llmErrorStatus(err: unknown): number | undefined {
-  if (!err || typeof err !== "object") return undefined;
-  const e = err as { $metadata?: { httpStatusCode?: unknown }; status?: unknown; statusCode?: unknown; message?: unknown };
-  const meta = e.$metadata?.httpStatusCode;
-  if (typeof meta === "number") return meta;
-  if (typeof e.status === "number") return e.status;
-  if (typeof e.statusCode === "number") return e.statusCode;
-  if (typeof e.message === "string") {
-    const m = /\((\d{3})\)/.exec(e.message);
-    if (m) return Number(m[1]);
-  }
-  return undefined;
-}
-
-/**
- * Classify a provider failure as HARD (unfixable by re-calling the SAME provider) vs transient. Hard =
- * auth/permission, a 4xx client error (bad request / model-not-found), or a missing API key. Transient =
- * everything else: timeouts, 429 rate limits, 5xx, network blips, empty/unusable/parse failures, and
- * anything we can't confidently classify — the CONSERVATIVE default (unknown ⇒ transient) preserves the
- * current retry behavior for anything ambiguous. Inspect the shapes the providers in src/lib/llm/*
- * actually throw (AWS SDK exception names, an embedded HTTP status, the "… is not set" key guard).
- */
-export function isHardLlmError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { name?: unknown; message?: unknown };
-  const name = typeof e.name === "string" ? e.name : "";
-  const message = typeof e.message === "string" ? e.message : "";
-
-  // An abort (client disconnect, our own per-call timeout, or the scan-wide budget) is never a HARD
-  // provider fault — a timeout is transient and abort handling is separate upstream.
-  if (name === "AbortError" || name === "TimeoutError") return false;
-
-  // AWS SDK (Bedrock) typed exceptions.
-  if (HARD_AWS_ERROR_NAMES.has(name)) return true;
-
-  // A 4xx CLIENT error can't be fixed by re-calling the same provider — EXCEPT 408 (request timeout) and
-  // 429 (rate limit), which are transient and should still retry.
-  const status = llmErrorStatus(err);
-  if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) return true;
-
-  // Message fingerprints for the providers without a typed status (fetch-based + claude-cli):
-  const m = message.toLowerCase();
-  if (m.includes("is not set")) return true; // missing API-key guard (gemini/openai/openrouter)
-  if (/(unauthorized|not authorized|permission denied|access denied|invalid api key|authentication failed|forbidden)/.test(m)) {
-    return true;
-  }
-  if (/(model[_ ]?not[_ ]?found|unknown model|no such model|does not exist|is not supported)/.test(m)) return true;
-
-  return false;
-}
-
-/**
- * Decide whether the SAME-provider retry step should run, given the last error and the remaining
- * scan-wide LLM budget. Two reasons to skip it and go straight to failover:
- *   1. HARD failure — re-calling the same provider will fail the same way, burning an attempt that a
- *      tight (90s hosted) budget needs for the fallback.
- *   2. Budget guard — never START a retry that would leave the fallback step unable to run afterward.
- *      A failover to a DIFFERENT provider is likelier to succeed than re-calling the same one, so when
- *      the remaining budget can't fit BOTH a retry and the fallback (⅓ of the total budget reserved per
- *      step), the retry yields the scarce budget to the fallback. With no fallback configured there's
- *      nothing to preserve, so a transient failure still retries (the attempt is deadline-bounded).
- */
-export function shouldRetrySameProvider(opts: {
-  lastError: unknown;
-  hasFallback: boolean;
-  remainingBudgetMs: number;
-  totalBudgetMs: number;
-}): boolean {
-  if (isHardLlmError(opts.lastError)) return false;
-  if (opts.hasFallback && opts.remainingBudgetMs < Math.floor(opts.totalBudgetMs / 3) * 2) return false;
-  return true;
-}
+// The LLM failure classifiers live with the resilience loop that consumes them; re-exported here so
+// `@/lib/scan` remains the single import surface for the scan pipeline.
+export { isHardLlmError, shouldRetrySameProvider } from "@/lib/scan-assess";
 
 export interface ScanOptions {
   token?: string;
@@ -258,12 +144,13 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // call or SDK load happens until assess() runs.
   // Org-aware provider selection (BYOM — Feature 1): a real org with an active Bedrock config scans on
   // its own Bedrock; otherwise the env-driven platform provider. `byomScan` suppresses the platform
-  // fallback below so a BYOM failure degrades to mock only (privacy-strict, §8.2) — never the platform.
+  // fallback in the assess phase so a BYOM failure degrades to mock only (privacy-strict, §8.2) —
+  // never the platform.
   const providerSelection = await getProviderForOrg(opts.orgSlug, { forceMock: opts.mock });
-  let provider: LLMProvider = providerSelection.provider;
+  const selectedProvider: LLMProvider = providerSelection.provider;
   const byomScan = providerSelection.byom;
-  const intendedProvider = provider.name;
-  const providerRegion = provider instanceof BedrockProvider ? provider.region : undefined;
+  const intendedProvider = selectedProvider.name;
+  const providerRegion = selectedProvider instanceof BedrockProvider ? selectedProvider.region : undefined;
 
   // Decorate every emitted event with the intended provider/region (an event may override
   // them), so the SSE consumer never has to guess which model is running.
@@ -278,419 +165,118 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   const signal = opts.signal;
   signal?.throwIfAborted();
 
-  // Pull-request ingestion (GraphQL) runs in parallel with the REST snapshot fetch, then is
-  // awaited before analysis so PR signals fold into the dimension scores (F4). GraphQL needs a
-  // token — skip gracefully (null) when scanning anonymously.
-  const prPromise: Promise<{ stats: PrStats; partial: boolean } | null> = token
-    ? fetchPrStats(parsed.owner, parsed.repo, token, signal).catch((err) => {
-        console.error("[scan] PR ingestion failed:", err);
-        return null;
-      })
-    : Promise.resolve(null);
+  // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
+  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, activityPromise, aiChanges } =
+    await ingestRepository({
+      parsed,
+      source,
+      token,
+      ref: opts.ref,
+      headSha: opts.headSha,
+      signal,
+      emit,
+    });
 
-  // Pin ingestion to the head sha already resolved for the cache key (when there is one) so the
-  // scored snapshot matches that key even if a push lands between the head lookup and this read;
-  // an explicit PR `ref` still takes precedence. Then stamp the resolved commit as the report's
-  // canonical identity — fetchSnapshot otherwise records treeRes.sha, the tree object's sha, not
-  // the commit's — so lookup, scan, cache, and persistence all reference the same commit.
-  const pinnedRef = opts.ref ?? opts.headSha;
-  const snapshot = await source.fetchSnapshot(parsed, { token, onProgress: emit, signal, ref: pinnedRef });
-  if (!opts.ref && opts.headSha) snapshot.meta.headSha = opts.headSha;
-  signal?.throwIfAborted();
-
-  // Governance (branch protection / rulesets) + commit activity need the default branch from
-  // the snapshot, so they start now and run alongside the LLM call. Governance folds into the
-  // score (awaited before analysis); activity is display-only (awaited at compose time).
-  const govPromise: Promise<Governance | null> = token
-    ? fetchBranchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
-    : Promise.resolve(null);
-  // GitHub-native security posture (published advisories + org-level security policy) — fed to the
-  // Security (D9) check battery below (the Security-Policy check). Public reads, token-gated.
-  const secPromise: Promise<SecurityPosture | null> = token
-    ? fetchSecurityPosture(parsed.owner, parsed.repo, token, signal).catch(() => null)
-    : Promise.resolve(null);
-  // Current EXPOSURE — open known vulns from OSV (parsed from the committed npm lockfile). The
-  // "open vulns are the real negative" axis, kept separate from posture; degrades to UNKNOWN.
-  const expPromise: Promise<SecurityExposure | null> = token
-    ? fetchSecurityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(() => null)
-    : Promise.resolve(null);
-  const activityPromise: Promise<number[] | null> = token
-    ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
-    : Promise.resolve(null);
-
-  emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prResult, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
-  const prStats = prResult?.stats ?? null;
-  // graphql.ts sets `partial` when the PR page came back truncated (null nodes / an `errors` array on a
-  // 200). Such results must not be treated as authoritative or cached — so `prPartial` IS consumed below
-  // (~:545, the poisoning guard): it appends a reliability warning and stamps the typed `report.prPartial`
-  // flag classifyScanResult reads to refuse caching/persisting this scan as authoritative — instead of a
-  // truncated slice silently deflating D6/D7/D8 on large or rate-limited repos.
-  const prPartial = prResult?.partial ?? false;
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).
   const now = opts.now ?? new Date().toISOString();
-  const detectorWarnings: string[] = [];
-  const baseSignals = applyGovernanceSignals(
-    applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
-      // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
-      // gate is credited positively in the D6 detector from the same commit trailers.
-      offPlatformReview: offPlatformReview(snapshot.commits) != null,
-    }),
-    governance,
-  );
-  // Security (D9) is scored by the DETERMINISTIC check battery (OpenSSF-Scorecard-style: graded,
-  // risk-weighted, auditable) rather than the file-grep detector + LLM blend. It reads the full
-  // workflow set + governance + posture + exposure, and its result REPLACES the D9 signal, flagged
-  // `deterministic` so the engine takes the number as-is (the LLM only narrates D9, per the framework).
-  const securityAssessment = computeSecurityChecks(snapshot, governance, securityPosture, securityExposure);
-  const signals = baseSignals.map((s) =>
-    s.id === "D9"
-      ? { ...s, signalScore: securityAssessment.d9, deterministic: true, gaps: securityAssessment.gaps, signals: securityAssessment.evidence.map((label) => ({ label })) }
-      : s,
-  );
-  const archetype = classifyArchetype(snapshot);
-  // Stack-fit (ML/notebook · mobile · embedded) is a known blind spot of the web/service-tuned rubric.
-  // Detect it HERE — before the assessment — and thread it into the prompt so the model's roadmap +
-  // discrepancy audit calibrate to the stack instead of judging notebooks on web conventions. Detected
-  // once and reused for the user-facing warning below. [Tiger P0-2]
-  const stackFit = detectStackFit(snapshot);
-  // Tech-stack detection (Feature 3a): computed once here from the already-fetched manifests/tree.
-  // Always attached to the report (display/persist); fed into the PROMPT only when the gated
-  // TECH_STACK_PROMPT flag is on (Option B) — default off keeps scans byte-identical.
-  const techStack = extractTechStack(snapshot);
+  // owner/repo — the LightTrack telemetry dimension and the eval-log / matrix-capture repo key.
+  const repoFullName = `${parsed.owner}/${parsed.repo}`;
 
-  // Standing decisions already made about this repo (accepted/dismissed/snoozed findings and WHY).
-  // Best-effort: a decision store that's unreachable must never fail a scan, and an unscoped
-  // ("public") scan simply has none. This closes the Shared Org Memory loop — the human's reason for
-  // dismissing a finding becomes context the next assessment reads instead of re-raising the gap.
-  // decisionOrgSlug (individual tier) points the read at the TRIGGERING viewer's personal org on the
-  // public funnel; org scans keep reading their own org via the orgSlug fallback.
-  const decisionSlug = opts.decisionOrgSlug ?? opts.orgSlug;
-  const orgDecisions = decisionSlug
-    ? await decisionsForRepo(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
-    : [];
-
-  const scoreInput: LlmScoreInput = {
-    repo: snapshot.meta,
-    signals,
-    files: snapshot.files,
-    commitSample: snapshot.commits.map((c) => c.message).slice(0, 15),
-    archetype,
-    ...(orgDecisions.length > 0 ? { orgDecisions } : {}),
-    // Already fetched above and folded into the deterministic D3/D6/D7/D8 scores — also hand them to
-    // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
+  // ── Phase 2: deterministic signals → the model's input ────────────────────────────────────────
+  const { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings } = await buildScanScoreInput({
+    snapshot,
     prStats,
     governance,
-    // The deterministic Security (D9) check battery — its score is FIXED (D9 is `deterministic`); the
-    // LLM's job is to narrate it (summary + prioritized gaps) from the same graded evidence, not to
-    // re-derive the number. Threaded so the D9 narrative matches the computed score/checks.
-    securityAssessment,
-    // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
-    stackFit,
-    // Option B (gated): include the detected stack in the prompt only when explicitly enabled.
-    ...(techStackPromptEnabled() ? { techStack } : {}),
-  };
+    securityPosture,
+    securityExposure,
+    now,
+    // decisionOrgSlug (individual tier) points the standing-decision read at the TRIGGERING viewer's
+    // personal org on the public funnel; org scans keep reading their own org via the orgSlug fallback.
+    decisionSlug: opts.decisionOrgSlug ?? opts.orgSlug,
+  });
 
   // Model-matrix capture (dev/bench only, gated on ASCENT_MATRIX_CAPTURE_DIR): dump the fully-built
   // {scoreInput, snapshot} so the model-comparison bench can replay assess() across models on identical
   // inputs. Best-effort, no-op in production. Runs BEFORE assess() so a capture scan can force the mock
   // provider (no LLM key needed) and still record a real input.
   if (matrixCaptureEnabled()) {
-    captureMatrixInput({ repo: `${parsed.owner}/${parsed.repo}`, at: now, scoreInput, snapshot });
+    captureMatrixInput({ repo: repoFullName, at: now, scoreInput, snapshot });
   }
 
-  let llmFailed = false;
-  emit({
-    stage: "score",
-    message:
-      intendedProvider === "mock"
-        ? "Scoring against the rubric…"
-        : `Scoring with ${intendedProvider}…`,
-    pct: 72,
+  // ── Phase 3: LLM assessment (retry → failover → deterministic mock floor) ─────────────────────
+  const {
+    assessment,
+    provider,
+    llmFailed,
+    usage,
+    latencyMs: llmLatencyMs,
+  } = await runAssessmentPhase({
+    provider: selectedProvider,
+    intendedProvider,
+    byomScan,
+    scoreInput,
+    expectedDimensions: signals.length,
+    repoFullName,
+    orgSlug: opts.orgSlug,
+    signal,
+    emit,
   });
-  signal?.throwIfAborted();
-  // One assess attempt, with the quality gate inlined: validateAssessment() never throws, so a
-  // parseable-but-empty reply ({}, wrong shape, or all-unknown dimension ids) coerces to an
-  // assessment scoring (almost) no dimensions. Left unchecked it would render the deterministic
-  // floor under the provider's name with no caveat. Treat it exactly like a thrown failure so the
-  // retry/failover below can recover. (Mock is never gated — it always returns a full assessment.)
-  // Capture token usage from the call that ultimately succeeds — the metering basis. Each attempt's
-  // onUsage overwrites this; a thrown attempt never reports, so the winning provider's usage stands.
-  let capturedUsage: TokenUsage = {};
-  // owner/repo for LightTrack telemetry (below) — the per-repo dimension of the LLM-cost rollup.
-  const repoFullName = `${parsed.owner}/${parsed.repo}`;
-  // `moreAttemptsAfter` is supplied by the resilience loop below: only IT knows whether another plan
-  // step will actually run after this failure, and that is precisely what makes the tracked event's
-  // `degraded` flag honest (a failed primary that a retry recovers did NOT degrade the scan; the last
-  // failing attempt did). Without it the degradation rate is either unobservable or overstated.
-  const attemptAssess = async (
-    p: LLMProvider,
-    attemptSignal: AbortSignal | undefined,
-    moreAttemptsAfter: (err: unknown) => boolean,
-  ) => {
-    // Capture this attempt's usage into a LOCAL and commit it to capturedUsage only AFTER the
-    // attempt is proven usable. Providers call onUsage BEFORE the parse/usability check, so a failed
-    // attempt (malformed JSON, unusable coverage) would otherwise leave its tokens on report.usage
-    // even though the scan degraded to mock — billing the user for an attempt that never contributed.
-    let attemptUsage: TokenUsage = {};
-    // Per-attempt wall-clock for the tracklight latency metric (distinct from the whole-stage
-    // llmLatencyMs persisted on the report — this times THIS provider call, incl. failed ones).
-    const attemptStartedAt = Date.now();
-    try {
-      const a = await p.assess(scoreInput, { signal: attemptSignal, onUsage: (u) => { attemptUsage = u; } });
-      if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
-        throw new Error(
-          `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
-        );
-      }
-      // Mirror the successful real LLM call to LightTrack (fire-and-forget; a no-op unless configured).
-      // Mock carries no real provider traffic/cost, so it's never tracked.
-      if (p.name !== "mock") {
-        trackLlmCall({
-          provider: p.name,
-          model: p.model,
-          usage: attemptUsage,
-          latencyMs: Date.now() - attemptStartedAt,
-          status: "success",
-          // This call produced a USABLE assessment (the coverage guard above already ran), so the
-          // report it backs is not on the deterministic floor.
-          degraded: false,
-          repo: repoFullName,
-          org: opts.orgSlug,
-        });
-      }
-      capturedUsage = attemptUsage; // commit only on success
-      return a;
-    } catch (err) {
-      // Track failed real attempts too — the tokens may have been spent at the provider (an
-      // unusable-but-answered response) and the error/latency is the signal that drives the
-      // retry/failover. Skip only a CLIENT disconnect (the scan is abandoned, not a provider fault).
-      if (p.name !== "mock" && !signal?.aborted) {
-        trackLlmCall({
-          provider: p.name,
-          model: p.model,
-          usage: attemptUsage,
-          latencyMs: Date.now() - attemptStartedAt,
-          status: "error",
-          error: err instanceof Error ? err.message : String(err),
-          // Degraded only when nothing else will run after this failure — i.e. THIS call is the one
-          // that drops the scan to the deterministic floor.
-          degraded: !moreAttemptsAfter(err),
-          repo: repoFullName,
-          org: opts.orgSlug,
-        });
-      }
-      throw err;
-    }
-  };
 
-  // Resilience: a transient blip (rate limit / timeout) or a one-off unusable reply should not
-  // permanently degrade a paid scan to the deterministic floor. Try the primary provider, then one
-  // bounded retry of it, then a configured LLM_FALLBACK_PROVIDER (e.g. bedrock → gemini) when set
-  // and different — only THEN the mock degrade. Aborts propagate immediately so an abandoned scan
-  // stops. The provider that actually produced the assessment becomes the report's engine.
-  const llmStartedAt = Date.now();
-  let assessment: Awaited<ReturnType<LLMProvider["assess"]>>;
-  let usedProvider: LLMProvider = provider;
-  // Scan-wide LLM deadline. Each attempt enforces its own per-call timeout (LLM_TIMEOUT_MS), but the
-  // resilience plan (primary + retry + failover) MULTIPLIES them — three ~60s attempts can burn ~181s
-  // and blow the serverless function timeout BEFORE the mock degrade ever runs, so the user gets a 500
-  // instead of the deterministic floor. Cap the TOTAL time across attempts: when the budget expires the
-  // in-flight call and every remaining attempt abort, and we fall through to mock — well under the
-  // platform limit. The budget signal is distinct from the client's `signal` so a budget expiry
-  // degrades to mock while a real client disconnect still unwinds the whole scan.
-  const totalBudgetMs = llmTotalBudgetMs(intendedProvider);
-  const llmDeadline = new AbortController();
-  const llmDeadlineTimer = setTimeout(
-    () => llmDeadline.abort(new Error("LLM total budget exceeded")),
-    totalBudgetMs,
-  );
-  const budgetRemainingMs = () => totalBudgetMs - (Date.now() - llmStartedAt);
-  const llmSignal = signal ? AbortSignal.any([signal, llmDeadline.signal]) : llmDeadline.signal;
-  try {
-    // BYOM scans never fall over to the PLATFORM provider (that would send the org's data to Ascent's
-    // account, defeating the privacy guarantee) — they retry the org's Bedrock, then degrade to mock.
-    const fallback =
-      intendedProvider === "mock" || byomScan ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
-    // Steps are tagged by kind so the loop can skip the SAME-provider retry when it can't help (a HARD
-    // error) or can't afford to run (budget needed for the failover) — see shouldRetrySameProvider.
-    const plan: { p: LLMProvider; kind: "primary" | "retry" | "fallback"; note?: string }[] = [
-      { p: provider, kind: "primary" },
-    ];
-    if (intendedProvider !== "mock")
-      plan.push({ p: provider, kind: "retry", note: `Retrying ${intendedProvider}…` });
-    if (fallback && fallback.name !== intendedProvider)
-      plan.push({ p: fallback, kind: "fallback", note: `Falling over to ${fallback.name}…` });
-    const hasFallback = plan.some((s) => s.kind === "fallback");
-    // Will ANY step after index `i` actually run, given this error? Mirrors the two skip rules the
-    // loop applies below (budget exhausted → break; a retry the budget/error class rules out →
-    // continue), so the tracked `degraded` flag matches what the scan really does next.
-    const moreAttemptsAfter = (i: number, err: unknown): boolean => {
-      if (llmDeadline.signal.aborted) return false;
-      return plan
-        .slice(i + 1)
-        .some(
-          (s) =>
-            s.kind !== "retry" ||
-            shouldRetrySameProvider({ lastError: err, hasFallback, remainingBudgetMs: budgetRemainingMs(), totalBudgetMs }),
-        );
-    };
-
-    let resolved: Awaited<ReturnType<LLMProvider["assess"]>> | null = null;
-    let lastErr: unknown;
-    for (let i = 0; i < plan.length; i++) {
-      const step = plan[i]!; // safe: i bounded by plan.length
-      // Budget-aware retry: a HARD failure (auth/4xx/model-not-found) can't be fixed by re-calling the
-      // same provider, and a retry must never start when the remaining budget is needed for the
-      // fallback. Either way, skip straight to the failover step (or to mock when none is configured).
-      if (
-        step.kind === "retry" &&
-        !shouldRetrySameProvider({ lastError: lastErr, hasFallback, remainingBudgetMs: budgetRemainingMs(), totalBudgetMs })
-      ) {
-        continue;
-      }
-      try {
-        if (i > 0) {
-          if (llmDeadline.signal.aborted) break; // budget spent — don't sleep before a doomed attempt
-          await sleep(LLM_RETRY_MS);
-          signal?.throwIfAborted();
-          emit({ stage: "score", message: step.note ?? "Retrying…", pct: 80, provider: step.p.name });
-        }
-        resolved = await attemptAssess(step.p, llmSignal, (err) => moreAttemptsAfter(i, err));
-        usedProvider = step.p;
-        break;
-      } catch (err) {
-        // CLIENT disconnect mid-call — don't spend further attempts + a compose pass on a report
-        // nobody will receive. Propagate so the whole scan unwinds. A BUDGET (deadline) abort is NOT
-        // a client abort: it falls through to the next step (which aborts fast) and then to mock.
-        if (signal?.aborted) throw err;
-        lastErr = err;
-      }
-    }
-
-    if (resolved) {
-      assessment = resolved;
-    } else {
-      // Every real attempt failed (or the budget expired) — degrade to deterministic. Only flag it
-      // when an LLM was actually expected (not an intentional/keyless mock).
-      llmFailed = intendedProvider !== "mock";
-      if (llmFailed) {
-        console.error("[scan] LLM provider failed after retry/failover, using mock:", lastErr);
-        emit({
-          stage: "score",
-          message: "Model unavailable — showing deterministic scores.",
-          pct: 90,
-          fallback: true,
-        });
-      }
-      usedProvider = new MockProvider();
-      // Honor the client signal here too (the degrade path is the one most likely to run after a
-      // disconnect) so the cancellation contract is uniform across providers.
-      assessment = await usedProvider.assess(scoreInput, { signal });
-    }
-  } finally {
-    clearTimeout(llmDeadlineTimer);
-  }
-  provider = usedProvider;
-  const llmLatencyMs = Date.now() - llmStartedAt;
-
+  // ── Phase 4: compose ─────────────────────────────────────────────────────────────────────────
   // The mock fallback (and any provider that ignores the signal) can resolve even after a
   // disconnect — re-check before composing/persisting so we don't do that work for no one.
   signal?.throwIfAborted();
   emit({ stage: "compose", message: "Composing your report…", pct: 95 });
-  const report = assembleReport(snapshot, signals, assessment, provider, now, archetype);
-  // WHOSE account the inference ran in. The report header claims "in-account … never leaves the AWS
-  // boundary" for every Bedrock scan, but that read as "YOUR account" on Ascent's PLATFORM Bedrock
-  // too. byomScan is already computed for the no-platform-failover rule; carrying it onto the report
-  // is what lets the chip tell the two apart. A degrade-to-mock keeps the flag false-y with the mock
-  // engine, so the chip never renders in that case anyway.
-  report.engine.byom = byomScan && provider.name !== "mock";
-  report.prStats = prStats;
-  // Re-derive AI usage now that PR stats are available: `detected` keys on REAL AI evidence (PR-level
-  // AI involvement with tool attribution, committed guidance, or genuine AI co-author trailers) rather
-  // than the bot-commit fraction that spuriously counted Renovate/Dependabot as "AI" (reference-scan P0-5).
-  report.aiUsage = detectAiUsage(snapshot, prStats);
-  report.governance = governance;
-  report.commitActivity = await activityPromise;
-  // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
-  // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.
-  report.teams = extractTeamOwnership(snapshot.files);
-  // Tech-stack detection (Feature 3a): computed once above. Always attached for display/persistence
-  // (the prompt enrichment is the separate, gated Option-B path).
-  report.techStack = techStack;
-  // App Readiness Passport: a pure projection of the finished report + snapshot — display/persist-only
-  // (never scored, like techStack). report.governance/prStats are already set above; a tokenless scan
-  // leaves them null, which makes buildPassport honestly cap the enforced "gated" rungs. See passport.ts.
-  report.passport = buildPassport(report, snapshot);
-  // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
-  // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
-  report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };
+  const report = await composeScanReport({
+    snapshot,
+    signals,
+    assessment,
+    provider,
+    now,
+    archetype,
+    byomScan,
+    prStats,
+    governance,
+    aiChanges,
+    activityPromise,
+    techStack,
+    usage,
+    llmLatencyMs,
+  });
 
-  // Eval-log capture (opt-in via ASCENT_EVAL_LOG_DIR — Tiger P1-4): record the prompt + structured
-  // assessment + provenance + metering so a usable-but-wrong answer is debuggable, an injection is
-  // traceable, and the model×tier benchmark has a corpus. Only build the prompt when logging is on;
-  // best-effort, never blocks the scan.
+  // Eval-log capture (opt-in via ASCENT_EVAL_LOG_DIR — Tiger P1-4). Only build the prompt when
+  // logging is on; best-effort, never blocks the scan.
   if (evalLogEnabled()) {
-    const { system, user } = buildAssessmentPrompt(scoreInput);
-    captureAssessment({
-      at: now,
-      repo: `${parsed.owner}/${parsed.repo}`,
-      provider: provider.name,
-      model: provider.model,
-      degraded: llmFailed,
-      coverage: { scored: assessment.dimensions.length, expected: signals.length },
-      latencyMs: llmLatencyMs,
-      usage: report.usage,
-      system,
-      user,
+    captureScanEvalLog({
+      now,
+      repoFullName,
+      provider,
+      llmFailed,
       assessment,
+      expectedDimensions: signals.length,
+      llmLatencyMs,
+      usage: report.usage,
+      scoreInput,
     });
   }
 
+  // A truncated PR slice makes D6/D7/D8 understate — stamp the typed flag classifyScanResult uses to
+  // refuse caching or persisting this report as authoritative (the matching prose caveat comes from
+  // buildScanWarnings below).
+  if (prPartial) report.prPartial = true;
   // Surface non-fatal reliability caveats so the score is interpreted in context.
-  const warnings: string[] = [...detectorWarnings];
-  if (!token) {
-    warnings.push(
-      "Pull-request signals were skipped — they need a GitHub token (GraphQL has no anonymous access).",
-    );
-  }
-  if (llmFailed) {
-    warnings.push(
-      "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
-    );
-  } else if (provider.name === "mock" && !opts.mock) {
-    // Keyless / unconfigured deploy: the engine fell back to the deterministic mock from the START —
-    // NOT a runtime failure (llmFailed is false, so the caveat above never fires) and NOT an explicit
-    // per-request demo (opts.mock). Without this, a keyless public deploy serves the floor as an "AI"
-    // scan disclosed only by a quiet engine chip. Say it plainly so a public-badge or audit reader
-    // knows the AI layer never ran, instead of inferring it. [Tiger P1-5 / MEI-B1]
-    warnings.push(
-      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
-    );
-  }
-  if (snapshot.truncated) {
-    warnings.push(
-      "This repository is very large — its file tree was truncated, so some signals may be missed.",
-    );
-  } else if (snapshot.coverage < 0.5) {
-    warnings.push(
-      `Only part of the repository could be inspected (~${Math.round(snapshot.coverage * 100)}% coverage); treat scores as indicative.`,
-    );
-  }
-  // Partial-fit caveat: name a stack the web/service-tuned rubric is known to under-read (ML/notebooks,
-  // mobile delivery, embedded/firmware) so the score is read honestly rather than taken at face value.
-  // Detected once above and also threaded into the LLM prompt (Tiger P0-2) — reuse it here.
-  if (stackFit) warnings.push(stackFit.caveat);
-  // A truncated PR slice makes D6/D7/D8 understate. Say so on the report (the UI, the LLM export and the
-  // CI gate all read `warnings`), and stamp the typed flag classifyScanResult uses to refuse caching or
-  // persisting this report as authoritative.
-  if (prPartial) {
-    report.prPartial = true;
-    warnings.push(
-      "Pull-request data was incomplete (GitHub returned a truncated page), so the Review, Velocity and Delivery dimensions may understate. This scan was not cached.",
-    );
-  }
+  const warnings = buildScanWarnings({
+    detectorWarnings,
+    hasToken: Boolean(token),
+    llmFailed,
+    providerName: provider.name,
+    explicitMock: Boolean(opts.mock),
+    snapshotTruncated: snapshot.truncated,
+    snapshotCoverage: snapshot.coverage,
+    stackFit,
+    prPartial,
+  });
   if (warnings.length) report.warnings = [...(report.warnings ?? []), ...warnings];
 
   emit({ stage: "done", message: "Done", pct: 100 });

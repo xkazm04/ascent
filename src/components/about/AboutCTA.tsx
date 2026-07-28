@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
-import { demoOrgHref } from "@/lib/site";
 import { SiteFooterCore } from "@/components/SiteFooterCore";
 import { GlowBackdrop } from "./GlowBackdrop";
+import { AboutCtaButtons } from "./AboutCtaButtons";
 
 // Deliberately CURATED footer nav for the /about deck's closing screen: the conversion paths
 // (Pricing / Connect) plus a way home — not the full FOOTER_LINKS set (Leaderboard/Badge/Usage),
@@ -38,14 +37,7 @@ export function AboutCTA() {
                 <p className="mx-auto mt-3 max-w-xl text-base text-slate-300">
                   Connect your GitHub org and Ascent scores the fleet in minutes — or explore the live demo first.
                 </p>
-                <div className="mt-7 flex flex-wrap justify-center gap-3">
-                  <Link href="/connect" className="focus-ring rounded-xl bg-accent px-6 py-3 font-semibold text-on-accent transition hover:bg-accent-soft">
-                    Scan your org
-                  </Link>
-                  <Link href={demoOrgHref()} className="focus-ring rounded-xl border border-divider px-6 py-3 font-medium text-slate-200 transition hover:border-accent hover:text-white">
-                    Explore the demo →
-                  </Link>
-                </div>
+                <AboutCtaButtons size="lg" className="mt-7 justify-center" />
               </GlowBackdrop>
             </Surface>
           </Reveal>

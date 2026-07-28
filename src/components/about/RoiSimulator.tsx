@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { HairlineGrid, Stat } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
 
@@ -100,20 +101,25 @@ export function RoiSimulator() {
         ))}
       </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-divider bg-divider text-center">
+      {/* The tally ledger is the brand HairlineGrid + Stat `figure-compact`, not a hand-copied class
+          string. The grid's radius moves rounded-xl → rounded-2xl in the process: rounded-xl was drift,
+          and every other hairline cluster on this page (including the masthead's stat ledger) is 2xl. */}
+      <HairlineGrid className="mt-5 grid-cols-3 text-center">
         {[
           { v: promotions, l: "promoted", accent: true },
           { v: `+${avgGain}`, l: "avg gain" },
           { v: affected, l: "in scope" },
         ].map((tile) => (
-          <div key={tile.l} className="bg-ink p-3">
-            <div className={`font-mono text-2xl font-bold tabular-nums ${tile.accent ? "text-accent" : "text-white"}`}>
-              {tile.v}
-            </div>
-            <div className="mt-0.5 font-mono text-xs uppercase tracking-widest text-slate-500">{tile.l}</div>
-          </div>
+          <Stat
+            key={tile.l}
+            variant="figure-compact"
+            className="bg-ink p-3"
+            label={tile.l}
+            value={tile.v}
+            color={tile.accent ? "var(--color-accent)" : undefined}
+          />
         ))}
-      </div>
+      </HairlineGrid>
     </div>
   );
 }

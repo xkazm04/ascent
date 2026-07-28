@@ -17,12 +17,15 @@ import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
+import { slugify } from "@/lib/slug";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "playbook";
+// Branch-name-length cap (60), distinct from the file-path cap used elsewhere — kept as a parameter
+// to `slugify`, not flattened, since the two feed different downstream limits.
+const slug = (s: string) => slugify(s, 60, "playbook");
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;

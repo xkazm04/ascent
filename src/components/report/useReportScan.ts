@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ProviderName, ScanProgress, ScanReport } from "@/lib/types";
 import { parseScanReport } from "@/lib/report/validate";
-import { repoKey } from "@/components/report/repoKey";
+import { matchesRequestedRepo } from "@/components/report/repoKey";
 import { scanClientTimeoutMs } from "@/components/report/scanEstimate";
 import { backstopRemainingMs, nextBackstopCeilingMs } from "@/components/report/scanBackstop";
 import { classifyScanAbort } from "@/components/report/reportTaxonomy";
@@ -145,11 +145,7 @@ export function useReportScan(
             const parsed = parseScanReport(await peek.json().catch(() => null));
             if (cancelled) return;
             // Verify the peeked report is actually for the repo we asked about before rendering it.
-            const reqKey = repoKey(repo);
-            const gotKey = parsed.ok
-              ? `${parsed.report.repo.owner}/${parsed.report.repo.name}`.toLowerCase()
-              : "";
-            if (parsed.ok && gotKey === reqKey) {
+            if (matchesRequestedRepo(parsed, repo)) {
               settleDone(parsed.report);
               clearTimeout(timeout);
               return;
@@ -206,10 +202,7 @@ export function useReportScan(
               if (peek.status === 200 && peek.headers.get("x-ascent-stale") === "true") {
                 const parsed = parseScanReport(await peek.json().catch(() => null));
                 if (cancelled) return;
-                const gotKey = parsed.ok
-                  ? `${parsed.report.repo.owner}/${parsed.report.repo.name}`.toLowerCase()
-                  : "";
-                if (parsed.ok && gotKey === repoKey(repo)) {
+                if (matchesRequestedRepo(parsed, repo)) {
                   settleDone(parsed.report, { resetAt, scope });
                   return;
                 }

@@ -7,13 +7,14 @@
 
 import { NextResponse } from "next/server";
 import { GitHubListError, listOrgRepos } from "@/lib/github/list";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const org = searchParams.get("org")?.trim().toLowerCase();
+  const org = searchParams.get("org") ? normalizeOrgSlug(searchParams.get("org")!) : undefined;
   if (!org) return NextResponse.json({ error: "Missing 'org' query parameter." }, { status: 400 });
   const count = Math.min(50, Math.max(1, Number(searchParams.get("count") ?? 30)));
 

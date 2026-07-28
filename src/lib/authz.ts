@@ -11,11 +11,11 @@ import { authGateEnabled, getViewer, requireViewer, type Viewer } from "@/lib/ac
 import { envBool } from "@/lib/env";
 import { getInstallationIdForOwner, isDbConfigured, isPersonalOrg } from "@/lib/db";
 import { isAppConfigured, isOrgAdminViaInstallation } from "@/lib/github/app";
-import { ensureOwnerMembership, getMembershipRole, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
+import { ensureOwnerMembership, getMembershipRole, normalizeLogin, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
 /** True when the current session's installations include `org` (case-insensitive). */
 export async function sessionOwnsOrg(org: string): Promise<boolean> {
-  const slug = org.trim().toLowerCase();
+  const slug = normalizeLogin(org);
   const session = await getSession();
   return Boolean(session?.installations.some((i) => i.login.toLowerCase() === slug));
 }
@@ -44,7 +44,7 @@ export async function sessionHasInstallation(installationId: string | number): P
  * ambient GITHUB_TOKEN either (that PAT commonly has broad read access) — pass `noAmbientToken`.
  */
 export async function canMintInstallationToken(owner: string): Promise<boolean> {
-  const slug = owner.trim().toLowerCase();
+  const slug = normalizeLogin(owner);
   if (!slug || slug === PUBLIC_ORG) return false;
   // ACTIVE Supabase login wall: a real standing in this org (>= viewer), resolved exactly like the
   // read/write gates. A signed-in stranger gets null ⇒ false — no token, no private-repo read.
@@ -80,7 +80,7 @@ async function viewerOrgRole(slug: string, viewer: Viewer): Promise<OrgRole | nu
   // Only an as-yet-unowned org is eligible for the identity-bound bootstrap; an owned org is a hard
   // wall (membership/invite only) — the cross-tenant-takeover invariant.
   if (await orgHasOwner(slug)) return null;
-  const personal = slug === viewer.login.trim().toLowerCase();
+  const personal = slug === normalizeLogin(viewer.login);
   let entitled = personal;
   if (!entitled && isAppConfigured() && isDbConfigured()) {
     // GitHub-verified onboarding for an ORG installation — the install-verified claim the lazy
@@ -105,7 +105,7 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
   // Supabase login wall (layered on top): when enforced, require a signed-in viewer first.
   const gate = await requireViewer();
   if (gate) return gate;
-  const slug = org.trim().toLowerCase();
+  const slug = normalizeLogin(org);
   if (slug === PUBLIC_ORG) return null;
   // Supabase login wall: a signed-in viewer may act on an org ONLY with a real membership (>= member),
   // not merely by being signed in. The old `if (!isAuthConfigured()) return null` treated the dormant
@@ -139,7 +139,7 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
  * isDbConfigured() first (no DB ⇒ no per-tenant data exists to leak).
  */
 export async function canReadOrg(org: string): Promise<boolean> {
-  const slug = org.trim().toLowerCase();
+  const slug = normalizeLogin(org);
   if (slug === PUBLIC_ORG) return true;
   // Supabase login wall: reading a private org requires a real standing in it (>= viewer), resolved
   // exactly like the write/RBAC gates. The old blanket `Boolean(await getViewer())` let ANY signed-in
@@ -232,7 +232,7 @@ export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
 export async function requireOrgRole(org: string, min: OrgRole): Promise<NextResponse | null> {
   const gate = await requireViewer();
   if (gate) return gate;
-  const slug = org.trim().toLowerCase();
+  const slug = normalizeLogin(org);
   if (slug === PUBLIC_ORG) return null;
 
   // Supabase login wall: resolve a REAL membership role for the signed-in viewer (the shared

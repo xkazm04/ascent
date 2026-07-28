@@ -33,17 +33,60 @@ export interface StatProps {
    * year, an id) that must render its exact digits. Non-number values (strings/nodes) are untouched.
    */
   raw?: boolean;
+  /**
+   * Layout family. Only TWO shapes actually exist in the product, and they are not interchangeable:
+   *
+   * - `"ledger"` (default) — the dashboard form: label first, value under it. A row of these reads as
+   *   comparable metrics inside a Tile ledger, where the labels have to line up before the numbers do,
+   *   so the label carries the larger/brighter treatment documented at the top of this file.
+   * - `"figure"` — the editorial form on the marketing deck (/about masthead): the NUMBER leads and the
+   *   label reads as a caption beneath it. Inverting the order is not cosmetic — it also quiets the
+   *   label a step (12px / 0.2em / slate-500), because a caption *under* a figure is subordinate to it
+   *   where a label *above* a value is the thing you scan first.
+   * - `"figure-compact"` — the same inverted form one density step down, for figures that sit inside a
+   *   diagram rather than carrying a section (the ROI simulator's tallies): smaller value, tighter
+   *   caption gap and tracking. A density step, not a fourth design.
+   *
+   * Anything that is neither of these shapes (the /launch pill chip, where value and label share one
+   * line; the war-room's projector-scale tweened cell) legitimately keeps its own component — see the
+   * notes on those files. Do not add a prop to drag them in here.
+   */
+  variant?: "ledger" | "figure" | "figure-compact";
   className?: string;
 }
 
-export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goal, raw = false, className = "" }: StatProps) {
+/** The two inverted (value-first) densities. Each row is one coherent typographic bundle. */
+const FIGURE = {
+  figure: {
+    value: "font-mono text-3xl font-bold tabular-nums",
+    label: "mt-1 font-mono text-xs uppercase tracking-[0.2em] text-slate-500",
+  },
+  "figure-compact": {
+    value: "font-mono text-2xl font-bold tabular-nums",
+    label: "mt-0.5 font-mono text-xs uppercase tracking-widest text-slate-500",
+  },
+} as const;
+
+export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goal, raw = false, variant = "ledger", className = "" }: StatProps) {
   const display = typeof value === "number" && !raw ? value.toLocaleString() : value;
+  const figure = variant === "ledger" ? null : FIGURE[variant];
   return (
     <div className={className}>
-      <div className="font-mono text-[13px] uppercase leading-snug tracking-[0.12em] text-slate-400">{label}</div>
-      <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums" style={{ color }}>
-        {display}
-      </div>
+      {figure ? (
+        <>
+          <div className={figure.value} style={{ color }}>
+            {display}
+          </div>
+          <div className={figure.label}>{label}</div>
+        </>
+      ) : (
+        <>
+          <div className="font-mono text-[13px] uppercase leading-snug tracking-[0.12em] text-slate-400">{label}</div>
+          <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums" style={{ color }}>
+            {display}
+          </div>
+        </>
+      )}
       {sub && <div className="mt-0.5 text-sm text-slate-500">{sub}</div>}
       {delta != null && (
         <div className="mt-1 flex items-center gap-1.5 font-mono text-sm">

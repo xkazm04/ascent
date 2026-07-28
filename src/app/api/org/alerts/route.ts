@@ -24,7 +24,7 @@ import {
   setOrgAlertWebhook,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { buildTestAlertMessage, dispatchAlert, validateAlertWebhookUrl } from "@/lib/alerts";
 
@@ -96,7 +96,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Alert routing requires a database." }, { status: 503 });
   // CSRF defense-in-depth, matching the credit-grant mutation (the session cookie is SameSite=Lax).
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     webhookUrl?: unknown;

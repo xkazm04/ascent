@@ -19,11 +19,18 @@ vi.mock("next/server", () => ({
 
 const { mockCanReadOrg } = vi.hoisted(() => ({ mockCanReadOrg: vi.fn() }));
 vi.mock("@/lib/authz", () => ({ canReadOrg: mockCanReadOrg }));
-vi.mock("@/lib/auth", () => ({
-  ACTIVE_ORG_COOKIE: "ascent_active_org",
-  PUBLIC_ORG: "public",
-  sessionMaxAgeSeconds: 3600,
-}));
+// The route now delegates cross-origin detection to the shared isSameOrigin (it used to hand-roll its
+// own copy) — pass through the REAL implementation so this file's cross-origin assertions keep exercising
+// the same logic production uses.
+vi.mock("@/lib/auth", async (orig) => {
+  const actual = await orig<typeof import("@/lib/auth")>();
+  return {
+    ACTIVE_ORG_COOKIE: "ascent_active_org",
+    PUBLIC_ORG: "public",
+    sessionMaxAgeSeconds: 3600,
+    isSameOrigin: actual.isSameOrigin,
+  };
+});
 
 import { POST } from "./route";
 

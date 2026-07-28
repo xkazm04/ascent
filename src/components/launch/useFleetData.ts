@@ -32,6 +32,28 @@ export function settleInitialFetch(
   return { id: inst.id, login: inst.login, status: "done", repos: mapRepos(data.repos) };
 }
 
+/** Shape of the `/api/app/repos` response body both effects below read. */
+type ReposBody = { repos?: unknown; error?: string } | null;
+
+/** Build the `/api/app/repos` URL for one org and fetch it. Shared by the initial-fetch effect (which
+ *  passes an AbortSignal so unmount cancels in-flight requests) and the 90s refresh effect (which
+ *  doesn't — it discards stale results via its own `cancelled` flag instead; see useFleetData's
+ *  refresh effect for why an AbortController there wasn't the right cancellation shape). Extracting
+ *  ONLY the URL-building + fetch call (not a full parse-and-branch routine) keeps each caller's own
+ *  ok/status handling order intact — the refresh effect deliberately skips parsing the body at all
+ *  when `!r.ok` (see below), which an eagerly-parsing shared routine would have broken. */
+function fetchOrgRepos(inst: Installation, signal?: AbortSignal): Promise<Response> {
+  const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
+  return fetch(`/api/app/repos?${qs.toString()}`, signal ? { signal } : undefined);
+}
+
+/** Parse a `/api/app/repos` response body, tolerating a truncated/non-JSON body (never throws). Shared
+ *  by both effects; each decides WHEN to call it (the refresh effect calls it only after its own
+ *  `!r.ok` short-circuit, to avoid reading an error body it doesn't use). */
+async function parseReposBody(r: Response): Promise<ReposBody> {
+  return (await r.json().catch(() => null)) as ReposBody;
+}
+
 /** Run `fn` over `items` with at most `limit` in flight. Identical to `Promise.all(items.map(fn))`
  *  when `items.length <= limit` — the whole point: capped fleets keep the exact prior behavior (same
  *  parallel burst, same cadence), and only a fleet BIGGER than the cap is metered out. `fn` must not
@@ -93,10 +115,9 @@ export function useFleetData(
     // mounts. At or below the cap this is the previous unbounded parallel burst, unchanged.
     void runBounded(installations, POLL_ORG_CAP, async (inst) => {
       if (controller.signal.aborted) return;
-      const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
       try {
-        const r = await fetch(`/api/app/repos?${qs.toString()}`, { signal: controller.signal });
-        const data = (await r.json().catch(() => null)) as { repos?: unknown; error?: string } | null;
+        const r = await fetchOrgRepos(inst, controller.signal);
+        const data = await parseReposBody(r);
         setConstellations((cur) =>
           cur.map((c) => (c.id !== inst.id ? c : settleInitialFetch(inst, r.ok, r.status, data))),
         );
@@ -146,11 +167,10 @@ export function useFleetData(
           // so the visibility re-pull below honors the same schedule.
           const penalty = backoff.current.get(inst.login);
           if (penalty && Date.now() < penalty.nextAt) return;
-          const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
-          const r = await fetch(`/api/app/repos?${qs.toString()}`);
+          const r = await fetchOrgRepos(inst);
           if (cancelled) return;
           if (!r.ok) return noteFailure(inst.login);
-          const data = (await r.json().catch(() => null)) as { repos?: unknown } | null;
+          const data = await parseReposBody(r);
           // A malformed/absent body is a FAILED pull, not an empty org (settleInitialFetch's rule). It
           // previously fell through as `fresh: []`, which mergeStars no-ops on — same stars either way,
           // but it must count against the backoff rather than read as a healthy poll.

@@ -7,15 +7,11 @@
 import { NextResponse } from "next/server";
 import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, isDbConfigured, listSegments, listTechStackGroups } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
-import { csvField } from "@/lib/export/csv";
+import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function toCsv(header: string[], rows: unknown[][]): string {
-  return [header.join(","), ...rows.map((r) => r.map((v) => csvField(v)).join(","))].join("\n") + "\n";
-}
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Export requires a database." }, { status: 503 });
@@ -132,7 +128,7 @@ export async function GET(request: Request) {
     const scopeSuffix =
       (segmentId ? `-${safeFilenameSlug(segmentId, "segment")}` : "") +
       (stackParam && techGroupId ? `-${safeFilenameSlug(stackParam, "stack")}` : "");
-    return new NextResponse(toCsv(header, rows), {
+    return new NextResponse(csvTable(header, rows), {
       headers: {
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}${scopeSuffix}.csv"`,

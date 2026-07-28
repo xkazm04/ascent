@@ -2,9 +2,10 @@
 // DELETE /api/org/segments/:id                     -> remove the segment and its memberships
 
 import { NextResponse } from "next/server";
-import { deleteSegment, getSegmentOrgSlug, isDbConfigured, segmentInputError, updateSegment } from "@/lib/db";
+import { deleteSegment, getSegmentOrgSlug, segmentInputError, updateSegment } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import type { OrgRole } from "@/lib/db/members";
+import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ export const dynamic = "force-dynamic";
 // DB + per-row tenant gate: the segment must exist and the caller must hold at least `min` in its org.
 // PATCH (rename/recolor) is a member-level write; DELETE is destructive, so it requires admin.
 async function gate(id: string, min: OrgRole = "member"): Promise<NextResponse | null> {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Segments require a database." }, { status: 503 });
+  const guard = dbGuard("Segments");
+  if (guard) return guard;
   const org = await getSegmentOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Segment not found." }, { status: 404 });
   return min === "member" ? requireOrgAccess(org) : requireOrgRole(org, min);

@@ -7,7 +7,16 @@ import { createHmac } from "node:crypto";
 vi.mock("next/server", () => ({
   NextResponse: { json: (body: unknown, init?: { status?: number }) => new Response(JSON.stringify(body), init) },
 }));
-vi.mock("@/lib/auth", () => ({ isSameOrigin: () => true }));
+// requireSameOrigin is the canonical reject-or-null wrapper the route now uses; it delegates to
+// isSameOrigin, so mocking it as a thin wrapper keeps every existing assertion below unchanged.
+vi.mock("@/lib/auth", () => {
+  const isSameOrigin = () => true;
+  return {
+    isSameOrigin,
+    requireSameOrigin: (req: Request) =>
+      isSameOrigin() ? null : new Response(JSON.stringify({ error: "Cross-origin request rejected." }), { status: 403 }),
+  };
+});
 // Auth-off deployment: mintedBy stays unset, so the READ gate is the only thing between an anonymous
 // same-origin caller and a private-fleet token.
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));

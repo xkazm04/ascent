@@ -4,8 +4,15 @@
 // Exposes only what the Briefing tab shows. noindex so a leaked link isn't crawled.
 
 import { Logo } from "@/components/Brand";
-import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { DimRow, MoveRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
+import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { PriorPeriodGrid } from "@/components/org/executive/briefingShared";
+import {
+  BriefingDimensionCards,
+  BriefingGoalsCard,
+  BriefingMovementCard,
+  BriefingTiles,
+} from "@/components/org/executive/briefingCards";
+import { TokenNotice } from "@/components/TokenNotice";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
@@ -13,7 +20,6 @@ import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } f
 import type { OrgBranding } from "@/lib/db/branding";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { planAllowsWhiteLabel } from "@/lib/plans";
-import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
@@ -69,14 +75,13 @@ function ShareFooter({ branding }: { branding?: OrgBranding | null }) {
   );
 }
 
+// The shared TokenNotice panel between this page's own branded frame. Unbranded on purpose: these
+// notices fire before the org is trusted (bad/revoked token), so they must never carry its mark.
 function Notice({ title, body }: { title: string; body: string }) {
   return (
     <>
       <ShareHeader />
-      <main id="main" className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center px-5 text-center">
-        <h1 className="text-xl font-bold text-white">{title}</h1>
-        <p className="mt-2 text-base text-slate-400">{body}</p>
-      </main>
+      <TokenNotice title={title} body={body} minHeightClass="min-h-[60vh]" />
       <ShareFooter />
     </>
   );
@@ -166,12 +171,9 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}${asOf ? `, as of ${asOf} (window frozen when the link was created)` : ""}.`}
         />
 
-        <div className={`mt-6 ${TILE_GRID}`}>
-          <Tile label="Org maturity" value={maturity.overall} sub={`${maturity.levelId} · ${maturity.levelName}`} color={scoreHex(maturity.overall)} delta={briefing.periodDelta ?? undefined} />
-          <Tile label="AI Adoption" value={maturity.adoption} color={scoreHex(maturity.adoption)} />
-          <Tile label="Engineering Rigor" value={maturity.rigor} color={scoreHex(maturity.rigor)} />
-          <Tile label="Corpus percentile" value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"} sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"} color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined} />
-        </div>
+        {/* No `orgSlug` and no `deltaLabel`: the tiles stay static cells. A read-only board link must
+            not lead into the authenticated app, so every link-bearing prop is left unpassed. */}
+        <BriefingTiles maturity={maturity} benchmark={benchmark} delta={briefing.periodDelta} className="mt-6" />
 
         {/* executive-briefing 07-16 #4: the audience the "value this period" line was built for
             (leadership/renewal) is exactly the audience holding this link — carry it here like the
@@ -214,64 +216,21 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           </Card>
         )}
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <Card>
-            <SectionHeader size="sm" title="Strengths" />
-            <div className="mt-3 space-y-1.5">
-              {briefing.strengths.map((d) => (
-                <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
-              ))}
-            </div>
-          </Card>
-          <Card>
-            <SectionHeader size="sm" title="Weakest dimensions" />
-            <div className="mt-3 space-y-1.5">
-              {briefing.risks.map((d) => (
-                <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
-              ))}
-            </div>
-          </Card>
-        </div>
+        {/* No `practiceOrgSlug` (static rows, no links into the app) and no `security` — this public
+            view has never listed the security dimension and must not start now. */}
+        <BriefingDimensionCards strengths={briefing.strengths} risks={briefing.risks} className="mt-6" />
 
         {/* Movement this period — the scale line + capped top movers the exec page and PDF carry.
-            Rows are rendered WITHOUT fullName so no report links leak out of the read-only surface
-            (briefingShared's recorded intent: the link surface stays inside the authenticated app). */}
-        {(briefing.topGainers.length > 0 || briefing.topRegressions.length > 0) && (
-          <Card className="mt-6">
-            <SectionHeader size="sm" title="Movement this period" />
-            {briefing.movement.compared > 0 && (
-              <p className="mt-2 font-mono text-sm text-slate-500">
-                {briefing.movement.up + briefing.movement.down} of {briefing.movement.compared} compared repos moved
-                ({briefing.movement.up} ▲ / {briefing.movement.down} ▼)
-              </p>
-            )}
-            <div className="mt-3 space-y-1.5">
-              {briefing.topGainers.map((m) => (
-                <MoveRow key={`g-${m.name}`} tone="up" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
-              ))}
-              {briefing.topRegressions.map((m) => (
-                <MoveRow key={`r-${m.name}`} tone="down" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
-              ))}
-            </div>
-          </Card>
-        )}
+            `reportLinks` is left off so rows render WITHOUT fullName and no report links leak out of the
+            read-only surface (briefingShared's recorded intent: links stay inside the authenticated app). */}
+        <BriefingMovementCard
+          gainers={briefing.topGainers}
+          regressions={briefing.topRegressions}
+          movement={briefing.movement}
+          className="mt-6"
+        />
 
-        <Card className="mt-6">
-          <SectionHeader size="sm" title="Goals" />
-          {briefing.goals.length === 0 ? (
-            <InlineEmpty>No goals set for this org.</InlineEmpty>
-          ) : (
-            <div className="mt-3 space-y-2.5">
-              {briefing.goals.map((g) => (
-                <div key={g.label} className="flex items-center gap-3 text-base">
-                  <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
-                  <Meter className="w-32 shrink-0" value={g.pct} color={scoreHex(g.pct)} />
-                  <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400">{g.current}/{g.target}{g.etaDays != null ? ` · ~${g.etaDays}d` : ""}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
+        <BriefingGoalsCard goals={briefing.goals} emptyText="No goals set for this org." className="mt-6" />
       </main>
       <ShareFooter branding={branding} />
     </>

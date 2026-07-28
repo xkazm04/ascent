@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { openDraftPr } from "@/lib/github/write";
 import { isAppConfigured } from "@/lib/github/app";
 import { getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { PUBLIC_ORG, isAuthConfigured, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, isAuthConfigured, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
@@ -28,7 +28,8 @@ export async function POST(request: Request) {
   if (!isAppConfigured()) {
     return NextResponse.json({ error: "Opening a PR needs the GitHub App installed with contents + pull-request write access." }, { status: 503 });
   }
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   // Re-keyed off the dormant-only predicate: gate whenever EITHER stack is live. Under the
   // Supabase wall the old isAuthConfigured() check never fired.
   if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin())) {

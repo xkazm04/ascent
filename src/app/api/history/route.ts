@@ -12,7 +12,7 @@ import { isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import { csvField } from "@/lib/export/csv";
+import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
@@ -24,16 +24,16 @@ function historyToCsv(history: RepositoryHistory): string {
   // "engine" = provider (mock/bedrock/gemini/…), "model" = the specific model that graded the snapshot.
   // Both matter for an audit artifact: "mock" flags a deterministic-floor quarter, and the model name
   // lets an auditor tell a sonnet grade from a haiku one quarter to quarter. [Tiger P1-5]
-  const header = ["scannedAt", "overall", "level", "levelName", "engine", "model", ...dimIds].join(",");
+  const header = ["scannedAt", "overall", "level", "levelName", "engine", "model", ...dimIds];
   const rows = [...history.scans].reverse().map((s) => {
     const byDim = new Map((s.dimensions ?? []).map((d) => [d.dimId, d.score]));
-    const dims = dimIds.map((id) => csvField(byDim.get(id) ?? ""));
-    // Quote EVERY field uniformly (was raw for scannedAt/overall/dims): if any value ever gains a
-    // comma (a comma'd locale timestamp, a stringy dim cell), an unquoted field shifts the column
-    // count and misaligns the whole export.
-    return [csvField(s.scannedAt), csvField(s.overallScore), csvField(s.level), csvField(s.levelName), csvField(s.engineProvider), csvField(s.engineModel), ...dims].join(",");
+    const dims = dimIds.map((id) => byDim.get(id) ?? "");
+    // csvTable quotes EVERY field uniformly via csvField: if any value ever gains a comma (a comma'd
+    // locale timestamp, a stringy dim cell), an unquoted field shifts the column count and misaligns
+    // the whole export.
+    return [s.scannedAt, s.overallScore, s.level, s.levelName, s.engineProvider, s.engineModel, ...dims];
   });
-  return [header, ...rows].join("\n") + "\n";
+  return csvTable(header, rows);
 }
 
 export async function GET(request: Request) {

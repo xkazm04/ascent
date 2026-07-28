@@ -31,3 +31,19 @@ export function csvField(v: unknown, alwaysQuote = false): string {
   if (alwaysQuote || /[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
+
+/**
+ * Canonical CSV table assembly, built on {@link csvField}: a header row (raw column names, never
+ * user-supplied so never itself passed through the cell encoder) followed by one line per data row,
+ * each cell encoded via csvField, terminated with a single trailing newline. This is the exact
+ * "header.join(',') + rows.map(...).join('\n') + '\n'" shape that org/export, org/repositories,
+ * history, and usage each hand-rolled separately (G8-35) — extracted so a future export can't drift on
+ * quoting/line-ending shape the way org/repositories once drifted on the formula-injection guard.
+ *
+ * No BOM, no CRLF: every call site this replaces emitted plain "\n"-joined, un-BOM'd text, so this
+ * preserves that byte-for-byte (history's route additionally content-hashes the resulting string for an
+ * integrity header — unaffected, since it still hashes the same bytes this produces).
+ */
+export function csvTable(header: readonly string[], rows: readonly unknown[][]): string {
+  return [header.join(","), ...rows.map((r) => r.map((v) => csvField(v)).join(","))].join("\n") + "\n";
+}

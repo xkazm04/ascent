@@ -5,7 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { requireOrgRole, canReadOrg } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { liveShareEnabled, signLiveShareToken } from "@/lib/live-share";
 
@@ -19,7 +19,8 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as { org?: string };
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
   // live-war-room #2: the mint gate must be AT LEAST AS STRICT as the READ gate, and fail closed.

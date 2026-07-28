@@ -8,7 +8,12 @@
 
 import { cacheSet } from "@/lib/cache";
 import { getOrgId, getScanReportByCommit, isDbConfigured, persistScanReport } from "@/lib/db";
-import { consumePublicScanQuota, refundPublicScanQuota, monthlyQuotaExceeded } from "@/lib/public-scan-quota";
+import {
+  consumePublicScanQuota,
+  refundPublicScanQuota,
+  monthlyQuotaExceeded,
+  type QuotaScope,
+} from "@/lib/public-scan-quota";
 import { getViewer } from "@/lib/access";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { recordScanMemories } from "@/lib/memory/scan-feed";
@@ -19,7 +24,7 @@ import type { ScanCacheLookup } from "@/lib/scan-cache";
 export interface ScanQuotaHeaders {
   quotaRemaining: number | null;
   quotaResetAt: number | null;
-  quotaScope: "anon" | "user" | null;
+  quotaScope: QuotaScope | null;
 }
 
 export interface ScanQuotaResult extends ScanQuotaHeaders {

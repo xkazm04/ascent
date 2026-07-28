@@ -247,7 +247,8 @@
         "src/app/api/org/plan/**",
         "src/app/pricing/**",
         "src/components/pricing/**",
-        "src/components/credit/**"
+        "src/components/credit/**",
+        "src/components/org/shared/CreditsControl*"
       ]
     },
     {
@@ -258,7 +259,7 @@
         "src/app/api/usage/**",
         "src/app/usage/**",
         "src/components/usage/**",
-        "src/lib/rate-limit.ts",
+        "src/lib/rate-limit*.ts",
         "src/lib/public-scan-quota.ts",
         "src/components/QuotaMeter.tsx"
       ]
@@ -283,6 +284,10 @@
         "src/lib/db/index.ts",
         "src/lib/db/scans.ts",
         "src/lib/db/scans-persist.ts",
+        "src/lib/db/scans-audit.ts",
+        "src/lib/db/audit-integrity.ts",
+        "src/app/api/audit/**",
+        "src/components/org/audit/**",
         "src/lib/db/mode.ts",
         "src/instrumentation.ts"
       ]

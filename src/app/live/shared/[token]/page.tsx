@@ -11,18 +11,12 @@ import { getOrgRepoHistories, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { verifyLiveShareToken } from "@/lib/live-share";
 import { isLiveShareRevoked } from "@/lib/db/org-share";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
+// Shared with /share/briefing/[token] — the other capability-link surface. Its default min-h-screen is
+// this page's framing: the wall is a full-viewport kiosk with no header/footer chrome around it.
+import { TokenNotice as Notice } from "@/components/TokenNotice";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
-
-function Notice({ title, body }: { title: string; body: string }) {
-  return (
-    <main id="main" className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-5 text-center">
-      <h1 className="text-xl font-bold text-white">{title}</h1>
-      <p className="mt-2 text-base text-slate-400">{body}</p>
-    </main>
-  );
-}
 
 export default async function SharedLivePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;

@@ -4,9 +4,10 @@
 
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
-import { getLatestRecommendations, isDbConfigured } from "@/lib/db";
+import { getLatestRecommendations } from "@/lib/db";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { canReadOrg } from "@/lib/authz";
+import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,12 +22,8 @@ export async function GET(request: Request) {
   if (!parsed) {
     return NextResponse.json({ error: "Invalid repository reference." }, { status: 400 });
   }
-  if (!isDbConfigured()) {
-    return NextResponse.json(
-      { error: "Recommendation tracking requires a database (Phase 2 feature)." },
-      { status: 503 },
-    );
-  }
+  const guard = dbGuard("Recommendation tracking", "Recommendation tracking requires a database (Phase 2 feature).");
+  if (guard) return guard;
 
   try {
     // Scope to the org the caller may read, using the SAME Supabase-aware membership resolver the

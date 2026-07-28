@@ -4,6 +4,7 @@ import type { ScanReport } from "@/lib/types";
 import { contributions } from "@/lib/scoring/engine";
 import { DIMENSION_SHORT, fmtPts, scoreHex } from "@/lib/ui";
 import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { ScoreBarTrack } from "@/components/report/FillBar";
 import { Kicker, Surface } from "@/components/ui";
 
 /**
@@ -42,7 +43,7 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
       </div>
 
       {/* Stacked 0..100 track — colored segments reach the headline; the faint tail is the headroom. */}
-      <div
+      <ScoreBarTrack
         className="mt-4 flex h-4 w-full overflow-hidden rounded-full bg-slate-800"
         role="img"
         aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions`}
@@ -59,7 +60,7 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
           );
         })}
         <div className="h-full flex-1" title={`${fmtPts(Math.max(0, 100 - total))} pts of headroom to 100`} />
-      </div>
+      </ScoreBarTrack>
 
       {/* Itemized contributions — biggest first; ▲ lifts the overall, ▼ drags it below the mean. */}
       <ul className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">

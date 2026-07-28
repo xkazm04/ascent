@@ -11,6 +11,25 @@ type View =
   | { status: "error"; message: string }
   | { status: "done"; repos: AppRepo[] };
 
+/**
+ * Shared AbortController-cancellation dance for a `useEffect` that fires a fetch. The repos, credits,
+ * and segments effects each hand-rolled this: create a controller, guard against a stale response
+ * landing after a newer effect run superseded it (`active`), and abort + flip `active` false on
+ * cleanup. `run` receives the signal to pass to `fetch` and an `isActive()` check to call before any
+ * `setState` in a `.then`/`.catch` — same two checks the inline versions made, just named once. The
+ * controller is still created synchronously when the effect body runs and cleanup still aborts +
+ * marks inactive in the same order, so cancellation timing is byte-for-byte the same as before.
+ */
+function withAbortableEffect(run: (signal: AbortSignal, isActive: () => boolean) => void): () => void {
+  const controller = new AbortController();
+  let active = true;
+  run(controller.signal, () => active);
+  return () => {
+    active = false;
+    controller.abort();
+  };
+}
+
 /** Orchestration for <InstallationRepos>: repo/credit/segment fetches, optimistic watch/schedule/segment
  *  mutations (with per-row sequencing + rollback), bulk actions, and the derived credit-cost figures.
  *  Extracted verbatim from the component so the .tsx stays a thin presentational shell — behavior is
@@ -48,73 +67,61 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
     // navigates; without cancellation a slower earlier response can resolve last and render
     // the wrong installation's repos under this heading. Abort the in-flight request on
     // change/unmount and ignore any late resolution, so only the latest request can setView.
-    const controller = new AbortController();
-    let active = true;
-    // Intentional: reset to the loading state whenever `org`/`installationId` changes so the
-    // heading doesn't show a stale installation's repos while the new fetch is in flight.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setView({ status: "loading" });
-    const qs = new URLSearchParams({ org });
-    if (installationId) qs.set("installation_id", installationId);
-    fetch(`/api/app/repos?${qs.toString()}`, { signal: controller.signal })
-      .then(async (r) => {
-        const data = await r.json();
-        if (!active) return;
-        if (!r.ok) setView({ status: "error", message: data?.error ?? `Failed (${r.status}).` });
-        else setView({ status: "done", repos: (data.repos ?? []) as AppRepo[] });
-      })
-      .catch(() => {
-        if (active) setView({ status: "error", message: "Network error." });
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
+    return withAbortableEffect((signal, isActive) => {
+      // Intentional: reset to the loading state whenever `org`/`installationId` changes so the
+      // heading doesn't show a stale installation's repos while the new fetch is in flight.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setView({ status: "loading" });
+      const qs = new URLSearchParams({ org });
+      if (installationId) qs.set("installation_id", installationId);
+      fetch(`/api/app/repos?${qs.toString()}`, { signal })
+        .then(async (r) => {
+          const data = await r.json();
+          if (!isActive()) return;
+          if (!r.ok) setView({ status: "error", message: data?.error ?? `Failed (${r.status}).` });
+          else setView({ status: "done", repos: (data.repos ?? []) as AppRepo[] });
+        })
+        .catch(() => {
+          if (isActive()) setView({ status: "error", message: "Network error." });
+        });
+    });
   }, [org, installationId]);
 
   useEffect(() => {
     // Same cancellation contract as the repo fetch: only the latest org's credit state may land.
-    const controller = new AbortController();
-    let active = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset so a stale org's balance never shows
-    setCredit(null);
-    fetch(`/api/org/credits?org=${encodeURIComponent(org)}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (active && d && typeof d.balance === "number") {
-          setCredit({
-            balance: d.balance,
-            unlimited: Boolean(d.unlimited),
-            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : 0,
-          });
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      controller.abort();
-    };
+    return withAbortableEffect((signal, isActive) => {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset so a stale org's balance never shows
+      setCredit(null);
+      fetch(`/api/org/credits?org=${encodeURIComponent(org)}`, { signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (isActive() && d && typeof d.balance === "number") {
+            setCredit({
+              balance: d.balance,
+              unlimited: Boolean(d.unlimited),
+              allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : 0,
+            });
+          }
+        })
+        .catch(() => {});
+    });
   }, [org]);
 
   useEffect(() => {
     // Load this org's segments + membership (best-effort, cancellable — same contract as above).
-    const controller = new AbortController();
-    let active = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset so a stale org's segments never show
-    setSegments([]);
-    setSegMembership({});
-    fetch(`/api/org/segments?org=${encodeURIComponent(org)}&membership=1`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!active || !d) return;
-        setSegments(Array.isArray(d.segments) ? d.segments : []);
-        setSegMembership(d.membership ?? {});
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      controller.abort();
-    };
+    return withAbortableEffect((signal, isActive) => {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset so a stale org's segments never show
+      setSegments([]);
+      setSegMembership({});
+      fetch(`/api/org/segments?org=${encodeURIComponent(org)}&membership=1`, { signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!isActive() || !d) return;
+          setSegments(Array.isArray(d.segments) ? d.segments : []);
+          setSegMembership(d.membership ?? {});
+        })
+        .catch(() => {});
+    });
   }, [org]);
 
   // Optimistic tag/untag of a repo into a segment (only offered on watched repos — tagging needs the

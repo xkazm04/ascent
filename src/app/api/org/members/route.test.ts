@@ -18,14 +18,24 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
-vi.mock("@/lib/auth", () => ({
-  isSameOrigin: vi.fn(() => true),
-  getSession: vi.fn(async () => ({ login: "owner-actor" })),
-}));
-// Keep the REAL isOrgRole so the route's role-shape validation behaves; mock nothing else here.
+// requireSameOrigin is the canonical reject-or-null wrapper the route now calls; the mock mirrors its
+// real contract (null when same-origin, else the 403 rejection) so tests keep driving behavior via the
+// SAME isSameOrigin mock they already control.
+vi.mock("@/lib/auth", () => {
+  const isSameOrigin = vi.fn(() => true);
+  return {
+    isSameOrigin,
+    requireSameOrigin: vi.fn((req: Request) =>
+      isSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+    ),
+    getSession: vi.fn(async () => ({ login: "owner-actor" })),
+  };
+});
+// Keep the REAL isOrgRole + normalizeLogin so the route's role-shape validation and login
+// canonicalization behave; mock nothing else here.
 vi.mock("@/lib/db/members", async (orig) => {
   const actual = await orig<typeof import("@/lib/db/members")>();
-  return { isOrgRole: actual.isOrgRole };
+  return { isOrgRole: actual.isOrgRole, normalizeLogin: actual.normalizeLogin };
 });
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,

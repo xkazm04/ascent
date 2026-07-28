@@ -225,6 +225,22 @@ export function isSerializationConflictError(err: unknown): boolean {
  * fallback — rendering plausible-but-wrong "no data" (success theater) instead of surfacing the error
  * or retrying. A timeout is "this query was too slow", not "the server is gone", so it must propagate.
  */
+/**
+ * Does this error carry Prisma's P2002 "unique constraint failed" code? Duck-typed on `.code` — matches
+ * anything shaped like a Prisma error (a real `PrismaClientKnownRequestError`, a plain-object test
+ * double, or an error that crossed a serialization boundary and lost its prototype chain), not just a
+ * genuine class instance. Pure + exported for unit testing.
+ *
+ * This is the GENERAL P2002 check; `isUniqueConstraintError` (db/scans-shared.ts) is a NARROWER sibling
+ * used on the persist-path's create-race recovery, where an accidental duck-typed match would be unsafe
+ * — it additionally requires a real `PrismaClientKnownRequestError` instance. That's a deliberate
+ * distinction (confirmed by both files' existing tests, which each rely on their own strictness), not
+ * drift: `isUniqueConstraintError` is expressed in terms of this function, not merged into it.
+ */
+export function isP2002Error(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "P2002";
+}
+
 export function isDbUnavailableError(err: unknown): boolean {
   if (err == null) return false;
   const name =

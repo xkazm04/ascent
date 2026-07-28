@@ -16,6 +16,7 @@ import { isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveStackScope } from "@/lib/org/scope";
 import { resolveWindow } from "@/lib/window";
+import { pdfAttachmentResponse } from "@/lib/pdf/export-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,11 +47,5 @@ export async function GET(request: Request) {
   const element = createElement(SecurityDocument, { overview, supply }) as unknown as ReactElement<DocumentProps>;
   const buffer = await renderToBuffer(element);
   const filename = `ascent-security-${org}-${overview.generatedOn}.pdf`;
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      "content-type": "application/pdf",
-      "content-disposition": `attachment; filename="${filename}"`,
-      "cache-control": "private, max-age=300",
-    },
-  });
+  return pdfAttachmentResponse(buffer, filename, "private, max-age=300");
 }

@@ -58,13 +58,20 @@ function cleanSteps(steps: string[] | undefined): string {
   return JSON.stringify(out);
 }
 
-export async function listPlaybooks(orgSlug: string): Promise<PlaybookRow[] | null> {
-  if (!isDbConfigured()) return null;
-  const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return [];
-  const rows = await prisma.playbook.findMany({ where: { orgId, archived: false }, orderBy: { createdAt: "desc" } });
-  return rows.map((p) => ({
+/** The single DTO mapper from a persisted Playbook row to {@link PlaybookRow} — shared by
+ *  listPlaybooks and getPlaybook so the field list can't drift between the list and single-row reads. */
+function toPlaybookRow(p: {
+  id: string;
+  title: string;
+  dimId: string;
+  summary: string;
+  steps: string;
+  createdBy: string | null;
+  createdAt: Date;
+  version: number;
+  updatedAt: Date;
+}): PlaybookRow {
+  return {
     id: p.id,
     title: p.title,
     dimId: p.dimId,
@@ -74,7 +81,16 @@ export async function listPlaybooks(orgSlug: string): Promise<PlaybookRow[] | nu
     createdAt: p.createdAt.toISOString(),
     version: p.version,
     updatedAt: p.updatedAt.toISOString(),
-  }));
+  };
+}
+
+export async function listPlaybooks(orgSlug: string): Promise<PlaybookRow[] | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const rows = await prisma.playbook.findMany({ where: { orgId, archived: false }, orderBy: { createdAt: "desc" } });
+  return rows.map(toPlaybookRow);
 }
 
 export async function createPlaybook(
@@ -132,17 +148,7 @@ export async function getPlaybook(id: string): Promise<PlaybookRow | null> {
   if (!isDbConfigured()) return null;
   const p = await getPrisma().playbook.findUnique({ where: { id } });
   if (!p) return null;
-  return {
-    id: p.id,
-    title: p.title,
-    dimId: p.dimId,
-    summary: p.summary,
-    steps: parseSteps(p.steps),
-    createdBy: p.createdBy,
-    createdAt: p.createdAt.toISOString(),
-    version: p.version,
-    updatedAt: p.updatedAt.toISOString(),
-  };
+  return toPlaybookRow(p);
 }
 
 /** Resolve the org slug owning a playbook, so a per-row route can authorize the caller. Null if absent. */

@@ -11,9 +11,10 @@
 import { NextResponse } from "next/server";
 import { getMembershipRole, isDbConfigured, listOrgMembers, recordOrgAudit, removeMembership, setMembershipRole } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { isOrgRole } from "@/lib/db/members";
-import { isSameOrigin } from "@/lib/auth";
+import { isOrgRole, normalizeLogin } from "@/lib/db/members";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
   if (!raw) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
   // Canonicalize the slug once so the gate, data read, and (in POST/DELETE) the mutation + audit can
   // never disagree on which org the request refers to (case-divergence was a real IDOR/audit risk).
-  const org = raw.trim().toLowerCase();
+  const org = normalizeOrgSlug(raw);
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   const members = await listOrgMembers(org);
@@ -38,12 +39,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Members require a database." }, { status: 503 });
   // CSRF defense-in-depth on this privilege-changing mutation (the session cookie is already SameSite=Lax).
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as { org?: string; login?: string; role?: string };
   if (!body.org || !body.login || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, login, role: owner|admin|member|viewer }." }, { status: 400 });
   }
-  const org = body.org.trim().toLowerCase();
+  const org = normalizeOrgSlug(body.org);
   const login = body.login.trim();
   if (!GITHUB_LOGIN.test(login)) {
     return NextResponse.json({ error: "login must be a valid GitHub login." }, { status: 400 });
@@ -67,17 +69,18 @@ export async function POST(request: Request) {
   await recordOrgAudit(
     "org.member.role",
     org,
-    { org, login: login.toLowerCase(), newRole: body.role, prevRole: prevRole ?? null },
+    { org, login: normalizeLogin(login), newRole: body.role, prevRole: prevRole ?? null },
     actor ?? undefined,
   );
-  return NextResponse.json({ ok: true, login: login.toLowerCase(), role: body.role });
+  return NextResponse.json({ ok: true, login: normalizeLogin(login), role: body.role });
 }
 
 export async function DELETE(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Members require a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const { searchParams } = new URL(request.url);
-  const org = (searchParams.get("org") ?? "").trim().toLowerCase();
+  const org = normalizeOrgSlug(searchParams.get("org") ?? "");
   const login = (searchParams.get("login") ?? "").trim();
   if (!org || !login) return NextResponse.json({ error: "Provide ?org=&login=." }, { status: 400 });
   const denied = await requireOrgRole(org, "owner");
@@ -88,6 +91,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Can't remove the last owner — assign another owner first." }, { status: 409 });
   }
   const actor = await resolveViewerLogin();
-  await recordOrgAudit("org.member.removed", org, { org, login: login.toLowerCase() }, actor ?? undefined);
+  await recordOrgAudit("org.member.removed", org, { org, login: normalizeLogin(login) }, actor ?? undefined);
   return NextResponse.json({ ok: true });
 }

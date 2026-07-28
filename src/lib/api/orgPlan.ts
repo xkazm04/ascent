@@ -9,10 +9,16 @@ import { NextResponse } from "next/server";
 import { isDbConfigured } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 
-/** The 503 db-guard shared by every planning handler. Returns the response when DB is unset, else null. */
-export function dbGuard(resourceLabel: string): NextResponse | null {
+/**
+ * The 503 db-guard shared by every planning handler (and, via the optional `message` override, by
+ * the recommendations routes too — their wording predates this helper and differs from the
+ * `${label} require a database.` template, so passing the exact original string keeps the body
+ * byte-identical instead of forcing every caller onto one phrasing). Returns the response when DB
+ * is unset, else null.
+ */
+export function dbGuard(resourceLabel: string, message?: string): NextResponse | null {
   if (!isDbConfigured()) {
-    return NextResponse.json({ error: `${resourceLabel} require a database.` }, { status: 503 });
+    return NextResponse.json({ error: message ?? `${resourceLabel} require a database.` }, { status: 503 });
   }
   return null;
 }

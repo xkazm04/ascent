@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { reportPermalink, scoreHex } from "@/lib/ui";
+import { meanOverall } from "./fleetMapDerive";
 import { Pill } from "./FleetMapChrome";
 import {
   ACCENT,
@@ -58,12 +59,19 @@ export function ConstellationField({
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
   const total = c.status === "done" ? c.repos.length : 0;
   const overflow = Math.max(0, baseRepos.length - MAX_STARS);
-  const avg =
-    scanned > 0
-      ? Math.round(
-          (c.status === "done" ? c.repos : []).reduce((s, r) => s + (r.overall ?? 0), 0) / scanned,
-        )
-      : null;
+  // Single-sourced with fleetStats/orderConstellations's mean (G8-16) — see fleetMapDerive.meanOverall.
+  const avg = c.status === "done" ? meanOverall(c.repos) : null;
+  // Per-star derivations (position, look, dim) shared by BOTH the lines pass and the stars pass below —
+  // previously each pass recomputed posFor/starLook/matcher independently for the same star (G8-18).
+  const starData =
+    c.status === "done"
+      ? repos.map((r, i) => ({
+          r,
+          ...posFor(r, i),
+          look: starLook(r.overall),
+          dim: matcher ? !matcher(r) : false,
+        }))
+      : [];
 
   return (
     <div className="launch-constellation rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
@@ -137,11 +145,8 @@ export function ConstellationField({
         <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={`${c.login} constellation — ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`}>
           {/* constellation lines from the org core to each scanned repo star */}
           {c.status === "done" &&
-            repos.map((r, i) => {
+            starData.map(({ r, cx, cy, look, dim }) => {
               if (r.overall == null) return null;
-              const { cx, cy } = posFor(r, i);
-              const look = starLook(r.overall);
-              const dim = matcher ? !matcher(r) : false;
               return (
                 <line
                   key={`l-${r.fullName}`}
@@ -169,12 +174,9 @@ export function ConstellationField({
 
           {/* hydrated repo stars — brightness scales with maturity; each links to its report */}
           {c.status === "done" &&
-            repos.map((r, i) => {
-              const { cx, cy } = posFor(r, i);
-              const look = starLook(r.overall);
+            starData.map(({ r, cx, cy, look, dim }, i) => {
               // MAP-4: a star outside the active filter is dimmed (not removed) so the constellation
               // shape is preserved and the matches "pop" against the faded field.
-              const dim = matcher ? !matcher(r) : false;
               const style: CSSProperties = {
                 ["--star-opacity" as string]: dim ? 0.1 : look.opacity,
                 animationDelay: `${(i % 7) * 0.28}s`,

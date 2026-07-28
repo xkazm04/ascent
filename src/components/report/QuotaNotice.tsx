@@ -10,8 +10,16 @@ import { EmptyState } from "@/components/EmptyState";
 import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 import { shortDate, shortDateSafe } from "@/components/ui/format";
 
-/** Free monthly public-scan allowance attribution, from the x-ascent-quota-scope header. */
-export type QuotaScope = "anon" | "user";
+/** Free monthly public-scan allowance attribution, from the x-ascent-quota-scope header. Canonical
+ *  type now lives in @/lib/public-scan-quota (G8-30 — a shared type shouldn't live in a client
+ *  component); re-exported here (type-only — erased at compile time, so this does NOT pull the
+ *  server-only quota module's runtime code, e.g. node:crypto/Prisma, into this client component)
+ *  so existing importers of this module are unaffected.
+ */
+import type { QuotaScope } from "@/lib/public-scan-quota";
+// Re-exported for backward compatibility: useReportScan.ts still imports QuotaScope from here.
+// Type-only, so it is erased at compile time and drags no server code into this "use client" file.
+export type { QuotaScope };
 
 /**
  * Whether a "Sign in for more" CTA can actually do anything: only when this scan was ANONYMOUS

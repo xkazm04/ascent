@@ -7,6 +7,7 @@
 
 import { planFeatures } from "@/lib/plans";
 import { Meter } from "@/components/org/shared/ui";
+import { Surface } from "@/components/ui";
 
 /** Whether the org is idle (a smaller tier may fit), comfortable, or near the cap (top-up before the 402). */
 export type AllotmentFit = "under" | "ok" | "over";
@@ -63,7 +64,7 @@ export function AllotmentPanel({
         : `Comfortably within your ${included}/mo ${label} allotment.`;
 
   return (
-    <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <Surface className="mt-4 p-6">
       <h2 className="text-base font-semibold text-white">
         Monthly allotment{" "}
         <span className="font-normal text-slate-500">· {label} plan · {included.toLocaleString()} credits / mo</span>
@@ -80,6 +81,6 @@ export function AllotmentPanel({
         Unused credits roll over — they never expire, so a quiet month is not lost. The 90% mark is your
         top-up line, well before the hard 402.
       </p>
-    </div>
+    </Surface>
   );
 }

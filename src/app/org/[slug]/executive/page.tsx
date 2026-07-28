@@ -4,8 +4,14 @@
 
 import Link from "next/link";
 import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixCaveat, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/executive/briefingShared";
+import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { PriorPeriodGrid } from "@/components/org/executive/briefingShared";
+import {
+  BriefingDimensionCards,
+  BriefingGoalsCard,
+  BriefingMovementCard,
+  BriefingTiles,
+} from "@/components/org/executive/briefingCards";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { BriefingShareButton } from "@/components/org/executive/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/executive/BrandingSettings";
@@ -17,7 +23,6 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveOrgWindow } from "@/lib/org/period";
-import { scoreHex } from "@/lib/ui";
 import { chipButtonClass } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -92,27 +97,15 @@ export default async function OrgExecutive({
         </div>
       </div>
 
-      {/* GA: each headline tile deep-links to the tab that explains it (Tile.href — whole cell). */}
-      <div className={TILE_GRID}>
-        <Tile
-          label="Org maturity"
-          value={maturity.overall}
-          sub={`${maturity.levelId} · ${maturity.levelName}`}
-          color={scoreHex(maturity.overall)}
-          delta={briefing.periodDelta ?? undefined}
-          deltaLabel={period.comparisonLabel}
-          href={`/org/${slug}`}
-        />
-        <Tile label="AI Adoption" value={maturity.adoption} color={scoreHex(maturity.adoption)} href={`/org/${slug}/adoption`} />
-        <Tile label="Engineering Rigor" value={maturity.rigor} color={scoreHex(maturity.rigor)} href={`/org/${slug}/delivery`} />
-        <Tile
-          label="Corpus percentile"
-          value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"}
-          sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"}
-          color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined}
-          href="/leaderboard"
-        />
-      </div>
+      {/* GA: each headline tile deep-links to the tab that explains it (Tile.href — whole cell), which
+          is why this authenticated view passes `orgSlug`; the public share page omits it. */}
+      <BriefingTiles
+        maturity={maturity}
+        benchmark={benchmark}
+        delta={briefing.periodDelta}
+        deltaLabel={period.comparisonLabel}
+        orgSlug={slug}
+      />
 
       {valueRealizedLine(briefing.valueRealized) && (
         <div className="rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
@@ -185,79 +178,28 @@ export default async function OrgExecutive({
           "Recommended next move" (which named only the weakest dimension). */}
       {orgRecs && orgRecs.length > 0 && <OrgLeverageMoves recs={orgRecs} slug={slug} />}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeader size="sm" title="Strengths" />
-          <div className="mt-3 space-y-1.5">
-            {briefing.strengths.map((d) => (
-              <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} href={practiceHref(slug, d.dimId)} />
-            ))}
-          </div>
-        </Card>
-        <Card>
-          <SectionHeader size="sm" title="Weakest dimensions" right={<span className="font-mono text-sm text-slate-500">→ practices</span>} />
-          <div className="mt-3 space-y-1.5">
-            {briefing.risks.map((d) => (
-              <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} href={practiceHref(slug, d.dimId)} />
-            ))}
-            {/* Surface the security dim here only when it isn't ALREADY shown — neither in the risk list
-                nor (executive-briefing #4) in Strengths — so a security dim that ranks as a top strength
-                isn't simultaneously rendered under "Weakest dimensions". */}
-            {briefing.security &&
-              briefing.risks.every((r) => r.dimId !== briefing.security!.dimId) &&
-              briefing.strengths.every((s) => s.dimId !== briefing.security!.dimId) && (
-                <DimRow
-                  dimId={briefing.security.dimId}
-                  label={`${briefing.security.label} (security)`}
-                  avg={briefing.security.avg}
-                  href={practiceHref(slug, briefing.security.dimId)}
-                />
-              )}
-          </div>
-        </Card>
-      </div>
+      {/* Practice deep-links + the security row are the two authenticated-only affordances of this
+          block; the share page renders the same component without them. */}
+      <BriefingDimensionCards
+        strengths={briefing.strengths}
+        risks={briefing.risks}
+        security={briefing.security}
+        practiceOrgSlug={slug}
+      />
 
-      {(briefing.topGainers.length > 0 || briefing.topRegressions.length > 0) && (
-        <Card>
-          <SectionHeader size="sm" title="Movement this period" />
-          <div className="mt-3 space-y-1.5">
-            {briefing.topGainers.map((m) => (
-              <MoveRow key={`g-${m.name}`} tone="up" name={m.name} fullName={m.fullName} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
-            ))}
-            {briefing.topRegressions.map((m) => (
-              <MoveRow key={`r-${m.name}`} tone="down" name={m.name} fullName={m.fullName} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
-            ))}
-          </div>
-        </Card>
-      )}
+      {/* `reportLinks` opts this view into per-mover report permalinks (the share page stays static).
+          The fleet-wide movement scale is deliberately NOT passed — the signals strip above has it. */}
+      <BriefingMovementCard gainers={briefing.topGainers} regressions={briefing.topRegressions} reportLinks />
 
-      <Card>
-        <SectionHeader
-          size="sm"
-          title="Goals"
-          right={
-            <Link href={`/org/${slug}/plan`} className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent">
-              Manage goals →
-            </Link>
-          }
-        />
-        {briefing.goals.length === 0 ? (
-          <InlineEmpty>No goals set — define maturity targets on the Plan tab to track progress here.</InlineEmpty>
-        ) : (
-          <div className="mt-3 space-y-2.5">
-            {briefing.goals.map((g) => (
-              <div key={g.label} className="flex items-center gap-3 text-base">
-                <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
-                <Meter className="w-32 shrink-0" value={g.pct} color={scoreHex(g.pct)} />
-                <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400">
-                  {g.current}/{g.target}
-                  {g.etaDays != null ? ` · ~${g.etaDays}d` : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      <BriefingGoalsCard
+        goals={briefing.goals}
+        emptyText="No goals set — define maturity targets on the Plan tab to track progress here."
+        right={
+          <Link href={`/org/${slug}/plan`} className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent">
+            Manage goals →
+          </Link>
+        }
+      />
 
       {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
     </div>

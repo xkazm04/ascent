@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { LEVEL_CLASSES, LEVEL_GLYPH, readableTextOn, timeAgo } from "@/lib/ui";
+import { readableTextOn, timeAgo } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
+import { PrivateRepoBadge, ScorePill } from "@/components/LevelBadge";
 import { type AppRepo, SCHEDULES, scheduleLabel } from "./installationRepoTypes";
 
 export function RepoRow({
@@ -33,7 +34,6 @@ export function RepoRow({
   onToggleSegment?: (r: AppRepo, segId: string) => void;
 }) {
   const st = r.state;
-  const lc = st?.level ? LEVEL_CLASSES[st.level as LevelId] : null;
   const tagged = new Set(segmentIds);
   return (
     <div className="p-4">
@@ -45,16 +45,9 @@ export function RepoRow({
            *  repo name shoves the private/level badges off-screen and wraps the row's watch/Scan controls. */}
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate font-mono text-base text-white">{r.fullName}</span>
-            {r.private ? (
-              <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
-                private
-              </span>
-            ) : null}
-            {st?.level && lc && (
-              <span className={`rounded border ${lc.border} ${lc.bg} px-1.5 py-0.5 font-mono text-sm ${lc.text}`}>
-                <span aria-hidden>{LEVEL_GLYPH[st.level as LevelId]} </span>
-                {st.level} · {st.overall}
-              </span>
+            {r.private ? <PrivateRepoBadge /> : null}
+            {st?.level && (
+              <ScorePill level={st.level as LevelId} overall={st.overall as number} className="px-1.5 py-0.5 font-mono text-sm" />
             )}
           </div>
           <div className="mt-0.5 flex flex-wrap gap-x-3 text-sm text-slate-500">

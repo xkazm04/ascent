@@ -9,14 +9,66 @@ import type { ScanReport } from "@/lib/types";
 import { getProvider } from "@/lib/llm";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
-interface Entry {
-  report: ScanReport;
-  expires: number;
+// ---- Generic TTL + capped-LRU map ---------------------------------------------------------
+// Both caches below (the scan-report `store` and the head-hint `hintStore`) are a Map<string, V> with
+// a TTL and a capacity-triggered LRU eviction. They had already drifted apart on ONE axis — whether a
+// `get()` refreshes recency — because each was hand-rolled separately. `refreshOnGet` makes that a
+// declared parameter instead of an accident, and each cache's choice is justified at its instantiation
+// below rather than flattened to whichever behavior was easier to keep.
+class TtlLruCache<V> {
+  private readonly map = new Map<string, { value: V; expires: number }>();
+
+  constructor(
+    private readonly ttlMs: number,
+    private readonly maxEntries: number,
+    /** Whether reading an entry moves it to the MRU position. See per-cache reasoning at each
+     *  `new TtlLruCache` call site — this is a deliberate per-cache choice, not a shared default. */
+    private readonly refreshOnGet: boolean,
+  ) {}
+
+  get(key: string): V | null {
+    const e = this.map.get(key);
+    if (!e) return null;
+    if (Date.now() > e.expires) {
+      this.map.delete(key);
+      return null;
+    }
+    if (this.refreshOnGet) {
+      this.map.delete(key);
+      this.map.set(key, e);
+    }
+    return e.value;
+  }
+
+  set(key: string, value: V): void {
+    // Delete-then-set moves an existing key to the MRU tail on every write (both caches want this on
+    // WRITE regardless of their read-side `refreshOnGet` choice), so re-writing a hot key isn't evicted
+    // before colder entries. Deleting first also means the capacity check below only evicts on a TRUE
+    // growth (a genuinely new key) — an overwrite that won't grow the map no longer needlessly drops a
+    // valid entry.
+    this.map.delete(key);
+    if (this.map.size >= this.maxEntries) {
+      const oldest = this.map.keys().next().value;
+      if (oldest !== undefined) this.map.delete(oldest);
+    }
+    this.map.set(key, { value, expires: Date.now() + this.ttlMs });
+  }
+
+  delete(key: string): void {
+    this.map.delete(key);
+  }
 }
 
 const TTL_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_ENTRIES = 100;
-const store = new Map<string, Entry>();
+// DECISION: refreshOnGet = true. A cache HIT here is often a terminal read with no follow-up write —
+// lookupCachedScan returns the cached report directly on a memory hit and calls cacheSet only on a
+// MISS (after computing/rebuilding a report). So a popular, unchanged repo (many readers, no new
+// writes) would otherwise look "cold" to the capacity-triggered LRU eviction and could be dropped in
+// favor of a genuinely colder entry, even though it's the most-used one. Refreshing recency on read is
+// the correct semantics for this cache: it is what makes the eviction policy actually LRU (by usage)
+// rather than LWU ("least written").
+const store = new TtlLruCache<ScanReport>(TTL_MS, MAX_ENTRIES, true);
 
 /**
  * Normalize a GitHub owner or repo name into a stable identity token.
@@ -127,30 +179,11 @@ export function makeCacheKey(
 }
 
 export function cacheGet(key: string): ScanReport | null {
-  const e = store.get(key);
-  if (!e) return null;
-  if (Date.now() > e.expires) {
-    store.delete(key);
-    return null;
-  }
-  // refresh LRU recency
-  store.delete(key);
-  store.set(key, e);
-  return e.report;
+  return store.get(key);
 }
 
 export function cacheSet(key: string, report: ScanReport): void {
-  // Refresh LRU recency (mirrors headHintSet + cacheGet): delete-then-set moves an existing key to the
-  // MRU tail so re-caching a hot commit (e.g. a fresh=1 re-test of an unchanged sha) isn't evicted
-  // before colder entries. Deleting first also means the capacity check below only evicts on a TRUE
-  // growth (a genuinely new key) — an overwrite that won't grow the map no longer needlessly drops a
-  // valid cached scan.
-  store.delete(key);
-  if (store.size >= MAX_ENTRIES) {
-    const oldest = store.keys().next().value;
-    if (oldest) store.delete(oldest);
-  }
-  store.set(key, { report, expires: Date.now() + TTL_MS });
+  store.set(key, report);
 }
 
 /**
@@ -265,38 +298,28 @@ export interface HeadHint {
   headSha: string;
 }
 
-interface HintEntry extends HeadHint {
-  expires: number;
-}
-
 // A stale hint is self-correcting (a 200 + fresh ETag replaces it), so the TTL is generous and
 // only exists to bound memory; the cap evicts the oldest hint LRU-style.
 const HINT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const HINT_MAX = 500;
-const hintStore = new Map<string, HintEntry>();
+// DECISION: refreshOnGet = false. Unlike the report cache, every read site in this codebase
+// (lookupCachedScan, resolveHeadWithHint — see src/lib/scan-cache.ts) calls headHintGet and then, on
+// every reachable branch (a fresh 200, a 304, or reusing a pre-resolved head), immediately calls
+// headHintSet again for the SAME key in the same request — and `set` already refreshes recency
+// unconditionally. So a get-triggered refresh would be redundant in the actual call pattern, not a
+// correctness gap: an entry that's genuinely still being consulted keeps getting its recency bumped by
+// the write that follows. Leaving get() non-refreshing here (rather than flattening it to match `store`)
+// is the accurate choice for this cache's real usage shape, not an oversight.
+const hintStore = new TtlLruCache<HeadHint>(HINT_TTL_MS, HINT_MAX, false);
 
 function hintKey(owner: string, repo: string): string {
   return `${normalizeRepoName(owner)}/${normalizeRepoName(repo)}`;
 }
 
 export function headHintGet(owner: string, repo: string): HeadHint | null {
-  const key = hintKey(owner, repo);
-  const e = hintStore.get(key);
-  if (!e) return null;
-  if (Date.now() > e.expires) {
-    hintStore.delete(key);
-    return null;
-  }
-  return { etag: e.etag, headSha: e.headSha };
+  return hintStore.get(hintKey(owner, repo));
 }
 
 export function headHintSet(owner: string, repo: string, hint: HeadHint): void {
-  const key = hintKey(owner, repo);
-  // Refresh recency: delete-then-set moves the key to the tail so the cap evicts the LRU entry.
-  hintStore.delete(key);
-  if (hintStore.size >= HINT_MAX) {
-    const oldest = hintStore.keys().next().value;
-    if (oldest) hintStore.delete(oldest);
-  }
-  hintStore.set(key, { ...hint, expires: Date.now() + HINT_TTL_MS });
+  hintStore.set(hintKey(owner, repo), hint);
 }

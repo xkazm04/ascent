@@ -8,15 +8,20 @@ import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
 import { boundUsageDays } from "@/lib/db/usage";
 import { requireOrgRead } from "@/lib/authz";
+import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// date is a plain "YYYY-MM-DD" dayKey and billable/free/total are non-negative counts — both shapes are
+// exempt from csvField's quoting/formula-guard (no comma/quote/newline, and a leading digit never trips
+// the `=/+/-/@` formula check), so routing this through the shared csvTable is byte-identical to the
+// former hand-rolled template-literal join.
 function toCsv(summary: UsageSummary): string {
-  const header = "date,billable,free,total";
-  const rows = summary.daily.map((d) => `${d.date},${d.billable},${d.free},${d.billable + d.free}`);
-  return [header, ...rows].join("\n") + "\n";
+  const header = ["date", "billable", "free", "total"];
+  const rows = summary.daily.map((d) => [d.date, d.billable, d.free, d.billable + d.free]);
+  return csvTable(header, rows);
 }
 
 export async function GET(request: Request) {

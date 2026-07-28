@@ -11,7 +11,7 @@ import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cac
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
-import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +54,7 @@ export async function GET(
   //    "a cache-hit gate is effectively free" contract exists to prevent. Only the branches that
   //    actually ingest from GitHub pay the limiter.
   if (!mock) {
-    const rl = rateLimitRequest(req, SCAN_RATE_LIMIT);
+    const rl = await rateLimitRequestShared(req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   }
   try {

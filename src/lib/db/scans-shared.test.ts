@@ -18,6 +18,10 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
   isDbConfigured: () => true,
   withRetry: (fn: () => unknown) => fn(),
+  // isUniqueConstraintError now delegates to the general isP2002Error (db/client.ts) — reimplement
+  // its real (duck-typed) semantics here since this mock replaces the whole module.
+  isP2002Error: (err: unknown) =>
+    typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "P2002",
 }));
 
 import { ensureOrgId, invalidateOrgIdCache, DEFAULT_ORG_SLUG } from "./scans-shared";

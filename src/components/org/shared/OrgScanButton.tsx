@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import Link from "next/link";
-import { readSSE } from "@/lib/sse";
+import { useScanStream } from "@/components/org/shared/useScanStream";
 import { Meter } from "@/components/org/shared/ui";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 
@@ -29,6 +29,7 @@ type ScanScope = { staleOnlyDays?: number; repos?: string[] };
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
   const router = useRouter();
+  const startScan = useScanStream();
   const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0, skipped: 0 });
   const hintId = useId();
   // a11y (ambiguity-ui 2026-07-16 #5): natively-disabled buttons leave the tab order and `title` is
@@ -46,18 +47,10 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
     // A CONTINUE scope names its repos explicitly, so its denominator IS known.
     const initialTotal = scope?.repos ? scope.repos.length : scope ? 0 : watchedCount;
     setP({ running: true, done: 0, total: initialTotal, current: "starting…", failed: 0, skipped: 0 });
-    try {
-      const res = await fetch("/api/org/scan", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org, ...scope }),
-      });
-      if (!res.ok || !res.body) {
-        const d = (await res.json().catch(() => null)) as { error?: string } | null;
-        setP((s) => ({ ...s, running: false, error: d?.error ?? `Failed (${res.status}).` }));
-        return;
-      }
-      await readSSE(res.body, ({ event, data }) => {
+    await startScan({
+      body: { org, ...scope },
+      onRefused: (d, status) => setP((s) => ({ ...s, running: false, error: d?.error ?? `Failed (${status}).` })),
+      onMessage: ({ event, data }) => {
         if (!data) return;
         if (event === "progress")
           setP((s) => ({ ...s, done: Number(data.index) || s.done, total: Number(data.total) || s.total, current: String(data.repo ?? "") }));
@@ -100,12 +93,13 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           const skippedN = Number(data.skippedForCredits);
           if (Number.isFinite(skippedN)) setP((s) => ({ ...s, skipped: skippedN }));
         } else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
-      });
-      setP((s) => ({ ...s, running: false, current: "" }));
-      router.refresh();
-    } catch {
-      setP((s) => ({ ...s, running: false, error: "Network error." }));
-    }
+      },
+      onStreamEnd: () => {
+        setP((s) => ({ ...s, running: false, current: "" }));
+        router.refresh();
+      },
+      onNetworkError: () => setP((s) => ({ ...s, running: false, error: "Network error." })),
+    });
   }
 
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;

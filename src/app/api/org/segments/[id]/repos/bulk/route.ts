@@ -4,8 +4,9 @@
 // server-side so a caller can only touch their own tenant's segments/repos.
 
 import { NextResponse } from "next/server";
-import { isDbConfigured, setRepoSegmentsBulk } from "@/lib/db";
+import { setRepoSegmentsBulk } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
+import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ export const dynamic = "force-dynamic";
 const MAX_BATCH = 1000; // bound the batch so an unbounded list can't be sent to the DB
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Segments require a database." }, { status: 503 });
+  const guard = dbGuard("Segments");
+  if (guard) return guard;
   const { id } = await ctx.params;
   const body = (await request.json().catch(() => ({}))) as { org?: string; fullNames?: string[]; member?: boolean };
   if (!body.org || !Array.isArray(body.fullNames)) {

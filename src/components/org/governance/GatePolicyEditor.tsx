@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GatePolicy } from "@/lib/scoring/gate";
+import { clampToDisplayRange } from "@/lib/scoring/gate-numeric";
 import type { LevelId } from "@/lib/types";
 
 const LEVELS: LevelId[] = ["L1", "L2", "L3", "L4", "L5"];
@@ -61,7 +62,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
     if (minDimension.trim()) p.minDimension = Number(minDimension);
     if (security) {
       // Preserve the configured floor (clamped 0..100) instead of overwriting it with a fixed 50.
-      const floor = Math.max(0, Math.min(100, Number(securityFloor) || 0));
+      const floor = clampToDisplayRange(securityFloor);
       p.minDimensionFor = { D9: floor };
     }
     if (noUngoverned || security) p.forbidPostures = ["ungoverned"];

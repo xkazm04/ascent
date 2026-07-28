@@ -61,17 +61,22 @@ vi.mock("@/lib/access", () => ({
   requireViewer: mockRequireViewer,
 }));
 
-// Mock the membership data layer; keep a real roleAtLeast so the gate's hierarchy logic is exercised.
-vi.mock("@/lib/db/members", () => ({
-  getMembershipRole: mockGetMembershipRole,
-  ensureOwnerMembership: mockEnsureOwnerMembership,
-  orgHasOwner: mockOrgHasOwner,
-  roleAtLeast: (role: string | null | undefined, min: string) => {
-    const rank: Record<string, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
-    if (!role) return false;
-    return (rank[role] ?? -1) >= (rank[min] ?? 99);
-  },
-}));
+// Mock the membership data layer; keep a real roleAtLeast + normalizeLogin so the gate's hierarchy
+// logic and login/org-slug canonicalization behave exactly like production.
+vi.mock("@/lib/db/members", async (orig) => {
+  const actual = await orig<typeof import("@/lib/db/members")>();
+  return {
+    getMembershipRole: mockGetMembershipRole,
+    ensureOwnerMembership: mockEnsureOwnerMembership,
+    orgHasOwner: mockOrgHasOwner,
+    normalizeLogin: actual.normalizeLogin,
+    roleAtLeast: (role: string | null | undefined, min: string) => {
+      const rank: Record<string, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
+      if (!role) return false;
+      return (rank[role] ?? -1) >= (rank[min] ?? 99);
+    },
+  };
+});
 
 import {
   canMintInstallationToken,

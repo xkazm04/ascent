@@ -59,6 +59,7 @@ vi.mock("@/lib/public-scan-quota", () => ({
 }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true })),
+  rateLimitRequestShared: vi.fn(async () => ({ ok: true })),
   tooManyRequests: () => new Response(null, { status: 429 }),
   SCAN_RATE_LIMIT: {},
   PEEK_RATE_LIMIT: {},

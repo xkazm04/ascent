@@ -4,14 +4,16 @@
 // optional segment filter scoping it to a segment's tagged repos. See src/lib/db/segments.ts.
 
 import { NextResponse } from "next/server";
-import { createSegment, getRepoSegmentMap, isDbConfigured, listSegments, segmentInputError } from "@/lib/db";
+import { createSegment, getRepoSegmentMap, listSegments, segmentInputError } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Segments require a database." }, { status: 503 });
+  const guard = dbGuard("Segments");
+  if (guard) return guard;
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
@@ -30,7 +32,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Segments require a database." }, { status: 503 });
+  const guard = dbGuard("Segments");
+  if (guard) return guard;
   const body = (await request.json().catch(() => ({}))) as { org?: string; name?: string; color?: string };
   if (!body.org || !body.name?.trim()) {
     return NextResponse.json({ error: "Provide { org, name }." }, { status: 400 });

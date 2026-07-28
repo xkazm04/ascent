@@ -4,12 +4,13 @@
 // ORGD-3 — POST /api/org/scan accepts repos:[fullName] — but no UI ever called it, so the only
 // in-dashboard option was "Scan all watched" (one credit per watched repo) and the "⚠ scan failed"
 // chip had no retry. This closes the fix→rescan→score-moves loop in place: one click, one credit,
-// this repo only. Mirrors OrgScanButton's SSE consumption (repo/error/skipped vocabulary) and
-// ScheduleSelect's in-flight/disabled/inline-error presentation; refreshes the row on success.
+// this repo only. Shares OrgScanButton's SSE transport (useScanStream) and its repo/error/skipped
+// event vocabulary, but keeps ScheduleSelect's in-flight/disabled/inline-error presentation;
+// refreshes the row on success.
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { readSSE } from "@/lib/sse";
+import { useScanStream } from "@/components/org/shared/useScanStream";
 
 /** Terminal state of one rescan attempt — out-of-credits is a top-up nudge, not a failure. */
 type Outcome = { kind: "credits" | "error"; message: string } | null;
@@ -27,6 +28,7 @@ export function RepoRescanButton({
   disabledHint?: string;
 }) {
   const router = useRouter();
+  const startScan = useScanStream();
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>(null);
   const hintId = useId();
@@ -39,43 +41,36 @@ export function RepoRescanButton({
     if (inert) return;
     setRunning(true);
     setOutcome(null);
-    try {
-      const res = await fetch("/api/org/scan", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org, repos: [fullName] }),
-      });
-      if (!res.ok || !res.body) {
-        // The credit gate refuses up front with a machine-readable 402 — surface it as the
-        // top-up moment it is, distinct from a scan failure.
-        const d = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+    // One repo in scope ⇒ at most one terminal `repo` event: scored (no error/skipped),
+    // failed (`error`), or dropped mid-run when a concurrent batch won the last credit
+    // (`skipped: "insufficient_credits"`). Stream-level `error` covers scope/setup refusals.
+    let failed: string | null = null;
+    let skipped = false;
+    await startScan({
+      body: { org, repos: [fullName] },
+      // The credit gate refuses up front with a machine-readable 402 — surface it as the
+      // top-up moment it is, distinct from a scan failure.
+      onRefused: (d, status) =>
         setOutcome(
           d?.code === "INSUFFICIENT_CREDITS"
             ? { kind: "credits", message: "Out of scan credits — top up to rescan." }
-            : { kind: "error", message: d?.error ?? `Failed (${res.status}).` },
-        );
-        return;
-      }
-      // One repo in scope ⇒ at most one terminal `repo` event: scored (no error/skipped),
-      // failed (`error`), or dropped mid-run when a concurrent batch won the last credit
-      // (`skipped: "insufficient_credits"`). Stream-level `error` covers scope/setup refusals.
-      let failed: string | null = null;
-      let skipped = false;
-      await readSSE(res.body, ({ event, data }) => {
+            : { kind: "error", message: d?.error ?? `Failed (${status}).` },
+        ),
+      onMessage: ({ event, data }) => {
         if (!data) return;
         if (event === "repo") {
           if (data.error) failed = String(data.error);
           else if (data.skipped) skipped = true;
         } else if (event === "error") failed = String(data.error ?? "Scan failed.");
-      });
-      if (skipped) setOutcome({ kind: "credits", message: "Skipped — out of scan credits." });
-      else if (failed) setOutcome({ kind: "error", message: failed });
-      else router.refresh(); // pull the fresh score/level/last-scan into the row
-    } catch {
-      setOutcome({ kind: "error", message: "Network error." });
-    } finally {
-      setRunning(false);
-    }
+      },
+      onStreamEnd: () => {
+        if (skipped) setOutcome({ kind: "credits", message: "Skipped — out of scan credits." });
+        else if (failed) setOutcome({ kind: "error", message: failed });
+        else router.refresh(); // pull the fresh score/level/last-scan into the row
+      },
+      onNetworkError: () => setOutcome({ kind: "error", message: "Network error." }),
+      onSettled: () => setRunning(false),
+    });
   }
 
   return (

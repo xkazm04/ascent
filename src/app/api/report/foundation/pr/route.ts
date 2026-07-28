@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { isAppConfigured } from "@/lib/github/app";
 import { getScanReportByCommit, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { PUBLIC_ORG, isAuthConfigured, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, isAuthConfigured, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
@@ -35,7 +35,8 @@ export async function POST(request: Request) {
   if (!isAppConfigured()) {
     return NextResponse.json({ error: "Opening a PR needs the GitHub App installed with contents + pull-request write access." }, { status: 503 });
   }
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin())) {
     return NextResponse.json({ error: "Sign in to open a foundation PR." }, { status: 401 });
   }

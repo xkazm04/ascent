@@ -145,6 +145,10 @@
             "src/app/api/scan/stream/route.test.ts",
             "src/lib/scan.ts",
             "src/lib/scan.test.ts",
+            "src/lib/scan-ingest.ts",
+            "src/lib/scan-score-input.ts",
+            "src/lib/scan-assess.ts",
+            "src/lib/scan-compose.ts",
             "src/lib/scan-cache.ts",
             "src/lib/scan-cache.test.ts",
             "src/lib/scan-alerts.ts",
@@ -161,6 +165,7 @@
             "src/lib/scan-cache-freshness.test.ts",
             "src/lib/scan-finalize.test.ts",
             "src/lib/scan-finalize.ts",
+            "src/lib/scan-gates.ts",
             "src/lib/security/checks.test.ts",
             "src/lib/sse-server.ts",
             "src/lib/sse.test.ts"

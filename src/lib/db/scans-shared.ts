@@ -12,7 +12,7 @@ import type {
 } from "@/lib/types";
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
-import { getPrisma, withRetry } from "@/lib/db/client";
+import { getPrisma, isP2002Error, withRetry } from "@/lib/db/client";
 
 /** The implicit tenant for anonymous/public scans — the shared org every DB-less-MVP scan lands in. */
 export const DEFAULT_ORG_SLUG = "public";
@@ -39,9 +39,13 @@ export function canonicalRepoFullName(owner: string, name: string): string {
 // These three helpers make the persist path race-safe — see persistScanReport. Exported for unit
 // testing (mirrors the helper exports in db/client.ts).
 
-/** True for Prisma's P2002 unique-constraint violation — the error a lost insert race throws. */
+/** True for Prisma's P2002 unique-constraint violation — the error a lost insert race throws. Narrower
+ *  than the general {@link isP2002Error} (db/client.ts): it additionally requires a genuine
+ *  `PrismaClientKnownRequestError` instance, so an unrelated duck-typed object that merely carries a
+ *  `code: "P2002"` field can't be mistaken for a real create-race here (see scans.test.ts, which
+ *  asserts a plain `{ code: "P2002" }` object is rejected). */
 export function isUniqueConstraintError(err: unknown): boolean {
-  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+  return err instanceof Prisma.PrismaClientKnownRequestError && isP2002Error(err);
 }
 
 /**

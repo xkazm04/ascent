@@ -6,12 +6,14 @@
 // are persisted under that owner's org (private => billable in usage metering).
 
 import { NextResponse } from "next/server";
-import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import { isPersistedScanFresh, lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { consumeScanCredit, CREDIT_REASON, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
-import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitRequest, tooManyRequests, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
+import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
+import type { QuotaScope } from "@/lib/public-scan-quota";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
@@ -30,6 +32,23 @@ const STATUS: Record<GitHubError["code"], number> = {
   EMPTY: 422,
   UPSTREAM: 502,
 };
+
+/**
+ * "Serve the latest persisted PUBLIC report" — the any-commit salvage read, single-sourced across its
+ * two callers (the peek recent/latest probe, and the failed-scan fallback). Returns the repo's most
+ * recent persisted report, or null. Never scans: one DB read, zero GitHub/LLM cost, best-effort (a DB
+ * blip yields null).
+ *
+ * SECURITY — the reason this is ONE function: both callers serve out of the SHARED anonymous store, so
+ * a PRIVATE snapshot must never leave here (defense-in-depth, the same gate as the badge), and the read
+ * is confined to the anonymous public funnel (`parsed && !token`; token scans are per-tenant and never
+ * share this store). Two copies of that guard meant one could silently drift open.
+ */
+async function latestPublicReport(parsed: ParsedRepo | null, token: string | undefined) {
+  if (!parsed || token) return null;
+  const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
+  return last && !last.repo.isPrivate ? last : null;
+}
 
 async function runScan(
   url: string,
@@ -111,9 +130,9 @@ async function runScan(
     // Both: anonymous public funnel only (token scans are per-tenant), never a private snapshot
     // (defense-in-depth on the shared store, same gate as the badge). x-ascent-stale flags that the
     // served report isn't head-fresh, so the report UI's "Re-test" still forces a re-score.
-    if ((opts.recent || opts.latest) && parsed && !token) {
-      const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
-      if (last && !last.repo.isPrivate) {
+    if (opts.recent || opts.latest) {
+      const last = await latestPublicReport(parsed, token);
+      if (last) {
         const recentHit = opts.recent && isPersistedScanFresh(last.scannedAt);
         if (recentHit || opts.latest) {
           const headers: Record<string, string> = { ...peekHeaders, "x-ascent-stale": "true" };
@@ -128,7 +147,10 @@ async function runScan(
   // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,
   // so viewing a SAVED report, a permalink, or the badge stays free; only a REAL new scan (which
   // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.
-  if (authGateEnabled() && !(await getViewer())) {
+  // Shared with /api/scan/stream via scanAuthGate (which owns the authGateEnabled short-circuit, so a
+  // disabled gate still resolves no viewer); this route renders the rejection as JSON.
+  const authGate = await scanAuthGate(getViewer);
+  if (!authGate.ok) {
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
 
@@ -137,16 +159,15 @@ async function runScan(
   // global LLM spend here so the cheap hydration paths stay unthrottled.
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
-  let quotaScope: "anon" | "user" | null = null;
+  let quotaScope: QuotaScope | null = null;
   // Set when a monthly slot was actually consumed, so the failure paths below can REFUND it — the
   // free tier meters on commit, not attempt (same policy as credit metering).
   let refundQuota = async () => {};
   if (opts.req) {
-    const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
-    if (!rl.ok) {
-      void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // QUOTA #2: observability on the costly scan path
-      return tooManyRequests(rl.retryAfterSec);
-    }
+    // Shared with /api/scan/stream via scanRateLimitGate (cross-instance ceiling + the rate_limit quota
+    // event); rendered here as this route's JSON 429. Stays BEFORE the quota consume below.
+    const rl = await scanRateLimitGate(opts.req);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
 
     // Monthly SOFT gate (rolling 30-day window, default 5 — the single source of truth for the window
   // and allowance is src/lib/public-scan-quota.ts): public scans get a free per-window allowance
@@ -241,9 +262,9 @@ async function runScan(
     // salvage the quota wall uses (peek&latest). Anonymous public, parseable repos only (token scans are
     // per-tenant and never share this store); never on a client abort (no one is waiting); never a
     // private snapshot (defense-in-depth on the shared store). x-ascent-stale + x-ascent-fallback flag it.
-    if (parsed && !token && !(err instanceof Error && err.name === "AbortError")) {
-      const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
-      if (last && !last.repo.isPrivate) {
+    if (!(err instanceof Error && err.name === "AbortError")) {
+      const last = await latestPublicReport(parsed, token);
+      if (last) {
         return NextResponse.json(last, {
           headers: { "x-ascent-cache": "miss", "x-ascent-stale": "true", "x-ascent-fallback": "error" },
         });

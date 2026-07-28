@@ -12,11 +12,12 @@
 
 import { NextResponse } from "next/server";
 import { REC_NOTE_MAX_LENGTH, REC_STATUSES, type RecStatus } from "@/lib/types";
-import { getRecommendationOrgSlug, isDbConfigured, updateRecommendation, type RecommendationPatch } from "@/lib/db";
+import { getRecommendationOrgSlug, updateRecommendation, type RecommendationPatch } from "@/lib/db";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { isClosedRecStatus, recordRecommendationClose } from "@/lib/memory/scan-feed";
+import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,12 +33,8 @@ export async function PATCH(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  if (!isDbConfigured()) {
-    return NextResponse.json(
-      { error: "Recommendation tracking requires a database (Phase 2 feature)." },
-      { status: 503 },
-    );
-  }
+  const guard = dbGuard("Recommendation tracking", "Recommendation tracking requires a database (Phase 2 feature).");
+  if (guard) return guard;
   const { id } = await ctx.params;
   // Tenant gate: authorize the caller against the org that OWNS this recommendation (resolved from the
   // row), not merely "is signed in" — otherwise any signed-in user could mutate another tenant's

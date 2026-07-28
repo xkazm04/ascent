@@ -18,8 +18,9 @@
 import { NextResponse } from "next/server";
 import { creditsForProduct, getPolar, planForProduct, polarEnabled } from "@/lib/polar";
 import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { publicBaseUrl } from "@/lib/site";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ function isPrefetch(request: Request): boolean {
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
-  const org = (searchParams.get("org") ?? "").trim().toLowerCase();
+  const org = normalizeOrgSlug(searchParams.get("org") ?? "");
   const pack = (searchParams.get("pack") ?? "").trim();
 
   if (!polarEnabled()) {
@@ -49,9 +50,8 @@ export async function GET(request: Request) {
   // Same-origin only: a cross-origin/direct probe is refused BEFORE any DB read or Polar call, so it
   // can neither enumerate org slugs (404 vs 303) nor mint sessions. A real in-app link click is
   // same-origin (Sec-Fetch-Site) and passes.
-  if (!isSameOrigin(request)) {
-    return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  }
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   if (!org) return NextResponse.json({ error: "Missing org." }, { status: 400 });
   // Accept a product we actually sell — either a credit pack (POLAR_CREDIT_PACKS) or a plan-tier
   // product (POLAR_PLAN_PRODUCTS). An unknown/forged id is rejected, so a session is only ever created

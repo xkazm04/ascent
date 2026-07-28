@@ -8,17 +8,10 @@
 import { useEffect, useState } from "react";
 import { canOfferSignIn, formatResetAt } from "@/components/report/QuotaNotice";
 import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
-
-interface Quota {
-  enforced: boolean;
-  remaining: number;
-  limit: number;
-  resetAt: number | null;
-  scope: "anon" | "user";
-}
+import type { QuotaPeek } from "@/lib/public-scan-quota";
 
 export function QuotaMeter() {
-  const [q, setQ] = useState<Quota | null>(null);
+  const [q, setQ] = useState<QuotaPeek | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -33,7 +26,7 @@ export function QuotaMeter() {
       fetch("/api/quota")
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
-          if (active && seq === latest && d) setQ(d as Quota);
+          if (active && seq === latest && d) setQ(d as QuotaPeek);
         })
         .catch(() => {});
     };

@@ -6,7 +6,7 @@
 // Setup: see docs/features/github/setup.md.
 
 import { createHmac, createSign, timingSafeEqual } from "crypto";
-import { githubApiBase } from "@/lib/github/host";
+import { githubApiBase, isListableRepo } from "@/lib/github/host";
 
 const API = githubApiBase();
 
@@ -291,9 +291,10 @@ export async function listInstallationReposResult(
 
   // Drop forks + archived repos, matching the public listing (listOrgRepos) and discovery
   // (fetchUserRepos): that isn't where active engineering happens, and otherwise they clutter the
-  // connect watch-list and can burn a user's onboarding/watch budget on dead mirrors.
+  // connect watch-list and can burn a user's onboarding/watch budget on dead mirrors. Single-sourced
+  // with the canonical "listable repo" predicate (list.ts, discover.ts) so this can't silently diverge.
   const repos = result.raw
-    .filter((r) => !r.fork && !r.archived)
+    .filter(isListableRepo)
     .map((r) => ({
       fullName: r.full_name,
       owner: r.owner.login,

@@ -15,6 +15,7 @@ import { requireOrgRead } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
 import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { safeFilenameSegment } from "@/lib/export/filename";
+import { pdfAttachmentResponse } from "@/lib/pdf/export-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,11 +83,5 @@ export async function GET(request: Request) {
   // White-label the download name too: a branded org's export shouldn't reveal "ascent" in the filename.
   const brandSlug = branding?.brandName ? safeFilenameSegment(branding.brandName).toLowerCase().slice(0, 40) : "ascent";
   const filename = `${brandSlug}-briefing-${safeFilenameSegment(org)}-${safeFilenameSegment(briefing.generatedOn)}.pdf`;
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      "content-type": "application/pdf",
-      "content-disposition": `attachment; filename="${filename}"`,
-      "cache-control": "private, max-age=300",
-    },
-  });
+  return pdfAttachmentResponse(buffer, filename, "private, max-age=300");
 }

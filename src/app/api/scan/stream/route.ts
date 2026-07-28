@@ -7,10 +7,10 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { recordQuotaEvent } from "@/lib/db";
-import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { tooManyRequests } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
-import { authGateEnabled, getViewer } from "@/lib/access";
+import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
+import { getViewer } from "@/lib/access";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
 import { dispatchScanCompletionEmail, emailSendingEnabled, isValidEmail } from "@/lib/email";
@@ -45,11 +45,11 @@ export async function POST(request: Request) {
 
   // Rate-limit the live scan funnel (shares the per-IP/global budget with /api/scan). The /report
   // flow peeks the cache first (cheap, unthrottled); reaching the stream means a real scan.
-  const rl = rateLimitRequest(request, SCAN_RATE_LIMIT);
-  if (!rl.ok) {
-    void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // QUOTA #2: observability on the costly scan path
-    return tooManyRequests(rl.retryAfterSec);
-  }
+  // Shared with /api/scan via scanRateLimitGate (cross-instance ceiling + the rate_limit quota event);
+  // rejected here, before the SSE stream opens, so it renders as a plain JSON 429. Stays BEFORE the
+  // quota consume below.
+  const rl = await scanRateLimitGate(request);
+  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
 
   const url = body.url;
   const mock = Boolean(body.mock);
@@ -77,7 +77,10 @@ export async function POST(request: Request) {
   // stream's start() callback below, so getViewer() there would return null. Used for the gate AND the
   // completion-email recipient.
   const viewer = await getViewer();
-  if (authGateEnabled() && !viewer) {
+  // Shared with /api/scan via scanAuthGate; the viewer is handed to it already resolved (it takes a
+  // thunk so the JSON route can keep its lazy resolve). Rejected before the stream opens → JSON 401.
+  const authGate = await scanAuthGate(() => viewer);
+  if (!authGate.ok) {
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
   // Completion-email recipient (when opted in). For a SIGNED-IN viewer we ONLY ever send to their own

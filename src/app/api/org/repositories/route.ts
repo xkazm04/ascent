@@ -11,7 +11,7 @@ import { getOrgRollup, getRepoSegmentMap, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveStackScope } from "@/lib/org/scope";
 import { POSTURE_META } from "@/lib/maturity/model";
-import { csvField } from "@/lib/export/csv";
+import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
@@ -40,28 +40,26 @@ export async function GET(request: Request) {
     // organizing concept, yet the export previously omitted them entirely.
     const segMap = await getRepoSegmentMap(org);
     const header = ["fullName", "name", "private", "watched", "language", "roles", "backendLanguage", "frameworks", "schedule", "lastScan", "level", "overall", "adoption", "rigor", "posture", "segments"];
-    const rows = repos.map((r) =>
-      [
-        r.fullName,
-        r.name,
-        r.isPrivate,
-        r.watched,
-        r.primaryLanguage ?? "",
-        // Tech stack (Feature 3a): multi-valued fields are `;`-joined so they stay one CSV cell.
-        (r.techStack?.roles ?? []).join(";"),
-        r.techStack?.backendLanguage ?? "",
-        (r.techStack?.frameworks ?? []).join(";"),
-        r.scanSchedule,
-        r.latest?.scannedAt?.slice(0, 10) ?? "",
-        r.latest?.level ?? "",
-        r.latest?.overall ?? "",
-        r.latest?.adoption ?? "",
-        r.latest?.rigor ?? "",
-        r.latest?.posture ?? "",
-        (segMap[r.fullName] ?? []).map((s) => s.name).join(";"),
-      ].map((v) => csvField(v)).join(","),
-    );
-    const csv = [header.join(","), ...rows].join("\n") + "\n";
+    const rows = repos.map((r) => [
+      r.fullName,
+      r.name,
+      r.isPrivate,
+      r.watched,
+      r.primaryLanguage ?? "",
+      // Tech stack (Feature 3a): multi-valued fields are `;`-joined so they stay one CSV cell.
+      (r.techStack?.roles ?? []).join(";"),
+      r.techStack?.backendLanguage ?? "",
+      (r.techStack?.frameworks ?? []).join(";"),
+      r.scanSchedule,
+      r.latest?.scannedAt?.slice(0, 10) ?? "",
+      r.latest?.level ?? "",
+      r.latest?.overall ?? "",
+      r.latest?.adoption ?? "",
+      r.latest?.rigor ?? "",
+      r.latest?.posture ?? "",
+      (segMap[r.fullName] ?? []).map((s) => s.name).join(";"),
+    ]);
+    const csv = csvTable(header, rows);
     return new NextResponse(csv, {
       headers: {
         "content-type": "text/csv; charset=utf-8",

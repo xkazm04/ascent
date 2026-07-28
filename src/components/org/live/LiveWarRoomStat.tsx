@@ -79,6 +79,13 @@ function Sparkline({ points }: { points: number[] }) {
   );
 }
 
+/**
+ * The war-room cell. Deliberately NOT the brand `ui/Stat`: it is projector-scale (3xl→4xl vs Stat's
+ * 2xl), its value is a live tween rather than a rendered figure, and the value row is a baseline flex
+ * carrying a CVD-safe score glyph, a delta chip, and an arbitrary child (the sparkline). Folding those
+ * into Stat would mean a size scale, a render override, a glyph slot and two extra child slots on a
+ * primitive used by every dashboard tile — a kitchen sink to serve one wall display. Keep this local.
+ */
 function StatCell({
   label,
   value,

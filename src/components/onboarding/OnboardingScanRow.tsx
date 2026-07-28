@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
+import { ScorePill } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
 
 export interface ScanRow {
@@ -14,13 +14,11 @@ export interface ScanRow {
 
 export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: string) => void }) {
   const done = row.level && typeof row.overall === "number";
-  const lc = row.level ? LEVEL_CLASSES[row.level] : null;
 
-  const badge = (
-    <span className={`rounded border px-2 py-0.5 font-mono text-sm ${lc?.border} ${lc?.bg} ${lc?.text}`}>
-      {row.level && <span aria-hidden>{LEVEL_GLYPH[row.level]} </span>}
-      {row.level} · {row.overall}
-    </span>
+  // Only rendered below when `done` is true, so row.level/row.overall are always defined here —
+  // matches the original inline badge's guarantee (it was only referenced from the `done` branch too).
+  const badge = done && (
+    <ScorePill level={row.level as LevelId} overall={row.overall as number} className="px-2 py-0.5 font-mono text-sm" />
   );
 
   // ONB-3: a completed scan is the payoff — let the user drill straight into the report it produced.

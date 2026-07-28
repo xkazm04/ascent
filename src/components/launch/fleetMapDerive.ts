@@ -19,6 +19,42 @@ export interface FleetStats {
   fallers: number;
 }
 
+/** Sum and count of `overall` among repos that HAVE one. The shared core of every "mean overall score"
+ *  computed on the fleet map (fleetStats' fleet-wide average, ConstellationField's per-org average, and
+ *  orderConstellations's maturity sort key) — factored out here so the three can't silently drift into
+ *  disagreeing definitions of "mean". (They were checked: all three already summed/counted the same
+ *  non-null repos — no numeric divergence — they just differed in SCOPE (fleet-wide vs per-org) and in
+ *  whether the result gets rounded, which is why rounding stays a caller decision below rather than
+ *  living in this function.) */
+export function sumScoredOverall(repos: readonly RepoStar[]): { sum: number; count: number } {
+  let sum = 0;
+  let count = 0;
+  for (const r of repos) {
+    if (r.overall != null) {
+      sum += r.overall;
+      count += 1;
+    }
+  }
+  return { sum, count };
+}
+
+/** Round a `sumScoredOverall` tally to a displayable mean, or null when nothing is scored (never
+ *  NaN/0). Rounding lives here — separated from `sumScoredOverall` — because orderConstellations'
+ *  maturity sort key needs the UNROUNDED mean (rounding two close-but-distinct means to the same
+ *  integer would flip their sort order depending on float noise; a sort key must stay precise even
+ *  though the same number gets rounded for display elsewhere). */
+export function roundedMean(sum: number, count: number): number | null {
+  return count > 0 ? Math.round(sum / count) : null;
+}
+
+/** Mean `overall` over a list of repos, rounded for display; null when none are scored. Thin
+ *  composition of `sumScoredOverall` + `roundedMean` for call sites (like ConstellationField) that want
+ *  a per-org display average in one call. */
+export function meanOverall(repos: readonly RepoStar[]): number | null {
+  const { sum, count } = sumScoredOverall(repos);
+  return roundedMean(sum, count);
+}
+
 /** Fleet-wide header tallies that visibly climb as each org's data streams in. Pure.
  *  Only `done` orgs contribute repos/scores; `avg` is null (not NaN/0) when `scanned === 0`;
  *  a repo counts as a riser at `dOverall >= 1` and a faller at `dOverall <= -1` (0.5 counts as neither).
@@ -38,11 +74,10 @@ export function fleetStats(constellations: Constellation[]): FleetStats {
     if (c.status === "done") {
       loaded += 1;
       repos += c.repos.length;
+      const scored = sumScoredOverall(c.repos);
+      scanned += scored.count;
+      sum += scored.sum;
       for (const r of c.repos) {
-        if (r.overall != null) {
-          scanned += 1;
-          sum += r.overall;
-        }
         if (r.dOverall != null && r.dOverall >= 1) risers += 1;
         else if (r.dOverall != null && r.dOverall <= -1) fallers += 1;
       }
@@ -55,7 +90,7 @@ export function fleetStats(constellations: Constellation[]): FleetStats {
     settled: loaded + errored,
     repos,
     scanned,
-    avg: scanned ? Math.round(sum / scanned) : null,
+    avg: roundedMean(sum, scanned),
     risers,
     fallers,
   };
@@ -140,10 +175,15 @@ export function fleetGreeting(userName: string | null | undefined): { lead: stri
 export function orderConstellations(constellations: Constellation[], sortKey: SortKey): Constellation[] {
   const metric = (c: Constellation): number => {
     if (c.status !== "done") return -1;
-    const scored = c.repos.filter((r) => r.overall != null);
     if (sortKey === "repos") return c.repos.length;
     if (sortKey === "movement") return c.repos.reduce((s, r) => s + Math.abs(r.dOverall ?? 0), 0);
-    if (sortKey === "maturity") return scored.length ? scored.reduce((s, r) => s + (r.overall ?? 0), 0) / scored.length : 0;
+    if (sortKey === "maturity") {
+      // Same sumScoredOverall tally as fleetStats/ConstellationField, deliberately left UNROUNDED here:
+      // this is a sort key, not a displayed number, and rounding it could flip the order of two orgs
+      // whose true means are close but distinct (a visible reorder, not just a redraw).
+      const { sum, count } = sumScoredOverall(c.repos);
+      return count ? sum / count : 0;
+    }
     return 0; // name handled below
   };
   return [...constellations].sort((a, b) => {

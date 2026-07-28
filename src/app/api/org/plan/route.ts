@@ -8,10 +8,11 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit, setOrgPlan } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isPlanId } from "@/lib/plans";
 import { envBool } from "@/lib/env";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,14 +23,15 @@ function planChangesAllowed(): boolean {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Plans require a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as { org?: string; plan?: string };
   if (!body.org || !body.plan || !isPlanId(body.plan)) {
     return NextResponse.json({ error: "Provide { org, plan: free|pro|team|enterprise }." }, { status: 400 });
   }
   // Normalize the slug once up front (mirrors the checkout route) so the auth gate, the write, and the
   // audit lookup all resolve the same canonical org rather than mixing raw and lower-cased forms.
-  const org = body.org.trim().toLowerCase();
+  const org = normalizeOrgSlug(body.org);
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   if (body.plan !== "free" && !planChangesAllowed()) {

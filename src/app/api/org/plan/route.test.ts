@@ -48,6 +48,8 @@ vi.mock("@/lib/authz", () => ({
 vi.mock("@/lib/auth", () => ({
   getSession: mockGetSession,
   isSameOrigin: mockIsSameOrigin,
+  requireSameOrigin: (req: Request) =>
+    mockIsSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
 }));
 
 import { POST } from "./route";

@@ -42,7 +42,15 @@ vi.mock("@/lib/github/app", () => ({
 vi.mock("@/lib/db", () => ({
   isDbConfigured: h.isDbConfigured, getRepoPassport: h.getRepoPassport, getInstallationIdForOwner: h.getInstallationIdForOwner, recordOrgAudit: h.recordOrgAudit,
 }));
-vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: h.readableOrgForOwner, isSameOrigin: h.isSameOrigin, isAuthConfigured: h.isAuthConfigured, getSession: h.getSession }));
+vi.mock("@/lib/auth", () => ({
+  PUBLIC_ORG: "public",
+  readableOrgForOwner: h.readableOrgForOwner,
+  isSameOrigin: h.isSameOrigin,
+  requireSameOrigin: (req: Request) =>
+    h.isSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+  isAuthConfigured: h.isAuthConfigured,
+  getSession: h.getSession,
+}));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: h.requireOrgAccess }));
 
 import { POST } from "./route";

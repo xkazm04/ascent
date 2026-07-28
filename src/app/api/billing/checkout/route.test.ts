@@ -28,7 +28,15 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(() => true),
   isDbUnavailableError: vi.fn(() => false),
 }));
-vi.mock("@/lib/auth", () => ({ isSameOrigin: vi.fn(() => true) }));
+vi.mock("@/lib/auth", () => {
+  const isSameOrigin = vi.fn(() => true);
+  return {
+    isSameOrigin,
+    requireSameOrigin: vi.fn((req: Request) =>
+      isSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+    ),
+  };
+});
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.test") }));
 
 import { GET } from "./route";

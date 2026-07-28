@@ -33,7 +33,7 @@ export interface OrgMember {
   createdAt: Date;
 }
 
-function normalizeLogin(login: string): string {
+export function normalizeLogin(login: string): string {
   return login.trim().toLowerCase();
 }
 

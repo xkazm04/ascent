@@ -5,6 +5,7 @@
 
 import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
 import { LEVELS, DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { parseFloor } from "@/lib/scoring/gate-numeric";
 
 /** The Security dimension + the default floor a security gate holds it to (`?security=1`). */
 const SECURITY_DIM: DimensionId = "D9";
@@ -152,16 +153,10 @@ export function defaultGatePolicy(archetype: RepoArchetype): GatePolicy {
 export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  const clampScore = (v: unknown): number | undefined => {
-    const n = Number(v);
-    return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.trunc(n) : undefined;
-  };
   // A floor of 0 (or negative) is an always-pass gate that still LOOKS configured. Treat <= 0 as
-  // "not set" and DROP the key, matching policyFromParams's `> 0` rule (a real floor is positive).
-  const floorScore = (v: unknown): number | undefined => {
-    const n = clampScore(v);
-    return n !== undefined && n > 0 ? n : undefined;
-  };
+  // "not set" and DROP the key — the exact same rule floorParam (below) applies to a query-param
+  // overlay, single-sourced as parseFloor in gate-numeric.ts.
+  const floorScore = parseFloor;
   const pol: GatePolicy = {};
   if (typeof r.minLevel === "string" && isLevelId(r.minLevel)) pol.minLevel = r.minLevel;
   const mo = floorScore(r.minOverall);
@@ -345,10 +340,10 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
 // like ?min_overall=150 or ?min_security=999) is "not a usable floor" → undefined, so the caller falls
 // back to the archetype default rather than installing an always-pass (<=0) or unreachable (>100)
 // floor that silently turns the gate into an always-pass or always-fail wall. (ci-gate-status-checks #5)
+// Single-sourced as parseFloor (gate-numeric.ts) — the same function floorScore above uses.
 const floorParam = (params: URLSearchParams, name: string): number | undefined => {
   if (params.get(name) == null) return undefined;
-  const n = Number(params.get(name));
-  return Number.isFinite(n) && n > 0 && n <= 100 ? Math.trunc(n) : undefined;
+  return parseFloor(params.get(name));
 };
 
 /**

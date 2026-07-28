@@ -68,6 +68,7 @@ vi.mock("@/lib/scoring/gate", async (importOriginal) => ({
 vi.mock("@/lib/db/org-gate", () => ({ getOrgGatePolicy: vi.fn(async () => null) }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
+  rateLimitRequestShared: vi.fn(async () => ({ ok: true, retryAfterSec: 0 })),
   tooManyRequests: vi.fn((sec: number) =>
     new Response(JSON.stringify({ error: "Rate limit exceeded." }), {
       status: 429,
@@ -84,7 +85,7 @@ import { scanRepository } from "@/lib/scan";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
-import { rateLimitRequest, tooManyRequests } from "@/lib/rate-limit";
+import { rateLimitRequest, rateLimitRequestShared, tooManyRequests } from "@/lib/rate-limit";
 
 const mockScan = vi.mocked(scanRepository);
 const mockPersisted = vi.mocked(lookupPersistedScanByCommit);
@@ -94,6 +95,9 @@ const mockEvaluateGate = vi.mocked(evaluateGate);
 const mockPolicyFromParams = vi.mocked(policyFromParams);
 const mockGetOrgGatePolicy = vi.mocked(getOrgGatePolicy);
 const mockRateLimit = vi.mocked(rateLimitRequest);
+// The !mock (real-LLM) branch pays the CROSS-INSTANCE ceiling (G1-04); the GATE_RATE_LIMIT ingest
+// branches below stay on the in-memory limiter, so the two mocks are asserted separately.
+const mockRateLimitShared = vi.mocked(rateLimitRequestShared);
 const mockTooManyRequests = vi.mocked(tooManyRequests);
 
 // A minimal-but-realistic report the route reads (.level.id / .overallScore / .posture.id /
@@ -141,6 +145,7 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     // Default warm state: a cache HIT with a report, rate limit OK, policy resolved.
     mockCacheGet.mockReturnValue(report());
     mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockRateLimitShared.mockResolvedValue({ ok: true, retryAfterSec: 0 });
     mockPolicyFromParams.mockReturnValue({ minLevel: "L3", minDimension: 40 } as never);
     mockGetOrgGatePolicy.mockResolvedValue(null);
     mockPersisted.mockResolvedValue(null); // DB tier misses by default (see the warm-DB describe below)
@@ -249,15 +254,16 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     const res = await get(); // no ?mock → mock=true
     expect(res.status).toBe(200);
     expect(mockRateLimit).not.toHaveBeenCalled();
+    expect(mockRateLimitShared).not.toHaveBeenCalled();
     expect(mockTooManyRequests).not.toHaveBeenCalled();
   });
 
-  it("?mock=0 (real LLM) invokes rateLimitRequest and returns 429 (tooManyRequests) when rl.ok is false", async () => {
-    mockRateLimit.mockReturnValue({ ok: false, retryAfterSec: 30 });
+  it("?mock=0 (real LLM) invokes the shared rate limiter and returns 429 (tooManyRequests) when rl.ok is false", async () => {
+    mockRateLimitShared.mockResolvedValue({ ok: false, retryAfterSec: 30 });
 
     const res = await get("?mock=0");
 
-    expect(mockRateLimit).toHaveBeenCalledTimes(1);
+    expect(mockRateLimitShared).toHaveBeenCalledTimes(1);
     expect(mockTooManyRequests).toHaveBeenCalledWith(30);
     expect(res.status).toBe(429);
     // Short-circuited BEFORE scanning/evaluating — no LLM budget spent on a throttled request.
@@ -268,15 +274,15 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
   it("?mock=false is also treated as the real-LLM path (rate-limited)", async () => {
     mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
     await get("?mock=false");
-    expect(mockRateLimit).toHaveBeenCalledTimes(1);
+    expect(mockRateLimitShared).toHaveBeenCalledTimes(1);
   });
 
   it("?mock=0 with rl.ok=true proceeds to evaluate and returns 200 on a pass", async () => {
-    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockRateLimitShared.mockResolvedValue({ ok: true, retryAfterSec: 0 });
     mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
 
     const res = await get("?mock=0");
-    expect(mockRateLimit).toHaveBeenCalledTimes(1);
+    expect(mockRateLimitShared).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(200);
   });
 

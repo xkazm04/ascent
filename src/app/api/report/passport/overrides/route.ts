@@ -11,7 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, mergePassportDeclines, recordOrgAudit, setPassportOverrides } from "@/lib/db";
-import { PUBLIC_ORG, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
 import { isDeclinablePath, parseDeclined, type DeclineEntry, type PassportOverrides } from "@/lib/analyze/passport";
@@ -28,7 +28,8 @@ function parseRepo(q: string): { owner: string; name: string } | null {
 /** Shared preamble for both writers: same-origin, a parseable repo, an org-owned repo, owner role. */
 async function gate(request: Request, body: { repo?: string }): Promise<{ orgSlug: string; fullName: string } | Response> {
   if (!isDbConfigured()) return NextResponse.json({ error: "Passport overrides require a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const parsed = body.repo ? parseRepo(body.repo) : null;
   if (!parsed) return NextResponse.json({ error: "Provide { repo: 'owner/name' }." }, { status: 400 });
 

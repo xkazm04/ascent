@@ -28,7 +28,14 @@ vi.mock("@/lib/db", () => ({
   mergePassportDeclines: h.mergePassportDeclines,
   recordOrgAudit: h.recordOrgAudit,
 }));
-vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: h.readableOrgForOwner, isSameOrigin: h.isSameOrigin, getSession: h.getSession }));
+vi.mock("@/lib/auth", () => ({
+  PUBLIC_ORG: "public",
+  readableOrgForOwner: h.readableOrgForOwner,
+  isSameOrigin: h.isSameOrigin,
+  requireSameOrigin: (req: Request) =>
+    h.isSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+  getSession: h.getSession,
+}));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 
 import { PATCH, POST } from "./route";

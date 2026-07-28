@@ -19,6 +19,19 @@ export function isGoalMetric(v: string): v is GoalMetric {
   return VALID_METRICS.has(v);
 }
 
+/**
+ * Resolve-or-create the org row for a create path that must succeed even for a brand-new org slug
+ * (unlike {@link getOrgId}, which only reads and returns null for an unknown slug). Shared by
+ * createGoal and createInitiative, which previously repeated this identical upsert.
+ */
+async function ensureOrg(orgSlug: string): Promise<{ id: string }> {
+  return getPrisma().organization.upsert({
+    where: { slug: orgSlug },
+    update: {},
+    create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
+  });
+}
+
 /** A human label for a goal's metric ("Overall", "Adoption", "Rigor", or a dimension name). */
 export function metricLabel(metric: string): string {
   if (metric === "overall") return "Overall maturity";
@@ -220,11 +233,7 @@ export async function createGoal(
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.upsert({
-    where: { slug: orgSlug },
-    update: {},
-    create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
-  });
+  const org = await ensureOrg(orgSlug);
   // `pct` measures absolute standing (current/target) — there is no stored baseline, so a target at or
   // below today's fleet value would be stamped "achieved" on the very next listGoals pass, polluting
   // the Met 🎉 history with a milestone that represents zero movement. Reject it at the source with the
@@ -459,11 +468,7 @@ export async function createInitiative(
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.upsert({
-    where: { slug: orgSlug },
-    update: {},
-    create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
-  });
+  const org = await ensureOrg(orgSlug);
   const title = input.title.slice(0, 200);
   // Idempotency (backlog-management #1): promoting the same backlog gap — or re-tracking the same fleet
   // move — must not spawn duplicate initiatives. The only previous guard was a transient client-side

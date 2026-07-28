@@ -37,7 +37,12 @@ vi.mock("@/lib/db", () => ({
   recordOrgAudit: h.recordOrgAudit,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
-vi.mock("@/lib/auth", () => ({ getSession: h.getSession, isSameOrigin: h.isSameOrigin }));
+vi.mock("@/lib/auth", () => ({
+  getSession: h.getSession,
+  isSameOrigin: h.isSameOrigin,
+  requireSameOrigin: (req: Request) =>
+    h.isSameOrigin(req) ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+}));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: h.isEncryptionConfigured }));
 
 import { GET, POST, DELETE } from "./route";

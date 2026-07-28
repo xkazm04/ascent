@@ -1,4 +1,5 @@
 import { Stat } from "./usagePanels";
+import { Surface } from "@/components/ui";
 import type { BadgeReach, QuotaEventTotals } from "@/lib/db";
 
 /* Badge reach (USE-1): where the public README badge is embedded + how often it's fetched.
@@ -6,7 +7,7 @@ import type { BadgeReach, QuotaEventTotals } from "@/lib/db";
 export function BadgeReachPanel({ badgeReach }: { badgeReach: BadgeReach | null }) {
   if (!badgeReach || badgeReach.totalImpressions <= 0) return null;
   return (
-    <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <Surface className="mt-6 p-6">
       <h2 className="text-base font-semibold text-white">
         Badge reach <span className="font-normal text-slate-500">· public README badge · all time</span>
       </h2>
@@ -44,7 +45,7 @@ export function BadgeReachPanel({ badgeReach }: { badgeReach: BadgeReach | null 
         most views are answered from cache and never reach the origin to be counted. Click-throughs are
         tagged <span className="font-mono">?ref=badge</span> for attribution in your analytics.
       </p>
-    </div>
+    </Surface>
   );
 }
 
@@ -53,7 +54,7 @@ export function BadgeReachPanel({ badgeReach }: { badgeReach: BadgeReach | null 
 export function AbuseLimitsPanel({ quotaEvents }: { quotaEvents: QuotaEventTotals | null }) {
   if (!quotaEvents || quotaEvents.total <= 0) return null;
   return (
-    <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <Surface className="mt-6 p-6">
       <h2 className="text-base font-semibold text-white">
         Abuse &amp; limits <span className="font-normal text-slate-500">· free-funnel guardrails · all time</span>
       </h2>
@@ -93,6 +94,6 @@ export function AbuseLimitsPanel({ quotaEvents }: { quotaEvents: QuotaEventTotal
         The per-minute burst limiter on scan/import is an in-memory backstop and isn&apos;t counted here;
         these are the durable signals (monthly-quota denials + the badge limiter).
       </p>
-    </div>
+    </Surface>
   );
 }

@@ -4,8 +4,9 @@ import { useState } from "react";
 import type { ScanReport } from "@/lib/types";
 import { LLM_GUARDBAND } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
-import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { linScale } from "@/components/report/chartScale";
+import { ScoreBarFill, ScoreBarTrack } from "@/components/report/FillBar";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
 import { Surface } from "@/components/ui";
 
@@ -29,7 +30,6 @@ export function DimensionCard({
   // One motion language (reuses animate-fade-up's ease-out): the score-fill grows from 0 on
   // mount with a small per-row stagger; the detail panel is a height+opacity accordion; the
   // chevron rotates 90°. prefers-reduced-motion snaps everything to its final state instead.
-  const { width: fillWidth, transition: fillTransition } = fillBarStyle({ pct: d.score, index, mounted, reduced });
   const detailTransition = reduced ? undefined : "grid-template-rows 0.3s ease-out, opacity 0.3s ease-out";
   const chevronTransition = reduced ? undefined : "transform 0.3s ease-out";
 
@@ -65,9 +65,9 @@ export function DimensionCard({
           ▸
         </span>
       </button>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full rounded-full" style={{ width: fillWidth, backgroundColor: color, transition: fillTransition }} />
-      </div>
+      <ScoreBarTrack className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+        <ScoreBarFill pct={d.score} color={color} index={index} mounted={mounted} reduced={reduced} />
+      </ScoreBarTrack>
       <div
         className="grid"
         style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0, transition: detailTransition }}
