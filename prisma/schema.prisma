@@ -249,6 +249,12 @@ model Repository {
   aiConformanceFails    Int?
   aiConformanceWarns    Int?
   aiConformanceAt       DateTime?
+  // First time a SUCCESSFUL, COMPLETE org listing came back WITHOUT this repo — i.e. it was renamed,
+  // transferred, deleted, or turned private on GitHub. A flag only: reconciliation NEVER unwatches
+  // (a temporarily-unlistable repo must not be silently dropped), and the stamp is cleared the moment
+  // the repo reappears in a listing. Cleanup is an explicit user action on the repositories tab.
+  // See reconcileListedRepos in src/lib/db/org-watch.ts.
+  missingSince          DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

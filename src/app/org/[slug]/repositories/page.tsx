@@ -5,8 +5,9 @@ import { FleetTabs } from "@/components/org/repositories/FleetTabs";
 import { SegmentsSection } from "@/components/org/repositories/SegmentsSection";
 import { RepoSegmentsPanel } from "@/components/org/repositories/RepoSegmentsPanel";
 import { RepoLeaderboard } from "@/components/org/repositories/RepoLeaderboard";
+import { MissingReposPanel } from "@/components/org/repositories/MissingReposPanel";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRollup, getRepoSegmentMap, isPersonalOrg, listSegments } from "@/lib/db";
+import { getOrgRollup, getRepoSegmentMap, isPersonalOrg, listMissingRepos, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { redirect } from "next/navigation";
@@ -89,9 +90,14 @@ export default async function OrgRepositories({
   const membership: Record<string, string[]> = {};
   for (const r of rollup.repos) membership[r.fullName] = (segmentMap[r.fullName] ?? []).map((s) => s.id);
 
+  // Watched repos GitHub's last COMPLETE listing didn't contain (renamed/transferred/deleted/private).
+  // Renders nothing when the list is empty, so the tab is unchanged for a healthy fleet.
+  const missing = await listMissingRepos(slug);
+
   return (
     <div className="space-y-6">
       <FleetTabs slug={slug} active="repositories" />
+      <MissingReposPanel org={slug} repos={missing} />
       <RepoSegmentsPanel
         slug={slug}
         repos={rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage }))}

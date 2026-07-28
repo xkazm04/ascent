@@ -24,6 +24,7 @@ import {
   isDbConfigured,
   persistScanReport,
   persistTeamStandings,
+  reconcileListedRepos,
   recordQuotaEvent,
   recordScanOutcome,
   setRepoSchedule,
@@ -221,6 +222,19 @@ export async function POST(request: Request) {
           // surface it like the other batch caps so a short import isn't read as the org's whole reality.
           if (truncated) {
             send("notice", { reason: "listing_truncated", scanning: fullNames.length });
+          }
+          // Reconcile the watchlist against this listing — the ONLY place a repo that was renamed,
+          // transferred, deleted or turned private on GitHub can be noticed. Absence is evidence only
+          // when the listing is COMPLETE, which is stricter than `!truncated`: a listing that filled
+          // its `count` window stopped early for a different reason, and everything past the window
+          // would be flagged as vanished. `repos.length < count` is the "walked the org to exhaustion"
+          // proof. Best-effort — a bookkeeping failure must never break the import.
+          const listingComplete = !truncated && repos.length < count;
+          if (listingComplete) {
+            await reconcileListedRepos(
+              org,
+              repos.map((r) => r.fullName),
+            ).catch(() => ({ marked: 0, cleared: 0 }));
           }
         }
 

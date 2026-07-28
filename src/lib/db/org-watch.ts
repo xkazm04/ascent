@@ -453,6 +453,106 @@ export async function listWatchedRepos(orgSlug: string): Promise<RepoRef[]> {
   }));
 }
 
+// ── Missing-from-GitHub reconciliation ────────────────────────────────────────────────────────────
+// Import upserts on (orgId, fullName), so re-importing never duplicates a row — but nothing ever
+// reconciled REMOVALS. A repo renamed, transferred, deleted or turned private on GitHub stayed
+// watched forever: it kept winning a slot in the daily rescan cap (listDueRescans, 100/day), failed,
+// took the 6h backoff (advanceScheduleAfterFailure), and repeated — invisibly. On any org that
+// reorganizes, the watchlist silently rots.
+//
+// This is a FLAG, deliberately not an eviction. A rename is indistinguishable from a deletion at the
+// listing level, and a repo can be temporarily unlistable, so auto-unwatching would silently drop
+// live repos. The stamp + a visible date + a one-click manual cleanup is the answer. (The sibling
+// reconcileWatchedRepos in installations.ts DOES unwatch, because an installation listing is an
+// authoritative statement about ACCESS, not existence — different evidence, different remedy.)
+
+export interface MissingRepoReconciliation {
+  /** Watched repos absent from the listing that received a first-sight stamp. */
+  marked: number;
+  /** Previously-stamped repos that reappeared and had their stamp cleared. */
+  cleared: number;
+}
+
+/** A watched repo currently flagged as absent from GitHub's listing. */
+export interface MissingRepo {
+  owner: string;
+  name: string;
+  fullName: string;
+  url: string;
+  /** ISO timestamp of the first listing that came back without it. */
+  missingSince: string;
+}
+
+/**
+ * Reconcile an org's WATCHED set against a repo listing from GitHub.
+ *
+ * CALLER CONTRACT — absence is only evidence when the listing is COMPLETE. Call this ONLY with the
+ * repos of a listing that (a) succeeded, (b) was not page-budget `truncated`, and (c) was not cut
+ * short by the caller's `count` window. A failed, truncated or count-capped listing must mark
+ * NOTHING: every repo past the cut would otherwise be flagged as vanished.
+ *
+ * Marks each absent watched repo with a first-sight `missingSince` (an existing stamp is never
+ * refreshed, so the displayed date stays the date it actually went missing), and CLEARS the stamp of
+ * any repo that reappears. Never unwatches, never deletes: scored history stays in the rollups, and
+ * cleanup is an explicit user action.
+ *
+ * PRIVATE repos are excluded from marking: the public org listing is `type=public`, so a private repo
+ * is structurally absent from it and its absence carries no information. Forks and archived repos are
+ * filtered out of that listing too (isListableRepo), so a watched fork/archived repo CAN be flagged —
+ * which is honest ("no longer in the org's listable repos") and is why the remedy is a dated flag the
+ * user judges, not an automatic drop.
+ */
+export async function reconcileListedRepos(
+  orgSlug: string,
+  listedFullNames: string[],
+): Promise<MissingRepoReconciliation> {
+  const none = { marked: 0, cleared: 0 };
+  if (!isDbConfigured()) return none;
+  // Defense in depth against the contract above: an EMPTY listing would flag the entire watchlist,
+  // and "zero repos" is far more often a broken listing than a genuinely emptied org.
+  if (listedFullNames.length === 0) return none;
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return none;
+  const live = new Set(listedFullNames.map((n) => n.toLowerCase()));
+  const rows = await prisma.repository.findMany({
+    where: { orgId },
+    select: { id: true, fullName: true, watched: true, isPrivate: true, missingSince: true },
+  });
+  const present = (r: { fullName: string }) => live.has(r.fullName.toLowerCase());
+  const clearIds = rows.filter((r) => r.missingSince !== null && present(r)).map((r) => r.id);
+  const markIds = rows
+    .filter((r) => r.watched && !r.isPrivate && r.missingSince === null && !present(r))
+    .map((r) => r.id);
+  if (clearIds.length > 0) {
+    await prisma.repository.updateMany({ where: { id: { in: clearIds } }, data: { missingSince: null } });
+  }
+  if (markIds.length > 0) {
+    await prisma.repository.updateMany({ where: { id: { in: markIds } }, data: { missingSince: new Date() } });
+  }
+  return { marked: markIds.length, cleared: clearIds.length };
+}
+
+/** Watched repos flagged as missing from GitHub's listing — the repositories tab's cleanup surface. */
+export async function listMissingRepos(orgSlug: string): Promise<MissingRepo[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const rows = await prisma.repository.findMany({
+    where: { orgId, watched: true, missingSince: { not: null } },
+    select: { owner: true, name: true, fullName: true, url: true, missingSince: true },
+    orderBy: { missingSince: "asc" },
+  });
+  return rows.map((r) => ({
+    owner: r.owner,
+    name: r.name,
+    fullName: r.fullName,
+    url: r.url,
+    missingSince: (r.missingSince as Date).toISOString(),
+  }));
+}
+
 /** Org slugs with at least one watched repo — the fleets a scheduled digest should summarize. */
 export async function listOrgsWithWatchedRepos(): Promise<string[]> {
   if (!isDbConfigured()) return [];

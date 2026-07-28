@@ -19,8 +19,12 @@ export {
   recordConformance,
   listWatchedRepos,
   listOrgsWithWatchedRepos,
+  reconcileListedRepos,
+  listMissingRepos,
   type RepoRef,
   type DueRescan,
+  type MissingRepo,
+  type MissingRepoReconciliation,
 } from "@/lib/db/org-watch";
 
 export {

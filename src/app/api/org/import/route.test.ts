@@ -29,6 +29,7 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   persistScanReport: vi.fn(async () => null),
   persistTeamStandings: vi.fn(async () => false),
+  reconcileListedRepos: vi.fn(async () => ({ marked: 0, cleared: 0 })),
   recordScanOutcome: vi.fn(async () => {}),
   setRepoSchedule: vi.fn(async () => {}),
   setRepoWatch: vi.fn(async () => {}),
@@ -73,7 +74,8 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled } from "@/lib/access";
 import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { getInstallationToken } from "@/lib/github/app";
-import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, reconcileListedRepos } from "@/lib/db";
+import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
 // Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
 // here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
@@ -413,5 +415,67 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     const events = await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(events.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watchlist reconciliation against the org listing (org-scan direction 4). The import is the only
+// place the app re-reads "what repos does this org actually have", so it is the only place a repo
+// that was renamed, transferred, deleted or turned private can be noticed. Absence is evidence ONLY
+// when the listing is complete — every incomplete-listing shape below must mark NOTHING, because a
+// false flag would point the user at unwatching a live repo.
+describe("POST /api/org/import — missing-repo reconciliation", () => {
+  const mockList = vi.mocked(listOrgRepos);
+  const mockReconcile = vi.mocked(reconcileListedRepos);
+
+  const listed = (names: string[]) =>
+    names.map((fullName) => {
+      const [owner = "", name = ""] = fullName.split("/");
+      return { owner, name, fullName, url: `https://github.com/${fullName}` };
+    }) as unknown as Awaited<ReturnType<typeof listOrgRepos>>["repos"];
+
+  beforeEach(() => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: true, balance: 0, allowanceRemaining: 0 });
+  });
+
+  it("reconciles against a COMPLETE listing, passing exactly the repos GitHub returned", async () => {
+    mockList.mockResolvedValue({ repos: listed(["acme/a", "acme/b"]), truncated: false });
+    await runImport({ org: "acme", mock: true, watch: false });
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
+    expect(mockReconcile).toHaveBeenCalledWith("acme", ["acme/a", "acme/b"]);
+  });
+
+  it("marks NOTHING when the listing was page-budget TRUNCATED (absence is not evidence)", async () => {
+    // A fork/archive-heavy org beyond the 5-page walk: the repos past the cap are still there, they
+    // were just never fetched. Flagging them would be pure fabrication.
+    mockList.mockResolvedValue({ repos: listed(["acme/a"]), truncated: true });
+    await runImport({ org: "acme", mock: true, watch: false });
+    expect(mockReconcile).not.toHaveBeenCalled();
+  });
+
+  it("marks NOTHING when the listing filled the caller's `count` window (a silent second truncation)", async () => {
+    // `count: 2` with 2 results means the walk stopped at the window, not at the end of the org —
+    // indistinguishable from "there are exactly 2", so the whole tail must not be flagged.
+    mockList.mockResolvedValue({ repos: listed(["acme/a", "acme/b"]), truncated: false });
+    await runImport({ org: "acme", count: 2, mock: true, watch: false });
+    expect(mockReconcile).not.toHaveBeenCalled();
+  });
+
+  it("marks NOTHING for an explicit repos[] import — a caller's hand-picked list says nothing about the org", async () => {
+    await runImport({ org: "acme", repos: ["acme/a"], mock: true, watch: false });
+    expect(mockReconcile).not.toHaveBeenCalled();
+  });
+
+  it("marks NOTHING when the listing THROWS — a GitHub outage must not empty the watchlist's meaning", async () => {
+    mockList.mockRejectedValue(new Error("GitHub 502"));
+    await runImport({ org: "acme", mock: true, watch: false });
+    expect(mockReconcile).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the import when the reconcile write fails (bookkeeping is best-effort)", async () => {
+    mockList.mockResolvedValue({ repos: listed(["acme/a"]), truncated: false });
+    mockReconcile.mockRejectedValueOnce(new Error("db down"));
+    await runImport({ org: "acme", mock: true, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1); // the scan still ran
   });
 });

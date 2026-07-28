@@ -104,11 +104,15 @@ CREATE TABLE "Repository" (
     "aiConformanceFails" INTEGER,
     "aiConformanceWarns" INTEGER,
     "aiConformanceAt" TIMESTAMP(3),
+    "missingSince" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Repository_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column (same rule as Scan's below): pglite-boot rewrites CREATE TABLE -> IF NOT
+-- EXISTS, so an EXISTING local .pglite DB needs the new column applied explicitly.
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "missingSince" TIMESTAMP(3);
 
 -- CreateTable
 CREATE TABLE "Segment" (

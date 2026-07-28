@@ -31,7 +31,7 @@ vi.mock("@/lib/db/org-shared", () => ({
   getOrgBySlug: vi.fn(async () => ({ id: "org_1" })),
 }));
 
-import { claimRescan, listDueRescans, recordConformance } from "./org-watch";
+import { claimRescan, listDueRescans, recordConformance, reconcileListedRepos } from "./org-watch";
 
 beforeEach(() => {
   mockIsDbConfigured.mockReset();
@@ -307,5 +307,135 @@ describe("recordConformance stale-re-run guard (conformance.reported ledger)", (
 
     expect(out).toEqual({ recorded: false, stale: false });
     expect(auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── reconcileListedRepos: flag, never evict ─────────────────────────────────────────────────
+// Import upserts on (orgId, fullName) and so never duplicates a row, but nothing reconciled
+// REMOVALS: a repo renamed/transferred/deleted on GitHub stayed watched forever, kept winning a
+// slot in the 100/day rescan cap, failed, took the 6h backoff and repeated invisibly. These pin the
+// three properties that make the flag safe to act on — mark on absence, mark NOTHING when the
+// evidence is incomplete, and clear the moment the repo comes back.
+
+interface FakeRepoRow {
+  id: string;
+  fullName: string;
+  watched: boolean;
+  isPrivate: boolean;
+  missingSince: Date | null;
+}
+
+function fakeReconcilePrisma(rows: FakeRepoRow[]) {
+  const repository = {
+    findMany: vi.fn(async () => rows),
+    updateMany: vi.fn(async () => ({ count: 0 })),
+  };
+  return { prisma: { repository }, repository };
+}
+
+/** The ids each updateMany call targeted, keyed by whether it SET or CLEARED the stamp. */
+function stampCalls(updateMany: ReturnType<typeof vi.fn>) {
+  const marked: string[] = [];
+  const cleared: string[] = [];
+  for (const call of updateMany.mock.calls) {
+    const arg = call[0] as { where: { id: { in: string[] } }; data: { missingSince: Date | null } };
+    (arg.data.missingSince === null ? cleared : marked).push(...arg.where.id.in);
+  }
+  return { marked, cleared };
+}
+
+const repoRow = (over: Partial<FakeRepoRow> & { id: string; fullName: string }): FakeRepoRow => ({
+  watched: true,
+  isPrivate: false,
+  missingSince: null,
+  ...over,
+});
+
+describe("reconcileListedRepos — mark absent, never unwatch", () => {
+  it("stamps a watched repo the listing no longer contains", async () => {
+    const { prisma, repository } = fakeReconcilePrisma([
+      repoRow({ id: "r1", fullName: "acme/alive" }),
+      repoRow({ id: "r2", fullName: "acme/gone" }),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await reconcileListedRepos("acme", ["acme/alive"]);
+
+    expect(out).toEqual({ marked: 1, cleared: 0 });
+    const { marked } = stampCalls(repository.updateMany);
+    expect(marked).toEqual(["r2"]);
+    // NEVER an eviction: a rename is indistinguishable from a deletion here, so watched/scanSchedule
+    // must be untouched — the whole point is that the user decides.
+    for (const call of repository.updateMany.mock.calls) {
+      const data = (call[0] as { data: Record<string, unknown> }).data;
+      expect(data).not.toHaveProperty("watched");
+      expect(data).not.toHaveProperty("scanSchedule");
+    }
+  });
+
+  it("matches names case-insensitively, so a listing's casing can't fake a disappearance", async () => {
+    const { prisma } = fakeReconcilePrisma([repoRow({ id: "r1", fullName: "Acme/Web" })]);
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await reconcileListedRepos("acme", ["acme/web"])).toEqual({ marked: 0, cleared: 0 });
+  });
+
+  it("never re-stamps an already-flagged repo — the displayed date stays the date it went missing", async () => {
+    const first = new Date("2026-01-01T00:00:00.000Z");
+    const { prisma, repository } = fakeReconcilePrisma([
+      repoRow({ id: "r1", fullName: "acme/gone", missingSince: first }),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await reconcileListedRepos("acme", ["acme/other"])).toEqual({ marked: 0, cleared: 0 });
+    expect(repository.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("marks NOTHING for an empty listing — 'zero repos' is a broken listing far more often than an emptied org", async () => {
+    const { prisma, repository } = fakeReconcilePrisma([repoRow({ id: "r1", fullName: "acme/web" })]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await reconcileListedRepos("acme", [])).toEqual({ marked: 0, cleared: 0 });
+    // Not even a read: absence is not evidence, so the whole reconcile is skipped.
+    expect(repository.findMany).not.toHaveBeenCalled();
+    expect(repository.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("marks NOTHING when persistence is off", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await reconcileListedRepos("acme", ["acme/web"])).toEqual({ marked: 0, cleared: 0 });
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+
+  it("ignores UNWATCHED and PRIVATE repos — the public listing carries no evidence about either", async () => {
+    const { prisma, repository } = fakeReconcilePrisma([
+      repoRow({ id: "r1", fullName: "acme/unwatched", watched: false }),
+      // The org listing is `type=public`, so a private repo is structurally absent from it.
+      repoRow({ id: "r2", fullName: "acme/secret", isPrivate: true }),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await reconcileListedRepos("acme", ["acme/web"])).toEqual({ marked: 0, cleared: 0 });
+    expect(repository.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("CLEARS the stamp when a flagged repo reappears in a later listing", async () => {
+    const { prisma, repository } = fakeReconcilePrisma([
+      repoRow({ id: "r1", fullName: "acme/back", missingSince: new Date("2026-01-01T00:00:00.000Z") }),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await reconcileListedRepos("acme", ["acme/back"]);
+
+    expect(out).toEqual({ marked: 0, cleared: 1 });
+    const { cleared } = stampCalls(repository.updateMany);
+    expect(cleared).toEqual(["r1"]);
+  });
+
+  it("clears a returning repo even when it is no longer watched (a re-watch must not inherit a stale flag)", async () => {
+    const { prisma } = fakeReconcilePrisma([
+      repoRow({ id: "r1", fullName: "acme/back", watched: false, missingSince: new Date() }),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await reconcileListedRepos("acme", ["acme/back"])).toEqual({ marked: 0, cleared: 1 });
   });
 });

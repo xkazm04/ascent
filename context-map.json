@@ -628,7 +628,8 @@
             "src/app/api/org/active/route.test.ts",
             "src/components/org/repositories/RepoRescanButton.test.tsx",
             "src/lib/db/org-watch.test.ts",
-            "src/lib/pool.test.ts"
+            "src/lib/pool.test.ts",
+            "src/components/org/repositories/MissingReposPanel.tsx"
           ],
           "target": null,
           "apiRoutes": [
