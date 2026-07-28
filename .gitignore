@@ -69,3 +69,6 @@ next-env.d.ts
 # LLM model-matrix bench artifacts (raw fixtures carry repo contents)
 bench/matrix-inputs/
 bench/matrix/
+
+# scan/audit harness output — internal working notes, never committed
+docs/harness/
