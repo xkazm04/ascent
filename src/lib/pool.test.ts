@@ -4,7 +4,13 @@
 // its errors" footgun are verified here with deterministic deferred promises (no real timers/sleeps).
 
 import { describe, it, expect } from "vitest";
-import { mapPool, SCAN_CONCURRENCY } from "./pool";
+import {
+  FLEET_FINALIZE_RESERVE_MS,
+  fleetDeadlineAt,
+  mapPool,
+  mapPoolUntilDeadline,
+  SCAN_CONCURRENCY,
+} from "./pool";
 
 /** A promise whose resolve/reject is exposed so the test drives completion order, not the clock. */
 function deferred<T>() {
@@ -253,5 +259,103 @@ describe("mapPool", () => {
     it("is the documented bounded default of 4", () => {
       expect(SCAN_CONCURRENCY).toBe(4);
     });
+  });
+});
+
+// The deadline guard exists because the platform kill is a PROCESS kill: no throw, no `finally`, no
+// final frame. Every property below is what lets a fleet run stop ITSELF in time and still report an
+// honest, continuable remainder — so they're pinned against a fully synthetic clock (no real timers).
+describe("mapPoolUntilDeadline", () => {
+  /** A clock the test advances by hand; `fn` decides how much wall time each item "costs". */
+  function fakeClock(start = 0) {
+    let t = start;
+    return { now: () => t, advance: (ms: number) => (t += ms) };
+  }
+
+  it("runs the whole list and reports no truncation when every item fits the budget", async () => {
+    const clock = fakeClock();
+    const items = [0, 1, 2, 3, 4, 5];
+    const seen: number[] = [];
+    const out = await mapPoolUntilDeadline(
+      items,
+      2,
+      1_000_000,
+      async (item) => {
+        seen.push(item);
+        clock.advance(10);
+      },
+      clock.now,
+    );
+    expect(seen.sort((a, b) => a - b)).toEqual(items);
+    expect(out).toEqual({ remaining: [], attempted: 6, truncated: false });
+  });
+
+  it("stops issuing NEW items once the worst observed item no longer fits — remainder is the exact suffix", async () => {
+    const clock = fakeClock();
+    const items = ["a", "b", "c", "d", "e"];
+    const seen: string[] = [];
+    // Serial lane, 100-unit items, deadline at 250: a+b fit (at t=200 the projection 200+100 = 300
+    // exceeds 250), so the run stops with c/d/e never issued.
+    const out = await mapPoolUntilDeadline(
+      items,
+      1,
+      250,
+      async (item) => {
+        seen.push(item);
+        clock.advance(100);
+      },
+      clock.now,
+    );
+    expect(seen).toEqual(["a", "b"]);
+    expect(out.truncated).toBe(true);
+    expect(out.attempted).toBe(2);
+    // The remainder is a contiguous SUFFIX — a continuation run that walks it covers exactly the work
+    // this run skipped, with no gap and no overlap.
+    expect(out.remaining).toEqual(["c", "d", "e"]);
+  });
+
+  it("NEVER truncates before at least one item has been attempted, even past an already-blown deadline", async () => {
+    const clock = fakeClock(1000);
+    const items = [0, 1, 2, 3];
+    const seen: number[] = [];
+    // Deadline is already in the past. With no observation there is no estimate, so the guard cannot
+    // fire — the run must still attempt one item rather than reporting a vacuous 0-of-N truncation.
+    const out = await mapPoolUntilDeadline(items, 1, 0, async (item) => void seen.push(item), clock.now);
+    expect(seen).toEqual([0]);
+    expect(out.attempted).toBe(1);
+    expect(out.truncated).toBe(true);
+    expect(out.remaining).toEqual([1, 2, 3]);
+  });
+
+  it("lets every in-flight lane finish — items already issued are never abandoned mid-flight", async () => {
+    const clock = fakeClock();
+    const items = [0, 1, 2, 3, 4, 5];
+    const finished: number[] = [];
+    // 4 lanes all claim before any observation exists; each is expensive enough that the guard fires
+    // the moment the first one lands. All four still complete (they may already have spent money).
+    const out = await mapPoolUntilDeadline(
+      items,
+      4,
+      1_000,
+      async (item) => {
+        clock.advance(5_000);
+        finished.push(item);
+      },
+      clock.now,
+    );
+    expect(finished.sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
+    expect(out.attempted).toBe(4);
+    expect(out.remaining).toEqual([4, 5]);
+  });
+
+  it("returns a complete, non-truncated result for an empty list (no work, no false alarm)", async () => {
+    const out = await mapPoolUntilDeadline([], 4, 0, async () => {});
+    expect(out).toEqual({ remaining: [], attempted: 0, truncated: false });
+  });
+
+  it("fleetDeadlineAt subtracts the finalize reserve from the platform ceiling, floored at the start", () => {
+    expect(fleetDeadlineAt(1_000, 300)).toBe(1_000 + 300_000 - FLEET_FINALIZE_RESERVE_MS);
+    // A ceiling smaller than the reserve can't produce a deadline BEFORE the invocation started.
+    expect(fleetDeadlineAt(1_000, 1)).toBe(1_000);
   });
 });

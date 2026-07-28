@@ -327,4 +327,44 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     expect(body.scanned).toBe(1);
     expect(body.skippedForCredits).toBe(0);
   });
+
+  // ---- (5) TIME BUDGET — the cron shares the 300s ceiling with /api/org/scan ----------------
+  // Unattended, so the ONLY record of a pass is this JSON body. A run killed at the ceiling wrote
+  // nothing at all; a run that stops itself must say how much of the due queue it never reached,
+  // and must leave those repos genuinely untouched (unclaimed ⇒ still due ⇒ next pass takes them).
+
+  it("stops issuing new repos at the budget and reports the untouched remainder honestly", async () => {
+    let clock = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      const due = ["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => dueRepo({ repoId: id, fullName: `acme/${id}` }));
+      mockListDue.mockResolvedValue(due);
+      mockScan.mockImplementation(async () => {
+        clock += 100_000; // 100s per repo — the first completion projects past the 300s ceiling
+        return realReport();
+      });
+
+      const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+
+      expect(body.due).toBe(6);
+      expect(body.truncated).toBe(true);
+      expect(body.scanned).toBe(4); // the four lanes that were already in flight
+      expect(body.remaining).toBe(2);
+      // The unreached repos were never CLAIMED — so nextScanAt is untouched, they stay due for the
+      // next pass, and they are neither counted as failures nor pushed into the 6h backoff.
+      expect(mockClaim).toHaveBeenCalledTimes(4);
+      expect(mockAdvanceFail).not.toHaveBeenCalled();
+      expect(body.errors).toEqual([]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("reports truncated:false for a pass that drained the whole due queue", async () => {
+    mockListDue.mockResolvedValue([dueRepo(), dueRepo({ repoId: "repo-2", fullName: "acme/two" })]);
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(body.truncated).toBe(false);
+    expect(body.remaining).toBe(0);
+    expect(body.scanned).toBe(2);
+  });
 });

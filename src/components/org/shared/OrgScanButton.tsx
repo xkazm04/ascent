@@ -17,8 +17,15 @@ interface Progress {
   /** Repos skipped for lack of prepaid scan credits (`notice` up front, `repo.skipped` mid-run,
    *  authoritative total on the final `result`) — a truncated paid run must not read as success. */
   skipped: number;
+  /** Set when the server stopped issuing new repos to stay inside its wall-clock budget. Carries the
+   *  exact remainder so "Continue" walks what's LEFT rather than re-driving the whole fleet. Kept
+   *  strictly separate from `error`: a truncated run scanned (and persisted) real repos. */
+  truncated?: { scanned: number; total: number; repos: string[] };
   error?: string;
 }
+
+/** Scope for one bulk-scan request — the stale-only filter, or an explicit remainder to continue. */
+type ScanScope = { staleOnlyDays?: number; repos?: string[] };
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
   const router = useRouter();
@@ -31,12 +38,13 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
   const noWatched = watchedCount === 0;
   const inert = p.running || noWatched;
 
-  async function run(scope?: { staleOnlyDays?: number }) {
+  async function run(scope?: ScanScope) {
     if (inert) return;
     // For a SCOPED (stale-only) scan the count isn't known up front — the server picks the stale subset
     // — so start the denominator at 0 and let the server's first progress/notice event fill it in,
     // rather than showing a misleading "0/<all watched>" (or an instant 100% on a tiny stale subset).
-    const initialTotal = scope ? 0 : watchedCount;
+    // A CONTINUE scope names its repos explicitly, so its denominator IS known.
+    const initialTotal = scope?.repos ? scope.repos.length : scope ? 0 : watchedCount;
     setP({ running: true, done: 0, total: initialTotal, current: "starting…", failed: 0, skipped: 0 });
     try {
       const res = await fetch("/api/org/scan", {
@@ -70,6 +78,21 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             ...s,
             skipped: s.skipped + (Number.isFinite(skippedN) && skippedN > 0 ? skippedN : 0),
             total: Number.isFinite(scanning) && scanning > 0 ? scanning : s.total,
+          }));
+        } else if (event === "truncated") {
+          // The run hit its server-side wall-clock budget and stopped issuing NEW repos. Everything it
+          // did scan is already persisted; the named remainder was never touched. This is deliberately
+          // NOT the error state — the transport succeeded.
+          const repos = Array.isArray(data.repos) ? (data.repos as unknown[]).map(String) : [];
+          const scannedN = Number(data.scanned);
+          const totalN = Number(data.total);
+          setP((s) => ({
+            ...s,
+            truncated: {
+              scanned: Number.isFinite(scannedN) ? scannedN : s.done,
+              total: Number.isFinite(totalN) ? totalN : s.total,
+              repos,
+            },
           }));
         } else if (event === "result") {
           // Final summary — skippedForCredits is the authoritative total (up-front slice +
@@ -154,6 +177,28 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           <p className="text-sm text-warn">
             {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped — out of scan credits.
           </p>
+        )}
+        {/* Time-budget stop — distinct from the network-error state below. The run succeeded for the
+            repos it reached (they are persisted); the remainder was never started, so continuing costs
+            nothing for work already done. The button carries the exact remainder, so a continue walks
+            only what's left. */}
+        {!p.running && p.truncated && !p.error && p.truncated.repos.length > 0 && (
+          <div className="flex flex-col items-end gap-1">
+            <p className="text-sm text-warn">
+              Time budget reached —{" "}
+              <span className="font-mono tabular-nums">
+                {p.truncated.scanned} of {p.truncated.total}
+              </span>{" "}
+              scanned.
+            </p>
+            <button
+              type="button"
+              onClick={() => run({ repos: p.truncated?.repos })}
+              className="focus-ring rounded-lg border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            >
+              Continue ({p.truncated.repos.length} left)
+            </button>
+          </div>
         )}
         {p.error && <p className="text-sm text-danger">{p.error}</p>}
       </div>

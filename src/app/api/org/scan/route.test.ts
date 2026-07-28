@@ -3,7 +3,7 @@
 // unchanged (persist deduped). A real-LLM scan that persists a NEW row keeps the debit. The DB /
 // GitHub / scan boundaries are mocked; the SSE body is drained so the stream's work completes.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
 
 vi.mock("next/server", () => ({
@@ -43,7 +43,7 @@ vi.mock("@/lib/entitlement", () => ({
 
 import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
-import { consumeScanCredit, grantCredits, listWatchedRepos, persistScanReport } from "@/lib/db";
+import { consumeScanCredit, grantCredits, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
 import { checkScanEntitlement } from "@/lib/entitlement";
 // Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
 // here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
@@ -55,6 +55,7 @@ const mockGrant = vi.mocked(grantCredits);
 const mockList = vi.mocked(listWatchedRepos);
 const mockPersist = vi.mocked(persistScanReport);
 const mockEntitlement = vi.mocked(checkScanEntitlement);
+const mockRecordOutcome = vi.mocked(recordScanOutcome);
 
 const report = (provider: string) =>
   ({
@@ -220,5 +221,144 @@ describe("POST /api/org/scan — per-repo in-flight claim (no double-scan/charge
     const body = await runBulkScan();
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(body).not.toContain('"skipped":"in_progress"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Time-budget truncation. The whole batch runs inside one request's ReadableStream under
+// `maxDuration = 300`, and the platform kill is a PROCESS kill — no throw, no `finally`, no final
+// frame — so a fleet that outgrew one invocation used to reach the user as a bare "Network error."
+// for a run that had actually scanned and PERSISTED most of it. These pin the honest alternative:
+// stop issuing new repos in time, name the remainder, and leave it untouched (not failed).
+describe("POST /api/org/scan — time-budget truncation", () => {
+  const REPOS = ["acme/a", "acme/b", "acme/c", "acme/d", "acme/e", "acme/f"];
+  let clock = 0;
+  let nowSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+  beforeEach(() => {
+    clock = 0;
+    // Synthetic clock: only a scan advances it, so the deadline arithmetic is fully deterministic
+    // (no sleeps, no real timers). Four lanes claim before any observation exists; each "costs"
+    // 100s, so the first completion projects past the 300s ceiling and the tail is never issued.
+    nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    mockList.mockResolvedValue(
+      REPOS.map((fullName) => ({ fullName, lastScanAt: null })) as unknown as Awaited<
+        ReturnType<typeof listWatchedRepos>
+      >,
+    );
+    // Unlimited plan: the credit slice must not confound the deadline arithmetic.
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: true, balance: 0, allowanceRemaining: 0 });
+    mockScan.mockImplementation(async () => {
+      clock += 100_000;
+      return report("gemini");
+    });
+    mockPersist.mockResolvedValue(persisted(false));
+  });
+
+  afterEach(() => {
+    nowSpy?.mockRestore();
+  });
+
+  it("emits an explicit truncation frame with scanned/remaining counts and the remainder's names", async () => {
+    const body = await runBulkScan();
+
+    expect(body).toContain("event: truncated");
+    const frame = body.split("\n\n").find((f) => f.includes("event: truncated"))!;
+    const data = JSON.parse(frame.match(/^data: (.+)$/m)![1]!) as {
+      reason: string;
+      scanned: number;
+      remaining: number;
+      total: number;
+      repos: string[];
+    };
+    expect(data.reason).toBe("time_budget");
+    expect(data.total).toBe(REPOS.length);
+    // 4 lanes were issued before the guard fired; the tail is the exact, contiguous remainder.
+    expect(data.scanned).toBe(4);
+    expect(data.remaining).toBe(2);
+    expect(data.repos).toEqual(["acme/e", "acme/f"]);
+    // The final result carries the same verdict, so a machine consumer isn't left inferring it.
+    expect(body).toContain('"truncated":true');
+  });
+
+  it("does NOT mark the unreached repos failed — no scan, no outcome row, no error frame", async () => {
+    const body = await runBulkScan();
+
+    // The tail was never issued: no inference, and critically no persisted failure that would make a
+    // healthy repo look broken on the dashboard (or take the 6h autoscan backoff).
+    expect(mockScan).toHaveBeenCalledTimes(4);
+    const scannedRepos = mockScan.mock.calls.map((c) => c[0]);
+    expect(scannedRepos).not.toContain("acme/e");
+    expect(scannedRepos).not.toContain("acme/f");
+    const outcomeRepos = mockRecordOutcome.mock.calls.map((c) => c[1]);
+    expect(outcomeRepos).not.toContain("acme/e");
+    expect(outcomeRepos).not.toContain("acme/f");
+    // A truncation is not a stream failure: the generic error surface must stay clear.
+    expect(body).not.toContain("event: error");
+  });
+
+  it("reports NO truncation when the whole fleet fits the budget (small fleets are never stopped early)", async () => {
+    mockScan.mockImplementation(async () => {
+      clock += 100; // fast repos — the projection always fits
+      return report("gemini");
+    });
+    const body = await runBulkScan();
+    expect(mockScan).toHaveBeenCalledTimes(REPOS.length);
+    expect(body).not.toContain("event: truncated");
+    expect(body).toContain('"truncated":false');
+  });
+});
+
+// The "Continue" affordance is only honest if continuing is genuinely cheap. Two mechanisms make it
+// so, and both are verified here against the ACTUAL code rather than assumed by the UI copy:
+//   • the continuation is scoped to the named remainder, so finished repos aren't re-driven at all;
+//   • should one be re-driven anyway (an overlapping run, a stale remainder), the unchanged-commit
+//     dedup refunds the credit — a dedup run is free.
+describe("POST /api/org/scan — continuing a truncated run does not re-charge", () => {
+  async function scanScoped(repos: string[]) {
+    const res = await POST(
+      new Request("http://localhost/api/org/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: "acme", repos }),
+      }),
+    );
+    return res.text();
+  }
+
+  beforeEach(() => {
+    mockList.mockResolvedValue([
+      { fullName: "acme/done", lastScanAt: null },
+      { fullName: "acme/left", lastScanAt: null },
+    ] as unknown as Awaited<ReturnType<typeof listWatchedRepos>>);
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    mockScan.mockResolvedValue(report("gemini"));
+    mockPersist.mockResolvedValue(persisted(false));
+  });
+
+  it("walks ONLY the named remainder — the repos the truncated run already scanned are not re-scanned", async () => {
+    const body = await scanScoped(["acme/left"]);
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockScan.mock.calls[0][0]).toBe("acme/left");
+    expect(mockConsume).toHaveBeenCalledTimes(1); // exactly one repo billed — nothing double-charged
+    expect(body).toContain('"total":1');
+  });
+
+  it("refunds rather than re-charges when a continued repo dedupes on an unchanged commit", async () => {
+    mockPersist.mockResolvedValue(persisted(true)); // unchanged commit ⇒ no new scored row
+    await scanScoped(["acme/done"]);
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    // Net zero: the reservation is handed straight back, which is what makes "click to continue" safe
+    // to offer even when the remainder overlaps work another run already finished.
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+  });
+
+  it("skips a repo another in-flight run still owns instead of re-scanning it", async () => {
+    const held = claimRepoScan("acme", "acme/left");
+    const body = await scanScoped(["acme/left"]);
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(body).toContain('"skipped":"in_progress"');
+    releaseRepoScan("acme", "acme/left", held!);
   });
 });

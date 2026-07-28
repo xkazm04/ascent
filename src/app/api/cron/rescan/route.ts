@@ -24,13 +24,16 @@ import { requireCronAuth } from "@/lib/cron-auth";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
+import { fleetDeadlineAt, mapPoolUntilDeadline, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
+  // Same ceiling, same honesty as /api/org/scan: anchor the budget at invocation start so the loop can
+  // stop issuing new work and RETURN a result, instead of being process-killed with no response body.
+  const invokedAt = Date.now();
   // Fail-closed CRON_SECRET gate (503 when unset, 401 on a bad credential), single-sourced so this
   // route that mints every org's token and spends LLM budget can't drift from the other cron handlers.
   const denied = requireCronAuth(request);
@@ -74,7 +77,7 @@ export async function GET(request: Request) {
 
   // Scan with bounded concurrency so a real fleet drains within the 300s budget (counters mutate in
   // single-threaded lanes — race-free).
-  await mapPool(due, SCAN_CONCURRENCY, async (r) => {
+  const { remaining, truncated } = await mapPoolUntilDeadline(due, SCAN_CONCURRENCY, fleetDeadlineAt(invokedAt, maxDuration), async (r) => {
     // CLAIM-BEFORE-WORK: atomically take ownership of this due repo before any expensive or billable
     // step. `claimRescan` advances nextScanAt to the next cadence only while the repo is still due, so
     // if an overlapping cron run (long batch near the 300s ceiling, a manual `?key=` retry, or a
@@ -168,5 +171,21 @@ export async function GET(request: Request) {
     }
   });
 
-  return NextResponse.json({ due: due.length, scanned, skippedForCredits, skippedAlreadyClaimed, skippedNoToken, errors });
+  // Honest accounting when the 300s budget ended the pass: the unreached repos were never CLAIMED, so
+  // their `nextScanAt` is untouched, they are still due, and the NEXT cron pass picks them up — they
+  // are neither failed nor backed off. Reporting them (rather than letting `due - scanned` read as a
+  // pile of silent skips) is what makes a chronically-oversubscribed schedule visible.
+  if (truncated) {
+    console.warn(`[cron/rescan] time budget reached — ${scanned}/${due.length} scanned, ${remaining.length} left due for the next pass`);
+  }
+  return NextResponse.json({
+    due: due.length,
+    scanned,
+    skippedForCredits,
+    skippedAlreadyClaimed,
+    skippedNoToken,
+    truncated,
+    remaining: remaining.length,
+    errors,
+  });
 }

@@ -12,7 +12,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
-import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
+import { fleetDeadlineAt, mapPoolUntilDeadline, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
 export const runtime = "nodejs";
@@ -20,6 +20,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // bulk runs are long
 
 export async function POST(request: Request) {
+  // Anchor the wall-clock budget at the START of the invocation: everything below (auth, entitlement,
+  // token mint) eats into the same 300s ceiling the platform enforces, and a fleet past ~a dozen live
+  // repos structurally cannot finish inside it. The batch loop stops issuing new work before the
+  // ceiling so this run can emit an honest truncation frame instead of being process-killed silently.
+  const invokedAt = Date.now();
   if (!isAppConfigured() || !isDbConfigured()) {
     return NextResponse.json({ error: "Org scanning requires the GitHub App + a database." }, { status: 503 });
   }
@@ -129,7 +134,7 @@ export async function POST(request: Request) {
         let done = 0;
         let scanned = 0;
         let skippedInProgress = 0;
-        await mapPool(scanList, SCAN_CONCURRENCY, async (repo) => {
+        const { remaining, truncated } = await mapPoolUntilDeadline(scanList, SCAN_CONCURRENCY, fleetDeadlineAt(invokedAt, maxDuration), async (repo) => {
           // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the manual
           // path was missing. If another in-flight run (a second tab, another member, or an overlapping
           // import) already holds a live claim, skip: reserving + scanning here would debit a second
@@ -197,10 +202,29 @@ export async function POST(request: Request) {
             releaseRepoScan(org, repo.fullName, claim);
           }
         });
+        // The wall-clock budget ran out before every repo could be issued. The remainder was NEVER
+        // touched — no claim, no credit, no scan, and pointedly NO recordScanOutcome, so an unreached
+        // repo must not be reported (or persisted) as failed. Name the remainder explicitly so the
+        // client's "Continue" walks exactly what's left instead of re-driving the whole fleet: a
+        // continuation over already-scanned repos would dedupe-and-refund (free, see shouldRefundScan)
+        // but would still burn the same wall clock and never reach the tail.
+        if (truncated) {
+          // Also log server-side: `send` swallows enqueue failures on a torn-down controller, and a
+          // truncation that only ever existed in a lost frame is exactly the silence this fixes.
+          console.warn(`[org/scan] ${org}: time budget reached — ${scanned}/${scanList.length} scanned, ${remaining.length} left`);
+          send("truncated", {
+            reason: "time_budget",
+            scanned,
+            done,
+            remaining: remaining.length,
+            total: scanList.length,
+            repos: remaining.map((r) => r.fullName),
+          });
+        }
         // Capture the team-standings decomposition as a durable output of this full org scan
         // (best-effort — a failure here must never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { scanned, total: scanList.length, skippedForCredits, skippedInProgress });
+        send("result", { scanned, total: scanList.length, skippedForCredits, skippedInProgress, truncated, remaining: remaining.length });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Bulk scan failed." });
       } finally {
