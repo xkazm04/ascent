@@ -20,6 +20,7 @@
 // src/lib/memory/consolidation-engine.ts is the adapter that resolves the Claude CLI one.
 
 import { parseJsonLoose } from "@/lib/llm/json";
+import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
 
 /** The subset of a stored memory this pass reasons over (structurally satisfied by db MemoryRow). */
 export interface MemoryCandidate {
@@ -148,30 +149,41 @@ export function heuristicVerdict(matches: DuplicateMatch[]): ConsolidationVerdic
  * Build the write-intelligence prompt. Only the SHORTLIST reaches the model (never the whole store), and
  * each excerpt is truncated — so prompt size is bounded by SHORTLIST_MAX · CANDIDATE_EXCERPT no matter
  * how large the org's memory grows. Asks for strict JSON; parseVerdict re-validates everything anyway.
+ *
+ * EVERY foreign-authored fragment (the proposed content, the stored excerpts, and the caller-supplied
+ * kind/namespace) goes through the shared untrusted-content boundary — @/lib/llm/untrusted, the same
+ * implementation the scoring prompt uses. Memory content is written by members, harvested from scanned
+ * repositories, and written by AGENTS, so it is exactly as untrusted as a repo file body; interpolating
+ * it raw let a stored memory issue instructions to this pass, whose verdict names the ids that get
+ * superseded. The trusted task statement and the output contract stay OUTSIDE the block.
  */
 export function buildConsolidationPrompt(input: AnalyzeInput, matches: DuplicateMatch[]): string {
   const byId = new Map(input.candidates.map((c) => [c.id, c]));
   const candidateBlock = matches
     .map((m, i) => {
       const c = byId.get(m.id)!;
-      const excerpt = c.content.slice(0, CANDIDATE_EXCERPT);
+      const excerpt = neutralize(c.content.slice(0, CANDIDATE_EXCERPT));
       const clipped = c.content.length > CANDIDATE_EXCERPT ? " …[truncated]" : "";
-      return `[${i + 1}] id=${c.id} kind=${c.kind} confidence=${c.confidence}\n${excerpt}${clipped}`;
+      return `[${i + 1}] id=${c.id} kind=${neutralize(c.kind)} confidence=${c.confidence}\n${excerpt}${clipped}`;
     })
     .join("\n\n");
+
+  const quoted = wrapUntrusted(`PROPOSED MEMORY
+kind: ${neutralize(input.kind)}
+namespace: ${input.namespace ? neutralize(input.namespace) : "(org-wide)"}
+content:
+${neutralize(input.content.slice(0, 4000))}
+
+EXISTING MEMORIES (the only ids you may reference)
+${candidateBlock || "(none)"}`);
 
   return `You are the write-gate for an engineering organization's shared memory store. A member is about to save a new memory. Decide whether it is genuinely new, whether it duplicates something already stored, or whether it CORRECTS/REFINES an existing memory (in which case the old one should be superseded).
 
 Judge by MEANING, not word overlap. A short correction may share few words with the memory it replaces.
 
-PROPOSED MEMORY
-kind: ${input.kind}
-namespace: ${input.namespace || "(org-wide)"}
-content:
-${input.content.slice(0, 4000)}
+${MEMORY_UNTRUSTED_BOUNDARY}
 
-EXISTING MEMORIES (the only ones you may reference)
-${candidateBlock || "(none)"}
+${quoted}
 
 Respond with ONLY a JSON object, no prose, no markdown fence:
 {

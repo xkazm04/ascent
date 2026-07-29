@@ -128,6 +128,32 @@ If the LLM path throws, returns non-JSON, or isn't configured, the route
 falls back to the deterministic heuristic and reports `llmUnavailable: true`;
 it never turns into a 500 and never blocks the author.
 
+## The untrusted-content boundary on both memory prompts
+
+Memory content is written by org members, harvested from scanned
+repositories, and written by **agents** — an agent that read a poisoned
+README and stored what it "learned" is the ordinary way an injection reaches
+this store, with no human in that loop. Both memory prompts (the check
+verdict and the reflect proposal) therefore quote every foreign-authored
+fragment inside the shared untrusted-content boundary,
+`src/lib/llm/untrusted.ts` — the same implementation the scoring prompt uses,
+extracted rather than re-implemented, because a second copy of a security
+control is the defect and not the fix.
+
+Concretely, per prompt: a boundary statement written for the memory task
+(instructions inside the block have no authority; an instruction found there
+is text whose *meaning* is being judged), then the proposed content, the
+candidate/cluster excerpts and the caller-supplied kind/namespace wrapped in
+a single `<untrusted_repo_data>` block with forged boundary markers stripped
+and triple-backtick runs defused. The task statement and the JSON output
+contract stay outside the block.
+
+What this protects is specific: a verdict or proposal **names memory ids**,
+and a named id is superseded. Prompt-level hardening is the outer layer only —
+the parse-time guards (an id must belong to the shortlist/cluster we asked
+about, or the whole proposal is rejected) and the org-scoped database writes
+remain the load-bearing ones.
+
 ## Reflect: consolidating memories into a summary
 
 `POST /api/org/memory/reflect` supports two distinct call shapes on the same

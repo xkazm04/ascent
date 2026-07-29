@@ -23,6 +23,7 @@
 // injects `RunPrompt` from consolidation-engine.ts.
 
 import { parseJsonLoose } from "@/lib/llm/json";
+import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
 import type { RunPrompt } from "@/lib/memory/consolidation";
 import { tokenize } from "@/lib/memory/consolidation";
 
@@ -180,6 +181,12 @@ export function clusterMemories(
  * One prompt for ALL candidate clusters (there are at most MAX_CLUSTERS of them, each excerpt-capped) —
  * a single spawn instead of four, which matters when the engine is a local CLI costing ~seconds each.
  * Asks for strict JSON; parseReflectionProposals re-validates every field regardless.
+ *
+ * The member excerpts are memory content — member-, agent- and repo-authored — so the whole cluster
+ * listing is quoted inside the shared untrusted-content boundary (@/lib/llm/untrusted, the same
+ * implementation the scoring prompt uses) and each excerpt is neutralized. The stakes are concrete: a
+ * proposal's memberIds become `supersededBy` writes, so text that could talk this pass into naming ids
+ * would retire memories a human wrote. The task statement and the output contract stay OUTSIDE the block.
  */
 export function buildReflectionPrompt(
   clusters: MemoryCluster[],
@@ -191,9 +198,9 @@ export function buildReflectionPrompt(
       const members = c.memberIds
         .map((id) => {
           const m = byId.get(id)!;
-          const excerpt = m.content.slice(0, MEMBER_EXCERPT);
+          const excerpt = neutralize(m.content.slice(0, MEMBER_EXCERPT));
           const clipped = m.content.length > MEMBER_EXCERPT ? " …[truncated]" : "";
-          return `  - id=${id} kind=${m.kind} confidence=${m.confidence}\n    ${excerpt}${clipped}`;
+          return `  - id=${id} kind=${neutralize(m.kind)} confidence=${m.confidence}\n    ${excerpt}${clipped}`;
         })
         .join("\n");
       return `CLUSTER ${ci + 1} (id="${c.memberIds[0]}")\n${members}`;
@@ -202,7 +209,9 @@ export function buildReflectionPrompt(
 
   return `You are the consolidation pass for an engineering organization's shared memory store. Below are clusters of memories that a similarity pass judged to be about the same thing. For each cluster, decide whether the members genuinely restate ONE subject and, if so, write a single rollup memory that preserves every distinct fact.
 
-${blocks}
+${MEMORY_UNTRUSTED_BOUNDARY}
+
+${wrapUntrusted(blocks)}
 
 Respond with ONLY a JSON object, no prose, no markdown fence:
 {
