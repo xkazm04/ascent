@@ -48,7 +48,7 @@ since fleet aggregation/attribution surfaces need a real org's breadth.
 | Library | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
 | Govern | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
 | Govern | Governance | `org/[slug]/governance` | `src/app/org/[slug]/governance/` | Governance rollups. |
-| Govern | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connected integrations. |
+| Govern | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers — Claude Code (measured, OTel push) today; Copilot / OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Govern | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
 | Govern | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. |
 
@@ -328,6 +328,33 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   misdirected message cannot hand a stranger the role. The response reports `emailed`:
   `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
   owner's manual copy/paste path is never lost. The audit entry records the outcome.
+
+## Provider integrations (`org/[slug]/integrations`, owner-only)
+
+Connects AI coding providers so the **AI delivery** views run on real usage instead of the
+simulated placeholder. One card per provider from the registry
+(`src/lib/integrations/providers.ts`), each declaring the best per-repo **fidelity** it can
+reach: `measured` (Claude Code, via the OTel `git.repository` resource attribute),
+`allocated` (Copilot / OpenAI — reported above repo level, distributed by git-attributed AI
+volume), `simulated` (nothing connected yet). Claude Code is the only `available` one today;
+the other two render as `planned`.
+
+**The ingest surface** (`src/app/api/integrations/ingest`, plus `/v1/metrics` and `/v1/logs`)
+is the app's only internet-facing, body-accepting endpoint authenticated by nothing but a
+bearer token, so it carries the same guards as the rest of the public funnel — all three
+routes share one front door, `guardIngest` in `src/lib/integrations/ingest-guard.ts`:
+
+| Guard | Behavior |
+| --- | --- |
+| Rate limit | `INGEST_RATE_LIMIT` layered on the shared limiter (`src/lib/rate-limit.ts`) — per-IP burst 3,000/min + a 20,000/min per-instance global, both env-overridable (`RATE_LIMIT_INGEST_PER_IP` / `_GLOBAL`). Derived from Claude Code's real push cadence: metrics flush every 60s and logs every 5s **per developer machine**, so a 200-seat org behind one egress IP legitimately produces ~2,600 req/min. Charged **before** token verification, so a flood is refused without spending crypto. |
+| Body cap | `MAX_BODY` = 1 MB, checked against a declared `content-length` first and then by streamed byte count, so an oversized push is refused (**413**) after one chunk rather than buffered. Applies to the accept-and-discard paths too (the protobuf drain, `/v1/logs`). |
+| Token | `parseIngestToken` re-derives the HMAC from the slug in the token (`asc_otel.<slug>.<mac>`); constant-time compare. Runs **before** any body/wire-format handling, so a bad-token protobuf push gets 401, never 415. |
+
+`/v1/metrics` **refuses OTLP/protobuf with 415** naming the
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/json` fix. This is deliberate: Ascent decodes OTLP/JSON only,
+and a 202 on a payload it cannot parse would read to the collector as "delivered" while nothing
+ever persists. `/v1/logs` authenticates and 202-accepts without parsing — the token/cost signal
+lives in metrics; folding log events into usage is a later step.
 
 ## Key files
 

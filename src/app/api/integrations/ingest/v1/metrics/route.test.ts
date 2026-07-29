@@ -20,6 +20,7 @@ vi.mock("@/lib/integrations/otlp", () => ({ parseOtlpMetrics: vi.fn(() => [{ sco
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));
 
 import { POST } from "./route";
+import { MAX_BODY } from "@/lib/integrations/ingest-guard";
 import { parseIngestToken } from "@/lib/integrations/ingest-token";
 import { parseOtlpMetrics } from "@/lib/integrations/otlp";
 import { recordUsage } from "@/lib/db";
@@ -70,6 +71,17 @@ describe("POST /api/integrations/ingest/v1/metrics — wire-format guard", () =>
   it("returns 400 on malformed JSON", async () => {
     const res = await POST(mkReq({ body: "{not json", contentType: "application/json" }));
     expect(res.status).toBe(400);
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("413s a body over the ingest cap instead of buffering it, and persists nothing", async () => {
+    const req = new Request("http://localhost/api/integrations/ingest/v1/metrics", {
+      method: "POST",
+      headers: { authorization: "Bearer asc_otel.acme.mac", "content-type": "application/json", "content-length": String(MAX_BODY + 1) },
+      body: "{}",
+    }) as unknown as NextRequest;
+    const res = await POST(req);
+    expect(res.status).toBe(413);
     expect(mockRecord).not.toHaveBeenCalled();
   });
 });

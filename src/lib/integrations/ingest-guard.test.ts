@@ -1,0 +1,108 @@
+// The public-ingest hardening: a hard body cap (413) and the shared rate limiter (429), plus the
+// order the two run in relative to token verification. Nothing is mocked — this exercises the real
+// limiter from src/lib/rate-limit.ts and the real HMAC from ingest-token.ts, because the point of the
+// file is to prove the guards actually fire, not that a stub was called.
+//
+// Both the limiter config and the token secret are captured at module load, so the module is imported
+// dynamically after the env is stubbed.
+
+import { describe, it, expect, beforeAll } from "vitest";
+
+const SECRET = "test-ingest-secret-do-not-use";
+
+type GuardModule = typeof import("./ingest-guard");
+type TokenModule = typeof import("./ingest-token");
+let guard: GuardModule;
+let tokens: TokenModule;
+
+beforeAll(async () => {
+  process.env.INTEGRATIONS_INGEST_SECRET = SECRET;
+  // A tiny window makes the limiter observable in a handful of requests. The real ceiling is derived
+  // from Claude Code's export cadence (see INGEST_RATE_LIMIT) and is far too high to test directly.
+  process.env.RATE_LIMIT_INGEST_PER_IP = "3";
+  process.env.RATE_LIMIT_INGEST_GLOBAL = "1000";
+  guard = await import("./ingest-guard");
+  tokens = await import("./ingest-token");
+});
+
+function mkReq(opts: { body?: string; auth?: string | null; contentLength?: string; ip?: string } = {}): Request {
+  const headers: Record<string, string> = {};
+  if (opts.auth) headers.authorization = opts.auth;
+  if (opts.contentLength) headers["content-length"] = opts.contentLength;
+  if (opts.ip) headers["x-real-ip"] = opts.ip;
+  return new Request("http://localhost/api/integrations/ingest/v1/metrics", { method: "POST", headers, body: opts.body });
+}
+
+describe("readCappedBody", () => {
+  it("returns the whole body when it is under the cap", async () => {
+    const res = await guard.readCappedBody(mkReq({ body: '{"resourceMetrics":[]}' }));
+    expect(res).toEqual({ ok: true, text: '{"resourceMetrics":[]}' });
+  });
+
+  it("returns an empty string for a bodyless request (the connect page's Test probe)", async () => {
+    const res = await guard.readCappedBody(mkReq({}));
+    expect(res).toEqual({ ok: true, text: "" });
+  });
+
+  it("refuses a body over the cap by streamed byte count", async () => {
+    const res = await guard.readCappedBody(mkReq({ body: "x".repeat(200) }), 100);
+    expect(res.ok).toBe(false);
+  });
+
+  it("refuses early on a declared content-length over the cap, without reading the stream", async () => {
+    const req = mkReq({ body: "x".repeat(10), contentLength: String(guard.MAX_BODY + 1) });
+    const res = await guard.readCappedBody(req);
+    expect(res.ok).toBe(false);
+    expect(req.bodyUsed).toBe(false); // short-circuited — the payload was never pulled into memory
+  });
+
+  it("counts BYTES, not characters (a lying multi-byte payload can't sneak past)", async () => {
+    // 60 × 4-byte emoji = 240 bytes but only 120 UTF-16 code units.
+    const res = await guard.readCappedBody(mkReq({ body: "🙂".repeat(60) }), 200);
+    expect(res.ok).toBe(false);
+  });
+
+  it("payloadTooLarge is a 413 JSON response naming the cap", async () => {
+    const res = guard.payloadTooLarge();
+    expect(res.status).toBe(413);
+    expect((await res.json()) as { error: string }).toMatchObject({ error: expect.stringContaining(String(guard.MAX_BODY)) });
+  });
+});
+
+describe("guardIngest — rate limit runs before token verification", () => {
+  it("accepts a valid token and returns the org slug", async () => {
+    const res = await guard.guardIngest(mkReq({ auth: `Bearer ${tokens.ingestToken("acme")}`, ip: "10.0.0.1" }));
+    expect(res).toEqual({ slug: "acme" });
+  });
+
+  it("401s a forged token (real HMAC — not a mock)", async () => {
+    const res = await guard.guardIngest(mkReq({ auth: "Bearer asc_otel.acme.deadbeefdeadbeefdeadbeefdeadbeef", ip: "10.0.0.2" }));
+    expect(res.deny?.status).toBe(401);
+  });
+
+  it("401s a missing token", async () => {
+    const res = await guard.guardIngest(mkReq({ ip: "10.0.0.3" }));
+    expect(res.deny?.status).toBe(401);
+  });
+
+  it("429s once the per-IP burst cap trips, with a Retry-After header", async () => {
+    const ip = "10.0.0.99"; // a bucket no other case in this file touches
+    const auth = `Bearer ${tokens.ingestToken("acme")}`;
+    const statuses: (number | "ok")[] = [];
+    for (let i = 0; i < 5; i++) {
+      const res = await guard.guardIngest(mkReq({ auth, ip }));
+      statuses.push(res.deny ? res.deny.status : "ok");
+    }
+    // perIp = 3 for this run: three admitted, then refused.
+    expect(statuses).toEqual(["ok", "ok", "ok", 429, 429]);
+    const last = await guard.guardIngest(mkReq({ auth, ip }));
+    expect(last.deny?.headers.get("retry-after")).toBeTruthy();
+  });
+
+  it("refuses an over-limit caller with 429 even when the token is bad (limit precedes crypto)", async () => {
+    const ip = "10.0.0.98";
+    for (let i = 0; i < 3; i++) await guard.guardIngest(mkReq({ auth: `Bearer ${tokens.ingestToken("acme")}`, ip }));
+    const res = await guard.guardIngest(mkReq({ auth: "Bearer nonsense", ip }));
+    expect(res.deny?.status).toBe(429);
+  });
+});

@@ -8,7 +8,7 @@
 // and persists them per repo. GET is a health probe for the Integrations page "Test" button.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { bearerToken, parseIngestToken } from "@/lib/integrations/ingest-token";
+import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";
 import { recordUsage, type UsageRecordInput } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -44,13 +44,12 @@ function toRecord(x: unknown): UsageRecordInput | null {
 }
 
 export async function POST(req: NextRequest) {
-  const token = bearerToken(req.headers.get("authorization"), req.headers.get("x-ascent-ingest-token"));
-  const parsed = token ? parseIngestToken(token) : null;
-  if (!parsed) {
-    return NextResponse.json({ error: "Missing or invalid ingest token." }, { status: 401 });
-  }
+  const gate = await guardIngest(req);
+  if (gate.deny) return gate.deny;
 
-  const raw = await req.text().catch(() => "");
+  const read = await readCappedBody(req);
+  if (!read.ok) return payloadTooLarge();
+  const raw = read.text;
   let body: { records?: unknown } = {};
   try {
     body = raw ? (JSON.parse(raw) as { records?: unknown }) : {};
@@ -60,15 +59,15 @@ export async function POST(req: NextRequest) {
 
   if (Array.isArray(body.records) && body.records.length > 0) {
     const records = body.records.map(toRecord).filter((r): r is UsageRecordInput => r !== null);
-    const res = await recordUsage(parsed.slug, records);
-    return NextResponse.json({ accepted: true, persisted: res.ok, stored: res.stored, org: parsed.slug }, { status: 202 });
+    const res = await recordUsage(gate.slug, records);
+    return NextResponse.json({ accepted: true, persisted: res.ok, stored: res.stored, org: gate.slug }, { status: 202 });
   }
 
   return NextResponse.json(
     {
       accepted: true,
       persisted: false,
-      org: parsed.slug,
+      org: gate.slug,
       note: "Token valid, telemetry accepted. Send {records:[...]} here to persist, or point an OTel exporter at this endpoint — its /v1/metrics receiver attributes spend per repo.",
     },
     { status: 202 },

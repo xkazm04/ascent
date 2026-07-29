@@ -4,17 +4,17 @@
 // usage/attribution is a later step.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { bearerToken, parseIngestToken } from "@/lib/integrations/ingest-token";
+import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const token = bearerToken(req.headers.get("authorization"), req.headers.get("x-ascent-ingest-token"));
-  const parsed = token ? parseIngestToken(token) : null;
-  if (!parsed) {
-    return NextResponse.json({ error: "Missing or invalid ingest token." }, { status: 401 });
-  }
-  await req.text().catch(() => "");
-  return NextResponse.json({ accepted: true, persisted: false, org: parsed.slug }, { status: 202 });
+  const gate = await guardIngest(req);
+  if (gate.deny) return gate.deny;
+  // Bounded drain: accept-and-discard is deliberate here, but the read still has to be capped — this
+  // is the highest-frequency ingest path (Claude Code flushes logs every 5s by default).
+  const read = await readCappedBody(req);
+  if (!read.ok) return payloadTooLarge();
+  return NextResponse.json({ accepted: true, persisted: false, org: gate.slug }, { status: 202 });
 }
