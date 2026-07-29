@@ -25,7 +25,7 @@ const h = vi.hoisted(() => ({
   authGateEnabled: vi.fn(),
   resolveViewerLogin: vi.fn(),
   readableOrgForOwner: vi.fn(),
-  requireOrgAccess: vi.fn(),
+  requireOrgRole: vi.fn(),
   getScanReportByCommit: vi.fn(),
   getInstallationIdForOwner: vi.fn(),
   getInstallationToken: vi.fn(),
@@ -59,7 +59,7 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: h.isAuthConfigured,
 }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: h.authGateEnabled, resolveViewerLogin: h.resolveViewerLogin }));
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: h.requireOrgAccess }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 
 import { POST } from "./route";
 import { AppApiError } from "@/lib/github/app"; // the mocked class — for constructing the 409 cases
@@ -97,7 +97,7 @@ beforeEach(() => {
   h.authGateEnabled.mockReturnValue(true);
   h.resolveViewerLogin.mockResolvedValue("alice");
   h.readableOrgForOwner.mockResolvedValue("acme");
-  h.requireOrgAccess.mockResolvedValue(null);
+  h.requireOrgRole.mockResolvedValue(null);
   h.getScanReportByCommit.mockResolvedValue(makeReport());
   h.getInstallationIdForOwner.mockResolvedValue("inst1");
   h.getInstallationToken.mockResolvedValue("tok");
@@ -128,9 +128,9 @@ describe("POST /api/report/foundation/pr — gates (identical chain to passport/
     expect((await POST(post({ repo: "x/web" }))).status).toBe(403);
     h.readableOrgForOwner.mockResolvedValue("acme");
 
-    h.requireOrgAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
+    h.requireOrgRole.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
     expect((await POST(post({ repo: "acme/web" }))).status).toBe(403);
-    h.requireOrgAccess.mockResolvedValue(null);
+    h.requireOrgRole.mockResolvedValue(null);
 
     h.getScanReportByCommit.mockResolvedValue(null);
     expect((await POST(post({ repo: "acme/web" }))).status).toBe(404);
@@ -139,6 +139,62 @@ describe("POST /api/report/foundation/pr — gates (identical chain to passport/
     h.getInstallationIdForOwner.mockResolvedValue(null);
     expect((await POST(post({ repo: "acme/web" }))).status).toBe(403);
     expect(h.openDraftPr).not.toHaveBeenCalled();
+  });
+});
+
+// A PR into a customer repo is opened with the ORG'S INSTALLATION TOKEN, so this route must require the
+// same role as /api/practices/apply{,-batch}: "admin", not merely membership. It used to call
+// requireOrgAccess (member), leaving one action with two gates. `requireOrgRole` is mocked, so the fake
+// below resolves the role for real (roleAtLeast semantics) and the route's ARGUMENT is asserted — that
+// argument is the whole gate: passing "member" here would silently restore the weaker check.
+const ROLES = ["viewer", "member", "admin", "owner"] as const;
+function gateAs(role: (typeof ROLES)[number]) {
+  h.requireOrgRole.mockImplementation(async (_org: string, min: (typeof ROLES)[number]) =>
+    ROLES.indexOf(role) >= ROLES.indexOf(min)
+      ? null
+      : Response.json({ error: `This action requires the ${min} role in this organization.` }, { status: 403 }),
+  );
+}
+
+describe("POST /api/report/foundation/pr — requires ADMIN, matching practices/apply", () => {
+  it("asks for the 'admin' role (not 'member')", async () => {
+    await POST(post({ repo: "acme/web" }));
+    expect(h.requireOrgRole).toHaveBeenCalledWith("acme", "admin");
+  });
+
+  it("REFUSES a plain member with 403 and opens no PR", async () => {
+    gateAs("member");
+    const res = await POST(post({ repo: "acme/web" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toContain("admin");
+    expect(h.openDraftPr).not.toHaveBeenCalled();
+    expect(h.recordOrgAudit).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES a viewer with 403 and opens no PR", async () => {
+    gateAs("viewer");
+    expect((await POST(post({ repo: "acme/web" }))).status).toBe(403);
+    expect(h.openDraftPr).not.toHaveBeenCalled();
+  });
+
+  it("still ALLOWS an admin (and an owner) to open the PR", async () => {
+    gateAs("admin");
+    expect((await POST(post({ repo: "acme/web" }))).status).toBe(200);
+    expect(h.openDraftPr).toHaveBeenCalled();
+    vi.clearAllMocks();
+    h.openDraftPr.mockImplementation(async () => ({ url: "u", number: 9, branch: FOUNDATION_BRANCH, reused: false }));
+    h.isDbConfigured.mockReturnValue(true);
+    h.isAppConfigured.mockReturnValue(true);
+    h.isSameOrigin.mockReturnValue(true);
+    h.isAuthConfigured.mockReturnValue(true);
+    h.authGateEnabled.mockReturnValue(true);
+    h.resolveViewerLogin.mockResolvedValue("alice");
+    h.readableOrgForOwner.mockResolvedValue("acme");
+    h.getScanReportByCommit.mockResolvedValue(makeReport());
+    h.getInstallationIdForOwner.mockResolvedValue("inst1");
+    h.getInstallationToken.mockResolvedValue("tok");
+    gateAs("owner");
+    expect((await POST(post({ repo: "acme/web" }))).status).toBe(200);
   });
 });
 

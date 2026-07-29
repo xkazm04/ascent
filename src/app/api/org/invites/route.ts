@@ -29,6 +29,12 @@ export const dynamic = "force-dynamic";
 // Same shape contract as /api/org/members so an invite can't pin a garbage/typo'd login (which would
 // only ever sit un-acceptable in the pending list — acceptInvite requires the pin to match a real
 // logged-in identity). GitHub logins are 1–39 chars of alphanumerics and single hyphens.
+//
+// This is also a SECURITY boundary, not just a typo guard (G2-31): `@` is outside the character class,
+// so an owner who types an EMAIL address into the GitHub-login field is refused rather than storing a
+// pin that an unconfirmed Supabase account at that address could satisfy via acceptInvite's login
+// comparison. The other half of that pair lives in getViewer (src/lib/access.ts), which no longer lets
+// an unconfirmed address become `viewer.login`. Route tests pin both.
 const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
 // Minimal email shape: a single @ with non-empty, space-free local and domain parts (the domain has a dot).
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

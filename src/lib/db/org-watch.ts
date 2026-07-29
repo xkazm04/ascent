@@ -21,12 +21,9 @@ const SCHEDULE_DAYS: Record<Schedule, number> = { off: 0, daily: 1, weekly: 7, m
  * users expect from every other monthly scheduler. `daily`/`weekly` stay exact-duration steps — DST
  * shifting a scan by an hour is irrelevant, and a fixed step is the cheaper, more predictable rule.
  *
- * NOTE (G3-13, partial): this is still anchored on `from` (the moment the settling call runs), so
- * cumulative catch-up latency — a delayed cron tick, a slow scan — still pushes the slot later over
- * time. Anchoring on the PREVIOUS slot is not possible without a schema change: `claimRescan` overwrites
- * `nextScanAt` with its short lease before the scan runs, so by the time `advanceToFullCadence` settles
- * the repo, the only record of the intended slot is gone. Fixing that needs a separate persisted anchor
- * column (a migration) — tracked as a follow-up.
+ * This is the raw ONE-STEP function: it advances exactly one cadence from `from`. Callers that are
+ * settling a repo go through {@link nextSlotFrom}, which anchors that step on the repo's INTENDED slot
+ * (`Repository.scanSlotAt`) rather than on the wall clock — see G3-13 there.
  */
 function nextScanFor(schedule: string, from: number = Date.now()): Date | null {
   // schedule arrives as a free string from the API; an unknown value falls through to 0 ("off").
@@ -43,6 +40,47 @@ function nextScanFor(schedule: string, from: number = Date.now()): Date | null {
     return next;
   }
   return new Date(from + d * 86_400_000);
+}
+
+/** Bound on the catch-up loop in {@link nextSlotFrom}. Generous (a `daily` repo dormant for ~27 years)
+ *  but finite, so a pathological anchor can never spin the settle call forever. */
+const MAX_SLOT_CATCHUP_STEPS = 10_000;
+
+/**
+ * The next autoscan slot, ANCHORED ON THE INTENDED ONE (G3-13).
+ *
+ * THE BUG THIS FIXES. `nextScanAt` is dual-purpose: it is the schedule, but {@link claimRescan} also
+ * overwrites it with a 15-minute LEASE before the scan runs. So by the time {@link advanceToFullCadence}
+ * settles the repo, the intended slot has already been destroyed and the old code computed the next one
+ * from `Date.now()` — which is the moment the scan FINISHED, i.e. the intended slot plus the cron's
+ * queue delay plus the scan's duration. That delta was added permanently, every single run, so a
+ * "daily" repo scanned at 03:00 crept to 03:04, then 03:09, and a "weekly" one eventually changed
+ * weekday. `Repository.scanSlotAt` is the separate persisted anchor that makes the intended slot
+ * survive the lease.
+ *
+ * CATCH-UP, NOT BACKLOG. If the anchor is already in the past — the cron was down for a week, the repo
+ * was paused — one step forward would schedule a slot in the past, and the repo would re-qualify
+ * instantly and re-scan in a loop until it caught up, billing every intermediate step. So the slot is
+ * stepped forward until it is genuinely in the future: missed occurrences are SKIPPED, and the repo
+ * lands back on its original phase (03:00, or its day-of-month) instead of being re-phased to whenever
+ * the outage ended.
+ *
+ * `anchor === null` is the legacy/never-anchored row: fall back to now-anchoring, which is exactly the
+ * pre-migration behavior. The caller then stamps the anchor, so the row self-heals from its next cycle.
+ * Returns null for an "off"/unknown schedule. Pure — the clock is an argument, so it is unit-testable.
+ */
+export function nextSlotFrom(schedule: string, anchor: Date | null, now: number = Date.now()): Date | null {
+  const anchorMs = anchor && Number.isFinite(anchor.getTime()) ? anchor.getTime() : null;
+  let slot = nextScanFor(schedule, anchorMs ?? now);
+  if (!slot) return null;
+  for (let i = 0; slot.getTime() <= now && i < MAX_SLOT_CATCHUP_STEPS; i++) {
+    const stepped = nextScanFor(schedule, slot.getTime());
+    // Defensive: a non-advancing step would loop forever on the guard alone. Can't happen for the
+    // current cadences (every one is strictly increasing), but the settle path must not be able to hang.
+    if (!stepped || stepped.getTime() <= slot.getTime()) break;
+    slot = stepped;
+  }
+  return slot;
 }
 
 /** Is a repo watched (the gate for push-triggered re-scans)? False when DB off or repo unknown. */
@@ -105,9 +143,12 @@ export async function setRepoSchedule(orgSlug: string, fullName: string, schedul
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return;
+  // Setting a cadence (re)PHASES the repo: the slot the user just chose becomes both the next scan and
+  // the anchor every later settle steps from. `off` clears both.
+  const slot = nextScanFor(schedule);
   await prisma.repository.updateMany({
     where: { orgId, fullName },
-    data: { scanSchedule: schedule, nextScanAt: nextScanFor(schedule) },
+    data: { scanSchedule: schedule, nextScanAt: slot, scanSlotAt: slot },
   });
 }
 
@@ -133,9 +174,11 @@ export async function setWatchedSchedule(
   // caller learns the exact set the server actually scheduled — preventing "schedule success theater"
   // where a row shows a cadence the server never saved.
   const affected = await prisma.repository.findMany({ where, select: { fullName: true } });
+  const slot = nextScanFor(schedule);
   await prisma.repository.updateMany({
     where,
-    data: { scanSchedule: schedule, nextScanAt: nextScanFor(schedule) },
+    // Same re-phasing rule as setRepoSchedule: the chosen slot is also the cadence anchor.
+    data: { scanSchedule: schedule, nextScanAt: slot, scanSlotAt: slot },
   });
   return affected.map((r) => r.fullName);
 }
@@ -172,6 +215,9 @@ export async function seedWatchlist(orgSlug: string, repos: RepoRef[]): Promise<
         watched: true,
         scanSchedule: "weekly",
         nextScanAt: dueNow,
+        // Anchor the cadence on the seeded due time, so the repo's weekly slot is phased to when it was
+        // discovered rather than to whenever the first cron happened to pick it up.
+        scanSlotAt: dueNow,
       },
     });
     seeded += 1;
@@ -249,6 +295,8 @@ export async function claimRescan(repoId: string, schedule: string): Promise<boo
   if (!nextScanFor(schedule)) return false; // "off"/unknown schedule isn't claimable (and listDueRescans excludes it)
   const res = await getPrisma().repository.updateMany({
     where: { id: repoId, watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() } },
+    // ONLY nextScanAt. `scanSlotAt` is deliberately untouched here — the lease is a lock, not a
+    // schedule, and preserving the intended slot across it is the entire point of that column (G3-13).
     data: { nextScanAt: new Date(Date.now() + CLAIM_LEASE_MS) },
   });
   return res.count === 1;
@@ -259,14 +307,24 @@ export async function claimRescan(repoId: string, schedule: string): Promise<boo
  * cadence-relevant skip (out of credits, broken installation), so the repo waits the real cadence
  * rather than re-qualifying after the short {@link claimRescan} lease. A no-op for an off/unknown
  * schedule or when persistence is off. Keyed by repo id, like claimRescan.
+ *
+ * The slot is computed from the repo's persisted ANCHOR (`scanSlotAt`), not from `Date.now()` — see
+ * {@link nextSlotFrom} for why that is the whole fix for G3-13. Both columns are written: `nextScanAt`
+ * so the cron re-qualifies the repo at the right time, and `scanSlotAt` so the NEXT settle has an anchor
+ * to step from. A row with no anchor yet (every row that existed before the migration) falls back to
+ * now-anchoring — identical to the old behavior — and is stamped here, so it self-heals from now on.
  */
 export async function advanceToFullCadence(repoId: string, schedule: string): Promise<void> {
   if (!isDbConfigured()) return;
-  const next = nextScanFor(schedule);
+  // Cheap pre-check so an off/unknown schedule still costs no reads at all (the old short-circuit).
+  if (!nextScanFor(schedule)) return;
+  const prisma = getPrisma();
+  const row = await prisma.repository.findUnique({ where: { id: repoId }, select: { scanSlotAt: true } });
+  const next = nextSlotFrom(schedule, row?.scanSlotAt ?? null);
   if (!next) return;
-  await getPrisma().repository.update({
+  await prisma.repository.update({
     where: { id: repoId },
-    data: { nextScanAt: next },
+    data: { nextScanAt: next, scanSlotAt: next },
   });
 }
 
@@ -274,7 +332,11 @@ export async function advanceToFullCadence(repoId: string, schedule: string): Pr
  *  only on success, so a persistently-broken repo (revoked token, deleted repo) stayed permanently
  *  due at the front of the oldest-first queue and re-failed every run, crowding out healthy repos.
  *  Pushing nextScanAt a fixed backoff out moves it off the front and retries it on a later cron,
- *  without waiting the full cadence. */
+ *  without waiting the full cadence.
+ *
+ *  Like the claim lease, this writes ONLY `nextScanAt`: a backoff is a retry window, not a re-phasing.
+ *  Leaving `scanSlotAt` alone means a repo that fails a few times and then recovers settles back onto
+ *  its ORIGINAL slot instead of being permanently re-phased to whenever the failures stopped. */
 const FAILED_RESCAN_BACKOFF_MS = 6 * 60 * 60_000; // 6h
 export async function advanceScheduleAfterFailure(repoId: string): Promise<void> {
   if (!isDbConfigured()) return;

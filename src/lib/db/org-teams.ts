@@ -11,7 +11,7 @@ import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
-import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
+import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean, upperBound } from "@/lib/db/org-shared";
 import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
@@ -418,11 +418,12 @@ export async function getOrgTeamRollup(
   // Windowed movers: per repo, latest in-window scan vs the latest scan STRICTLY before `start` (the
   // half-open baseline getOrgMovers/getOrgRollup share, so a scan exactly at `start` belongs to the
   // current side on every surface). Two bounded queries — never the whole scan history.
-  const end = window?.end ?? null;
+  // Half-open upper bound (`lt: endExclusive`, falling back to the legacy `lte: end`).
+  const upper = upperBound(window);
   const repoScope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   const [inWindow, preStart] = await Promise.all([
     prisma.scan.findMany({
-      where: { repo: repoScope, scannedAt: { gte: start, ...(end ? { lte: end } : {}) } },
+      where: { repo: repoScope, scannedAt: { gte: start, ...(upper ?? {}) } },
       select: { repoId: true, overallScore: true, scannedAt: true },
       orderBy: { scannedAt: "desc" },
     }),

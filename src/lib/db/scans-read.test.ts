@@ -102,7 +102,14 @@ vi.mock("@/lib/db/scans-shared", () => {
   };
 });
 
-import { findScanByScannedAt, getLatestRecommendations, getScanReportByCommit, scanContentKey } from "./scans-read";
+import {
+  findScanByDedupKey,
+  findScanByScannedAt,
+  getLatestRecommendations,
+  getScanReportByCommit,
+  scanContentKey,
+  scanDedupKey,
+} from "./scans-read";
 
 // ── Faked Prisma returning ONE scan row whose JSON columns we craft per-test ──────────────────────
 
@@ -557,6 +564,63 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
 
     mockIsDbConfigured.mockReturnValue(false);
     await expect(findScanByScannedAt("repo_1", new Date())).resolves.toBeNull();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+});
+
+// ── scanDedupKey / findScanByDedupKey — the CROSS-INSTANCE half of sha-less dedup (G3-01) ────────
+//
+// scanContentKey answers "is this the same computed report?" in memory. It cannot stop two serverless
+// instances that BOTH read "nothing there yet" from both inserting, because @@unique([repoId, headSha])
+// never engages on a NULL headSha (NULLs are distinct in Postgres). scanDedupKey is the value that gets
+// PERSISTED and constrained, so the database itself rejects the second insert.
+describe("scanDedupKey — persisted idempotency identity for sha-less scans", () => {
+  const at = new Date("2026-06-18T09:30:00.000Z");
+  const contentKey = "70|L3|60|80|anthropic|claude|D1:90,D2:55";
+
+  it("is DETERMINISTIC: the same (scannedAt, content) always yields the same key", () => {
+    expect(scanDedupKey(at, contentKey)).toBe(scanDedupKey(new Date(at.getTime()), contentKey));
+  });
+
+  it("CHANGES when the content changes at the same instant (two distinct same-ms results, both kept)", () => {
+    // This is the collision the timestamp-only dedup used to silently drop. Different key ⇒ no unique
+    // violation ⇒ both rows persist, which is the correct outcome.
+    expect(scanDedupKey(at, `${contentKey.slice(0, -1)}6`)).not.toBe(scanDedupKey(at, contentKey));
+  });
+
+  it("CHANGES when the instant changes with identical content (a genuine later re-score is not suppressed)", () => {
+    expect(scanDedupKey(new Date(at.getTime() + 1), contentKey)).not.toBe(scanDedupKey(at, contentKey));
+  });
+
+  it("is a bounded, versioned token — it lives in a UNIQUE INDEX, so its length must not grow with the report", () => {
+    const short = scanDedupKey(at, "a");
+    const long = scanDedupKey(at, "x".repeat(50_000));
+    expect(short).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(long).toHaveLength(short.length);
+  });
+
+  it("never throws on an invalid Date (a malformed scannedAt must not break the persist path)", () => {
+    expect(() => scanDedupKey(new Date("nope"), contentKey)).not.toThrow();
+    expect(scanDedupKey(new Date("nope"), contentKey)).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  it("findScanByDedupKey recovers the race WINNER by (repoId, dedupKey) — the P2002 recovery read", () => {
+    const findFirst = vi.fn(async () => ({ id: "scan_winner" }));
+    mockGetPrisma.mockReturnValue({ scan: { findFirst } });
+
+    return findScanByDedupKey("repo_1", "v1:abc").then((row) => {
+      expect(row).toEqual({ id: "scan_winner" });
+      const args = findFirst.mock.calls[0][0] as { where: unknown };
+      expect(args.where).toEqual({ repoId: "repo_1", dedupKey: "v1:abc" });
+    });
+  });
+
+  it("returns null when nothing matches, and when persistence is off", async () => {
+    mockGetPrisma.mockReturnValue({ scan: { findFirst: vi.fn(async () => null) } });
+    await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
+
+    mockIsDbConfigured.mockReturnValue(false);
+    await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
     mockIsDbConfigured.mockReturnValue(true);
   });
 });

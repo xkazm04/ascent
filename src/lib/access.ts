@@ -61,10 +61,17 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     const email = u.email_confirmed_at ? (u.email ?? undefined) : undefined;
     return {
       id: u.id,
-      // `login` keeps its raw-email fallback: it is a DISPLAY/attribution key (never an ownership
-      // proof for an email pin), and changing it for unconfirmed accounts would silently re-key
-      // login-scoped data (e.g. Shared Org Memory's private filter) mid-session.
-      login: meta.user_name ?? meta.preferred_username ?? u.email ?? u.id,
+      // G2-31 — the email fallback is CONFIRMED-ONLY, for the same reason `email` above is. `login` is
+      // not merely a display key: it is the identity every org gate resolves a role for
+      // (getMembershipRole / viewerOrgRole), and it is what acceptInvite's githubLogin pin compares
+      // against. Falling back to the RAW `u.email` therefore reopened the G2-04 hijack through a second
+      // field — register an unconfirmed account at victim@example.com and you are logged in AS that
+      // string. The invite-create route's GitHub-login shape check (`/^[A-Za-z0-9-]{1,39}$/`) already
+      // refuses to STORE an `@` pin, so the two halves fail closed independently. An account with no
+      // GitHub metadata and no confirmed address now falls through to the opaque `u.id` — it has no
+      // login-scoped standing to re-key, because it could never have proven that identity in the first
+      // place. GitHub OAuth sign-ins (the production path) carry `user_name` and never reach either fallback.
+      login: meta.user_name ?? meta.preferred_username ?? email ?? u.id,
       email,
       avatar: meta.avatar_url,
       name: meta.full_name ?? meta.name,

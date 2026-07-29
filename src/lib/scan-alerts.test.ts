@@ -42,6 +42,10 @@ vi.mock("@/lib/db", () => ({
   getOrgAlertWebhook: vi.fn(),
   recordAudit: vi.fn(),
   reportPermalink: vi.fn((fullName: string) => `/r/${fullName}`),
+  // The per-org auto-recharge/low-balance preference (G1-40) — read the SAME way its own route does
+  // (getAuditLog keyed on the AUTO_RECHARGE_ACTION, latest entry wins). No stored preference by
+  // default (page.entries === []): every pre-existing test keeps using the global threshold.
+  getAuditLog: vi.fn(async () => ({ entries: [] })),
 }));
 
 import { checkAndAlertRegression, maybeAlertLowCredits } from "./scan-alerts";
@@ -57,7 +61,8 @@ import {
   creditsAlertThreshold,
   isLowCreditsCrossing,
 } from "@/lib/alerts";
-import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit } from "@/lib/db";
+import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, getAuditLog } from "@/lib/db";
+import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
 
 const mockDiff = vi.mocked(diffReports);
 const mockDetect = vi.mocked(detectRegression);
@@ -67,6 +72,7 @@ const mockClaimCooldown = vi.mocked(claimRegressionAlert);
 const mockThresholds = vi.mocked(getOrgAlertThresholds);
 const mockWebhook = vi.mocked(getOrgAlertWebhook);
 const mockAudit = vi.mocked(recordAudit);
+const mockAuditLog = vi.mocked(getAuditLog);
 const mockCrossing = vi.mocked(isLowCreditsCrossing);
 const mockCreditsThreshold = vi.mocked(creditsAlertThreshold);
 const mockBuildLow = vi.mocked(buildLowCreditsMessage);
@@ -494,5 +500,62 @@ describe("maybeAlertLowCredits — fires exactly once on the threshold crossing"
   it("never throws into the scan path when dispatch rejects on a real crossing; resolves false", async () => {
     mockDispatch.mockRejectedValue(new Error("webhook 500"));
     await expect(maybeAlertLowCredits("acme", THRESH + 1, THRESH)).resolves.toBe(false);
+  });
+});
+
+// --- maybeAlertLowCredits — per-org threshold override (G1-40) --------------------------------
+// The in-app warning (CreditsControl's opt-in auto-recharge preference) and this Slack push used to
+// disagree about what "low" means: the UI honored the per-org threshold, this push only ever read the
+// global CREDITS_ALERT_THRESHOLD. These pin that the push now reads the SAME preference (via
+// getAuditLog, same accessor as `/api/billing/autorecharge`), falling back to the global default
+// when the org never opted in / the lookup fails.
+describe("maybeAlertLowCredits — reads the org's own low-balance threshold when opted in", () => {
+  beforeEach(() => {
+    // Real range-based crossing semantics (not the fixed-THRESH stub from the sibling describe block).
+    mockCrossing.mockImplementation(
+      (before: number, after: number, threshold: number) =>
+        after < before && ((before > threshold && after <= threshold) || (before > 0 && after <= 0)),
+    );
+    mockCreditsThreshold.mockReturnValue(5); // the global default
+    mockBuildLow.mockReturnValue({ text: "low", blocks: [] } as never);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    mockDispatch.mockResolvedValue(true);
+  });
+
+  it("uses the org's opted-in threshold instead of the global default", async () => {
+    mockAuditLog.mockResolvedValue({
+      entries: [{ meta: { enabled: true, threshold: 20, packProductId: null } }],
+    } as never);
+
+    // 25 -> 18 does not cross the global default (5) but DOES cross the org's own line (20).
+    const out = await maybeAlertLowCredits("acme", 25, 18);
+
+    expect(mockAuditLog).toHaveBeenCalledWith("acme", expect.objectContaining({ action: AUTO_RECHARGE_ACTION, limit: 1 }));
+    expect(out).toBe(true);
+    expect(mockBuildLow).toHaveBeenCalledWith(expect.objectContaining({ threshold: 20 }));
+  });
+
+  it("falls back to the global threshold when the org has a stored preference that is NOT enabled", async () => {
+    mockAuditLog.mockResolvedValue({
+      entries: [{ meta: { enabled: false, threshold: 20, packProductId: null } }],
+    } as never);
+
+    // 25 -> 18 would cross the disabled org threshold (20) but not the global default (5) — must
+    // NOT fire, since the org opted out.
+    const out = await maybeAlertLowCredits("acme", 25, 18);
+    expect(out).toBe(false);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the global threshold when the org never set a preference (no audit entry)", async () => {
+    mockAuditLog.mockResolvedValue({ entries: [] } as never);
+    expect(await maybeAlertLowCredits("acme", 6, 5)).toBe(true); // crosses the global default (5)
+    expect(mockBuildLow).toHaveBeenCalledWith(expect.objectContaining({ threshold: 5 }));
+  });
+
+  it("falls back to the global threshold when the preference lookup itself throws", async () => {
+    mockAuditLog.mockRejectedValue(new Error("db down"));
+    await expect(maybeAlertLowCredits("acme", 6, 5)).resolves.toBe(true);
+    expect(mockBuildLow).toHaveBeenCalledWith(expect.objectContaining({ threshold: 5 }));
   });
 });

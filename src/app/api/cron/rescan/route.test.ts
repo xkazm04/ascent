@@ -187,11 +187,30 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     expect(mockScan).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts a correct ?key= secret and proceeds to scan", async () => {
+  // G8-48: `?key=` is no longer a credential channel by default — a secret in a query string lands in
+  // access/CDN/proxy logs, browser history and Referer headers, and this route mints EVERY org's
+  // installation token and spends LLM budget. Vercel Cron sends the bearer (vercel.json declares paths
+  // only), so nothing scheduled relied on it.
+  it("REFUSES a correct ?key= secret by default (401) — and runs no scan/claim/listDue", async () => {
     const res = await GET(req({ key: SECRET }));
-    const body = await bodyOf(res);
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(body.scanned).toBe(1);
+    expect(res.status).toBe(401);
+    expect(mockListDue).not.toHaveBeenCalled();
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("accepts a correct ?key= only behind the CRON_ALLOW_QUERY_KEY deprecation flag", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.CRON_ALLOW_QUERY_KEY = "1";
+    try {
+      const res = await GET(req({ key: SECRET }));
+      const body = await bodyOf(res);
+      expect(mockScan).toHaveBeenCalledTimes(1);
+      expect(body.scanned).toBe(1);
+    } finally {
+      delete process.env.CRON_ALLOW_QUERY_KEY;
+      warn.mockRestore();
+    }
   });
 
   // ---- (2) CLAIM-BEFORE-SCAN ---------------------------------------------

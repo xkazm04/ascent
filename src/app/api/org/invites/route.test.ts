@@ -115,6 +115,34 @@ describe("who gets mailed, and when", () => {
   });
 });
 
+// G2-31 — the githubLogin shape check is a SECURITY boundary, not a typo guard. acceptInvite matches a
+// login-pinned invite against `viewer.login`; if an EMAIL could be stored as the pin, an unconfirmed
+// Supabase account registered at that address could satisfy it (the G2-04 hijack, one field over). `@`
+// is outside the GitHub-login character class, so an email in that field must never be persisted. The
+// other half of the pair — getViewer refusing to make an unconfirmed address the `login` — is pinned in
+// src/lib/access.test.ts, so either half alone closes the hole.
+describe("the githubLogin pin can never be an email address (G2-31)", () => {
+  for (const value of ["victim@example.com", "victim@example.com ", "VICTIM@EXAMPLE.COM", "a@b"]) {
+    it(`rejects ${JSON.stringify(value)} with 400 and creates nothing`, async () => {
+      const res = await POST(post({ org: "acme", role: "member", githubLogin: value }));
+      expect(res.status).toBe(400);
+      expect(await bodyOf(res)).toMatchObject({ error: expect.stringContaining("githubLogin") });
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+  }
+
+  it("still accepts a real GitHub login (surrounding whitespace trimmed)", async () => {
+    mockCreate.mockResolvedValue({
+      id: "inv_3", email: null, githubLogin: "octo-cat", role: "member", token: "t", invitedBy: "octocat",
+      createdAt: "2026-07-01T00:00:00.000Z", expiresAt: "2026-07-08T00:00:00.000Z",
+    } as never);
+    const res = await POST(post({ org: "acme", role: "member", githubLogin: " octo-cat " }));
+    expect(res.status ?? 200).toBe(200);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("delivery never costs the owner the invite", () => {
   it("reports 'skipped' (not a false success) on a deploy with no email provider", async () => {
     mockSend.mockResolvedValue({ ok: true, skipped: true });

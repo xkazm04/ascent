@@ -72,3 +72,6 @@ bench/matrix/
 
 # scan/audit harness output — internal working notes, never committed
 docs/harness/
+
+# Personas app local state (memory outbox, registered-context list)
+.personas/

@@ -31,7 +31,14 @@ vi.mock("@/lib/db/org-shared", () => ({
   getOrgBySlug: vi.fn(async () => ({ id: "org_1" })),
 }));
 
-import { advanceToFullCadence, claimRescan, listDueRescans, recordConformance, reconcileListedRepos } from "./org-watch";
+import {
+  advanceToFullCadence,
+  claimRescan,
+  listDueRescans,
+  nextSlotFrom,
+  recordConformance,
+  reconcileListedRepos,
+} from "./org-watch";
 import { verifyAudit } from "./audit-integrity";
 
 beforeEach(() => {
@@ -127,9 +134,10 @@ describe("claimRescan CAS contract (claim-once, count===1)", () => {
   // instead of 12, on a date that drifts every month.
   describe("advanceToFullCadence — cadence arithmetic", () => {
     /** Run advanceToFullCadence at a frozen clock and return the nextScanAt it wrote. */
-    async function advancedAt(nowIso: string, schedule: string): Promise<Date> {
+    async function advancedAt(nowIso: string, schedule: string, anchor: Date | null = null): Promise<Date> {
       const update = vi.fn(async () => ({ id: "repo_1" }));
-      mockGetPrisma.mockReturnValue({ repository: { update } });
+      const findUnique = vi.fn(async () => ({ scanSlotAt: anchor }));
+      mockGetPrisma.mockReturnValue({ repository: { update, findUnique } });
       vi.useFakeTimers();
       vi.setSystemTime(new Date(nowIso));
       try {
@@ -169,12 +177,14 @@ describe("claimRescan CAS contract (claim-once, count===1)", () => {
       );
     });
 
-    it('an "off"/unknown schedule writes nothing at all', async () => {
+    it('an "off"/unknown schedule writes nothing at all — and never even READS', async () => {
       const update = vi.fn(async () => ({ id: "repo_1" }));
-      mockGetPrisma.mockReturnValue({ repository: { update } });
+      const findUnique = vi.fn(async () => ({ scanSlotAt: null }));
+      mockGetPrisma.mockReturnValue({ repository: { update, findUnique } });
       await advanceToFullCadence("repo_1", "off");
       await advanceToFullCadence("repo_1", "bogus");
       expect(update).not.toHaveBeenCalled();
+      expect(findUnique).not.toHaveBeenCalled(); // the cheap short-circuit survives the anchor read
     });
   });
 });
@@ -529,5 +539,112 @@ describe("reconcileListedRepos — mark absent, never unwatch", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
     expect(await reconcileListedRepos("acme", ["acme/back"])).toEqual({ marked: 0, cleared: 1 });
+  });
+});
+
+// ── nextSlotFrom / advanceToFullCadence — cadence SLOT ANCHORING (G3-13) ──────────────────────────
+//
+// THE DEFECT. `nextScanAt` is both the schedule and the claim LEASE: claimRescan overwrites it with
+// now+15min BEFORE the scan runs, so by settle time the intended slot is gone and the next one was
+// computed from `Date.now()` — the moment the scan FINISHED. Queue delay + scan duration were therefore
+// added permanently on every single run, and a "daily" repo crept later forever. `Repository.scanSlotAt`
+// is the separate persisted anchor that survives the lease; nextSlotFrom is the pure arithmetic on it.
+
+describe("nextSlotFrom — the intended slot survives the lease (no cumulative drift)", () => {
+  const at = (iso: string) => new Date(iso).getTime();
+
+  it("anchors on the PREVIOUS SLOT, not on the clock — the drift this fixes", async () => {
+    // Intended slot 03:00. The scan actually settles at 03:07 (cron queue + scan duration). Anchored on
+    // the slot, tomorrow is 03:00 again. Anchored on `now` — the old behavior — it would be 03:07, and
+    // that 7 minutes would be re-added tomorrow, and the day after, forever.
+    const slot = nextSlotFrom("daily", new Date("2026-06-18T03:00:00.000Z"), at("2026-06-18T03:07:31.000Z"));
+    expect(slot!.toISOString()).toBe("2026-06-19T03:00:00.000Z");
+  });
+
+  it("holds the phase over MANY cycles (the drift is cumulative, so one hop can't prove it)", () => {
+    let anchor = new Date("2026-06-18T03:00:00.000Z");
+    for (let day = 0; day < 30; day++) {
+      // Every settle is 7m31s late, exactly as a real cron+scan is.
+      const now = anchor.getTime() + 7 * 60_000 + 31_000;
+      anchor = nextSlotFrom("daily", anchor, now)!;
+    }
+    expect(anchor.toISOString()).toBe("2026-07-18T03:00:00.000Z"); // still 03:00, 30 days later
+  });
+
+  it("weekly keeps its WEEKDAY, monthly its day-of-month, across repeated late settles", () => {
+    let w = new Date("2026-06-18T03:00:00.000Z"); // a Thursday
+    for (let i = 0; i < 8; i++) w = nextSlotFrom("weekly", w, w.getTime() + 3 * 3_600_000)!;
+    expect(w.toISOString()).toBe("2026-08-13T03:00:00.000Z");
+    expect(w.getUTCDay()).toBe(4); // still Thursday
+
+    let m = new Date("2026-01-31T00:00:00.000Z");
+    m = nextSlotFrom("monthly", m, m.getTime() + 3_600_000)!;
+    expect(m.toISOString()).toBe("2026-02-28T00:00:00.000Z"); // clamped, as the one-step rule already did
+  });
+
+  it("CATCHES UP past a missed window instead of scheduling in the past (no rescan storm, no back-billing)", async () => {
+    // The cron was down for a week. Stepping ONE day from the stale anchor would land in the past, the
+    // repo would instantly re-qualify, and it would re-scan (and re-bill) once per missed day until it
+    // caught up. Missed occurrences are SKIPPED and the original phase is kept.
+    const slot = nextSlotFrom("daily", new Date("2026-06-11T03:00:00.000Z"), at("2026-06-18T09:14:00.000Z"));
+    expect(slot!.toISOString()).toBe("2026-06-19T03:00:00.000Z");
+    expect(slot!.getTime()).toBeGreaterThan(at("2026-06-18T09:14:00.000Z"));
+  });
+
+  it("falls back to NOW-anchoring for a legacy row with no anchor (pre-migration behavior, unchanged)", () => {
+    const now = at("2026-06-18T03:07:31.000Z");
+    expect(nextSlotFrom("daily", null, now)!.toISOString()).toBe("2026-06-19T03:07:31.000Z");
+  });
+
+  it("ignores a corrupt anchor and an off/unknown schedule", () => {
+    const now = at("2026-06-18T03:00:00.000Z");
+    expect(nextSlotFrom("daily", new Date("nonsense"), now)!.toISOString()).toBe("2026-06-19T03:00:00.000Z");
+    expect(nextSlotFrom("off", new Date("2026-06-18T03:00:00.000Z"), now)).toBeNull();
+    expect(nextSlotFrom("bogus", null, now)).toBeNull();
+  });
+});
+
+describe("advanceToFullCadence — settles on the anchor and re-stamps it", () => {
+  /** Run a settle at a frozen clock against a stored anchor; return what was written. */
+  async function settle(nowIso: string, schedule: string, anchor: Date | null) {
+    const update = vi.fn(async () => ({ id: "repo_1" }));
+    const findUnique = vi.fn(async () => ({ scanSlotAt: anchor }));
+    mockGetPrisma.mockReturnValue({ repository: { update, findUnique } });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(nowIso));
+    try {
+      await advanceToFullCadence("repo_1", schedule);
+    } finally {
+      vi.useRealTimers();
+    }
+    return (update.mock.calls[0]?.[0] as { data: { nextScanAt: Date; scanSlotAt: Date } } | undefined)?.data;
+  }
+
+  it("writes BOTH columns: nextScanAt (so the cron re-qualifies it) and scanSlotAt (so the NEXT settle has an anchor)", async () => {
+    const data = await settle("2026-06-18T03:07:31.000Z", "daily", new Date("2026-06-18T03:00:00.000Z"));
+    expect(data!.nextScanAt.toISOString()).toBe("2026-06-19T03:00:00.000Z");
+    // Without re-stamping, the anchor would freeze and every later settle would keep re-deriving the
+    // SAME slot — the repo would go permanently due.
+    expect(data!.scanSlotAt.toISOString()).toBe("2026-06-19T03:00:00.000Z");
+  });
+
+  it("a NULL anchor (every pre-migration row) behaves exactly as before AND self-heals from now on", async () => {
+    const data = await settle("2026-06-18T03:07:31.000Z", "daily", null);
+    expect(data!.nextScanAt.toISOString()).toBe("2026-06-19T03:07:31.000Z"); // identical to the old now-anchoring
+    expect(data!.scanSlotAt.toISOString()).toBe("2026-06-19T03:07:31.000Z"); // stamped, so the next cycle is anchored
+  });
+});
+
+describe("claimRescan — the LEASE must not disturb the anchor", () => {
+  it("writes ONLY nextScanAt; scanSlotAt is never in the claim payload", async () => {
+    // This is the entire reason the anchor column exists. If the lease touched scanSlotAt, the intended
+    // slot would be destroyed exactly as it was when nextScanAt was doing both jobs.
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    mockGetPrisma.mockReturnValue({ repository: { updateMany } });
+
+    await claimRescan("repo_1", "weekly");
+
+    const data = (updateMany.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(Object.keys(data)).toEqual(["nextScanAt"]);
   });
 });

@@ -1,11 +1,14 @@
+import { Stat as UiStat } from "@/components/ui/Stat";
+
+// The canonical ledger-family Stat (src/components/ui/Stat.tsx) covers the label/value/sub shape
+// this page needs; this site only adds the self-bordered card chrome around it (G8-52). Note the
+// value here renders one step smaller (text-2xl, via ui/Stat's own "ledger" sizing) than this page's
+// prior hand-rolled text-3xl — that size isn't exposed by the shared component and isn't worth a
+// one-caller prop just to preserve a single page's larger figure.
 export function Stat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </div>
-      {sub && <div className="mt-1 text-sm text-slate-500">{sub}</div>}
+      <UiStat label={label} value={value} sub={sub} />
     </div>
   );
 }

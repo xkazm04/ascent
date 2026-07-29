@@ -357,8 +357,10 @@ describe("buildExecBriefing — priorPeriod (vs previous equal-length window)", 
 
     expect(mockRollup).toHaveBeenCalledTimes(2);
     const priorWindow = mockRollup.mock.calls[1][1] as OrgWindow;
-    // Prior window ends exactly where the current window starts...
-    expect(priorWindow.end?.getTime()).toBe(start.getTime());
+    // Prior window ends exactly where the current window starts — HALF-OPEN, so the boundary instant
+    // itself belongs to the current period only (a scan at `start` must not be counted twice).
+    expect(priorWindow.endExclusive?.getTime()).toBe(start.getTime());
+    expect(priorWindow.end).toBeUndefined();
     // ...and spans the same length (14 days) immediately before it.
     const len = end.getTime() - start.getTime();
     expect(priorWindow.start?.getTime()).toBe(start.getTime() - len);
@@ -890,7 +892,7 @@ describe("buildExecBriefing — deterministic generatedOn (frozen clock)", () =>
     expect(mockRollup).toHaveBeenCalledTimes(2);
     const priorWindow = mockRollup.mock.calls[1][1] as OrgWindow;
     const len = new Date("2026-06-18T00:00:00.000Z").getTime() - start.getTime(); // 7 days, off frozen now
-    expect(priorWindow.end?.getTime()).toBe(start.getTime());
+    expect(priorWindow.endExclusive?.getTime()).toBe(start.getTime());
     expect(priorWindow.start?.getTime()).toBe(start.getTime() - len);
   });
 });

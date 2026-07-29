@@ -8,13 +8,30 @@
 // must stay free to emit an `error` frame instead if a gate ever moves inside start(), and a shared
 // response builder would flatten that distinction).
 //
-// ORDERING IS LOAD-BEARING and is owned by the CALLER, not by this module, because the two routes
-// deliberately order the gates differently:
-//   • /api/scan/stream: rate limit → sign-in wall → quota (consumeScanQuota) — the limiter runs first,
-//     before any auth/GitHub work, since reaching the stream already means a real scan.
-//   • /api/scan:        sign-in wall → rate limit → quota — its limiter sits AFTER the free cache-hit /
-//     peek / salvage returns, so the cheap hydration paths stay unthrottled, and the wall is what
-//     separates "viewing a saved report" from "running a new scan".
+// ORDERING IS LOAD-BEARING. Both routes now run the SAME sequence (G8-49):
+//
+//     rate limit → sign-in wall → quota (consumeScanQuota)
+//
+// The routes differ only in WHERE that sequence sits, which is a placement question, not an ordering
+// one:
+//   • /api/scan/stream: at the top of the handler — reaching the stream already means a real scan.
+//   • /api/scan:        after the free cache-hit / peek / salvage returns, so the cheap hydration
+//     paths stay unthrottled and a saved report still costs nothing.
+//
+// WHY THIS ORDER, and why it was unified. The two routes used to disagree (the stream limited first,
+// the JSON route walled first), so one throttled anonymous request got 401 from one endpoint and 429
+// from the other, and only the stream recorded the `rate_limit` quota event — throttled JSON traffic
+// was invisible to observability. Rate limit wins the tie because:
+//   1. It is the TRUTHFUL answer. "The shared scan budget is exhausted" holds no matter who is asking;
+//      signing in does not lift a burst limit, so a 401 sends the caller into a flow that cannot help.
+//   2. It is the CHEAPER answer — an in-memory/shared-store counter versus a Supabase session resolve.
+//   3. It is the SAFER answer. The limiter is the cost ceiling; deciding it only for callers who first
+//      pass an auth check makes the ceiling conditional on an unrelated gate.
+//   4. It leaks nothing. Both rejections are anonymous-visible and neither reveals repo existence.
+// The one deliberate exception is documented at its call site: /api/scan's PRIVATE-scan wall
+// (orgSlug !== "public") still precedes the limiter, because moving it below would let an anonymous
+// caller drive a GitHub ref resolve against a private repo.
+//
 // What both share and must never change: the rate limiter runs BEFORE the quota counter, so throttled
 // traffic can never burn a monthly free-scan slot.
 

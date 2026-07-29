@@ -41,6 +41,14 @@ vi.mock("@/lib/db", () => ({
   getAuditLog: vi.fn(),
 }));
 vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: vi.fn() }));
+// G2-32: spy on the crypto primitive so the legacy-token test can assert the COMPARISON FUNCTION USED
+// (constant-time), not the timing — a plain `===` on a deployment-wide credential is a timing oracle.
+const crypto = vi.hoisted(() => ({ timingSafeEqual: vi.fn() }));
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  crypto.timingSafeEqual.mockImplementation(actual.timingSafeEqual);
+  return { ...actual, default: actual, timingSafeEqual: crypto.timingSafeEqual };
+});
 
 import { GET, POST } from "./route";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
@@ -166,6 +174,40 @@ describe("POST /api/report/conformance — CONFORMANCE_INGEST_STRICT retires the
     mockVerifyToken.mockResolvedValue(orgToken("acme"));
 
     expect((await post(OK, { authorization: "Bearer askl_acme" })).status).toBe(200);
+  });
+});
+
+describe("POST /api/report/conformance — G2-32: the legacy shared token is compared in constant time", () => {
+  it("uses crypto.timingSafeEqual (not `===`) for the CONFORMANCE_INGEST_TOKEN compare", async () => {
+    vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
+    crypto.timingSafeEqual.mockClear();
+
+    expect((await post(OK, { authorization: "Bearer s3cret" })).status).toBe(200);
+
+    expect(crypto.timingSafeEqual).toHaveBeenCalled();
+    const [a, b] = crypto.timingSafeEqual.mock.calls[0] as [Buffer, Buffer];
+    expect(Buffer.from(a).toString()).toBe("s3cret");
+    expect(Buffer.from(b).toString()).toBe("s3cret");
+  });
+
+  it("skips timingSafeEqual on a LENGTH mismatch (it throws on unequal buffers) and falls back to the org gate", async () => {
+    vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
+    crypto.timingSafeEqual.mockClear();
+
+    await post(OK, { authorization: "Bearer a-much-longer-wrong-token" });
+
+    expect(crypto.timingSafeEqual).not.toHaveBeenCalled();
+    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
+  });
+
+  it("still refuses an EQUAL-LENGTH wrong token (the constant-time compare is a real compare)", async () => {
+    vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
+    crypto.timingSafeEqual.mockClear();
+
+    await post(OK, { authorization: "Bearer 123456" }); // same length as "s3cret"
+
+    expect(crypto.timingSafeEqual).toHaveBeenCalled();
+    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme"); // legacy branch not taken
   });
 });
 

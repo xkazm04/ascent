@@ -16,7 +16,6 @@
 //
 // Guarded by CRON_SECRET when set. No-op without a DB.
 
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   getAuditLog,
@@ -34,6 +33,7 @@ import {
 // @/lib/db barrel. They collapse the digest's old check-then-act idempotency guard into one conditional
 // write (fleet-alerts-digests #3).
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
+import { requireCronAuth } from "@/lib/cron-auth";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
 import { dispatchExtraAlerts } from "./extra-alerts";
 import { mapPool } from "@/lib/pool";
@@ -61,34 +61,15 @@ const SOFT_DEADLINE_MS = 270_000;
 // migration-free, since Organization has no spare last-sent column under the junctioned DB client.
 const DIGEST_SENT_ACTION = "org.digest.sent";
 
-/**
- * Constant-time compare for the cron secret (mirrors /api/cron/purge). A length mismatch returns false
- * WITHOUT calling timingSafeEqual (which throws on unequal-length buffers) — the length is not the
- * secret. Replaces a plain `!==`, a timing oracle on a token that authorizes a fleet-data-exfil endpoint.
- */
-function secretMatches(presented: string, expected: string): boolean {
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    // Fail closed: a missing/empty CRON_SECRET must NOT leave this endpoint open. The check was
-    // opt-in (`if (secret)`), so a forgotten env var on a new deploy silently disabled auth on a
-    // route that pushes fleet data to an external alert sink. Refuse rather than run unauthed.
-    return NextResponse.json({ error: "Cron is not configured (CRON_SECRET unset)." }, { status: 503 });
-  }
-  // Accept ONLY the `Authorization: Bearer` header — the secret must NOT be accepted as a `?key=`
-  // query param (fleet-alerts-digests #2). Query strings are routinely captured by access/CDN/proxy
-  // logs, browser history, and Referer headers, so a secret on that channel can authorize a fleet-data
-  // exfil from places the Authorization header never reaches. Compare in constant time (secretMatches).
-  const auth = request.headers.get("authorization") ?? "";
-  const presented = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-  if (!presented || !secretMatches(presented, secret)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  // Fail-closed CRON_SECRET gate (503 when unset/empty, 401 on a bad credential), header-only and
+  // compared in constant time. This route hand-rolled that check because the shared helper used to be
+  // WEAKER (it accepted `?key=` and compared with `!==`); G8-48 promoted the strict contract into
+  // requireCronAuth. `?key=` stays refused by default (fleet-alerts-digests #2): query strings land in
+  // access/CDN/proxy logs, browser history and Referer headers, so a secret there could authorize a
+  // fleet-data exfil from places the Authorization header never reaches.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
   if (!isDbConfigured()) return NextResponse.json({ skipped: "Database required." });
 
   const base = publicBaseUrl();

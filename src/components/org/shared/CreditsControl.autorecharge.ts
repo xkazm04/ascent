@@ -18,9 +18,10 @@
 // No React, no next/server, no Prisma — importable from both a "use client" component and a route
 // handler without dragging the server bundle into the browser.
 
-/** Audit-log `action` under which the preference is persisted. The org's LATEST entry with this action
- *  IS the current preference (append-only, migration-free — there is no org-settings JSON column and
- *  adding one would be a schema change). See the route for the read/write. */
+/** Audit-log `action` recorded whenever the preference CHANGES — "who armed this billing warning, and
+ *  when". It is no longer the storage: the preference is a real column, `Organization.autoRechargeJson`,
+ *  read/written through src/lib/db/org-settings.ts (G1-39). This action id still matters on the read
+ *  side too, as the legacy fallback for orgs whose preference was saved before the column existed. */
 export const AUTO_RECHARGE_ACTION = "billing.autorecharge";
 
 /** Hard-wired FALSE, and exported so the UI copy is single-sourced with reality: no stored payment

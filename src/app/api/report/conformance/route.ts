@@ -18,6 +18,7 @@
 //      CONFORMANCE_INGEST_STRICT=1 disables it entirely so a deployment can close the hole once its
 //      runners have moved to per-org tokens.
 
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getAuditLog, isDbConfigured, recordConformance } from "@/lib/db";
@@ -44,6 +45,20 @@ export interface ConformanceTrendPoint {
 // also reject legitimate numeric strings (curl/shell JSON often sends `"score": "82"`), so strings are
 // still accepted but only after confirming they're non-empty/non-whitespace — "" must not silently
 // become 0 the way `Number("")` does.
+/**
+ * G2-32 — constant-time compare for the LEGACY shared CONFORMANCE_INGEST_TOKEN. A length mismatch
+ * returns false WITHOUT calling timingSafeEqual (which throws on unequal-length buffers) — the length is
+ * not the secret. The plain `===` it replaces is a timing oracle on a deployment-wide credential that
+ * can write ANY org's conformance score. The per-org path (`verifyOrgApiToken`, via authorizeOrgApi) has
+ * always compared in constant time; this brings the deprecated fallback to the same bar until
+ * CONFORMANCE_INGEST_STRICT=1 retires it.
+ */
+function tokenMatches(presented: string, expected: string): boolean {
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 const int = (v: unknown): number | null => {
   if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : null;
   if (typeof v === "string") {
@@ -100,7 +115,7 @@ export async function POST(request: Request) {
   // token in any deployment that mints real org tokens, and authorizeOrgApi owns that credential.
   const ingestToken = process.env.CONFORMANCE_INGEST_TOKEN;
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? null;
-  const legacyMatch = !!ingestToken && !!bearer && bearer === ingestToken && !bearer.startsWith("askl_");
+  const legacyMatch = !!ingestToken && !!bearer && !bearer.startsWith("askl_") && tokenMatches(bearer, ingestToken);
   const strict = /^(1|true|yes|on)$/i.test(process.env.CONFORMANCE_INGEST_STRICT ?? "");
   if (legacyMatch && strict) {
     return NextResponse.json(

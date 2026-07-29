@@ -146,6 +146,27 @@ describe("ReportHeader", () => {
     expect(ta.value).toContain("# Ascent maturity report — acme/web"); // and it is the real briefing
   });
 
+  // G1-36: PDF export is a Pro-plan+ entitlement (planAllowsPdfExport) — a Free-tier org's click
+  // 403s. The header has no plan/tier data to hide the button ahead of time, so the button stays
+  // visible, but a 403 must not dead-end on inert error text: it has to offer a real way forward.
+  it("G1-36: a 403 (Free-tier org, no PDF entitlement) links to /pricing instead of dead-ending", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "PDF export is a Pro-plan feature." }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ReportHeader report={report("acme")} isMock={false} />);
+    const link = screen.getByRole("link", { name: /export pdf/i });
+    fireEvent.click(link);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("PDF export is a Pro-plan feature.");
+    expect(alert).toHaveTextContent("Upgrade");
+    expect(alert).toHaveAttribute("href", "/pricing");
+  });
+
   it("G5-04: offers the share card as a download of the SAME image the permalink unfurls", () => {
     render(<ReportHeader report={report("acme")} isMock={false} />);
     const link = screen.getByRole("link", { name: /share card/i });

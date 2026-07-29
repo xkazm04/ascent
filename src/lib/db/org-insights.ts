@@ -7,7 +7,7 @@ import { DIMENSION_BY_ID, SCORING_RUBRIC_VERSION, weightsFor } from "@/lib/matur
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
-import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 // The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
 // and a digest line can never disagree about whether a delta was real.
@@ -22,7 +22,7 @@ import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/components/org/shared/backlogSh
 // The canonical org time-zone policy — ONE reference frame for every calendar-day decision on the
 // dashboard (window presets, custom-range parsing, due-date bucketing). See its header for the policy
 // and for the per-org-timezone blocker. (G4-07)
-import { dayKeyInZone, dayKeyOfDateColumn, daysBetweenDayKeys } from "@/lib/org/timezone";
+import { dayKeyInZone, dayKeyOfDateColumn, daysBetweenDayKeys, orgTimeZone, resolveOrgTimeZone } from "@/lib/org/timezone";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite
 
 /**
  * Per-repo change over a window — the "what moved" view. With a `window.start`, each repo's
- * latest scan (≤ end) is compared to its baseline (latest scan strictly < start, matching
+ * latest scan inside `[start, endExclusive)` is compared to its baseline (latest scan strictly < start, matching
  * getOrgRollup's half-open cohort), so movers reflect the selected period. Without a window, it
  * falls back to the two most recent scans ("since last scan").
  */
@@ -113,12 +113,13 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
   const retentionStart = retentionCutoff(org.plan, Date.now());
   const rawStart = window?.start ?? null;
   const start = rawStart && retentionStart && retentionStart > rawStart ? retentionStart : rawStart;
-  const end = window?.end ?? null;
+  // Half-open upper bound (`lt: endExclusive`, falling back to the legacy `lte: end`).
+  const upper = upperBound(window);
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   const moves: RepoMove[] = [];
 
   if (start) {
-    // Windowed. The function only needs, per repo, the latest scan ≤ end ("now") and the latest scan
+    // Windowed. The function only needs, per repo, the latest scan inside the window ("now") and the latest scan
     // strictly < start (the half-open baseline) — so bound BOTH queries to the period instead of pulling
     // the org's entire scan history into memory (which scaled with fleet age, not the period: an org
     // scanned daily across hundreds of repos for a year+ dragged tens of thousands of rows into Node on
@@ -126,7 +127,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     // query takes only the latest pre-start scan PER REPO (distinct) so it stays one row per repo.
     const repoScope = { orgId: org.id, ...seg };
     const inWindow = await prisma.scan.findMany({
-      where: { repo: repoScope, scannedAt: { gte: start, ...(end ? { lte: end } : {}) } },
+      where: { repo: repoScope, scannedAt: { gte: start, ...(upper ?? {}) } },
       select: {
         repoId: true,
         overallScore: true,
@@ -371,8 +372,8 @@ const DUE_BUCKET_ORDER: BacklogDueBucket[] = ["overdue", "this_week", "this_mont
  *  literal day the user picked — re-truncating it in a westward zone would yield the previous day.
  *  What changed is the OTHER side: `now` is truncated in the canonical zone, not the host's.
  *  (G4-07; supersedes ambiguity-ui 2026-07-16 #4, which unified on the host's local day) */
-function daysUntil(target: Date, now: Date): number {
-  return daysBetweenDayKeys(dayKeyInZone(now), dayKeyOfDateColumn(target));
+function daysUntil(target: Date, now: Date, tz?: string): number {
+  return daysBetweenDayKeys(dayKeyInZone(now, tz ?? orgTimeZone()), dayKeyOfDateColumn(target));
 }
 
 /**
@@ -381,9 +382,9 @@ function daysUntil(target: Date, now: Date): number {
  * ≤ DUE_MONTH_DAYS → this_month; beyond → later. Boundaries are HALF-OPEN in the same sense as the
  * window's: a day belongs to exactly one bucket, and "due today" (d === 0) is this_week, never overdue.
  */
-export function dueBucketFor(targetDate: Date | null, now: Date): BacklogDueBucket {
+export function dueBucketFor(targetDate: Date | null, now: Date, tz?: string): BacklogDueBucket {
   if (!targetDate) return "no_date";
-  const d = daysUntil(targetDate, now);
+  const d = daysUntil(targetDate, now, tz);
   if (d < 0) return "overdue";
   if (d <= DUE_SOON_DAYS) return "this_week";
   if (d <= DUE_MONTH_DAYS) return "this_month";
@@ -491,6 +492,9 @@ export async function getOrgBacklog(
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
+  // "Overdue" must mean overdue in THIS org's calendar, not the deployment's: the org's stored zone when
+  // it has one, else ASCENT_ORG_TZ, else UTC (resolveOrgTimeZone owns that order). G4-07.
+  const tz = resolveOrgTimeZone(org.timezone);
 
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
@@ -566,7 +570,7 @@ export async function getOrgBacklog(
       const active = ACTIVE.has(r.status);
       if (!active && !includeClosed) continue;
 
-      const dueInDays = r.targetDate ? daysUntil(r.targetDate, now) : null;
+      const dueInDays = r.targetDate ? daysUntil(r.targetDate, now, tz) : null;
       // "Overdue" is a property of work still to be done: a dismissed item with a past due date is not
       // a debt, so it must never inflate the overdue tile just because the recovery view is open.
       const overdue = active && dueInDays != null && dueInDays < 0;
@@ -582,7 +586,7 @@ export async function getOrgBacklog(
         status: r.status,
         assigneeLogin: r.assigneeLogin,
         targetDate: r.targetDate ? r.targetDate.toISOString().slice(0, 10) : null,
-        dueBucket: dueBucketFor(r.targetDate, now),
+        dueBucket: dueBucketFor(r.targetDate, now, tz),
         dueInDays,
         overdue,
         repo: repo.fullName,

@@ -11,17 +11,20 @@
 // constant false, and it is the flag the UI copy hangs off, so the product can never drift into claiming
 // an automatic purchase that would silently never happen. See CreditsControl.autorecharge.ts.
 //
-// PERSISTENCE without a migration: there is no org-settings JSON column on Organization (the closest
-// analogue, `gatePolicy`, is a single dedicated TEXT column for one feature), and adding one is a schema
-// change. So the preference lives in the append-only AUDIT TRAIL: each PUT writes one
-// `billing.autorecharge` entry, and the org's most recent such entry IS the current preference. That
-// gives durability, per-org scoping, an actor + timestamp for free (this is a billing-adjacent setting
-// an owner changes — a record of who changed it and when is a feature, not overhead), and idempotent
-// re-reads. The trade-off is a read via getAuditLog(limit 1) rather than a column select, and history
-// that grows by one row per change — negligible for a rarely-touched preference.
+// PERSISTENCE (G1-39): the preference lives in `Organization.autoRechargeJson` — a real column, read
+// with a column select. It used to live as the most recent `billing.autorecharge` AuditLog row, which
+// worked but made the AUDIT TRAIL load-bearing for a user setting: a findMany per read, and any audit
+// retention/purge policy could silently erase a customer's configured threshold. The audit row is STILL
+// written on every change — as an audit row, which is what it always should have been: "who changed this
+// billing-adjacent setting, and when" is a genuine audit event, not storage.
+//
+// Reads go through getOrgAutoRecharge (src/lib/db/org-settings.ts), which also falls back to the legacy
+// audit row while the column is NULL, so orgs that set a preference before the migration keep theirs
+// with no backfill. Other surfaces (the low-credit alert) read the same accessor — never storage.
 
 import { NextResponse } from "next/server";
-import { getAuditLog, isDbConfigured, recordOrgAudit } from "@/lib/db";
+import { isDbConfigured, recordOrgAudit } from "@/lib/db";
+import { getOrgAutoRecharge, setOrgAutoRecharge } from "@/lib/db/org-settings";
 import { requireOrgRead, requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
@@ -31,20 +34,10 @@ import {
   DEFAULT_AUTO_RECHARGE,
   MAX_LOW_BALANCE_THRESHOLD,
   normalizeAutoRecharge,
-  type AutoRechargePref,
 } from "@/components/org/shared/CreditsControl.autorecharge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** The org's stored preference (latest audit entry), or null when it has never been set. Best-effort:
- *  a read failure degrades to "never set" → the DEFAULT (feature OFF), which is the safe direction —
- *  a transient DB blip must not spontaneously enable a nag on a money surface. */
-async function readPref(org: string): Promise<AutoRechargePref | null> {
-  const page = await getAuditLog(org, { action: AUTO_RECHARGE_ACTION, limit: 1 }).catch(() => null);
-  const entry = page?.entries[0];
-  return entry ? normalizeAutoRecharge(entry.meta) : null;
-}
 
 export async function GET(request: Request) {
   const org = new URL(request.url).searchParams.get("org");
@@ -60,11 +53,15 @@ export async function GET(request: Request) {
   }
   const denied = await requireOrgRead(org);
   if (denied) return denied;
-  const stored = await readPref(org);
+  // getOrgAutoRecharge is best-effort in the safe direction: a read failure resolves to the DEFAULT
+  // (feature OFF), so a transient DB blip can't spontaneously arm a nag on a money surface.
+  const { pref, source } = await getOrgAutoRecharge(org);
   return NextResponse.json({
-    pref: stored ?? DEFAULT_AUTO_RECHARGE,
+    pref,
     chargesAutomatically: AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
-    source: stored ? "stored" : "default",
+    // The wire contract stays stored-vs-default (the popover's only distinction); "column" and "audit"
+    // are a storage detail the client has never needed and must not start depending on.
+    source: source === "default" ? "default" : "stored",
   });
 }
 
@@ -97,11 +94,17 @@ export async function PUT(request: Request) {
   }
   const pref = normalizeAutoRecharge(body);
   const actor = await resolveViewerLogin();
-  const ok = await recordOrgAudit(AUTO_RECHARGE_ACTION, org, { ...pref }, actor ?? undefined);
-  if (!ok) {
-    // The audit row IS the storage here, so a failed write is a failed SAVE — never report success, or
-    // the owner walks away believing a warning is armed that was never persisted.
+  // STORAGE first. A failed column write is a failed SAVE — never report success, or the owner walks
+  // away believing a warning is armed that was never persisted.
+  const saved = await setOrgAutoRecharge(org, pref);
+  if (!saved) {
     return NextResponse.json({ error: "Couldn't save the preference. Please try again." }, { status: 503 });
+  }
+  // AUDIT second, and best-effort: this is now a record of the change, not the change itself, so losing
+  // it must not fail a save the customer's setting already survived. It is logged, not silently dropped.
+  const audited = await recordOrgAudit(AUTO_RECHARGE_ACTION, org, { ...pref }, actor ?? undefined);
+  if (!audited) {
+    console.warn(`[billing/autorecharge] preference saved for org "${org}" but the audit row failed to write`);
   }
   return NextResponse.json({
     ok: true,

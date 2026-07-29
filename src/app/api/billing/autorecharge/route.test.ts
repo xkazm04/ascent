@@ -1,9 +1,11 @@
-// The low-balance preference endpoint: it PERSISTS (into the audit trail, since there is no
-// org-settings column and a migration is out of scope) and it ROUND-TRIPS.
+// The low-balance preference endpoint: it PERSISTS (in `Organization.autoRechargeJson`, a real column
+// since G1-39) and it ROUND-TRIPS.
 //
-// The store is faked at the `@/lib/db` boundary with an in-memory audit table, so these tests exercise
-// the real read/write contract the route relies on: recordOrgAudit appends, getAuditLog returns the
-// LATEST entry for an (org, action) pair, and that entry's meta IS the preference.
+// The store is faked at the `@/lib/db/org-settings` boundary with an in-memory per-org column, and the
+// audit sink is faked separately at `@/lib/db`. Splitting them is the point: the audit row used to BE
+// the storage, and these tests now pin that it is no longer load-bearing — a save succeeds on the
+// column write, the audit row is written alongside it as a record of the change, and losing the audit
+// row does NOT fail (or undo) a preference the customer's column already holds.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -23,14 +25,28 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   recordOrgAudit: vi.fn(async (action: string, org: string, meta: Record<string, unknown>) => {
     if (!auditWriteOk) return false;
-    // The real writer folds an integrity signature into meta — mirror that, so the read path is proven
-    // to tolerate the extra key rather than only ever seeing a pristine preference object.
+    // The real writer folds an integrity signature into meta — mirror that, so nothing downstream is
+    // ever proven only against a pristine preference object.
     auditRows.unshift({ org, action, meta: { ...meta, _sig: "sig" } });
     return true;
   }),
-  getAuditLog: vi.fn(async (org: string, q: { action?: string; limit?: number } = {}) => {
-    const rows = auditRows.filter((r) => r.org === org && (!q.action || r.action === q.action));
-    return { entries: rows.slice(0, q.limit ?? 25).map((r, i) => ({ id: String(i), meta: r.meta })), nextCursor: null };
+}));
+
+/** In-memory stand-in for `Organization.autoRechargeJson`, keyed by org slug. */
+const prefColumn = new Map<string, { enabled: boolean; threshold: number; packProductId: string | null }>();
+let columnWriteOk = true;
+
+vi.mock("@/lib/db/org-settings", () => ({
+  getOrgAutoRecharge: vi.fn(async (org: string) => {
+    const stored = prefColumn.get(org);
+    return stored
+      ? { pref: stored, source: "column" }
+      : { pref: { enabled: false, threshold: 5, packProductId: null }, source: "default" };
+  }),
+  setOrgAutoRecharge: vi.fn(async (org: string, pref: { enabled: boolean; threshold: number; packProductId: string | null }) => {
+    if (!columnWriteOk) return false;
+    prefColumn.set(org, pref);
+    return true;
   }),
 }));
 vi.mock("@/lib/authz", () => ({
@@ -42,6 +58,7 @@ vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-lo
 
 import { GET, PUT } from "./route";
 import { recordOrgAudit } from "@/lib/db";
+import { setOrgAutoRecharge } from "@/lib/db/org-settings";
 import { requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
 import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
@@ -61,6 +78,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   auditRows.length = 0;
   auditWriteOk = true;
+  prefColumn.clear();
+  columnWriteOk = true;
   vi.mocked(requireOrgRole).mockResolvedValue(null);
   vi.mocked(isSameOrigin).mockReturnValue(true);
 });
@@ -97,7 +116,30 @@ describe("PUT → GET round-trip (the persistence proof)", () => {
     expect(read.pref).toEqual({ enabled: true, threshold: 25, packProductId: "prod_500" });
   });
 
-  it("the LATEST write wins — the append-only trail is read newest-first", async () => {
+  it("writes the preference to the COLUMN, and the audit row alongside it as a record of the change", async () => {
+    await PUT(putReq({ org: "acme", enabled: true, threshold: 25, packProductId: "prod_500" }));
+    // The save landed in real storage — not in the audit trail, which a retention purge may delete.
+    expect(setOrgAutoRecharge).toHaveBeenCalledWith("acme", {
+      enabled: true,
+      threshold: 25,
+      packProductId: "prod_500",
+    });
+    // …and the audit row is still written, because "who changed this billing setting, and when" is a
+    // genuine audit event. It is just no longer the storage.
+    expect(auditRows[0]).toMatchObject({ org: "acme", action: AUTO_RECHARGE_ACTION });
+  });
+
+  it("a failed AUDIT write no longer fails the save — the customer's setting is already persisted", async () => {
+    // Under the old arrangement this was a 503, because the audit row WAS the storage. Reporting a
+    // failure now would be a lie in the other direction: the preference is durably saved.
+    auditWriteOk = false;
+    const res = await PUT(putReq({ org: "acme", enabled: true, threshold: 25 }));
+    expect(res.status ?? 200).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    expect((await (await GET(getReq())).json()).pref.threshold).toBe(25);
+  });
+
+  it("the LATEST write wins — a re-save overwrites the column rather than appending", async () => {
     await PUT(putReq({ org: "acme", enabled: true, threshold: 25 }));
     await PUT(putReq({ org: "acme", enabled: true, threshold: 3 }));
     const read = await (await GET(getReq())).json();
@@ -146,8 +188,8 @@ describe("PUT guards", () => {
     expect(res.status ?? 200).toBe(200);
   });
 
-  it("reports a failed store as a failed SAVE, never as success", async () => {
-    auditWriteOk = false;
+  it("reports a failed STORE as a failed SAVE, never as success", async () => {
+    columnWriteOk = false;
     const res = await PUT(putReq({ org: "acme", enabled: true, threshold: 5 }));
     expect(res.status).toBe(503);
     expect((await res.json()).ok).toBeUndefined();

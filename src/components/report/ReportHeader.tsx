@@ -147,6 +147,11 @@ export function ReportHeader({
             href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
             className={pillClass({ focusRing: true, textSm: true })}
             title="Download this report as a PDF"
+            // PDF export is a Pro-plan+ entitlement (planAllowsPdfExport); a Free-tier org's click 403s.
+            // There's no plan/tier data available at this leaf (the report itself carries no org context),
+            // so this can't be hidden ahead of the click — but the 403 must not dead-end on inert error
+            // text: route it to /pricing instead (G1-36).
+            upgradeHref="/pricing"
           >
             <span aria-hidden>↓</span> Export PDF
           </DownloadButton>

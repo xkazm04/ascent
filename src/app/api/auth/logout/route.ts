@@ -13,16 +13,20 @@
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, decodeSession, isSameOrigin } from "@/lib/auth";
+import { SESSION_COOKIE, decodeSession, requireSameOrigin } from "@/lib/auth";
 import { bumpSessionVersion } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  if (!isSameOrigin(request)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  // Canonical CSRF reject (G8-50). This is the FIRST check in the handler, so substituting the shared
+  // helper can't reorder which failure a request hits. The 403 body changed from `{error:"forbidden"}`
+  // to the canonical `{error:"Cross-origin request rejected."}`: nothing reads it — the only caller is
+  // Brand.tsx's plain `<form action="/api/auth/logout" method="post">`, a document navigation whose
+  // success path is a 303 redirect, so no client parses this JSON.
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   // Revoke server-side before clearing the cookie, so any other copy of this token is
   // rejected on its next resolve — not just the one we delete below. Never block logout on
   // the DB: a failure here still clears the local cookie.

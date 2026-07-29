@@ -10,7 +10,7 @@ import { isAppConfigured } from "@/lib/github/app";
 import { getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { PUBLIC_ORG, isAuthConfigured, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
@@ -43,8 +43,10 @@ export async function POST(request: Request) {
   if (org === PUBLIC_ORG) {
     return NextResponse.json({ error: "Passport PRs are only for org-owned repositories." }, { status: 403 });
   }
-  // Opening a PR is a WRITE with the org's installation token — gate on org access.
-  const denied = await requireOrgAccess(org);
+  // Opening a PR is a WRITE into a customer repo with the org's installation token — the SAME gate as
+  // /api/practices/apply{,-batch} and the foundation PR sibling: at least the "admin" role, not merely
+  // membership. One action must not have two gates.
+  const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
 
   const passport = await getRepoPassport(parsed.owner, parsed.name, { orgSlug: org }).catch(() => null);

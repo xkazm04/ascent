@@ -1,0 +1,14 @@
+-- G4-07 — per-organization canonical time zone.
+--
+-- WHY: `src/lib/org/timezone.ts` established ONE reference frame for every calendar-day decision the org
+-- dashboard makes (window presets, custom-range parsing, trend day-keys, due-date bucketing), and was
+-- written parameterized for this column: every primitive takes an explicit `tz`, with `orgTimeZone()`
+-- (ASCENT_ORG_TZ, else UTC) only as the DEFAULT. Its stated known limit was that "this org's Monday"
+-- needed a schema change. This is that change; the module's own KNOWN LIMIT note is now retired.
+--
+-- EXISTING ROWS: nullable, no default, no backfill — every existing Organization gets NULL, and NULL is
+-- read as "inherit the deployment default", which is precisely the behavior every org has today. So an
+-- org that never sets a zone sees no change whatsoever, and the env override keeps working as the
+-- fallback. An unparseable/unknown stored value also degrades to the default rather than throwing
+-- (resolveOrgTimeZone validates against the runtime), so a hand-edited row can't 500 a dashboard.
+ALTER TABLE "Organization" ADD COLUMN "timezone" TEXT;

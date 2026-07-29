@@ -82,6 +82,57 @@ describe("getViewer — only a CONFIRMED Supabase email is surfaced", () => {
   });
 });
 
+// G2-31 — the same hijack, one field over. `login` is NOT a display key: viewerOrgRole/getMembershipRole
+// resolve a role for it, and acceptInvite's githubLogin pin compares against it. So the raw-`u.email`
+// fallback let an UNCONFIRMED account at victim@example.com be logged in AS the string
+// "victim@example.com" — exactly the identity an owner might have typed into a login-pinned invite.
+describe("getViewer — the `login` fallback never uses an UNCONFIRMED email (G2-31)", () => {
+  it("falls back to the opaque user id, not the email, when the address is unconfirmed", async () => {
+    mockCreateSupabaseServerClient.mockResolvedValue(
+      fakeSupabase({
+        id: "u_attacker",
+        email: "victim@example.com",
+        email_confirmed_at: null,
+        user_metadata: {}, // no GitHub metadata: this is the branch that used to reach `u.email`
+      }),
+    );
+    const getViewer = await freshGetViewer();
+
+    const viewer = await getViewer();
+    expect(viewer?.login).toBe("u_attacker");
+    expect(viewer?.login).not.toBe("victim@example.com");
+    expect(viewer?.email).toBeUndefined();
+  });
+
+  it("still falls back to a CONFIRMED email when there is no GitHub metadata", async () => {
+    mockCreateSupabaseServerClient.mockResolvedValue(
+      fakeSupabase({
+        id: "u_victim",
+        email: "victim@example.com",
+        email_confirmed_at: "2026-07-01T00:00:00Z",
+        user_metadata: {},
+      }),
+    );
+    const getViewer = await freshGetViewer();
+
+    expect((await getViewer())?.login).toBe("victim@example.com");
+  });
+
+  it("prefers the GitHub login over any email, confirmed or not (the production path is untouched)", async () => {
+    mockCreateSupabaseServerClient.mockResolvedValue(
+      fakeSupabase({
+        id: "u_gh",
+        email: "gh@example.com",
+        email_confirmed_at: "2026-07-01T00:00:00Z",
+        user_metadata: { user_name: "octocat" },
+      }),
+    );
+    const getViewer = await freshGetViewer();
+
+    expect((await getViewer())?.login).toBe("octocat");
+  });
+});
+
 // G6-12: a lapsed session hitting a gated route must get a redirect on a top-level NAVIGATION and a
 // bare 401 JSON on a programmatic fetch/XHR call — never the other way around (a redirect handed to a
 // fetch caller would be silently `follow`ed and misread as a 200 success).

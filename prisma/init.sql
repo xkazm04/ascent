@@ -29,6 +29,8 @@ CREATE TABLE "Organization" (
     "brandName" TEXT,
     "brandColor" TEXT,
     "logoUrl" TEXT,
+    "timezone" TEXT,
+    "autoRechargeJson" TEXT,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -97,6 +99,7 @@ CREATE TABLE "Repository" (
     "scanSchedule" TEXT NOT NULL DEFAULT 'off',
     "lastScanAt" TIMESTAMP(3),
     "nextScanAt" TIMESTAMP(3),
+    "scanSlotAt" TIMESTAMP(3),
     "lastScanStatus" TEXT,
     "lastScanError" TEXT,
     "lastScanAttemptAt" TIMESTAMP(3),
@@ -190,6 +193,7 @@ CREATE TABLE "Scan" (
     "id" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
     "headSha" TEXT,
+    "dedupKey" TEXT,
     "overallScore" INTEGER NOT NULL,
     "level" TEXT NOT NULL,
     "levelName" TEXT NOT NULL,
@@ -510,6 +514,12 @@ CREATE INDEX "Scan_repoId_scannedAt_idx" ON "Scan"("repoId", "scannedAt");
 
 -- CreateIndex (UNIQUE: cross-instance same-commit dedup backstop; NULL headSha stays unconstrained)
 CREATE UNIQUE INDEX "Scan_repoId_headSha_key" ON "Scan"("repoId", "headSha");
+
+-- CreateIndex (UNIQUE: the SHA-LESS half of the same backstop; NULL dedupKey stays unconstrained)
+CREATE UNIQUE INDEX "Scan_repoId_dedupKey_key" ON "Scan"("repoId", "dedupKey");
+
+-- CreateIndex (org-rollup window scan; on DSQL create this one with CREATE INDEX ASYNC)
+CREATE INDEX "Scan_scannedAt_idx" ON "Scan"("scannedAt");
 
 -- CreateIndex
 CREATE INDEX "ScanDimension_scanId_idx" ON "ScanDimension"("scanId");

@@ -58,11 +58,18 @@ address fails closed as a result:
 | `POST /api/scan/stream` completion email | No notification is sent (the client-supplied `email` is honored only on the anonymous funnel), so Ascent's verified sending domain never mails an unproven address. |
 | `GET /api/auth/viewer` → `NotifyToggle` | `email: null` — the toggle shows the existing "no account email" explanation instead of an address. |
 
-`login` deliberately keeps its raw-email fallback: it is a display/attribution key,
-never an ownership proof, and re-keying it mid-session would move login-scoped data
-(e.g. Org Memory's private filter). Production sign-ins are GitHub OAuth, which
-arrive already confirmed, so this only bites accounts created straight against
-Supabase without confirming.
+`login`'s email fallback is **confirmed-only too** (G2-31). `login` is not merely a
+display key — `viewerOrgRole`/`getMembershipRole` resolve an org role for it, and
+`acceptInvite()`'s *githubLogin* pin compares against it — so falling back to the raw
+`user.email` reopened the same hijack through a second field: register an unconfirmed
+account at `victim@example.com` and you are signed in *as* that string. The resolution
+order is now `user_name → preferred_username → confirmed email → user id`; an account
+with neither GitHub metadata nor a confirmed address gets the opaque `user.id`, which is
+safe to re-key because such an account could never have proven that identity in the first
+place. The other half of the pair is `POST /api/org/invites`, whose GitHub-login shape
+check (`/^[A-Za-z0-9-]{1,39}$/`) refuses to *store* an `@`-bearing pin — so either half
+alone closes the hole. Production sign-ins are GitHub OAuth (already confirmed, and they
+carry `user_name`), so neither fallback is reached there.
 
 **Cookie refresh** — `src/proxy.ts` (Next.js 16 Proxy, formerly Middleware) reads the
 session on each request so supabase-js can re-mint an expiring token, and writes the

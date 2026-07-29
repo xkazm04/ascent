@@ -318,11 +318,24 @@ model contributed"), and the scan's `warnings`; the card **refuses to draw a num
 `incomplete` scan (a renormalized 0/100 is not a measurement) and shows a DEMO badge for a
 mock-engine report.
 
+## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
+
+Both routes open a draft PR into the scanned repository using the **org's GitHub App installation
+token**, so both gate on `requireOrgRole(org, "admin")` — not merely `requireOrgAccess` (member),
+which is what they used until the gate was unified with `/api/practices/apply{,-batch}`. One action
+must not have two gates: a plain member of the org now gets `403 "This action requires the admin role
+in this organization."` and no branch, commit, or PR is created. Draft status is a review convenience,
+not an authorization boundary, and "the caller can already read this repo" is not the question the
+gate answers — the write is. The rest of the chain is unchanged and identical between the two: DB +
+App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installation present.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
-| `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. |
+| `src/app/api/report/passport/pr/route.ts` | Draft PR seeding `.ai/passport.json`. Admin-gated (see above). |
+| `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
+| `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
 | `src/app/api/report/llm/route.ts` | Machine-readable markdown export — the "Copy for LLM" payload as a fetchable endpoint. |
 | `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()` — the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |

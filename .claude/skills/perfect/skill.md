@@ -1,5 +1,8 @@
 ---
 name: perfect
+contexts: tracked
+memory: vault
+category: Development
 description: Session-after-session product perfection loop. The strongest available model (Fable) directs — it walks the repo's context map context-by-context, proposes challenged, high-value directions per context (features, design elevations, significant optimizations), gates each round's slate with the user, then orchestrates one Opus builder subagent per context in isolated worktrees while making every review/merge decision itself. All state lives in a linked Obsidian vault so any future session resumes the loop exactly where the last one stopped. Invoke with `/perfect [init|propose|build|status|reflect] [context-name]`.
 ---
 
@@ -133,6 +136,7 @@ Shipped client UI must eventually be SEEN. Every ~3 rounds, before the next prop
 1. Update every touched vault note; write the session note with the **`next:` pointer** (e.g. `next: propose — cursor at scan-pipeline-ingestion, pool 7/10` or `next: build wave 2 — <ctx-a> + <ctx-b> remain`).
 2. `Perfect.md` headline refreshed: pool count, queue cursor, shipped-total, last-session link.
 3. **Reflect on the skill itself**: 2-4 bullets in `config.md → ## Skill improvement log` — what dragged, what the user overrode, what the next round should change. This log is the input for the between-rounds skill revision.
+4. **Emit the coverage outbox** (see *App context coverage* below) — one `progress` node per context this session meaningfully worked on. Do this in Wrap, after the vault is written, so an interrupted session never claims coverage it didn't earn.
 
 ## Direction quality bar (what earns a slot in the 5)
 
@@ -215,3 +219,44 @@ per direction → status (done|blocked|decision-needed), commits, files, verific
 - **Honest ledger**: a direction only reaches `shipped` with gates green AND the Director having read the diff; anything else is `failed` with a reason. No silent drops — every accepted direction's fate is recorded.
 - **Interruptibility is a feature**: write the vault incrementally (after every context in P, after every merge in B) so a killed session resumes losslessly.
 - **The user is the product owner**: the gate is theirs; the Director challenges but never overrides a rejection, and repeated rejections of a lens/context recalibrate the queue scores.
+
+## App context coverage (Personas-managed repos)
+
+The Obsidian vault is this loop's *own* memory. It is **not** the coverage
+instrument — the Personas app measures per-context memory coverage from a
+separate ledger, and a vault-only skill shows 0% there forever.
+
+This skill declares `contexts: tracked` and `memory: vault` — vault-first, but
+still mirrored through the outbox. When run inside a Personas-managed repo (a
+`.personas/` dir exists at the repo root, or the app dispatched this run),
+**append** JSON lines to `.personas/memory-outbox.jsonl` at the repo root
+(append, never rewrite) — one node per context you meaningfully worked on this
+session:
+
+```json
+{"type":"node","kind":"progress","title":"<=200 chars: what you did in this context","body":"optional detail — direction slugs, commit SHAs, verdicts","context":"<exact registered context name>","skill":"perfect"}
+```
+
+Rules that make the row actually count:
+- Always set **both** `"skill":"perfect"` and `"context":"<name>"` — together
+  they drive the per-skill context-coverage % (30-day window). A line without
+  `skill` lands as anonymous `skill:outbox` and earns this skill nothing.
+- `context` must match a context **registered in the app for this project**
+  (matched case-insensitively by name). A name the app doesn't know still
+  ingests, but anchors to nothing and is excluded from coverage — check
+  `.personas/contexts.txt` (the registered-name list, refreshed when the app
+  rescans) and use the name from there; fall back to the `context-map.json`
+  name only when that file is absent.
+- `kind` must be one of `fact | progress | decision | gotcha | map`; use
+  `progress` for shipped work, `decision` for a direction the user rejected and
+  why, `gotcha` for a trap a future round must not re-walk, `map` when you
+  observed structure drift (it triggers the app's delta context scan).
+- Caps enforced by the ingester: ≤200 lines, ≤512 KB, title ≤200 chars, body
+  ≤4000 chars. Re-emitting an identical note refreshes its freshness instead of
+  duplicating — so a re-visited context stays covered, honestly.
+- The app ingests and **deletes** the file when the session ends. Skip silently
+  when the repo isn't Personas-managed.
+
+Coverage is earned, not declared: emit a node only for a context where this
+session produced real evidence (a scout brief, a gated slate, or a merge) —
+never one per queue entry.

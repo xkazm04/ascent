@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 /**
  * Fetch-and-download replacement for the plain `<a href>` export anchors (Export PDF / Onboarding
@@ -19,14 +20,21 @@ export function DownloadButton({
   className,
   title,
   children,
+  upgradeHref,
 }: {
   href: string;
   className?: string;
   title?: string;
   children: React.ReactNode;
+  /** When the route 403s a paid-tier gate (e.g. PDF export below the entitled plan), render the
+   *  error as a link to this path instead of dead-end text — a paid action must offer a way to
+   *  actually pay/upgrade, not just fail silently in place (G1-36). Omit for exports with no plan
+   *  gate, where a 403 is just a generic access error like any other. */
+  upgradeHref?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   // Guard the async completion against an unmounted row (navigating away mid-download).
   const mounted = useRef(true);
   useEffect(() => {
@@ -43,6 +51,7 @@ export function DownloadButton({
     if (busy) return; // re-click while the render is running must not start a second one
     setBusy(true);
     setError(null);
+    setForbidden(false);
     try {
       const res = await fetch(href);
       if (!res.ok) {
@@ -55,7 +64,10 @@ export function DownloadButton({
         } catch {
           // Non-JSON error body — keep the generic message.
         }
-        if (mounted.current) setError(message);
+        if (mounted.current) {
+          setError(message);
+          setForbidden(res.status === 403);
+        }
         return;
       }
       const blob = await res.blob();
@@ -93,11 +105,20 @@ export function DownloadButton({
           children
         )}
       </a>
-      {error && (
-        <span role="alert" className="text-sm text-red-300">
-          <span aria-hidden>⚠</span> {error}
-        </span>
-      )}
+      {error &&
+        (forbidden && upgradeHref ? (
+          <Link
+            href={upgradeHref}
+            role="alert"
+            className="text-sm text-amber-300 underline decoration-amber-300/40 underline-offset-2 transition hover:text-amber-200"
+          >
+            <span aria-hidden>⚠</span> {error} — Upgrade →
+          </Link>
+        ) : (
+          <span role="alert" className="text-sm text-red-300">
+            <span aria-hidden>⚠</span> {error}
+          </span>
+        ))}
     </span>
   );
 }

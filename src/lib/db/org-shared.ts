@@ -117,23 +117,56 @@ export class GroupedMean {
 }
 
 /**
+ * The upper half of a window, as the two bounds an `OrgWindow` can carry. `endExclusive` is the
+ * canonical one (`src/lib/org/timezone.ts` policy note 4: every interval is half-open
+ * `[start, endExclusive)`); `end` survives only as the last representable instant of the SAME
+ * interval, for the query builders that still say `lte`.
+ */
+export interface WindowUpperBounds {
+  /** Inclusive last instant of the period. Legacy — equivalent to `endExclusive` only at ms resolution. */
+  end?: Date | null;
+  /** Canonical HALF-OPEN upper bound. Wins over `end` whenever it is present. */
+  endExclusive?: Date | null;
+}
+
+/**
+ * The window's upper bound as a Prisma date-filter fragment, or null when the window is open-ended.
+ *
+ * Prefers `lt: endExclusive` over `lte: end`. The two agree at millisecond resolution (`end` is
+ * `endExclusive − 1ms`), but Postgres `timestamp` keeps MICROseconds, so a scan landing in the
+ * 999 µs after `end` — i.e. inside the last millisecond of the excluded boundary instant — matched
+ * `lte: end` and would also match the NEXT window's `gte: start`. Half-open is the only form that
+ * partitions cleanly, which is what the adjacent-window comparisons (briefing's prior period) depend
+ * on. Accepts a bare `Date` for the handful of call sites that only have an inclusive end.
+ */
+export function upperBound(bounds?: WindowUpperBounds | Date | null): { lt: Date } | { lte: Date } | null {
+  if (!bounds) return null;
+  if (bounds instanceof Date) return { lte: bounds };
+  if (bounds.endExclusive) return { lt: bounds.endExclusive };
+  if (bounds.end) return { lte: bounds.end };
+  return null;
+}
+
+/**
  * Optional date-range where-fragment for a Prisma date column. Returns `{}` when neither bound is
- * given (the query stays unbounded), else `{ [field]: { gte?, lte? } }` carrying only the bounds that
- * are present. Single-sources the windowed `{ ...(start ? { gte } : {}), ...(end ? { lte } : {}) }`
- * spread the rollup queries hand-rolled per call site; `field` selects the column (`scannedAt` by
- * default, `createdAt` for the recommendation-event query). Spread the result into a `where` object.
+ * given (the query stays unbounded), else `{ [field]: { gte?, lt?/lte? } }` carrying only the bounds
+ * that are present. Single-sources the windowed spread the rollup queries hand-rolled per call site;
+ * `field` selects the column (`scannedAt` by default, `createdAt` for the recommendation-event
+ * query). Spread the result into a `where` object.
+ *
+ * `start` is passed separately from `bounds` because several callers clamp the lower edge to the
+ * plan's retention cutoff while the upper edge still comes from the caller's window. Pass the whole
+ * `OrgWindow` as `bounds` so the half-open `endExclusive` is honored (see {@link upperBound}).
  */
 export function dateRange<F extends string = "scannedAt">(
   start?: Date | null,
-  end?: Date | null,
+  bounds?: WindowUpperBounds | Date | null,
   field: F = "scannedAt" as F,
-): { [K in F]?: { gte?: Date; lte?: Date } } {
-  const out: { [K in F]?: { gte?: Date; lte?: Date } } = {};
-  if (!start && !end) return out;
-  const range: { gte?: Date; lte?: Date } = {};
-  if (start) range.gte = start;
-  if (end) range.lte = end;
-  out[field] = range;
+): { [K in F]?: { gte?: Date; lte?: Date; lt?: Date } } {
+  const out: { [K in F]?: { gte?: Date; lte?: Date; lt?: Date } } = {};
+  const upper = upperBound(bounds);
+  if (!start && !upper) return out;
+  out[field] = { ...(start ? { gte: start } : {}), ...(upper ?? {}) };
   return out;
 }
 

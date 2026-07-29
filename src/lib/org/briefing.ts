@@ -188,10 +188,19 @@ export async function buildExecBriefing(
   // EXEC-4: the immediately-preceding equal-length window — its END state is the start of this one,
   // so current-minus-prior reads as movement across the period (per dimension + headline). Only when
   // the window has a start (all-time has no "previous period").
+  //
+  // The two windows ABUT, so this is the one place the half-open policy is load-bearing rather than
+  // cosmetic: the prior period's upper bound is `endExclusive: window.start`, the exact instant the
+  // current period's `gte: start` claims. With the old inclusive `end: window.start` a scan landing
+  // precisely on the boundary was counted on BOTH sides — as the prior period's end state AND as the
+  // current fleet — so the reported movement across the boundary was measured against itself (delta 0
+  // where there was real movement). `[start, endExclusive)` partitions cleanly.
   const priorWindow: OrgWindow | undefined = window?.start
     ? {
-        start: new Date(window.start.getTime() - ((window.end ?? new Date()).getTime() - window.start.getTime())),
-        end: window.start,
+        start: new Date(
+          window.start.getTime() - ((window.endExclusive ?? window.end ?? new Date()).getTime() - window.start.getTime()),
+        ),
+        endExclusive: window.start,
       }
     : undefined;
 

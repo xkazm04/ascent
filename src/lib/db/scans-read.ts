@@ -20,6 +20,7 @@ import type {
   ScanReport,
   TechStack,
 } from "@/lib/types";
+import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
@@ -113,10 +114,12 @@ export function scanContentKey(input: {
  * fails BOTH ways — two genuinely different sha-less scores landing in the same millisecond collided
  * and the second was silently dropped, while a reused/injected clock value could suppress a legitimate
  * re-score. The persist path now dedups only when the timestamp AND the content agree, so a same-ms
- * DIFFERENT result is persisted as the distinct scan it is. (Timestamp+content is a read-then-decide
- * key, not a DB constraint: two concurrent instances can still both insert a sha-less row, because
- * `@@unique([repoId, headSha])` does not engage on a NULL headSha. Closing that needs a persisted,
- * indexed idempotency column — a schema migration — and is still tracked as a follow-up.)
+ * DIFFERENT result is persisted as the distinct scan it is.
+ *
+ * This read is the FAST PATH only. The cross-instance half — two instances that both read "nothing
+ * there yet" and both insert — is now closed by the persisted {@link scanDedupKey} column and its
+ * `@@unique([repoId, dedupKey])` constraint, whose P2002 loser is recovered by
+ * {@link findScanByDedupKey}. (G3-01)
  */
 export async function findScanByScannedAt(
   repoId: string,
@@ -153,6 +156,47 @@ export async function findScanByScannedAt(
       dimensions: row.dimensions,
     }),
   };
+}
+
+/** Version prefix on {@link scanDedupKey}. Bump it if the identity inputs ever change: old and new keys
+ *  then simply never collide, instead of two different definitions silently deduping against each other. */
+const DEDUP_KEY_VERSION = "v1";
+
+/**
+ * The persisted, indexed IDEMPOTENCY key for a SHA-LESS scan — the cross-instance half of the sha-less
+ * dedup (G3-01).
+ *
+ * `@@unique([repoId, headSha])` is what makes a same-commit race lose with P2002 rather than insert a
+ * second metered row, but Postgres treats NULLs as distinct, so it never engages for a scan with no
+ * resolvable commit. {@link findScanByScannedAt} closed the WITHIN-process half (read, compare content,
+ * decide); this closes the cross-instance half by giving the row an identity the DATABASE can enforce:
+ * the same `(scannedAt, contentKey)` pair can be persisted at most once per repo, whichever instance
+ * gets there first. The loser's insert fails with P2002 and re-reads the winner — the same recovery the
+ * sha path already had.
+ *
+ * SHA-256 rather than the raw canonical string (which {@link scanContentKey} deliberately stays, because
+ * it is only ever compared for equality in memory): this value lives in a UNIQUE INDEX, so a fixed
+ * 64-hex length keeps the index bounded no matter how many dimensions a scan carries. Pure and
+ * deterministic — the persist path derives it from the in-memory report and the recovery path re-derives
+ * the identical string.
+ */
+export function scanDedupKey(scannedAt: Date, contentKey: string): string {
+  const stamp = Number.isFinite(scannedAt.getTime()) ? scannedAt.toISOString() : "invalid-date";
+  return `${DEDUP_KEY_VERSION}:${createHash("sha256").update(`${stamp}|${contentKey}`).digest("hex")}`;
+}
+
+/**
+ * Recover the WINNER of a cross-instance sha-less race: the scan already persisted under this
+ * `(repoId, dedupKey)`. Called only from the P2002 branch of persistScanReport, where the unique
+ * constraint just told us a row with this exact identity exists. Mirrors {@link findScanByCommit}.
+ */
+export async function findScanByDedupKey(repoId: string, dedupKey: string): Promise<{ id: string } | null> {
+  if (!isDbConfigured()) return null;
+  return getPrisma().scan.findFirst({
+    where: { repoId, dedupKey },
+    orderBy: SCAN_ORDER,
+    select: { id: true },
+  });
 }
 
 /**

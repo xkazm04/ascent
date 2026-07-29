@@ -212,6 +212,28 @@ describe("session installation checks (scan-token IDOR)", () => {
     expect(await sessionOwnsOrg("acme")).toBe(false);
     expect(await sessionHasInstallation(1)).toBe(false);
   });
+
+  // G8-51 — these comparisons lowercase the SESSION side without trimming it, and that asymmetry is
+  // deliberate. The caller-supplied org IS normalized (trim + lowercase); the session side is GitHub's
+  // own `account.login`, carried in an HMAC-signed cookie, so it can hold neither whitespace nor an
+  // attacker's choice of string. Trimming it could therefore only matter in a world where it IS
+  // attacker-writable — and there it would WIDEN the gate. These pin the fail-closed direction.
+  it("a whitespace-padded session login does NOT match the org (untrimmed = fail closed)", async () => {
+    mockGetSession.mockResolvedValue(sessionWith([" acme"]));
+    expect(await sessionOwnsOrg("acme")).toBe(false);
+    expect(await sessionOwnsOrg(" acme ")).toBe(false); // the org side IS trimmed → still no match
+    mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
+    expect((await requireOrgAccess("acme"))?.status).toBe(403);
+  });
+
+  it("the ORG argument is still normalized on both gates (trim + case)", async () => {
+    mockGetSession.mockResolvedValue(sessionWith(["acme"]));
+    expect(await sessionOwnsOrg("  ACME  ")).toBe(true);
+    mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
+    expect(await requireOrgAccess("  ACME  ")).toBeNull();
+  });
 });
 
 /**

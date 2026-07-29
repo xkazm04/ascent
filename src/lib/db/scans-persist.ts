@@ -16,7 +16,13 @@ import {
   upsertRacing,
   withRepoLock,
 } from "@/lib/db/scans-shared";
-import { findScanByCommit, findScanByScannedAt, scanContentKey } from "@/lib/db/scans-read";
+import {
+  findScanByCommit,
+  findScanByDedupKey,
+  findScanByScannedAt,
+  scanContentKey,
+  scanDedupKey,
+} from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
@@ -186,6 +192,9 @@ export async function persistScanReport(
     // Dedup: if this exact commit was already scored, reuse it — no second (metered) Scan row. The
     // repo's metadata + lastScanAt were already refreshed above (so the UI still shows "up to date").
     let upgradeOldScanId: string | null = null;
+    // The persisted idempotency key for a SHA-LESS row (G3-01). Stays null for a sha-bearing scan, which
+    // is governed by @@unique([repoId, headSha]) instead — one dedup identity per row, never two.
+    let dedupKey: string | null = null;
     if (headSha) {
       const existing = await findScanByCommit(repo.id, headSha);
       if (existing) {
@@ -227,6 +236,9 @@ export async function persistScanReport(
         engineModel: report.engine.model,
         dimensions: report.dimensions.map((d) => ({ dimId: d.id, score: d.score })),
       });
+      // The SAME identity, persisted: the read below is the fast path, and this key is what a CONCURRENT
+      // instance collides with at the DB when both passed that read. (@@unique([repoId, dedupKey]))
+      dedupKey = scanDedupKey(scannedAtDate, contentKey);
       const existing = await findScanByScannedAt(repo.id, new Date(report.scannedAt));
       if (existing) {
         // Mirror the sha branch's engine-UPGRADE rule (scan-persistence-history 07-16 #2): a LIVE
@@ -289,6 +301,8 @@ export async function persistScanReport(
           data: {
             repoId: repo.id,
             headSha,
+            // Sha-less rows only (null otherwise) — the cross-instance idempotency key. See scanDedupKey.
+            dedupKey,
             overallScore: report.overallScore,
             level: report.level.id,
             levelName: report.level.name,
@@ -470,13 +484,22 @@ export async function persistScanReport(
       { timeout: 20_000, maxWait: 10_000 },
     );
     } catch (err) {
-      // Cross-instance same-commit race: the @@unique([repoId, headSha]) constraint rejected our
-      // insert with P2002 because another instance committed the identical commit between our dedup
-      // read and our insert. Re-read the winner and treat it as a dedup — no duplicate Scan row, no
-      // second metered charge. (The process-local lock is the fast path; this constraint is the
-      // cross-instance backstop the read-then-insert dedup lacked.) Any other error propagates.
-      if (headSha && isUniqueConstraintError(err)) {
-        const winner = await findScanByCommit(repo.id, headSha);
+      // Cross-instance same-report race: a unique constraint rejected our insert with P2002 because
+      // another instance committed the identical scan between our dedup read and our insert. Re-read the
+      // winner and treat it as a dedup — no duplicate Scan row, no second metered charge. (The
+      // process-local lock is the fast path; these constraints are the cross-instance backstop the
+      // read-then-insert dedup lacked.) Any other error propagates.
+      //
+      // TWO identities, one per row shape (G3-01): a sha-bearing scan collides on
+      // @@unique([repoId, headSha]); a SHA-LESS one on @@unique([repoId, dedupKey]) — the branch that
+      // used to be missing entirely, because NULLs are distinct in Postgres so the headSha constraint
+      // could never fire for it and the `headSha &&` guard re-threw a duplicate as a 500.
+      if (isUniqueConstraintError(err)) {
+        const winner = headSha
+          ? await findScanByCommit(repo.id, headSha)
+          : dedupKey
+            ? await findScanByDedupKey(repo.id, dedupKey)
+            : null;
         if (!winner) throw err;
         scanId = winner.id;
         dedupedByRace = true;

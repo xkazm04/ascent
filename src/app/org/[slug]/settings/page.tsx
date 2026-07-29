@@ -1,6 +1,7 @@
 import { LlmProviderSettings } from "@/components/org/settings/LlmProviderSettings";
 import { OpenRouterByomSettings } from "@/components/org/settings/OpenRouterByomSettings";
 import { ModelScorecard } from "@/components/org/settings/ModelScorecard";
+import { DataErasureCard } from "@/components/org/settings/DataErasureCard";
 import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
@@ -35,6 +36,9 @@ export default async function OrgSettings({ params }: { params: Promise<{ slug: 
         encryptionConfigured={isEncryptionConfigured()}
       />
       <ModelScorecard />
+      {/* Compliance actions last, and only here: the settings page is owner-gated above, so a
+          non-owner never renders this control at all (rather than seeing it disabled). */}
+      <DataErasureCard slug={slug} />
     </div>
   );
 }

@@ -6,9 +6,9 @@
 // Retention is opt-in: with no RETENTION_* env vars and no per-org override set, every window is
 // 0 and this is a no-op. See src/lib/db/retention.ts and docs/features/fleet/enterprise.md.
 
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { isDbConfigured, purgeExpiredData } from "@/lib/db";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,34 +20,16 @@ export const dynamic = "force-dynamic";
 // function cap — on a lower-capped plan set RETENTION_TIME_BUDGET_MS below the REAL cap.
 export const maxDuration = 300;
 
-/**
- * Constant-time compare for the cron secret. A length mismatch returns false WITHOUT calling
- * timingSafeEqual (which throws on unequal-length buffers) — the length is not the secret. Replaces a
- * plain `!==`, which is a timing oracle on a token that authorizes a DELETE-everything endpoint.
- */
-function secretMatches(presented: string, expected: string): boolean {
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    // Fail closed: a missing/empty CRON_SECRET must NOT leave this endpoint open. The check was
-    // opt-in (`if (secret)`), so a forgotten env var on a new deploy silently disabled auth on a
-    // route that DELETES data under the retention policy. Refuse rather than run unauthed.
-    return NextResponse.json({ error: "Cron is not configured (CRON_SECRET unset)." }, { status: 503 });
-  }
-  // Accept ONLY the `Authorization: Bearer` header — the secret must NOT be accepted as a `?key=`
-  // query param. Query strings are routinely captured by access/CDN/proxy logs, browser history, and
-  // Referer headers, so a secret on that channel can authorize a destructive purge from places the
-  // Authorization header never reaches. Compare in constant time (see secretMatches) rather than `!==`.
-  const auth = request.headers.get("authorization") ?? "";
-  const presented = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-  if (!presented || !secretMatches(presented, secret)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  // Fail-closed CRON_SECRET gate (503 when unset/empty, 401 on a bad credential), header-only and
+  // compared in constant time. This route hand-rolled that check because the shared helper used to be
+  // WEAKER (it accepted `?key=` and compared with `!==`); G8-48 promoted the strict contract into
+  // requireCronAuth, so the destructive purge and the other cron handlers can no longer drift apart.
+  // The `?key=` channel remains refused by default — query strings are routinely captured by
+  // access/CDN/proxy logs, browser history and Referer headers, so a secret there could authorize a
+  // DELETE-everything run from places the Authorization header never reaches.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
   if (!isDbConfigured()) {
     // A DB-unconfigured deploy must NOT report a green 200 (data-retention 07-16 #4): the handler's own
     // invariant is "degraded is never green" (207/500 below) because cron monitors only watch the HTTP

@@ -94,6 +94,15 @@ async function runScan(
   // Supabase login wall — private/org scans only. A non-public orgSlug means an installation token
   // was resolved (a private/tenant scan), which is a gated feature; anonymous public scans stay free
   // and no-signup. No-op when the gate is disabled (Supabase unconfigured / dev bypass).
+  //
+  // G8-49 — this is the ONE gate that deliberately still precedes the burst limiter, so an anonymous
+  // caller who supplies an `installationId` for an installed org gets 401 here where the stream would
+  // answer 429. Not an oversight: the limiter cannot move above it (it must sit after the free
+  // cache/peek returns, which need the resolved token), so unifying would mean moving THIS wall down
+  // past `resolveScanScope` below — and that would let an unauthenticated caller drive a GitHub ref
+  // resolve against a PRIVATE repo through the installation token, confirming which branches exist.
+  // A private-repo existence oracle is a worse outcome than a status-code difference on a request that
+  // is rejected either way. The public funnel — every anonymous scan — is fully unified below.
   if (orgSlug !== "public" && authGateEnabled() && !(await getViewer())) {
     return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
   }
@@ -219,6 +228,28 @@ async function runScan(
     );
   }
 
+  // ── PRE-SCAN GATES: rate limit → sign-in wall → quota ────────────────────────────────────────
+  // This ORDER IS UNIFIED with /api/scan/stream (G8-49). It used to be sign-in wall → rate limit here
+  // and rate limit → sign-in wall there, so one throttled anonymous request got 401 from this route and
+  // 429 from the other, and only the stream recorded the `rate_limit` quota event. The limiter is the
+  // cheaper, more truthful answer ("the system is at capacity" is true regardless of who is asking),
+  // signing in does not lift a burst limit, and a 401 sends a throttled caller into a sign-in flow that
+  // cannot help. See scan-gates.ts for the full rationale.
+  //
+  // What is preserved from the old order is the PLACEMENT, not the sequence: the limiter still sits
+  // AFTER the free cache-hit / peek / salvage returns above, so hydrating a saved report is still
+  // unthrottled and still costs nothing. The two constraints were never in conflict — "after the free
+  // returns" and "before the sign-in wall" can both hold, and now do.
+  //
+  // Rate-limit the EXPENSIVE path only. A flood of distinct, cache-busting (?fresh=1) scans is the main
+  // cost-abuse vector; cap per-IP + global LLM spend here. Shared with /api/scan/stream via
+  // scanRateLimitGate (cross-instance ceiling + the rate_limit quota event); rendered here as this
+  // route's JSON 429. Stays BEFORE the quota consume below so throttled traffic can't burn a free slot.
+  if (opts.req) {
+    const rl = await scanRateLimitGate(opts.req);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  }
+
   // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,
   // so viewing a SAVED report, a permalink, or the badge stays free; only a REAL new scan (which
   // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.
@@ -229,9 +260,6 @@ async function runScan(
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
 
-  // Rate-limit the EXPENSIVE path only — a cache hit / peek above already returned for free. A
-  // flood of distinct, cache-busting (?fresh=1) scans is the main cost-abuse vector; cap per-IP +
-  // global LLM spend here so the cheap hydration paths stay unthrottled.
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
   let quotaScope: QuotaScope | null = null;
@@ -239,16 +267,11 @@ async function runScan(
   // free tier meters on commit, not attempt (same policy as credit metering).
   let refundQuota = async () => {};
   if (opts.req) {
-    // Shared with /api/scan/stream via scanRateLimitGate (cross-instance ceiling + the rate_limit quota
-    // event); rendered here as this route's JSON 429. Stays BEFORE the quota consume below.
-    const rl = await scanRateLimitGate(opts.req);
-    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
-
     // Monthly SOFT gate (rolling 30-day window, default 5 — the single source of truth for the window
-  // and allowance is src/lib/public-scan-quota.ts): public scans get a free per-window allowance
-  // (shared with /api/scan/stream via
-    // consumeScanQuota). A cache hit / peek above already returned for free; private (token) scans are
-    // credit-metered below. Consume one slot here, on the same expensive path as the burst limiter.
+    // and allowance is src/lib/public-scan-quota.ts): public scans get a free per-window allowance
+    // (shared with /api/scan/stream via consumeScanQuota). A cache hit / peek above already returned
+    // for free; private (token) scans are credit-metered below. Consume one slot here, on the same
+    // expensive path as the burst limiter.
     const quota = await consumeScanQuota(opts.req, { orgSlug, token, mock: opts.mock });
     if (quota.blocked) return quota.blocked;
     quotaRemaining = quota.quotaRemaining;

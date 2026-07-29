@@ -58,6 +58,28 @@ Both routes reject an unparseable repo URL with `400 { code: "INVALID_URL" }` *b
 quota is consumed, so a typo can never burn one of the free tier's monthly scan slots. (On
 `/api/scan` this is checked after the cache-only `peek=1` probe, which keeps its cheap `204`.)
 
+**Pre-scan gates — the same order on both routes** (`src/lib/scan-gates.ts`):
+
+```
+rate limit  →  sign-in wall  →  monthly quota
+   429            401              429 { code: "monthly_quota" }
+```
+
+A caller who trips more than one gate gets the **first** one, so a throttled anonymous caller sees
+`429` with `Retry-After` on **both** routes — not `401` on one and `429` on the other, which is what
+they returned before the orders were unified. Rate limit wins the tie because it is the truthful
+answer (the shared scan budget is exhausted regardless of who is asking) and signing in would not
+lift it. The limiter also always precedes the quota counter, so a throttled request never burns a
+free monthly slot, and it records a `rate_limit` quota event on both routes.
+
+The two routes differ only in *where* that sequence sits: `/api/scan` runs it **after** its free
+cache-hit / `peek=1` / salvage returns, so hydrating a saved report stays unthrottled and free even
+while the burst budget is exhausted; `/api/scan/stream` runs it at the top of the handler, since
+reaching the stream already means a real scan. One deliberate exception: on `/api/scan` a
+**private/installation** scan's sign-in wall still runs before the limiter (moving it later would let
+an unauthenticated caller drive a GitHub ref resolve against a private repo), so an anonymous caller
+passing `installationId` while throttled gets `401` there and `429` on the stream.
+
 **SSE protocol** (`/api/scan/stream`): named events on the stream —
 
 - `progress` — `{ stage, message, pct, provider?, region?, fallback? }` where `stage` ∈

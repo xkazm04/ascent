@@ -149,7 +149,16 @@ export function UsageDashboard({
               <p className="text-slate-500">No scans in this period.</p>
             ) : (
               <>
-                <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="var(--color-tone-flat)" pattern />
+                {/* publicScans = periodScans - billable (G1-08), so this bucket is "free" as a whole —
+                    public repos plus any private scan that ran keyless/mock or on the org's own BYOM
+                    provider — not literally just public-repo scans (G1-38). */}
+                <Bar
+                  label="Free (public + mock/BYOM)"
+                  value={usage.publicScans}
+                  total={usage.periodScans}
+                  color="var(--color-tone-flat)"
+                  pattern
+                />
                 <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
               </>
             )}

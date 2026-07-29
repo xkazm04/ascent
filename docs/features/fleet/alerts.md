@@ -113,12 +113,14 @@ silent rather than training the inbox filter.
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
   and a soft deadline (270s) — past it, remaining orgs are counted as `remaining` instead of
   silently dropped when the platform kills the function.
-- **`CRON_SECRET` auth** — fails closed: a missing/empty `CRON_SECRET` 503s rather than
-  running unauthenticated. The secret must be presented as an `Authorization: Bearer <secret>`
-  header (never a `?key=` query param, which routinely lands in access/CDN/proxy logs and
-  Referer headers) and is compared with a constant-time `timingSafeEqual` (length-mismatch
-  short-circuits without calling it, since `timingSafeEqual` throws on unequal-length
-  buffers).
+- **`CRON_SECRET` auth** — via the shared `requireCronAuth` gate (`src/lib/cron-auth.ts`),
+  which this route hand-rolled until G8-48 promoted the strict contract into the helper. Fails
+  closed: a missing/empty `CRON_SECRET` 503s rather than running unauthenticated. The secret
+  must be presented as an `Authorization: Bearer <secret>` header (never a `?key=` query param,
+  which routinely lands in access/CDN/proxy logs and Referer headers — accepted only behind the
+  temporary `CRON_ALLOW_QUERY_KEY=1` deprecation hatch, which warns on every use) and is
+  compared with a constant-time `timingSafeEqual` (length-mismatch short-circuits without
+  calling it, since `timingSafeEqual` throws on unequal-length buffers).
 - **At-most-once per window** — an atomic conditional-insert claim (`claimOrgAuditOnce` /
   `releaseAuditClaim`, `src/lib/db/scans-audit.ts`) against the `org.digest.sent` audit
   action guards against double-sends from a platform retry or an overlapping schedule fire;

@@ -1637,7 +1637,8 @@
             "src/components/credit/WatchCostTail.tsx",
             "src/components/org/shared/CreditsControl.sections.tsx",
             "src/components/org/shared/CreditsControl.test.tsx",
-            "src/lib/scan-credit.ts"
+            "src/lib/scan-credit.ts",
+            "src/lib/db/org-settings.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1705,7 +1706,12 @@
             "src/app/api/cron/purge/route.ts",
             "src/app/api/cron/purge/route.test.ts",
             "src/lib/cron-auth.test.ts",
-            "src/lib/cron-auth.ts"
+            "src/lib/cron-auth.ts",
+            "src/components/org/settings/DataErasureCard.tsx",
+            "src/components/org/settings/DataErasureCard.test.tsx",
+            "src/components/org/settings/DataErasureDialog.tsx",
+            "src/components/org/settings/DataErasureOutcome.tsx",
+            "src/app/org/[slug]/settings/page.test.tsx"
           ],
           "target": null,
           "apiRoutes": [

@@ -62,10 +62,22 @@ in [`.env.example`](../.env.example).
 3. **Local DB, no install:** keep the default `PGLITE_DATA_DIR=.pglite/ascent` — an
    embedded in-process Postgres-in-WASM that `npm run dev` boots via
    `src/instrumentation.ts`. `DATABASE_URL` must still be set, but a dummy is fine
-   (the PGlite driver adapter provides the connection; the URL is ignored). Then
-   `npm run db:push`, and `npm run db:local:seed` for real data.
+   (it gates `isDbConfigured`; the PGlite driver adapter provides the actual
+   connection and the URL is ignored). Then `npm run db:local:seed` for real data.
+
+   **Do not run `npm run db:push` on the PGlite path.** There is no server for Prisma
+   to connect to, so it fails — with a dummy `DATABASE_URL` it cannot reach a database,
+   and with none set it exits `P1012 Environment variable not found: DATABASE_URL`.
+   The embedded schema is applied a different way: `pglite-boot.ts` execs
+   `prisma/init.sql` on **every** boot, rewriting `CREATE TABLE`/`CREATE INDEX` to
+   `… IF NOT EXISTS`, so **a new table or index reaches an existing data dir just by
+   restarting `npm run dev`.** A new *column* on an existing table is the one case that
+   does not (`CREATE TABLE IF NOT EXISTS` skips the table) — the boot detects that and
+   logs `[pglite] SCHEMA DRIFT: …`, naming the cure: wipe the data dir, or apply a
+   manual `ALTER TABLE … ADD COLUMN`.
+
    *Prefer a real Postgres?* `docker compose up -d`, set the real `DATABASE_URL`,
-   and unset `PGLITE_DATA_DIR`.
+   unset `PGLITE_DATA_DIR` — **that** is when `npm run db:push` applies.
 4. Create the **GitHub App** (#D) → point its URLs at your `{host}` → fill the four
    `GITHUB_APP_*` vars → install via `/connect` → scan a **private** repo (becomes
    billable in `/usage`).

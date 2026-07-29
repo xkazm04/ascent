@@ -6,7 +6,7 @@
 // (/api/report/skill) is unchanged and remains the fallback for repos without the App installed.
 //
 // Sibling of /api/report/passport/pr and deliberately identical in its gate chain (db + App configured,
-// same-origin, signed-in, org-owned, org access, installation token) — it is the same customer-repo
+// same-origin, signed-in, org-owned, org ADMIN, installation token) — it is the same customer-repo
 // WRITE surface, so it reuses the same helpers (requirePrWriteContext / mapPrWriteError / openDraftPr
 // via openFoundationPr) rather than forking a second client.
 
@@ -15,7 +15,7 @@ import { isAppConfigured } from "@/lib/github/app";
 import { getScanReportByCommit, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { PUBLIC_ORG, isAuthConfigured, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { buildFoundation } from "@/lib/standard";
 import { openFoundationPr } from "@/lib/standard/pr";
@@ -48,8 +48,13 @@ export async function POST(request: Request) {
   if (org === PUBLIC_ORG) {
     return NextResponse.json({ error: "Foundation PRs are only for org-owned repositories." }, { status: 403 });
   }
-  // Opening a PR is a WRITE with the org's installation token — gate on org access.
-  const denied = await requireOrgAccess(org);
+  // Opening a PR is a WRITE into a customer repo with the org's installation token, so this needs the
+  // SAME gate as /api/practices/apply{,-batch}: at least the "admin" role, not merely membership. It
+  // used to be requireOrgAccess (member), which left one action with two gates once those routes were
+  // tightened. The blast radius is if anything larger here — the foundation seeds a whole `.ai/` tree
+  // including a CI workflow, and "the caller can already READ this repo" is not the question; the write
+  // is. Draft status is a review convenience, not an authorization boundary.
+  const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
 
   // The foundation is generated FROM the persisted scan (commands, archetype, freshness anchors), so a

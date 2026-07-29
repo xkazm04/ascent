@@ -144,6 +144,14 @@ inside the window on one surface and outside it on another, and a backlog item c
    is the canonical upper bound; `ResolvedWindow.end` survives only as its last
    representable instant (`endExclusive − 1ms`) for call sites whose Prisma filter still
    says `lte`. New code should use `endExclusive` with `lt`.
+   **`OrgWindow` — the shape the db layer queries with — now carries `endExclusive` too**, and
+   `upperBound()` (`src/lib/db/org-shared.ts`) turns a window into `lt: endExclusive`, falling
+   back to `lte: end` only for callers that have nothing else. Every fleet aggregate
+   (`getOrgRollup`, `getOrgMovers`, `getOrgTeamRollup`, `getOrgRepoHistories`,
+   `getOrgEngineMix`, `getOrgRecsActioned`, `getOrgDeliveryTrend`) goes through it. This
+   matters where two windows **abut**: the executive briefing's prior period ends exactly
+   where the current one starts, and under the old inclusive bound a scan landing on that
+   boundary instant was counted on *both* sides.
 5. A **date literal** (a `yyyy-mm-dd` a human picked, or a date-only DB column such as
    `Recommendation.targetDate`) is *not* an instant. It is read back with
    `dayKeyOfDateColumn` (UTC getters — the frame it was written in) and only then compared
@@ -153,7 +161,7 @@ inside the window on one surface and outside it on another, and a backlog item c
    DST day is 23 or 25 hours, and the old `startOfDay(now − 90 × DAY)` could snap the 90d
    baseline to an adjacent calendar day depending on the render hour.
 
-**Primitives** — `orgTimeZone()`, `partsInZone`, `zonedMidnight`, `startOfDayInZone`,
+**Primitives** — `orgTimeZone()`, `resolveOrgTimeZone()`, `knownTimeZone()`, `partsInZone`, `zonedMidnight`, `startOfDayInZone`,
 `addDaysInZone`, `startOfQuarterInZone`, `dayKeyInZone`, `dayKeyOfDateColumn`,
 `parseDayKey`, `daysBetweenDayKeys`. Pure and isomorphic (no `next/headers`, no I/O), so
 `src/lib/window.ts` — which the client `TimeRangeSelector` also imports — can depend on it.
@@ -164,12 +172,21 @@ in `src/components/org/shared/backlogShared.ts`, so "Due within 31 days" can nev
 from the cutoff that produced it. The `this_month` enum key is historical — it has never
 meant a calendar month.
 
-**Known limit — per-org time zones.** The most correct answer is a zone stored per
-organization ("this org's Monday"), which needs an `Organization.timezone` column and a
-migration. Every primitive above already takes an explicit `tz` argument with
-`orgTimeZone()` only as the default, so wiring a persisted per-org value is a one-line
-change at each call site once the column exists. Until then the deployment-wide default is
-the policy.
+**Per-org zones (policy note 6).** `Organization.timezone` holds one org's IANA zone ("this
+org's Monday"). Resolution order is **column → `ASCENT_ORG_TZ` → UTC**, owned by
+`resolveOrgTimeZone(stored)`; never read the column at a call site, or the validation and the
+fallback order drift per surface — the exact defect class this policy exists to prevent. The
+storage accessors are `getOrgTimeZone(slug)` / `getOrgTimeZoneSetting(slug)` /
+`setOrgTimeZone(slug, tz)` in `src/lib/db/org-settings.ts` (`getOrgTimeZoneSetting` returns the
+raw column, so a settings UI can distinguish "inherited" from "explicitly UTC"). An invalid zone
+is rejected on **write**; an unknown one already stored still degrades to the default on read
+rather than throwing mid-render.
+
+The column is nullable and nothing was backfilled, so every existing org inherits the deployment
+default exactly as before. Routed through it today: the backlog's due-date bucketing
+(`getOrgBacklog` → `daysUntil`/`dueBucketFor`, which now take an optional `tz`) and the delivery
+trend's day buckets (`getOrgDeliveryTrend` → `buildDeliveryTrend`). Other surfaces still resolve
+via the deployment default until they are threaded the same way.
 
 **Not yet routed through the policy** (each still uses its own frame; safe under the UTC
 default, would diverge the moment `ASCENT_ORG_TZ` is set):

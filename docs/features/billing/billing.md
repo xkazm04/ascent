@@ -196,15 +196,25 @@ balance-driven.**
   **off**); `threshold` is the balance at which to warn (1…10,000, default **5**, matching
   `CREDITS_ALERT_THRESHOLD` so the in-app warning and the Slack low-credit push agree); `packProductId`
   is the pack the one-click top-up offers.
-- **Where it lives** — the **audit trail**. There is no org-settings JSON column on `Organization` (and
-  adding one is a migration), so each save appends one `billing.autorecharge` `AuditLog` row and the
-  org's *most recent* such row **is** the current preference. Durable, per-org, and it carries the actor
-  + timestamp of a billing-adjacent setting change for free.
+- **Where it lives** — `Organization.autoRechargeJson`, a real column (JSON-in-TEXT, matching
+  `gatePolicy`). Read and written through **`src/lib/db/org-settings.ts`** (`getOrgAutoRecharge` /
+  `setOrgAutoRecharge`) — every surface that needs the preference (the credits popover, this route, the
+  low-credit alert) goes through that accessor rather than touching storage.
+
+  It previously lived in the **audit trail**: each save appended a `billing.autorecharge` `AuditLog` row
+  and the most recent one *was* the preference. That worked, but it cost a `findMany` per read and put a
+  customer setting inside a table the retention purge is allowed to delete. The audit row is still
+  written on every change — as an audit record of *who* changed a billing-adjacent setting and *when*,
+  which is a feature in its own right. **No backfill was run**: `getOrgAutoRecharge` falls back to the
+  legacy audit row while the column is NULL, so an org that configured a threshold before the migration
+  keeps it, and the next save moves it into the column.
 - **`GET /api/billing/autorecharge?org=`** — read-gated; returns `{ pref, chargesAutomatically, source }`
   where `source` is `"stored"` or `"default"`. A missing/unreadable preference degrades to the default,
   which is **off** — failing to read a warning setting must never invent a warning.
 - **`PUT /api/billing/autorecharge`** — owner-gated + same-origin. An out-of-range `threshold` is a 400
-  (not a silent clamp); a failed audit write is a **503, never `ok: true`** — the row *is* the storage.
+  (not a silent clamp); a failed **column** write is a **503, never `ok: true`**. A failed *audit* write
+  is logged but no longer fails the save — the customer's setting is already durably persisted, so
+  reporting failure would be the lie in the other direction.
 - **The boundary** — `creditPressure({ balance, allowanceRemaining, pref })` returns one of
   `paused` (balance 0 **and** allowance spent) · `covered` (balance 0, monthly allowance still paying) ·
   `low` (balance still **positive** and `<= threshold`) · `ok`. `low` is the only state the preference

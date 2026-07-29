@@ -10,15 +10,18 @@
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, decodeSession, isSameOrigin, revokeOtherSessions } from "@/lib/auth";
+import { SESSION_COOKIE, decodeSession, requireSameOrigin, revokeOtherSessions } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  if (!isSameOrigin(request)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  // Canonical CSRF reject (G8-50) — same substitution as /api/auth/logout, and for the same reason:
+  // the only caller is connect/page.tsx's plain `<form method="post">` navigation, which never reads
+  // the 403 body (its success path is a 303 redirect). Body is now the shared
+  // `{error:"Cross-origin request rejected."}`.
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const raw = (await cookies()).get(SESSION_COOKIE)?.value;
   const session = raw ? decodeSession(raw) : null;
   // No valid session → nothing to revoke; bounce back to connect (303 so the form POST follows with GET).

@@ -12,8 +12,10 @@ import {
   dayKeyInZone,
   dayKeyOfDateColumn,
   daysBetweenDayKeys,
+  knownTimeZone,
   orgTimeZone,
   parseDayKey,
+  resolveOrgTimeZone,
   partsInZone,
   startOfDayInZone,
   startOfQuarterInZone,
@@ -42,6 +44,48 @@ describe("orgTimeZone — the policy default and its override", () => {
     process.env.ASCENT_ORG_TZ = "Mars/Olympus_Mons";
     __resetOrgTimeZoneCache();
     expect(orgTimeZone()).toBe("UTC");
+  });
+});
+
+// PER-ORG ZONES (policy note 6). The column `Organization.timezone` is nullable and every existing org
+// has NULL, so the whole point of these assertions is that the deployment default keeps applying
+// unchanged until an org explicitly opts in — and that a bad stored value can never 500 a dashboard.
+describe("resolveOrgTimeZone — the per-org column, layered over the deployment default", () => {
+  it("uses the org's stored zone when it names a zone this runtime knows", () => {
+    expect(resolveOrgTimeZone("America/New_York")).toBe("America/New_York");
+  });
+
+  it("falls back to the deployment default when the column is NULL — i.e. for every org today", () => {
+    expect(resolveOrgTimeZone(null)).toBe("UTC");
+    expect(resolveOrgTimeZone(undefined)).toBe("UTC");
+    expect(resolveOrgTimeZone("   ")).toBe("UTC");
+  });
+
+  it("layers over ASCENT_ORG_TZ rather than replacing it: column → env → UTC", () => {
+    process.env.ASCENT_ORG_TZ = "Europe/Prague";
+    __resetOrgTimeZoneCache();
+    expect(resolveOrgTimeZone(null)).toBe("Europe/Prague"); // no column → the deployment override wins
+    expect(resolveOrgTimeZone("Asia/Tokyo")).toBe("Asia/Tokyo"); // the org's own zone beats the env
+  });
+
+  it("degrades a hand-edited / unknown stored zone to the default instead of throwing mid-render", () => {
+    expect(resolveOrgTimeZone("Mars/Olympus_Mons")).toBe("UTC");
+    expect(resolveOrgTimeZone("'; DROP TABLE")).toBe("UTC");
+  });
+
+  it("actually CHANGES the day bucketing it is passed into (the value is load-bearing, not decorative)", () => {
+    // 23:30Z on the 18th is already the 19th in Tokyo. An org in Tokyo must see its own Monday.
+    const at = new Date("2026-06-18T23:30:00.000Z");
+    expect(dayKeyInZone(at, resolveOrgTimeZone(null))).toBe("2026-06-18");
+    expect(dayKeyInZone(at, resolveOrgTimeZone("Asia/Tokyo"))).toBe("2026-06-19");
+  });
+
+  it("knownTimeZone is the shared validator (null for unusable input, the name for a real zone)", () => {
+    expect(knownTimeZone("Asia/Tokyo")).toBe("Asia/Tokyo");
+    expect(knownTimeZone(" UTC ")).toBe("UTC");
+    expect(knownTimeZone("")).toBeNull();
+    expect(knownTimeZone(null)).toBeNull();
+    expect(knownTimeZone("Nowhere/Real")).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
@@ -176,12 +176,21 @@ export interface OrgRepoRow {
 
 /**
  * A time window for the org views. `start` doubles as the *baseline date* for period-over-period
- * deltas (the fleet snapshot we compare the present against); `end` bounds the present (null = now).
- * Omitting the window entirely preserves the all-time behavior (no baseline, full trend).
+ * deltas (the fleet snapshot we compare the present against); the upper bound bounds the present
+ * (null = now). Omitting the window entirely preserves the all-time behavior (no baseline, full trend).
+ *
+ * INTERVALS ARE HALF-OPEN — `[start, endExclusive)`, the canonical org policy (`src/lib/org/timezone.ts`,
+ * note 4) that `ResolvedWindow` already speaks. `endExclusive` is the bound to set; `end` remains only
+ * for callers that have nothing but the inclusive last instant. When both are present `endExclusive`
+ * wins (see `upperBound` in `org-shared.ts` for why `lte: end` is not equivalent under Postgres'
+ * microsecond timestamps).
  */
 export interface OrgWindow {
   start?: Date | null;
+  /** Inclusive last instant. Legacy — prefer `endExclusive`. */
   end?: Date | null;
+  /** Canonical half-open upper bound: the window is `[start, endExclusive)`. Wins over `end`. */
+  endExclusive?: Date | null;
 }
 
 export interface OrgRollup {
@@ -317,7 +326,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   if (!org) return null;
 
   const start = window?.start ?? null;
-  const end = window?.end ?? null;
+  // Half-open upper bound (`lt: endExclusive`, falling back to the legacy `lte: end`).
+  const upper = upperBound(window);
   // Segment AND tech-group filters compose — both narrow the same repo set (Feature 3b).
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
@@ -327,7 +337,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       scans: {
         // Bound the "current" snapshot to the window end (almost always now) so a custom range
         // that ends in the past reflects the fleet as it stood then.
-        where: end ? { scannedAt: { lte: end } } : undefined,
+        where: upper ? { scannedAt: upper } : undefined,
         orderBy: { scannedAt: "desc" },
         take: 1,
         include: { dimensions: { select: { dimId: true, score: true } } },
@@ -399,7 +409,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   const allScans = await prisma.scan.findMany({
     where: {
       repo: { orgId: org.id, ...seg },
-      ...dateRange(trendStart, end),
+      ...dateRange(trendStart, window),
     },
     select: { scannedAt: true, overallScore: true },
     orderBy: { scannedAt: "asc" },
@@ -560,7 +570,6 @@ export async function getOrgRepoHistories(
   if (!org) return [];
 
   const start = window?.start ?? null;
-  const end = window?.end ?? null;
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   // Same retention floor as the trend: never look further back than the plan buys.
   const retentionStart = retentionCutoff(org.plan, Date.now());
@@ -569,7 +578,7 @@ export async function getOrgRepoHistories(
   const scans = await prisma.scan.findMany({
     where: {
       repo: { orgId: org.id, ...seg },
-      ...(lower || end ? { scannedAt: { ...(lower ? { gte: lower } : {}), ...(end ? { lte: end } : {}) } } : {}),
+      ...dateRange(lower, window),
     },
     select: {
       overallScore: true,
@@ -669,12 +678,11 @@ export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segme
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const start = window?.start ?? null;
-  const end = window?.end ?? null;
   const groups = await prisma.scan.groupBy({
     by: ["engineProvider"],
     where: {
       repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-      ...dateRange(start, end),
+      ...dateRange(start, window),
     },
     _count: true,
   });
@@ -700,10 +708,9 @@ export async function getOrgRecsActioned(
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return { engaged: 0, actioned: 0 };
   const start = window?.start ?? null;
-  const end = window?.end ?? null;
   const scope = {
     kind: "status",
-    ...dateRange(start, end, "createdAt"),
+    ...dateRange(start, window, "createdAt"),
     recommendation: { scan: { repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } } },
   };
   const [engaged, actioned] = await Promise.all([

@@ -13,7 +13,18 @@ import { getInstallationIdForOwner, isDbConfigured, isPersonalOrg } from "@/lib/
 import { isAppConfigured, isOrgAdminViaInstallation } from "@/lib/github/app";
 import { ensureOwnerMembership, getMembershipRole, normalizeLogin, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
-/** True when the current session's installations include `org` (case-insensitive). */
+/**
+ * True when the current session's installations include `org` (case-insensitive).
+ *
+ * G8-51 — deliberately `.toLowerCase()` on the LEFT, not `normalizeLogin`. The caller-supplied side
+ * (`org`) IS normalized (trim + lowercase); the session side is not, and must not be. `i.login` is
+ * GitHub's own `account.login` from `GET /user/installations`, carried in an HMAC-signed httpOnly
+ * cookie that decodeSession verifies — so it is both grammatically incapable of holding whitespace
+ * (GitHub logins are `[A-Za-z0-9-]{1,39}`) and not attacker-writable. Trimming it could therefore only
+ * matter in a world where an attacker CAN write it, and there it would make this IDOR gate strictly
+ * MORE permissive: `" acme"` would start matching the org `acme`. Untrimmed fails closed. Same
+ * reasoning applies to the sibling comparison in requireOrgAccess.
+ */
 export async function sessionOwnsOrg(org: string): Promise<boolean> {
   const slug = normalizeLogin(org);
   const session = await getSession();
@@ -122,6 +133,9 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
   if (!session) {
     return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
   }
+  // `.toLowerCase()` without `.trim()` is intentional here — see sessionOwnsOrg's G8-51 note: the
+  // session side is signed-cookie GitHub data that cannot hold whitespace, and trimming it would only
+  // ever WIDEN this gate.
   if (!session.installations.some((i) => i.login.toLowerCase() === slug)) {
     return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
   }

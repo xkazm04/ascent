@@ -66,6 +66,21 @@ model Organization {
   brandName          String?
   brandColor         String?
   logoUrl            String?
+  // Canonical IANA time zone for THIS org's calendar-day math — window presets, custom-range parsing,
+  // trend day-keys and due-date bucketing (see src/lib/org/timezone.ts, which was written parameterized
+  // on an explicit `tz` for exactly this column). null = inherit the deployment-wide default
+  // (ASCENT_ORG_TZ, else UTC), which is what every existing row does, so behavior is unchanged until an
+  // org sets one. Validated against the runtime before use — an unknown zone degrades to the default
+  // rather than throwing inside a dashboard render.
+  timezone           String?
+  // Low-balance ("auto-recharge") preference as JSON in a TEXT column — the schema's no-jsonb
+  // DSQL-safety contract, mirroring `gatePolicy`. Shape: AutoRechargePref
+  // { enabled, threshold, packProductId } (src/components/org/shared/CreditsControl.autorecharge.ts).
+  // null = never set → DEFAULT_AUTO_RECHARGE (feature OFF). Previously the preference lived as the most
+  // recent `billing.autorecharge` AuditLog row, which cost a findMany per read and put a user SETTING
+  // inside the audit trail, where any retention/purge policy could silently erase it (G1-39). The audit
+  // row is still written on every change — as an audit row. Read via src/lib/db/org-settings.ts.
+  autoRechargeJson   String?
   githubInstallId    String?
   createdAt          DateTime @default(now())
 
@@ -104,18 +119,18 @@ model Organization {
 // row at all, which is what keeps this table sparse). `memoryId` points at the OrgMemory row written
 // through on each decision, so the rationale reaches connected agents and the scan prompt.
 model OrgDecision {
-  id        String   @id @default(uuid())
-  orgId     String
-  module    String // security | teams | passports | contributors
-  itemKey   String // deterministic identity of the finding within (orgId, module)
-  status    String   @default("open") // open | accepted | dismissed | snoozed
-  rationale String   @default("") // why — the payload agents actually learn from
-  title     String   @default("") // the finding's human title at decision time (survives its disappearance)
-  decidedBy String? // GitHub login
-  memoryId  String? // the OrgMemory row this decision wrote through to
+  id           String    @id @default(uuid())
+  orgId        String
+  module       String // security | teams | passports | contributors
+  itemKey      String // deterministic identity of the finding within (orgId, module)
+  status       String    @default("open") // open | accepted | dismissed | snoozed
+  rationale    String    @default("") // why — the payload agents actually learn from
+  title        String    @default("") // the finding's human title at decision time (survives its disappearance)
+  decidedBy    String? // GitHub login
+  memoryId     String? // the OrgMemory row this decision wrote through to
   snoozedUntil DateTime? // set when status = snoozed; the item re-enters the badge after this
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -165,11 +180,11 @@ model User {
 }
 
 model Membership {
-  id        String   @id @default(uuid())
-  orgId     String
-  userId    String
-  role      String   @default("member") // owner | admin | member | viewer
-  createdAt DateTime @default(now())
+  id           String    @id @default(uuid())
+  orgId        String
+  userId       String
+  role         String    @default("member") // owner | admin | member | viewer
+  createdAt    DateTime  @default(now())
   // Per-user-per-org "last looked at the fleet" watermark — the read state behind the Alerts chip's
   // movement count ("what moved since you last looked"). Nullable: a member who has never opened the
   // control has no watermark, and the movement window falls back to `createdAt` (since you joined)
@@ -237,6 +252,16 @@ model Repository {
   scanSchedule          String    @default("off") // off | daily | weekly | monthly
   lastScanAt            DateTime?
   nextScanAt            DateTime?
+  // The INTENDED autoscan slot — the cadence anchor, deliberately separate from `nextScanAt`.
+  // `nextScanAt` is dual-purpose: it is both the schedule AND the claim LEASE (claimRescan overwrites it
+  // with now+15min before the scan runs, advanceScheduleAfterFailure with now+6h), so by the time
+  // advanceToFullCadence settles a repo the intended slot is already gone and the next one was computed
+  // from Date.now() — every run's queue latency accumulated and "daily"/"weekly" drifted later forever
+  // (G3-13). This column is written ONLY by the cadence-setting paths, never by a lease, so settling
+  // anchors on the slot that was actually intended. null = legacy/never-scheduled row: the settle falls
+  // back to now-anchoring (today's exact behavior) and stamps the anchor for the next cycle. See
+  // nextSlotFrom in src/lib/db/org-watch.ts.
+  scanSlotAt            DateTime?
   // Outcome of the most recent scan ATTEMPT (bulk/cron), so the dashboard can tell "never scanned"
   // apart from "scanning is broken" (revoked token, deleted repo, rate-limited). Null until first try.
   lastScanStatus        String? // "ok" | "error"
@@ -340,30 +365,34 @@ model RepoContributor {
 // evidence; the raw logins stay internal so a sample can be re-verified against GitHub. Rows age out
 // under the org's normal retention window like every other scan artifact.
 model AiChange {
-  id           String   @id @default(uuid())
-  repoId       String
-  orgId        String // denormalized so the org-wide population is one query, not a join per repo
-  prNumber     Int
-  title        String
-  authorLogin  String?  // null for a deleted GitHub account
-  authorIsBot  Boolean  @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
+  id            String    @id @default(uuid())
+  repoId        String
+  orgId         String // denormalized so the org-wide population is one query, not a join per repo
+  prNumber      Int
+  title         String
+  authorLogin   String? // null for a deleted GitHub account
+  authorIsBot   Boolean   @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
   // How this PR was identified as AI-involved: "authored" (an AI agent opened it) or "marked" (an AI
   // marker in the title/body/labels — a human using a tool). Kept because the two carry very different
   // governance weight and an auditor will ask which one a sampled row was.
-  aiSignal     String
-  /** Tools named in the PR, comma-separated (from the same taxonomy prStats counts). */
-  aiTools      String   @default("")
-  state        String // OPEN | CLOSED | MERGED
-  mergedAt     DateTime?
+  aiSignal      String
+  /**
+   * Tools named in the PR, comma-separated (from the same taxonomy prStats counts).
+   */
+  aiTools       String    @default("")
+  state         String // OPEN | CLOSED | MERGED
+  mergedAt      DateTime?
   // THE CONTROL: was this AI-attributed change approved by a human before merge, and by whom.
   // `approved=false` with `approverLogin=null` is the finding an auditor is looking for.
-  approved     Boolean  @default(false)
+  approved      Boolean   @default(false)
   approverLogin String?
-  approvedAt   DateTime?
-  /** Reviews submitted on the PR (any state) — distinguishes "unreviewed" from "reviewed, not approved". */
-  reviewCount  Int      @default(0)
-  createdAt    DateTime // the PR's own creation time, not the row's
-  recordedAt   DateTime @default(now())
+  approvedAt    DateTime?
+  /**
+   * Reviews submitted on the PR (any state) — distinguishes "unreviewed" from "reviewed, not approved".
+   */
+  reviewCount   Int       @default(0)
+  createdAt     DateTime // the PR's own creation time, not the row's
+  recordedAt    DateTime  @default(now())
 
   repo Repository @relation(fields: [repoId], references: [id])
 
@@ -398,6 +427,19 @@ model Scan {
   id             String   @id @default(uuid())
   repoId         String
   headSha        String? // the commit the scan pinned to — powers /report/{owner}/{repo}@{sha} permalinks
+  // CROSS-INSTANCE idempotency key for SHA-LESS scans (G3-01). `@@unique([repoId, headSha])` is the
+  // cross-instance dedup backstop for a scan pinned to a commit, but Postgres treats NULLs as distinct,
+  // so it never engages when headSha is NULL — two concurrent instances persisting the same sha-less
+  // report both passed the read-then-insert dedup and both inserted a metered row. This column carries
+  // the report's own IDENTITY (scannedAt + the content key: score/level/axes/engine + per-dimension
+  // scores — see scanDedupKey in src/lib/db/scans-read.ts), so the SAME computed report can only exist
+  // once per repo no matter which instance wrote it, and the loser fails with P2002 and re-reads the
+  // winner (the identical recovery the sha path already has).
+  //
+  // SET ONLY ON SHA-LESS ROWS. A scan with a headSha leaves this NULL and stays governed by the
+  // (repoId, headSha) constraint — one dedup identity per row, never two competing ones. NULLs being
+  // distinct is what makes that (and the un-backfilled legacy rows) safe under the unique index.
+  dedupKey       String?
   overallScore   Int
   level          String // "L1".."L5"
   levelName      String
@@ -459,8 +501,21 @@ model Scan {
   // nullable, so sha-less scans (NULLs are distinct in Postgres) are unconstrained and fall back to
   // the scannedAt dedup. Replaces the plain @@index (a unique index also serves the lookup).
   @@unique([repoId, headSha])
+  // The SHA-LESS half of the same backstop (G3-01). Same mechanism, different identity: a sha-less scan
+  // carries `dedupKey` (scannedAt + content) instead of a commit, so a concurrent duplicate loses with
+  // P2002 and is recovered by findScanByDedupKey. NULL on every sha-bearing and every pre-migration row,
+  // and NULLs are distinct, so this constrains nothing that existed before it.
+  @@unique([repoId, dedupKey])
   @@index([repoId])
   @@index([repoId, scannedAt])
+  // The ORG-ROLLUP index (G4-17). getOrgRollup / the trend + baseline queries filter Scan by the org's
+  // whole repo set over a `scannedAt` window; every other index here LEADS on repoId, so none supports a
+  // range scan over the window — latency scaled with the fleet's total scan-row count instead of the
+  // window. A `scannedAt`-leading index gives the planner the range as the driving access path.
+  // Deliberately NOT the "denormalize orgId onto Scan" alternative the finding also lists: that needs a
+  // full backfill UPDATE over every existing Scan row (and a dual-write), which is exactly the kind of
+  // non-additive, populated-DB-hostile change this batch is required to avoid.
+  @@index([scannedAt])
 }
 
 model ScanDimension {

@@ -18,7 +18,7 @@ export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: s
   // Only rendered below when `done` is true, so row.level/row.overall are always defined here —
   // matches the original inline badge's guarantee (it was only referenced from the `done` branch too).
   const badge = done && (
-    <ScorePill level={row.level as LevelId} overall={row.overall as number} className="px-2 py-0.5 font-mono text-sm" />
+    <ScorePill level={row.level as LevelId} overall={row.overall as number} className="px-1.5 py-0.5 font-mono text-sm" />
   );
 
   // ONB-3: a completed scan is the payoff — let the user drill straight into the report it produced.

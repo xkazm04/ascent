@@ -27,7 +27,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { dateRange, getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
-import { dayKeyInZone, orgTimeZone } from "@/lib/org/timezone";
+import { dayKeyInZone, orgTimeZone, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { forecastInsufficiency, forecastTrajectory, type Trajectory } from "@/lib/maturity/forecast";
 import type { PrStats } from "@/lib/types";
 
@@ -285,7 +285,6 @@ export async function getOrgDeliveryTrend(
   if (!org) return null;
 
   const start = window?.start ?? null;
-  const end = window?.end ?? null;
   // Same retention floor as the maturity trend: never look back further than the plan buys.
   const retentionStart = retentionCutoff(org.plan, Date.now());
   const lower = retentionStart && (!start || retentionStart > start) ? retentionStart : start;
@@ -293,13 +292,15 @@ export async function getOrgDeliveryTrend(
   const scans = await prisma.scan.findMany({
     where: {
       repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-      ...dateRange(lower, end),
+      ...dateRange(lower, window),
     },
     select: { scannedAt: true, engineProvider: true, prStats: true, governance: true, repoId: true },
     orderBy: { scannedAt: "asc" },
   });
 
-  const points = buildDeliveryTrend(scans);
+  // Bucket the days in THIS org's canonical zone (its `timezone` column when set, else ASCENT_ORG_TZ,
+  // else UTC — resolveOrgTimeZone owns that order). buildDeliveryTrend was already parameterized on tz.
+  const points = buildDeliveryTrend(scans, resolveOrgTimeZone(org.timezone));
   if (!points.length) return null;
 
   const repoIds = new Set<string>();

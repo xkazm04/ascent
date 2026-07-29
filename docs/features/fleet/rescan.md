@@ -7,10 +7,17 @@ schedule is due, guarded by the shared `CRON_SECRET` (`src/lib/cron-auth.ts`,
 
 ## Auth
 
-`requireCronAuth` accepts `Authorization: Bearer <secret>` or `?key=<secret>`. It fails
-**closed**: a missing/empty `CRON_SECRET` returns 503 rather than silently running unauthed.
-This gate is shared with `/api/cron/purge` and `/api/cron/digest` so the three cron handlers
-can't drift apart.
+`requireCronAuth` accepts **only** an `Authorization: Bearer <secret>` header, compared in
+constant time (`crypto.timingSafeEqual`). It fails **closed**: a missing/empty `CRON_SECRET`
+returns 503 rather than silently running unauthed. This gate is shared with `/api/cron/purge`
+and `/api/cron/digest` — those two used to hand-roll a stricter check precisely because the
+shared helper was weaker; the helper now *is* the strict contract and both call it.
+
+The `?key=<secret>` query param is **no longer a credential channel** (G8-48): query strings
+land in access/CDN/proxy logs, browser history and `Referer` headers. Vercel Cron sends the
+bearer, so nothing scheduled was affected. A deployment whose own manual/retry tooling still
+sends `?key=` can set `CRON_ALLOW_QUERY_KEY=1` as a temporary deprecation hatch — every
+accepted query-param auth logs a warning naming the fix.
 
 ## Flow
 
@@ -30,9 +37,11 @@ can't drift apart.
 4. Per repo:
    1. **`claimRescan(repoId, scanSchedule)`** — claim-before-work: atomically advances
       `nextScanAt` to a short lease window only while the repo is still due. If another
-      overlapping cron run (or a manual `?key=` retry) already claimed it, this returns
+      overlapping cron run (or a manual bearer-authed retry) already claimed it, this returns
       `false` and the repo is skipped (`skippedAlreadyClaimed`). Cross-instance safe (DB-level
-      `updateMany` with a `WHERE ... nextScanAt <= now` guard).
+      `updateMany` with a `WHERE ... nextScanAt <= now` guard). The claim writes **only**
+      `nextScanAt` — `Repository.scanSlotAt` is deliberately untouched, since the lease is a lock
+      rather than a schedule.
    2. If the repo's org is in `brokenInstallOrgs`, skip without reserving a credit or
       scanning (`skippedNoToken`), and settle the schedule with
       **`advanceScheduleAfterFailure(repoId)`** — a 6h retry backoff — rather than a full
@@ -44,6 +53,17 @@ can't drift apart.
       reservation is exhausted (`reservation.skip`), skip (`skippedForCredits`) and settle the
       lease to the full cadence via **`advanceToFullCadence(repoId, scanSchedule)`** so a
       credit-less org waits its normal cadence instead of re-qualifying every pass.
+
+      `advanceToFullCadence` computes the next slot from the repo's persisted **cadence anchor**
+      (`Repository.scanSlotAt`), not from `Date.now()`. `nextScanAt` doubles as the claim lease, so
+      it cannot hold the intended slot; without the anchor, every run's queue delay plus scan
+      duration was added permanently and "daily"/"weekly" drifted later forever. A slot missed
+      during an outage is **skipped forward** to the next future one (never scheduled in the past,
+      which would re-qualify the repo immediately and re-bill once per missed occurrence). A repo
+      with no anchor yet — every row from before the column — falls back to now-anchoring, exactly
+      as before, and is stamped on that first settle. `advanceScheduleAfterFailure` also leaves the
+      anchor alone, so a repo that fails a few times returns to its original slot rather than being
+      re-phased to whenever the failures stopped.
    4. Otherwise: capture the prior persisted report (`getScanReportByCommit`), run
       `scanRepository()` with the pre-resolved token, `persistScanReport()`, refund the
       credit when `shouldRefundScan()` says the run was unbillable (degraded to mock, or
@@ -135,11 +155,6 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 
 ## Known gaps
 
-- **Cadence anchors on the settle time, not the intended slot.** `nextScanAt` is computed from
-  the moment the scan finishes, so a delayed cron tick or a slow scan pushes the slot slightly
-  later each cycle. Anchoring on the previous slot needs a separate persisted anchor column —
-  `claimRescan` overwrites `nextScanAt` with its short lease before the scan runs, so by settle
-  time the intended slot is gone.
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this doc
   covers the handler's behavior once invoked, not the invocation cadence.
 - **Runs on the deployment's configured `LLM_PROVIDER`** (e.g. Bedrock/Gemini) —

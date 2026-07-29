@@ -5,7 +5,7 @@
 //       order) and a forged/undecodable cursor is ignored (page 1, no OR clause) rather than throwing.
 // The Prisma client is mocked so we capture the exact args getAuditLog passes — no real DB.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 
 const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
@@ -20,6 +20,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { getAuditLog, claimOrgAuditOnce, releaseAuditClaim } from "./scans-audit";
+import { withAuditSignature } from "./audit-integrity";
 
 /**
  * Fake prisma capturing the audit query. `organization.findUnique` resolves a slug→id map (so
@@ -243,6 +244,115 @@ describe("getAuditLog keyset pagination", () => {
     const page = await getAuditLog("acme", { limit: 25 });
 
     expect(page!.nextCursor).toBeNull();
+  });
+});
+
+// G2-33: getAuditLog attaches a per-row `integrity` verdict computed by verifyAudit (audit-integrity.ts),
+// but nothing pinned that the WIRING actually populates it correctly from a stored row — only the verdict
+// FUNCTION itself was unit-tested (audit-integrity.test.ts). A regression in this plumbing (wrong field
+// mapped, verifyAudit never called, always "unsigned") would silently report every row as unverified in
+// the compliance viewer — exactly the failure the signing exists to prevent. Fixtures cover all three
+// verdicts a real deployment can see, built the way the real write path builds them (withAuditSignature
+// over the row's own action/orgId/actorId/createdAt/meta), not by hand-crafting `_sig`.
+describe("getAuditLog integrity verdict wiring (G2-33)", () => {
+  const ORG_ID = "org_acme";
+  const ACTION = "scan.run";
+  const ACTOR_ID = "actor_1";
+  const AT_ISO = "2026-01-02T00:00:00.000Z";
+
+  beforeEach(() => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+  });
+  afterEach(() => {
+    delete process.env.AUDIT_SIGNING_SECRET;
+  });
+
+  // Mirrors row() but lets us control orgId (the column the write path stamps and verifyAudit checks)
+  // and hand a raw meta object through (already JSON.stringify'd by the caller).
+  const rowWithMeta = (id: string, actorId: string, meta: Record<string, unknown>) => ({
+    id,
+    action: ACTION,
+    actorId,
+    orgId: ORG_ID,
+    at: new Date(AT_ISO),
+    meta: JSON.stringify(meta),
+  });
+
+  it("reports 'ok' for an intact signed row — verifyAudit is actually invoked with the stored shape", async () => {
+    const signedMeta = withAuditSignature({
+      action: ACTION,
+      orgId: ORG_ID,
+      actorId: ACTOR_ID,
+      createdAt: AT_ISO,
+      meta: {},
+    });
+    const { prisma } = fakePrisma({
+      slugToId: { acme: ORG_ID },
+      rows: [rowWithMeta("ok1", ACTOR_ID, signedMeta)],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const page = await getAuditLog("acme");
+
+    expect(page!.entries).toHaveLength(1);
+    expect(page!.entries[0].integrity).toBe("ok");
+  });
+
+  it("reports 'tampered' when a signed row's content is altered at rest (DB-edited actorId, stale _sig)", async () => {
+    const signedMeta = withAuditSignature({
+      action: ACTION,
+      orgId: ORG_ID,
+      actorId: ACTOR_ID,
+      createdAt: AT_ISO,
+      meta: {},
+    });
+    // Simulate a direct DB edit: the actorId column changed after signing, but the stale _sig stays in meta.
+    const { prisma } = fakePrisma({
+      slugToId: { acme: ORG_ID },
+      rows: [rowWithMeta("tampered1", "mallory", signedMeta)],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const page = await getAuditLog("acme");
+
+    expect(page!.entries).toHaveLength(1);
+    expect(page!.entries[0].integrity).toBe("tampered");
+  });
+
+  it("reports a legacy row with no _sig as 'unsigned', NOT 'tampered'", async () => {
+    const { prisma } = fakePrisma({
+      slugToId: { acme: ORG_ID },
+      rows: [rowWithMeta("legacy1", ACTOR_ID, { plan: "team" })], // no _sig field at all
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const page = await getAuditLog("acme");
+
+    expect(page!.entries).toHaveLength(1);
+    expect(page!.entries[0].integrity).toBe("unsigned");
+    expect(page!.entries[0].integrity).not.toBe("tampered");
+  });
+
+  it("assigns each row its OWN verdict independently within the same page (ok + tampered + unsigned mixed)", async () => {
+    const okMeta = withAuditSignature({ action: ACTION, orgId: ORG_ID, actorId: ACTOR_ID, createdAt: AT_ISO, meta: {} });
+    const staleSig = withAuditSignature({ action: ACTION, orgId: ORG_ID, actorId: ACTOR_ID, createdAt: AT_ISO, meta: {} });
+
+    const { prisma } = fakePrisma({
+      slugToId: { acme: ORG_ID },
+      rows: [
+        rowWithMeta("row_ok", ACTOR_ID, okMeta),
+        rowWithMeta("row_tampered", "mallory", staleSig),
+        rowWithMeta("row_unsigned", ACTOR_ID, { note: "pre-signing row" }),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const page = await getAuditLog("acme");
+
+    const byId = new Map(page!.entries.map((e) => [e.id, e.integrity]));
+    expect(byId.get("row_ok")).toBe("ok");
+    expect(byId.get("row_tampered")).toBe("tampered");
+    expect(byId.get("row_unsigned")).toBe("unsigned");
   });
 });
 

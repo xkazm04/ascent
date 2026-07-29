@@ -22,8 +22,12 @@ import {
   isLowCreditsCrossing,
   type RegressionVerdict,
 } from "@/lib/alerts";
-import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, reportPermalink } from "@/lib/db";
+import { getAuditLog, getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, reportPermalink } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
+import {
+  AUTO_RECHARGE_ACTION,
+  normalizeAutoRecharge,
+} from "@/components/org/shared/CreditsControl.autorecharge";
 
 export interface RegressionOutcome {
   regressed: boolean;
@@ -43,6 +47,30 @@ function reportUrl(fullName: string, headSha?: string | null): string {
 async function orgWebhook(orgSlug?: string): Promise<string | null> {
   if (!orgSlug) return null;
   return getOrgAlertWebhook(orgSlug).catch(() => null);
+}
+
+/**
+ * The org's own "low balance" line, when it has opted in via the auto-recharge preference
+ * (CreditsControl.autorecharge.ts / `/api/billing/autorecharge`), else the global default
+ * (CREDITS_ALERT_THRESHOLD). Without this, the in-app warning (opt-in, per-org) and this Slack
+ * push (global-only) disagreed about what "low" means (G1-40).
+ *
+ * Reads through the SAME accessor the preference's own route uses (`getAuditLog` keyed on
+ * `AUTO_RECHARGE_ACTION`, the org's latest such entry) rather than any lower-level storage — the
+ * preference is known to be mid-migration off the audit trail onto a real settings column (G1-39),
+ * so going through this accessor (not straight to a table/column) is what keeps this call site
+ * correct regardless of where the value ends up living.
+ */
+async function orgLowBalanceThreshold(orgSlug: string): Promise<number> {
+  try {
+    const page = await getAuditLog(orgSlug, { action: AUTO_RECHARGE_ACTION, limit: 1 }).catch(() => null);
+    const entry = page?.entries[0];
+    if (!entry) return creditsAlertThreshold();
+    const pref = normalizeAutoRecharge(entry.meta);
+    return pref.enabled ? pref.threshold : creditsAlertThreshold();
+  } catch {
+    return creditsAlertThreshold();
+  }
 }
 
 /**
@@ -146,14 +174,15 @@ export async function maybeAlertLowCredits(
   opts: { signal?: AbortSignal } = {},
 ): Promise<boolean> {
   try {
-    if (!isLowCreditsCrossing(balanceBefore, balanceAfter, creditsAlertThreshold())) return false;
+    const threshold = await orgLowBalanceThreshold(orgSlug);
+    if (!isLowCreditsCrossing(balanceBefore, balanceAfter, threshold)) return false;
     const webhookUrl = await orgWebhook(orgSlug);
     if (!isAlertConfigured(webhookUrl)) return false;
     const base = publicBaseUrl();
     const message = buildLowCreditsMessage({
       org: orgSlug,
       balance: balanceAfter,
-      threshold: creditsAlertThreshold(),
+      threshold,
       url: base ? `${base}/org/${encodeURIComponent(orgSlug)}` : undefined,
     });
     return await dispatchAlert(message, { signal: opts.signal, webhookUrl });

@@ -21,9 +21,10 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockGetPrisma: vi.fn(),
 }));
 
-const { mockFindScanByCommit, mockFindScanByScannedAt } = vi.hoisted(() => ({
+const { mockFindScanByCommit, mockFindScanByScannedAt, mockFindScanByDedupKey } = vi.hoisted(() => ({
   mockFindScanByCommit: vi.fn(),
   mockFindScanByScannedAt: vi.fn(),
+  mockFindScanByDedupKey: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -40,6 +41,9 @@ vi.mock("@/lib/db/scans-read", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./scans-read")>()),
   findScanByCommit: mockFindScanByCommit,
   findScanByScannedAt: mockFindScanByScannedAt,
+  // The sha-less P2002 RECOVERY read. `scanDedupKey` itself stays REAL (like scanContentKey): it is the
+  // pure identity builder the persist path and the constraint must agree on, so a copy could drift.
+  findScanByDedupKey: mockFindScanByDedupKey,
 }));
 
 // Keep the concurrency primitives inert + transparent so the dedup/carry-forward decision is exercised
@@ -186,6 +190,7 @@ beforeEach(() => {
   mockIsDbConfigured.mockReturnValue(true);
   mockFindScanByCommit.mockReset();
   mockFindScanByScannedAt.mockReset();
+  mockFindScanByDedupKey.mockReset();
 });
 
 // ── CRITICAL #1: commit-SHA dedup gates billing ──────────────────────────────────────────────────
@@ -755,5 +760,82 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     expect(Number.isNaN(passedDate.getTime())).toBe(true);
     expect(scanCreate).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ deduped: false, headSha: null });
+  });
+});
+
+// ── CROSS-INSTANCE SHA-LESS DEDUP — the persisted idempotency key (G3-01) ─────────────────────────
+//
+// findScanByScannedAt closes the WITHIN-process half of sha-less dedup: read, compare content, decide.
+// It cannot close the cross-instance half, because two serverless instances both read "nothing there
+// yet" before either commits, and @@unique([repoId, headSha]) never fires for them (NULLs are distinct
+// in Postgres). The row now carries `dedupKey` under @@unique([repoId, dedupKey]), so the DATABASE
+// rejects the second insert and the loser recovers the winner — the identical mechanism the sha path
+// already had, and the branch the old `headSha &&` guard made unreachable (a duplicate sha-less race
+// surfaced as an unhandled 500 with the scan unsaved).
+
+describe("persistScanReport — sha-less cross-instance dedup key", () => {
+  it("STAMPS dedupKey on a sha-less row (the value a concurrent instance collides with at the DB)", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: null }));
+
+    expect(createdScans).toHaveLength(1);
+    expect(createdScans[0]!.headSha).toBeNull();
+    // The exact value is scanDedupKey's contract (pinned in scans-read.test.ts); here it must simply be
+    // PRESENT and well-formed — a null would leave the row unconstrained, which is the whole defect.
+    expect(createdScans[0]!.dedupKey).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  it("leaves dedupKey NULL on a sha-BEARING row (one dedup identity per row, never two)", async () => {
+    // A row governed by BOTH constraints could reject a legitimate insert on the wrong identity, and
+    // makes "which constraint fired?" unanswerable in the P2002 recovery below.
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_abc" }));
+
+    expect(createdScans[0]!.headSha).toBe("sha_abc");
+    expect(createdScans[0]!.dedupKey).toBeNull();
+  });
+
+  it("cross-instance sha-less race: P2002 re-reads the winner by dedupKey and dedups (no duplicate metered row)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" });
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null, scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null); // our read-then-insert path saw nothing
+    mockFindScanByDedupKey.mockResolvedValue({ id: "scan_winner" });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // attempted once, rejected by the unique constraint
+    expect(res).toMatchObject({ scanId: "scan_winner", deduped: true, headSha: null });
+    // Recovered by IDENTITY, not by commit — findScanByCommit has nothing to look up for a sha-less row.
+    expect(mockFindScanByCommit).not.toHaveBeenCalled();
+    const [repoId, key] = mockFindScanByDedupKey.mock.calls[0] as [string, string];
+    expect(repoId).toBe("repo_1");
+    expect(key).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  it("sha-less P2002 with no recoverable winner re-throws (never silently swallows a lost scan)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" });
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+    mockFindScanByDedupKey.mockResolvedValue(null);
+
+    await expect(persistScanReport(makeReport({ headSha: null }))).rejects.toBe(p2002);
+  });
+
+  it("a NON-unique error on a sha-less insert still propagates (only P2002 is a race, not every failure)", async () => {
+    const boom = new Error("connection reset");
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: boom });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+
+    await expect(persistScanReport(makeReport({ headSha: null }))).rejects.toBe(boom);
+    expect(mockFindScanByDedupKey).not.toHaveBeenCalled();
   });
 });

@@ -24,12 +24,12 @@
 //      and only then compared against `now`'s day in the canonical zone. Never truncate a date-only
 //      column in a non-UTC zone — you get the previous day.
 //
-// KNOWN LIMIT / BLOCKER — per-org time zones
-//   The most correct answer is a per-organization zone ("this org's Monday"), but that needs an
-//   `Organization.timezone` column and migrations are out of scope here. Every function below already
-//   takes an explicit `tz` argument with `orgTimeZone()` only as the default, so wiring a persisted
-//   per-org value is a one-line change at each call site once the column exists. Until then the
-//   deployment-wide default (UTC, or `ASCENT_ORG_TZ`) is the policy.
+//   6. PER-ORG ZONES ARE NOW REAL. `Organization.timezone` (nullable) holds one org's IANA zone
+//      ("this org's Monday"). Resolution order is: the org's stored column → `ASCENT_ORG_TZ` → UTC.
+//      Read it with `resolveOrgTimeZone(stored)` and pass the result as the `tz` argument the
+//      primitives below already accept; `getOrgTimeZone(slug)` in `src/lib/db/org-settings.ts` is the
+//      storage accessor. A null column means "inherit the deployment default", which is what every org
+//      did before the column existed — so nothing changes for an org that never sets one.
 //
 // Pure + isomorphic: no I/O, no next/headers — safe to import from `window.ts`, which the client-side
 // TimeRangeSelector also imports. `process.env` is read lazily and defensively so a browser bundle
@@ -45,26 +45,46 @@ export const DEFAULT_ORG_TZ = "UTC";
 let cachedTz: string | null = null;
 
 /**
- * The canonical zone for all org calendar-day math. `ASCENT_ORG_TZ` when set to a zone this runtime
- * actually knows, else UTC. Cached — the value cannot change within a process.
+ * A zone name this runtime actually knows, or null. Validating against the runtime rather than trusting
+ * the input is the whole point: an unknown zone would otherwise throw deep inside a dashboard render, so
+ * a bad value must degrade to the default, never 500. Shared by the env override and the per-org column
+ * — a customer-editable field deserves at least the scrutiny the env var gets.
+ */
+export function knownTimeZone(raw: string | null | undefined): string | null {
+  if (!raw || !raw.trim()) return null;
+  const candidate = raw.trim();
+  try {
+    const probe = new Intl.DateTimeFormat("en-US", { timeZone: candidate });
+    return probe.resolvedOptions().timeZone ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The DEPLOYMENT-wide canonical zone. `ASCENT_ORG_TZ` when set to a zone this runtime actually knows,
+ * else UTC. Cached — the env value cannot change within a process. This is the FALLBACK layer: an org
+ * with its own stored zone resolves through {@link resolveOrgTimeZone} instead.
  */
 export function orgTimeZone(): string {
   if (cachedTz) return cachedTz;
-  let tz = DEFAULT_ORG_TZ;
-  try {
-    const raw = typeof process !== "undefined" ? process.env?.ASCENT_ORG_TZ : undefined;
-    if (raw && raw.trim()) {
-      // Validate against the runtime rather than trusting the env: an unknown zone would otherwise
-      // throw deep inside a dashboard render. A bad value degrades to UTC, it does not 500.
-      const candidate = raw.trim();
-      const probe = new Intl.DateTimeFormat("en-US", { timeZone: candidate });
-      if (probe.resolvedOptions().timeZone) tz = candidate;
-    }
-  } catch {
-    tz = DEFAULT_ORG_TZ;
-  }
-  cachedTz = tz;
-  return tz;
+  const raw = typeof process !== "undefined" ? process.env?.ASCENT_ORG_TZ : undefined;
+  cachedTz = knownTimeZone(raw) ?? DEFAULT_ORG_TZ;
+  return cachedTz;
+}
+
+/**
+ * The canonical zone for ONE organization: its stored `Organization.timezone` when set to a zone this
+ * runtime knows, else the deployment default ({@link orgTimeZone} — `ASCENT_ORG_TZ`, else UTC).
+ *
+ * This is the single resolution point for policy note 6. Pass its result as the `tz` argument every
+ * primitive in this module already takes; NEVER read the column directly at a call site, or the
+ * validation and the fallback order drift per surface — which is the exact class of bug G4-07 was.
+ * `null`/blank/unknown all resolve to the deployment default, so an org that never set one (i.e. every
+ * org before the column existed) behaves exactly as it did before.
+ */
+export function resolveOrgTimeZone(stored: string | null | undefined): string {
+  return knownTimeZone(stored) ?? orgTimeZone();
 }
 
 /** Test-only: forget the memoized zone so a test can drive `ASCENT_ORG_TZ`. */

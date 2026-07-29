@@ -20,7 +20,7 @@ const h = vi.hoisted(() => ({
   isAuthConfigured: vi.fn(),
   getSession: vi.fn(),
   readableOrgForOwner: vi.fn(),
-  requireOrgAccess: vi.fn(),
+  requireOrgRole: vi.fn(),
   getRepoPassport: vi.fn(),
   getInstallationIdForOwner: vi.fn(),
   getInstallationToken: vi.fn(),
@@ -51,7 +51,7 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: h.isAuthConfigured,
   getSession: h.getSession,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: h.requireOrgAccess }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 
 import { POST } from "./route";
 import { AppApiError } from "@/lib/github/app"; // the mocked class — for constructing the 409 case
@@ -67,7 +67,7 @@ beforeEach(() => {
   h.isAuthConfigured.mockReturnValue(true);
   h.getSession.mockResolvedValue({ login: "alice" });
   h.readableOrgForOwner.mockResolvedValue("acme");
-  h.requireOrgAccess.mockResolvedValue(null);
+  h.requireOrgRole.mockResolvedValue(null);
   h.getRepoPassport.mockResolvedValue(passport);
   h.getInstallationIdForOwner.mockResolvedValue("inst1");
   h.getInstallationToken.mockResolvedValue("tok");
@@ -95,9 +95,9 @@ describe("POST /api/report/passport/pr — gates", () => {
     expect((await POST(post({ repo: "x/web" }))).status).toBe(403);
     h.readableOrgForOwner.mockResolvedValue("acme");
 
-    h.requireOrgAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
+    h.requireOrgRole.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
     expect((await POST(post({ repo: "acme/web" }))).status).toBe(403);
-    h.requireOrgAccess.mockResolvedValue(null);
+    h.requireOrgRole.mockResolvedValue(null);
 
     h.getRepoPassport.mockResolvedValue(null);
     expect((await POST(post({ repo: "acme/web" }))).status).toBe(404);
@@ -105,6 +105,40 @@ describe("POST /api/report/passport/pr — gates", () => {
 
     h.getInstallationIdForOwner.mockResolvedValue(null);
     expect((await POST(post({ repo: "acme/web" }))).status).toBe(403);
+  });
+});
+
+// Same customer-repo WRITE, same installation token, so the same "admin" gate as the foundation sibling
+// and /api/practices/apply{,-batch}. The mocked requireOrgRole is driven by a role-resolving fake so a
+// LOWER-privileged caller is provably refused and an entitled one provably still succeeds.
+const ROLES = ["viewer", "member", "admin", "owner"] as const;
+function gateAs(role: (typeof ROLES)[number]) {
+  h.requireOrgRole.mockImplementation(async (_org: string, min: (typeof ROLES)[number]) =>
+    ROLES.indexOf(role) >= ROLES.indexOf(min)
+      ? null
+      : Response.json({ error: `This action requires the ${min} role in this organization.` }, { status: 403 }),
+  );
+}
+
+describe("POST /api/report/passport/pr — requires ADMIN, matching practices/apply", () => {
+  it("asks for the 'admin' role (not 'member')", async () => {
+    await POST(post({ repo: "acme/web" }));
+    expect(h.requireOrgRole).toHaveBeenCalledWith("acme", "admin");
+  });
+
+  it("REFUSES a plain member with 403 and opens no PR", async () => {
+    gateAs("member");
+    const res = await POST(post({ repo: "acme/web" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toContain("admin");
+    expect(h.openDraftPr).not.toHaveBeenCalled();
+    expect(h.recordOrgAudit).not.toHaveBeenCalled();
+  });
+
+  it("still ALLOWS an admin to open the PR", async () => {
+    gateAs("admin");
+    expect((await POST(post({ repo: "acme/web" }))).status).toBe(200);
+    expect(h.openDraftPr).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -46,14 +46,19 @@ export {
 } from "@/lib/db/scans";
 export {
   purgeExpiredData,
+  eraseOrgData,
   envRetentionDefaults,
   resolveRetention,
   clampBatchSize,
   PURGE_ACTION,
+  ERASE_ACTION,
   RETENTION_DEFAULT_BATCH_SIZE,
   type RetentionPolicy,
   type OrgPurgeResult,
   type PurgeSummary,
+  type EraseRequest,
+  type EraseResult,
+  type EraseOutcome,
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
 export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";

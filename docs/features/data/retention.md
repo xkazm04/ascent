@@ -7,9 +7,10 @@ the corpus scales — a storage-cost and compliance liability for an audit produ
 
 ## Auth
 
-`GET /api/cron/purge` (`src/app/api/cron/purge/route.ts`) verifies `CRON_SECRET` via
-`Authorization: Bearer <secret>` **only** — unlike the rescan/digest cron routes, it does
-**not** accept a `?key=` query param, since query strings are routinely captured by
+`GET /api/cron/purge` (`src/app/api/cron/purge/route.ts`) verifies `CRON_SECRET` via the shared
+`requireCronAuth` gate (`src/lib/cron-auth.ts`), which accepts
+`Authorization: Bearer <secret>` **only** — no cron route accepts a `?key=` query param any
+more (G8-48; `CRON_ALLOW_QUERY_KEY=1` is a temporary hatch), since query strings are routinely captured by
 access/CDN/proxy logs and Referer headers, and this endpoint can delete data. A missing/empty
 `CRON_SECRET` fails closed (503). Requires `DATABASE_URL`; a DB-unconfigured deploy also fails
 closed (503) unless `RETENTION_ALLOW_NO_DB=1` opts into a deliberate no-op skip (e.g. the

@@ -28,7 +28,7 @@ inline comments (most models carry a multi-line design-rationale comment there).
 
 | Model | Purpose | Notable fields |
 | --- | --- | --- |
-| `Organization` | Tenant root — also the GitHub App installation record. `kind` distinguishes an `org` fleet from a `personal` workspace (a lens over the shared public corpus, never a copy). | `slug` (unique), `plan` (free\|pro\|team\|enterprise), `kind` (org\|personal), `scanCredits`, `retentionMaxScans?`/`retentionAuditDays?`, `alertWebhookUrl?`, `alertOverallDrop?`/`alertDimensionDrop?`, `gatePolicy?` (JSON), `brandName?`/`brandColor?`/`logoUrl?`, `githubInstallId?` |
+| `Organization` | Tenant root — also the GitHub App installation record. `kind` distinguishes an `org` fleet from a `personal` workspace (a lens over the shared public corpus, never a copy). | `slug` (unique), `plan` (free\|pro\|team\|enterprise), `kind` (org\|personal), `scanCredits`, `retentionMaxScans?`/`retentionAuditDays?`, `alertWebhookUrl?`, `alertOverallDrop?`/`alertDimensionDrop?`, `gatePolicy?` (JSON), `brandName?`/`brandColor?`/`logoUrl?`, `timezone?` (this org's canonical calendar zone; null = inherit `ASCENT_ORG_TZ`, else UTC), `autoRechargeJson?` (the low-balance preference, JSON-in-TEXT), `githubInstallId?` |
 | `User` | A known login (GitHub-OAuth/App identity), bridged to `Membership` for RBAC. | `email` (unique), `githubLogin?` (unique) |
 | `Membership` | Org ↔ user ↔ role. | `role` (owner\|admin\|member\|viewer), `alertsSeenAt?` (per-user "last looked at the fleet" watermark); `@@unique([orgId, userId])` |
 | `Invite` | A single-use pending invitation to join at a role, consumed by `acceptInvite`. | `token` (unique), `githubLogin?`/`email?` (optional pin), `role`, `status` (pending\|accepted\|revoked), `expiresAt` |
@@ -39,8 +39,8 @@ inline comments (most models carry a multi-line design-rationale comment there).
 
 | Model | Purpose | Notable fields |
 | --- | --- | --- |
-| `Repository` | A tracked repo within an org. | `fullName` (unique per org), `isPrivate`, `primaryLanguage?`, `techStackJson?`/`passportJson?` (latest cached, display-only), `passportOverridesJson?` (owner overlay), `stars`, `headSha?`/`headEtag?` (conditional-request scan cache), `watched`, `scanSchedule` (off\|daily\|weekly\|monthly), `lastScanAt?`/`nextScanAt?`, `lastScanStatus?`/`lastScanError?`/`lastScanAttemptAt?`, `aiConformance?` + related fields (`.ai/` doctor report), `missingSince?` (flag only — reconciliation never unwatches) |
-| `Scan` | **The metered unit** — one persisted report. | `headSha?`, `overallScore`, `level`/`levelName`, `archetype`, `adoptionScore`/`rigorScore`, `posture`, `confidence`, `engineProvider`/`engineModel`, `headline`, JSON `strengths`/`risks`/`discrepancies`, nullable JSON `prStats`/`governance`/`commitActivity`/`techStackJson`/`passportJson`/`warningsJson`/`aiUsageJson`, `rubricVersion?` (self-invalidation), `engineByom?` (whose AWS account ran inference), `inputTokens?`/`outputTokens?`/`llmLatencyMs?` (cost/usage metering), `scannedAt`; `@@unique([repoId, headSha])` is also the cross-instance dedup backstop |
+| `Repository` | A tracked repo within an org. | `fullName` (unique per org), `isPrivate`, `primaryLanguage?`, `techStackJson?`/`passportJson?` (latest cached, display-only), `passportOverridesJson?` (owner overlay), `stars`, `headSha?`/`headEtag?` (conditional-request scan cache), `watched`, `scanSchedule` (off\|daily\|weekly\|monthly), `lastScanAt?`/`nextScanAt?`/`scanSlotAt?` (the cadence anchor `nextScanAt` cannot hold, since it doubles as the claim lease), `lastScanStatus?`/`lastScanError?`/`lastScanAttemptAt?`, `aiConformance?` + related fields (`.ai/` doctor report), `missingSince?` (flag only — reconciliation never unwatches) |
+| `Scan` | **The metered unit** — one persisted report. | `headSha?`, `overallScore`, `level`/`levelName`, `archetype`, `adoptionScore`/`rigorScore`, `posture`, `confidence`, `engineProvider`/`engineModel`, `headline`, JSON `strengths`/`risks`/`discrepancies`, nullable JSON `prStats`/`governance`/`commitActivity`/`techStackJson`/`passportJson`/`warningsJson`/`aiUsageJson`, `rubricVersion?` (self-invalidation), `engineByom?` (whose AWS account ran inference), `inputTokens?`/`outputTokens?`/`llmLatencyMs?` (cost/usage metering), `scannedAt`, `dedupKey?` (sha-less idempotency key); `@@unique([repoId, headSha])` and `@@unique([repoId, dedupKey])` are the two cross-instance dedup backstops, plus `@@index([scannedAt])` for the org-rollup window scan |
 | `ScanDimension` | Per-scan D1–D9 breakdown. | `dimId`, `name`, `weight`, `score`, `signalScore`, `llmScore`, `summary`, JSON `evidence`/`strengths`/`gaps` |
 | `RepoContributor` | Recent committers + AI attribution — a per-repo latest-scan snapshot (replaced wholesale each scan, not accumulated). | `login`, `commits`, `aiCommits`, `lastActiveAt?`; `@@unique([repoId, login])` |
 | `AiChange` | One AI-attributed pull request as an **evidence row**, not a rate — the population behind `prStats.aiInvolvedRate` / `aiGovernedRate`. Answers "show me the AI-assisted changes in the period and who approved each one", which a percentage structurally cannot. Extracted from the PR nodes ingest already fetches (no extra GitHub calls). | `prNumber`, `authorLogin?`, `authorIsBot`, `aiSignal` (`authored`\|`marked`), `aiTools`, `state`, `approved`, `approverLogin?`, `approvedAt?`, `reviewCount`; `@@unique([repoId, prNumber])`. **Upserted, not replaced** — a sliding PR window must not discard evidence that aged out of the latest page. Empty on tokenless scans (PRs aren't observable), which never means "no AI changes". Logins are internal; customer-facing exports pseudonymize unless the org opts into named evidence. |
@@ -140,14 +140,19 @@ that proves the *download* wasn't edited; the per-row `_sig` proves the *rows* w
 the full graph (Organization → Repository → Scan → ScanDimension + Recommendation +
 RepoContributor + RepoTeam) and is the heart of the data layer:
 
-- **Dedup by `(repoId, headSha)`** — re-scanning the same commit reuses the existing `Scan`
+- **Dedup by `(repoId, headSha)`, or by `(repoId, dedupKey)` when there is no commit** —
+  re-scanning the same commit reuses the existing `Scan`
   and returns `deduped: true` (so [usage](../billing/usage.md) never double-counts). A
   sha-less report (head resolution failed, or a reconstructed snapshot) has no commit to key
   on, so it falls back to `scannedAt` **plus a content check**: the timestamp narrows the
   candidate row, and the row is only reused when its content identity (`scanContentKey` —
   score, level, axes, engine, and the per-dimension scores) matches the incoming report. Two
   genuinely different sha-less results computed in the same millisecond are therefore both
-  persisted, and a replayed/reused clock value can't suppress a real re-score.
+  persisted, and a replayed/reused clock value can't suppress a real re-score. That same identity
+  is also PERSISTED as `Scan.dedupKey` (`scanDedupKey` = a hash of `scannedAt` + the content key)
+  under `@@unique([repoId, dedupKey])`, so the cross-instance case — two instances that both read
+  "nothing there yet" — is caught by the database and the loser re-reads the winner, exactly as the
+  sha path does. `dedupKey` is set only on sha-less rows; a sha-bearing row leaves it NULL.
 - **Engine upgrade (mock → live)** — if the only existing scan for a commit is the
   deterministic `mock`-engine floor and the new report is a real graded scan, the mock row is
   deleted and replaced in the same transaction (`upgraded: true`), rather than being kept
@@ -169,8 +174,8 @@ RepoContributor + RepoTeam) and is the heart of the data layer:
   process-local per-repo lock (`withRepoLock`); and the scan graph, `RepoContributor` replace,
   `RepoTeam` replace, and `AuditLog` entry commit in one interactive `$transaction` (no
   half-written scan on a mid-way crash). A cross-instance same-commit race that still slips
-  past the lock is caught by the `@@unique([repoId, headSha])` constraint (`P2002` → re-read
-  the winner and treat it as a dedup).
+  past the lock is caught by `@@unique([repoId, headSha])` — or, for a sha-less report, by
+  `@@unique([repoId, dedupKey])` (`P2002` → re-read the winner and treat it as a dedup).
 - Returns a `PersistResult { scanId, deduped, upgraded?, headSha }`.
 
 Other key functions (from the sibling modules, re-exported through the `scans.ts` barrel):
@@ -226,11 +231,6 @@ in that precedence) for an honest "served live from …" UI indicator.
 - **No FK cascades** (`relationMode = "prisma"`) — children must be deleted before parents
   (the [purge](./retention.md) job does this explicitly; `scans-persist.ts`
   does the same in-transaction for a mock→live scan upgrade).
-- **Sha-less rows have no DB-level uniqueness.** `@@unique([repoId, headSha])` does not engage
-  when `headSha` is NULL (Postgres treats NULLs as distinct), so the sha-less dedup above is a
-  read-then-decide guard, not a constraint: two concurrent instances persisting the same
-  sha-less report can still both insert. Closing that needs a persisted, indexed idempotency
-  column (a migration).
 - **Stripe billing is a stub** — `Subscription` exists with Stripe-shaped fields, but Polar is
   the actually-wired checkout/webhook path (`CreditLedger.externalId` carries the `polar:`
   idempotency prefix).
