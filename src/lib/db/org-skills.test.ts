@@ -4,7 +4,8 @@
 //     orderBy (name | recent | downloads);
 //   - createOrgSkill bounds/normalizes its inputs;
 //   - recordSkillDownload bumps BOTH the rolling tally AND the denormalized downloadCount (the sort key
-//     must not drift from the tally);
+//     must not drift from the tally) AND writes the OrgSkillEvent the dormancy badge folds — the three
+//     land in one transaction so "N uses" and the badge can never disagree on the same card;
 //   - adoptOrgSkill enforces the org tenant boundary (a skill owned by another org can't be adopted).
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -31,6 +32,7 @@ function fakePrisma(opts: {
     adoptionUpsert: [] as unknown[],
     downloadUpsert: [] as unknown[],
     skillUpdate: [] as unknown[],
+    eventCreate: [] as { data: Record<string, unknown> }[],
   };
   const prisma = {
     organization: {
@@ -56,6 +58,16 @@ function fakePrisma(opts: {
       update: vi.fn(async (args: unknown) => {
         calls.skillUpdate.push(args);
         return { id: "x" };
+      }),
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        const s = (opts.skills ?? []).find((x) => x.id === where.id);
+        return { orgId: s?.orgId ?? "org_acme" };
+      }),
+    },
+    orgSkillEvent: {
+      create: vi.fn(async (args: { data: Record<string, unknown> }) => {
+        calls.eventCreate.push({ data: args.data });
+        return { id: "ev" };
       }),
     },
     orgSkillAdoption: {
@@ -144,9 +156,9 @@ describe("createOrgSkill — bounds + normalizes", () => {
   });
 });
 
-describe("recordSkillDownload — dual increment", () => {
-  it("bumps the rolling tally AND the denormalized downloadCount in one transaction", async () => {
-    const { prisma, calls } = fakePrisma();
+describe("recordSkillDownload — one signal", () => {
+  it("writes the event, the rolling tally AND the denormalized downloadCount in one transaction", async () => {
+    const { prisma, calls } = fakePrisma({ skills: [{ id: "skill_1", name: "x", orgId: "org_acme" }] });
     mockGetPrisma.mockReturnValue(prisma);
     await recordSkillDownload("skill_1");
     expect(calls.downloadUpsert).toHaveLength(1);
@@ -156,6 +168,27 @@ describe("recordSkillDownload — dual increment", () => {
     expect((calls.downloadUpsert[0] as { where: { skillId: string } }).where.skillId).toBe("skill_1");
     // the denormalized bump increments downloadCount
     expect((calls.skillUpdate[0] as { data: { downloadCount: unknown } }).data.downloadCount).toEqual({ increment: 1 });
+    // ONE SIGNAL: the dormancy badge folds OrgSkillEvent, so a web use must leave one behind — otherwise
+    // the card renders "N uses" beside "dormant" (the defect this pins closed). Tagged `web`, org-scoped.
+    expect(calls.eventCreate).toHaveLength(1);
+    expect(calls.eventCreate[0]!.data).toMatchObject({ skillId: "skill_1", orgId: "org_acme", type: "download", source: "web" });
+  });
+
+  it("carries an explicit source/repo through to the event when the caller supplies one", async () => {
+    const { prisma, calls } = fakePrisma({ skills: [{ id: "skill_1", name: "x", orgId: "org_acme" }] });
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordSkillDownload("skill_1", { source: "cli", repo: "acme/api" });
+    expect(calls.eventCreate[0]!.data).toMatchObject({ source: "cli", repo: "acme/api" });
+  });
+
+  it("is a no-op for an unknown skill (no orphan counter row)", async () => {
+    const { prisma, calls } = fakePrisma();
+    prisma.orgSkill.findUnique.mockResolvedValueOnce(null);
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordSkillDownload("nope");
+    expect(calls.eventCreate).toHaveLength(0);
+    expect(calls.downloadUpsert).toHaveLength(0);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("swallows errors (best-effort counter never throws)", async () => {

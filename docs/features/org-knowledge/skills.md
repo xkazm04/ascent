@@ -117,7 +117,13 @@ the org, both optimistic with rollback on failure.
 `POST /api/org/skills/:id/download` (records a use without serving content),
 and a normal `GET` fire-and-forgets the same record unless the caller passes
 `?count=0` (used by the sync CLI, so a background sync never inflates the
-"most used" tally). The downloaded body is always run through the
+"most used" tally). Recording a use writes **three rows in one transaction** —
+an `OrgSkillEvent` of type `download` (source `web`), the rolling
+`OrgSkillDownload` tally, and the denormalized `OrgSkill.downloadCount`. That
+single write is why the card's "N uses" counter and the dormancy badge beside
+it can no longer contradict each other: before 2026-07-29 the web path wrote
+only the counters, so a skill copied 40 times rendered "40 uses" and "dormant"
+inches apart. The downloaded body is always run through the
 frontmatter backfill described above, and the response is served as
 `text/markdown` with a sanitized `<name>.SKILL.md` filename (stripped to
 `[a-z0-9._-]`, capped at 80 chars) to prevent header injection via the skill
@@ -147,22 +153,33 @@ Two routes exist specifically for a non-interactive client:
 
 `POST /api/org/skills/events` accepts a batch (`{ org, events: [{ skillId,
 type, repo?, source? }] }`, capped at 500 per call) under a distinct
-`telemetry:write` token scope. `type` must be `download`, `sync`, or
-`invoke`; anything else is dropped. Events for skill ids outside the caller's
-org are silently dropped (tenant boundary). Only `download` and `invoke`
-events bump the rolling use counters; `sync` events are logged but never
-count toward "most used," since a background CLI sync would otherwise make
-every adopted skill look permanently active. The whole handler is
+`telemetry:write` token scope. `type` must be `download` or `sync`; anything
+else is dropped (a batch containing at least one valid event is still
+recorded; a batch of only invalid events is a 400). Events for skill ids
+outside the caller's org are silently dropped (tenant boundary). Only
+`download` events bump the rolling use counters; `sync` events are logged but
+never count toward "most used," since a background CLI sync would otherwise
+make every adopted skill look permanently active. The whole handler is
 best-effort — telemetry failures never fail the caller's real work.
+
+A third type, `invoke`, was **retired on 2026-07-29**. It ranked highest in
+the dormancy verdict but had no producer anywhere — not the app, not the
+distributed CLI (`scripts/ascent-skills.mjs` emits `sync` only), not the
+hooks — so `active` was unreachable for every skill in production. It is gone
+from the type union, its validator, this route and every reader;
+`prisma/migrations/20260729150000_retire_skill_invoke_event` folds any legacy
+row into `download` so historical activity keeps counting. The CLI's wire
+contract is unaffected (it never sent `invoke`).
 
 ### Dormancy status
 
 `src/lib/org/skill-usage.ts` classifies each skill as `new`, `active`, or
 `dormant`:
 
-1. A real use (`invoke` or `download` — not `sync`) within the last 30 days
-   (`DORMANCY_WINDOW_DAYS`) → **active**.
-2. Otherwise, if the skill has never been invoked and is younger than 30 days
+1. A real use (`download` — a copy or download from the web UI or a CLI, but
+   never a `sync`) within the last 30 days (`DORMANCY_WINDOW_DAYS`) →
+   **active**.
+2. Otherwise, if the skill has never been used and is younger than 30 days
    (measured from creation, or from its most recent adoption if that's
    later — re-adopting an old skill into a new repo restarts its chance to
    prove itself) → **new**, so a brand-new skill isn't punished for having
@@ -171,7 +188,9 @@ best-effort — telemetry failures never fail the caller's real work.
 
 `SkillDormancyBadge` renders this with `active` in emerald, `dormant` in
 amber, and `new` deliberately neutral (slate) rather than green, since it
-hasn't earned "active" yet.
+hasn't earned "active" yet. The badge and the "N uses" counter beside it are
+folded from the same `download` events, so `active` is reachable through a
+path that exists today (a web copy/download, or a CLI-reported `download`).
 
 ### Outcome tracking (score movement since adoption)
 
@@ -225,7 +244,7 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `/api/org/skills/manifest` | `GET` | `skills:read` | Lockfile-style index for sync clients. |
 | `/api/org/skills/[id]/adopt` | `POST`/`DELETE` | member session only | Adopt/unadopt against a repo. |
 | `/api/org/skills/[id]/download` | `GET`/`POST` | `skills:read` | Serve/copy the skill body; counts a use. |
-| `/api/org/skills/events` | `POST` | `telemetry:write` | Batch usage events (`download`/`sync`/`invoke`). |
+| `/api/org/skills/events` | `POST` | `telemetry:write` | Batch usage events (`download`/`sync`). |
 | `/api/org/tokens` | `POST`/`GET` | member session only | Mint/list org API tokens. |
 | `/api/org/tokens/[id]` | `DELETE` | member session only | Revoke a token. |
 
@@ -236,7 +255,7 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `OrgSkill` | The library entry. | `name` (unique per org), `description`, `content`, `category`, `tags` (JSON string), `version`, `contentHash`, `archived`, `downloadCount` (denormalized), `createdBy`. |
 | `OrgSkillAdoption` | One row per (skill, repo). | `skillId`, `repoFullName`, `adoptedBy`, `adoptedAt`; unique on `[skillId, repoFullName]`. |
 | `OrgSkillDownload` | Rolling per-skill use tally. | `skillId` (unique), `count`, `lastSeen`. |
-| `OrgSkillEvent` | Append-only per-use event log. | `skillId`, `orgId`, `type` (`download`/`sync`/`invoke`), `repo`, `source`, `createdAt`. |
+| `OrgSkillEvent` | Append-only per-use event log. | `skillId`, `orgId`, `type` (`download`/`sync`), `repo`, `source`, `createdAt`. |
 | `OrgApiToken` | Machine-access credential. | `orgId`, `name`, `tokenHash` (unique), `tokenPrefix`, `scopes` (comma-joined), `lastUsedAt`, `revokedAt`. |
 | `SkillGeneration` | A standalone log of per-repo onboarding-`SKILL.md` generations. | `repoFullName`, `headSha`, `trackIds`, `generatedAt`. No relation fields to `OrgSkill` or an org. |
 

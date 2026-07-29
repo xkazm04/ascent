@@ -1,8 +1,11 @@
 // Dormancy badge for one org skill (src/lib/org/skill-usage.ts): new | active | dormant, with the last
 // use in the tooltip. Server-computed — this is pure presentation, so no "use client" is needed.
 //
-// `new` is deliberately neutral, not green: a skill nobody has invoked yet hasn't earned "active", but
+// `new` is deliberately neutral, not green: a skill nobody has used yet hasn't earned "active", but
 // branding it dormant on day one would train the org to ignore the badge entirely.
+//
+// The verdict is folded from the SAME writes as the "N uses" counter rendered beside it (see
+// recordSkillDownload) — a card can no longer read "40 uses" and "dormant" at once.
 
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import { usageVerdictLabel } from "@/lib/org/skill-usage";
@@ -19,7 +22,7 @@ export function usageDetail(u: SkillUsage): string {
     return `never used · added ${u.ageDays === 0 ? "today" : `${u.ageDays}d ago`}`;
   }
   const when = u.daysSinceUse === 0 ? "today" : u.daysSinceUse === 1 ? "yesterday" : `${u.daysSinceUse}d ago`;
-  const kind = u.lastUsedType === "invoke" ? "invoked" : u.lastUsedType === "download" ? "downloaded" : "synced";
+  const kind = u.lastUsedType === "download" ? "used" : "synced";
   return `${kind} ${when}`;
 }
 

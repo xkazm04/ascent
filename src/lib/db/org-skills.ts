@@ -438,9 +438,16 @@ export async function pushOrgSkill(
   return { status: "updated", id: updated.id, version: updated.version };
 }
 
-export type SkillEventType = "download" | "sync" | "invoke";
+/**
+ * The closed set of usage events. `invoke` was retired on 2026-07-29: it ranked highest in the dormancy
+ * verdict yet had NO producer anywhere in the app, the CLI, or the hooks — so the only signal that could
+ * mark a skill `active` was unproducible, and every skill in the library eventually read "dormant". A
+ * documented-but-unemittable event type is worse than none. Legacy rows are rewritten to `download` by
+ * prisma/migrations/20260729150000_retire_skill_invoke_event.
+ */
+export type SkillEventType = "download" | "sync";
 export function isSkillEventType(v: string): v is SkillEventType {
-  return v === "download" || v === "sync" || v === "invoke";
+  return v === "download" || v === "sync";
 }
 export interface SkillEventInput {
   skillId: string;
@@ -451,9 +458,9 @@ export interface SkillEventInput {
 
 /**
  * Record a BATCH of usage events (the telemetry endpoint). Events are filtered to skills that actually
- * belong to `orgSlug` — the tenant boundary, and it drops forged/unknown ids. Real uses (download /
- * invoke) additionally bump the rolling `OrgSkillDownload` tally + the denormalized `downloadCount` sort
- * key; a passive `sync` is logged but never inflates "most used". Best-effort throughout (mirrors
+ * belong to `orgSlug` — the tenant boundary, and it drops forged/unknown ids. A real use (`download`)
+ * additionally bumps the rolling `OrgSkillDownload` tally + the denormalized `downloadCount` sort key; a
+ * passive `sync` is logged but never inflates "most used". Best-effort throughout (mirrors
  * recordSkillDownload) — telemetry must never fail the caller's real work.
  */
 export async function recordSkillEvents(orgSlug: string, events: SkillEventInput[]): Promise<{ recorded: number }> {
@@ -475,7 +482,7 @@ export async function recordSkillEvents(orgSlug: string, events: SkillEventInput
     });
     const useCounts = new Map<string, number>();
     for (const e of valid) {
-      if (e.type === "download" || e.type === "invoke") useCounts.set(e.skillId, (useCounts.get(e.skillId) ?? 0) + 1);
+      if (e.type === "download") useCounts.set(e.skillId, (useCounts.get(e.skillId) ?? 0) + 1);
     }
     for (const [skillId, count] of useCounts) {
       await prisma.$transaction([
@@ -490,18 +497,47 @@ export async function recordSkillEvents(orgSlug: string, events: SkillEventInput
 }
 
 /**
- * Best-effort: bump a skill's download/use tally (one rolling row per skill) AND the denormalized
- * `downloadCount` on the skill, in one transaction so the sort key can't drift from the tally. Mirrors
- * recordQuotaEvent's fire-and-forget contract — a counter write must never break the download/copy path.
+ * Best-effort: record one human use of a skill (a web-UI Copy, or a download that isn't `?count=0`).
+ *
+ * ONE SIGNAL (2026-07-29): this used to write ONLY the counters, so the card's "N uses" climbed while the
+ * dormancy badge beside it — which folds `OrgSkillEvent` — never moved. A skill copied 40 times through
+ * the UI rendered "40 uses" and "dormant" inches apart. The `OrgSkillEvent` row is now written in the
+ * SAME transaction as the tally bump, so the counter and the badge are derived from the same writes and
+ * cannot contradict each other, and `active` is reachable through the path that actually exists today
+ * (a web copy/download) rather than through the retired, never-emitted `invoke`.
+ *
+ * `source` defaults to `web` (the UI is the only caller today); a machine client reporting through
+ * /api/org/skills/events goes through recordSkillEvents instead and tags its own source.
+ *
+ * Still fire-and-forget (mirrors recordQuotaEvent): a use-accounting write must never break the
+ * download/copy path, and the whole thing stays in one transaction so the sort key can't drift.
  */
-export async function recordSkillDownload(skillId: string): Promise<void> {
+export async function recordSkillDownload(
+  skillId: string,
+  opts: { repo?: string | null; source?: string | null } = {},
+): Promise<void> {
   if (!isDbConfigured()) return;
   try {
     const prisma = getPrisma();
+    // OrgSkillEvent.orgId is denormalized for the org-scoped rollup, so the owning org has to be read
+    // before the write. An unknown skill is a no-op rather than an orphan counter row.
+    const skill = await prisma.orgSkill.findUnique({ where: { id: skillId }, select: { orgId: true } });
+    if (!skill) return;
+    const now = new Date();
     await prisma.$transaction([
+      prisma.orgSkillEvent.create({
+        data: {
+          skillId,
+          orgId: skill.orgId,
+          type: "download" satisfies SkillEventType,
+          repo: opts.repo ?? null,
+          source: opts.source ?? "web",
+          createdAt: now,
+        },
+      }),
       prisma.orgSkillDownload.upsert({
         where: { skillId },
-        update: { count: { increment: 1 }, lastSeen: new Date() },
+        update: { count: { increment: 1 }, lastSeen: now },
         create: { skillId, count: 1 },
       }),
       prisma.orgSkill.update({ where: { id: skillId }, data: { downloadCount: { increment: 1 } } }),

@@ -1,8 +1,9 @@
 // Unit tests for the Feature 2 sync additions (mocked Prisma, mirroring org-skills.test.ts):
 //   - pushOrgSkill: create when absent; idempotent `unchanged` on an identical body; `conflict` when the
 //     supplied baseVersion is stale (no write); `updated` (version bumped) on a real change;
-//   - recordSkillEvents: forged/other-org skillIds are dropped (tenant boundary), and only real uses
-//     (download/invoke) bump the rolling tally + downloadCount — a passive `sync` does not.
+//   - recordSkillEvents: forged/other-org skillIds are dropped (tenant boundary), and only a real use
+//     (`download`) bumps the rolling tally + downloadCount — a passive `sync` does not. (`invoke` was
+//     retired 2026-07-29: it had no producer, so it could never mark anything active.)
 
 import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
@@ -83,17 +84,17 @@ describe("recordSkillEvents", () => {
   it("drops events for skills not owned by the org (tenant boundary)", async () => {
     const cap = eventsPrisma(["s1"]);
     const r = await recordSkillEvents("acme", [
-      { skillId: "s1", type: "invoke" },
-      { skillId: "s_other", type: "invoke" }, // not owned → dropped
+      { skillId: "s1", type: "download" },
+      { skillId: "s_other", type: "download" }, // not owned → dropped
     ]);
     expect(r.recorded).toBe(1);
     expect(cap.events).toHaveLength(1);
   });
 
-  it("bumps the use tally for download/invoke but not for a passive sync", async () => {
+  it("bumps the use tally for a download but not for a passive sync", async () => {
     const cap = eventsPrisma(["s1", "s2"]);
     await recordSkillEvents("acme", [
-      { skillId: "s1", type: "invoke" },
+      { skillId: "s1", type: "download" },
       { skillId: "s2", type: "sync" },
     ]);
     // Only s1 (a real use) triggers a counter transaction; s2's sync is logged but not counted.

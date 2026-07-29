@@ -858,7 +858,7 @@ model OrgSkillEvent {
   id        String   @id @default(uuid())
   skillId   String
   orgId     String // denormalized for org-scoped rollups
-  type      String // download | sync | invoke
+  type      String // download | sync  (`invoke` retired 2026-07-29 — it had no producer anywhere)
   repo      String? // reporting repo full name (owner/name), when known
   source    String? // reporting client: cli | hook | ci | web
   createdAt DateTime @default(now())

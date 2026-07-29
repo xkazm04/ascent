@@ -1,6 +1,10 @@
-// Pure tests for the skill dormancy verdict: the invoke > download > sync recency ranking, the 30-day
-// window, and — the rule most likely to regress — the AGE GUARD that keeps a freshly authored or freshly
-// adopted skill out of the "dormant" bucket.
+// Pure tests for the skill dormancy verdict: the download > sync recency ranking, the 30-day window,
+// and — the rule most likely to regress — the AGE GUARD that keeps a freshly authored or freshly adopted
+// skill out of the "dormant" bucket.
+//
+// ONE SIGNAL (2026-07-29): `invoke` is gone (it had no producer, so `active` was unreachable), and the
+// web-UI Copy/Download path now emits the same `download` event the CLI reports — pinned below by the
+// test that a web use and a CLI use land in the SAME verdict.
 
 import { describe, it, expect, vi } from "vitest";
 
@@ -22,7 +26,7 @@ const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOStr
 const ev = (type: string, days: number, count = 1) => ({ type, lastAt: daysAgo(days), count });
 
 describe("skillUsage verdicts", () => {
-  it("is `new` for a young skill with no invokes at all", () => {
+  it("is `new` for a young skill with no uses at all", () => {
     const u = skillUsage({ skillId: "s1", createdAt: daysAgo(3), events: [] }, NOW);
     expect(u.verdict).toBe("new");
     expect(u.lastUsedAt).toBeNull();
@@ -36,23 +40,23 @@ describe("skillUsage verdicts", () => {
     expect(u.lastUsedAt).toBeNull();
   });
 
-  it("is `active` when invoked inside the window", () => {
-    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(200), events: [ev("invoke", 4, 9)] }, NOW);
+  it("is `active` when used inside the window", () => {
+    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(200), events: [ev("download", 4, 9)] }, NOW);
     expect(u.verdict).toBe("active");
-    expect(u.lastUsedType).toBe("invoke");
+    expect(u.lastUsedType).toBe("download");
     expect(u.daysSinceUse).toBe(4);
-    expect(u.invokeCount).toBe(9);
+    expect(u.useCount).toBe(9);
   });
 
-  it("is `dormant` when the last invoke fell outside the window", () => {
-    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(200), events: [ev("invoke", 90)] }, NOW);
+  it("is `dormant` when the last use fell outside the window", () => {
+    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(200), events: [ev("download", 90)] }, NOW);
     expect(u.verdict).toBe("dormant");
     expect(u.daysSinceUse).toBe(90);
   });
 
   it("treats the window boundary as still active, one day past it as dormant", () => {
-    const at = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [ev("invoke", DORMANCY_WINDOW_DAYS)] }, NOW);
-    const past = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [ev("invoke", DORMANCY_WINDOW_DAYS + 1)] }, NOW);
+    const at = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [ev("download", DORMANCY_WINDOW_DAYS)] }, NOW);
+    const past = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [ev("download", DORMANCY_WINDOW_DAYS + 1)] }, NOW);
     expect(at.verdict).toBe("active");
     expect(past.verdict).toBe("dormant");
   });
@@ -69,16 +73,31 @@ describe("skillUsage verdicts", () => {
     expect(u.verdict).toBe("dormant");
   });
 
-  it("a young skill already being invoked reads as active, not new", () => {
-    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(2), events: [ev("invoke", 1)] }, NOW);
+  it("a young skill already being used reads as active, not new", () => {
+    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(2), events: [ev("download", 1)] }, NOW);
     expect(u.verdict).toBe("active");
+  });
+
+  // THE CONTRADICTION THIS DIRECTION CLOSED: a web-UI Copy/Download used to bump only the "N uses"
+  // counter (OrgSkillDownload) and never write an OrgSkillEvent, so a heavily-copied skill rendered
+  // "40 uses" and "dormant" on the same card. recordSkillDownload now emits the same `download` event
+  // the CLI reports, so both producers must fold to an IDENTICAL verdict.
+  it("a web-UI download and a CLI-reported download land in the same verdict", () => {
+    const base = { skillId: "s1", createdAt: daysAgo(200) };
+    const web = skillUsage({ ...base, events: [ev("download", 3, 40)] }, NOW);
+    const cli = skillUsage({ ...base, events: [ev("download", 3, 40)] }, NOW);
+    expect(web).toEqual(cli);
+    expect(web.verdict).toBe("active");
+    expect(web.useCount).toBe(40);
+    // …and 40 uses can no longer read as dormant.
+    expect(web.verdict).not.toBe("dormant");
   });
 });
 
 describe("skillUsage lastUsedAt ranking", () => {
-  it("prefers the latest invoke even when a download is more recent", () => {
-    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(60), events: [ev("invoke", 10), ev("download", 2)] }, NOW);
-    expect(u.lastUsedType).toBe("invoke");
+  it("prefers the latest download even when a sync is more recent", () => {
+    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(60), events: [ev("download", 10), ev("sync", 2)] }, NOW);
+    expect(u.lastUsedType).toBe("download");
     expect(u.daysSinceUse).toBe(10);
   });
 
@@ -99,15 +118,15 @@ describe("skillUsage lastUsedAt ranking", () => {
     expect(u.daysSinceUse).toBe(0);
   });
 
-  it("counts every event type in eventCount but only invokes in invokeCount", () => {
-    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(60), events: [ev("invoke", 1, 4), ev("sync", 1, 7)] }, NOW);
+  it("counts every event type in eventCount but only real uses in useCount", () => {
+    const u = skillUsage({ skillId: "s1", createdAt: daysAgo(60), events: [ev("download", 1, 4), ev("sync", 1, 7)] }, NOW);
     expect(u.eventCount).toBe(11);
-    expect(u.invokeCount).toBe(4);
+    expect(u.useCount).toBe(4);
   });
 
   it("never reports a negative age from a clock-skewed future timestamp", () => {
     const future = new Date(NOW.getTime() + 5 * 86_400_000).toISOString();
-    const u = skillUsage({ skillId: "s1", createdAt: future, events: [{ type: "invoke", lastAt: future, count: 1 }] }, NOW);
+    const u = skillUsage({ skillId: "s1", createdAt: future, events: [{ type: "download", lastAt: future, count: 1 }] }, NOW);
     expect(u.daysSinceUse).toBe(0);
     expect(u.ageDays).toBe(0);
   });
@@ -121,7 +140,7 @@ describe("skillUsageMap / usageSummary", () => {
       { id: "c", name: "C", createdAt: daysAgo(300) },
     ],
     events: [
-      { skillId: "b", type: "invoke", lastAt: daysAgo(3), count: 5 },
+      { skillId: "b", type: "download", lastAt: daysAgo(3), count: 5 },
       { skillId: "c", type: "download", lastAt: daysAgo(200), count: 1 },
     ],
     adoptions: [{ skillId: "c", repoFullName: "acme/api", adoptedAt: daysAgo(210) }],

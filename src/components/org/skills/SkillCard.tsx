@@ -133,7 +133,7 @@ export function SkillCard({
         <span className="font-mono text-slate-400">
           Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
         </span>
-        <span className="font-mono text-slate-500" title="Total downloads + copies">
+        <span className="font-mono text-slate-500" title="Total downloads + copies — the same events the status badge folds">
           {s.downloadCount} use{s.downloadCount === 1 ? "" : "s"}
         </span>
         {usage && (

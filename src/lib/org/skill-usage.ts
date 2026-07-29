@@ -1,11 +1,19 @@
 // Skill dormancy (ported from the Personas skill-drift loop) — the other half of the Org Skills sync
 // story: the CLI knows whether a skill's BODY drifted, this knows whether the skill is still USED. For
-// each org skill we fold OrgSkillEvent (download | sync | invoke) + OrgSkillAdoption into a `lastUsedAt`
-// and one of three verdicts: new | active | dormant.
+// each org skill we fold OrgSkillEvent (download | sync) + OrgSkillAdoption into a `lastUsedAt` and one
+// of three verdicts: new | active | dormant.
+//
+// ONE SIGNAL (2026-07-29): the card's "N uses" counter and this badge used to measure disjoint activity —
+// "uses" came from OrgSkillDownload (bumped by the web Copy/Download path) while the badge folded only
+// OrgSkillEvent, which that path never wrote. A skill copied 40 times read "40 uses · dormant". The fix
+// lives at the write end (recordSkillDownload now emits a `download` OrgSkillEvent in the same
+// transaction as the tally bump), so both numbers are derived from the same writes and cannot disagree.
+// The `invoke` event type was retired in the same change: it ranked highest here but had NO producer
+// anywhere, so `active` was unreachable for every skill in production.
 //
 // The age guard is the point: a library that just judged "no uses in 30 days ⇒ dead" would brand every
 // freshly authored/adopted skill dormant on day one and teach the org to ignore the badge. A skill that
-// arrived less than 30 days ago and has never been invoked is NEW (give it a chance), not dormant.
+// arrived less than 30 days ago and has never been used is NEW (give it a chance), not dormant.
 //
 // Pure over fetched rows (getOrgSkillUsageRows) so the verdict is unit-testable without a DB.
 
@@ -24,13 +32,14 @@ export const DORMANCY_WINDOW_DAYS = 30;
 export interface SkillUsage {
   skillId: string;
   verdict: SkillUsageVerdict;
-  /** Latest use: the newest `invoke` when there is one, else the newest download/sync. Null = never used. */
+  /** Latest use: the newest `download` when there is one, else the newest `sync`. Null = never used. */
   lastUsedAt: string | null;
-  /** Which event kind `lastUsedAt` came from — an `invoke` is a real use, a `sync` is only a pull. */
-  lastUsedType: "invoke" | "download" | "sync" | null;
+  /** Which event kind `lastUsedAt` came from — a `download` is a real use, a `sync` is only a pull. */
+  lastUsedType: "download" | "sync" | null;
   /** Whole days since `lastUsedAt` (null when never used). */
   daysSinceUse: number | null;
-  invokeCount: number;
+  /** Real uses (download/copy events, web UI and CLI alike) — the same writes behind the "N uses" tally. */
+  useCount: number;
   /** Every recorded event, of any type. */
   eventCount: number;
   /** The "arrival" moment the age guard measures: the later of creation and the most recent adoption —
@@ -67,15 +76,16 @@ export interface SkillUsageInput {
 }
 
 /**
- * The verdict for one skill. `lastUsedAt` ranks invoke > download > sync, but only a REAL use (invoke or
- * download) can make a skill `active`: `sync` is a background pull the CLI emits on every run (including
- * its drift report), so counting it would make every skill in a repo with a scheduled sync look alive
- * forever — exactly the false "everything is fine" the dormancy view exists to break. Rules in order:
- *   1. really used inside the window     → active
- *   2. never invoked and younger than it → new   (the age guard)
- *   3. otherwise                         → dormant
- * Rule 1 runs first so a brand-new skill that is already being invoked reads as `active`, and rule 2 can
- * only claim a skill with no recent real use at all.
+ * The verdict for one skill. `lastUsedAt` ranks download > sync, but only a REAL use (`download` — a
+ * human copy or download, from the web UI or a CLI) can make a skill `active`: `sync` is a background
+ * pull the CLI emits on every run (including its drift report), so counting it would make every skill in
+ * a repo with a scheduled sync look alive forever — exactly the false "everything is fine" the dormancy
+ * view exists to break. Rules in order:
+ *   1. really used inside the window   → active
+ *   2. never used and younger than it  → new   (the age guard)
+ *   3. otherwise                       → dormant
+ * Rule 1 runs first so a brand-new skill that is already being used reads as `active`, and rule 2 can
+ * only claim a skill with no real use at all.
  */
 export function skillUsage(input: SkillUsageInput, now: Date = new Date()): SkillUsage {
   const byType = new Map<string, { lastAt: string; count: number }>();
@@ -84,21 +94,17 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
     // Defensive fold: the DB rollup is already one row per (skill,type), but a caller-built list may not be.
     byType.set(e.type, { lastAt: laterOf(prev?.lastAt ?? e.lastAt, e.lastAt), count: (prev?.count ?? 0) + e.count });
   }
-  const invoke = byType.get("invoke");
   const download = byType.get("download");
   const sync = byType.get("sync");
-  const picked: [SkillUsage["lastUsedType"], { lastAt: string; count: number } | undefined] = invoke
-    ? ["invoke", invoke]
-    : download
-      ? ["download", download]
-      : sync
-        ? ["sync", sync]
-        : [null, undefined];
+  const picked: [SkillUsage["lastUsedType"], { lastAt: string; count: number } | undefined] = download
+    ? ["download", download]
+    : sync
+      ? ["sync", sync]
+      : [null, undefined];
   const lastUsedAt = picked[1]?.lastAt ?? null;
   const daysSinceUse = lastUsedAt ? daysBetween(lastUsedAt, now) : null;
   // The activity clock ignores `sync` (see the doc comment): a pull is not a use.
-  const lastRealUse = invoke ?? download;
-  const daysSinceRealUse = lastRealUse ? daysBetween(lastRealUse.lastAt, now) : null;
+  const daysSinceRealUse = download ? daysBetween(download.lastAt, now) : null;
 
   let anchorAt = input.createdAt;
   for (const a of input.adoptedAt ?? []) anchorAt = laterOf(anchorAt, a);
@@ -107,7 +113,7 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
   const verdict: SkillUsageVerdict =
     daysSinceRealUse !== null && daysSinceRealUse <= DORMANCY_WINDOW_DAYS
       ? "active"
-      : !invoke && ageDays < DORMANCY_WINDOW_DAYS
+      : !download && ageDays < DORMANCY_WINDOW_DAYS
         ? "new"
         : "dormant";
 
@@ -117,7 +123,7 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
     lastUsedAt,
     lastUsedType: picked[0],
     daysSinceUse,
-    invokeCount: invoke?.count ?? 0,
+    useCount: download?.count ?? 0,
     eventCount: Array.from(byType.values()).reduce((n, v) => n + v.count, 0),
     anchorAt,
     ageDays,
