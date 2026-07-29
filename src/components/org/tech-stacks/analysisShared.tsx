@@ -5,7 +5,7 @@
 
 import type { ReactNode } from "react";
 import { scoreHex } from "@/lib/ui";
-import type { DimClass, DimInsight } from "@/components/org/tech-stacks/fleetAnalysis";
+import { coverageOf, type DimClass, type DimInsight } from "@/components/org/tech-stacks/fleetAnalysis";
 import type { ChangeType } from "@/components/org/tech-stacks/transferPlaybook";
 
 export const CLASS_META: Record<DimClass, { color: string; icon: string; label: string }> = {
@@ -17,15 +17,42 @@ export const CLASS_META: Record<DimClass, { color: string; icon: string; label: 
 
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 
-export function ClassPill({ klass }: { klass: DimClass }) {
+/** Neutral ink used to de-weight a low-coverage verdict — the same slate the "consistent" (no-signal)
+ *  class already reads in, so a minority read never borrows the full-coverage class colour. */
+const MUTED = CLASS_META.consistent.color;
+
+/** `muted` de-weights the pill to neutral ink for a low-coverage verdict. The verdict itself is
+ *  unchanged and still fully legible — only its visual emphasis is withdrawn. */
+export function ClassPill({ klass, muted }: { klass: DimClass; muted?: boolean }) {
   const m = CLASS_META[klass];
+  const color = muted ? MUTED : m.color;
   return (
     <span
       className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs"
-      style={{ backgroundColor: `${m.color}1f`, color: m.color }}
+      style={{ backgroundColor: `${color}1f`, color }}
     >
       <span aria-hidden>{m.icon}</span>
       {m.label}
+    </span>
+  );
+}
+
+/**
+ * What the verdict rests on: contributing stacks out of the scored total. The analysis has always
+ * computed this (DimInsight.count) and every surface threw it away before render, so a "divergent"
+ * drawn from 2 of 8 stacks looked exactly like one drawn from all 8. Mono `tabular-nums` per the brand;
+ * a low-coverage read says so in words as well as tone, so the signal isn't colour-only.
+ */
+export function CoverageChip({ d, nounPlural = "stacks" }: { d: DimInsight; nounPlural?: string }) {
+  const c = coverageOf(d);
+  const low = c.level === "low";
+  return (
+    <span
+      className={`font-mono text-xs tabular-nums ${low ? "text-warn" : "text-slate-500"}`}
+      title={`This verdict is drawn from ${c.count} of the ${c.of} scored ${nounPlural} that could carry this dimension.`}
+    >
+      {c.count}/{c.of} {nounPlural}
+      {low ? " · low coverage" : ""}
     </span>
   );
 }
@@ -74,7 +101,9 @@ export function noteFor(d: DimInsight) {
 /** The 0→100 range track: quarter gridlines, fleet baseline tick, the min→max spread bar, and the
  *  laggard (hollow) / leader (filled) dots. `compact` shrinks it for card headers. */
 export function RangeBar({ d, compact }: { d: DimInsight; compact?: boolean }) {
-  const m = CLASS_META[d.klass];
+  // A minority-coverage spread is drawn in neutral ink: the bar still shows the full min→max range,
+  // it just stops asserting the class colour it can't fully evidence.
+  const m = coverageOf(d).level === "low" ? CLASS_META.consistent : CLASS_META[d.klass];
   return (
     <div className={`relative ${compact ? "h-5" : "h-8"}`}>
       {[25, 50, 75].map((g) => (
@@ -119,13 +148,14 @@ export function LeaderLaggard({ d }: { d: DimInsight }) {
 
 /** The full diagnosis row (label + class, range + note, leader/laggard + an action slot), with an
  *  optional expanded body beneath it. Shared by the segmented baseline and the Playbook variant. */
-export function ConsensusRow({ d, action, children }: { d: DimInsight; action?: ReactNode; children?: ReactNode }) {
+export function ConsensusRow({ d, action, nounPlural, children }: { d: DimInsight; action?: ReactNode; nounPlural?: string; children?: ReactNode }) {
   return (
     <div className="py-2.5">
-      <div className="grid grid-cols-[7rem_minmax(0,1fr)_11.5rem] items-start gap-4">
-        <div className="flex flex-col gap-1">
+      <div className="grid grid-cols-[8.5rem_minmax(0,1fr)_11.5rem] items-start gap-4">
+        <div className="flex flex-col items-start gap-1">
           <span className="font-medium text-white">{d.label}</span>
-          <ClassPill klass={d.klass} />
+          <ClassPill klass={d.klass} muted={coverageOf(d).level === "low"} />
+          <CoverageChip d={d} nounPlural={nounPlural} />
         </div>
         <div>
           <RangeBar d={d} />

@@ -3,7 +3,7 @@
 // the user — a threshold drift would silently re-label the fleet's strengths and gaps.
 
 import { describe, it, expect } from "vitest";
-import { classifyDim, computeFleetInsights } from "@/components/org/tech-stacks/fleetAnalysis";
+import { classifyDim, computeFleetInsights, coverageOf } from "@/components/org/tech-stacks/fleetAnalysis";
 import type { SegmentSummary } from "@/lib/db";
 
 const stack = (id: string, name: string, dims: Record<string, number>): SegmentSummary => ({
@@ -33,6 +33,17 @@ describe("classifyDim", () => {
   });
 });
 
+describe("coverageOf", () => {
+  it("calls a unanimous read full, a minority read low, and the middle partial", () => {
+    expect(coverageOf({ count: 8, scoredCount: 8 }).level).toBe("full");
+    expect(coverageOf({ count: 2, scoredCount: 8 }).level).toBe("low"); // 0.25 < 0.6
+    expect(coverageOf({ count: 5, scoredCount: 8 }).level).toBe("partial"); // 0.625 ≥ 0.6
+  });
+  it("never reports a denominator smaller than the contributing count", () => {
+    expect(coverageOf({ count: 3, scoredCount: 0 })).toMatchObject({ of: 3, level: "full" });
+  });
+});
+
 describe("computeFleetInsights", () => {
   const dims = ["D1", "D2", "D3"];
   const stacks = [
@@ -55,6 +66,15 @@ describe("computeFleetInsights", () => {
     expect(ins.widest?.dimId).toBe("D1"); // biggest spread
     // most-actionable-first: a divergent dimension outranks a consistent one
     expect(ins.dims[0]!.klass).toBe("divergent");
+  });
+
+  it("carries the scored-stack denominator on the analysis and on every insight", () => {
+    // A third stack that carries only D1 — so D2/D3 are evidenced by 2 of 3 scored stacks, not 3.
+    const partial = [...stacks, stack("mo", "Mobile", { D1: 20 })];
+    const ins = computeFleetInsights(partial, null, dims)!;
+    expect(ins.scoredCount).toBe(3);
+    expect(ins.dims.find((d) => d.dimId === "D1")!).toMatchObject({ count: 3, scoredCount: 3 });
+    expect(ins.dims.find((d) => d.dimId === "D2")!).toMatchObject({ count: 2, scoredCount: 3 });
   });
 
   it("reports the overall best-vs-worst stack spread", () => {

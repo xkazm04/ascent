@@ -18,6 +18,7 @@ const base = (over: Partial<DimInsight>): DimInsight => ({
   laggard: { id: "lib", name: "Library", value: 20 },
   klass: "divergent",
   count: 2,
+  scoredCount: 4,
   ...over,
 });
 

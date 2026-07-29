@@ -36,6 +36,36 @@ export interface DimInsight {
   klass: DimClass;
   /** How many scored stacks contributed (coverage of the comparison). */
   count: number;
+  /** How many scored stacks the comparison had to draw on — the DENOMINATOR for `count`. Carried on
+   *  every insight (not just on FleetInsights) so any surface holding a DimInsight can state what the
+   *  verdict rests on without prop-drilling. `count` can be lower: a stack whose scans predate a
+   *  dimension carries no average for it, so it simply doesn't vote. */
+  scoredCount: number;
+}
+
+/** Below this share of the scored stacks, an insight is a minority read and its verdict is visually
+ *  DE-WEIGHTED (never hidden or reclassified — see `coverageOf`). Presentational only: it is not one
+ *  of the classification thresholds above and never changes a `DimClass`. */
+const LOW_COVERAGE_RATIO = 0.6;
+
+export type CoverageLevel = "full" | "partial" | "low";
+
+/**
+ * What a dimension verdict rests on. A "divergent" call drawn from 2 of 8 stacks and one drawn from
+ * all 8 are the same shape on screen but not the same claim, so every surface rendering a verdict
+ * renders this beside it. "full" = every scored stack voted; "low" = a minority did (< 60%), which the
+ * UI de-weights; "partial" = in between. Pure, so both the chip and the de-weighting agree.
+ */
+export function coverageOf(d: Pick<DimInsight, "count" | "scoredCount">): {
+  count: number;
+  of: number;
+  ratio: number;
+  level: CoverageLevel;
+} {
+  const of = Math.max(d.scoredCount, d.count);
+  const ratio = of > 0 ? d.count / of : 0;
+  const level: CoverageLevel = d.count >= of ? "full" : ratio < LOW_COVERAGE_RATIO ? "low" : "partial";
+  return { count: d.count, of, ratio, level };
 }
 
 export interface FleetInsights {
@@ -44,6 +74,8 @@ export interface FleetInsights {
   strengths: DimInsight[];
   gaps: DimInsight[];
   divergent: DimInsight[];
+  /** Scored stacks the whole analysis draws on — the denominator behind every insight's `count`. */
+  scoredCount: number;
   widest: DimInsight | null;
   weakest: DimInsight | null;
   /** Overall best-vs-worst stack, or null when all tie. */
@@ -100,6 +132,7 @@ export function computeFleetInsights(
       laggard,
       klass: classifyDim(min, max),
       count: pts.length,
+      scoredCount: scored.length,
     });
   }
 
@@ -119,6 +152,7 @@ export function computeFleetInsights(
     strengths: sorted.filter((d) => d.klass === "strength"),
     gaps: sorted.filter((d) => d.klass === "gap"),
     divergent: sorted.filter((d) => d.klass === "divergent"),
+    scoredCount: scored.length,
     widest: insights.reduce<DimInsight | null>((m, d) => (!m || d.spread > m.spread ? d : m), null),
     weakest: insights.reduce<DimInsight | null>((m, d) => (!m || d.mean < m.mean ? d : m), null),
     overall:

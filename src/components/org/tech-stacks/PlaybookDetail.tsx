@@ -5,8 +5,8 @@
 // block links to. Server-safe (links only). See transferPlaybook.ts for the generated content.
 
 import Link from "next/link";
-import { ChangeTag } from "@/components/org/tech-stacks/analysisShared";
-import type { DimInsight } from "@/components/org/tech-stacks/fleetAnalysis";
+import { ChangeTag, CoverageChip } from "@/components/org/tech-stacks/analysisShared";
+import { coverageOf, type DimInsight } from "@/components/org/tech-stacks/fleetAnalysis";
 import type { AnalysisScope } from "@/components/org/tech-stacks/analysisScope";
 import { buildPlaybook } from "@/components/org/tech-stacks/transferPlaybook";
 
@@ -20,6 +20,7 @@ function Handoff({ href, children }: { href: string; children: React.ReactNode }
 
 export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; scope: AnalysisScope }) {
   const p = buildPlaybook(d);
+  const cov = coverageOf(d);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -29,13 +30,24 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
           ))}
           <span className="text-sm text-slate-400">{p.summary}.</span>
         </div>
-        <span className="shrink-0 font-mono text-xs text-slate-500">
-          target{" "}
-          <span className="tabular-nums text-slate-300">
-            {d.laggard.value} → {p.target}
+        <span className="flex shrink-0 items-center gap-3 font-mono text-xs text-slate-500">
+          <CoverageChip d={d} nounPlural={scope.nounPlural} />
+          <span>
+            target{" "}
+            <span className="tabular-nums text-slate-300">
+              {d.laggard.value} → {p.target}
+            </span>
           </span>
         </span>
       </div>
+      {cov.level === "low" && (
+        // The recommendation still stands and is still actionable — the reader just gets to weigh it
+        // against how much of the fleet it was inferred from, instead of reading a minority pattern
+        // as a fleet-wide one.
+        <p className="text-sm text-warn">
+          Weigh this plan accordingly: it is inferred from {cov.count} of {cov.of} scored {scope.nounPlural}, not the whole fleet.
+        </p>
+      )}
 
       <div>
         <div className="font-mono text-xs uppercase tracking-widest text-slate-500">Moves</div>

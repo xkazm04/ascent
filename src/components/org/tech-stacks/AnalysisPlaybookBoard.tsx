@@ -34,6 +34,7 @@ export function AnalysisPlaybookBoard({ org, dims, scope }: { org: string; dims:
           <ConsensusRow
             key={d.dimId}
             d={d}
+            nounPlural={scope.nounPlural}
             action={
               actionable ? (
                 <button

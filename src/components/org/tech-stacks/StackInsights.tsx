@@ -41,13 +41,14 @@ export function StackInsights({ org, stacks, fleet, dims, scope }: {
         <SectionHeader
           size="sm"
           title="Consensus & transfer plan"
-          description="Every dimension diagnosed, most-actionable first. Expand a divergent or systemic-gap row for its transformation playbook — the moves, a Practices artifact, and a goal to own in Plan."
+          description={`Every dimension diagnosed across the ${ins.scoredCount} scored ${scope.nounPlural}, most-actionable first. Each row states how many of them its verdict rests on — a dimension only a minority can evidence is de-weighted, not hidden. Expand a divergent or systemic-gap row for its transformation playbook — the moves, a Practices artifact, and a goal to own in Plan.`}
         />
         <div className="mt-3">
           <AnalysisPlaybookBoard org={org} dims={ins.dims} scope={scope} />
         </div>
         <p className="mt-3 font-mono text-xs text-slate-500">
-          hollow dot = laggard · filled dot = leader · vertical line = whole-fleet baseline · bar = spread
+          hollow dot = laggard · filled dot = leader · vertical line = whole-fleet baseline · bar = spread · n/N = {scope.nounPlural} the
+          verdict rests on, of {ins.scoredCount} scored
         </p>
       </Card>
     </div>

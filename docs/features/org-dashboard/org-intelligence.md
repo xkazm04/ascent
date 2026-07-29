@@ -33,7 +33,7 @@ since fleet aggregation/attribution surfaces need a real org's breadth.
 | Overview | Overview | `org/[slug]` | `src/app/org/[slug]/page.tsx` | Maturity score/level, adoption & rigor, repos scanned, **Trajectory**, goal + standing cards, gap analysis, posture distribution, dimension averages, trend, movers, highest-leverage fleet moves. |
 | Overview | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
 | Fleet | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | Repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
-| Fleet | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet. |
+| Fleet | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
 | Fleet | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
 | Fleet | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Intelligence | Security | `org/[slug]/security` | `src/app/org/[slug]/security/` | Security posture across the fleet. |
@@ -75,6 +75,26 @@ has-scans) — the same restriction `getOrgRollup` already applies everywhere el
 tagged-but-unwatched/unscanned repos legitimately shows a smaller number on the Segments tab than
 on its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces now carry a
 tooltip saying which one they are.
+
+### Tech Stacks — dimension analysis, and what each verdict rests on
+
+The Tech Stacks tab's "Consensus & transfer plan" board diagnoses every dimension across the
+org's scored stacks (`computeFleetInsights`, `src/components/org/tech-stacks/fleetAnalysis.ts`)
+and labels it **divergent** (best-vs-worst ≥ 35 pts), **gap** (even the best stack ≤ 45),
+**strength** (even the worst ≥ 68) or **consistent**. Divergent and gap rows expand into a
+transformation playbook (moves, a proposed Practices artifact, an adoption checklist).
+
+**Every verdict states its coverage (2026-07-29).** A dimension is only averaged over the stacks
+whose scans actually carry it, so a "divergent" call can rest on 2 of 8 scored stacks or on all 8.
+Each `DimInsight` carries `count` (contributing stacks) and `scoredCount` (the denominator), and
+both the diagnosis row and the expanded playbook render an `n/N stacks` chip beside the verdict.
+`coverageOf` grades that ratio: **full** (unanimous), **partial**, or **low** (< 60% of the scored
+stacks). A low-coverage row is **de-weighted, never hidden or reclassified** — its class pill and
+spread bar drop to neutral ink instead of the class colour, the chip says "low coverage" in words
+(not colour alone), and the playbook adds a plain-language caveat naming the numbers. The
+classification thresholds themselves are untouched by coverage; the verdict still shows, its
+confidence is just legible. (Previously `count` was computed and then discarded before render, so
+a two-stack pattern and a fleet-wide one looked identical.)
 
 ## Dashboard rollups (`src/lib/db/org.ts`)
 
@@ -316,6 +336,8 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
 | `src/components/org/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter · Repositories-tab tag manager · A-vs-B comparison picker. |
+| `src/components/org/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on — see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
+| `src/components/org/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome — class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
 | `src/lib/org/timezone.ts` | **The canonical org time-zone policy** — one reference frame (UTC by default, `ASCENT_ORG_TZ`-overridable) for every calendar-day boundary: zoned midnights, calendar-day arithmetic, day keys, date-literal parsing. See [above](#canonical-time-zone-policy-srcliborgtimezonets). |
 | `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, `end` compat bound, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
