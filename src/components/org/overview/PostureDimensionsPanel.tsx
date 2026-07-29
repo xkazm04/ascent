@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { Card, SectionHeader, Meter, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
@@ -83,7 +84,7 @@ export function PostureDimensionsPanel({
       <div className="mt-4 border-t border-divider pt-4">
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Dimension averages</span>
-          <Link href={`/org/${slug}/practices`} className="font-mono text-sm text-slate-500 transition hover:text-accent">
+          <Link href={orgTabHref(slug, "practices")} className="font-mono text-sm text-slate-500 transition hover:text-accent">
             → practices
           </Link>
         </div>
@@ -118,7 +119,7 @@ export function PostureDimensionsPanel({
               <div key={d.dimId} className="-mx-1 flex items-center gap-2 px-1 py-0.5 text-sm">
                 {practiceId ? (
                   <Link
-                    href={`/org/${slug}/practices#practice-${practiceId}`}
+                    href={`${orgTabHref(slug, "practices")}#practice-${practiceId}`}
                     title={`See the ${short} practice — exemplar, gap repos, and how to lift this dimension`}
                     className="focus-ring group flex flex-1 items-center gap-3 rounded-md transition hover:bg-slate-800/40"
                   >

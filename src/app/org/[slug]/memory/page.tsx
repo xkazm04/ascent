@@ -1,54 +1,14 @@
-import { MemoryPanel } from "@/components/org/MemoryPanel";
-import { MemoryReflectPanel } from "@/components/org/MemoryReflectPanel";
-import { MemoryRecallPanel } from "@/components/org/MemoryRecallPanel";
-import { MemoryCoverageStrip } from "./MemoryCoverageStrip";
-import { getMemoryCoverage } from "@/lib/memory/coverage";
-import { getCreditState, isPersonalOrg, listOrgMemories, listOrgMemoryNamespaces } from "@/lib/db";
-import { hasOrgRole } from "@/lib/authz";
-import { resolveViewerLogin } from "@/lib/access";
-import { planAllowsMemory } from "@/lib/plans";
-import { MEMORY_KINDS } from "@/lib/org/memory-kinds";
+import { redirect } from "next/navigation";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrgMemory({ params }: { params: Promise<{ slug: string }> }) {
+// The Memory view moved into the org dashboard's single `?tab=` shell (docs/ORG-TABS-REFACTOR.md).
+// This route is kept FOREVER as a permanent redirect, not deleted: 58 link sites point at
+// /org/{slug}/{segment}, including the weekly digest email and the alert pushes — links already
+// sitting in inboxes that we cannot update. The target comes from orgTabHref so a future rename is
+// one edit in orgTabs.ts.
+export default async function OrgMemoryRedirect({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  // Read access is enforced by the org layout; here we resolve the plan + role to gate writing/archiving.
-  // The viewer is resolved FIRST because it scopes the very rows we read (private scratch, §4.5).
-  const viewer = await resolveViewerLogin();
-  const [memories, namespaces, credit, isMember, isAdmin, personal, coverage] = await Promise.all([
-    listOrgMemories(slug, {}, viewer),
-    listOrgMemoryNamespaces(slug),
-    getCreditState(slug).catch(() => null),
-    hasOrgRole(slug, "member"),
-    hasOrgRole(slug, "admin"),
-    isPersonalOrg(slug),
-    // Coverage is an instrument, not the page: a failed read degrades to honest zeros rather than
-    // taking down the memory list it decorates.
-    getMemoryCoverage(slug).catch(() => null),
-  ]);
-  // Team+ orgs, or a personal workspace (individual tier: free-with-limits authoring).
-  const planAllowed = planAllowsMemory(credit?.plan) || personal;
-
-  return (
-    <div className="space-y-6">
-      {coverage && coverage.totalTrackedRepos > 0 && <MemoryCoverageStrip coverage={coverage} />}
-      <MemoryPanel
-        slug={slug}
-        initial={memories ?? []}
-        kinds={MEMORY_KINDS}
-        namespaces={namespaces}
-        viewerLogin={viewer}
-        canWrite={isMember && planAllowed}
-        isAdmin={isAdmin}
-        planAllowed={planAllowed}
-        defaultVisibility={personal ? "private" : "shared"}
-      />
-      {/* Recall is a READ, ungated for any member — matching /api/org/memory/recall. */}
-      <MemoryRecallPanel slug={slug} namespaces={namespaces} kinds={MEMORY_KINDS} />
-      {/* Reflect is gated exactly as the route gates it (member + Team plan / personal workspace), so a
-          read-only viewer gets the explanation rather than a button that 403s. */}
-      <MemoryReflectPanel slug={slug} canWrite={isMember && planAllowed} />
-    </div>
-  );
+  redirect(orgTabHref(slug, "memory"));
 }

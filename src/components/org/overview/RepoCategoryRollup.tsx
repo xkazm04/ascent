@@ -4,16 +4,18 @@
 // Type (posture) · Stack (role) · Level — each group carrying its own aggregates (count · avg maturity ·
 // net move) above its rows. Filtering lives in the header dropdowns (Type / Stack / Level), not a top
 // selector row. The organisational lens: "which KINDS of repos are strong or slipping?"
+//
+// Grouping/aggregation logic lives in repoCategoryRollupLogic.tsx; the row and group-card JSX live in
+// RepoCategoryRollupRow.tsx / RepoCategoryRollupGroup.tsx — both split out per
+// docs/ORG-TABS-REFACTOR.md to keep this file under the 200-LOC cap.
 
 import { useState } from "react";
-import Link from "next/link";
 import { Surface } from "@/components/ui";
-import { SectionHeader, Meter, postureLabel } from "@/components/org/shared/ui";
+import { SectionHeader, postureLabel } from "@/components/org/shared/ui";
 import { fmtDelta, deltaHex, DIRECTION_TONE } from "@/components/ui/format";
-import { scoreHex, LEVEL_CLASSES, LEVEL_GLYPH, reportPermalink, freshness } from "@/lib/ui";
-import type { LevelId } from "@/lib/types";
-import { StackRoleIcon } from "@/components/org/overview/orgIcons";
+import { scoreHex } from "@/lib/ui";
 import { FilterMenu, type FilterOption } from "@/components/org/overview/FilterMenu";
+import { StackRoleIcon } from "@/components/org/overview/orgIcons";
 import {
   applyFilters,
   emptyFilters,
@@ -21,154 +23,14 @@ import {
   posturesPresent,
   rolesPresent,
   levelsPresent,
-  rolesOf,
-  isMockEngine,
   summarize,
-  avgRealMove,
-  POSTURE_DOT,
-  POSTURE_DOT_FALLBACK,
   STACK_ROLE_LABEL,
   type RepoTrajectory,
   type RepoFilters,
 } from "@/components/org/overview/repoTrajectory";
-
-type Mode = "type" | "stack" | "level";
-const MODES: { id: Mode; label: string }[] = [
-  { id: "type", label: "Type" },
-  { id: "stack", label: "Stack" },
-  { id: "level", label: "Level" },
-];
-
-const dot = (p: string) => <span className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_DOT[p] ?? POSTURE_DOT_FALLBACK }} />;
-const levelGlyph = (l: string) => (
-  <span className={LEVEL_CLASSES[l as LevelId].text}>{LEVEL_GLYPH[l as LevelId]}</span>
-);
-
-interface Group {
-  key: string;
-  label: string;
-  badge: React.ReactNode;
-  rows: RepoTrajectory[];
-}
-
-function buildGroups(mode: Mode, rows: RepoTrajectory[]): Group[] {
-  if (mode === "stack") {
-    return rolesPresent(rows).map((role) => ({
-      key: role,
-      label: STACK_ROLE_LABEL[role],
-      badge: <StackRoleIcon role={role} size={15} />,
-      rows: rows.filter((r) => rolesOf(r).includes(role)),
-    }));
-  }
-  if (mode === "level") {
-    return levelsPresent(rows).map((l) => ({
-      key: l,
-      label: l,
-      badge: levelGlyph(l),
-      rows: rows.filter((r) => r.level === l),
-    }));
-  }
-  return posturesPresent(rows).map((p) => ({
-    key: p,
-    label: postureLabel(p),
-    badge: dot(p),
-    rows: rows.filter((r) => r.posture === p),
-  }));
-}
-
-function agg(rows: RepoTrajectory[]) {
-  const avg = Math.round(rows.reduce((a, r) => a + r.overall, 0) / rows.length);
-  // Net move excludes engine-transition (mock → live) deltas — those reflect a scoring-engine switch,
-  // not real movement — so a cohort's "avg move" reads as genuine code-change momentum.
-  return { avg, net: avgRealMove(rows) };
-}
-
-function RollupRow({ r, orgSlug }: { r: RepoTrajectory; orgSlug: string }) {
-  const lc = LEVEL_CLASSES[r.level] ?? LEVEL_CLASSES.L1;
-  return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <Link
-          href={reportPermalink(r.fullName, null, orgSlug)}
-          title={`Open ${r.fullName}'s report`}
-          className="focus-ring min-w-0 truncate font-mono text-sm text-slate-200 transition hover:text-accent"
-        >
-          <span className="text-slate-500">{r.owner}/</span>
-          {r.name}
-        </Link>
-        {/* Provenance: a mock-engine score is the deterministic FLOOR, not a real graded scan — flag it. */}
-        {isMockEngine(r.engine) && (
-          <span
-            title="Deterministic mock score — a placeholder floor, not a live graded scan. Re-scan live to replace it."
-            className="shrink-0 rounded border border-slate-700 px-1 font-mono text-xs uppercase tracking-wider text-slate-500"
-          >
-            mock
-          </span>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        <span className="flex items-center gap-1 text-slate-500" aria-hidden>
-          {rolesOf(r).slice(0, 3).map((role) => (
-            <StackRoleIcon key={role} role={role} size={13} />
-          ))}
-        </span>
-        <span className={`font-mono text-xs ${lc.text}`}>{r.level}</span>
-        <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(r.overall) }}>
-          {r.overall}
-        </span>
-        {r.deltaWindow == null ? (
-          <span className="w-12 text-right font-mono text-xs text-slate-600">—</span>
-        ) : r.deltaCrossesEngine ? (
-          // Muted: this delta spans a mock → live engine change, so it reflects a scoring-engine
-          // transition, not a real code-change movement. Don't dress it in the confident up/down tone.
-          <span
-            className="w-12 text-right font-mono text-xs tabular-nums text-slate-500"
-            title="Spans a mock → live engine change — an engine transition, not a real code-change delta"
-          >
-            {fmtDelta(r.deltaWindow)}
-          </span>
-        ) : (
-          <span className="w-12 text-right font-mono text-xs tabular-nums" style={{ color: deltaHex(r.deltaWindow) }}>
-            {fmtDelta(r.deltaWindow)}
-          </span>
-        )}
-        <span className="hidden w-16 text-right font-mono text-xs text-slate-500 sm:inline">{freshness(r.scannedAt)}</span>
-      </div>
-    </div>
-  );
-}
-
-function GroupCard({ g, orgSlug }: { g: Group; orgSlug: string }) {
-  const { avg, net } = agg(g.rows);
-  const rows = [...g.rows].sort((a, b) => b.overall - a.overall);
-  return (
-    <div className="overflow-hidden rounded-2xl border border-divider bg-surface/40">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-divider px-4 py-3">
-        <span className="flex items-center gap-2 font-mono text-sm text-slate-100">
-          {g.badge}
-          {g.label}
-          <span className="text-slate-500">· {g.rows.length}</span>
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="font-mono text-lg font-bold tabular-nums" style={{ color: scoreHex(avg) }}>
-            {avg}
-          </span>
-          <Meter value={avg} size="sm" color={scoreHex(avg)} className="w-24" />
-        </span>
-        {net != null && (
-          <span className="font-mono text-xs tabular-nums" style={{ color: deltaHex(net) }}>
-            {fmtDelta(net)} avg move
-          </span>
-        )}
-      </div>
-      <div className="divide-y divide-divider">
-        {rows.map((r) => (
-          <RollupRow key={r.fullName} r={r} orgSlug={orgSlug} />
-        ))}
-      </div>
-    </div>
-  );
-}
+import { MODES, dot, levelGlyph, buildGroups, agg } from "./repoCategoryRollupLogic";
+import { RepoCategoryRollupGroup } from "./RepoCategoryRollupGroup";
+import type { Mode } from "./repoCategoryRollupLogic";
 
 export function RepoCategoryRollup({
   trajectories,
@@ -283,7 +145,7 @@ export function RepoCategoryRollup({
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {groups.map((g) => (
-            <GroupCard key={g.key} g={g} orgSlug={orgSlug} />
+            <RepoCategoryRollupGroup key={g.key} g={g} orgSlug={orgSlug} />
           ))}
         </div>
       )}

@@ -24,6 +24,7 @@ import {
   setRepoSegmentsBulk,
 } from "@/lib/db";
 import { DEMO_ORG, GOALS, INITIATIVES, MEMBERS, SEGMENTS, SKILLS } from "./demo-data";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
       dashboard: `/org/${slug}`,
       segments: `/org/${slug}/segments`,
       skills: `/org/${slug}/skills`,
-      plan: `/org/${slug}/plan`,
+      plan: orgTabHref(slug, "plan"),
       members: `/org/${slug}/members`,
     },
   });

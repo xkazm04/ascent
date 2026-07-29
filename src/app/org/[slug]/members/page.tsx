@@ -1,51 +1,14 @@
-// Org dashboard "Members" tab — owner-only RBAC management. The org layout gates DB/auth/read
-// access for every sub-page; this page adds the owner-role check (members list is sensitive) and
-// hands the data to the client panel for inline role changes + removal.
-
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { MembersPanel } from "@/components/org/members/MembersPanel";
-import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";
-import { hasOrgRole } from "@/lib/authz";
-import { resolveViewerLogin } from "@/lib/access";
+import { redirect } from "next/navigation";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrgMembers({ params }: { params: Promise<{ slug: string }> }) {
+// The Members view moved into the org dashboard's single `?tab=` shell
+// (docs/ORG-TABS-REFACTOR.md). This route is kept FOREVER as a permanent redirect, not deleted: 58
+// link sites point at /org/{slug}/{segment}, including the weekly digest email and the alert pushes —
+// links already sitting in inboxes that we cannot update. The target comes from orgTabHref so a
+// future rename is one edit in orgTabs.ts.
+export default async function OrgMembersRedirect({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  if (!isDbConfigured()) {
-    return <SectionEmpty>Member management requires a database (set DATABASE_URL).</SectionEmpty>;
-  }
-  if (!(await hasOrgRole(slug, "owner"))) {
-    return (
-      <SectionEmpty>
-        Only an owner of <span className="font-mono">{slug}</span> can view and manage members.
-      </SectionEmpty>
-    );
-  }
-  // Resolve "who am I" across BOTH auth stacks (custom session first, then the ACTIVE Supabase
-  // viewer) — the same precedence the routes use. This used to read the DORMANT getSession() only:
-  // under the Supabase wall it was always null in prod, so MembersPanel never showed the "you"
-  // badge and the self-demotion confirm gate silently never fired — an owner could lock themselves
-  // out with one unconfirmed select change (the invite page had the identical bug, fixed earlier).
-  const [members, invites, selfLogin] = await Promise.all([
-    listOrgMembers(slug),
-    listPendingInvites(slug),
-    resolveViewerLogin(),
-  ]);
-  const initial = members.map((m) => ({
-    login: m.login,
-    name: m.name,
-    role: m.role,
-    createdAt: m.createdAt.toISOString(),
-  }));
-  // NB: listPendingInvites no longer returns the raw token (it's the capability — shown once at
-  // creation), so the page bundle / RSC payload no longer carries live acceptance tokens.
-  const initialInvites = invites.map((i) => ({
-    id: i.id,
-    email: i.email,
-    githubLogin: i.githubLogin,
-    role: i.role,
-    expiresAt: i.expiresAt,
-  }));
-  return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={selfLogin} />;
+  redirect(orgTabHref(slug, "members"));
 }

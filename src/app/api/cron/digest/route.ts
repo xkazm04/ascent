@@ -43,6 +43,7 @@ import { levelForScore } from "@/lib/maturity/model";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 import { publicBaseUrl } from "@/lib/site";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -184,7 +185,7 @@ export async function GET(request: Request) {
         org,
         // Link straight to the exec briefing — the digest is its push-channel summary. Carry the same
         // ?range=custom&from=&to= so the page reproduces the digest's exact "this week" window.
-        url: base ? `${base}/org/${encodeURIComponent(org)}/executive?${periodQs}` : undefined,
+        url: base ? `${base}${orgTabHref(org, "executive")}${orgTabHref(org, "executive").includes("?") ? "&" : "?"}${periodQs}` : undefined,
         repoCount: rollup.repoCount,
         scannedCount: rollup.scannedCount,
         avgOverall: rollup.avgOverall,

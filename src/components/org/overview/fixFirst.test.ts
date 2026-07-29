@@ -30,13 +30,15 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
   it("links each item to its evidence surface", () => {
     const items = deriveFixFirst("acme", FULL);
     expect(items[0]!.href).toBe("/report/acme/api");
-    expect(items[1]!.href).toBe("/org/acme/practices#practice-test-discipline");
-    expect(items[2]!.href).toBe("/org/acme/plan");
+    // practices/plan are migrated tabs (docs/ORG-TABS-REFACTOR.md) — orgTabHref resolves them to the
+    // `?tab=` shell, not the retired /org/{slug}/{segment} route.
+    expect(items[1]!.href).toBe("/org/acme?tab=practices#practice-test-discipline");
+    expect(items[2]!.href).toBe("/org/acme?tab=plan");
   });
 
   it("falls back to the practices index when a gap has no practiceId", () => {
     const items = deriveFixFirst("acme", { ...EMPTY, commonGaps: [{ label: "X", weakCount: 1, total: 2, practiceId: null }] });
-    expect(items[0]!.href).toBe("/org/acme/practices");
+    expect(items[0]!.href).toBe("/org/acme?tab=practices");
   });
 
   it("uses the ungoverned nudge only as filler, linking to the posture-filtered repositories view", () => {
@@ -71,10 +73,10 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
   it("threads the stack scope into org-internal links (before any #fragment, right separator)", () => {
     const items = deriveFixFirst("acme", FULL, "stack=react");
     const by = Object.fromEntries(items.map((i) => [i.key, i.href]));
-    // practices already had no query → ?, and the scope goes BEFORE the #practice fragment.
-    expect(by.gap).toBe("/org/acme/practices?stack=react#practice-test-discipline");
-    // plan had no query → ?.
-    expect(by.goal).toBe("/org/acme/plan?stack=react");
+    // practices/plan are migrated tabs — their base href already carries `?tab=`, so the scope is
+    // joined with `&`, and still lands BEFORE the #practice fragment.
+    expect(by.gap).toBe("/org/acme?tab=practices&stack=react#practice-test-discipline");
+    expect(by.goal).toBe("/org/acme?tab=plan&stack=react");
   });
 
   it("uses & when the internal link already has a query, and leaves the report permalink scope-free", () => {

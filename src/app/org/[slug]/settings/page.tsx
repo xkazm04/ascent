@@ -1,44 +1,18 @@
-import { LlmProviderSettings } from "@/components/org/settings/LlmProviderSettings";
-import { OpenRouterByomSettings } from "@/components/org/settings/OpenRouterByomSettings";
-import { ModelScorecard } from "@/components/org/settings/ModelScorecard";
-import { DataErasureCard } from "@/components/org/settings/DataErasureCard";
-import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { getCreditState, getOrgLlmConfig } from "@/lib/db";
-import { hasOrgRole } from "@/lib/authz";
-import { planAllowsByom } from "@/lib/plans";
-import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
+import { redirect } from "next/navigation";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const dynamic = "force-dynamic";
 
-// Org settings (owner-only) — the home for org-level configuration (§8.5). Today: BYOM (connect your
-// own Bedrock). The layout already gated org READ; this page additionally requires the owner role since
-// the settings here are privileged config.
-export default async function OrgSettings({ params }: { params: Promise<{ slug: string }> }) {
+// The Settings view moved into the org dashboard's single `?tab=` shell
+// (docs/ORG-TABS-REFACTOR.md). This route is kept FOREVER as a permanent redirect, not deleted: 58
+// link sites point at /org/{slug}/{segment}, including the weekly digest email and the alert pushes —
+// links already sitting in inboxes that we cannot update. The target comes from orgTabHref so a
+// future rename is one edit in orgTabs.ts.
+//
+// The owner gate this route used to run has MOVED to SettingsTab, which runs it FIRST, before any
+// card is built — see SettingsTab.tsx and its co-located SettingsTab.test.tsx (the pinned
+// no-`/erase/i`-for-non-owners assertion moved with it).
+export default async function OrgSettingsRedirect({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  if (!(await hasOrgRole(slug, "owner"))) {
-    return <OrgEmpty title="Owner only" body="Organization settings are available to organization owners." href={`/org/${slug}`} cta="← Overview" />;
-  }
-  const [config, credit] = await Promise.all([getOrgLlmConfig(slug), getCreditState(slug).catch(() => null)]);
-
-  return (
-    <div className="space-y-6">
-      <SectionHeader title="Settings" description="Organization configuration — owner only." />
-      <LlmProviderSettings
-        slug={slug}
-        initial={config}
-        planAllowed={planAllowsByom(credit?.plan)}
-        encryptionConfigured={isEncryptionConfigured()}
-      />
-      <OpenRouterByomSettings
-        slug={slug}
-        initial={config}
-        planAllowed={planAllowsByom(credit?.plan)}
-        encryptionConfigured={isEncryptionConfigured()}
-      />
-      <ModelScorecard />
-      {/* Compliance actions last, and only here: the settings page is owner-gated above, so a
-          non-owner never renders this control at all (rather than seeing it disabled). */}
-      <DataErasureCard slug={slug} />
-    </div>
-  );
+  redirect(orgTabHref(slug, "settings"));
 }

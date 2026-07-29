@@ -2,57 +2,26 @@
 // These now route through the brand kit (@/components/ui) so the whole fleet view inherits the
 // editorial identity from one place; the public API (Tile, Card, SectionHeader, …) is unchanged so
 // every org page keeps working.
+//
+// Pure constants (POSTURE_LABEL, DIMS, TILE_LEDGER/TILE_GRID, fmtHours) live in uiConstants.ts;
+// OrgEmpty + ExportCsvLink live in uiEmpty.tsx — both split out to keep this file under the 200-LOC
+// cap (docs/ORG-TABS-REFACTOR.md). Both are re-exported below so every existing import of
+// "@/components/org/shared/ui" keeps resolving unchanged.
 import { EmptyState } from "@/components/EmptyState";
 import { Surface, Stat, SectionHeading } from "@/components/ui";
-import { DIMENSION_SHORT } from "@/lib/ui";
-import { POSTURE_META } from "@/lib/maturity/model";
-import type { DimensionId } from "@/lib/types";
 
 // Re-exported from the brand kit so existing `@/components/org/ui` importers keep resolving them.
 export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE } from "@/components/ui";
 
-// Derived from the canonical, ordered posture taxonomy (maturity/model) so a new/renamed posture
-// flows through automatically — mirrors how DIMS is derived from DIMENSION_SHORT. Previously these
-// were hand-maintained duplicates that would silently drop any posture added in postureFor().
-export const POSTURE_LABEL: Record<string, string> = Object.fromEntries(
-  POSTURE_META.map((p) => [p.id, p.label]),
-);
-export const POSTURE_ORDER = POSTURE_META.map((p) => p.id);
+export { POSTURE_LABEL, POSTURE_ORDER, postureLabel, DIMS, TILE_LEDGER, TILE_GRID, fmtHours } from "./uiConstants";
+export { OrgEmpty, ExportCsvLink } from "./uiEmpty";
 
 /**
- * POSTURE_LABEL lookup with a safe fallback for an unknown/legacy posture id (a new or renamed posture
- * the map doesn't cover yet). Renders a humanized form of the raw id ("ai-native" → "Ai Native")
- * rather than a blank cell or the raw slug, so a fleet table can never show an empty/garbled posture.
+ * Summary tile — a brand Stat as a TILE_LEDGER cell (opaque bg so the ledger's 1px bed reads as
+ * hairline rules between cells; the ledger frame supplies the border and radius). With `href` the
+ * whole cell becomes a deep link to the stat's evidence section (e.g. "#unowned"); the anchor keeps
+ * an OPAQUE hover fill so the ledger's divider bed never bleeds through the cell.
  */
-export function postureLabel(posture: string | null | undefined): string {
-  if (!posture) return "—";
-  return POSTURE_LABEL[posture] ?? posture.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-// Heatmap / dimension-average columns, derived from the canonical dimension map (the same source
-// that supplies the column labels) so adding a dimension — e.g. D9 Security — widens every fleet
-// view automatically. Was frozen at D1–D8, which silently dropped D9 Security from the heatmap.
-export const DIMS = Object.keys(DIMENSION_SHORT) as DimensionId[];
-
-/**
- * The summary-tile ledger frame — ONE bordered panel whose cells are separated by 1px hairline rules
- * (the HairlineGrid signature), replacing the old four-floating-cards grid: less chrome, tighter
- * vertical rhythm, and the shared frame keeps a row of stats reading as one instrument. Tiles must be
- * the direct children (they paint the opaque bg-ink cell the hairline bed shows through around).
- * Compose with a column rhythm: TILE_GRID is the canonical 4-across; other rhythms append their own
- * grid-cols (e.g. BacklogSummary's 6-across).
- */
-export const TILE_LEDGER = "grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider";
-
-/** Canonical summary-tile grid — one column rhythm for every tab's top tiles. */
-export const TILE_GRID = `${TILE_LEDGER} sm:grid-cols-2 lg:grid-cols-4`;
-
-export const fmtHours = (h: number | null) =>
-  h == null ? "—" : h < 48 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)}d`;
-
-/** Summary tile — a brand Stat as a TILE_LEDGER cell (opaque bg so the ledger's 1px bed reads as
- *  hairline rules between cells; the ledger frame supplies the border and radius). With `href` the
- *  whole cell becomes a deep link to the stat's evidence section (e.g. "#unowned"); the anchor keeps
- *  an OPAQUE hover fill so the ledger's divider bed never bleeds through the cell. */
 export function Tile({
   label,
   value,
@@ -176,45 +145,4 @@ export function SectionEmpty({ children }: { children: React.ReactNode }) {
  */
 export function InlineEmpty({ children }: { children: React.ReactNode }) {
   return <p className="mt-3 text-sm text-slate-500">{children}</p>;
-}
-
-export function OrgEmpty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {
-  return <EmptyState icon="🏔️" title={title} body={body} actions={[{ label: cta ?? "← Home", href: href ?? "/" }]} />;
-}
-
-/**
- * The "Export CSV" download anchor shared by the org tabs (contributors, delivery, …). Owns the
- * `/api/org/export` URL contract (`org`, `kind`, `format=csv`, optional `segment` + `stack`) and the
- * brand pill styling so a change to either lands in one place. Pass `className` for per-site
- * additions (e.g. `shrink-0`). Server-safe.
- *
- * BOTH page scopes must be forwarded: the pages compose segment AND tech-stack filters, so an export
- * that carried only the segment silently widened a stack-filtered view back to the whole fleet —
- * exactly the "numbers I circulated don't match what I saw" failure the scoped pages exist to prevent.
- */
-export function ExportCsvLink({
-  org,
-  kind,
-  segmentId,
-  stack,
-  className = "",
-}: {
-  org: string;
-  kind: string;
-  segmentId?: string | null;
-  /** The active tech-stack group KEY (`activeStack?.key`), mirroring the page's `?stack=` param. */
-  stack?: string | null;
-  className?: string;
-}) {
-  const href =
-    `/api/org/export?org=${encodeURIComponent(org)}&kind=${kind}&format=csv` +
-    `${segmentId ? `&segment=${segmentId}` : ""}${stack ? `&stack=${encodeURIComponent(stack)}` : ""}`;
-  return (
-    <a
-      href={href}
-      className={`focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white${className ? ` ${className}` : ""}`}
-    >
-      Export CSV
-    </a>
-  );
 }

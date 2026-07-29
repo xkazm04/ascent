@@ -2,48 +2,20 @@
 // (reached / on-pace / behind / tracking), the trend-derived ETA, and the "what must move" repo
 // breakdown that links into the per-repo gap analysis and the org practices. Used read-only on the
 // overview (compact) and inside the interactive GoalsPanel on the Plan tab (with a remove control).
+//
+// Types live in GoalViewTypes.ts, pure pace/readout logic in goalViewLogic.ts — both re-exported below
+// so every existing import of "@/components/org/shared/goalView" keeps resolving unchanged.
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
-import { humanizeDays, type GoalPace, type Trajectory } from "@/lib/maturity/forecast";
 import { scoreHex } from "@/lib/ui";
-import type { GoalLaggard } from "@/lib/db/plan";
+import { orgTabHref } from "@/lib/org/orgTabs";
+import { GOAL_PACE_TONE, readout, INIT_STATUS_LABEL } from "./goalViewLogic";
+import type { GoalProgressView, LinkedInitiative } from "./GoalViewTypes";
 
-/** The serializable shape the goal UI renders — mirrors GoalProgress from src/lib/db/plan.ts. */
-export interface GoalProgressView {
-  id: string;
-  label: string;
-  metric: string;
-  metricLabel: string;
-  target: number;
-  current: number;
-  pct: number;
-  achieved: boolean;
-  status: string;
-  /** When the goal first met its target (ISO), or null — drives the "Achieved" state. */
-  achievedAt?: string | null;
-  createdAt?: string;
-  targetDate: string | null;
-  pace: GoalPace;
-  perWeek: number;
-  trajectory: Trajectory;
-  fitQuality: number;
-  etaDays: number | null;
-  etaDate: string | null;
-  requiredPerWeek: number | null;
-  laggards: GoalLaggard[];
-  belowCount: number;
-}
+export type { GoalProgressView, LinkedInitiative } from "./GoalViewTypes";
+export { GOAL_PACE_TONE } from "./goalViewLogic";
 
-/** The canonical pace-verdict palette + labels, keyed on GoalPace. Exported as the single source for
- *  the pace colors so other surfaces (the org overview headline tile) don't re-state the hex values. */
-export const GOAL_PACE_TONE: Record<GoalPace, { label: string; color: string }> = {
-  reached: { label: "Reached", color: "#34d399" },
-  "on-pace": { label: "On pace", color: "#84cc16" },
-  behind: { label: "Behind", color: "#f97316" },
-  tracking: { label: "Tracking", color: "#94a3b8" },
-};
-
-export function PaceChip({ pace }: { pace: GoalPace }) {
+export function PaceChip({ pace }: { pace: GoalProgressView["pace"] }) {
   const p = GOAL_PACE_TONE[pace];
   return (
     <span
@@ -54,46 +26,6 @@ export function PaceChip({ pace }: { pace: GoalPace }) {
     </span>
   );
 }
-
-const rate = (n: number) => `${n > 0 ? "+" : ""}${n}/wk`;
-
-/** One-line, leader-facing read of a goal's pace — the detail under the progress meter. */
-function readout(g: GoalProgressView): string {
-  if (g.pace === "reached") return `Target met — holding at or above ${g.target}.`;
-
-  const eta = g.etaDate ? `reaches ${g.target} ${humanizeDays(g.etaDays ?? 0)} (${g.etaDate})` : null;
-
-  if (g.pace === "on-pace") {
-    return `On pace — ${eta}${g.targetDate ? `, ahead of ${g.targetDate}` : ""}.`;
-  }
-  if (g.pace === "behind") {
-    const need = g.requiredPerWeek != null ? ` — needs ${rate(g.requiredPerWeek)} (now ${rate(g.perWeek)})` : "";
-    if (eta) return `Behind — at ${rate(g.perWeek)}, ${eta}, past the ${g.targetDate} deadline${need}.`;
-    return `Behind — flat at ${g.current} on a ${rate(g.perWeek)} trend, target not reached at this pace${need}.`;
-  }
-  // tracking: no deadline, or not enough trend to judge a pace yet.
-  if (eta) return `On track — ${eta}.`;
-  if (g.fitQuality === 0 && g.perWeek === 0) {
-    return g.requiredPerWeek != null
-      ? `Not enough trend yet — needs ${rate(g.requiredPerWeek)} to reach ${g.target} by ${g.targetDate}.`
-      : `Not enough trend yet — scan over time to project an ETA.`;
-  }
-  return `Holding near ${g.current} on a ${rate(g.perWeek)} trend — no ETA to ${g.target} at this pace.`;
-}
-
-/** An initiative linked to a goal — the tracked work advancing it (GOAL-6 cross-render). */
-export interface LinkedInitiative {
-  id: string;
-  title: string;
-  status: string;
-}
-
-const INIT_STATUS_LABEL: Record<string, string> = {
-  open: "open",
-  in_progress: "in progress",
-  done: "done",
-  dismissed: "dismissed",
-};
 
 /**
  * A single goal: label + pace chip, a meter (current score with the target marked), the pace
@@ -157,7 +89,7 @@ export function GoalCard({
             <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
               Must move · {goal.belowCount} repo{goal.belowCount === 1 ? "" : "s"} below {goal.target}
             </span>
-            <Link href={`/org/${slug}/practices`} className="shrink-0 font-mono text-sm text-accent hover:text-white">
+            <Link href={orgTabHref(slug, "practices")} className="shrink-0 font-mono text-sm text-accent hover:text-white">
               reuse a practice →
             </Link>
           </div>

@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export interface SegmentOption {
   id: string;
@@ -35,7 +36,7 @@ export function SegmentSelector({ segments, active }: { segments: SegmentOption[
     if (!slug) return null;
     return (
       <Link
-        href={`/org/${slug}/repositories`}
+        href={orgTabHref(slug, "repositories")}
         className="font-mono text-sm text-slate-500 transition hover:text-accent"
         title="Group repos into named slices on the Repositories tab"
       >

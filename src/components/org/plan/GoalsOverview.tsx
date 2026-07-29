@@ -2,6 +2,7 @@
 // hardcoded "reach AI-Native" goal. Shows the top few active goals with progress, pace and a
 // trend-derived ETA; the full set (and the create form) lives on the Plan tab. Server-safe.
 import Link from "next/link";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { GoalCard, type GoalProgressView } from "@/components/org/shared/goalView";
 
@@ -20,7 +21,7 @@ export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgre
         size="sm"
         title="Goals"
         right={
-          <Link href={`/org/${slug}/plan`} className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white">
+          <Link href={orgTabHref(slug, "plan")} className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white">
             manage →
           </Link>
         }
@@ -33,7 +34,7 @@ export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgre
             pace, ETA, and which repos must move against them.
           </p>
           <Link
-            href={`/org/${slug}/plan`}
+            href={orgTabHref(slug, "plan")}
             className="mt-3 inline-block rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20"
           >
             Set a goal →
@@ -46,7 +47,7 @@ export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgre
           ))}
           {active.length > shown.length && (
             <Link
-              href={`/org/${slug}/plan`}
+              href={orgTabHref(slug, "plan")}
               className="block text-center font-mono text-sm text-slate-500 hover:text-accent"
             >
               +{active.length - shown.length} more on the Plan tab →

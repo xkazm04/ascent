@@ -1,39 +1,14 @@
-// Org dashboard "Audit" tab — the searchable audit trail. The org layout already gates
-// DB/auth/empty state, so this just loads the first page server-side and hands it to the
-// client viewer for filtering + keyset pagination.
-
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { AuditLogViewer } from "@/components/org/audit/AuditLogViewer";
-import { getAuditLog } from "@/lib/db";
+import { redirect } from "next/navigation";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrgAudit({ params }: { params: Promise<{ slug: string }> }) {
+// The Audit view moved into the org dashboard's single `?tab=` shell (docs/ORG-TABS-REFACTOR.md).
+// This route is kept FOREVER as a permanent redirect, not deleted: 58 link sites point at
+// /org/{slug}/{segment}, including the weekly digest email and the alert pushes — links already
+// sitting in inboxes that we cannot update. The target comes from orgTabHref so a future rename is
+// one edit in orgTabs.ts.
+export default async function OrgAuditRedirect({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const page = await getAuditLog(slug, { limit: 25 });
-
-  if (!page || page.entries.length === 0) {
-    return (
-      <SectionEmpty>
-        No audit activity yet for this org. Scans, recommendation updates, and other
-        recorded actions will appear here as they happen.
-      </SectionEmpty>
-    );
-  }
-
-  return (
-    <div>
-      <SectionHeader
-        className="mb-4"
-        title="Audit trail"
-        description={
-          <>
-            Every recorded action for <span className="font-mono">{slug}</span> — who did
-            what, and the scan it touched. Newest first.
-          </>
-        }
-      />
-      <AuditLogViewer org={slug} initial={page} />
-    </div>
-  );
+  redirect(orgTabHref(slug, "audit"));
 }

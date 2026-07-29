@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, InlineEmpty, SectionHeader, TILE_LEDGER } from "@/components/org/shared/ui";
 import { Kicker } from "@/components/ui";
 import { dimShort, scoreHex } from "@/lib/ui";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import type { OrgGapAnalysis } from "@/lib/db";
 
 // The headline cross-repo reading, and the one a lead has to make before spending anything: is a weak
@@ -93,7 +94,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                 <li key={g.dimId} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
                   {g.practiceId ? (
                     <Link
-                      href={`/org/${slug}/practices#practice-${g.practiceId}`}
+                      href={`${orgTabHref(slug, "practices")}#practice-${g.practiceId}`}
                       title={`See the ${dimShort(g.dimId)} practice — the reusable shape that lifts this dimension`}
                       className="focus-ring rounded font-medium text-slate-200 transition hover:text-accent"
                     >

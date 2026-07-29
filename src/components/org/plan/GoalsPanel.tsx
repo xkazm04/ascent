@@ -1,26 +1,19 @@
 "use client";
 
-import { useState } from "react";
 import { ConfirmAction, goalDeleteConfirm } from "@/components/ConfirmAction";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { GoalCard, type GoalProgressView, type LinkedInitiative } from "@/components/org/shared/goalView";
+import { useGoalsPanel } from "@/components/org/plan/useGoalsPanel";
+import type { GoalSuggestion, MetricOption } from "@/components/org/plan/GoalsPanelTypes";
 
-interface MetricOption {
-  value: string;
-  label: string;
-}
+export type { GoalSuggestion, MetricOption } from "@/components/org/plan/GoalsPanelTypes";
 
 /**
  * Maturity goals with live progress, a trend-derived ETA/pace, and the repos that must move —
  * plus a create form. Progress and pace come from the latest scans and the metric's trend.
  * `initiativesByGoal` cross-renders the tracked initiatives linked to each goal (GOAL-6).
+ * State/handlers live in `useGoalsPanel` (200-LOC cap).
  */
-interface GoalSuggestion {
-  label: string;
-  metric: string;
-  target: number;
-}
-
 export function GoalsPanel({
   slug,
   initial,
@@ -35,88 +28,7 @@ export function GoalsPanel({
   /** One-click goal suggestions (GOAL-5) derived from the fleet's own numbers. */
   suggestions?: GoalSuggestion[];
 }) {
-  const [goals, setGoals] = useState<GoalProgressView[]>(initial);
-  const [label, setLabel] = useState("");
-  const [metric, setMetric] = useState(metricOptions[0]?.value ?? "overall");
-  const [target, setTarget] = useState(50);
-  const [targetDate, setTargetDate] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Local copy so a one-click-added suggestion disappears from the row without a server round-trip.
-  const [picks, setPicks] = useState<GoalSuggestion[]>(suggestions);
-  // "remove" hard-deletes the goal AND its achievement history — irreversible, so it only REQUESTS
-  // deletion; the DELETE runs after an explicit confirm that names the goal.
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const pendingDelete = goals.find((g) => g.id === pendingDeleteId) ?? null;
-
-  async function refresh() {
-    const res = await fetch(`/api/org/goals?org=${encodeURIComponent(slug)}`);
-    if (!res.ok) return;
-    const next: GoalProgressView[] = (await res.json()).goals ?? [];
-    setGoals(next);
-    // Reconcile the client-side suggestion list: drop any "+ Lift Dx" chip whose metric is now covered
-    // by an active goal. Otherwise a metric just added via the form/another suggestion still shows its
-    // chip, and clicking it creates a duplicate goal (the API has no per-metric uniqueness check).
-    const covered = new Set(next.map((g) => g.metric));
-    setPicks((ps) => ps.filter((p) => !covered.has(p.metric)));
-  }
-
-  async function create() {
-    if (!label.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/org/goals", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, label: label.trim(), metric, target, targetDate: targetDate || null }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Failed.");
-      setLabel("");
-      setTargetDate("");
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove(id: string) {
-    // Optimistic delete WITH a failure path: a 403 (lost session) / 404 / network error used to leave the
-    // goal gone from the UI but alive in the DB, shown as success. Snapshot first, then restore + surface
-    // the error if the DELETE didn't actually persist (goals-initiatives #2).
-    const prev = goals;
-    setGoals((g) => g.filter((x) => x.id !== id));
-    setError(null);
-    try {
-      const res = await fetch(`/api/org/goals/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to delete goal.");
-    } catch (e) {
-      setGoals(prev);
-      setError(e instanceof Error ? e.message : "Failed to delete goal.");
-    }
-  }
-
-  // GOAL-5: one-click add a suggested goal, then drop it from the row.
-  async function addSuggested(s: GoalSuggestion) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/org/goals", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, label: s.label, metric: s.metric, target: s.target, targetDate: null }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Failed.");
-      setPicks((ps) => ps.filter((p) => p !== s));
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const g = useGoalsPanel({ slug, initial, metricOptions, suggestions });
 
   return (
     <Card>
@@ -128,30 +40,30 @@ export function GoalsPanel({
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
       <ConfirmAction
-        open={pendingDelete != null}
-        onCancel={() => setPendingDeleteId(null)}
+        open={g.pendingDelete != null}
+        onCancel={() => g.setPendingDeleteId(null)}
         onConfirm={() => {
-          const id = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (id) void remove(id);
+          const id = g.pendingDeleteId;
+          g.setPendingDeleteId(null);
+          if (id) void g.remove(id);
         }}
-        {...(pendingDelete
-          ? goalDeleteConfirm(pendingDelete.label)
+        {...(g.pendingDelete
+          ? goalDeleteConfirm(g.pendingDelete.label)
           : { title: "", body: "", confirmLabel: "", tone: "danger" as const })}
       />
 
       <div className="mt-4 space-y-3">
-        {goals.length === 0 && <p className="text-base text-slate-500">No goals yet — set one below.</p>}
-        {goals
-          .filter((g) => g.status !== "achieved")
-          .map((g) => (
+        {g.goals.length === 0 && <p className="text-base text-slate-500">No goals yet — set one below.</p>}
+        {g.goals
+          .filter((goal) => goal.status !== "achieved")
+          .map((goal) => (
             <GoalCard
-              key={g.id}
-              goal={g}
+              key={goal.id}
+              goal={goal}
               slug={slug}
-              initiatives={initiativesByGoal[g.id]}
+              initiatives={initiativesByGoal[goal.id]}
               action={
-                <button onClick={() => setPendingDeleteId(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
+                <button onClick={() => g.setPendingDeleteId(goal.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
                   remove
                 </button>
               }
@@ -160,27 +72,27 @@ export function GoalsPanel({
       </div>
 
       {/* GOAL-4: met goals collapse into their own group so the active list stays focused. */}
-      {goals.some((g) => g.status === "achieved") && (
+      {g.goals.some((goal) => goal.status === "achieved") && (
         <details className="group mt-3">
           <summary className="flex cursor-pointer list-none items-center gap-2 font-mono text-sm uppercase tracking-widest text-emerald-300/80 [&::-webkit-details-marker]:hidden">
             <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">›</span>
-            Met · {goals.filter((g) => g.status === "achieved").length} 🎉
+            Met · {g.goals.filter((goal) => goal.status === "achieved").length} 🎉
           </summary>
           <div className="mt-3 space-y-3">
-            {goals
-              .filter((g) => g.status === "achieved")
-              .map((g) => (
+            {g.goals
+              .filter((goal) => goal.status === "achieved")
+              .map((goal) => (
                 <GoalCard
-                  key={g.id}
-                  goal={g}
+                  key={goal.id}
+                  goal={goal}
                   slug={slug}
                   compact
-                  initiatives={initiativesByGoal[g.id]}
+                  initiatives={initiativesByGoal[goal.id]}
                   action={
                     // Same confirm flow as the active list: deletion hard-drops the goal AND its
                     // achievedAt milestone, so an achieved goal (the history most worth keeping)
                     // must never go on a single click (goals-initiatives 07-16 #2).
-                    <button onClick={() => setPendingDeleteId(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
+                    <button onClick={() => g.setPendingDeleteId(goal.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
                       remove
                     </button>
                   }
@@ -191,14 +103,14 @@ export function GoalsPanel({
       )}
 
       {/* GOAL-5: one-click suggested goals so the org never starts from a blank box. */}
-      {picks.length > 0 && (
+      {g.picks.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-4">
           <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Suggested</span>
-          {picks.map((s) => (
+          {g.picks.map((s) => (
             <button
               key={s.label}
-              onClick={() => addSuggested(s)}
-              disabled={busy}
+              onClick={() => g.addSuggested(s)}
+              disabled={g.busy}
               title="Add this goal"
               className="rounded-full border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
             >
@@ -210,13 +122,13 @@ export function GoalsPanel({
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-4">
         <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          value={g.label}
+          onChange={(e) => g.setLabel(e.target.value)}
           placeholder="e.g. Reach AI-Native by Q3"
           aria-label="Goal name"
           className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
         />
-        <select value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Goal metric" className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+        <select value={g.metric} onChange={(e) => g.setMetric(e.target.value)} aria-label="Goal metric" className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {metricOptions.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
@@ -229,8 +141,8 @@ export function GoalsPanel({
             type="number"
             min={0}
             max={100}
-            value={target}
-            onChange={(e) => setTarget(Number(e.target.value))}
+            value={g.target}
+            onChange={(e) => g.setTarget(Number(e.target.value))}
             className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
           />
         </label>
@@ -238,16 +150,16 @@ export function GoalsPanel({
           by
           <input
             type="date"
-            value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
+            value={g.targetDate}
+            onChange={(e) => g.setTargetDate(e.target.value)}
             className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 font-mono text-sm text-slate-200"
           />
         </label>
-        <button onClick={create} disabled={busy || !label.trim()} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
-          {busy ? "Adding…" : "Add goal"}
+        <button onClick={g.create} disabled={g.busy || !g.label.trim()} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
+          {g.busy ? "Adding…" : "Add goal"}
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {g.error && <p className="mt-2 text-sm text-orange-300">{g.error}</p>}
     </Card>
   );
 }

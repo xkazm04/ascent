@@ -1,9 +1,7 @@
 import { ORG_SHELL, OrgHeader, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
-import { OrgNav } from "@/components/org/shared/OrgNav";
-import { OrgScanButton } from "@/components/org/shared/OrgScanButton";
-import { CreditsControl } from "@/components/org/shared/CreditsControl";
-import { AlertsControl } from "@/components/org/shared/AlertsControl";
+import { OrgTabNav } from "@/components/org/shell/OrgTabNav";
+import { OrgShellActions } from "@/components/org/shell/OrgShellActions";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
@@ -11,9 +9,6 @@ import { getNavCounts } from "@/lib/org/nav-counts";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
-import { creditPacks, polarEnabled } from "@/lib/polar";
-import { creditGrantsEnabled } from "@/lib/env";
-import { scanAllowance } from "@/lib/plans";
 import { levelForScore } from "@/lib/maturity/model";
 
 export const dynamic = "force-dynamic";
@@ -160,57 +155,30 @@ export default async function OrgLayout({
     await ensureOwnerMembership(slug, bypassViewer.login, bypassViewer.name).catch(() => {});
   }
 
-  const watched = summary.watchedCount;
   const level = levelForScore(summary.avgOverall);
 
-  // Must match the endpoint's own gate (creditGrantsEnabled hard-disables in production), or the
-  // control renders for an owner whose every submission then 403s.
-  const grantsEnabled = creditGrantsEnabled();
-  // Polar credit purchase (CRED-1): show the "Buy credits" packs when billing is configured. The packs
-  // are plain serializable data; the SDK stays server-side (CreditsControl declares its own Pack type).
-  const buyEnabled = polarEnabled();
-  const packs = buyEnabled ? creditPacks() : [];
-  // Free metered scans left in the plan's monthly allowance, so the credits chip doesn't say "out of
-  // credits / paused" at balance 0 while the allowance still covers scans. null allowance = unlimited
-  // (Enterprise) — the chip shows "Unlimited" anyway, so 0 here is harmless.
-  const planAllowance = credit ? scanAllowance(credit.plan) : null;
-  const allowanceRemaining = planAllowance == null ? 0 : Math.max(0, planAllowance - usageThisMonth);
-
-  // The org's persistent actions (alerts · credits · scan), folded into the OrgHeader's right cluster.
-  // The old in-content "scanned · watched" line and the plan-tier chip are intentionally dropped — the
-  // header carries only identity + the live actions.
+  // The header's right cluster (alerts · credits · scan), including every env/plan decision behind
+  // it — see OrgShellActions.
   const actions = (
-    <>
-      {slug !== "public" && <AlertsControl org={slug} />}
-      {credit && (
-        <CreditsControl
-          org={slug}
-          initialBalance={credit.balance}
-          unlimited={credit.unlimited}
-          grantsEnabled={grantsEnabled}
-          buyEnabled={buyEnabled}
-          packs={packs}
-          allowanceRemaining={allowanceRemaining}
-        />
-      )}
-      {/* The bulk org-scan persists scans UNDER this org — correct for a fleet, wrong for a personal
-          workspace (its repos' series live in the shared public corpus; rescans go through the public
-          report flow until the Phase-3 persist/decision org split lands). */}
-      {summary.kind !== "personal" && (
-        <div data-tour="scan-scope">
-          <OrgScanButton org={slug} watchedCount={watched} />
-        </div>
-      )}
-    </>
+    <OrgShellActions
+      slug={slug}
+      kind={summary.kind}
+      credit={credit}
+      watchedCount={summary.watchedCount}
+      usageThisMonth={usageThisMonth}
+    />
   );
 
   return (
     <>
       <OrgHeader slug={slug} levelId={level.id} score={summary.avgOverall} role={myRole} actions={actions} />
-      <main id="main" className={`${ORG_SHELL} py-8`}>
+      {/* tabIndex={-1} makes <main> a programmatic focus target: it is already the skip-link
+          destination, and OrgTabNav moves focus here on a real tab switch so an AT user isn't left
+          with a silently swapped page. Without it, .focus() is a no-op on a non-interactive element. */}
+      <main id="main" tabIndex={-1} className={`${ORG_SHELL} py-8 focus:outline-none`}>
         <div className="lg:grid lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-6">
           <aside data-tour="modules-nav" className="lg:sticky lg:top-20 lg:self-start">
-            <OrgNav slug={slug} counts={navCounts ?? undefined} kind={summary.kind} />
+            <OrgTabNav slug={slug} counts={navCounts ?? undefined} kind={summary.kind} />
           </aside>
           <div className="animate-fade-up">{children}</div>
         </div>

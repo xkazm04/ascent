@@ -1,17 +1,12 @@
 import type { Metadata } from "next";
-import { TimeRangeSelector } from "@/components/org/overview/TimeRangeSelector";
-import { DIMS, OrgEmpty } from "@/components/org/shared/ui";
-import { RepoCategoryRollup } from "@/components/org/overview/RepoCategoryRollup";
-import { RepoDimensionHeatmap } from "@/components/org/overview/RepoDimensionHeatmap";
-import { buildTrajectories } from "@/components/org/overview/repoTrajectory";
-import { getOrgHeaderSummary, getOrgRepoHistories, getOrgRollup } from "@/lib/db";
-import { PersonalOverview } from "@/components/org/PersonalOverview";
-import { BillingReturnNotice } from "@/components/org/shared/BillingReturnNotice";
-import { resolveOrgScope } from "@/lib/org/scope";
+import { redirect } from "next/navigation";
+import { OrgTabChunks } from "@/components/org/shell/OrgTabChunks";
+import { getOrgHeaderSummary } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { DEFAULT_ORG_TAB, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath } from "@/lib/org/orgTabs";
 
+// Kept from the layout's contract: the tenant gate must never be cached.
 export const dynamic = "force-dynamic";
 
 // SHELL-2: shareable metadata for the fleet dashboard. Real fleet numbers are surfaced ONLY when the
@@ -41,7 +36,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-export default async function OrgOverview({
+/**
+ * The org dashboard shell: ONE route for every tab, selected by `?tab=` (the default tab is
+ * normalized away and lives at the bare `/org/[slug]`). See docs/ORG-TABS-REFACTOR.md.
+ *
+ * It does no auth and no data work of its own. Every guard — DB configured, sign-in wall, the
+ * canReadOrg TENANT check, the empty-org state — stays in layout.tsx, which wraps this and runs
+ * before any org data is touched. Duplicating canReadOrg here would be a second tenant check that
+ * can drift from the real one.
+ */
+export default async function OrgDashboardPage({
   params,
   searchParams,
 }: {
@@ -51,122 +55,15 @@ export default async function OrgOverview({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Post-checkout return (checkout-plans-polar #1): /api/billing/checkout redirects the buyer back
-  // here with ?credits=pending (paid; webhook fulfilment in flight) or ?credits=error (session
-  // creation failed, not charged). Consume it into a visible, dismissible notice — the redirect
-  // contract existed on the API side but no UI ever read the param, so a paying buyer landed on an
-  // unchanged dashboard (balance chip still showing the OLD number) with zero feedback.
-  const creditsParam = Array.isArray(sp.credits) ? sp.credits[0] : sp.credits;
-  const billingStatus = creditsParam === "pending" ? ("pending" as const) : creditsParam === "error" ? ("error" as const) : null;
-  const remaining = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (k === "credits" || v === undefined) continue;
-    for (const val of Array.isArray(v) ? v : [v]) remaining.append(k, val);
-  }
-  const remainingQs = remaining.toString();
-  const dismissHref = `/org/${encodeURIComponent(slug)}${remainingQs ? `?${remainingQs}` : ""}`;
-  const billingNotice = billingStatus ? <BillingReturnNotice status={billingStatus} dismissHref={dismissHref} /> : null;
+  // Resolve + validate. An unknown ?tab= falls back to the default rather than 404-ing: a stale
+  // bookmark should land on the dashboard, not on an error.
+  const raw = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
+  const tab = isOrgTabId(raw) ? raw : DEFAULT_ORG_TAB;
 
-  // A PERSONAL workspace renders the individual overview — the watchlist lens over the shared public
-  // corpus — instead of the fleet rollup (whose reads would find nothing: a personal org holds pointer
-  // rows, never scans). One cheap read, deduped per request with the layout's identical call — the
-  // export is React-`cache()`d, so this really is free rather than a second round-trip.
-  const headerSummary = await getOrgHeaderSummary(slug);
-  if (headerSummary?.kind === "personal") {
-    return billingNotice ? (
-      <div className="space-y-6">
-        {billingNotice}
-        <PersonalOverview slug={slug} />
-      </div>
-    ) : (
-      <PersonalOverview slug={slug} />
-    );
-  }
+  // MIGRATION SEAM (delete with MIGRATED_ORG_TAB_IDS): a valid id whose panel isn't registered in
+  // OrgTabChunks yet still has a working route of its own — send the deep link there rather than
+  // rendering an empty shell. Once every tab is registered this branch is dead code.
+  if (!isMigratedOrgTab(tab)) redirect(legacyOrgTabPath(slug, tab));
 
-  // An explicit ?range= wins (shareable links stay authoritative); otherwise the remembered period
-  // cookie, then the default. Shared with every org tab via resolveOrgWindow so the range carries across.
-  const period = await resolveOrgWindow(sp);
-  const win = { start: period.start, end: period.end };
-
-  // Segment + tech-stack scope still applies via deep links (?segment=/?stack= carried from other tabs);
-  // the in-view Type/Stack/Level dropdowns replace the old top-of-page selectors.
-  const { activeSegment, segmentId, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
-
-  // The repos×time Overview needs exactly two reads: the fleet snapshot (latest per repo + counts) and
-  // each repo's per-scan history. Both are core, so fetch them together and let a failure throw to
-  // error.tsx as one (no half-rendered dashboard).
-  const [rollup, histories] = await Promise.all([
-    getOrgRollup(slug, win, segmentId, techGroupId),
-    getOrgRepoHistories(slug, win, segmentId, techGroupId),
-  ]);
-  // Reaching here with a null rollup means this view's scoped query (period + segment) found nothing
-  // where the layout's did — render a page-scale empty state with a way out, not a blank panel.
-  if (!rollup) {
-    return (
-      <div className="space-y-6">
-        {billingNotice}
-        <OrgEmpty
-          title="No data for this view"
-          body="No scans match the selected period or segment yet. Widen the time range, clear the segment filter, or scan some repositories to populate the dashboard."
-          href={`/org/${slug}/repositories`}
-          cta="View repositories"
-        />
-      </div>
-    );
-  }
-
-  // Repos×time model — join each repo's latest snapshot with its per-scan history. Pure + serializable,
-  // so it's derived here on the server and passed to the client view.
-  const trajectories = buildTrajectories(
-    rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name, owner: r.owner, techStack: r.techStack, latest: r.latest })),
-    histories,
-  );
-
-  // Repo × dimension heatmap rows — the scanned fleet's per-dimension scores, the same lean projection
-  // the Repositories tab fed before this instrument moved here (next to the Fleet rollup) so the two
-  // Fleet-level reads sit side by side. Empty (all-unscanned view) hides the card below.
-  const heatmapRows = rollup.repos
-    .filter((r) => r.latest)
-    .map((r) => ({
-      name: r.name,
-      fullName: r.fullName,
-      dims: r.latest!.dims.map((d) => ({ dimId: d.dimId, score: d.score })),
-    }));
-
-  return (
-    <div className="space-y-6">
-      {billingNotice}
-
-      {/* Period control + active-scope readout (filtering now lives in the view's header dropdowns) */}
-      <div data-tour="results-controls" className="flex flex-wrap items-center justify-between gap-3">
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
-          Showing · {period.title}
-          {activeSegment && (
-            <>
-              {" · "}
-              <span className="text-accent">{activeSegment.name}</span> segment
-            </>
-          )}
-          {activeStack && (
-            <>
-              {" · "}
-              <span className="text-accent">{activeStack.label}</span> stack
-            </>
-          )}
-        </span>
-        <div className="flex flex-wrap items-center gap-2">
-          <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
-        </div>
-      </div>
-
-      <div data-tour="results-view">
-        <RepoCategoryRollup trajectories={trajectories} periodTitle={period.title} orgSlug={slug} />
-      </div>
-
-      {/* Repo × dimension heatmap — the second Fleet-level instrument, moved here from the Repositories
-          tab so "which cohorts are moving" (Fleet) and "who's strong/weak per dimension" (heatmap) read
-          together. Self-contained Surface card (matches the Fleet card); cells open the per-dimension modal. */}
-      {heatmapRows.length > 0 && <RepoDimensionHeatmap org={slug} dims={DIMS} rows={heatmapRows} />}
-    </div>
-  );
+  return <OrgTabChunks slug={slug} tab={tab} sp={sp} />;
 }

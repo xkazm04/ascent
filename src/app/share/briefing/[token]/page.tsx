@@ -5,13 +5,13 @@
 
 import { Logo } from "@/components/Brand";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { PriorPeriodGrid } from "@/components/org/executive/briefingShared";
+import { PriorPeriodGrid } from "@/components/org/intelligence/executive/briefingShared";
 import {
   BriefingDimensionCards,
   BriefingGoalsCard,
   BriefingMovementCard,
   BriefingTiles,
-} from "@/components/org/executive/briefingCards";
+} from "@/components/org/intelligence/executive/briefingCards";
 import { TokenNotice } from "@/components/TokenNotice";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";

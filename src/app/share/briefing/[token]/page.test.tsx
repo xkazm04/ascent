@@ -41,7 +41,7 @@ import {
   BriefingGoalsCard,
   BriefingMovementCard,
   BriefingTiles,
-} from "@/components/org/executive/briefingCards";
+} from "@/components/org/intelligence/executive/briefingCards";
 
 function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
   return {

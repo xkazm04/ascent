@@ -5,6 +5,8 @@
 // a live regression outranks a standing gap, which outranks a slipping goal; the ungoverned-cohort
 // nudge only fills remaining space. Capped at 3 — a punch-list, not a backlog.
 
+import { orgTabHref } from "@/lib/org/orgTabs";
+
 export interface FixFirstInputs {
   /** movers.regressers — pre-sorted most-negative-first by getOrgMovers, dOverall < 0 guaranteed. */
   regressers: { name: string; fullName: string; dOverall: number }[];
@@ -59,7 +61,7 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       key: "gap",
       title: `Close the ${gap.label} gap`,
       detail: `weak in ${gap.weakCount}/${gap.total} repos — fix once, reuse fleet-wide`,
-      href: withScope(gap.practiceId ? `/org/${slug}/practices#practice-${gap.practiceId}` : `/org/${slug}/practices`, scopeQuery),
+      href: withScope(gap.practiceId ? `${orgTabHref(slug, "practices")}#practice-${gap.practiceId}` : orgTabHref(slug, "practices"), scopeQuery),
       cta: "reuse a practice →",
     });
   }
@@ -70,7 +72,7 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       key: "goal",
       title: `Rescue “${behind.label}”`,
       detail: "behind the pace its deadline needs",
-      href: withScope(`/org/${slug}/plan`, scopeQuery),
+      href: withScope(orgTabHref(slug, "plan"), scopeQuery),
       cta: "review plan →",
     });
   }

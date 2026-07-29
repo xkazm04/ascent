@@ -10,7 +10,12 @@ export interface SideNavItem {
   label: React.ReactNode;
   /** Route-based item (org). */
   href?: string;
-  /** State-based item (report tabs). */
+  /**
+   * State-based item (report tabs). When supplied ALONGSIDE `href` it intercepts a plain left-click
+   * and runs instead of the default navigation — the org tab rail uses this to `router.push(…,
+   * { scroll: false })`. The element stays a real `<a href>`, so middle-click, ctrl/cmd-click,
+   * "open in new tab" and a crawler all still resolve the URL.
+   */
   onSelect?: () => void;
   active: boolean;
   /** Optional trailing hint (a muted count, e.g. "how many things are on this page"). */
@@ -67,11 +72,31 @@ function ItemBody({ item }: { item: SideNavItem }) {
   );
 }
 
+/** A plain left-click — the only kind an in-page handler may swallow. Anything with a modifier (or a
+ *  non-primary button) is the user explicitly asking the browser for its own behaviour. */
+function isPlainClick(e: React.MouseEvent): boolean {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+}
+
 export function NavItem({ item }: { item: SideNavItem }) {
   const cls = navItemClass(item.active);
   if (item.href) {
+    const { href, onSelect } = item;
     return (
-      <Link href={item.href} aria-current={item.active ? "page" : undefined} className={cls}>
+      <Link
+        href={href}
+        onClick={
+          onSelect
+            ? (e) => {
+                if (!isPlainClick(e)) return;
+                e.preventDefault();
+                onSelect();
+              }
+            : undefined
+        }
+        aria-current={item.active ? "page" : undefined}
+        className={cls}
+      >
         <ItemBody item={item} />
       </Link>
     );
