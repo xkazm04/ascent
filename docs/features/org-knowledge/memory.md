@@ -115,7 +115,8 @@ in two layers, always attempted in order:
    shortlist is also the whole answer when no LLM is reachable: a heuristic
    verdict maps a top overlap ≥0.75 to `duplicate`, ≥0.35 to `supersede`,
    else `novel`.
-2. **LLM judgment** — the shortlist is sent to the Claude Code CLI, which
+2. **LLM judgment** — the shortlist is sent to whichever provider
+   `LLM_PROVIDER` selects (see "Which model runs these passes" below), which
    returns a recommendation plus per-candidate `{ similarity, relation,
    reason }` (relation ∈ `duplicate | refines | contradicts | unrelated`).
    The parsed response is hardened against hallucination: any returned id not
@@ -127,6 +128,40 @@ in two layers, always attempted in order:
 If the LLM path throws, returns non-JSON, or isn't configured, the route
 falls back to the deterministic heuristic and reports `llmUnavailable: true`;
 it never turns into a 500 and never blocks the author.
+
+## Which model runs these passes
+
+Both memory passes (the check verdict and reflect) go through
+`resolveMemoryRunner` (`src/lib/memory/consolidation-engine.ts`) →
+`resolveTextRunner` (`src/lib/llm/text.ts`), a "prompt in → model text out"
+seam over the **same** provider selection the scan pipeline uses
+(`resolveProviderChoice()` + `providerAvailable()`), so "which provider, and
+is it usable here?" has exactly one answer in the codebase.
+
+- An explicit `LLM_PROVIDER` wins. If that provider's prerequisite is absent,
+  the runner is `null` — never a silent substitution of a provider the
+  operator did not choose.
+- `auto`/unset resolves to Gemini when a key is present, else `null`.
+- `mock` and (on a production host) `claude-cli` resolve to `null`: there is
+  no honest deterministic text for a judgment call.
+- Per-call timeout is `MEMORY_CHECK_TIMEOUT_MS` (default 90s) — far below the
+  scan budget, because a human is waiting on a button.
+
+`null` means **no engine**, and both passes report it: the check verdict falls
+back to the deterministic heuristic (`llmUnavailable: true`, `engine:
+"heuristic"`) and reflect proposes nothing (`llmUnavailable: true`, `engine:
+"none"`). `engine` names the provider that actually answered.
+
+Until 2026-07-29 the only wired engine was the local `claude` CLI, which is
+local-dev-only by construction — so in **any** deployment reflect returned
+zero proposals on every call and the `summary` kind was unreachable. Hosted
+providers now serve both passes.
+
+**Cost is bounded by construction, not by a quota**: nothing runs implicitly
+on write. A propose is one explicit click that issues exactly ONE model call
+covering at most `MAX_CLUSTERS` (4) clusters, each member excerpt capped at
+800 chars, over a working set capped at 400 rows; applying is a second
+explicit click that touches no model at all.
 
 ## The untrusted-content boundary on both memory prompts
 
@@ -173,10 +208,11 @@ route:
   are rejected, and a proposal's confidence is capped at the highest
   confidence among its own members — a rollup may never be more certain than
   the most certain thing it consolidates). **If no LLM is reachable, reflect
-  returns zero proposals rather than falling back to a heuristic rollup** —
-  unlike the check verdict, there is no honest non-LLM way to synthesize a
-  summary, and a deterministic concatenation would still supersede its
-  sources.
+  returns zero proposals rather than falling back to a heuristic rollup**
+  (`llmUnavailable: true`) — unlike the check verdict, there is no honest
+  non-LLM way to synthesize a summary, and a deterministic concatenation
+  would still supersede its sources. A caller must not read that as "nothing
+  to consolidate"; see the outcome table below.
 - **Apply** (`{ org, apply: { summaryContent, memberIds (≥2), confidence?,
   namespace? } }`) — a second, explicit call that actually writes: in one
   transaction it creates a new `summary`-kind memory (`source: "reflection"`,
@@ -189,12 +225,28 @@ Passing `decay: true` to the propose call additionally runs the forget pass
 (below) in the same request; `dryRun: true` reports what would be archived
 without archiving it.
 
-I could not find a UI surface in the components read (`MemoryPanel*`) that
-calls `/api/org/memory/reflect` — the route and its underlying logic are
-fully implemented, but whether/where an end user triggers it from the Org
-Memory page (versus only via direct API call) is not established from the
-files examined. This should not be assumed to have a UI trigger without
-further checking.
+### Where a user triggers it
+
+`/org/[slug]/memory` renders **MemoryReflectPanel** under the memory list.
+"Propose consolidation" runs the read-only propose call; each returned
+proposal renders its summary, the cluster's cohesion, the capped confidence,
+and — expandable — the full list of memories it would supersede, with its own
+"Apply rollup" button. Applying is therefore always a second, per-proposal
+click, and never happens implicitly on write.
+
+The panel is gated exactly as the route is (member + Team plan, or a personal
+workspace); a read-only viewer sees the explanation and no button rather than
+a control that 403s.
+
+An empty result is never rendered as a blank list. The three outcomes get
+three different sentences, because they ask three different things of the
+reader:
+
+| Response | What the panel says |
+| --- | --- |
+| `llmUnavailable: true` | No model engine is available, so nothing was proposed — configure `LLM_PROVIDER`. Nothing was changed. |
+| `clusterCount: 0` | Nothing to consolidate: N memories compared, no family of three restated one subject. |
+| `clusterCount > 0`, no proposals | N families found, none worth rolling up — the model read them and declined. |
 
 ## Recall: scoring and budget packing
 
@@ -326,10 +378,6 @@ feature."); exceeding the personal cap returns `402`.
 
 ## Known gaps
 
-- No UI wiring to the reflect endpoint (propose or apply) was found among the
-  `MemoryPanel*` components read — it is unclear from the code examined
-  whether reflection is reachable from the Org Memory page at all, or only
-  via direct API call.
 - No scheduled/cron job invoking decay or reflection automatically was found
   in the files read; decay only runs as a side effect of an explicit
   `POST /api/org/memory/reflect { decay: true }` call.
@@ -354,6 +402,12 @@ feature."); exceeding the personal cap returns `402`.
 | `src/lib/db/org-memory-lifecycle.ts` | `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/components/org/MemoryPanel.tsx` | Client orchestrator. |
+| `src/components/org/MemoryReflectPanel.tsx` | Reflect propose/apply surface. |
+| `src/components/org/MemoryReflectPanel.Proposal.tsx` | One proposal + what it would supersede. |
+| `src/components/org/memoryReflect.ts` | Client fetch helpers + the three-outcome copy. |
+| `src/lib/memory/consolidation-engine.ts` | Resolves the provider-backed prompt runner. |
+| `src/lib/llm/text.ts` | Shared "prompt in → text out" seam over the provider selection. |
+| `src/lib/llm/untrusted.ts` | The shared untrusted-content boundary. |
 | `src/components/org/memoryCheck.ts` | Client fetch helper + copy for the check verdict. |
 | `src/app/org/[slug]/memory/page.tsx` | Page composition. |
 | `src/app/org/[slug]/memory/MemoryCoverageStrip.tsx` | Fleet-wide freshness strip. |

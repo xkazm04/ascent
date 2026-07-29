@@ -7,6 +7,11 @@
 // PRODUCES the `summary` kind: it clusters the org's active memories, asks the model for one rollup per
 // family, and hands the proposals back.
 //
+// The model is whatever LLM_PROVIDER selects (src/lib/llm/text.ts) — hosted providers included, so this
+// works in production. When none is reachable the response carries `llmUnavailable: true` and the UI
+// must say "no engine available", which is a different sentence from "nothing to consolidate"
+// (`clusterCount: 0`). Collapsing those two into one empty state is the failure mode to avoid here.
+//
 // THE SAFETY PROPERTY THIS ROUTE EXISTS TO PRESERVE: proposals are never silently applied. A reflection
 // pass supersedes real memories that real people wrote; a model that misreads a cluster would retire
 // them with nobody in the loop. So the default call PROPOSES (a pure read + one LLM pass, zero writes)
@@ -33,13 +38,14 @@ import {
 } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
-import { resolveRunPrompt } from "@/lib/memory/consolidation-engine";
+import { resolveMemoryRunner } from "@/lib/memory/consolidation-engine";
 import { proposeReflections } from "@/lib/memory/reflection";
 import { archiveDecayed } from "@/lib/memory/decay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// One CLI pass over the clusters, capped by the engine at MEMORY_CHECK_TIMEOUT_MS (90s).
+// ONE model pass over at most MAX_CLUSTERS (4) clusters, capped at MEMORY_CHECK_TIMEOUT_MS (90s) —
+// that single explicit call is the whole cost of a propose. Nothing here runs implicitly on write.
 export const maxDuration = 120;
 
 interface ApplyBody {
@@ -113,7 +119,7 @@ export async function POST(request: Request) {
   // ── Propose (+ optional forget pass): zero writes to memory content ────────────────────────
   const working = await lifecycleWorkingSet(body.org, { namespace: body.namespace }, viewer);
 
-  const runPrompt = await resolveRunPrompt();
+  const runner = await resolveMemoryRunner();
   const result = await proposeReflections(
     working.map((m) => ({
       id: m.id,
@@ -122,9 +128,10 @@ export async function POST(request: Request) {
       confidence: m.confidence,
       namespace: m.namespace,
     })),
-    runPrompt,
-    // Navigating away kills the spawned CLI rather than leaving it running.
+    runner?.run ?? null,
+    // Navigating away aborts the in-flight call (or kills the spawned CLI) rather than leaving it running.
     request.signal,
+    runner?.engine,
   );
 
   // Join each proposal's members back to their rows so the UI can show WHAT would be superseded.

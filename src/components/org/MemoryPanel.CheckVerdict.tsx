@@ -42,11 +42,11 @@ export function CheckVerdict({
             {/* Never imply we scanned the whole store — say exactly what was compared, and by what. */}
             compared {comparedCount} memor{comparedCount === 1 ? "y" : "ies"} ·{" "}
             {llmUnavailable ? (
-              <span title="No local Claude CLI was reachable — this is a deterministic word-overlap estimate, not a semantic judgment.">
+              <span title="No model engine was reachable — this is a deterministic word-overlap estimate, not a semantic judgment.">
                 word-overlap estimate (no model)
               </span>
             ) : (
-              <span title="Judged semantically by the local Claude Code CLI.">judged by {engine}</span>
+              <span title="Judged semantically by the configured model provider.">judged by {engine}</span>
             )}
           </p>
         </div>

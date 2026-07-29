@@ -1,4 +1,5 @@
 import { MemoryPanel } from "@/components/org/MemoryPanel";
+import { MemoryReflectPanel } from "@/components/org/MemoryReflectPanel";
 import { MemoryCoverageStrip } from "./MemoryCoverageStrip";
 import { getMemoryCoverage } from "@/lib/memory/coverage";
 import { getCreditState, isPersonalOrg, listOrgMemories, listOrgMemoryNamespaces } from "@/lib/db";
@@ -42,6 +43,9 @@ export default async function OrgMemory({ params }: { params: Promise<{ slug: st
         planAllowed={planAllowed}
         defaultVisibility={personal ? "private" : "shared"}
       />
+      {/* Reflect is gated exactly as the route gates it (member + Team plan / personal workspace), so a
+          read-only viewer gets the explanation rather than a button that 403s. */}
+      <MemoryReflectPanel slug={slug} canWrite={isMember && planAllowed} />
     </div>
   );
 }

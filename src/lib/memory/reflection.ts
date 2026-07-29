@@ -26,6 +26,7 @@ import { parseJsonLoose } from "@/lib/llm/json";
 import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
 import type { RunPrompt } from "@/lib/memory/consolidation";
 import { tokenize } from "@/lib/memory/consolidation";
+import type { ProviderName } from "@/lib/types";
 
 /** The subset of a stored memory reflection reasons over (structurally satisfied by db MemoryRow). */
 export interface ReflectionCandidate {
@@ -57,9 +58,14 @@ export interface ReflectionResult {
   proposals: SummaryProposal[];
   /** How many candidate clusters the deterministic pass found (≥ proposals.length). */
   clusterCount: number;
-  /** True when no model was reachable — in which case `proposals` is deliberately empty. */
+  /**
+   * True when NO ENGINE WAS AVAILABLE (or the one available failed) — in which case `proposals` is
+   * deliberately empty. This is the distinction a caller must never collapse: `llmUnavailable: true`
+   * means "we couldn't look", while `false` with `clusterCount: 0` means "we looked and there is
+   * nothing to consolidate". Same words, opposite instruction to the user.
+   */
   llmUnavailable: boolean;
-  engine: "claude-cli" | "none";
+  engine: ProviderName | "none";
 }
 
 // ── Tunables ─────────────────────────────────────────────────────────────────────────────────
@@ -324,6 +330,8 @@ export async function proposeReflections(
   items: ReflectionCandidate[],
   runPrompt: RunPrompt | null,
   signal?: AbortSignal,
+  /** Which provider `runPrompt` speaks to — reported verbatim so the UI names the engine that ran. */
+  engine: ProviderName = "claude-cli",
 ): Promise<ReflectionResult> {
   const eligible = reflectionEligible(items);
   const clusters = clusterMemories(eligible);
@@ -332,7 +340,7 @@ export async function proposeReflections(
       proposals: [],
       clusterCount: clusters.length,
       llmUnavailable: !runPrompt,
-      engine: runPrompt ? "claude-cli" : "none",
+      engine: runPrompt ? engine : "none",
     };
   }
 
@@ -342,7 +350,7 @@ export async function proposeReflections(
       proposals: parseReflectionProposals(raw, clusters, eligible),
       clusterCount: clusters.length,
       llmUnavailable: false,
-      engine: "claude-cli",
+      engine,
     };
   } catch {
     // Timeout, missing binary, prose instead of JSON: reflection is a background nicety, never an error

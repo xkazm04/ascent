@@ -4,7 +4,7 @@
 // runtime (`import type` is erased, so pulling MemoryRow from the db barrel never ships Prisma).
 
 import type { MemoryRow } from "@/lib/db";
-import type { MemoryRecommendation, MemoryRelation } from "@/lib/memory/consolidation";
+import type { MemoryEngine, MemoryRecommendation, MemoryRelation } from "@/lib/memory/consolidation";
 
 /** One candidate the pass flagged, joined to the row it refers to so the UI can show WHAT it matched. */
 export interface CheckMatch {
@@ -21,7 +21,8 @@ export interface CheckResponse {
   summary?: string;
   /** True when the verdict is the deterministic token-overlap fallback, not a model's judgment. */
   llmUnavailable: boolean;
-  engine: "claude-cli" | "heuristic";
+  /** Which provider judged it (`gemini`, `bedrock`, `claude-cli`, …), or the deterministic fallback. */
+  engine: MemoryEngine;
   /** How many of the org's memories were actually compared — so the UI never implies a full scan. */
   comparedCount: number;
 }

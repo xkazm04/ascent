@@ -21,6 +21,7 @@
 
 import { parseJsonLoose } from "@/lib/llm/json";
 import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import type { ProviderName } from "@/lib/types";
 
 /** The subset of a stored memory this pass reasons over (structurally satisfied by db MemoryRow). */
 export interface MemoryCandidate {
@@ -57,8 +58,13 @@ export interface ConsolidationVerdict {
   summary?: string;
   /** True when the judgment is the deterministic fallback, not a model's. The UI says so plainly. */
   llmUnavailable: boolean;
-  engine: "claude-cli" | "heuristic";
+  engine: MemoryEngine;
 }
+
+/** Which engine produced a verdict: the provider that answered, or the deterministic fallback. Typed
+ *  from the canonical ProviderName (a type-only import — this module still pulls in no provider code)
+ *  so a newly supported provider can never be reported here under a stale, hand-maintained union. */
+export type MemoryEngine = ProviderName | "heuristic";
 
 export interface AnalyzeInput {
   content: string;
@@ -225,7 +231,11 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
  *
  * Throws only if the text isn't JSON at all; the caller degrades to the heuristic verdict.
  */
-export function parseVerdict(raw: string, matches: DuplicateMatch[]): ConsolidationVerdict {
+export function parseVerdict(
+  raw: string,
+  matches: DuplicateMatch[],
+  engine: ProviderName = "claude-cli",
+): ConsolidationVerdict {
   const parsed = parseJsonLoose<RawVerdict>(raw);
   const allowed = new Map(matches.map((m) => [m.id, m]));
 
@@ -268,7 +278,7 @@ export function parseVerdict(raw: string, matches: DuplicateMatch[]): Consolidat
       ? parsed.summary.trim().slice(0, 500)
       : undefined;
 
-  return { recommendation, duplicates, summary, llmUnavailable: false, engine: "claude-cli" };
+  return { recommendation, duplicates, summary, llmUnavailable: false, engine };
 }
 
 // ── The entry point both adapters (route today, MCP tomorrow) call ───────────────────────────
@@ -286,16 +296,19 @@ export async function analyzeWrite(
   input: AnalyzeInput,
   runPrompt: RunPrompt | null,
   signal?: AbortSignal,
+  /** Which provider `runPrompt` speaks to — reported verbatim in the verdict so the UI can name it.
+   *  Ignored when `runPrompt` is null (the verdict is then the heuristic's, by definition). */
+  engine: ProviderName = "claude-cli",
 ): Promise<ConsolidationVerdict> {
   const matches = shortlist(input.content, input.candidates);
   if (matches.length === 0) {
-    return { recommendation: "novel", duplicates: [], llmUnavailable: !runPrompt, engine: runPrompt ? "claude-cli" : "heuristic" };
+    return { recommendation: "novel", duplicates: [], llmUnavailable: !runPrompt, engine: runPrompt ? engine : "heuristic" };
   }
   if (!runPrompt) return heuristicVerdict(matches);
 
   try {
     const raw = await runPrompt(buildConsolidationPrompt(input, matches), signal);
-    return parseVerdict(raw, matches);
+    return parseVerdict(raw, matches, engine);
   } catch {
     // A model that times out, isn't installed, or answers with prose is not an error the author should
     // ever see — degrade to the deterministic shortlist and let them decide.

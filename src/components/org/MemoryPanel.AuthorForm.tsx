@@ -192,7 +192,7 @@ export function MemoryAuthorForm({
             onClick={onCheck}
             disabled={!hasContent || busy}
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
-            title="Ask the local Claude CLI whether this duplicates or corrects an existing memory"
+            title="Ask the configured model whether this duplicates or corrects an existing memory"
           >
             Check for duplicates
           </button>

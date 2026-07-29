@@ -18,7 +18,7 @@ import { requireOrgAccess } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { isMemoryKind } from "@/lib/org/memory-kinds";
 import { analyzeWrite } from "@/lib/memory/consolidation";
-import { resolveRunPrompt } from "@/lib/memory/consolidation-engine";
+import { resolveMemoryRunner } from "@/lib/memory/consolidation-engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,12 +56,14 @@ export async function POST(request: Request) {
     viewer,
   );
 
-  const runPrompt = await resolveRunPrompt();
+  const runner = await resolveMemoryRunner();
   const verdict = await analyzeWrite(
     { content: body.content, kind, namespace: body.namespace, candidates },
-    runPrompt,
-    // A user who navigates away or hits Cancel kills the spawned CLI instead of leaving it running.
+    runner?.run ?? null,
+    // A user who navigates away or hits Cancel aborts the in-flight call (or kills the spawned CLI)
+    // instead of leaving it running.
     request.signal,
+    runner?.engine,
   );
 
   // Join each match back to its row so the UI can show WHAT it would supersede, not just an id.
