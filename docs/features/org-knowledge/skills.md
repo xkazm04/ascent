@@ -204,6 +204,16 @@ generator." `SkillOutcomes` renders this with an explicit disclaimer that the
 movement is correlational, not causal ("Movement in the same window as the
 adoption — correlation, not proof of cause").
 
+`skill-outcomes-load.ts` issues one `getRepositoryHistory` read (newest 100
+scans) per **distinct** adopted repo, run through `mapPool` at
+`HISTORY_CONCURRENCY = 6` lanes. Every adopted repo is still read — the bound
+is on how many reads are in flight, not on how many repos are visited — so no
+repo is ever dropped from the outcome numbers and nothing needs to be
+disclosed as truncated. Before 2026-07-29 this was an uncapped `Promise.all`,
+so a widely-adopted skill in a large org meant hundreds of concurrent DB
+round-trips from one page render: the Skills page got slower exactly as a
+skill spread.
+
 ## Org API tokens
 
 Minted via `POST /api/org/tokens` (session-only, member-gated — no token can
