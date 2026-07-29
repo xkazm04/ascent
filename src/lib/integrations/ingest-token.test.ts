@@ -32,11 +32,11 @@ describe("ingestToken / parseIngestToken — real HMAC round-trip", () => {
   });
 
   it("verifies a valid token and recovers the org slug", () => {
-    expect(mod.parseIngestToken(mod.ingestToken("acme"))).toEqual({ slug: "acme" });
+    expect(mod.parseIngestToken(mod.ingestToken("acme"))).toEqual({ slug: "acme", epoch: 0 });
   });
 
   it("tolerates surrounding whitespace (headers get trimmed in transit)", () => {
-    expect(mod.parseIngestToken(`  ${mod.ingestToken("acme")}\n`)).toEqual({ slug: "acme" });
+    expect(mod.parseIngestToken(`  ${mod.ingestToken("acme")}\n`)).toEqual({ slug: "acme", epoch: 0 });
   });
 });
 
@@ -61,7 +61,7 @@ describe("forged tokens are rejected", () => {
     const other = mod.ingestToken("globex").split(".")[2]!;
     expect(mod.parseIngestToken(`asc_otel.acme.${other}`)).toBeNull();
     // …and the same mac still verifies under its OWN slug, proving the rejection is the binding.
-    expect(mod.parseIngestToken(`asc_otel.globex.${other}`)).toEqual({ slug: "globex" });
+    expect(mod.parseIngestToken(`asc_otel.globex.${other}`)).toEqual({ slug: "globex", epoch: 0 });
   });
 
   it("rejects a malformed prefix or the wrong number of segments", () => {
@@ -77,6 +77,38 @@ describe("forged tokens are rejected", () => {
   it("rejects a non-hex mac of the right length (no crash on odd bytes)", () => {
     expect(mod.parseIngestToken(`asc_otel.acme.${"z".repeat(32)}`)).toBeNull();
     expect(mod.parseIngestToken(`asc_otel.acme.${"é".repeat(32)}`)).toBeNull();
+  });
+});
+
+describe("revocation epoch", () => {
+  it("mints the 3-segment (pre-epoch) form at epoch 0, so already-issued tokens keep verifying", () => {
+    expect(mod.ingestToken("acme", 0)).toBe(`asc_otel.acme.${expectedMac("acme")}`);
+    expect(mod.ingestToken("acme")).toBe(mod.ingestToken("acme", 0));
+    expect(mod.parseIngestToken(`asc_otel.acme.${expectedMac("acme")}`)).toEqual({ slug: "acme", epoch: 0 });
+  });
+
+  it("mints asc_otel.<slug>.e<N>.<mac> at a bumped epoch, signed over material that includes the epoch", () => {
+    const token = mod.ingestToken("acme", 3);
+    expect(token).toBe(`asc_otel.acme.e3.${createHmac("sha256", SECRET).update("otel:acme:e3").digest("hex").slice(0, 32)}`);
+    expect(mod.parseIngestToken(token)).toEqual({ slug: "acme", epoch: 3 });
+  });
+
+  it("gives a DIFFERENT mac at every epoch (the bump actually changes the credential)", () => {
+    const macs = [0, 1, 2, 3].map((e) => mod.ingestToken("acme", e).split(".").pop());
+    expect(new Set(macs).size).toBe(4);
+  });
+
+  it("refuses a relabelled epoch — the epoch is inside the signed material, not just a label", () => {
+    const e1 = mod.ingestToken("acme", 1).split(".").pop()!;
+    expect(mod.parseIngestToken(`asc_otel.acme.e2.${e1}`)).toBeNull(); // e1's mac claimed as e2
+    expect(mod.parseIngestToken(`asc_otel.acme.${e1}`)).toBeNull(); // e1's mac claimed as epoch 0
+  });
+
+  it("rejects a malformed epoch segment", () => {
+    const m = mod.ingestToken("acme", 1).split(".").pop()!;
+    for (const seg of ["e0", "e01", "x1", "e", "e-1", "e1x"]) {
+      expect(mod.parseIngestToken(`asc_otel.acme.${seg}.${m}`)).toBeNull();
+    }
   });
 });
 

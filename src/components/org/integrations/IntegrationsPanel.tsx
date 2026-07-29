@@ -49,7 +49,7 @@ export function IntegrationsPanel({
       <div className="space-y-4">
         {PROVIDERS.map((p) => (
           <ProviderCard key={p.id} provider={p}>
-            {p.id === "claude-code" ? <ClaudeCodeSetup ingestToken={ingestToken} ingestPath={ingestPath} /> : null}
+            {p.id === "claude-code" ? <ClaudeCodeSetup slug={slug} ingestToken={ingestToken} ingestPath={ingestPath} /> : null}
           </ProviderCard>
         ))}
       </div>

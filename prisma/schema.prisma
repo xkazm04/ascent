@@ -81,6 +81,13 @@ model Organization {
   // inside the audit trail, where any retention/purge policy could silently erase it (G1-39). The audit
   // row is still written on every change — as an audit row. Read via src/lib/db/org-settings.ts.
   autoRechargeJson   String?
+  // Revocation epoch for the org's OTel ingest token (src/lib/integrations/ingest-token.ts). Same
+  // shape as SessionRevocation.version, per-org: the token embeds the epoch it was minted at
+  // (`asc_otel.<slug>.e<N>.<mac>`, or the epoch-0 3-segment form), and the ingest guard rejects any
+  // token whose epoch is BELOW this value. Bumping it kills a leaked token immediately without
+  // rotating the server-wide INTEGRATIONS_INGEST_SECRET — which would silently re-derive every OTHER
+  // org's token at the same time. 0 = never rotated, so existing tokens keep working.
+  ingestTokenEpoch   Int      @default(0)
   githubInstallId    String?
   createdAt          DateTime @default(now())
 

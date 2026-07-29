@@ -71,6 +71,44 @@ export async function recordUsage(
   return { ok: true, stored };
 }
 
+/**
+ * The org's current ingest-token revocation epoch. Returns:
+ *   - a number — the stored epoch (0 for a never-rotated org, which is every org pre-migration);
+ *   - 0 when persistence is off — a DB-less local/demo deployment has no rotation state, and the
+ *     stateless epoch-0 token is the whole story there;
+ *   - null when the lookup FAILED while the DB is configured. Callers must treat null as
+ *     "revocation state unknown" and refuse (503) rather than fall back to 0: silently reading a
+ *     revoked org as epoch 0 would resurrect the exact leaked token the owner rotated away.
+ * An org that doesn't exist reads as 0 — the token verifies but nothing can be persisted for it
+ * anyway (recordUsage returns "Unknown organization").
+ */
+export async function getIngestTokenEpoch(orgSlug: string): Promise<number | null> {
+  if (!isDbConfigured()) return 0;
+  try {
+    const org = await getOrgBySlug(orgSlug);
+    return org?.ingestTokenEpoch ?? 0;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bump the org's ingest-token epoch, invalidating every token minted at a lower one. Returns the NEW
+ * epoch, or null when persistence is off / the org is unknown — rotation is a stateful act, so an
+ * unpersisted "success" would be a lie the owner acts on.
+ */
+export async function bumpIngestTokenEpoch(orgSlug: string): Promise<number | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+  const updated = await getPrisma().organization.update({
+    where: { id: org.id },
+    data: { ingestTokenEpoch: { increment: 1 } },
+    select: { ingestTokenEpoch: true },
+  });
+  return updated.ingestTokenEpoch;
+}
+
 export interface RepoUsage {
   costCents: number;
   seats: number;

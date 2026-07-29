@@ -348,7 +348,30 @@ routes share one front door, `guardIngest` in `src/lib/integrations/ingest-guard
 | --- | --- |
 | Rate limit | `INGEST_RATE_LIMIT` layered on the shared limiter (`src/lib/rate-limit.ts`) — per-IP burst 3,000/min + a 20,000/min per-instance global, both env-overridable (`RATE_LIMIT_INGEST_PER_IP` / `_GLOBAL`). Derived from Claude Code's real push cadence: metrics flush every 60s and logs every 5s **per developer machine**, so a 200-seat org behind one egress IP legitimately produces ~2,600 req/min. Charged **before** token verification, so a flood is refused without spending crypto. |
 | Body cap | `MAX_BODY` = 1 MB, checked against a declared `content-length` first and then by streamed byte count, so an oversized push is refused (**413**) after one chunk rather than buffered. Applies to the accept-and-discard paths too (the protobuf drain, `/v1/logs`). |
-| Token | `parseIngestToken` re-derives the HMAC from the slug in the token (`asc_otel.<slug>.<mac>`); constant-time compare. Runs **before** any body/wire-format handling, so a bad-token protobuf push gets 401, never 415. |
+| Token | `parseIngestToken` re-derives the HMAC from the slug **and minted epoch** in the token; constant-time compare, then the epoch is checked against the org's stored one. Runs **before** any body/wire-format handling, so a bad-token protobuf push gets 401, never 415. |
+
+### Token rotation (`Organization.ingestTokenEpoch`)
+
+The token is designed to be copied — into a shell profile, a CI secret, a Slack thread by mistake.
+It carries the per-org **revocation epoch** it was minted at, the same version-bump shape
+`SessionRevocation` uses for the session cookie's `sv`:
+
+| Epoch | Token |
+| --- | --- |
+| 0 (never rotated) | `asc_otel.<slug>.<mac>`, `mac = HMAC(secret, "otel:<slug>")` — byte-for-byte the pre-rotation format, so **no org re-onboards** |
+| N | `asc_otel.<slug>.e<N>.<mac>`, `mac = HMAC(secret, "otel:<slug>:e<N>")` |
+
+The epoch is inside the signed material, so an old mac can't be relabelled with a higher epoch.
+**Regenerate token** on the Integrations page (owner-only, behind an inline confirm that states the
+consequence — every exporter still using the old token starts getting 401s on its next push, with no
+queue or recovery) POSTs `/api/integrations/token { org, rotate: true }`, which bumps the epoch, audits
+the act (`integrations.token.rotate`) and returns the new token. The panel re-renders the masked field,
+the env snippet and the Test button from that response, so the owner copies a working configuration
+**without a reload** — which matters because the response is the only place the new token exists.
+
+Rotating `INTEGRATIONS_INGEST_SECRET` still works as the break-glass for **all** orgs at once.
+If the stored epoch can't be read while a DB is configured, ingest answers **503**, never a
+fall-back-to-0 that would resurrect the token the owner just revoked.
 
 `/v1/metrics` **refuses OTLP/protobuf with 415** naming the
 `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` fix. This is deliberate: Ascent decodes OTLP/JSON only,

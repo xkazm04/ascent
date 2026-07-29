@@ -19,6 +19,7 @@
 
 import { rateLimitRequestShared, tooManyRequests, type RateLimitConfig } from "@/lib/rate-limit";
 import { bearerToken, parseIngestToken } from "@/lib/integrations/ingest-token";
+import { getIngestTokenEpoch } from "@/lib/db/integrations";
 
 /**
  * Max accepted ingest body. An OTLP/JSON metrics export from Claude Code is a few KB — a handful of
@@ -101,7 +102,7 @@ export function payloadTooLarge(): Response {
   );
 }
 
-/** The shared 401 for a missing/forged/superseded ingest token. */
+/** The shared 401 for a missing/forged ingest token. */
 export function unauthorizedIngest(): Response {
   return new Response(JSON.stringify({ error: "Missing or invalid ingest token." }), {
     status: 401,
@@ -109,13 +110,28 @@ export function unauthorizedIngest(): Response {
   });
 }
 
+/** The 401 for a token whose signature is fine but whose epoch has been rotated away. Distinct copy,
+ *  same status: the exporter's operator needs to know the fix is "paste the NEW token", not "check
+ *  your typing" — but a caller must not be able to distinguish a revoked org from a forged mac by
+ *  status code alone, so both are 401. */
+export function revokedIngest(): Response {
+  return new Response(
+    JSON.stringify({ error: "This ingest token has been regenerated. Copy the current token from the org's Integrations page and update your exporter." }),
+    { status: 401, headers: { "content-type": "application/json; charset=utf-8" } },
+  );
+}
+
 /**
  * The common front door for every ingest route, in the ONE order that stays honest:
  *   1. rate limit (429) — charged before any crypto or body read, so a flood is cheap to refuse and
  *      the guard covers unauthenticated callers too;
- *   2. token verification (401) — so wire-format/parse behavior below never leaks to an anonymous
- *      caller (a bad-token protobuf push gets 401, NOT 415).
- * Returns a `Response` to send back, or the verified token claim to proceed with.
+ *   2. signature verification (401) — so wire-format/parse behavior below never leaks to an anonymous
+ *      caller (a bad-token protobuf push gets 401, NOT 415);
+ *   3. revocation check (401) — the token's minted epoch must be >= the org's stored epoch. A token
+ *      the owner has regenerated away stops working on the very next request, with no wait-out
+ *      window. If the epoch can't be read while the DB is configured, refuse with 503 rather than
+ *      assume 0: "revocation state unknown" must never resolve to "accept the old token".
+ * Returns a `Response` to send back, or the authorized org slug to proceed with.
  */
 export async function guardIngest(req: Request): Promise<{ deny: Response } | { deny?: undefined; slug: string }> {
   const rl = await rateLimitRequestShared(req, INGEST_RATE_LIMIT);
@@ -124,5 +140,16 @@ export async function guardIngest(req: Request): Promise<{ deny: Response } | { 
   const token = bearerToken(req.headers.get("authorization"), req.headers.get("x-ascent-ingest-token"));
   const parsed = token ? parseIngestToken(token) : null;
   if (!parsed) return { deny: unauthorizedIngest() };
+
+  const current = await getIngestTokenEpoch(parsed.slug);
+  if (current === null) {
+    return {
+      deny: new Response(JSON.stringify({ error: "Can't verify token status right now — retry shortly." }), {
+        status: 503,
+        headers: { "content-type": "application/json; charset=utf-8", "retry-after": "30" },
+      }),
+    };
+  }
+  if (parsed.epoch < current) return { deny: revokedIngest() };
   return { slug: parsed.slug };
 }

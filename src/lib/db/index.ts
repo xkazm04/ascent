@@ -277,6 +277,8 @@ export {
 export {
   recordUsage,
   getOrgUsageRollup,
+  getIngestTokenEpoch,
+  bumpIngestTokenEpoch,
   type UsageRecordInput,
   type UsageScope,
   type UsageFidelity,

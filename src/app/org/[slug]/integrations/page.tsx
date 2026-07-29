@@ -1,6 +1,7 @@
 import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { IntegrationsPanel } from "@/components/org/integrations/IntegrationsPanel";
 import { ingestToken } from "@/lib/integrations/ingest-token";
+import { getIngestTokenEpoch } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +23,19 @@ export default async function OrgIntegrations({ params }: { params: Promise<{ sl
     );
   }
 
+  // Render the token at the org's CURRENT revocation epoch, so a page loaded after a rotation shows
+  // the live credential rather than the superseded one. A failed lookup falls back to epoch 0 — the
+  // display is not the security boundary (the ingest guard is), and showing a stale token is a better
+  // failure than blanking the connect surface.
+  const epoch = (await getIngestTokenEpoch(slug).catch(() => 0)) ?? 0;
+
   return (
     <div className="space-y-6">
       <SectionHeader
         title="Integrations"
         description="Connect your AI coding providers to replace the simulated spend in AI delivery with real usage — one provider at a time."
       />
-      <IntegrationsPanel slug={slug} ingestToken={ingestToken(slug)} ingestPath="/api/integrations/ingest" />
+      <IntegrationsPanel slug={slug} ingestToken={ingestToken(slug, epoch)} ingestPath="/api/integrations/ingest" />
     </div>
   );
 }

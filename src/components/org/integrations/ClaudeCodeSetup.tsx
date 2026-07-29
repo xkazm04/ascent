@@ -1,50 +1,23 @@
 "use client";
 
 // Claude Code connect surface — the OTel push path. There's no secret for Ascent to store: the org's
-// ingest token is stateless (HMAC of the slug, verified server-side), so "connecting" is the customer
-// pointing their Claude Code telemetry at our endpoint with this token. The `git.repository` resource
-// attribute in the snippet is what makes the attribution MEASURED (spend lands on the exact repo).
-// A live "Test" round-trips the token against the ingest endpoint so the owner sees it works now.
+// ingest token is an HMAC of (slug, revocation epoch), verified server-side, so "connecting" is the
+// customer pointing their Claude Code telemetry at our endpoint with this token. The `git.repository`
+// resource attribute in the snippet is what makes the attribution MEASURED (spend lands on the exact
+// repo). A live "Test" round-trips the token against the ingest endpoint so the owner sees it works now.
+//
+// The token lives in component state, seeded from the server-rendered value: regenerating it returns
+// the new token from the API and every derived surface (masked field, env snippet, the Test call)
+// re-renders from that same state — so the owner copies the WORKING configuration without a reload.
 
 import { useState, useSyncExternalStore } from "react";
 import { Kicker } from "@/components/ui";
+import { CopyButton, Field } from "./SetupField";
+import { RegenerateTokenButton } from "./RegenerateTokenButton";
 
-function CopyButton({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setDone(true);
-          setTimeout(() => setDone(false), 1500);
-        } catch {
-          /* clipboard blocked — no-op */
-        }
-      }}
-      className="focus-ring shrink-0 rounded border border-divider px-2 py-1 font-mono text-xs text-slate-400 transition hover:border-accent hover:text-white"
-    >
-      {/* aria-live so the Copy→Copied transition is announced to screen-reader users. */}
-      <span aria-live="polite">{done ? "Copied" : "Copy"}</span>
-    </button>
-  );
-}
-
-function Field({ label, value, mono = true, children }: { label: string; value: string; mono?: boolean; children?: React.ReactNode }) {
-  return (
-    <div>
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="mt-1 flex items-center gap-2 rounded-lg border border-divider bg-surface-strong/60 px-2.5 py-1.5">
-        <code className={`flex-1 truncate text-slate-200 ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</code>
-        {children}
-        <CopyButton text={value} />
-      </div>
-    </div>
-  );
-}
-
-export function ClaudeCodeSetup({ ingestToken, ingestPath }: { ingestToken: string; ingestPath: string }) {
+export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: string; ingestToken: string; ingestPath: string }) {
+  const [token, setToken] = useState(ingestToken);
+  const [rotated, setRotated] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -58,8 +31,8 @@ export function ClaudeCodeSetup({ ingestToken, ingestPath }: { ingestToken: stri
 
   const endpoint = `${origin || "https://<your-ascent-host>"}${ingestPath}`;
   const maskedToken = revealed
-    ? ingestToken
-    : ingestToken.replace(/^(asc_otel\.[^.]+\.)(.+)$/, (_, p: string, mac: string) => p + "•".repeat(Math.min(mac.length, 24)));
+    ? token
+    : token.replace(/^(asc_otel\.[^.]+\.(?:e\d+\.)?)(.+)$/, (_, p: string, mac: string) => p + "•".repeat(Math.min(mac.length, 24)));
 
   const snippet = [
     "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
@@ -67,7 +40,7 @@ export function ClaudeCodeSetup({ ingestToken, ingestPath }: { ingestToken: stri
     "export OTEL_LOGS_EXPORTER=otlp",
     "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
     `export OTEL_EXPORTER_OTLP_ENDPOINT=${endpoint}`,
-    `export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ${ingestToken}`,
+    `export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ${token}`,
     "export OTEL_RESOURCE_ATTRIBUTES=git.repository=$(git remote get-url origin)",
   ].join("\n");
 
@@ -77,7 +50,7 @@ export function ClaudeCodeSetup({ ingestToken, ingestPath }: { ingestToken: stri
     try {
       // Round-trip the token against the exact path the OTel exporter targets (…/v1/metrics), so the
       // check reflects the real receiver — which parses OTLP metrics and attributes spend per repo.
-      const res = await fetch(`${ingestPath}/v1/metrics`, { method: "POST", headers: { Authorization: `Bearer ${ingestToken}` } });
+      const res = await fetch(`${ingestPath}/v1/metrics`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       const data = (await res.json().catch(() => ({}))) as { accepted?: boolean; error?: string };
       if (res.status === 202 && data.accepted) {
         setResult({ ok: true, text: "Token valid — the metrics endpoint accepted the request (202). Point Claude Code here and per-repo spend is attributed automatically." });
@@ -137,6 +110,26 @@ export function ClaudeCodeSetup({ ingestToken, ingestPath }: { ingestToken: stri
         {result && (
           <p role="status" className={`text-sm ${result.ok ? "text-emerald-300" : "text-orange-300"}`}>
             {result.text}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2 border-t border-divider pt-3">
+        <p className="text-xs text-slate-500">
+          Leaked the token? Regenerating issues a new one and stops the old one being accepted — for this organization only.
+        </p>
+        <RegenerateTokenButton
+          slug={slug}
+          onRotated={(next) => {
+            setToken(next);
+            setRevealed(true); // brand new and stored nowhere else — show it so it can be copied
+            setResult(null);
+            setRotated(true);
+          }}
+        />
+        {rotated && (
+          <p role="status" className="text-sm text-emerald-300">
+            New token issued — the endpoint snippet above already uses it. Copy it into every exporter; the previous token is now rejected.
           </p>
         )}
       </div>

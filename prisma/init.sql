@@ -31,6 +31,7 @@ CREATE TABLE "Organization" (
     "logoUrl" TEXT,
     "timezone" TEXT,
     "autoRechargeJson" TEXT,
+    "ingestTokenEpoch" INTEGER NOT NULL DEFAULT 0,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

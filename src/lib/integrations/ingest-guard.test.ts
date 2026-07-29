@@ -6,7 +6,13 @@
 // Both the limiter config and the token secret are captured at module load, so the module is imported
 // dynamically after the env is stubbed.
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+
+// The ONLY stub in this file is the stored-epoch lookup — it is a DB read, and there is no DB here.
+// The HMAC, the limiter and the cap all run for real, so the revocation cases below prove the actual
+// token path rejects a superseded token rather than proving a mock was called.
+const db = vi.hoisted(() => ({ epoch: 0 as number | null }));
+vi.mock("@/lib/db/integrations", () => ({ getIngestTokenEpoch: vi.fn(async () => db.epoch) }));
 
 const SECRET = "test-ingest-secret-do-not-use";
 
@@ -104,5 +110,47 @@ describe("guardIngest — rate limit runs before token verification", () => {
     for (let i = 0; i < 3; i++) await guard.guardIngest(mkReq({ auth: `Bearer ${tokens.ingestToken("acme")}`, ip }));
     const res = await guard.guardIngest(mkReq({ auth: "Bearer nonsense", ip }));
     expect(res.deny?.status).toBe(429);
+  });
+});
+
+describe("guardIngest — per-org revocation epoch", () => {
+  const ip = () => `10.1.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  const call = (token: string) => guard.guardIngest(mkReq({ auth: `Bearer ${token}`, ip: ip() }));
+
+  it("accepts an epoch-0 (pre-rotation) token while the org has never rotated", async () => {
+    db.epoch = 0;
+    expect(await call(tokens.ingestToken("acme"))).toEqual({ slug: "acme" });
+  });
+
+  it("401s the OLD token and accepts the NEW one the instant the epoch bumps", async () => {
+    const before = tokens.ingestToken("acme", 0);
+    db.epoch = 0;
+    expect(await call(before)).toEqual({ slug: "acme" }); // works before the bump
+
+    db.epoch = 1; // the owner hit "Regenerate token"
+    const denied = await call(before);
+    expect(denied.deny?.status).toBe(401);
+    expect(((await denied.deny!.json()) as { error: string }).error).toMatch(/regenerated/i);
+
+    expect(await call(tokens.ingestToken("acme", 1))).toEqual({ slug: "acme" }); // the new one works
+  });
+
+  it("keeps rejecting every superseded epoch after repeated rotations", async () => {
+    db.epoch = 3;
+    for (const stale of [0, 1, 2]) expect((await call(tokens.ingestToken("acme", stale))).deny?.status).toBe(401);
+    expect(await call(tokens.ingestToken("acme", 3))).toEqual({ slug: "acme" });
+  });
+
+  it("accepts a token minted ABOVE the stored epoch (a rotation this instance hasn't read yet)", async () => {
+    db.epoch = 1;
+    expect(await call(tokens.ingestToken("acme", 2))).toEqual({ slug: "acme" });
+  });
+
+  it("503s when the epoch can't be read — 'revocation state unknown' never resolves to 'accept'", async () => {
+    db.epoch = null;
+    const res = await call(tokens.ingestToken("acme"));
+    expect(res.deny?.status).toBe(503);
+    expect(res.deny?.headers.get("retry-after")).toBe("30");
+    db.epoch = 0;
   });
 });
