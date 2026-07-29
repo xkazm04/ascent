@@ -1,6 +1,9 @@
 // GET  /api/org/memory/recall?org=&namespace=&kinds=a,b&charBudget=6000
 // POST /api/org/memory/recall { org, namespace?, kinds?, charBudget? }
-//   -> { memories: [{ ...row, score, ageDays }], usedChars, charBudget, consideredCount, omittedCount }
+//   -> { memories: [{ ...row, score, ageDays }],        // what was PACKED, strongest first
+//        omitted:  [{ ...row, score, ageDays }],        // scored but budget-bound
+//        ineligible: [{ ...row, reason }],              // present but not recallable, with the reason
+//        usedChars, charBudget, consideredCount, omittedCount }
 //
 // The `recall` verb: "give me the most valuable thing this org knows, in N characters." Where GET
 // /api/org/memory is a BROWSE surface (filter, search, sort, 200 rows for a human to scroll), this is
@@ -22,7 +25,7 @@ import { bumpMemoryAccessCounts, isDbConfigured, lifecycleWorkingSet } from "@/l
 import { requireOrgRead } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { isMemoryKind } from "@/lib/org/memory-kinds";
-import { normalizeCharBudget, recallMemories } from "@/lib/memory/recall";
+import { isRecallable, normalizeCharBudget, recallMemories } from "@/lib/memory/recall";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,8 +62,9 @@ async function handle(params: RecallParams) {
   );
 
   // The wall clock is read HERE, once, and injected — the core stays pure and its tests stay fixed.
+  const now = Date.now();
   const result = recallMemories(working, {
-    now: Date.now(),
+    now,
     charBudget: params.charBudget,
     namespace: params.namespace,
     kinds: params.kinds,
@@ -74,8 +78,33 @@ async function handle(params: RecallParams) {
     result.selected.map((s) => s.memory.id),
   );
 
+  // WHAT LOST, AND WHY. Reporting only a COUNT of omissions is the same defect as reporting only the
+  // winners: a caller can see that something was left out but not whether it lost the budget race (raise
+  // the budget) or was never recallable at all (superseded / archived / expired — a different action
+  // entirely, and never one the budget can fix). Both classes are derived HERE, in the adapter, from the
+  // pure core's own eligibility predicate — the scoring core is untouched.
+  const ranked = new Set([...result.selected, ...result.omitted].map((s) => s.memory.id));
+  const ineligible = working
+    .filter((m) => !ranked.has(m.id))
+    .map((m) => ({
+      ...m,
+      reason: isRecallable(m, now)
+        ? // Present, recallable, and still unranked: a kind/namespace filter excluded it. Named
+          // separately so "not recallable" never absorbs a row the CALLER filtered out.
+          ("filtered" as const)
+        : m.supersededBy
+          ? ("superseded" as const)
+          : // lifecycleWorkingSet already excludes archived rows, so the remaining way to be
+            // unrecallable is the §8 TTL.
+            ("expired" as const),
+    }));
+
   return NextResponse.json({
     memories: result.selected.map((s) => ({ ...s.memory, score: s.score, ageDays: s.ageDays })),
+    /** Scored but budget-bound, strongest first — raising charBudget is what admits these. */
+    omitted: result.omitted.map((s) => ({ ...s.memory, score: s.score, ageDays: s.ageDays })),
+    /** Present but NOT RECALLABLE, with the reason. No budget admits these. */
+    ineligible,
     usedChars: result.usedChars,
     charBudget: result.charBudget,
     /** Eligible rows the pass ranked — so a caller never implies it received everything. */

@@ -26,7 +26,10 @@ every tracked repo, not just repos that already have memory — so the strip
 cannot show a flattering 100% just because nothing has been recorded yet.
 
 Below the strip, `MemoryPanel` (`src/components/org/MemoryPanel.tsx`, client)
-is the orchestrator: filter bar, list, and author form.
+is the orchestrator: filter bar, list, and author form. Under it sit the two
+lifecycle surfaces: **MemoryRecallPanel** (value-ranked recall — a read, any
+member) and **MemoryReflectPanel** (propose/apply consolidation — gated as a
+write).
 
 ## Memory kinds
 
@@ -279,6 +282,40 @@ that end up selected have their `accessCount` incremented. A separate `POST
 /api/org/memory/:id/recall` bumps a single row's `accessCount` directly (used
 by the "Copy" button in `MemoryCard`).
 
+### Response shape: the winners AND the losers
+
+```
+{ memories:   [{ ...row, score, ageDays }],   // packed, strongest first
+  omitted:    [{ ...row, score, ageDays }],   // scored, ranked, budget-bound
+  ineligible: [{ ...row, reason }],           // never recallable: superseded | expired | filtered
+  usedChars, charBudget, consideredCount, omittedCount }
+```
+
+`omitted` and `ineligible` are the same fact split by which lever moves it: a
+budget-bound memory is admitted by raising `charBudget`, while a superseded or
+expired one never is, at any budget. Reporting only `omittedCount` (as this
+route used to) tells a reader something was left out without telling them what
+to do about it. Both lists are derived in the route adapter from the pure
+core's own eligibility predicate — the scoring core is not involved.
+
+### Where a user triggers it
+
+`/org/[slug]/memory` renders **MemoryRecallPanel** below the memory list —
+the surface that makes recall different from browse (the list above is sorted
+by date; recall is sorted by value). It offers a character budget, an optional
+namespace and an optional kind, then shows:
+
+- the packed set with each row's server-computed `score` and `ageDays`
+  (rendered verbatim — never recomputed client-side, so the number shown is
+  the number that ranked the row) plus a budget-fill bar;
+- **"ranked but left out — budget"**, the same rows rendered the same way,
+  muted, with the note that packing is whole-item and greedy;
+- **"not recallable"**, with the reason per row.
+
+Reads are ungated (any org member), matching the route. Because it calls the
+real route, packed memories have their `accessCount` incremented — the panel
+says so, since it is a genuine recall and not a preview.
+
 ## Decay (forgetting)
 
 `src/lib/memory/decay.ts` reuses the same scoring function as recall. A
@@ -402,6 +439,9 @@ feature."); exceeding the personal cap returns `402`.
 | `src/lib/db/org-memory-lifecycle.ts` | `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/components/org/MemoryPanel.tsx` | Client orchestrator. |
+| `src/components/org/MemoryRecallPanel.tsx` | Value-ranked recall surface. |
+| `src/components/org/MemoryRecallPanel.Rows.tsx` | Packed / omitted / ineligible rows. |
+| `src/components/org/memoryRecall.ts` | Client fetch helper + omission-reason copy. |
 | `src/components/org/MemoryReflectPanel.tsx` | Reflect propose/apply surface. |
 | `src/components/org/MemoryReflectPanel.Proposal.tsx` | One proposal + what it would supersede. |
 | `src/components/org/memoryReflect.ts` | Client fetch helpers + the three-outcome copy. |
