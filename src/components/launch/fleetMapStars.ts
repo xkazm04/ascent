@@ -60,6 +60,24 @@ function hash01(s: string): number {
   return (h >>> 0) / 4294967296;
 }
 
+/**
+ * Quantize a placed coordinate to 3 decimals before it is ever rendered.
+ *
+ * `Math.cos`/`Math.sin` are implementation-defined in ECMAScript — engines are only required to be
+ * "within an implementation-dependent approximation" — so Node's V8 and the browser's V8 can and do
+ * disagree in the last ULP. React stringifies an SVG `cx` with full float precision, which turns a
+ * 1e-15 difference into a literal attribute mismatch: the landing page's public constellation was
+ * logging `cx="9.306016393607791"` (server) vs `9.306016393607798` (client) and failing hydration for
+ * the whole tree — despite publicStars.ts documenting byte-for-byte SSR/CSR agreement as a contract.
+ *
+ * Rounding to 3 decimals makes the two engines agree by construction. The field is a 120-unit viewBox
+ * painted at a few hundred CSS px, so a 0.001-unit quantum is ~1/300th of a pixel — invisible, and far
+ * finer than the 1.1–3.4 unit star radii it positions.
+ */
+function q3(v: number): number {
+  return Math.round(v * 1000) / 1000;
+}
+
 /** Memo of placed positions, keyed by the ONLY inputs that move a star: (index, total, seed). A live
  *  SSE frame rewrites a star's score/level but never its index/total/seed, so every unchanged star is a
  *  Map hit and recomputes zero trig/hashes — only a star whose layout genuinely shifted (a repo added or
@@ -77,7 +95,7 @@ export function starPosition(i: number, total: number, seed: string): { cx: numb
   const jitter = hash01(seed);
   const angle = i * GOLDEN + jitter * 0.6;
   const radius = 13 + Math.sqrt((i + 0.6) / Math.max(total, 1)) * 42; // ~13..55
-  const pos = { cx: CENTER + Math.cos(angle) * radius, cy: CENTER + Math.sin(angle) * radius };
+  const pos = { cx: q3(CENTER + Math.cos(angle) * radius), cy: q3(CENTER + Math.sin(angle) * radius) };
   positionCache.set(key, pos);
   return pos;
 }
@@ -90,7 +108,7 @@ export function starPosition(i: number, total: number, seed: string): { cx: numb
 export function appendedStarPosition(seed: string): { cx: number; cy: number } {
   const angle = hash01(seed) * Math.PI * 2;
   const radius = 56; // outside the 13..55 phyllotaxis band, and 60+56+r(max 3.4) stays inside the 120 viewBox
-  return { cx: CENTER + Math.cos(angle) * radius, cy: CENTER + Math.sin(angle) * radius };
+  return { cx: q3(CENTER + Math.cos(angle) * radius), cy: q3(CENTER + Math.sin(angle) * radius) };
 }
 
 /** Maturity → brightness: brighter, larger, fully-saturated stars for higher-scoring repos. */

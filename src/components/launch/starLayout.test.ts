@@ -39,12 +39,28 @@ describe("starPosition — deterministic, in-bounds phyllotaxis placement", () =
 
   it("pins exact coordinates on a crafted seed (regression lock on the phyllotaxis math)", () => {
     // i=0: radius = 13 + sqrt(0.6/1)*42, angle = hash01('pin')*0.6 — fully determined by the seed.
+    //
+    // Values are pinned EXACTLY (toBe, not toBeCloseTo) at 3 decimals, because `starPosition` now
+    // quantizes its output to 3dp on the way out — see the `q3` note in fleetMapStars.ts. That
+    // rounding is the fix for a real hydration failure (Math.cos/Math.sin are implementation-defined,
+    // so Node and the browser disagreed in the last ULP and React saw two different `cx` strings), and
+    // pinning the quantized value is a STRICTER lock than the old 6-decimal approximate compare: it
+    // catches both a change to the math and a change to the quantum.
     const p = starPosition(0, 1, "pin");
-    expect(p.cx).toBeCloseTo(103.99388281524043, 6);
-    expect(p.cy).toBeCloseTo(71.7387323698342, 6);
+    expect(p).toEqual({ cx: 103.994, cy: 71.739 });
     const q = starPosition(3, 10, "pin");
-    expect(q.cx).toBeCloseTo(74.64113646844415, 6);
-    expect(q.cy).toBeCloseTo(95.28281625540109, 6);
+    expect(q).toEqual({ cx: 74.641, cy: 95.283 });
+  });
+
+  it("emits coordinates that survive a round trip through the DOM (the hydration contract)", () => {
+    // The actual failure this guards: React stringifies an SVG `cx`, so a coordinate is only
+    // SSR-safe if its decimal form is short and stable. Anything beyond 3dp here means some path
+    // stopped quantizing and hydration is one engine-version bump away from breaking again.
+    for (let i = 0; i < 40; i++) {
+      const { cx, cy } = starPosition(i, 40, `hydration-${i}`);
+      expect(String(cx)).toBe(String(Math.round(cx * 1000) / 1000));
+      expect(String(cy)).toBe(String(Math.round(cy * 1000) / 1000));
+    }
   });
 });
 
