@@ -9,11 +9,17 @@
 // The token lives in component state, seeded from the server-rendered value: regenerating it returns
 // the new token from the API and every derived surface (masked field, env snippet, the Test call)
 // re-renders from that same state — so the owner copies the WORKING configuration without a reload.
+//
+// One reveal state governs BOTH surfaces. The env snippet used to interpolate the raw token while the
+// field above it showed bullets, which made the mask decorative: an owner screen-sharing this page
+// believed the credential was hidden and it was three lines below in clear text. Rendered strings are
+// masked until `revealed`; the clipboard always gets the real token (see ./envSnippet).
 
 import { useState, useSyncExternalStore } from "react";
 import { Kicker } from "@/components/ui";
 import { CopyButton, Field } from "./SetupField";
 import { RegenerateTokenButton } from "./RegenerateTokenButton";
+import { buildEnvSnippet, maskIngestToken } from "./envSnippet";
 
 export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: string; ingestToken: string; ingestPath: string }) {
   const [token, setToken] = useState(ingestToken);
@@ -30,19 +36,11 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
   );
 
   const endpoint = `${origin || "https://<your-ascent-host>"}${ingestPath}`;
-  const maskedToken = revealed
-    ? token
-    : token.replace(/^(asc_otel\.[^.]+\.(?:e\d+\.)?)(.+)$/, (_, p: string, mac: string) => p + "•".repeat(Math.min(mac.length, 24)));
-
-  const snippet = [
-    "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
-    "export OTEL_METRICS_EXPORTER=otlp",
-    "export OTEL_LOGS_EXPORTER=otlp",
-    "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-    `export OTEL_EXPORTER_OTLP_ENDPOINT=${endpoint}`,
-    `export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ${token}`,
-    "export OTEL_RESOURCE_ATTRIBUTES=git.repository=$(git remote get-url origin)",
-  ].join("\n");
+  const shownToken = revealed ? token : maskIngestToken(token);
+  // Two snippets from one builder: `snippet` is what the clipboard gets (always usable), `shownSnippet`
+  // is what enters the DOM. They are the same string once revealed.
+  const snippet = buildEnvSnippet(endpoint, token);
+  const shownSnippet = revealed ? snippet : buildEnvSnippet(endpoint, shownToken);
 
   async function test() {
     setBusy(true);
@@ -85,10 +83,13 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
 
       <Field label="Ingest endpoint" value={endpoint} />
 
-      <Field label="Ingest token (org-scoped)" value={maskedToken}>
+      <Field label="Ingest token (org-scoped)" value={shownToken} copyText={token}>
         <button
           type="button"
           onClick={() => setRevealed((r) => !r)}
+          aria-pressed={revealed}
+          // Names the blast radius: the control governs the snippet below as well as this field.
+          aria-label={revealed ? "Hide ingest token and environment snippet" : "Reveal ingest token and environment snippet"}
           className="focus-ring shrink-0 rounded border border-divider px-2 py-1 font-mono text-xs text-slate-400 transition hover:border-accent hover:text-white"
         >
           {revealed ? "Hide" : "Reveal"}
@@ -101,8 +102,13 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
           <CopyButton text={snippet} />
         </div>
         <pre className="mt-1 overflow-x-auto rounded-lg border border-divider bg-surface-strong/60 p-3 font-mono text-xs leading-relaxed text-slate-300">
-          {snippet}
+          {shownSnippet}
         </pre>
+        {!revealed && (
+          <p className="mt-1 text-xs text-slate-500">
+            The token is hidden here too — Copy still copies the working value. Use Reveal above to show it.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3 pt-1">

@@ -369,6 +369,17 @@ the act (`integrations.token.rotate`) and returns the new token. The panel re-re
 the env snippet and the Test button from that response, so the owner copies a working configuration
 **without a reload** — which matters because the response is the only place the new token exists.
 
+**The mask is real, not decorative.** One `Reveal` control governs *both* rendered surfaces — the token
+field and the `ENVIRONMENT` block — because the snippet used to interpolate the full token
+(`…HEADERS=Authorization=Bearer asc_otel.<slug>.<mac>`) three lines below a field showing bullets, so
+screenshotting or screen-sharing the page leaked the credential the owner believed was hidden. Masking
+stops at the display: **Copy always puts the working token on the clipboard**, on the field and on the
+snippet alike, since a clipboard full of `•` would be a worse failure than the leak. Both
+representations come from one pair of functions (`src/components/org/integrations/envSnippet.ts`), so
+there is no per-surface masking rule to drift. Pinned by
+`src/components/org/integrations/ClaudeCodeSetup.dom.test.tsx`, which asserts the raw mac is absent
+from the entire rendered DOM while masked and present after reveal.
+
 Rotating `INTEGRATIONS_INGEST_SECRET` still works as the break-glass for **all** orgs at once.
 If the stored epoch can't be read while a DB is configured, ingest answers **503**, never a
 fall-back-to-0 that would resurrect the token the owner just revoked.

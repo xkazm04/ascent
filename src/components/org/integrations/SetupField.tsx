@@ -31,11 +31,18 @@ export function CopyButton({ text }: { text: string }) {
 export function Field({
   label,
   value,
+  copyText,
   mono = true,
   children,
 }: {
   label: string;
   value: string;
+  /**
+   * What the Copy button puts on the clipboard, when that differs from what is displayed. Used by the
+   * masked ingest token: the DOM shows bullets, the clipboard gets the working credential. Defaults
+   * to `value` so every other field copies exactly what it shows.
+   */
+  copyText?: string;
   mono?: boolean;
   children?: React.ReactNode;
 }) {
@@ -45,7 +52,7 @@ export function Field({
       <div className="mt-1 flex items-center gap-2 rounded-lg border border-divider bg-surface-strong/60 px-2.5 py-1.5">
         <code className={`flex-1 truncate text-slate-200 ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</code>
         {children}
-        <CopyButton text={value} />
+        <CopyButton text={copyText ?? value} />
       </div>
     </div>
   );
