@@ -34,15 +34,15 @@ export function AboutCost() {
             intro="Most orgs can't see where their AI maturity actually is — so they spend in the wrong places, miss the risks, and find out too late."
           />
         </Reveal>
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 2xl:mt-14 2xl:gap-5">
           {COSTS.map((c, i) => (
             <Reveal key={c.t} delay={i * 0.08}>
-              <div className="h-full rounded-xl border border-divider bg-surface/40 p-6">
+              <div className="h-full rounded-xl border border-divider bg-surface/40 p-6 2xl:p-8">
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-mono text-sm uppercase tracking-[0.2em] text-danger-soft">{c.t}</div>
                   <DownTrend />
                 </div>
-                <p className="mt-3 text-base leading-relaxed text-slate-400">{c.d}</p>
+                <p className="deck-body mt-3 text-base leading-relaxed text-slate-400">{c.d}</p>
               </div>
             </Reveal>
           ))}

@@ -15,6 +15,7 @@ import { RoiSimulator } from "./RoiSimulator";
 import { AboutTransition } from "./AboutTransition";
 import { AboutCTA } from "./AboutCTA";
 import { DeckNav, type DeckSectionRef } from "@/components/deck/DeckNav";
+import { DeckProgress } from "@/components/deck/DeckProgress";
 import { useSnapDeck } from "@/components/deck/useSnapDeck";
 import { ABOUT_FEATURES, type AboutFeatureId } from "./features";
 
@@ -67,6 +68,7 @@ export function AboutLanding({ heroBg }: { heroBg?: string }) {
 
   return (
     <MotionConfig reducedMotion="user">
+      <DeckProgress />
       <DeckNav sections={SECTIONS} />
       <main id="main">
         <AboutHero bg={heroBg} />

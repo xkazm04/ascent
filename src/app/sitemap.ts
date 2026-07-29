@@ -23,6 +23,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // (robots.ts disallows only /api, /connect, /onboarding, /launch), so list it for discovery.
     { path: "/leaderboard", priority: 0.6 },
     { path: "/pricing", priority: 0.6 },
+    // The two marketing decks. Both are public, indexable, linked from the header nav, and carry the
+    // page's FAQ structured data — but neither was enumerated here, so discovery depended entirely on
+    // a crawler following links from "/". /about-org is the org edition's only entry point.
+    { path: "/about", priority: 0.6 },
+    { path: "/about-org", priority: 0.6 },
     { path: "/badge", priority: 0.5 },
     { path: "/trends", priority: 0.5 },
     { path: "/usage", priority: 0.5 },

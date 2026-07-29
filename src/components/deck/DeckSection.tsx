@@ -21,7 +21,9 @@ const SECTION_CLASS =
 const SECTION_TALL_CLASS =
   "flex min-h-screen snap-start flex-col justify-start pb-24 pt-[var(--header-h)] lg:justify-center lg:pb-10";
 const HERO_CLASS = "relative isolate flex min-h-screen snap-start items-center overflow-hidden";
-const CONTAINER_CLASS = "mx-auto w-full max-w-6xl px-5";
+// The editorial measure. `deck-container` (globals.css) is exactly `mx-auto w-full max-w-6xl px-5`
+// below `lg` and widens fluidly above it, so a large display gets more page instead of more margin.
+const CONTAINER_CLASS = "deck-container";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");

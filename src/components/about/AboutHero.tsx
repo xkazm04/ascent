@@ -48,17 +48,20 @@ export function AboutHero({ bg }: { bg?: string }) {
         />
       </div>
 
-      <div className="mx-auto grid w-full max-w-6xl items-center gap-12 px-5 pt-16 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="deck-container grid items-center gap-12 pt-16 lg:grid-cols-[1.1fr_0.9fr] xl:gap-16 2xl:gap-20">
         <div>
           <Kicker>The maturity index for AI-native engineering</Kicker>
-          <h1 className="mt-4 text-4xl font-bold leading-[1.05] text-white sm:text-5xl">
+          {/* This headline is a full sentence, so it runs one step below the landing masthead at every
+              width — the `--h1-*` floor/ceiling keep the deck's ramp while preserving that relationship
+              (see the .deck-h1 note in globals.css). */}
+          <h1 className="deck-h1 mt-4 text-4xl font-bold leading-[1.05] text-white [--h1-ceil:4.5rem] [--h1-floor:3rem] sm:text-5xl">
             Make the move to AI-native development — <span className="text-accent">measured, not guessed</span>
           </h1>
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-300">{INTRO}</p>
+          <p className="deck-lede mt-5 max-w-xl text-lg leading-relaxed text-slate-300 2xl:max-w-2xl">{INTRO}</p>
 
           <AboutCtaButtons className="mt-8" />
 
-          <HairlineGrid className="mt-10 max-w-md grid-cols-3">
+          <HairlineGrid className="tick-corners mt-10 max-w-md grid-cols-3">
             <StatNum target={LEVELS.length} label="Levels" />
             <StatNum target={DIMENSIONS.length} label="Dimensions" />
             <Stat variant="figure" className="bg-ink p-5" label="Index" value="0–100" />

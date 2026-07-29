@@ -81,7 +81,7 @@ export function DimensionMatrix() {
                   </span>
                   {/* Render the dimension description as visible text (it was previously reachable only via
                       the native `title` hover on the data cells — invisible to touch/keyboard/SR users). */}
-                  <span className="mt-1 block max-w-xs pl-4 text-xs font-normal leading-snug text-slate-500">
+                  <span className="mt-1 block max-w-xs pl-4 text-xs font-normal leading-snug text-slate-500 2xl:max-w-sm 2xl:text-sm">
                     {r.description}
                   </span>
                 </th>

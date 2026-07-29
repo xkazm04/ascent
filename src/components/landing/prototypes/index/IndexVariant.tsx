@@ -19,7 +19,10 @@ export function IndexVariant(props: LandingData) {
     <>
       <IndexHero {...props} />
 
-      <div className="mx-auto w-full max-w-6xl px-5">
+      {/* Shared editorial measure for every mid-deck section (the hero brings its own, since it is a
+          full-bleed masthead). `deck-container` is `max-w-6xl px-5` up to `lg` and widens with the
+          viewport above it — see globals.css. */}
+      <div className="deck-container">
         <Reveal>
           <IndexOrg />
         </Reveal>

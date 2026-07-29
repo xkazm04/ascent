@@ -52,11 +52,11 @@ const ORG_USE_CASES: OrgUseCase[] = [
 export function IndexOrg() {
   return (
     <DeckSection id="org" justify="startLgCenter">
-      <div className="grid gap-6 border-y border-divider py-8 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="grid gap-6 border-y border-divider py-8 sm:grid-cols-[1fr_auto] sm:items-center 2xl:py-10">
         <div className="max-w-2xl">
           <Kicker>Organization edition</Kicker>
-          <h2 className="mt-2 text-2xl font-bold text-white">Index the whole organization</h2>
-          <p className="mt-2 text-base leading-relaxed text-slate-400">
+          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white">Index the whole organization</h2>
+          <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
             Ascent scans every repository in an org and rolls the results into one cross-repo register — shared
             strengths, the gaps common across teams, contributor activity, and where to invest next.
           </p>
@@ -71,10 +71,18 @@ export function IndexOrg() {
           <Link href="/onboarding" className="text-sm font-medium text-slate-300 transition hover:text-white">
             Or analyze your own organization →
           </Link>
+          {/* The full org-edition story. These six cards are a teaser; /about-org walks the whole
+              module map, the fleet-wide capabilities and the operating loop. */}
+          <Link
+            href="/about-org"
+            className="focus-ring rounded-sm font-mono text-xs uppercase tracking-widest text-slate-400 transition hover:text-accent"
+          >
+            <span aria-hidden>▸</span> What the organization edition includes
+          </Link>
         </div>
       </div>
 
-      <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:mt-10 2xl:gap-4">
         {ORG_USE_CASES.map((u) => (
           <Link
             key={u.title}
@@ -85,7 +93,7 @@ export function IndexOrg() {
               <span className="text-base font-semibold text-white group-hover:text-accent">{u.title}</span>
               <span className="font-mono text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-accent">→</span>
             </span>
-            <span className="mt-2 text-sm leading-relaxed text-slate-400">{u.blurb}</span>
+            <span className="mt-2 text-sm leading-relaxed text-slate-400 2xl:text-base">{u.blurb}</span>
           </Link>
         ))}
       </div>

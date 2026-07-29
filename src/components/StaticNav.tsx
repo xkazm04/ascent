@@ -50,6 +50,10 @@ export const HEADER_NAV =
 export const MARKETING_NAV: ReadonlyArray<{ href: string; label: string }> = [
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/pricing", label: "Pricing" },
+  // The org edition's marketing deck. It sits before /about deliberately: the buyer for the fleet
+  // product is the one who needs a top-level entry point, and /about-org's own footer links back to
+  // /about for the per-repo story.
+  { href: "/about-org", label: "For orgs" },
   { href: "/about", label: "About" },
 ];
 

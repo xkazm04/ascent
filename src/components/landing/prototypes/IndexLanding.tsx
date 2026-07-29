@@ -10,6 +10,7 @@ import { MotionConfig } from "framer-motion";
 import type { LandingData } from "./types";
 import { IndexVariant } from "./index/IndexVariant";
 import { DeckNav, type DeckSectionRef } from "@/components/deck/DeckNav";
+import { DeckProgress } from "@/components/deck/DeckProgress";
 import { useSnapDeck } from "@/components/deck/useSnapDeck";
 
 export function IndexLanding(props: LandingData) {
@@ -28,6 +29,7 @@ export function IndexLanding(props: LandingData) {
 
   return (
     <MotionConfig reducedMotion="user">
+      <DeckProgress />
       <DeckNav sections={sections} />
       <main id="main" className="w-full">
         <IndexVariant {...props} />

@@ -48,6 +48,10 @@
 
 html {
   color-scheme: dark;
+  /* Reserve the scrollbar's width even when no scrollbar is showing, so nothing reflows sideways when
+     one appears/disappears — the visible cases being a modal's scroll lock (ModalRoot) and a route
+     whose content crosses the viewport height. Pairs with the thin `scrollbar-width` below. */
+  scrollbar-gutter: stable;
 }
 
 :root {
@@ -71,6 +75,14 @@ html {
    which the AboutLanding client component toggles on only while the deck is mounted, so every other
    page keeps normal scrolling. Disabled under reduced-motion (those users free-scroll). Each section
    is min-h-screen + snap-start and clears the sticky header with its own internal top padding. */
+/* Overscroll containment for the decks: without it a flick past the last section rubber-bands the
+   whole document (and on Android pulls to refresh), which fights the snap and reads as a stutter at
+   both ends of the deck. Deliberately OUTSIDE the reduced-motion gate below — this is not motion, and
+   a reduced-motion reader benefits from it just as much. */
+html.snap-deck {
+  overscroll-behavior-y: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   html.snap-deck {
     /* proximity (not mandatory): snap when the scroll SETTLES near a section edge, but never force it.
@@ -133,15 +145,192 @@ html {
   display: none;
 }
 
+/* ── The editorial reading scale (marketing decks) ────────────────────────────────────────────────
+   A large display used to buy you MORE DEAD MARGIN, not more page. The deck container stopped dead at
+   `max-w-6xl` (72rem) and every type size was pinned at its `sm:` step, so a 2560px monitor rendered
+   the exact same 1152px column of 16px body copy as a 1280px laptop — the reading distance grows, the
+   type does not, and the composition reads as a phone layout stranded in the middle of a wall.
+
+   These classes are the deck's type ramp and measure, sized with `clamp()` against the viewport:
+
+   1. **Continuous, not stair-stepped.** A `2xl:text-4xl` breakpoint jump is a visible snap mid-resize
+      and picks one arbitrary size for everything from 1536px to 4K. clamp() interpolates.
+   2. **Nothing changes below `lg`.** Every rule is inside the `min-width: 64rem` query, and each
+      clamp's FLOOR is tuned to equal exactly what the element rendered at 1024px before this existed
+      (h1 3.75rem = `sm:text-6xl`, h2 1.875rem = `sm:text-3xl`, lede 1.125rem = `text-lg`, body 1rem =
+      `text-base`). Phone, tablet and laptop compositions are untouched — this is purely the tail.
+   3. **No hydration reflow.** Pure CSS off the viewport, so the server and client agree on the first
+      paint. (A root `font-size` step keyed off `html.snap-deck` would have been fewer lines and was
+      the first attempt — but that class is added in an effect AFTER mount, so every large screen would
+      have visibly re-typeset itself once hydration landed.)
+   4. **These win over the Tailwind utility they sit beside.** Tailwind v4 emits utilities into the
+      `utilities` cascade layer; unlayered rules (everything in this file) beat any layer regardless of
+      specificity. So `class="text-4xl sm:text-6xl deck-h1"` keeps the small-screen steps from the
+      utilities and takes the ramp from here above `lg`. `line-height` is restated in each rule
+      because the utility's own line-height would otherwise survive against the new size.
+
+   Every ramp is written as `clamp(FLOOR, FLOOR + (100vw - 64rem) * rate, CEILING)`. Writing the growth
+   as a delta from the floor — rather than the usual hand-solved `Arem + Bvw` — is what makes point 2
+   above true BY CONSTRUCTION: at exactly 1024px the middle term evaluates to the floor for any floor,
+   so the value at the breakpoint is continuous no matter what each element's floor happens to be. It
+   also lets one rule serve two different masthead sizes (the landing h1 starts at `text-6xl`, /about's
+   longer headline at `text-5xl`) via the `--h1-*` custom properties, instead of forking the class.
+
+   The masthead ramp (`--h1-*`) is the one that is deliberately SHALLOW. A hero section is
+   `min-h-screen overflow-hidden` and its content already fills a 1080p viewport almost exactly, so a
+   headline growing as fast as the container does pushes the stat ledger under the fold and the
+   overflow silently clips it. 0.016 keeps the masthead inside the viewport at every width; the extra
+   room a wide screen buys goes to the measure (fewer wrapped lines) rather than to point size.
+
+   Ceilings are reached between ~1900px and ~2560px depending on the ramp. */
+@media (min-width: 64rem) {
+  .deck-h1 {
+    font-size: clamp(
+      var(--h1-floor, 3.75rem),
+      var(--h1-floor, 3.75rem) + (100vw - 64rem) * 0.016,
+      var(--h1-ceil, 5.25rem)
+    );
+    line-height: 1.02;
+    letter-spacing: -0.021em;
+  }
+  .deck-h2 {
+    font-size: clamp(1.875rem, 1.875rem + (100vw - 64rem) * 0.0135, 2.75rem);
+    line-height: 1.13;
+    letter-spacing: -0.015em;
+  }
+  .deck-lede {
+    font-size: clamp(1.125rem, 1.125rem + (100vw - 64rem) * 0.0042, 1.375rem);
+    line-height: 1.62;
+  }
+  .deck-body {
+    font-size: clamp(1rem, 1rem + (100vw - 64rem) * 0.0027, 1.1875rem);
+    line-height: 1.7;
+  }
+  /* Mono figures (the hairline stat ledgers) — a flatter ramp than the headlines, so a row of numbers
+     stays a ledger instead of growing into a second headline. */
+  .deck-figure {
+    font-size: clamp(1.5rem, 1.5rem + (100vw - 64rem) * 0.009, 2.125rem);
+    line-height: 1.1;
+  }
+}
+
+/* The deck's measure. Below `lg` this is byte-for-byte `mx-auto w-full max-w-6xl px-5`; above it the
+   column takes about a quarter of the viewport's growth and the side padding opens up with it. A
+   quarter, not all of it — the margins still widen, because an editorial page that goes full-bleed on
+   a wide monitor has traded one readability problem for a worse one. Prose inside stays held to its
+   own `max-w-*`; what actually collects the extra width is the material that wants it — the register
+   table, the dimension matrix, the card grids and the diagrams. */
+.deck-container {
+  width: 100%;
+  margin-inline: auto;
+  max-width: 72rem;
+  padding-inline: 1.25rem;
+}
+@media (min-width: 64rem) {
+  .deck-container {
+    max-width: clamp(72rem, 72rem + (100vw - 64rem) * 0.26, 92rem);
+    padding-inline: clamp(1.25rem, 1.25rem + (100vw - 64rem) * 0.024, 2.75rem);
+  }
+}
+
+/* Registration ticks — four hairline corner marks, drawn as eight 1px background slivers so the
+   utility can sit on any panel without an extra wrapper element or a pseudo-element budget (it only
+   claims `background-image`; a panel's `bg-surface/40` is `background-color` and is untouched). The
+   instrument-grade detail from the brand's "Index" identity: a measured frame, not a decorative one. */
+.tick-corners {
+  --tick-color: rgba(148, 163, 184, 0.34);
+  --tick-len: 10px;
+  background-image:
+    linear-gradient(var(--tick-color), var(--tick-color)), linear-gradient(var(--tick-color), var(--tick-color)),
+    linear-gradient(var(--tick-color), var(--tick-color)), linear-gradient(var(--tick-color), var(--tick-color)),
+    linear-gradient(var(--tick-color), var(--tick-color)), linear-gradient(var(--tick-color), var(--tick-color)),
+    linear-gradient(var(--tick-color), var(--tick-color)), linear-gradient(var(--tick-color), var(--tick-color));
+  background-repeat: no-repeat;
+  background-size:
+    var(--tick-len) 1px, 1px var(--tick-len),
+    var(--tick-len) 1px, 1px var(--tick-len),
+    var(--tick-len) 1px, 1px var(--tick-len),
+    var(--tick-len) 1px, 1px var(--tick-len);
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
+}
+
+/* Scroll-progress hairline — a 2px accent rule across the very top of the viewport that fills as the
+   deck is descended. Driven by a scroll-progress timeline, so it is the browser's own scroll position
+   painted on the compositor: no scroll listener, no rAF, no re-render per frame, nothing to jank.
+   Browsers without scroll-driven animations keep the `scaleX(0)` rest state and simply never see it.
+   Kept out of the reduced-motion suppression on purpose: it is a position indicator that moves only
+   when the reader moves, not an autonomous animation. */
+@keyframes ascent-scroll-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.deck-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 40;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(59, 158, 255, 0) 0%, var(--color-accent) 45%, var(--color-accent-soft) 100%);
+}
+@supports (animation-timeline: scroll()) {
+  .deck-progress {
+    animation: ascent-scroll-progress linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
 
 body {
   background-color: #080d1a;
+  color: #e2e8f0;
+  font-family: var(--font-sans);
+}
+
+/* The altimeter canvas wash, moved off `body`'s own background. It used to be two gradients on the
+   body painted with `background-attachment: fixed` — which is the single most reliable way to make a
+   long page scroll badly: a fixed attachment pins the background to the VIEWPORT while the element
+   scrolls, so the browser has to re-resolve and repaint a 70rem × 42rem radial gradient on the main
+   thread every frame, and it cannot promote the layer to the compositor. Same pixels, drawn once, as
+   a fixed pseudo-element the scroll never dirties.
+   Paint order: body's own background-color, then negative-z pseudo-elements (this, then the grain),
+   then content — so both layers sit under everything on the page without an isolation wrapper. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
   background-image:
     radial-gradient(70rem 42rem at 50% -12%, rgba(59, 158, 255, 0.1), transparent 60%),
     linear-gradient(180deg, #0b1322 0%, #080d1a 58%);
-  background-attachment: fixed;
-  color: #e2e8f0;
-  font-family: var(--font-sans);
+}
+
+/* Paper grain — the print-relief texture the generated hero backdrops already imply, at a strength
+   (~3%) meant to be felt rather than seen: it breaks up the large flat gradient fields so they stop
+   banding on wide dark panels, and gives the ink canvas a surface. A 180px tile of fractal noise,
+   desaturated, rasterized once and repeated; fixed, so it does not swim against the scroll.
+   Scoped to the marketing decks (`html.snap-deck`) — the org dashboard is a dense data surface where
+   even 3% noise across thousands of table rows is texture the reader has to look past. */
+html.snap-deck body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.032;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
 }
 
 ::selection {

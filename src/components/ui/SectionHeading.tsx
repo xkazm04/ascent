@@ -33,12 +33,17 @@ export function SectionHeading({
   className?: string;
   introClassName?: string;
 }) {
+  // `page` is the marketing/flagship treatment, so it also opts into the deck's fluid reading scale
+  // (globals.css): identical up to `lg`, then title and intro grow with the viewport instead of
+  // staying pinned at their `sm:` step on a large display. The dashboard sizes are untouched — a
+  // dense data surface wants a fixed, predictable type scale.
   const titleCls =
     size === "page"
-      ? "text-2xl font-bold text-white sm:text-3xl"
+      ? "deck-h2 text-2xl font-bold text-white sm:text-3xl"
       : size === "lg"
         ? "text-lg font-semibold text-white"
         : "text-base font-semibold text-white";
+  const introCls = size === "page" ? "deck-lede " : "";
 
   const heading = (
     <div>
@@ -46,7 +51,9 @@ export function SectionHeading({
       <Heading id={id} className={`${kicker != null ? "mt-2" : ""} ${titleCls}`}>
         {title}
       </Heading>
-      {intro != null && <p className={`mt-2 max-w-2xl text-base text-slate-400 ${introClassName}`}>{intro}</p>}
+      {intro != null && (
+        <p className={`${introCls}mt-2 max-w-2xl text-base text-slate-400 ${introClassName}`}>{intro}</p>
+      )}
     </div>
   );
 

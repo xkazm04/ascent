@@ -23,11 +23,11 @@ export function IndexFleet() {
     // No inner container: IndexVariant already wraps the mid-deck sections in the editorial
     // `mx-auto max-w-6xl px-5` shell (same as IndexOrg / IndexLevels).
     <DeckSection id="fleet">
-      <div className="grid items-center gap-10 border-y border-divider py-8 lg:grid-cols-[1fr_minmax(0,26rem)]">
+      <div className="grid items-center gap-10 border-y border-divider py-8 lg:grid-cols-[1fr_minmax(0,26rem)] 2xl:gap-14 2xl:py-10">
         <div className="max-w-2xl">
           <Kicker>Mission control</Kicker>
-          <h2 className="mt-2 text-2xl font-bold text-white">Your whole fleet, read at a glance</h2>
-          <p className="mt-2 text-base leading-relaxed text-slate-400">
+          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white">Your whole fleet, read at a glance</h2>
+          <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
             Sign in and Ascent charts every organization you connect as a living star-map: a cluster per org, a
             star per repository, each one brightening as its maturity climbs. It is the whole estate in one
             frame — where the light is, and where it is not.
@@ -37,7 +37,7 @@ export function IndexFleet() {
             {FLEET_NOTES.map((n) => (
               <div key={n.term} className="bg-ink p-4">
                 <dt className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">{n.term}</dt>
-                <dd className="mt-1.5 text-sm leading-relaxed text-slate-400">{n.detail}</dd>
+                <dd className="mt-1.5 text-sm leading-relaxed text-slate-400 2xl:text-base">{n.detail}</dd>
               </div>
             ))}
           </dl>

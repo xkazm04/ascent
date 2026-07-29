@@ -308,7 +308,9 @@
         "src/components/deck/**",
         "src/components/landing/**",
         "src/app/about/**",
-        "src/components/about/**"
+        "src/components/about/**",
+        "src/app/about-org/**",
+        "src/components/about-org/**"
       ]
     }
   ]

@@ -47,7 +47,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
         <div>
           <Kicker>{ranked ? "Live from the index" : "Latest public scans"}</Kicker>
-          <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">The register</h2>
+          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white sm:text-3xl">The register</h2>
         </div>
         <div className="text-right">
           <span className="block font-mono text-xs uppercase tracking-[0.2em] text-slate-500">

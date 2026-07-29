@@ -13,6 +13,9 @@ import { AboutCtaButtons } from "./AboutCtaButtons";
 const ABOUT_FOOTER_LINKS = [
   { href: "/pricing", label: "Pricing" },
   { href: "/connect", label: "Connect" },
+  // The sibling deck. /about argues measurement of one repository; a reader who finished it and
+  // wants the fleet story has nowhere else on this screen to go.
+  { href: "/about-org", label: "For orgs" },
   { href: "/", label: "Home" },
 ];
 
@@ -26,15 +29,15 @@ export function AboutCTA() {
     // attribute to the new last section.
     <section id="cta" data-deck-last="" className="flex min-h-screen snap-start flex-col pt-14">
       <div className="flex flex-1 items-center">
-        <div className="mx-auto w-full max-w-6xl px-5">
+        <div className="deck-container">
           <Reveal>
-            <Surface tone="strong" radius="2xl" className="relative overflow-hidden p-10 text-center">
+            <Surface tone="strong" radius="2xl" className="tick-corners relative overflow-hidden p-10 text-center 2xl:p-14">
               <GlowBackdrop
                 strataOpacity="opacity-50"
                 glow="radial-gradient(50% 60% at 50% 0%, rgba(59,158,255,0.14), transparent 70%)"
               >
-                <h2 className="text-2xl font-bold text-white sm:text-3xl">{"See your organization's index"}</h2>
-                <p className="mx-auto mt-3 max-w-xl text-base text-slate-300">
+                <h2 className="deck-h2 text-2xl font-bold text-white sm:text-3xl">{"See your organization's index"}</h2>
+                <p className="deck-lede mx-auto mt-3 max-w-xl text-base text-slate-300 2xl:max-w-2xl">
                   Connect your GitHub org and Ascent scores the fleet in minutes — or explore the live demo first.
                 </p>
                 <AboutCtaButtons size="lg" className="mt-7 justify-center" />
@@ -50,7 +53,7 @@ export function AboutCTA() {
           shell (deck-bar clearance) and the text-only wordmark (Logo lives in the server-only
           Brand.tsx) are local. */}
       <footer className="border-t border-divider/70 pb-24 pt-8 text-center lg:pb-8">
-        <div className="mx-auto max-w-6xl px-5">
+        <div className="deck-container">
           <SiteFooterCore
             brand={<div className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">Ascent</div>}
             links={ABOUT_FOOTER_LINKS}

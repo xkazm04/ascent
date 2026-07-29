@@ -32,19 +32,21 @@ export function IndexLevels() {
         intro="Each level is a higher altitude band on the 0–100 index. Cross the dashed line and the org reads AI-Native — adopting AI with the rigor to ship it safely."
       />
 
-      <Surface tone="strong" className="mt-8 p-4 sm:p-6">
+      {/* tick-corners frames the chart plate as an instrument read-out — the same registration marks
+          the masthead ledger carries, so the two editorial plates on the deck match. */}
+      <Surface tone="strong" className="tick-corners mt-8 p-4 sm:p-6 2xl:mt-10 2xl:p-8">
         <TrajectoryChart />
       </Surface>
 
-      <HairlineGrid className="mt-6 sm:grid-cols-2 lg:grid-cols-5">
+      <HairlineGrid className="mt-6 sm:grid-cols-2 lg:grid-cols-5 2xl:mt-8">
         {LEVELS.map((l) => (
-          <div key={l.id} className="bg-ink p-5">
+          <div key={l.id} className="bg-ink p-5 2xl:p-6">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-lg font-bold" style={{ color: LEVEL_HEX[l.id as LevelId] }}>{l.id}</span>
               <span className="font-mono text-xs uppercase tracking-widest text-slate-500">{l.band[0]}–{l.band[1]}</span>
             </div>
             <div className="mt-1 text-base font-semibold text-white">{l.name}</div>
-            <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{l.tagline}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-slate-400 2xl:text-base">{l.tagline}</p>
           </div>
         ))}
       </HairlineGrid>
