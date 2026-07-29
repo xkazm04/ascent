@@ -13,7 +13,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { dbHealthCheck, getDbMode, isDbConfigured } from "@/lib/db";
+import { dbHealthCheck, getDbMode, isDbConfigured, pgliteBootError } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 
 export const runtime = "nodejs";
@@ -48,8 +48,19 @@ function isInternalCaller(request: Request): boolean {
 export async function GET(request: Request) {
   // Only an internal caller sees the topology fields; an anonymous probe gets the minimal liveness
   // shape (status + db [+ reconnected]) — still enough to monitor uptime and self-healing.
+  // `pgliteBoot` is the local-dev diagnosis that used to be invisible: when the embedded PGlite fails
+  // to boot, no driver adapter is installed and Prisma falls back to the dummy local DATABASE_URL, so
+  // every symptom reads `P1001 Can't reach database server at 127.0.0.1:5432` — pointing at a server
+  // that was never meant to exist. The boot already recorded WHY on globalThis and the module comment
+  // promised "a health endpoint can read it"; nothing did until now. Topology-gated like the rest of
+  // `detail`, and omitted entirely when the boot succeeded, so the common shape is unchanged.
+  const bootError = pgliteBootError();
   const detail = isInternalCaller(request)
-    ? { dbMode: getDbMode(), autoscan: autoscanReadiness() }
+    ? {
+        dbMode: getDbMode(),
+        autoscan: autoscanReadiness(),
+        ...(bootError ? { pgliteBoot: { ok: false, error: bootError } } : {}),
+      }
     : {};
   if (!isDbConfigured()) {
     return NextResponse.json({ status: "ok", db: "disabled", ...detail });

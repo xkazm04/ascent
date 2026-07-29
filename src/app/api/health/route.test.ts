@@ -17,10 +17,11 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const { mockDbHealthCheck, mockIsDbConfigured, mockIsAppConfigured } = vi.hoisted(() => ({
+const { mockDbHealthCheck, mockIsDbConfigured, mockIsAppConfigured, mockPgliteBootError } = vi.hoisted(() => ({
   mockDbHealthCheck: vi.fn(),
   mockIsDbConfigured: vi.fn(),
   mockIsAppConfigured: vi.fn(),
+  mockPgliteBootError: vi.fn(() => null as string | null),
 }));
 
 vi.mock("next/server", () => ({
@@ -37,6 +38,7 @@ vi.mock("@/lib/db", () => ({
   // The route reports the active backend to internal callers; a fixed safe value keeps the no-leak
   // assertions honest (getDbMode only ever returns the mode enum — never the endpoint/credentials).
   getDbMode: () => "postgres",
+  pgliteBootError: () => mockPgliteBootError(),
 }));
 
 vi.mock("@/lib/github/app", () => ({
@@ -261,5 +263,38 @@ describe("GET /api/health — autoscan readiness tripwire", () => {
       expect(autoscan.db).toBe(db);
       expect(autoscan.ready).toBe(cron && app && db);
     }
+  });
+
+  // A failed embedded-PGlite boot installs no driver adapter, so Prisma falls back to the dummy local
+  // DATABASE_URL and every symptom reads "P1001 Can't reach database server at 127.0.0.1:5432" — a
+  // server that was never meant to exist. The boot records the real cause; these pin that it reaches
+  // an operator, and only an internal one.
+  describe("pglite boot failure is diagnosable", () => {
+    it("internal caller sees the recorded boot error", async () => {
+      mockPgliteBootError.mockReturnValue('column "dedupKey" does not exist');
+      mockIsDbConfigured.mockReturnValue(true);
+      mockDbHealthCheck.mockResolvedValue({ ok: false, reconnected: true, error: "boom" });
+
+      const { body } = await callGet(`Bearer ${CRON}`);
+      expect(body.pgliteBoot).toEqual({ ok: false, error: 'column "dedupKey" does not exist' });
+    });
+
+    it("is topology-gated — an anonymous probe never sees it", async () => {
+      mockPgliteBootError.mockReturnValue('column "dedupKey" does not exist');
+      mockIsDbConfigured.mockReturnValue(true);
+      mockDbHealthCheck.mockResolvedValue({ ok: false, reconnected: true, error: "boom" });
+
+      const { body } = await callGet(null);
+      expect("pgliteBoot" in body).toBe(false);
+    });
+
+    it("is omitted entirely when the boot succeeded", async () => {
+      mockPgliteBootError.mockReturnValue(null);
+      mockIsDbConfigured.mockReturnValue(true);
+      mockDbHealthCheck.mockResolvedValue({ ok: true, reconnected: false });
+
+      const { body } = await callGet(`Bearer ${CRON}`);
+      expect("pgliteBoot" in body).toBe(false);
+    });
   });
 });

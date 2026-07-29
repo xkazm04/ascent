@@ -9,6 +9,7 @@
   isSerializationConflictError,
   isDbUnavailableError,
   dbReadSafe,
+  pgliteBootError,
   type RetryOptions,
 } from "@/lib/db/client";
 export {

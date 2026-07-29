@@ -411,7 +411,25 @@ const g = globalThis as unknown as {
   // PGLITE_DATA_DIR is set. Typed loosely here so this module never statically imports the
   // (dev-only, externalized) pglite packages.
   __ascentPgliteAdapter?: unknown;
+  // Why the embedded PGlite boot failed, recorded by src/lib/db/pglite-boot.ts. Read here (rather
+  // than imported from that module) so a caller like /api/health never pulls the dev-only, node-only
+  // pglite module — and its dynamic pglite imports — into the production file trace.
+  __ascentPgliteBootError?: string;
 };
+
+/**
+ * Why the embedded local PGlite failed to boot, or null when it booted (or was never asked to).
+ *
+ * WORTH KNOWING: when the boot throws, no driver adapter is installed, so `newClient()` below falls
+ * through to the datasource URL — which in local dev is a DUMMY (`postgresql://pglite@127.0.0.1:5432`)
+ * that nothing is listening on. The developer therefore sees `P1001 Can't reach database server`,
+ * which points at a server that was never supposed to exist and says nothing about the real cause
+ * (typically column drift: a migration added a column, and an index over it aborts the boot's
+ * init.sql exec). Surfacing this string is what turns that into a diagnosis.
+ */
+export function pgliteBootError(): string | null {
+  return g.__ascentPgliteBootError ?? null;
+}
 
 /**
  * Apply the env-gated connection budget (database-client-schema #2) to a static DATABASE_URL string.
