@@ -51,9 +51,16 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
       // Round-trip the token against the exact path the OTel exporter targets (…/v1/metrics), so the
       // check reflects the real receiver — which parses OTLP metrics and attributes spend per repo.
       const res = await fetch(`${ingestPath}/v1/metrics`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-      const data = (await res.json().catch(() => ({}))) as { accepted?: boolean; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { accepted?: boolean; error?: string; note?: string };
       if (res.status === 202 && data.accepted) {
-        setResult({ ok: true, text: "Token valid — the metrics endpoint accepted the request (202). Point Claude Code here and per-repo spend is attributed automatically." });
+        // The probe sends no body, so there is nothing to skip — but a real push reports its
+        // received/stored/skipped breakdown in the same shape, and `note` carries the human summary.
+        setResult({
+          ok: true,
+          text:
+            data.note ??
+            "Token valid — the metrics endpoint accepted the request (202). Point Claude Code here and per-repo spend is attributed automatically.",
+        });
       } else {
         setResult({ ok: false, text: data.error ?? `Unexpected response (${res.status}).` });
       }

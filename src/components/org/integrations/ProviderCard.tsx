@@ -4,8 +4,19 @@
 
 import { Surface } from "@/components/ui";
 import { FIDELITY_META, type ProviderDef } from "@/lib/integrations/providers";
+import { ProviderStatus } from "./ProviderStatus";
+import type { ProviderIngestStatus } from "@/lib/db";
 
-export function ProviderCard({ provider, children }: { provider: ProviderDef; children?: React.ReactNode }) {
+export function ProviderCard({
+  provider,
+  status = null,
+  children,
+}: {
+  provider: ProviderDef;
+  /** What this provider has actually delivered — null when nothing has ever arrived. */
+  status?: ProviderIngestStatus | null;
+  children?: React.ReactNode;
+}) {
   const fid = FIDELITY_META[provider.fidelity];
   const available = provider.status === "available";
   return (
@@ -40,6 +51,7 @@ export function ProviderCard({ provider, children }: { provider: ProviderDef; ch
             ))}
           </ul>
           <p className="mt-2 text-xs text-slate-500">{provider.perRepo}</p>
+          <ProviderStatus status={status} available={available} />
         </div>
       </div>
       {children && <div className="mt-4 border-t border-divider pt-4">{children}</div>}

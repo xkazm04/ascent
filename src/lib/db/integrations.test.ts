@@ -15,7 +15,14 @@ const { mockIsDbConfigured, mockGetPrisma, mockGetOrgBySlug } = vi.hoisted(() =>
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: mockGetOrgBySlug }));
 
-import { recordUsage, getOrgUsageRollup, type UsageRecordInput } from "./integrations";
+import {
+  recordUsage,
+  getOrgUsageRollup,
+  getProviderIngestStatus,
+  getIngestTokenEpoch,
+  bumpIngestTokenEpoch,
+  type UsageRecordInput,
+} from "./integrations";
 
 type Row = {
   orgId: string;
@@ -202,5 +209,109 @@ describe("getOrgUsageRollup", () => {
 
     const rollup = await getOrgUsageRollup("acme", 35);
     expect(Object.keys(rollup!.perRepo)).toEqual(["acme/new"]);
+  });
+});
+
+describe("getProviderIngestStatus — what each provider actually landed", () => {
+  const t = (iso: string) => new Date(iso);
+  /** Rows keyed by updatedAt (the Prisma @updatedAt the ingest path already maintains). */
+  function statusStore(rows: Record<string, unknown>[]) {
+    mockGetPrisma.mockReturnValue({
+      aiUsageRecord: {
+        findMany: vi.fn(async ({ where }: { where: { orgId: string; updatedAt?: { gte?: Date } } }) => {
+          const since = where.updatedAt?.gte;
+          return rows.filter((r) => r.orgId === where.orgId && (!since || (r.updatedAt as Date) >= since));
+        }),
+      },
+    });
+  }
+  const row = (over: Record<string, unknown> = {}) => ({
+    orgId: "org_1",
+    source: "claude-code",
+    scope: "repo",
+    scopeKey: "acme/api",
+    fidelity: "measured",
+    costCents: 100,
+    tokens: 10,
+    updatedAt: t("2026-07-20T10:00:00Z"),
+    ...over,
+  });
+
+  it("returns null when the DB is off or the org is unknown (the page says nothing, not 'never received')", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await getProviderIngestStatus("acme")).toBeNull();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetOrgBySlug.mockResolvedValue(null);
+    expect(await getProviderIngestStatus("ghost")).toBeNull();
+  });
+
+  it("reports the newest updatedAt as last-received, with distinct repos and summed cost", async () => {
+    statusStore([
+      row({ updatedAt: t("2026-07-20T10:00:00Z"), scopeKey: "acme/api", costCents: 100, tokens: 10 }),
+      row({ updatedAt: t("2026-07-22T09:00:00Z"), scopeKey: "acme/web", costCents: 250, tokens: 40 }),
+      row({ updatedAt: t("2026-07-21T09:00:00Z"), scopeKey: "ACME/api", costCents: 50, tokens: 5 }), // case-folded dup
+    ]);
+    const [s] = (await getProviderIngestStatus("acme"))!;
+    expect(s!.lastReceived.toISOString()).toBe("2026-07-22T09:00:00.000Z");
+    expect(s!.repos).toBe(2);
+    expect(s!.costCents).toBe(400);
+    expect(s!.tokens).toBe(55);
+    expect(s!.measured).toBe(true);
+  });
+
+  it("reports repos: 0 when telemetry arrived but nothing was attributed to a repo (the silent-drop case)", async () => {
+    statusStore([row({ scope: "org", scopeKey: "acme", fidelity: "allocated" })]);
+    const [s] = (await getProviderIngestStatus("acme"))!;
+    expect(s!.repos).toBe(0);
+    expect(s!.measured).toBe(false);
+    expect(s!.lastReceived).toBeInstanceOf(Date);
+  });
+
+  it("splits by source, so one connected provider never masks another's silence", async () => {
+    statusStore([row(), row({ source: "copilot", scope: "org", scopeKey: "acme", fidelity: "allocated" })]);
+    const all = (await getProviderIngestStatus("acme"))!;
+    expect(all.map((s) => s.source).sort()).toEqual(["claude-code", "copilot"]);
+  });
+
+  it("returns an empty list when the org exists but has never received anything", async () => {
+    statusStore([]);
+    expect(await getProviderIngestStatus("acme")).toEqual([]);
+  });
+});
+
+describe("ingest token epoch", () => {
+  it("reads 0 for a never-rotated org and for a DB-less deployment", async () => {
+    mockGetOrgBySlug.mockResolvedValue({ id: "org_1", ingestTokenEpoch: 0 });
+    expect(await getIngestTokenEpoch("acme")).toBe(0);
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await getIngestTokenEpoch("acme")).toBe(0);
+  });
+
+  it("reads the stored epoch, and 0 for an unknown org", async () => {
+    mockGetOrgBySlug.mockResolvedValue({ id: "org_1", ingestTokenEpoch: 7 });
+    expect(await getIngestTokenEpoch("acme")).toBe(7);
+    mockGetOrgBySlug.mockResolvedValue(null);
+    expect(await getIngestTokenEpoch("ghost")).toBe(0);
+  });
+
+  it("returns null (NOT 0) when the lookup fails — 'unknown' must never read as 'never rotated'", async () => {
+    mockGetOrgBySlug.mockRejectedValue(new Error("connection lost"));
+    expect(await getIngestTokenEpoch("acme")).toBeNull();
+  });
+
+  it("bumps by one and returns the new epoch", async () => {
+    mockGetOrgBySlug.mockResolvedValue({ id: "org_1", ingestTokenEpoch: 2 });
+    const update = vi.fn(async () => ({ ingestTokenEpoch: 3 }));
+    mockGetPrisma.mockReturnValue({ organization: { update } });
+    expect(await bumpIngestTokenEpoch("acme")).toBe(3);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: { ingestTokenEpoch: { increment: 1 } } }));
+  });
+
+  it("refuses to report a bump that cannot be persisted (no DB / unknown org)", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await bumpIngestTokenEpoch("acme")).toBeNull();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetOrgBySlug.mockResolvedValue(null);
+    expect(await bumpIngestTokenEpoch("ghost")).toBeNull();
   });
 });

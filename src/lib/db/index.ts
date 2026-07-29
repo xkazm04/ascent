@@ -279,6 +279,8 @@ export {
   getOrgUsageRollup,
   getIngestTokenEpoch,
   bumpIngestTokenEpoch,
+  getProviderIngestStatus,
+  type ProviderIngestStatus,
   type UsageRecordInput,
   type UsageScope,
   type UsageFidelity,

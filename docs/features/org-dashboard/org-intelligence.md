@@ -373,6 +373,30 @@ Rotating `INTEGRATIONS_INGEST_SECRET` still works as the break-glass for **all**
 If the stored epoch can't be read while a DB is configured, ingest answers **503**, never a
 fall-back-to-0 that would resurrect the token the owner just revoked.
 
+### Reporting what actually landed
+
+An integration that receives forty datapoints and stores zero used to look, on this page, exactly
+like one that is working. Three independent paths drop data, and all three are now **counted and
+reported** rather than silently skipped:
+
+| Reason | What it means |
+| --- | --- |
+| `unknown-metric` | The datapoint's metric is outside the three-name allowlist (`claude_code.token.usage` / `.cost.usage` / `.session.count`). Its **value** is dropped — widening the allowlist is a non-goal; reporting the drop is the point. |
+| `no-repo-attr` | The resource carries no `git.repository`, so the spend can't be attributed to a repository. |
+| `unsupported-host` | The remote resolves to a host whose repo identity Ascent doesn't model — GitLab, Bitbucket, self-hosted. `resolveGitRepo` **names the host** so the report is actionable. A non-GitHub remote is explicitly reported as unsupported; it never silently vanishes. |
+
+`parseOtlpMetrics` returns `{ records, received, skipped, unsupportedHosts }`, and the **202 body
+carries `received` / `stored` / `skipped`-by-reason** plus a plain-language `note` when anything was
+dropped (omitted entirely when nothing was).
+
+Per provider, the Integrations card shows **last received** time and what landed — distinct repos
+attributed and cost over the trailing 35 days — read from `AiUsageRecord.updatedAt`
+(`getProviderIngestStatus`), so there is **no schema behind it and no second write path to drift**.
+Three explicit states: never received; received but **nothing attributed to a repo** (the
+previously-invisible failure, called out in orange with the `git.repository` fix); receiving.
+
+`/v1/logs` is exempt: it authenticates and 202-accepts without parsing, deliberately.
+
 `/v1/metrics` **refuses OTLP/protobuf with 415** naming the
 `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` fix. This is deliberate: Ascent decodes OTLP/JSON only,
 and a 202 on a payload it cannot parse would read to the collector as "delivered" while nothing

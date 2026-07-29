@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { Surface, Kicker } from "@/components/ui";
 import { PROVIDERS, FIDELITY_META, type Fidelity } from "@/lib/integrations/providers";
+import type { ProviderIngestStatus } from "@/lib/db";
 import { ProviderCard } from "./ProviderCard";
 import { ClaudeCodeSetup } from "./ClaudeCodeSetup";
 
@@ -13,10 +14,13 @@ export function IntegrationsPanel({
   slug,
   ingestToken,
   ingestPath,
+  statuses = [],
 }: {
   slug: string;
   ingestToken: string;
   ingestPath: string;
+  /** Per-source delivery status (AiUsageRecord.updatedAt) — what each provider has actually landed. */
+  statuses?: ProviderIngestStatus[];
 }) {
   return (
     <div className="space-y-5">
@@ -48,7 +52,7 @@ export function IntegrationsPanel({
 
       <div className="space-y-4">
         {PROVIDERS.map((p) => (
-          <ProviderCard key={p.id} provider={p}>
+          <ProviderCard key={p.id} provider={p} status={statuses.find((s) => s.source === p.id) ?? null}>
             {p.id === "claude-code" ? <ClaudeCodeSetup slug={slug} ingestToken={ingestToken} ingestPath={ingestPath} /> : null}
           </ProviderCard>
         ))}

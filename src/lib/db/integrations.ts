@@ -109,6 +109,55 @@ export async function bumpIngestTokenEpoch(orgSlug: string): Promise<number | nu
   return updated.ingestTokenEpoch;
 }
 
+/** What a provider has actually delivered, per source. Read from rows the ingest path already writes
+ *  — `AiUsageRecord.updatedAt` is a Prisma `@updatedAt`, so it already means "last time this
+ *  provider's telemetry landed". No schema change, no second write path to drift. */
+export interface ProviderIngestStatus {
+  source: string;
+  /** When this provider's data last landed (the newest touched row). */
+  lastReceived: Date;
+  /** Distinct repos this provider has attributed spend to in the window. */
+  repos: number;
+  costCents: number;
+  tokens: number;
+  /** True when at least one row is exact-repo attribution rather than a distributed org total. */
+  measured: boolean;
+}
+
+/**
+ * Per-provider delivery status for the Integrations page: has anything arrived, when, and how much
+ * landed. An integration that receives datapoints and stores zero otherwise looks — on that page —
+ * exactly like one that is working; this is the surface that tells them apart. Null when the DB is
+ * off or the org is unknown (the page then says nothing rather than implying "never received").
+ */
+export async function getProviderIngestStatus(orgSlug: string, windowDays = 35): Promise<ProviderIngestStatus[] | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+
+  const since = new Date(Date.now() - windowDays * 86_400_000);
+  const rows = await getPrisma().aiUsageRecord.findMany({ where: { orgId: org.id, updatedAt: { gte: since } } });
+
+  const bySource = new Map<string, ProviderIngestStatus & { repoKeys: Set<string> }>();
+  for (const r of rows) {
+    const e =
+      bySource.get(r.source) ??
+      ({ source: r.source, lastReceived: r.updatedAt, repos: 0, costCents: 0, tokens: 0, measured: false, repoKeys: new Set<string>() } as ProviderIngestStatus & {
+        repoKeys: Set<string>;
+      });
+    if (r.updatedAt > e.lastReceived) e.lastReceived = r.updatedAt;
+    e.costCents += r.costCents;
+    e.tokens += r.tokens;
+    if (r.scope === "repo") {
+      e.repoKeys.add(r.scopeKey.toLowerCase());
+      if (r.fidelity === "measured") e.measured = true;
+    }
+    bySource.set(r.source, e);
+  }
+
+  return [...bySource.values()].map(({ repoKeys, ...s }) => ({ ...s, repos: repoKeys.size }));
+}
+
 export interface RepoUsage {
   costCents: number;
   seats: number;

@@ -16,7 +16,7 @@ vi.mock("@/lib/integrations/ingest-token", () => ({
   bearerToken: vi.fn((auth: string | null) => (auth ? auth.replace(/^Bearer /i, "") : null)),
   parseIngestToken: vi.fn(),
 }));
-vi.mock("@/lib/integrations/otlp", () => ({ parseOtlpMetrics: vi.fn(() => [{ scope: "repo", scopeKey: "acme/api" }]) }));
+vi.mock("@/lib/integrations/otlp", () => ({ parseOtlpMetrics: vi.fn() }));
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));
 
 import { POST } from "./route";
@@ -29,6 +29,17 @@ const mockParse = vi.mocked(parseIngestToken);
 const mockOtlp = vi.mocked(parseOtlpMetrics);
 const mockRecord = vi.mocked(recordUsage);
 
+/** A parseOtlpMetrics result with sane defaults, so each case states only what it cares about. */
+function parseResult(over: Partial<ReturnType<typeof parseOtlpMetrics>> = {}): ReturnType<typeof parseOtlpMetrics> {
+  return {
+    records: [{ scope: "repo", scopeKey: "acme/api" }],
+    received: 1,
+    skipped: { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0 },
+    unsupportedHosts: [],
+    ...over,
+  } as unknown as ReturnType<typeof parseOtlpMetrics>;
+}
+
 function mkReq(opts: { body?: string; contentType?: string; auth?: string | null } = {}): NextRequest {
   const { body, contentType, auth = "Bearer asc_otel.acme.mac" } = opts;
   const headers: Record<string, string> = {};
@@ -39,8 +50,8 @@ function mkReq(opts: { body?: string; contentType?: string; auth?: string | null
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockParse.mockReturnValue({ slug: "acme" } as ReturnType<typeof parseIngestToken>);
-  mockOtlp.mockReturnValue([{ scope: "repo", scopeKey: "acme/api" }] as unknown as ReturnType<typeof parseOtlpMetrics>);
+  mockParse.mockReturnValue({ slug: "acme", epoch: 0 } as ReturnType<typeof parseIngestToken>);
+  mockOtlp.mockReturnValue(parseResult());
   mockRecord.mockResolvedValue({ ok: true, stored: 1 });
 });
 
@@ -98,5 +109,50 @@ describe("auth precedes the content-type check", () => {
     mockParse.mockReturnValue(null);
     const res = await POST(mkReq({ auth: null }));
     expect(res.status).toBe(401);
+  });
+});
+
+describe("the 202 reports what actually landed", () => {
+  it("carries received / stored / skipped-by-reason on a clean push", async () => {
+    mockOtlp.mockReturnValue(parseResult({ received: 12 }));
+    mockRecord.mockResolvedValue({ ok: true, stored: 3 });
+    const res = await POST(mkReq({ body: "{}", contentType: "application/json" }));
+    expect(await res.json()).toMatchObject({
+      received: 12,
+      stored: 3,
+      skipped: { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0 },
+    });
+  });
+
+  it("names the unsupported hosts and explains the drop when a non-GitHub remote is pushed", async () => {
+    mockOtlp.mockReturnValue(
+      parseResult({
+        records: [],
+        received: 9,
+        skipped: { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 9 },
+        unsupportedHosts: ["gitlab.com"],
+      }),
+    );
+    mockRecord.mockResolvedValue({ ok: true, stored: 0 });
+    const res = await POST(mkReq({ body: "{}", contentType: "application/json" }));
+    const data = (await res.json()) as { received: number; stored: number; unsupportedHosts: string[]; note: string };
+    // The whole point: 9 datapoints in, 0 stored, and the response says so instead of a bare 202.
+    expect(data).toMatchObject({ received: 9, stored: 0, unsupportedHosts: ["gitlab.com"] });
+    expect(data.note).toMatch(/GitHub repositories/);
+  });
+
+  it("summarizes a drop with no unsupported host without blaming the host", async () => {
+    mockOtlp.mockReturnValue(
+      parseResult({ received: 5, skipped: { "unknown-metric": 2, "no-repo-attr": 3, "unsupported-host": 0 } }),
+    );
+    const data = (await (await POST(mkReq({ body: "{}", contentType: "application/json" }))).json()) as { note: string };
+    expect(data.note).toMatch(/5 datapoint\(s\) were not stored/);
+    expect(data.note).not.toMatch(/GitHub repositories/);
+  });
+
+  it("omits the note entirely when nothing was skipped", async () => {
+    mockOtlp.mockReturnValue(parseResult({ received: 4 }));
+    const data = (await (await POST(mkReq({ body: "{}", contentType: "application/json" }))).json()) as { note?: string };
+    expect(data.note).toBeUndefined();
   });
 });

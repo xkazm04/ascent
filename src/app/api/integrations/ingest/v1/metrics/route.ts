@@ -51,7 +51,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid OTLP JSON." }, { status: 400 });
   }
 
-  const records = parseOtlpMetrics(body, Date.now());
-  const res = await recordUsage(gate.slug, records, { mode: "add" });
-  return NextResponse.json({ accepted: true, persisted: res.ok, stored: res.stored, org: gate.slug }, { status: 202 });
+  // An export that lands nothing must SAY so. `received` counts every datapoint in the payload and
+  // `skipped` says, by reason, which of them had no home — an allowlisted metric name, a resource with
+  // no git.repository, or a remote on a host whose repo identity Ascent doesn't model. Without this the
+  // 202 was indistinguishable between "40 datapoints stored" and "40 datapoints silently dropped".
+  const parsed = parseOtlpMetrics(body, Date.now());
+  const res = await recordUsage(gate.slug, parsed.records, { mode: "add" });
+  const droppedTotal = Object.values(parsed.skipped).reduce((a, b) => a + b, 0);
+  return NextResponse.json(
+    {
+      accepted: true,
+      persisted: res.ok,
+      org: gate.slug,
+      received: parsed.received,
+      stored: res.stored,
+      skipped: parsed.skipped,
+      ...(parsed.unsupportedHosts.length ? { unsupportedHosts: parsed.unsupportedHosts } : {}),
+      ...(droppedTotal > 0
+        ? {
+            note:
+              parsed.skipped["unsupported-host"] > 0
+                ? `${droppedTotal} datapoint(s) were not stored. Ascent attributes usage to GitHub repositories; set OTEL_RESOURCE_ATTRIBUTES=git.repository to a GitHub remote for the repos you want measured.`
+                : `${droppedTotal} datapoint(s) were not stored — see the skipped counts.`,
+          }
+        : {}),
+    },
+    { status: 202 },
+  );
 }
