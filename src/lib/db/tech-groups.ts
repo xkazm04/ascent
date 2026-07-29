@@ -5,8 +5,14 @@
 // (techGroupsFor, src/lib/org/tech-stack.ts) so the badge a user sees and the group they filter match.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgId } from "@/lib/db/org-rollup";
-import { buildSegmentComparison, summarizeScopedRollup, type SegmentComparison, type SegmentSummary } from "@/lib/db/segments";
+import { getOrgId, getOrgRollup } from "@/lib/db/org-rollup";
+import {
+  buildSegmentComparison,
+  summarizeScopedRepos,
+  summarizeScopedRollup,
+  type SegmentComparison,
+  type SegmentSummary,
+} from "@/lib/db/segments";
 import { techGroupsFor } from "@/lib/org/tech-stack";
 import type { TechStack } from "@/lib/types";
 
@@ -116,23 +122,58 @@ function summarizeTechStack(
   return summarizeScopedRollup(orgSlug, { groupId: group?.id ?? null, id: group?.key ?? null, name: group?.label ?? "Whole fleet" });
 }
 
+/**
+ * groupId → set of member repo fullNames for the whole org, in ONE query. The in-memory equivalent of
+ * `techGroupScope`'s where-fragment (`techGroups: { some: { groupId } }`), read from the same join
+ * table, so partitioning a fleet rollup by this map selects EXACTLY the repos a group-scoped
+ * getOrgRollup would have fetched. Mirrors getRepoSegmentMap (segments.ts), which plays the same role
+ * for listSegmentSummaries. Empty map when persistence is off or the org is unknown.
+ */
+async function getTechGroupMemberMap(orgSlug: string): Promise<Map<string, Set<string>>> {
+  const byGroup = new Map<string, Set<string>>();
+  if (!isDbConfigured()) return byGroup;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return byGroup;
+  const rows = await getPrisma().techStackGroupMember.findMany({
+    where: { group: { orgId } },
+    select: { groupId: true, repo: { select: { fullName: true } } },
+  });
+  for (const r of rows) {
+    let set = byGroup.get(r.groupId);
+    if (!set) byGroup.set(r.groupId, (set = new Set()));
+    set.add(r.repo.fullName);
+  }
+  return byGroup;
+}
+
 /** Headline summary for every non-empty tech group of an org — the per-stack matrix on the
  *  comparison page. `includeFleet` prepends the whole-fleet baseline (id null, name "Whole fleet")
- *  so per-stack numbers can be anchored against the org average. Sequential since N is small. */
+ *  so per-stack numbers can be anchored against the org average.
+ *
+ *  Fetches ONE fleet rollup + the group→member map, then derives each group's summary in memory by
+ *  filtering the already-loaded rows — previously this ran a full getOrgRollup PER GROUP, sequentially
+ *  ("Sequential since N is small"), so `/tech-stacks` cost `groups × whole-fleet-rollup` and grew with
+ *  exactly the stack diversity the page exists to analyse. Same fix, same shape, as listSegmentSummaries.
+ *  The single A/B comparison (compareTechStacks) still uses the scoped getOrgRollup — it is bounded at 2. */
 export async function listTechStackSummaries(
   orgSlug: string,
   opts?: { includeFleet?: boolean },
 ): Promise<SegmentSummary[] | null> {
   if (!isDbConfigured()) return null;
-  const groups = await listTechStackGroups(orgSlug);
+  const [groups, rollup, membersByGroup] = await Promise.all([
+    listTechStackGroups(orgSlug),
+    getOrgRollup(orgSlug),
+    getTechGroupMemberMap(orgSlug),
+  ]);
+  // Org missing / nothing to roll up — every per-group summary would have been null anyway.
+  if (!rollup) return [];
   const out: SegmentSummary[] = [];
-  if (opts?.includeFleet) {
-    const fleet = await summarizeTechStack(orgSlug, null);
-    if (fleet) out.push(fleet);
-  }
+  if (opts?.includeFleet) out.push(summarizeScopedRepos({ id: null, name: "Whole fleet" }, rollup.repos));
   for (const g of groups) {
-    const sum = await summarizeTechStack(orgSlug, g);
-    if (sum) out.push(sum);
+    const members = membersByGroup.get(g.id);
+    const repos = members ? rollup.repos.filter((r) => members.has(r.fullName)) : [];
+    // The summary id carries the stack KEY (the stable `?stack=` value); the name carries the label.
+    out.push(summarizeScopedRepos({ id: g.key, name: g.label }, repos));
   }
   return out;
 }

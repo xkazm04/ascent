@@ -272,13 +272,19 @@ export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): Se
 }
 
 /**
- * Reduce an in-memory set of a segment's repos (already filtered out of ONE fleet rollup) to its
- * headline maturity summary — the same arithmetic summarizeSegment derives from a scoped getOrgRollup,
- * but without issuing a per-segment fleet query. The repo set must be the fleet rollup's rows
- * (`watched OR has-scans`) filtered by segment membership, which is exactly what a segment-scoped
+ * Reduce an in-memory set of a scope's repos (already filtered out of ONE fleet rollup) to its
+ * headline maturity summary — the same arithmetic summarizeScopedRollup derives from a scoped
+ * getOrgRollup, but without issuing a per-scope fleet query. The repo set must be the fleet rollup's
+ * rows (`watched OR has-scans`) filtered by the scope's membership, which is exactly what a scoped
  * getOrgRollup would return, so the numbers match the A/B comparison.
+ *
+ * Shared by BOTH list surfaces that fan out over a scope collection — listSegmentSummaries (custom
+ * segments) and listTechStackSummaries (auto tech groups, tech-groups.ts). Exported for that second
+ * caller so the two comparison features keep reducing rollup rows through ONE implementation, exactly
+ * as they share summarizeScopedRollup for the single-scope (A/B) path. `scope.id` is the summary's
+ * id verbatim — a segment id for segments, the stable stack KEY for tech groups (null = whole fleet).
  */
-function summarizeSegmentFromRepos(seg: { id: string; name: string }, repos: OrgRepoRow[]): SegmentSummary {
+export function summarizeScopedRepos(scope: { id: string | null; name: string }, repos: OrgRepoRow[]): SegmentSummary {
   const scanned = repos.filter((r) => r.latest);
   const dimSum: Record<string, { sum: number; n: number }> = {};
   for (const r of scanned)
@@ -296,8 +302,8 @@ function summarizeSegmentFromRepos(seg: { id: string; name: string }, repos: Org
   const avgAdoption = roundedMean(scanned.map((r) => r.latest!.adoption));
   const avgRigor = roundedMean(scanned.map((r) => r.latest!.rigor));
   return {
-    id: seg.id,
-    name: seg.name,
+    id: scope.id,
+    name: scope.name,
     repoCount: repos.length,
     scannedCount: scanned.length,
     avgOverall: roundedMean(scanned.map((r) => r.latest!.overall)),
@@ -335,7 +341,7 @@ export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSumm
   return segs.map((s) => {
     const members = membersBySeg.get(s.id);
     const repos = members ? rollup.repos.filter((r) => members.has(r.fullName)) : [];
-    return summarizeSegmentFromRepos({ id: s.id, name: s.name }, repos);
+    return summarizeScopedRepos({ id: s.id, name: s.name }, repos);
   });
 }
 
