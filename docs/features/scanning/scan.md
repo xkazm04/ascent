@@ -216,6 +216,24 @@ dimensions), `scanRepository` automatically falls back to `MockProvider` and add
 warning. Provider selection and the abstraction are documented in
 [llm-providers.md](./llm-providers.md).
 
+### Outcome counters (`src/lib/scan-outcome.ts`)
+
+The `Scan` table holds **successes only** — there is no status column, and a run that throws
+persists nothing. `scanRepository` therefore wraps the pipeline in four best-effort `QuotaEvent`
+tallies so a failure is not invisible:
+
+| Kind | Meaning |
+| --- | --- |
+| `scan_started` | Every attempt — the raw denominator. |
+| `scan_rejected` | User-side and correctly handled: bad URL, private/missing repo, empty repo, client disconnect. |
+| `scan_failed` | The pipeline itself: GitHub rate-limit, upstream 4xx/5xx, unhandled throw. |
+| `scan_degraded` | Fell back to the mock floor — a report rendered *without* the model. |
+
+The error rate is `scan_failed / (scan_started − scan_rejected)`: folding rejections into the
+numerator would make the metric track funnel traffic rather than reliability. Read it back via
+`scanPipelineErrorRate()` in [`src/lib/db/kpi-metrics.ts`](../../../src/lib/db/kpi-metrics.ts).
+These are running all-time totals, not a time series, so the rate is a lifetime figure.
+
 ### 4 — Blend, roll up & compose (`src/lib/scoring/engine.ts`)
 
 `assembleReport()` produces the final `ScanReport`:
@@ -303,7 +321,10 @@ cancelled only when the last interested caller disconnects.
   warning.
 - **PR + governance signals require a token.** Anonymous scans skip them and warn.
 - **LLM fallback is automatic but lossy.** A failed LLM swaps to the deterministic mock;
-  the report still renders but with `engine.provider: "mock"` and a warning.
+  the report still renders but with `engine.provider: "mock"` and a warning. It is no longer
+  *silent* — each fallback bumps a `scan_degraded` tally (see [Outcome
+  counters](#outcome-counters-srclibscan-outcomets)) — but the rate is all-time, so there is
+  still no way to ask "did degradations spike this week" without a real event table.
 - **No raw source is persisted** in the MVP — only the derived report (see
   [data-model.md](../data/data-model.md)).
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes

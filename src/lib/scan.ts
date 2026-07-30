@@ -31,6 +31,7 @@ import { ingestRepository } from "@/lib/scan-ingest";
 import { buildScanScoreInput } from "@/lib/scan-score-input";
 import { runAssessmentPhase } from "@/lib/scan-assess";
 import { buildScanWarnings, captureScanEvalLog, composeScanReport } from "@/lib/scan-compose";
+import { recordScanDegraded, recordScanFailure, recordScanStarted } from "@/lib/scan-outcome";
 
 // The LLM failure classifiers live with the resilience loop that consumes them; re-exported here so
 // `@/lib/scan` remains the single import surface for the scan pipeline.
@@ -149,7 +150,20 @@ export async function resolveScanAuth(
   }
 }
 
+/** Public entry point. Wraps the pipeline in outcome tallies (src/lib/scan-outcome.ts): a failed scan
+ *  writes no Scan row, so without these counters a pipeline failure is invisible. The counters are
+ *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical. */
 export async function scanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
+  await recordScanStarted();
+  try {
+    return await runScanRepository(input, opts);
+  } catch (err) {
+    await recordScanFailure(err);
+    throw err;
+  }
+}
+
+async function runScanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
   const parsed = parseRepoUrl(input);
   if (!parsed) {
     throw new GitHubError(
@@ -242,6 +256,11 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     signal,
     emit,
   });
+
+  // The mock floor is a SILENT failure: a report still renders, so it counts as a success everywhere
+  // else even though the model never ran. Tallied separately from the error rate, which is defined
+  // over scans that terminated.
+  if (llmFailed) void recordScanDegraded(intendedProvider);
 
   // ── Phase 4: compose ─────────────────────────────────────────────────────────────────────────
   // The mock fallback (and any provider that ignores the signal) can resolve even after a

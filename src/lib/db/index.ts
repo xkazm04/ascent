@@ -64,6 +64,20 @@ export {
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
 export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
 export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
+// The adopted product KPIs, measured from the data already stored (see the module header).
+export {
+  firstScanActivationRate,
+  reScanRate,
+  freeToPaidConversion,
+  orgFleetScanDepth,
+  roadmapEngagementRate,
+  weeklyActiveScanningOrgs,
+  avgLlmCostPerScan,
+  scanPipelineErrorRate,
+  type RatioMetric,
+  type ScanCostMetric,
+  type ScanErrorRateMetric,
+} from "@/lib/db/kpi-metrics";
 export { recordSkillGeneration, getSkillHistory, diffTrackSets, type SkillGenerationRow } from "@/lib/db/skill-history";
 export { getOrgBranding, setOrgBranding, type OrgBranding } from "@/lib/db/branding";
 export {

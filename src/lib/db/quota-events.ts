@@ -7,7 +7,20 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { bumpCounter } from "@/lib/db/best-effort";
 
-export type QuotaEventKind = "quota_deny" | "rate_limit";
+export type QuotaEventKind =
+  | "quota_deny"
+  | "rate_limit"
+  // Scan-outcome tallies (KPI: scan pipeline error rate). A failed scan writes no Scan row — the table
+  // only holds successes — so without these counters a pipeline failure burns quota and LLM spend and
+  // leaves no trace at all. Classified and emitted by src/lib/scan-outcome.ts.
+  | "scan_started"
+  | "scan_rejected"
+  | "scan_failed"
+  | "scan_degraded";
+
+/** The two abuse kinds the public /usage view reports on. Kept explicit so the scan-outcome kinds
+ *  above never leak into that panel's counts (its `total` gates whether the panel renders at all). */
+const ABUSE_KINDS = ["quota_deny", "rate_limit"];
 
 /** Best-effort: bump the (kind, scope) tally. Swallows every error. */
 export async function recordQuotaEvent(kind: QuotaEventKind, scope: string): Promise<void> {
@@ -33,7 +46,10 @@ export interface QuotaEventTotals {
 /** All-time abuse counters (small table, few rows). Null when persistence is off. */
 export async function getQuotaEventTotals(): Promise<QuotaEventTotals | null> {
   if (!isDbConfigured()) return null;
-  const rows = await getPrisma().quotaEvent.findMany({ orderBy: { count: "desc" } });
+  const rows = await getPrisma().quotaEvent.findMany({
+    where: { kind: { in: ABUSE_KINDS } },
+    orderBy: { count: "desc" },
+  });
   return {
     quotaDenies: rows.filter((r) => r.kind === "quota_deny").map((r) => ({ scope: r.scope, count: r.count })),
     rateLimitTrips: rows.filter((r) => r.kind === "rate_limit").map((r) => ({ scope: r.scope, count: r.count })),
