@@ -53,32 +53,69 @@ function rec(r: RecSpec) {
 
 /**
  * Fake prisma for getOrgBacklog: an org row, a set of repos each with one latest scan carrying the
- * supplied recommendation rows (dimensions intentionally empty → projectedGain is skipped), and a
- * distinct repoContributor login set for the assignee picker.
+ * supplied recommendation rows, and a distinct repoContributor login set for the assignee picker.
+ *
+ * getOrgBacklog reads in six FLAT queries rather than one nested `include` (see the measurement in its
+ * header — the nested form drags the org's whole scan history and every recommendation event across the
+ * wire), so this harness serves each of those reads from one fixture description. The `describe` blocks
+ * below are unchanged by that: they assert the aggregation contract, not the query plan. The plan
+ * itself is pinned in org-insights-backlog-queries.test.ts.
  */
+function buildFake(opts: {
+  repos: Array<{
+    fullName: string;
+    name: string;
+    archetype?: string;
+    dims?: Array<{ dimId: string; score: number }>;
+    recs: ReturnType<typeof rec>[];
+  }>;
+  contributors?: string[];
+  org?: boolean;
+}) {
+  const repoRows = opts.repos.map((r, i) => ({ id: `repo_${i}`, fullName: r.fullName, name: r.name }));
+  const scanRows = opts.repos.map((r, i) => ({
+    id: `scan_${i}`,
+    repoId: `repo_${i}`,
+    archetype: r.archetype ?? "library",
+  }));
+  const dimRows = opts.repos.flatMap((r, i) =>
+    (r.dims ?? []).map((d) => ({ scanId: `scan_${i}`, dimId: d.dimId, score: d.score })),
+  );
+  // The flat read returns every recommendation across the fleet's latest scans, createdAt ascending —
+  // getOrgBacklog regroups them by scanId.
+  const recRows = opts.repos
+    .flatMap((r, i) => r.recs.map((rc) => ({ ...rc, scanId: `scan_${i}` })))
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map(({ events, ...rest }) => ({ ...rest, events }));
+  const eventRows = recRows
+    .filter((r) => r.events.length > 0)
+    .map((r) => ({ recommendationId: r.id, _max: { createdAt: r.events[0]!.createdAt } }));
+  const contributorRows = (opts.contributors ?? []).map((login) => ({ login }));
+
+  return {
+    organization: {
+      findUnique: vi.fn(async () => (opts.org === false ? null : { id: "org_1", slug: "acme" })),
+    },
+    repository: { findMany: vi.fn(async () => repoRows) },
+    scan: {
+      groupBy: vi.fn(async () =>
+        scanRows.map((s) => ({ repoId: s.repoId, _max: { scannedAt: new Date("2026-06-14T00:00:00Z") } })),
+      ),
+      findMany: vi.fn(async () => scanRows),
+    },
+    scanDimension: { findMany: vi.fn(async () => dimRows) },
+    recommendation: { findMany: vi.fn(async () => recRows) },
+    recommendationEvent: { groupBy: vi.fn(async () => eventRows) },
+    repoContributor: { findMany: vi.fn(async () => contributorRows) },
+  };
+}
+
 function fakePrisma(opts: {
   repos: Array<{ fullName: string; name: string; recs: ReturnType<typeof rec>[] }>;
   contributors?: string[];
   org?: boolean;
 }) {
-  const repoRows = opts.repos.map((r) => ({
-    fullName: r.fullName,
-    name: r.name,
-    scans: [{ archetype: "library", dimensions: [], recommendations: r.recs }],
-  }));
-  const contributorRows = (opts.contributors ?? []).map((login) => ({ login }));
-  const prisma = {
-    organization: {
-      findUnique: vi.fn(async () => (opts.org === false ? null : { id: "org_1", slug: "acme" })),
-    },
-    repository: {
-      findMany: vi.fn(async () => repoRows),
-    },
-    repoContributor: {
-      findMany: vi.fn(async () => contributorRows),
-    },
-  };
-  return prisma;
+  return buildFake(opts);
 }
 
 // The standard mixed fleet used by most assertions: 5 active + 1 done + 1 dismissed across two repos.
@@ -360,17 +397,7 @@ function fakePrismaWithDims(opts: {
   }>;
   contributors?: string[];
 }) {
-  const repoRows = opts.repos.map((r) => ({
-    fullName: r.fullName,
-    name: r.name,
-    scans: [{ archetype: r.archetype, dimensions: r.dims, recommendations: r.recs }],
-  }));
-  const contributorRows = (opts.contributors ?? []).map((login) => ({ login }));
-  return {
-    organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
-    repository: { findMany: vi.fn(async () => repoRows) },
-    repoContributor: { findMany: vi.fn(async () => contributorRows) },
-  };
+  return buildFake(opts);
 }
 
 // A single repo whose latest scan carries all 9 dimensions at 60 except D2 at 20 (org lens overall=54,

@@ -479,6 +479,30 @@ export interface OrgBacklog extends BacklogCounts {
  * left every view on the next read and nothing could bring it back. With the flag set, done/dismissed
  * rows are grouped too, so their status control is reachable again and the item can be set back to Open.
  * The headline counts never change with the flag — they always describe the ACTIVE backlog.
+ *
+ * ── Why this reads in six flat queries instead of one nested `include` (measured 2026-08-03) ──
+ * The obvious shape — repository → scans(take 1) → recommendations → events(take 1) — is NOT an N+1.
+ * Prisma 6.19 with `engineType = "client"` (the wasm query compiler, see the generator block in
+ * prisma/schema.prisma) already flattens every relation level into ONE `... WHERE x IN (…)` statement,
+ * so the nested form issues exactly 5 SQL round trips whether the fleet is 5 repos or 500. Anyone
+ * "fixing the N+1" by hand-splitting the query gets the same 5 statements and slightly worse latency.
+ *
+ * The real cost is ROW VOLUME, and it is invisible from the query count: the compiler applies a nested
+ * `take` AFTER the fetch, so `scans: { take: 1 }` emits a `SELECT … FROM "Scan" WHERE "repoId" IN (…)`
+ * with **no LIMIT** — the org's ENTIRE scan history crosses the wire so the compiler can keep one row
+ * per repo. Same for `events: { take: 1 }`: every event ever written on every current recommendation is
+ * transferred to keep the newest. That scales with fleet AGE and tracker ACTIVITY, not with what the
+ * page renders. (`distinct` is no help — it is also applied client-side under this engine; the SQL
+ * carries no DISTINCT ON. The "bounds this AT THE DB" claims elsewhere in this layer predate that.)
+ *
+ * So the "latest per group" picks are pushed into SQL as `groupBy … _max`, which IS a real GROUP BY.
+ * Measured against PGlite, 300 repos × 10 recs, 60 scans/repo, 8 events/rec:
+ *   nested include → 5 statements, 48,000 rows, 1,286–3,262ms
+ *   this shape     → 6 statements,  9,600 rows,   656–937ms   (5× fewer rows, 2–3.5× faster)
+ * The trade is one extra round trip, which costs ~25ms on a fleet with NO history (1 scan/repo, 1
+ * event/rec) — a brand-new org, before the first rescan. Depth ≥ 2 is the steady state, so the deep
+ * case governs. org-insights-backlog-queries.test.ts pins the plan against silent regression: the
+ * query count must stay CONSTANT in fleet size, and no read may reintroduce an unbounded nested `take`.
  */
 export async function getOrgBacklog(
   orgSlug: string,
@@ -496,48 +520,92 @@ export async function getOrgBacklog(
   // it has one, else ASCENT_ORG_TZ, else UTC (resolveOrgTimeZone owns that order). G4-07.
   const tz = resolveOrgTimeZone(org.timezone);
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      fullName: true,
-      name: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: {
-          // Dimension scores + archetype feed projectedGain — the engine-true "+N pts · unlocks LX"
-          // per item, so the backlog can be prioritized on points, not just impact words.
-          archetype: true,
-          dimensions: { select: { dimId: true, score: true } },
-          recommendations: {
-            orderBy: { createdAt: "asc" },
-            select: {
-              id: true,
-              title: true,
-              dimId: true,
-              impact: true,
-              effort: true,
-              // rationale + explore carry the companion voice onto the backlog row (same rows already read).
-              rationale: true,
-              explore: true,
-              status: true,
-              assigneeLogin: true,
-              targetDate: true,
-              createdAt: true,
-              events: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
-            },
-          },
-        },
-      },
-    },
-  });
+  const repoScope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
-  // Distinct human logins across the fleet's contributor snapshots — the assignee picker options.
-  const contributorRows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
-    select: { login: true },
-    distinct: ["login"],
-  });
+  // Wave 1 — three independent reads, so they cost one round trip's latency, not three. The groupBy
+  // scopes through the `repo` relation rather than an id list precisely so it does NOT have to wait for
+  // the repository read.
+  const [repos, latestScanAt, contributorRows] = await Promise.all([
+    prisma.repository.findMany({ where: repoScope, select: { id: true, fullName: true, name: true } }),
+    // The "latest scan per repo" pick, as a real SQL GROUP BY (see the header: a nested `take: 1` would
+    // instead drag the org's whole scan history across the wire).
+    prisma.scan.groupBy({ by: ["repoId"], where: { repo: repoScope }, _max: { scannedAt: true } }),
+    // Distinct human logins across the fleet's contributor snapshots — the assignee picker options.
+    prisma.repoContributor.findMany({ where: { repo: repoScope }, select: { login: true }, distinct: ["login"] }),
+  ]);
+
+  // Wave 2 — resolve those (repoId, scannedAt) pairs to the scan rows themselves. Two scans of one repo
+  // could share a timestamp (a seeded fixture, a same-instant backfill), so the pick is deduped in code:
+  // one scan per repo, exactly what the nested `take: 1` guaranteed.
+  const latestPairs = latestScanAt
+    .filter((s): s is typeof s & { _max: { scannedAt: Date } } => s._max.scannedAt != null)
+    .map((s) => ({ repoId: s.repoId, scannedAt: s._max.scannedAt }));
+  const scanRows = latestPairs.length
+    ? await prisma.scan.findMany({
+        where: { OR: latestPairs },
+        // archetype feeds projectedGain — the engine-true "+N pts · unlocks LX" per item, so the backlog
+        // can be prioritized on points, not just impact words.
+        select: { id: true, repoId: true, archetype: true },
+      })
+    : [];
+  const scanByRepo = new Map<string, (typeof scanRows)[number]>();
+  for (const s of scanRows) if (!scanByRepo.has(s.repoId)) scanByRepo.set(s.repoId, s);
+  const scanIds = [...scanByRepo.values()].map((s) => s.id);
+
+  // Wave 3 — the two reads hanging off the chosen scans, again in parallel.
+  const [dimRows, recRows] = scanIds.length
+    ? await Promise.all([
+        prisma.scanDimension.findMany({
+          where: { scanId: { in: scanIds } },
+          select: { scanId: true, dimId: true, score: true },
+        }),
+        prisma.recommendation.findMany({
+          where: { scanId: { in: scanIds } },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            scanId: true,
+            title: true,
+            dimId: true,
+            impact: true,
+            effort: true,
+            // rationale + explore carry the companion voice onto the backlog row (same rows already read).
+            rationale: true,
+            explore: true,
+            status: true,
+            assigneeLogin: true,
+            targetDate: true,
+            createdAt: true,
+          },
+        }),
+      ])
+    : [[], []];
+
+  // Wave 4 — last-activity per recommendation. `_max(createdAt)` is the whole reason this isn't the
+  // `events: { take: 1 }` relation: it returns one row per rec instead of every event ever written.
+  const lastEventRows = recRows.length
+    ? await prisma.recommendationEvent.groupBy({
+        by: ["recommendationId"],
+        where: { recommendationId: { in: recRows.map((r) => r.id) } },
+        _max: { createdAt: true },
+      })
+    : [];
+  const lastEventAt = new Map<string, Date>();
+  for (const e of lastEventRows) if (e._max.createdAt) lastEventAt.set(e.recommendationId, e._max.createdAt);
+
+  const dimsByScan = new Map<string, { id: string; score: number }[]>();
+  for (const d of dimRows) {
+    const arr = dimsByScan.get(d.scanId) ?? [];
+    arr.push({ id: d.dimId, score: d.score });
+    dimsByScan.set(d.scanId, arr);
+  }
+  const recsByScan = new Map<string, typeof recRows>();
+  for (const r of recRows) {
+    const arr = recsByScan.get(r.scanId) ?? [];
+    arr.push(r);
+    recsByScan.set(r.scanId, arr);
+  }
+
   const assignees = contributorRows
     .map((c) => c.login)
     .filter((l) => !isBot(l))
@@ -550,12 +618,12 @@ export async function getOrgBacklog(
   let contributingRepos = 0;
 
   for (const repo of repos) {
-    const scan = repo.scans[0];
-    const recs = scan?.recommendations ?? [];
+    const scan = scanByRepo.get(repo.id);
+    const recs = scan ? (recsByScan.get(scan.id) ?? []) : [];
     if (recs.length > 0) contributingRepos += 1;
     // Engine-true ROI per dimension, computed once per repo (each scan has ≤ ~6 roadmap rows
     // across ≤ 9 dims). Scans persisted before dimension rows existed project null, not 0.
-    const dims = (scan?.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score }));
+    const dims = scan ? (dimsByScan.get(scan.id) ?? []) : [];
     const gainFor = (dimId: string) =>
       dims.length > 0 && scan ? projectedGain(dims, scan.archetype, dimId) : null;
     for (const r of recs) {
@@ -591,7 +659,7 @@ export async function getOrgBacklog(
         overdue,
         repo: repo.fullName,
         repoName: repo.name,
-        lastActivityAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
+        lastActivityAt: (lastEventAt.get(r.id) ?? r.createdAt).toISOString(),
         projectedPoints: gain ? gain.points : null,
         unlocks: gain ? gain.unlocks : null,
         rationale: r.rationale,
