@@ -10,6 +10,7 @@ import { StatusSelect, useSavingIds } from "@/components/org/shared/recStatusUi"
 import { Surface } from "@/components/ui";
 import {
   DismissReasonPrompt,
+  DoneReconciliation,
   RowErrorNotice,
   RowSpinner,
   type RowError,
@@ -18,10 +19,16 @@ import {
 export function RecommendationTracker({
   items: initial,
   report,
+  prevDimScores = null,
 }: {
   items: PersistedRecommendation[];
   report: ScanReport;
+  /** Per-dimension scores from the PREVIOUS scan, for the done-row reconciliation. `null` (no prior
+   *  scan, or history failed to load) correctly yields "not re-measured", never "didn't move". */
+  prevDimScores?: Map<string, number> | null;
 }) {
+  // This scan's per-dimension scores — the `after` side of every done row's reconciliation.
+  const dimScores = new Map(report.dimensions?.map((d) => [d.id, d.score]) ?? []);
   const [items, setItems] = useState(initial);
   // Per-id saving set (not a single shared string) so overlapping in-flight PATCHes each
   // disable only their own row instead of one freezing/clobbering another.
@@ -246,6 +253,13 @@ export function RecommendationTracker({
               </div>
             </div>
             {item.rationale && <p className="mt-2 text-base leading-relaxed text-slate-400">{item.rationale}</p>}
+            {item.status === "done" && (
+              <DoneReconciliation
+                dimension={item.dimension}
+                prevScore={prevDimScores?.get(item.dimension)}
+                currentScore={dimScores.get(item.dimension)}
+              />
+            )}
             {!muted && <ExploreList items={item.explore} />}
             {!muted && <ExemplarPointer dim={item.dimension} />}
             {pendingDismiss === item.id && (

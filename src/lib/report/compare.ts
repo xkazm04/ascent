@@ -37,11 +37,87 @@ export interface DimensionDiff {
   attribution: string | null;
 }
 
+/**
+ * What the score did about a gap the team marked done. Four states, and the distinction between the
+ * first two is the whole point:
+ *  - `not-measured` — the dimension wasn't scored in BOTH scans, so there is nothing to compare. This
+ *    is NOT a failure to improve, and must never be reported as one.
+ *  - `flat` — both scans measured it and the number is the same. An observation, not a verdict on the
+ *    work: a score can lag a real change by a scan, and the team is allowed to be right.
+ *  - `improved` / `declined` — both scans measured it and it moved.
+ */
+export type ReconciliationState = "not-measured" | "improved" | "flat" | "declined";
+
+/** The reconciliation of one done recommendation against its own dimension's movement. */
+export interface RecReconciliation {
+  state: ReconciliationState;
+  dimId: DimensionId;
+  /** Only non-null when that scan measured the dimension — no invented numbers. */
+  before: number | null;
+  after: number | null;
+  /** after − before; null in the `not-measured` state, by construction. */
+  delta: number | null;
+  /** One companion-voice line. An observation the team can disagree with, never an accusation. */
+  note: string;
+}
+
+/**
+ * "You marked this done — did the score move?" Pure, and honest about what it does not know: a
+ * dimension missing from either side yields `not-measured` with a null delta rather than a 0 that
+ * would read as "you closed it and nothing happened".
+ *
+ * The voice is deliberate. Ascent is a transition companion, not a grader: a flat or falling score
+ * after a close is *information for the team*, not a challenge to their judgment, and nothing here
+ * blocks, reverts or re-opens their `done`.
+ */
+export function reconcileDoneRec(
+  dimId: DimensionId,
+  before: number | null | undefined,
+  after: number | null | undefined,
+): RecReconciliation {
+  const b = before ?? null;
+  const a = after ?? null;
+  if (b === null || a === null) {
+    return {
+      state: "not-measured",
+      dimId,
+      before: b,
+      after: a,
+      delta: null,
+      note: `${dimId} wasn’t scored in both scans, so there’s nothing to compare yet.`,
+    };
+  }
+  const delta = a - b;
+  if (delta === 0) {
+    return {
+      state: "flat",
+      dimId,
+      before: b,
+      after: a,
+      delta,
+      note: `${dimId} held at ${a} since the previous scan — the score hasn’t caught up yet.`,
+    };
+  }
+  return {
+    state: delta > 0 ? "improved" : "declined",
+    dimId,
+    before: b,
+    after: a,
+    delta,
+    note:
+      delta > 0
+        ? `${dimId} rose ${signed(delta)} since the previous scan (${b} → ${a}).`
+        : `${dimId} is ${Math.abs(delta)} lower than the previous scan (${b} → ${a}) — something else may have moved.`,
+  };
+}
+
 /** A tracked recommendation that reached "done" between the two scans. */
 export interface RecMovedToDone {
   id: string;
   title: string;
   dimId: DimensionId;
+  /** Did the dimension this gap targeted actually move? See reconcileDoneRec. */
+  reconciliation: RecReconciliation;
 }
 
 export interface LevelTransition {
@@ -294,12 +370,24 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     before.recommendations.map((r) => ({ dim: r.dimId, title: r.title })),
     after.recommendations.map((r) => ({ dim: r.dimId, title: r.title })),
   );
+  // …and each one carries the reconciliation against its OWN dimension's movement. A backlog closed
+  // for appearances used to be invisible to the platform that recommended it; now the close and the
+  // score sit next to each other. `dimById` is the diff we just computed, so a dimension absent from
+  // either scan yields `not-measured` rather than a fabricated zero delta.
+  const dimById = new Map(dimensions.map((d) => [d.id, d]));
   const recsMovedToDone: RecMovedToDone[] = [];
   after.recommendations.forEach((r, i) => {
     if (r.status !== "done") return;
     const m = recMatches[i];
     if (m != null && before.recommendations[m]?.status === "done") return;
-    recsMovedToDone.push({ id: r.id, title: r.title, dimId: r.dimId as DimensionId });
+    const dimId = r.dimId as DimensionId;
+    const d = dimById.get(dimId);
+    recsMovedToDone.push({
+      id: r.id,
+      title: r.title,
+      dimId,
+      reconciliation: reconcileDoneRec(dimId, d?.before ?? null, d?.after ?? null),
+    });
   });
 
   const beforeLevel = LEVEL_BY_ID[before.level as LevelId] ?? levelForScore(before.overallScore);

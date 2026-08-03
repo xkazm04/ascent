@@ -237,6 +237,40 @@ disable only their own row), rollback on failure, and an `aria-live` region anno
 each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`
 (sorted impact↑/effort↓, quick wins first).
 
+### "You marked it done — did the score move?"
+
+A backlog closed for appearances used to be invisible to the platform that recommended it:
+`diffScans` computed `recsMovedToDone` and nothing ever asked whether the dimension that
+recommendation targeted actually improved.
+
+`reconcileDoneRec(dimId, before, after)` (`src/lib/report/compare.ts`) is the pure verdict, in four
+states:
+
+| State | Meaning |
+| --- | --- |
+| `not-measured` | The dimension wasn't scored in **both** scans. There is nothing to compare — this is **not** a failure to improve and is never rendered as one. `delta` stays `null`. |
+| `flat` | Both scans measured it; the number is the same. "D3 held at 62 since the previous scan." |
+| `improved` / `declined` | Both scans measured it and it moved; the line quotes the actual before → after. |
+
+It is applied in two places from one implementation:
+
+- **`diffScans`** attaches a `reconciliation` to every `RecMovedToDone`, computed off the
+  dimension diff it already built — so the compare view's data carries it.
+- **`RecommendationTracker`** renders `DoneReconciliation` directly on each `done` row, which is
+  **where the user made the call**. Its `after` is the loaded report's own dimension scores; its
+  `before` is `prevDimScores`, threaded down from `ReportView` through `ReportPanels`. A `null`
+  `prevDimScores` (no prior scan, or history failed to load) correctly reads as *not re-measured*.
+
+The mechanism is **derived at read time from two scans**, not persisted at scan-persist time: the
+verdict is a pure function of two numbers the platform already stores, so persisting it would add a
+column that can only ever go stale against the scans it summarizes, and would need a backfill to say
+anything about history. Read-time derivation also means a later re-scan simply re-answers the
+question, which is the honest behavior.
+
+Voice matters here as much as correctness. Ascent is a transition companion, not a grader: the note
+is an observation the team is free to disagree with, colours stay muted for `flat` and
+`not-measured`, and nothing blocks, reverts, or re-opens a user's `done`.
+
 ### Dismissing a gap teaches the next scan
 
 Picking **Dismissed** does not fire the PATCH immediately. The row opens an inline prompt

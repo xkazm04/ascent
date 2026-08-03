@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { diffScans, matchRecommendations } from "./compare";
+import { diffScans, matchRecommendations, reconcileDoneRec } from "./compare";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import { DIMENSIONS } from "@/lib/maturity/model";
 
@@ -354,5 +354,66 @@ describe("matchRecommendations", () => {
     expect(
       matchRecommendations([{ dim: "D4", title: "y" }], [{ dim: "D1", title: "x" }]),
     ).toEqual([null]);
+  });
+});
+
+// Direction 2 — "you marked it done; did the score move?"
+//
+// The load-bearing distinction is `not-measured` vs `flat`. A dimension that wasn't scored in BOTH
+// scans has nothing to compare, and reporting that as a failure to improve would be the platform
+// inventing a judgment out of missing data. The voice is companion, not grader: a flat or falling
+// score is an observation, never an accusation, and nothing here touches the user's `done`.
+describe("reconcileDoneRec", () => {
+  it("reports 'not re-measured' — never a failure to improve — when either scan skipped the dimension", () => {
+    for (const [before, after] of [[null, 60], [60, null], [null, null], [undefined, undefined]] as const) {
+      const r = reconcileDoneRec("D3", before, after);
+      expect(r.state).toBe("not-measured");
+      expect(r.delta).toBeNull(); // no fabricated zero
+      expect(r.note).toContain("nothing to compare");
+      expect(r.note).not.toMatch(/didn|fail|should/i);
+    }
+  });
+
+  it("states a delta only when both scans measured the dimension", () => {
+    expect(reconcileDoneRec("D3", 55, 62)).toMatchObject({ state: "improved", delta: 7, before: 55, after: 62 });
+    expect(reconcileDoneRec("D3", 66, 62)).toMatchObject({ state: "declined", delta: -4 });
+    expect(reconcileDoneRec("D3", 62, 62)).toMatchObject({ state: "flat", delta: 0 });
+  });
+
+  it("keeps a flat result an observation, not an accusation", () => {
+    const r = reconcileDoneRec("D3", 62, 62);
+    expect(r.note).toContain("held at 62");
+    expect(r.note).not.toMatch(/didn.t work|no progress|failed/i);
+  });
+});
+
+describe("diffScans reconciles every recommendation that moved to done", () => {
+  const recs = (status: string) => [{ id: "r1", title: "Add tests", dimId: "D2", status }];
+
+  it("attaches the dimension's own movement to the close", () => {
+    const before = mkScan({ id: "a", dimensions: dims({ D2: { score: 40 } }), recommendations: recs("open") });
+    const after = mkScan({ id: "b", dimensions: dims({ D2: { score: 58 } }), recommendations: recs("done") });
+    const [moved] = diffScans(before, after).recsMovedToDone;
+    expect(moved!.reconciliation).toMatchObject({ state: "improved", dimId: "D2", delta: 18 });
+  });
+
+  it("says 'not re-measured' when the dimension is absent from one scan", () => {
+    const before = mkScan({
+      id: "a",
+      dimensions: dims().filter((d) => d.dimId !== "D2"),
+      recommendations: recs("open"),
+    });
+    const after = mkScan({ id: "b", dimensions: dims({ D2: { score: 58 } }), recommendations: recs("done") });
+    const [moved] = diffScans(before, after).recsMovedToDone;
+    expect(moved!.reconciliation.state).toBe("not-measured");
+    expect(moved!.reconciliation.delta).toBeNull();
+  });
+
+  it("does not block or alter the close when the score disagrees", () => {
+    const before = mkScan({ id: "a", dimensions: dims({ D2: { score: 70 } }), recommendations: recs("open") });
+    const after = mkScan({ id: "b", dimensions: dims({ D2: { score: 55 } }), recommendations: recs("done") });
+    const { recsMovedToDone } = diffScans(before, after);
+    expect(recsMovedToDone).toHaveLength(1); // still counted as done
+    expect(recsMovedToDone[0]!.reconciliation.state).toBe("declined");
   });
 });

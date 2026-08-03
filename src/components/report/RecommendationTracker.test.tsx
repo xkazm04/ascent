@@ -255,3 +255,54 @@ describe("RecommendationTracker dismissal reason", () => {
     expect(screen.queryByLabelText("Why is this gap not for you?")).not.toBeInTheDocument();
   });
 });
+
+// Direction 2: the reconciliation is surfaced WHERE the user marked the item done, not only in a
+// compare view they may never open. "Not re-measured" must read as its own state.
+describe("RecommendationTracker done reconciliation", () => {
+  const reportWith = (scores: Record<string, number>) =>
+    ({
+      repo: { owner: "acme", name: "web" },
+      dimensions: Object.entries(scores).map(([id, score]) => ({ id, score })),
+    }) as unknown as ScanReport;
+
+  it("shows the dimension's movement on the row the user marked done", () => {
+    render(
+      <RecommendationTracker
+        items={[item({ status: "done" })]}
+        report={reportWith({ D1: 62 })}
+        prevDimScores={new Map([["D1", 55]])}
+      />,
+    );
+    expect(screen.getByText(/D1 rose \+7 since the previous scan \(55 → 62\)/)).toBeInTheDocument();
+  });
+
+  it("says 'not re-measured' — never 'didn't move' — with no previous scan", () => {
+    render(
+      <RecommendationTracker items={[item({ status: "done" })]} report={reportWith({ D1: 62 })} prevDimScores={null} />,
+    );
+    expect(screen.getByText(/wasn’t scored in both scans/)).toBeInTheDocument();
+    expect(screen.queryByText(/held at/)).not.toBeInTheDocument();
+  });
+
+  it("says 'held at' when both scans measured it and it did not move", () => {
+    render(
+      <RecommendationTracker
+        items={[item({ status: "done" })]}
+        report={reportWith({ D1: 62 })}
+        prevDimScores={new Map([["D1", 62]])}
+      />,
+    );
+    expect(screen.getByText(/D1 held at 62 since the previous scan/)).toBeInTheDocument();
+  });
+
+  it("says nothing at all on a row that is not done", () => {
+    render(
+      <RecommendationTracker
+        items={[item({ status: "in_progress" })]}
+        report={reportWith({ D1: 62 })}
+        prevDimScores={new Map([["D1", 55]])}
+      />,
+    );
+    expect(screen.queryByText(/You marked this done/)).not.toBeInTheDocument();
+  });
+});

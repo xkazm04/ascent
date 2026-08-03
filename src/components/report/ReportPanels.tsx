@@ -87,7 +87,7 @@ export function ReportPanels(props: ReportPanelsProps) {
             <NextLevelPath report={report} />
             <div className="mt-4">
               {recs && recs.length > 0 ? (
-                <RecommendationTracker items={recs} report={report} />
+                <RecommendationTracker items={recs} report={report} prevDimScores={props.prevDimScores} />
               ) : (
                 <RoadmapSteps items={report.roadmap} report={report} />
               )}

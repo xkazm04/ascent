@@ -10,7 +10,8 @@
 // is still a dismissal, it just doesn't speak for the team in the next scan.
 
 import { useState } from "react";
-import { REC_NOTE_MAX_LENGTH, type RecStatus } from "@/lib/types";
+import { REC_NOTE_MAX_LENGTH, type DimensionId, type RecStatus } from "@/lib/types";
+import { reconcileDoneRec, type ReconciliationState } from "@/lib/report/compare";
 
 /** Small busy indicator for the row currently saving (frozen, not spinning, under reduced motion). */
 export function RowSpinner() {
@@ -75,6 +76,40 @@ export function RowErrorNotice({
         </button>
       )}
     </div>
+  );
+}
+
+/** Muted for the two states that assert nothing about the work; emerald/amber only when the score
+ *  genuinely moved. `not-measured` must never borrow the "didn't improve" colour. */
+const RECONCILE_TONE: Record<ReconciliationState, string> = {
+  "not-measured": "border-slate-700 bg-slate-900/40 text-slate-400",
+  flat: "border-slate-700 bg-slate-900/40 text-slate-300",
+  improved: "border-emerald-500/30 bg-emerald-500/5 text-emerald-200/90",
+  declined: "border-amber-500/30 bg-amber-500/5 text-amber-200/90",
+};
+
+/**
+ * "You marked it done — did the score move?" Shown on a `done` row, where the user made the call,
+ * rather than only in the compare view they may never open. Companion voice: an observation the team
+ * is free to disagree with. Nothing here reverts or questions their `done`.
+ *
+ * `prevScore`/`currentScore` come from the two scans; either being absent yields the `not-measured`
+ * line, which says so plainly instead of implying the work didn't land.
+ */
+export function DoneReconciliation({
+  dimension,
+  prevScore,
+  currentScore,
+}: {
+  dimension: DimensionId;
+  prevScore: number | null | undefined;
+  currentScore: number | null | undefined;
+}) {
+  const r = reconcileDoneRec(dimension, prevScore, currentScore);
+  return (
+    <p className={`mt-2 rounded-lg border px-3 py-1.5 text-sm ${RECONCILE_TONE[r.state]}`}>
+      <span className="font-medium">You marked this done.</span> {r.note}
+    </p>
   );
 }
 
