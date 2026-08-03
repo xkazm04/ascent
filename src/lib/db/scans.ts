@@ -37,8 +37,10 @@ export {
   updateRecommendation,
   getRecommendationEvents,
   getRecommendationOrgSlug,
+  getOrphanedTrackedRecommendations,
   type RecommendationPatch,
   type RecommendationActor,
+  type OrphanedTrackedRec,
 } from "@/lib/db/scans-recommendations";
 
 export {

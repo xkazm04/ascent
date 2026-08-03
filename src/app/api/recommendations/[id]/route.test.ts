@@ -23,6 +23,11 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(() => true),
   getRecommendationOrgSlug: vi.fn(),
   updateRecommendation: vi.fn(),
+  // The standing-decision side-writes a status patch triggers (dismissal in / out). Never-throwing by
+  // contract and asserted in org-decisions-roadmap.test.ts; inert here so the gate/validation
+  // assertions stay about the route.
+  recordRecommendationDismissal: vi.fn(async () => null),
+  clearRecommendationDismissal: vi.fn(async () => null),
 }));
 
 // PUBLIC_ORG is the literal "public" the route lower-cases the org against. getSession/isAuthConfigured

@@ -5,7 +5,8 @@
 import type { PersistedRecommendation, RecEvent, RecEventKind, RecStatus } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { toPersistedRec } from "@/lib/db/scans-shared";
+import { canonicalRepoFullName, DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { findOrphanedTracked, type TrackedRecIdentity } from "@/lib/report/compare";
 
 /** Parse a YYYY-MM-DD (or ISO) string to a Date, or null for empty/invalid input. */
 function parseDateInput(v?: string | null): Date | null {
@@ -175,6 +176,83 @@ export async function getRecommendationOrgSlug(id: string): Promise<string | nul
     select: { scan: { select: { repo: { select: { org: { select: { slug: true } } } } } } },
   });
   return rec?.scan.repo.org.slug ?? null;
+}
+
+// ── Orphaned tracking (Direction 3) ──────────────────────────────────────────────────────────────
+
+/** A previously-tracked recommendation the latest re-scan could not carry forward. */
+export interface OrphanedTrackedRec extends TrackedRecIdentity {
+  /** The scan the tracking was recorded against — the one before the current latest. */
+  fromScanId: string;
+}
+
+/** Deterministic "latest first" — the SAME tiebreak scans-read/scans-persist use, so "previous"
+ *  resolves to the row the carry-forward actually read from (a bare scannedAt desc can tie). */
+const SCAN_ORDER: Prisma.ScanOrderByWithRelationInput[] = [
+  { scannedAt: "desc" },
+  { createdAt: "desc" },
+  { id: "desc" },
+];
+
+const dateOnly = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
+
+/**
+ * What the last re-scan silently dropped: tracked recommendations from the previous scan that the
+ * tiered matcher could not pair with anything in the latest one.
+ *
+ * DERIVED, not stored. The two scans are already persisted and `findOrphanedTracked` is pure over
+ * them, so there is no new column to migrate, backfill, or keep in sync — and no risk of a stored
+ * orphan list disagreeing with the scans it describes. It also self-heals: re-linking an orphan
+ * writes its tracking onto a row in the latest scan, and the next read stops reporting it.
+ *
+ * Returns `[]` when persistence is off, the repo is unknown, or there is only one scan — "nothing was
+ * lost" and "we can't tell" both correctly produce no alarm here, because with one scan nothing was
+ * ever carried.
+ */
+export async function getOrphanedTrackedRecommendations(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string } = {},
+): Promise<OrphanedTrackedRec[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+  const orgId = await resolveOrgId(orgSlug);
+  if (!orgId) return [];
+  const repo = await prisma.repository.findUnique({
+    where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
+    select: { id: true, isPrivate: true },
+  });
+  if (!repo) return [];
+  // Same cross-tenant guard the sibling reads carry: assignee logins and target dates from a PRIVATE
+  // repo must never be served out of the shared public (anonymous) org.
+  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return [];
+
+  const scans = await prisma.scan.findMany({
+    where: { repoId: repo.id },
+    orderBy: SCAN_ORDER,
+    take: 2,
+    select: {
+      id: true,
+      recommendations: {
+        select: { dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true },
+      },
+    },
+  });
+  const [latest, previous] = scans;
+  if (!latest || !previous) return [];
+
+  const shape = (r: (typeof latest.recommendations)[number]): TrackedRecIdentity => ({
+    dim: r.dimId,
+    title: r.title,
+    status: r.status,
+    assigneeLogin: r.assigneeLogin,
+    targetDate: dateOnly(r.targetDate),
+  });
+
+  return findOrphanedTracked(previous.recommendations.map(shape), latest.recommendations.map(shape)).map(
+    (o) => ({ ...o, fromScanId: previous.id }),
+  );
 }
 
 /**

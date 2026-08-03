@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { diffScans, matchRecommendations, reconcileDoneRec } from "./compare";
+import { diffScans, findOrphanedTracked, isTrackedRec, matchRecommendations, reconcileDoneRec } from "./compare";
+import type { TrackedRecIdentity } from "./compare";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import { DIMENSIONS } from "@/lib/maturity/model";
 
@@ -415,5 +416,85 @@ describe("diffScans reconciles every recommendation that moved to done", () => {
     const { recsMovedToDone } = diffScans(before, after);
     expect(recsMovedToDone).toHaveLength(1); // still counted as done
     expect(recsMovedToDone[0]!.reconciliation.state).toBe("declined");
+  });
+});
+
+// Direction 3 — tracked state survives a rewording, or is at least VISIBLE when it can't.
+//
+// The bug this pins: two gaps in one dimension are both reworded between scans. The matcher
+// correctly refuses to guess (tier 3 needs exactly one unmatched on each side), and scans-persist
+// then wrote `status: carried?.status ?? "open"` — silently blanking a user's status, assignee and
+// due date with no error at all. The matcher must NOT be loosened; the loss must be named.
+describe("findOrphanedTracked", () => {
+  const rec = (over: Partial<TrackedRecIdentity> & { dim: string; title: string }): TrackedRecIdentity => ({
+    status: "open",
+    assigneeLogin: null,
+    targetDate: null,
+    ...over,
+  });
+
+  it("only counts rows carrying real user tracking", () => {
+    expect(isTrackedRec({ status: "open", assigneeLogin: null, targetDate: null })).toBe(false);
+    expect(isTrackedRec({ status: "done", assigneeLogin: null, targetDate: null })).toBe(true);
+    expect(isTrackedRec({ status: "open", assigneeLogin: "octocat", targetDate: null })).toBe(true);
+    expect(isTrackedRec({ status: "open", assigneeLogin: null, targetDate: "2026-09-01" })).toBe(true);
+  });
+
+  it("names both tracked items when two gaps in one dimension are reworded (the silent-reset case)", () => {
+    const prev = [
+      rec({ dim: "D3", title: "CI never gates the tests", status: "in_progress", assigneeLogin: "octocat" }),
+      rec({ dim: "D3", title: "No coverage tracking is configured", status: "done", targetDate: "2026-09-01" }),
+    ];
+    const next = [
+      rec({ dim: "D3", title: "The pipeline runs tests without gating on them" }),
+      rec({ dim: "D3", title: "Coverage is never measured" }),
+    ];
+    // The matcher itself stays honest: it pairs nothing rather than guessing.
+    expect(matchRecommendations(prev, next)).toEqual([null, null]);
+
+    const orphans = findOrphanedTracked(prev, next);
+    expect(orphans.map((o) => o.title)).toEqual([
+      "CI never gates the tests",
+      "No coverage tracking is configured",
+    ]);
+    expect(orphans[0]).toMatchObject({ status: "in_progress", assigneeLogin: "octocat" });
+    expect(orphans[1]).toMatchObject({ status: "done", targetDate: "2026-09-01" });
+  });
+
+  it("reports nothing when the matcher DID carry the state (a lone rephrasing)", () => {
+    const prev = [rec({ dim: "D3", title: "CI never gates the tests", status: "in_progress" })];
+    const next = [rec({ dim: "D3", title: "The pipeline runs tests without gating", status: "in_progress" })];
+    expect(matchRecommendations(prev, next)).toEqual([0]); // tier 3: unambiguous
+    expect(findOrphanedTracked(prev, next)).toEqual([]);
+  });
+
+  it("ignores an untracked prior row that simply disappeared — nothing was lost", () => {
+    const prev = [rec({ dim: "D3", title: "a" }), rec({ dim: "D3", title: "b" })];
+    const next = [rec({ dim: "D4", title: "c" })];
+    expect(findOrphanedTracked(prev, next)).toEqual([]);
+  });
+
+  it("self-heals: an orphan re-linked onto a new row stops being reported", () => {
+    const prev = [
+      rec({ dim: "D3", title: "CI never gates the tests", status: "in_progress", assigneeLogin: "octocat" }),
+      rec({ dim: "D3", title: "No coverage tracking", status: "done" }),
+    ];
+    const relinked = [
+      rec({ dim: "D3", title: "Pipeline runs tests without gating", status: "in_progress", assigneeLogin: "octocat" }),
+      rec({ dim: "D3", title: "Coverage is never measured" }),
+    ];
+    expect(findOrphanedTracked(prev, relinked).map((o) => o.title)).toEqual(["No coverage tracking"]);
+  });
+
+  it("needs one re-link per orphan — a single new row can't retire two identical ones", () => {
+    const prev = [
+      rec({ dim: "D3", title: "gap one", status: "done" }),
+      rec({ dim: "D3", title: "gap two", status: "done" }),
+    ];
+    const next = [
+      rec({ dim: "D3", title: "reworded A", status: "done" }),
+      rec({ dim: "D3", title: "reworded B" }),
+    ];
+    expect(findOrphanedTracked(prev, next)).toHaveLength(1);
   });
 });

@@ -245,6 +245,68 @@ export function matchRecommendations(
   return result;
 }
 
+// ── Orphaned tracking ───────────────────────────────────────────────────────────────────────────
+//
+// The matcher above is deliberately conservative: two reworded gaps in one dimension are genuinely
+// ambiguous, so it refuses to guess. Scan-persist then wrote `status: carried?.status ?? "open"` and
+// the user's own tracking data — status, assignee, target date — vanished with NO error. The engine's
+// honest refusal to guess was indistinguishable from data loss.
+//
+// This does NOT weaken the matcher. It names what the matcher couldn't carry, so the loss is visible
+// and re-linkable instead of silent.
+
+/** A previous scan's recommendation, with the planning state a re-scan must not lose. */
+export interface TrackedRecIdentity extends RecIdentity {
+  status: string;
+  assigneeLogin: string | null;
+  /** ISO date (YYYY-MM-DD) or null. */
+  targetDate: string | null;
+}
+
+/** Carries user tracking worth preserving — anything past the untouched open/unassigned default. */
+export function isTrackedRec(r: Pick<TrackedRecIdentity, "status" | "assigneeLogin" | "targetDate">): boolean {
+  return (r.status !== "" && r.status !== "open") || r.assigneeLogin != null || r.targetDate != null;
+}
+
+/** Same planning state — the signal that an orphan has already been re-applied to a new row. */
+const sameTracking = (
+  a: Pick<TrackedRecIdentity, "status" | "assigneeLogin" | "targetDate">,
+  b: Pick<TrackedRecIdentity, "status" | "assigneeLogin" | "targetDate">,
+) => a.status === b.status && a.assigneeLogin === b.assigneeLogin && a.targetDate === b.targetDate;
+
+/**
+ * Previously-tracked recommendations the tiered matcher could not carry into the new scan.
+ *
+ * Self-healing without a schema column: an orphan is dropped once an UNMATCHED row in the new scan
+ * carries its exact (status, assignee, targetDate) triple — which is precisely what re-linking does.
+ * A brand-new unmatched row defaults to open/null/null and `isTrackedRec` excludes that, so an
+ * untouched roadmap item can never silently absorb an orphan. Each such row retires at most one
+ * orphan, so two identical orphans need two re-links.
+ */
+export function findOrphanedTracked(
+  prev: readonly TrackedRecIdentity[],
+  next: readonly TrackedRecIdentity[],
+): TrackedRecIdentity[] {
+  const matches = matchRecommendations(prev, next);
+  const matchedPrev = new Set<number>();
+  matches.forEach((m) => {
+    if (m != null) matchedPrev.add(m);
+  });
+  // The candidate absorbers: rows the matcher left unpaired that ALREADY carry tracking of their own
+  // (i.e. somebody applied it). Consumed one-for-one below.
+  const absorbers = next.filter((n, j) => matches[j] == null && isTrackedRec(n));
+  const used = new Set<number>();
+  return prev.filter((p, i) => {
+    if (matchedPrev.has(i) || !isTrackedRec(p)) return false;
+    const hit = absorbers.findIndex((n, k) => !used.has(k) && n.dim === p.dim && sameTracking(n, p));
+    if (hit >= 0) {
+      used.add(hit);
+      return false; // already re-linked onto a new row
+    }
+    return true;
+  });
+}
+
 /** Signed integer for an attribution line ("+12" / "-7"). */
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 

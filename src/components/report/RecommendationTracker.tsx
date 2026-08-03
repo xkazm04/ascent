@@ -15,6 +15,7 @@ import {
   RowSpinner,
   type RowError,
 } from "@/components/report/recommendationRowUi";
+import { OrphanedTracking } from "@/components/report/OrphanedTracking";
 
 export function RecommendationTracker({
   items: initial,
@@ -201,6 +202,14 @@ export function RecommendationTracker({
           )}
         </div>
       </Surface>
+
+      {/* Tracking the last re-scan couldn't carry forward — named and re-linkable, never silently
+          reset. Renders nothing when there is none. */}
+      <OrphanedTracking
+        repoRef={repoRef}
+        items={items}
+        onApplied={(rec) => setItems((cur) => cur.map((i) => (i.id === rec.id ? { ...i, ...rec } : i)))}
+      />
 
       {ordered.map((item, i) => {
         const muted = item.status === "done" || item.status === "dismissed";

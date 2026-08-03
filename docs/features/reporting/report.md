@@ -229,6 +229,7 @@ with a `status` ∈ `open | in_progress | done | dismissed`.
 | Route | Method | Behavior |
 | --- | --- | --- |
 | `/api/recommendations?repo=` | `GET` | `{ scanId, items[] }` for the repo's latest scan (503 without DB). |
+| `/api/recommendations/orphans?repo=` | `GET` | `{ items[] }` — tracking the last re-scan couldn't carry forward. See below. |
 | `/api/recommendations/[id]` | `PATCH` | `{ status?, assigneeLogin?, targetDate?, note? }` → updated item. Validates against `REC_STATUSES`; 404 if not found, 503 without DB. |
 
 `RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
@@ -236,6 +237,39 @@ dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping sa
 disable only their own row), rollback on failure, and an `aria-live` region announcing
 each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`
 (sorted impact↑/effort↓, quick wins first).
+
+### Tracking that couldn't be carried across a re-scan
+
+`matchRecommendations` (`src/lib/report/compare.ts`) pairs a new scan's roadmap with the previous
+one's rows in three tiers — exact `dim::title`, then `dim` + normalized title, then an *unambiguous*
+dimension (exactly one unmatched row on each side). When two gaps in one dimension are both reworded
+by the live LLM it **refuses to guess**, which is right: attaching a user's plan to the wrong gap is
+worse than not attaching it.
+
+What was wrong is that `scans-persist.ts` then wrote those rows at `status: "open"`, unassigned, no
+target date — so the user's own tracking vanished with **no error**, and the engine's honest refusal
+was indistinguishable from data loss.
+
+The refusal is unchanged. The loss is now named and recoverable:
+
+- **`findOrphanedTracked(prev, next)`** (pure, `compare.ts`) returns the previous scan's rows that
+  the matcher couldn't carry **and** that actually carried tracking (`isTrackedRec`: any status past
+  `open`, or an assignee, or a target date). An untouched roadmap item that simply disappeared is not
+  a loss and is not reported.
+- **`getOrphanedTrackedRecommendations`** (`scans-recommendations.ts`) applies it to the repo's two
+  most recent scans, behind `GET /api/recommendations/orphans`. **Derived, never stored** — nothing to
+  migrate or backfill, and a stored list could never disagree with the scans it describes. One scan
+  only ⇒ empty (nothing was ever carried).
+- **`OrphanedTracking`** renders inside `RecommendationTracker`: "*N tracked items couldn't be
+  carried into this scan*", each with the status/assignee/due-date it held, plus a same-dimension
+  picker that **re-links** it — one ordinary PATCH applying the old planning state to the row the
+  user says is the same gap, with a note on the target's timeline so the state doesn't appear from
+  nowhere. The human resolves precisely the ambiguity the matcher declined to guess at.
+
+Re-linking self-heals the derivation: an orphan is dropped once an *unmatched* row in the latest scan
+carries its exact `(status, assignee, targetDate)` triple. A brand-new row defaults to
+open/unassigned/no-date, which `isTrackedRec` excludes, so an untouched item can never silently
+absorb an orphan — and two identical orphans need two re-links.
 
 ### "You marked it done — did the score move?"
 

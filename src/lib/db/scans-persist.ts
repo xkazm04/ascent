@@ -263,6 +263,13 @@ export async function persistScanReport(
     // provider failover all rephrase it), and an exact-title miss used to silently reset a tracked
     // item to open/unassigned. The per-row event timeline is anchored to the scan's recommendation
     // rows, so it begins fresh each scan while the carried state persists.
+    //
+    // The matcher still REFUSES to pair genuinely ambiguous items (two reworded gaps in one
+    // dimension), and those rows are still written at open/unassigned below — that part is correct,
+    // because guessing would attach a user's plan to the wrong gap. What used to be wrong is that the
+    // loss was SILENT. It is now visible and recoverable: getOrphanedTrackedRecommendations derives
+    // the dropped tracking from these same two scans and the report's OrphanedTracking panel offers a
+    // re-link. Nothing here should be loosened into guessing to "fix" it.
     const previous = await prisma.scan.findFirst({
       where: { repoId: repo.id },
       // Deterministic tiebreaker: `scannedAt` is not unique (two re-scores can share a timestamp, and
