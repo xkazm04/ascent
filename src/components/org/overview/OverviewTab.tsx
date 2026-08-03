@@ -59,6 +59,17 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
   // NOT awaited here — see the note at the top of the file.
   const scope = resolveOrgScope(slug, sp);
 
+  // `?dim=` — the in-page deep link the dimension grid's ▦ affordance emits. Read from the URL, not
+  // from a query: it only seeds the heatmap's column sort. A bogus value is ignored downstream.
+  const dimParam = typeof sp.dim === "string" ? sp.dim : undefined;
+
+  // The tab's own query string, rebuilt from the resolved searchParams (a server component has no
+  // useSearchParams). Threaded into the panels so their deep links compose off the CURRENT scope
+  // rather than resetting it — the same rule buildUrl's docstring states for the client shell.
+  const search = new URLSearchParams(
+    Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v] as [string, string]] : [])),
+  ).toString();
+
   return (
     <div className="stagger-children space-y-6">
       {billingNotice}
@@ -77,7 +88,7 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
       </div>
 
       <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-        <OverviewFleetPanel slug={slug} scope={scope} win={win} periodTitle={period.title} />
+        <OverviewFleetPanel slug={slug} scope={scope} win={win} periodTitle={period.title} sortDim={dimParam} search={search} />
       </Suspense>
     </div>
   );

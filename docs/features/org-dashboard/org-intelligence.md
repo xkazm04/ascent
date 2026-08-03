@@ -30,7 +30,7 @@ since fleet aggregation/attribution surfaces need a real org's breadth.
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Overview | Overview | `org/[slug]` | `src/app/org/[slug]/page.tsx` | Maturity score/level, adoption & rigor, repos scanned, **Trajectory**, goal + standing cards, gap analysis, posture distribution, dimension averages, trend, movers, highest-leverage fleet moves. |
+| Overview | Overview | `org/[slug]` (`?tab=overview`) | `src/components/org/overview/` | Four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
 | Overview | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
 | Fleet | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | Repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
 | Fleet | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
@@ -133,7 +133,7 @@ The Overview page composes several server queries, all scoped to the org:
 | `computeOrgResilience(concentration)` (`src/lib/db/org-contributors.ts`) | **Org resilience / key-person exposure (2026-07-28).** Returned as `ContributorInsights.resilience`. Rolls the per-repo concentration rows into a commit-weighted fleet score (0-100), a critical/at-risk repo count, `exposedCommitShare` (how much of the fleet's recent commit volume sits in at-risk repos), and the riskiest repos ranked by `0.6 × topShare + 0.4 × (100 / busFactor)`. **It emits no login at any population size** — stricter than the `CHAMPION_MIN_POP` floor, on purpose: a "risk" framing is where a name stops being attribution and becomes an accusation, and the repo-level statement ("one point of failure, 92% concentration") carries the whole decision. Conversely it *survives* below the naming floor: a 2-person org is the most exposed org there is, so withholding the read would hide the finding, not a person. |
 | `getOrgDiscrepancies(slug)` | Aggregated LLM-auditor flags grouped by dimension (the calibration backlog). |
 
-**Trajectory** (`src/components/org/Trajectory.tsx`) renders the `Forecast` from
+**Trajectory** (`src/components/org/overview/Trajectory.tsx`) renders the `Forecast` from
 `src/lib/maturity/forecast.ts` — a linear regression over the daily maturity series:
 now → projected score/level at the horizon, weekly rate, direction, ETA (date) to the next
 level, and an R² fit-quality confidence. Shared layout primitives (`Tile`, `Card`,
@@ -431,7 +431,7 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
 | `src/components/org/shared/OrgNav.tsx` | Persistent nav rail (two-level `SectionRailNav`). |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
-| `src/components/org/Trajectory.tsx` | Forecast "GPS" card. |
+| `src/components/org/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview — **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
 | `src/components/org/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/components/org/AuditLogViewer.tsx` | Audit trail viewer. |
 | `src/components/org/backlog/BacklogPanel.tsx` | Backlog tab client panel — grouping toggle, inline status/owner/due-date edits, per-item activity history, undo bar, search/filter row and the bulk-action bar. |
@@ -444,6 +444,16 @@ lives in metrics; folding log events into usage is a later step.
 | `src/app/api/audit/route.ts` | Audit query endpoint. |
 
 ## Known gaps
+
+- **The Overview shows standing, not a punch list.** It renders where the fleet stands and how its
+  composition is moving; it does NOT rank "what to fix first". A derived three-item punch list
+  (`OverviewFixFirst` / `fixFirst.ts`) existed and was deleted on 2026-08-03 because three of its
+  four inputs — `getOrgMovers`, `getOrgGapAnalysis`, `listGoals` — are queries the Overview does not
+  make, and adding them would put three reads on the dashboard's landing path to render three lines.
+  The same answers live one click away and unabridged: gap analysis and reusable exemplars on
+  [Practices](./practices.md), goal pacing on [Plan](../org-planning/plan.md), and the ranked
+  narrative on the Briefing tab. Reviving it means giving it its own `<Suspense>` boundary and
+  accepting the reads — a deliberate decision, not a restore.
 
 - **No per-contributor drill-down page, deliberately** — and no per-person time-series to build one
   from: `RepoContributor` is uniquely keyed `(repoId, login)` and upserted each scan, so it is a

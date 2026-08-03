@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { orgTabHref } from "@/lib/org/orgTabs";
+import { buildUrl, clearedTabScopedParams, orgTabHref } from "@/lib/org/orgTabs";
 import { Card, SectionHeader, Meter, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
@@ -15,12 +15,21 @@ import { PRACTICES } from "@/lib/practices";
 // the posture palette is the canonical POSTURE_HEX the Live war room renders with.
 const PRACTICE_BY_DIM = new Map(PRACTICES.map((p) => [p.dimId as string, p.id]));
 
+/** Repositories tab, scoped to one posture. Built through `buildUrl` rather than the pre-refactor
+ *  `/org/<slug>/repositories?posture=` literal — that path is now a redirect stub (e0ca9b94), and a
+ *  redirect on every posture click is a wasted round trip on the dashboard's front page.
+ *  `search` is the Overview's own query string, so the period/segment/stack scope the panel is
+ *  describing survives the jump; the tab-scoped params are cleared so nothing else leaks across. */
+const postureHref = (slug: string, posture: string, search: string) =>
+  buildUrl(slug, { tab: "repositories", ...clearedTabScopedParams(), posture }, search);
+
 export function PostureDimensionsPanel({
   slug,
   postureCounts,
   dims,
   dimDeltas,
   deltaLabel,
+  search = "",
 }: {
   slug: string;
   postureCounts: Record<string, number>;
@@ -29,6 +38,9 @@ export function PostureDimensionsPanel({
   dimDeltas?: { dimId: string; delta: number }[] | null;
   /** Comparison suffix for the delta tooltips, e.g. "vs 90d ago". */
   deltaLabel?: string;
+  /** The Overview's current query string — carried into every link so the period + segment/stack
+   *  scope this panel is describing is the scope the destination opens on. */
+  search?: string;
 }) {
   const total = Math.max(1, POSTURE_ORDER.reduce((sum, p) => sum + (postureCounts[p] ?? 0), 0));
   const pct = (n: number) => Math.round((n / total) * 100);
@@ -47,7 +59,7 @@ export function PostureDimensionsPanel({
           return (
             <Link
               key={p}
-              href={`/org/${slug}/repositories?posture=${p}`}
+              href={postureHref(slug, p, search)}
               className="h-full transition-all hover:opacity-80"
               style={{ width: `${(n / total) * 100}%`, backgroundColor: POSTURE_HEX[p] ?? "#64748b" }}
               title={`${postureLabel(p)} — ${n} repo${n === 1 ? "" : "s"} (${pct(n)}%) — view them`}
@@ -68,7 +80,7 @@ export function PostureDimensionsPanel({
           return n > 0 ? (
             <Link
               key={p}
-              href={`/org/${slug}/repositories?posture=${p}`}
+              href={postureHref(slug, p, search)}
               title={`View the ${n} ${postureLabel(p)} repo${n === 1 ? "" : "s"}`}
               className="focus-ring inline-flex items-center gap-1.5 rounded font-mono text-sm text-slate-400 transition hover:text-accent"
             >
@@ -113,7 +125,11 @@ export function PostureDimensionsPanel({
               </>
             );
             // Two side-by-side affordances per row (can't nest <a>): the label/meter → the practice
-            // that lifts this dimension; a trailing "▦" → the Repositories heatmap pre-sorted on it.
+            // that lifts this dimension; a trailing "▦" → THIS page's own heatmap, pre-sorted
+            // weakest-first on the dimension (`?dim=` seeds RepoDimensionHeatmap's initialSortDim,
+            // `#heatmap` scrolls to it). It used to point at `/org/<slug>/repositories?dim=…#heatmap`
+            // — a route that is now a redirect stub, with no `#heatmap` anchor and no `?dim=` reader
+            // at the far end. The heatmap it wanted is three sections below this panel.
             // Fall back to a non-link body when the catalog lacks a practice — never a dead href.
             return (
               <div key={d.dimId} className="-mx-1 flex items-center gap-2 px-1 py-0.5 text-sm">
@@ -129,8 +145,8 @@ export function PostureDimensionsPanel({
                   <div className="flex flex-1 items-center gap-3">{body}</div>
                 )}
                 <Link
-                  href={`/org/${slug}/repositories?dim=${d.dimId}#heatmap`}
-                  title={`See ${short} across every repo in the heatmap`}
+                  href={`${buildUrl(slug, { ...clearedTabScopedParams(), dim: d.dimId }, search)}#heatmap`}
+                  title={`See ${short} across every repo in the heatmap, weakest first`}
                   aria-label={`See ${short} across every repo`}
                   className="focus-ring shrink-0 rounded px-1 font-mono text-xs text-slate-600 transition hover:text-accent"
                 >

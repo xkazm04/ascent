@@ -4,6 +4,13 @@
 // which are still live and still carry the narrative. Restore the component from git if it is ever
 // wanted again; the maths below is what actually needed the coverage.
 //
+// RE-AFFIRMED (2026-08-03, org-overview-standing): the Overview's orphan sweep re-checked this file
+// and KEPT it. It is not a test of dead code — `computeWindowDeltas` is what produces
+// `OrgRollup.deltas`, which the standing strip now renders on the front page (overviewStanding.ts),
+// and `isWithinNoise` still gates every "did this really move?" verdict in the org surfaces. Deleting
+// it would drop the only end-to-end coverage of the cohort-matching identity below. Do not re-open
+// this as "an orphan test" — the component it once mirrored is already gone.
+//
 // Medium coverage gap (test-mastery-2026-06-18, org-overview-standing #5): the "Quarter in review"
 // banner's headline number + prose were derived from the rollup's cohort-matched deltas. Two numbers
 // carry the narrative:

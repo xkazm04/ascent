@@ -1,11 +1,21 @@
-// The Overview's data region: the fleet rollup card + the repo × dimension heatmap. Its own
-// <Suspense> boundary in OrgTabChunks, because it is the tab's ONE genuinely slow data source (two
-// rollup queries over every repo's scan history) — so the period control and the scope readout above
-// it paint without waiting on it.
+// The Overview's data region — the whole front page of the org dashboard, in reading order:
+//   1. the headline standing strip (where the fleet stands + its maturity trend sparkline),
+//   2. posture composition + per-dimension averages (the composition behind that headline),
+//   3. the fleet rollup card (which cohorts are moving),
+//   4. the repo × dimension heatmap (who is strong/weak, cell-by-cell).
+//
+// All four read ONE rollup. `getOrgRollup` is NOT React-`cache()`d, so splitting the standing strip
+// into its own <Suspense> boundary would buy a second identical query, not a second stream — the
+// panels share this boundary on purpose. Its own <Suspense> in OverviewTab, because it is the tab's
+// ONE genuinely slow data source (two rollup queries over every repo's scan history) — so the period
+// control and the scope readout above it paint without waiting on it.
 
 import { DIMS, OrgEmpty } from "@/components/org/shared/ui";
+import { OrgScoreBadges } from "./OrgScoreBadges";
+import { PostureDimensionsPanel } from "./PostureDimensionsPanel";
 import { RepoCategoryRollup } from "./RepoCategoryRollup";
 import { RepoDimensionHeatmap } from "./RepoDimensionHeatmap";
+import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
 import { buildTrajectories } from "./repoTrajectory";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
@@ -17,6 +27,8 @@ export async function OverviewFleetPanel({
   scope,
   win,
   periodTitle,
+  sortDim,
+  search,
 }: {
   slug: string;
   /** The SHARED scope promise created once in OverviewTab and awaited in both boundaries — one
@@ -24,6 +36,12 @@ export async function OverviewFleetPanel({
   scope: Promise<OrgScope>;
   win: Pick<ResolvedWindow, "start" | "end">;
   periodTitle: string;
+  /** `?dim=` deep link from the dimension grid's ▦ affordance — seeds the heatmap's weakest-first
+   *  column sort. Ignored by the heatmap when it isn't a real column. */
+  sortDim?: string;
+  /** The tab's current query string, carried into the panels' deep links so a drill-in keeps the
+   *  period + segment/stack scope the numbers were computed under. */
+  search?: string;
 }) {
   const { segmentId, techGroupId } = await scope;
 
@@ -67,13 +85,33 @@ export async function OverviewFleetPanel({
 
   return (
     <div className="space-y-6">
+      {/* Where the fleet stands, in four numbers + the maturity trend as an inline sparkline. The
+          sparkline hides itself below two points (one rollup is a lone dot, not a trend). */}
+      <OrgScoreBadges badges={buildScoreBadges(rollup)} trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }} />
+
+      {/* The composition behind that headline: posture shares (each segment a filtered deep link)
+          and per-dimension averages with their cohort-matched movement over the window. */}
+      <PostureDimensionsPanel
+        slug={slug}
+        postureCounts={rollup.postureCounts}
+        dims={rollup.dimAverages}
+        dimDeltas={rollup.dimDeltas}
+        deltaLabel={`vs ${periodTitle.toLowerCase()}`}
+        search={search}
+      />
+
       <div data-tour="results-view">
         <RepoCategoryRollup trajectories={trajectories} periodTitle={periodTitle} orgSlug={slug} />
       </div>
 
       {/* The second Fleet-level instrument, beside the rollup so "which cohorts are moving" and
-          "who's strong/weak per dimension" read together. Cells open the per-dimension modal. */}
-      {heatmapRows.length > 0 && <RepoDimensionHeatmap org={slug} dims={DIMS} rows={heatmapRows} />}
+          "who's strong/weak per dimension" read together. Cells open the per-dimension modal. The
+          `#heatmap` anchor is the target of the dimension grid's ▦ affordance above. */}
+      {heatmapRows.length > 0 && (
+        <div id="heatmap" className="scroll-mt-24">
+          <RepoDimensionHeatmap org={slug} dims={DIMS} rows={heatmapRows} initialSortDim={sortDim} />
+        </div>
+      )}
     </div>
   );
 }
