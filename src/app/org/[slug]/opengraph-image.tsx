@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getOrgRollup } from "@/lib/db";
+import { getOrgHeaderSummary } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { LEVEL_HEX, LEVEL_GLYPH } from "@/lib/ui";
@@ -12,7 +12,15 @@ import { DIMENSION_COUNT, LEVEL_COUNT } from "@/lib/site";
 // member's own orgs when a session is present). An unfurl carries no cookies, so a private org always
 // degrades to the neutral card — the dashboard's own aggregates never leak to an unauthenticated fetch.
 
-export const runtime = "nodejs"; // the rollup lookup uses the Prisma client
+// The card prints exactly five scalars — avgOverall, avgAdoption, avgRigor, scannedCount/repoCount and
+// the posture tally — and every one is carried by the cheap `getOrgHeaderSummary`. It used to run the
+// full unscoped `getOrgRollup` per crawler fetch: every repo's latest scan WITH its dimension rows,
+// governance/passport/techStack JSON parsing, plus two unbounded `scan.findMany` sweeps for the daily
+// trend and the baseline cohort — none of which can be drawn on a 1200x630 image. That is the exact
+// duplication the sibling `generateMetadata` in page.tsx was already fixed to avoid; this is the same
+// fix, one file over. Same repo set (watched OR has-scans, unscoped) and the same latest-scan-per-repo
+// derivations, so the rendered card is pixel-identical.
+export const runtime = "nodejs"; // the summary lookup uses the Prisma client
 export const alt = "Ascent fleet maturity";
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
@@ -32,18 +40,18 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   // header's truncate discipline) so the share image stays intact for orgs with long names.
   const displaySlug = slug.length > 28 ? slug.slice(0, 27) + "…" : slug;
 
-  const rollup = await (async () => {
+  const summary = await (async () => {
     try {
-      return (await canReadOrg(slug)) ? await getOrgRollup(slug) : null;
+      return (await canReadOrg(slug)) ? await getOrgHeaderSummary(slug) : null;
     } catch {
       return null;
     }
   })();
 
-  if (rollup && rollup.repoCount > 0) {
-    const levelId = levelForScore(rollup.avgOverall).id as LevelId;
+  if (summary && summary.repoCount > 0) {
+    const levelId = levelForScore(summary.avgOverall).id as LevelId;
     const accent = LEVEL_HEX[levelId] ?? BRAND_ACCENT;
-    const maxPosture = Math.max(1, ...POSTURES.map((p) => rollup.postureCounts[p.id] ?? 0));
+    const maxPosture = Math.max(1, ...POSTURES.map((p) => summary.postureCounts[p.id] ?? 0));
     return new ImageResponse(
       (
         <div style={SHELL}>
@@ -52,13 +60,13 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           <div style={{ display: "flex", alignItems: "flex-end", gap: 44 }}>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
               <div style={{ display: "flex", alignItems: "baseline", color: accent }}>
-                <div style={{ display: "flex", fontSize: 168, fontWeight: 700, lineHeight: 1 }}>{rollup.avgOverall}</div>
+                <div style={{ display: "flex", fontSize: 168, fontWeight: 700, lineHeight: 1 }}>{summary.avgOverall}</div>
                 <div style={{ display: "flex", fontSize: 48, fontWeight: 600, color: "#64748b" }}>/100</div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 34, fontWeight: 700, color: accent }}>
                 <span>{LEVEL_GLYPH[levelId]}</span>
                 <span>
-                  {levelId} · {levelForScore(rollup.avgOverall).name}
+                  {levelId} · {levelForScore(summary.avgOverall).name}
                 </span>
               </div>
             </div>
@@ -69,7 +77,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               </div>
               <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: BRAND_WHITE }}>{displaySlug}</div>
               <div style={{ display: "flex", fontSize: 26, color: BRAND_MUTED }}>
-                Adoption {rollup.avgAdoption} · Rigor {rollup.avgRigor} — {rollup.scannedCount}/{rollup.repoCount} repos scanned.
+                Adoption {summary.avgAdoption} · Rigor {summary.avgRigor} — {summary.scannedCount}/{summary.repoCount} repos scanned.
               </div>
             </div>
           </div>
@@ -77,7 +85,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           {/* Posture distribution mini-bars */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {POSTURES.map((p) => {
-              const n = rollup.postureCounts[p.id] ?? 0;
+              const n = summary.postureCounts[p.id] ?? 0;
               return (
                 <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 16, fontFamily: "monospace", fontSize: 22 }}>
                   <span style={{ display: "flex", width: 290, color: BRAND_MUTED }}>{p.label}</span>

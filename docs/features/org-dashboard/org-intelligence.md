@@ -113,6 +113,40 @@ barrel) keep an unchanged public surface for callers:
 | `src/lib/db/org-signals.ts` | `getOrgPrSignals`, `getOrgGovernance`, `getOrgDimensionGaps`, `getOrgActivity`. |
 | `src/lib/db/org-insights.ts` | `getOrgMovers`, `getOrgRecommendations`, `getOrgBacklog`, `dueBucketFor`, `getOrgBenchmark`, `getOrgPractices`, `getOrgGapAnalysis`, `getOrgDiscrepancies`. |
 | `src/lib/db/org-teams.ts` | `getOrgTeamRollup`, `rollupTeams`. |
+| `src/lib/db/org-nav-counts.ts` | `getOrgNavCounts`, `getOrgPassportBlockers`. |
+
+### Shell cost discipline — nobody buys a rollup to read a scalar (2026-08-03)
+
+`getOrgRollup` is the dashboard's heaviest read: every repo's latest scan **with its dimension
+rows**, plus governance / passport / tech-stack JSON parsing, plus two unbounded `scan.findMany`
+sweeps (the daily trend and the baseline cohort). Its cost scales with fleet **history**, not with
+what the caller renders. Three surfaces were paying it to read a handful of scalars; all three are
+now on narrow queries.
+
+| Surface | Was | Now |
+| --- | --- | --- |
+| Overview `generateMetadata` (unfurl copy) | full unscoped `getOrgRollup` | `getOrgHeaderSummary` (fixed earlier) |
+| `passports` nav badge (`deriveFindings`, org **shell** → every tab) | full unscoped `getOrgRollup`, read `repos[].passport.*.blockers` | `getOrgPassportBlockers` |
+| `opengraph-image.tsx` (per crawler fetch) | full unscoped `getOrgRollup`, read 5 scalars | `getOrgHeaderSummary` |
+
+- **`getOrgPassportBlockers(slug)`** (`src/lib/db/org-nav-counts.ts`) — the passport blob lives on
+  `Repository`, not on `Scan`, so the badge needs no scan join at all: three columns over the same
+  repo set the rollup uses (`watched OR has-scans`), same `applyPassportOverrides` composition, both
+  readiness axes. The badge number is unchanged. This one matters most because the derivation runs in
+  the **shell**, so the old cost was charged to tabs that read nothing else from the fleet (Audit).
+- **`getOrgHeaderSummary` gained `avgAdoption`, `avgRigor`, `postureCounts`** rather than a second
+  parallel summary query being forked for the OG card. They come off the same latest-scan-per-repo
+  pass the summary already runs — three more columns on an existing `select`, no extra round-trip —
+  and each derivation mirrors `getOrgRollup`'s exactly, so the two can never disagree.
+
+Neither change alters a single rendered value. Measured on the seeded local fleet (`acme`: 20 repos /
+120 scans / 180 dimension rows) the unscoped rollup ran a median **16.9 ms**; the passport read is
+**2.0 ms** (8.5×) and the header summary **5.3 ms** (3.2×). The gap widens with scan history, since
+the rollup's two unbounded sweeps grow with it and neither replacement touches `Scan` history at all.
+
+Regression-pinned by `src/lib/db/org-passport-blockers.test.ts` (the query must stay scan-free and
+keep the rollup's repo set) and `src/lib/org/nav-counts.test.ts` (`getOrgRollup` is never called from
+the badge path).
 
 The Overview page composes several server queries, all scoped to the org:
 

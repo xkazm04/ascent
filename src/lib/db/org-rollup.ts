@@ -623,12 +623,26 @@ export async function getOrgRepoHistories(
  *  It also backs the Overview's `generateMetadata`, which needs only avgOverall/scannedCount/repoCount
  *  for the unfurl description: that call site used to run its OWN unscoped getOrgRollup, so the Overview
  *  paid for TWO full rollups per render (metadata + the page's scoped one) even after the shell was
- *  moved onto this summary. Both extra rollups are gone; the page keeps exactly one, scoped. */
+ *  moved onto this summary. Both extra rollups are gone; the page keeps exactly one, scoped.
+ *
+ *  …and it backs the co-located `opengraph-image.tsx`, which was the SAME defect one file over: the OG
+ *  card ran a full unscoped rollup per crawler fetch to print five scalars. It needed three fields this
+ *  summary didn't carry (avgAdoption, avgRigor, postureCounts), so those were added HERE rather than
+ *  forked into a second parallel summary query — they're the same latest-scan-per-repo pass the summary
+ *  already does, three more columns on a select it already runs, no extra round-trip. Every derivation
+ *  below mirrors getOrgRollup's exactly (same repo set, same `roundedMean` over latest scores, same
+ *  posture tally over scanned repos) so the two can never disagree on a shared number. */
 export interface OrgHeaderSummary {
   repoCount: number;
   scannedCount: number;
   watchedCount: number;
   avgOverall: number;
+  /** Mean of each scanned repo's latest adoption score — mirrors `getOrgRollup.avgAdoption`. */
+  avgAdoption: number;
+  /** Mean of each scanned repo's latest rigor score — mirrors `getOrgRollup.avgRigor`. */
+  avgRigor: number;
+  /** Scanned repos per posture id — mirrors `getOrgRollup.postureCounts`. */
+  postureCounts: Record<string, number>;
   /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
   kind: "org" | "personal";
 }
@@ -647,15 +661,27 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
     where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
     select: {
       watched: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true } },
+      scans: {
+        orderBy: { scannedAt: "desc" },
+        take: 1,
+        select: { overallScore: true, adoptionScore: true, rigorScore: true, posture: true },
+      },
     },
   });
-  const scannedScores = repos.map((r) => r.scans[0]?.overallScore).filter((s): s is number => s != null);
+  // One pass over the same latest-scan-per-repo rows the counts already need. `scanned` is the rollup's
+  // definition of the word: a repo with at least one scan (an unscanned watched repo contributes to
+  // repoCount and nothing else).
+  const scanned = repos.map((r) => r.scans[0]).filter((s): s is NonNullable<typeof s> => s != null);
+  const postureCounts: Record<string, number> = {};
+  for (const s of scanned) postureCounts[s.posture] = (postureCounts[s.posture] ?? 0) + 1;
   return {
     repoCount: repos.length,
-    scannedCount: scannedScores.length,
+    scannedCount: scanned.length,
     watchedCount: repos.filter((r) => r.watched).length,
-    avgOverall: roundedMean(scannedScores),
+    avgOverall: roundedMean(scanned.map((s) => s.overallScore)),
+    avgAdoption: roundedMean(scanned.map((s) => s.adoptionScore)),
+    avgRigor: roundedMean(scanned.map((s) => s.rigorScore)),
+    postureCounts,
     kind: org.kind === "personal" ? "personal" : "org",
   };
 });

@@ -16,6 +16,13 @@
 // tab, so deriving findings naively taxed EVERY view: /audit, which reads nothing but its own log,
 // went from 144ms to 1.5s once four fleet rollups ran in its shell.
 //
+// The cache capped how OFTEN that was paid; it never made it cheap. So the second half of the fix is
+// to stop buying rollups this derivation cannot use: the `passports` badge reads nothing but each
+// repo's readiness blockers, which live on Repository.passportJson, so it now calls the narrow
+// getOrgPassportBlockers instead of the full unscoped getOrgRollup (per-repo latest scan + dimension
+// rows + governance/techStack parsing + two unbounded scan.findMany sweeps for the trend and baseline
+// cohort — all of it discarded). Same repo set, same blocker list, one small query.
+//
 // The fix rests on the two halves changing at completely different rates. FINDINGS only change when a
 // scan runs (minutes to days), so they are cached across requests with `unstable_cache`. DECISIONS
 // change the instant a user clicks Accept, so they are read fresh on every request and subtracted from
@@ -29,7 +36,7 @@
 
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
-import { getContributorInsights, getOrgRollup, getOrgTeamRollup, resolvedKeys } from "@/lib/db";
+import { getContributorInsights, getOrgPassportBlockers, getOrgTeamRollup, resolvedKeys } from "@/lib/db";
 import { getOrgNavCounts, type OrgNavCounts } from "@/lib/db";
 import { buildSecurityOverview } from "@/lib/org/security";
 import {
@@ -57,20 +64,18 @@ export type NavCounts = OrgNavCounts & {
  * 500 the shell).
  */
 async function deriveFindings(orgSlug: string): Promise<Finding[]> {
-  const [security, rollup, teams, contributors] = await Promise.all([
+  const [security, passportRepos, teams, contributors] = await Promise.all([
     buildSecurityOverview(orgSlug).catch(() => null),
-    getOrgRollup(orgSlug).catch(() => null),
+    // NOT getOrgRollup. This badge reads exactly one thing — each repo's readiness blockers — and the
+    // full rollup was being bought to supply it: every repo's latest scan with its dimension rows,
+    // governance/techStack/passport parsing, plus two unbounded scan sweeps for the trend and the
+    // baseline cohort. The blockers live on Repository.passportJson and need no scan join at all, so
+    // getOrgPassportBlockers reads three columns over the SAME repo set and produces the same list.
+    // The saving lands on every tab, because this derivation runs in the org shell.
+    getOrgPassportBlockers(orgSlug).catch(() => []),
     getOrgTeamRollup(orgSlug).catch(() => null),
     getContributorInsights(orgSlug).catch(() => null),
   ]);
-
-  const passportRepos = (rollup?.repos ?? [])
-    .filter((r) => r.passport)
-    .map((r) => ({
-      fullName: r.fullName,
-      // A blocker can sit on either readiness axis; passportFindings de-dupes the overlap.
-      blockers: [...r.passport!.automationReadiness.blockers, ...r.passport!.productionReadiness.blockers],
-    }));
 
   return [
     ...securityFindings(security?.register ?? []),

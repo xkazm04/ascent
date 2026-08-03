@@ -315,7 +315,7 @@ export {
   type OpsAcceptResult,
 } from "@/lib/db/improvement";
 
-export { getOrgNavCounts, type OrgNavCounts } from "@/lib/db/org-nav-counts";
+export { getOrgNavCounts, getOrgPassportBlockers, type OrgNavCounts, type OrgPassportBlockers } from "@/lib/db/org-nav-counts";
 export {
   decide,
   listDecisions,

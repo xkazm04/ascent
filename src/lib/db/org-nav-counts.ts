@@ -17,6 +17,7 @@
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 
 /** Unresolved counts keyed by the org route segment the badge belongs to. */
 export interface OrgNavCounts {
@@ -59,4 +60,56 @@ export const getOrgNavCounts = cache(async (orgSlug: string): Promise<OrgNavCoun
 
   const backlog = repos.reduce((n, r) => n + (r.scans[0]?.recommendations.length ?? 0), 0);
   return { backlog, plan, members };
+});
+
+/** One repo's readiness blockers, override-applied — the only rollup field the passports badge reads. */
+export interface OrgPassportBlockers {
+  fullName: string;
+  /** Both readiness axes concatenated; `passportFindings` de-dupes the overlap. */
+  blockers: string[];
+}
+
+/**
+ * The passport blockers behind the `passports` nav badge, as ONE narrow query.
+ *
+ * The badge's derivation (lib/org/nav-counts.ts `deriveFindings`) used to call the full unscoped
+ * `getOrgRollup` and then throw away everything but `repos[].passport.*.blockers`. That rollup is the
+ * dashboard's heaviest read — every repo's latest scan WITH its dimension rows, plus governance /
+ * techStack / passport JSON parsing, plus TWO unbounded `scan.findMany` sweeps (the daily trend and
+ * the baseline/cohort snapshot). None of that is reachable from a blocker list. And because the badge
+ * renders in the org SHELL, that cost was charged to EVERY tab — including Audit, which reads nothing
+ * else from the fleet. (The 60s `unstable_cache` capped the frequency; it never made the query cheap.)
+ *
+ * The passport blob lives on `Repository`, not on `Scan`, so the blockers need no scan join at all —
+ * three columns over the same repo set the rollup uses (watched OR has-scans), which is what keeps the
+ * badge number byte-identical: same repos, same `applyPassportOverrides` composition, same axes.
+ *
+ * React-`cache()`d for the request like its sibling above; the cross-request `unstable_cache` stays
+ * where it was, around the finding derivation.
+ */
+export const getOrgPassportBlockers = cache(async (orgSlug: string): Promise<OrgPassportBlockers[]> => {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return [];
+
+  const repos = await prisma.repository.findMany({
+    // Mirrors getOrgRollup's repo set exactly — a repo the rollup would have excluded must not start
+    // contributing findings just because this path got cheaper.
+    where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
+    select: { fullName: true, passportJson: true, passportOverridesJson: true },
+    orderBy: { fullName: "asc" },
+  });
+
+  const out: OrgPassportBlockers[] = [];
+  for (const r of repos) {
+    const parsed = parsePassportJson(r.passportJson);
+    if (!parsed) continue; // no passport → the rollup's `.filter(r => r.passport)` dropped it too
+    const p = applyPassportOverrides(parsed, parsePassportOverrides(r.passportOverridesJson));
+    out.push({
+      fullName: r.fullName,
+      blockers: [...p.automationReadiness.blockers, ...p.productionReadiness.blockers],
+    });
+  }
+  return out;
 });
