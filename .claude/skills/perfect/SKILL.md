@@ -1,5 +1,6 @@
 ---
 name: perfect
+argument-hint: "[init|propose|build|status|reflect] [context]"
 contexts: tracked
 memory: vault
 category: Development
