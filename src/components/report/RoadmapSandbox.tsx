@@ -24,6 +24,7 @@ import {
   RoadmapSimulators,
   type Overrides,
 } from "@/components/report/RoadmapSandboxParts";
+import { canonicalRepo, ScenarioBar, useScenarioSync } from "@/components/report/RoadmapSandboxScenario";
 
 export function RoadmapSandbox({
   report,
@@ -78,6 +79,25 @@ export function RoadmapSandbox({
 
   const baseline = { adoption: report.adoptionScore, rigor: report.rigorScore };
   const anyChanged = report.dimensions.some((d) => (overrides[d.id] ?? d.score) !== d.score);
+
+  // The durable half (phase 2): loads this viewer's saved scenario, restores it into the state above
+  // once, and owns the save/discard IO. Selections travel as recommendationDecisionKey identities, so
+  // nothing new leans on the fragile dimension+title join. Gated on `open` so the report page — by far
+  // the most-viewed surface here, and mostly viewed without ever opening the sandbox — doesn't pay for
+  // a scenario fetch nobody asked for.
+  const repoFullName = canonicalRepo(report.repo.owner, report.repo.name);
+  const { barProps } = useScenarioSync({
+    repo: repoFullName,
+    enabled: open,
+    roadmap: report.roadmap,
+    overrides,
+    appliedItems,
+    anyChanged,
+    baseline: { score: report.overallScore, level: report.level.id, scannedAt: report.scannedAt },
+    projected: { score: proj.overall.overallScore, level: proj.overall.level },
+    setOverrides,
+    setAppliedItems,
+  });
 
   const setDim = (id: DimensionId, v: number) =>
     setOverrides((o) => ({ ...o, [id]: clamp(Math.round(v)) }));
@@ -216,6 +236,11 @@ export function RoadmapSandbox({
               }}
             />
           )}
+
+          {/* Phase 2: the scenario itself is durable — overrides, the gaps it selected, and the
+              projected delta as a NUMBER — so a reload restores the plan, and once the repo is
+              scanned again the same bar answers "did it come true?". */}
+          <ScenarioBar {...barProps} />
 
           {/* Sandbox → tracker bridge: persist the applied roadmap items as in_progress recs so a
               modeled plan survives unmount. Disabled (with an explanatory title) when there's nothing

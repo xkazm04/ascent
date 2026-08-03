@@ -106,6 +106,7 @@ model Organization {
   orgMemories  OrgMemory[]
   orgDecisions OrgDecision[]
   recOverlays  RecommendationOverlay[]
+  sandboxScenarios SandboxScenario[]
   techGroups   TechStackGroup[]
   llmConfig    OrgLlmConfig?
 }
@@ -1109,4 +1110,49 @@ model SkillGeneration {
   generatedAt  DateTime @default(now())
 
   @@index([repoFullName])
+}
+
+// A SAVED Roadmap Sandbox scenario: the what-if a leader modeled on one repo's report, kept whole.
+//
+// The sandbox recomputes a projected score live from per-dimension overrides (see projectSandbox), and
+// every bit of that lived in React state — a reload erased the model that produced the "+12 points" a
+// team had just talked itself into. Committing it wrote a STATUS FLIP plus a prose note with the delta
+// rounded into the sentence, so the number could only ever be read back by parsing English and the
+// override values that produced it were stored nowhere at all. This model is that missing state.
+//
+// Three deliberate shapes:
+//   - `projectedDelta` (and score/level) are NUMBERS. A projection that has to be regex'd out of a
+//     note is a projection nothing can reconcile against.
+//   - `itemKeysJson` holds recommendationDecisionKey identities (src/lib/report/rec-identity.ts) —
+//     the same cross-scan key the dismissal decisions use — NOT the fragile dimension+title pair and
+//     NOT scan-bound Recommendation.ids, which die on the next scan. A scenario therefore still knows
+//     which gaps it covered after a re-scan reworded and re-rowed them.
+//   - `baselineScore`/`baselineLevel`/`baselineScanAt` pin WHAT the projection was relative to, which
+//     is what makes projected-vs-actual answerable later: the next scan of this repo is compared
+//     against the state the model was built on, not against whatever is current now.
+//
+// One scenario per (org, repo, author) — saving replaces. Scenario naming, comparison and sharing are
+// explicit non-goals; this is "my current plan for this repo", restored where I left it. `authorLogin`
+// is "" when the session has no resolvable login, which scopes that scenario to the org rather than to
+// a person (the tenant gate on the route is what keeps it private either way).
+model SandboxScenario {
+  id             String   @id @default(uuid())
+  orgId          String // tenant scope — resolved server-side from the repo, never from the request
+  repoFullName   String // "owner/name"
+  authorLogin    String   @default("") // GitHub login who modeled it; "" = no resolvable login
+  baselineScore  Int // the report's overall score the scenario was modeled against
+  baselineLevel  String // e.g. "L3"
+  baselineScanAt DateTime // scannedAt of the scan it was modeled on — the reconciliation anchor
+  overridesJson  String   @default("{}") // JSON Record<DimensionId, number> — the slider state
+  itemKeysJson   String   @default("[]") // JSON string[] of recommendationDecisionKey identities
+  projectedScore Int
+  projectedLevel String
+  projectedDelta Int // projectedScore − baselineScore, stored as a number
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, repoFullName, authorLogin])
+  @@index([orgId, repoFullName])
 }

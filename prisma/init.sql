@@ -951,6 +951,32 @@ CREATE UNIQUE INDEX "RecommendationOverlay_orgId_repoFullName_dimId_title_key" O
 -- CreateIndex
 CREATE INDEX "RecommendationOverlay_orgId_repoFullName_idx" ON "RecommendationOverlay"("orgId", "repoFullName");
 
+-- CreateTable
+CREATE TABLE "SandboxScenario" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "authorLogin" TEXT NOT NULL DEFAULT '',
+    "baselineScore" INTEGER NOT NULL,
+    "baselineLevel" TEXT NOT NULL,
+    "baselineScanAt" TIMESTAMP(3) NOT NULL,
+    "overridesJson" TEXT NOT NULL DEFAULT '{}',
+    "itemKeysJson" TEXT NOT NULL DEFAULT '[]',
+    "projectedScore" INTEGER NOT NULL,
+    "projectedLevel" TEXT NOT NULL,
+    "projectedDelta" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SandboxScenario_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SandboxScenario_orgId_repoFullName_authorLogin_key" ON "SandboxScenario"("orgId", "repoFullName", "authorLogin");
+
+-- CreateIndex
+CREATE INDEX "SandboxScenario_orgId_repoFullName_idx" ON "SandboxScenario"("orgId", "repoFullName");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

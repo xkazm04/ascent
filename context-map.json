@@ -1552,13 +1552,21 @@
             "src/components/report/roadmapPieces.tsx",
             "src/components/report/roadmapPriority.tsx",
             "src/components/report/RoadmapSandboxParts.dom.test.tsx",
-            "src/lib/db/scans-recommendations.test.ts"
+            "src/lib/db/scans-recommendations.test.ts",
+            "src/components/report/RoadmapSandboxScenario.tsx",
+            "src/components/report/RoadmapSandboxScenarioBar.tsx",
+            "src/components/report/RoadmapSandboxScenario.test.ts",
+            "src/lib/db/sandbox-scenario.ts",
+            "src/lib/db/sandbox-scenario.test.ts",
+            "src/lib/report/rec-identity.ts",
+            "src/app/api/report/sandbox-scenario/route.ts"
           ],
           "target": null,
           "apiRoutes": [
             "/api/recommendations",
             "/api/recommendations/[id]",
-            "/api/recommendations/[id]/events"
+            "/api/recommendations/[id]/events",
+            "/api/report/sandbox-scenario"
           ]
         },
         {

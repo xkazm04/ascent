@@ -339,6 +339,54 @@ Two rules keep this from becoming a silent memory hole:
 never look its keys up. It is an `OrgDecision` row purely so it flows through the one
 standing-decision path, rather than forking a second suppression list.
 
+### The Roadmap Sandbox remembers the plan
+
+The sandbox (`RoadmapSandbox.tsx`) recomputes a repo's projected score live in the browser from
+per-dimension slider overrides. Phase 1 (`sandbox-to-tracker-bridge`) let "Try it" **commit statuses**
+to the tracker. It did not save the *model*: the overrides were React state, so a reload erased the
+plan a team had just built, and the projected delta survived only as a rounded number inside an
+English event-trail note — a number nothing could ever read back or reconcile.
+
+A **`SandboxScenario`** row now holds the model whole: the per-dimension overrides, the roadmap items
+the scenario selected, the baseline it was modeled against (score, level, `scannedAt`), and
+`projectedScore` / `projectedLevel` / `projectedDelta` as **numbers**. One row per
+`(org, repo, author)` — saving replaces, so "Save this plan" always means *my current plan for this
+repo*, never an accumulating pile of unnamed snapshots.
+
+| Route | Method | Behavior |
+| --- | --- | --- |
+| `/api/report/sandbox-scenario?repo=` | `GET` | `{ scenario }` — the viewer's saved model, or `null`. |
+| `/api/report/sandbox-scenario?repo=` | `PUT` | Save/replace. Validates scores `0..100`, level ids, ISO baseline; unknown dimension ids are dropped. |
+| `/api/report/sandbox-scenario?repo=` | `DELETE` | Discard. |
+
+Gating mirrors `PATCH /api/recommendations/[id]`: org **access** (not merely read), and the shared
+`public` org — the anonymous scan funnel — is refused outright, so a visitor can't write planning
+state onto every public report. A `403`/`503` is terminal in the client, not an error to retry: the
+sandbox silently returns to the pure-modelling behavior it had before this existed.
+
+Three deliberate choices:
+
+- **Selections are `recommendationDecisionKey` identities**, the same cross-scan key the dismissal
+  decisions use (moved to the pure `src/lib/report/rec-identity.ts` so the browser can mint it without
+  importing the DB layer; `org-decisions.ts` re-exports it — one implementation, new home). Not
+  `dimension + title`, which a live-LLM rewording breaks; not scan-bound `Recommendation.id`s, which
+  die on the next scan.
+- **The projection is a column, not prose.** `projectedDelta` is derived server-side from the two
+  stored scores, never taken from the request, so it always agrees with its neighbours.
+- **The baseline is stored.** That is what makes projected-vs-actual answerable: once a scan *newer*
+  than the modeled one lands, the bar reads "projected +12 · actual +7", both measured over the same
+  baseline. Before that scan exists there is no `actual` at all — reporting "+0" against the very scan
+  you modeled would be a lie dressed as a measurement.
+
+The `GET` fires when the sandbox panel is **opened**, not on every report render — the report is the
+app's most-viewed surface and most views never open the sandbox. Restore is then one-shot *and*
+conditional on an untouched sandbox (`shouldRestore`): a user who drags a slider while the fetch is
+still in flight keeps their own model rather than having it overwritten by the late arrival. The "your
+saved plan is loaded" notice is *derived* (the live sliders still equal the saved ones), so it retires
+by itself the moment the user drags away.
+
+Non-goals, deliberately: multi-user shared scenarios, scenario naming/renaming, scenario comparison.
+
 ## Validation (`src/lib/report/validate.ts`)
 
 `parseScanReport()` is a hand-rolled guard (no runtime deps) over exactly the fields
@@ -460,6 +508,11 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/scoreWaterfallSegments.ts` | Floor-free waterfall segment layout + headroom. |
 | `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + caveat copy. |
 | `src/components/report/deltas.tsx` | `DeltaPill` / `DeltaTag` chips. |
+| `src/components/report/RoadmapSandbox.tsx` | The what-if orchestrator: sliders → live hero recompute. |
+| `src/components/report/RoadmapSandboxScenario.tsx` | The sandbox's durable half — scenario load/save/discard IO, the item identity key, and the guarded one-shot restore. |
+| `src/components/report/RoadmapSandboxScenarioBar.tsx` | The saved-plan bar: save/update/discard controls plus projected-vs-actual once a newer scan lands. |
+| `src/lib/db/sandbox-scenario.ts` | `SandboxScenario` read/write + the reconciliation against the next scan. |
+| `src/lib/report/rec-identity.ts` | `recommendationDecisionKey` — the one cross-scan recommendation identity, pure so both the browser and the decision store use it. |
 | `src/lib/report/compare.ts` | `diffScans()` pure diff engine. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |

@@ -340,6 +340,14 @@ export {
   type RecommendationDismissal,
 } from "@/lib/db/org-decisions";
 export {
+  getSandboxScenario,
+  saveSandboxScenario,
+  deleteSandboxScenario,
+  MAX_SCENARIO_ITEM_KEYS,
+  type SandboxScenarioRecord,
+  type SandboxScenarioInput,
+} from "@/lib/db/sandbox-scenario";
+export {
   getPersonalWatchlist,
   countPersonalWatched,
   isPersonalOrg,

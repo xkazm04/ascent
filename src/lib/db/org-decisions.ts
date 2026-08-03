@@ -22,8 +22,8 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, normalizeOrgSlug } from "@/lib/db/org-shared";
 import { createOrgMemory } from "@/lib/db/org-memory";
 import { recordAudit } from "@/lib/db/scans-audit";
-import { fnv1a, isFindingModule, type FindingModule } from "@/lib/org/findings";
-import { normalizeRecTitle } from "@/lib/report/compare";
+import { isFindingModule, type FindingModule } from "@/lib/org/findings";
+import { recommendationDecisionKey } from "@/lib/report/rec-identity";
 
 /**
  * A fifth decision surface that owns no derived Finding: a scan ROADMAP recommendation the team
@@ -45,15 +45,12 @@ export function isDecisionModule(v: string | null | undefined): v is DecisionMod
 /**
  * The cross-scan identity of a roadmap recommendation, as an OrgDecision itemKey.
  *
- * Prefixed with the repo's fullName so `decisionsForRepo`'s exact prefix match picks it up unchanged,
- * and hashed over `normalizeRecTitle` — THE SAME normalizer scan-persist carry-forward and the
- * "what changed" diff use — so a live-LLM rephrasing of case/punctuation/whitespace keeps the
- * dismissal attached to the gap it was made about. A materially reworded gap hashes differently and
- * is a NEW finding, which is correct: the reason was given about the old statement.
+ * Re-exported, not re-implemented: the derivation moved to the pure @/lib/report/rec-identity so the
+ * Roadmap Sandbox can compute the SAME key in the browser (a saved scenario stores the gaps it
+ * modeled and restores them by this identity) without importing this server module. Every existing
+ * `from "@/lib/db/org-decisions"` import site is unaffected.
  */
-export function recommendationDecisionKey(fullName: string, dimension: string, title: string): string {
-  return `${fullName}::rec:${dimension}:${fnv1a(normalizeRecTitle(title))}`;
-}
+export { recommendationDecisionKey };
 
 /** open = reopened / awaiting a call. The other three are resolutions. */
 export const DECISION_STATUSES = ["open", "accepted", "dismissed", "snoozed"] as const;
