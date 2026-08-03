@@ -8,26 +8,12 @@ import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/re
 import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
 import { StatusSelect, useSavingIds } from "@/components/org/shared/recStatusUi";
 import { Surface } from "@/components/ui";
-
-/** A per-row save failure: the change the user attempted, and whether it's recoverable. */
-interface RowError {
-  /** The status change that failed — re-applied by the Retry button. */
-  status: RecStatus;
-  /** "config" = persistence not available (503, retry won't help); "stale" = this page's scan has
-   *  been superseded by a newer one (retry would 409 forever — reload instead); "transient" = retryable. */
-  kind: "config" | "stale" | "transient";
-  message: string;
-}
-
-/** Small busy indicator for the row currently saving (frozen, not spinning, under reduced motion). */
-function RowSpinner() {
-  return (
-    <span
-      aria-hidden
-      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-600 border-t-accent motion-reduce:animate-none"
-    />
-  );
-}
+import {
+  DismissReasonPrompt,
+  RowErrorNotice,
+  RowSpinner,
+  type RowError,
+} from "@/components/report/recommendationRowUi";
 
 export function RecommendationTracker({
   items: initial,
@@ -46,6 +32,10 @@ export function RecommendationTracker({
   // Each row now owns its own role="status" region so overlapping saves are announced independently.
   const [announcements, setAnnouncements] = useState<Record<string, string>>({});
   const announce = (id: string, msg: string) => setAnnouncements((a) => ({ ...a, [id]: msg }));
+  // The row whose "dismissed" pick is waiting on a reason. A dismissal is the one moment a team
+  // volunteers the context the next scan lacks, so the PATCH is deferred until they answer (or
+  // explicitly skip) — see recommendationRowUi.DismissReasonPrompt.
+  const [pendingDismiss, setPendingDismiss] = useState<string | null>(null);
 
   // Repo ref for the concurrent-edit (409) refetch below — re-seeds a row from the server before Retry.
   const repoRef = `${report.repo.owner}/${report.repo.name}`;
@@ -98,7 +88,19 @@ export function RecommendationTracker({
     }
   }
 
-  async function setStatus(id: string, status: RecStatus) {
+  /** The <select>'s entry point. Every status but `dismissed` saves immediately; `dismissed` opens
+   *  the reason prompt first, because the reason is the whole value of the transition. */
+  function pickStatus(id: string, status: RecStatus) {
+    if (status === "dismissed") {
+      clearError(id);
+      setPendingDismiss(id);
+      return;
+    }
+    setPendingDismiss((cur) => (cur === id ? null : cur));
+    void setStatus(id, status);
+  }
+
+  async function setStatus(id: string, status: RecStatus, reason?: string) {
     // Re-entrancy guard: ignore a change fired while this row's save is still in flight. The status
     // <select> is no longer `disabled` during a save (disabling the focused control blurred it, dropping
     // keyboard/SR focus to <body> — roadmap-recommendation-tracking #2), so this guard is now what
@@ -119,7 +121,9 @@ export function RecommendationTracker({
       const res = await fetch(`/api/recommendations/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status }),
+        // The dismissal reason rides the existing `note` contract — the API turns it into a standing
+        // decision the next scan's prompt reads. Absent/empty ⇒ no note, and no suppression.
+        body: JSON.stringify(reason ? { status, note: reason } : { status }),
       });
       if (!res.ok) {
         // Distinguish "tracking simply isn't available" (503 — no DB) from a transient failure,
@@ -140,11 +144,11 @@ export function RecommendationTracker({
         if (res.status === 409 && (await refreshRow(id)) === "missing") {
           const staleMessage =
             "A newer scan has replaced this report — reload the page to pick up the latest recommendations.";
-          setError(id, { status, kind: "stale", message: staleMessage });
+          setError(id, { status, kind: "stale", message: staleMessage, reason });
           announce(id, `Couldn’t update “${title}”: ${staleMessage}`);
           return;
         }
-        setError(id, { status, kind, message });
+        setError(id, { status, kind, message, reason });
         announce(id, `Couldn’t update “${title}”: ${message}`);
         return;
       }
@@ -156,7 +160,7 @@ export function RecommendationTracker({
       announce(id, `“${title}” marked ${STATUS_LABEL[status]}.`);
     } catch {
       rollback();
-      setError(id, { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry." });
+      setError(id, { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry.", reason });
       announce(id, `Couldn’t update “${title}”: network error.`);
     } finally {
       setSaving(id, false);
@@ -230,7 +234,7 @@ export function RecommendationTracker({
                 <StatusSelect
                   value={item.status}
                   busy={saving}
-                  onChange={(status) => setStatus(item.id, status)}
+                  onChange={(status) => pickStatus(item.id, status)}
                   // A pick made WHILE this row is saving is dropped and the select snaps back with no
                   // visual cue (the spinner is aria-hidden) — announce the swallow through this row's
                   // live region so the user knows to re-pick once the save settles (#4 07-16).
@@ -244,37 +248,22 @@ export function RecommendationTracker({
             {item.rationale && <p className="mt-2 text-base leading-relaxed text-slate-400">{item.rationale}</p>}
             {!muted && <ExploreList items={item.explore} />}
             {!muted && <ExemplarPointer dim={item.dimension} />}
+            {pendingDismiss === item.id && (
+              <DismissReasonPrompt
+                onConfirm={(reason) => {
+                  setPendingDismiss(null);
+                  void setStatus(item.id, "dismissed", reason || undefined);
+                }}
+                onCancel={() => setPendingDismiss(null)}
+              />
+            )}
             {err && (
-              <div
-                role="alert"
-                className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                  err.kind !== "transient"
-                    ? "border-amber-500/30 bg-amber-500/5 text-amber-200/90"
-                    : "border-red-500/30 bg-red-500/5 text-red-200/90"
-                }`}
-              >
-                <span aria-hidden>{err.kind !== "transient" ? "ⓘ" : "⚠"}</span>
-                <span className="flex-1">{err.message}</span>
-                {err.kind === "transient" && (
-                  <button
-                    type="button"
-                    onClick={() => setStatus(item.id, err.status)}
-                    disabled={saving}
-                    className="rounded-md border border-red-500/40 px-2 py-0.5 font-medium text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
-                  >
-                    Retry
-                  </button>
-                )}
-                {err.kind !== "transient" && (
-                  <button
-                    type="button"
-                    onClick={() => clearError(item.id)}
-                    className="rounded-md border border-amber-500/40 px-2 py-0.5 font-medium text-amber-200 transition hover:bg-amber-500/10"
-                  >
-                    Dismiss
-                  </button>
-                )}
-              </div>
+              <RowErrorNotice
+                err={err}
+                saving={saving}
+                onRetry={() => setStatus(item.id, err.status, err.reason)}
+                onDismiss={() => clearError(item.id)}
+              />
             )}
           </div>
         );

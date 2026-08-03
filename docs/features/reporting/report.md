@@ -229,13 +229,47 @@ with a `status` ∈ `open | in_progress | done | dismissed`.
 | Route | Method | Behavior |
 | --- | --- | --- |
 | `/api/recommendations?repo=` | `GET` | `{ scanId, items[] }` for the repo's latest scan (503 without DB). |
-| `/api/recommendations/[id]` | `PATCH` | `{ status }` → updated item. Validates against `REC_STATUSES`; 404 if not found, 503 without DB. |
+| `/api/recommendations/[id]` | `PATCH` | `{ status?, assigneeLogin?, targetDate?, note? }` → updated item. Validates against `REC_STATUSES`; 404 if not found, 503 without DB. |
 
 `RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
 dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping saves each
 disable only their own row), rollback on failure, and an `aria-live` region announcing
 each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`
 (sorted impact↑/effort↓, quick wins first).
+
+### Dismissing a gap teaches the next scan
+
+Picking **Dismissed** does not fire the PATCH immediately. The row opens an inline prompt
+(`recommendationRowUi.tsx` → `DismissReasonPrompt`) asking *why*, because that reason is the one
+piece of context the assessment has no way to derive: "we build with Bazel, so this gap doesn't
+apply here."
+
+The reason travels as the PATCH's existing `note`. `/api/recommendations/[id]` then calls
+`recordRecommendationDismissal`, which writes an **`OrgDecision`** — the same store the org's
+security/teams/passport/contributor decisions live in — under the module `roadmap` and an itemKey of
+`${repoFullName}::rec:${dim}:${fnv1a(normalizeRecTitle(title))}`. The hash runs over
+`normalizeRecTitle`, the *same* normalizer scan-persist carry-forward uses, so a live-LLM rephrasing
+keeps the dismissal attached to its gap.
+
+From there the reason rides the path that already existed: `decisionsForRepo` picks it up by repo
+prefix and `prompt.ts`'s `decisionsBlock` renders it into the next scan's **STANDING DECISIONS**
+block (per-repo user message, never the cacheable SYSTEM prefix), which instructs the model not to
+re-raise a dismissed finding *"unless new evidence contradicts its stated reason"* — the escape
+hatch is deliberate, and the block is framed as calibration ("context you were missing, not a reason
+to raise the score") so a dismissal can't inflate a score.
+
+Two rules keep this from becoming a silent memory hole:
+
+- **A dismissal with no reason records nothing.** "Dismiss without a reason" is offered as an equal
+  button and still dismisses the item — it just writes no decision, so the gap is free to come back.
+  Silence must never become permanent suppression.
+- **Un-dismissing un-suppresses.** Moving the row to any other status calls
+  `clearRecommendationDismissal`, which flips the standing decision to `open` (so `isResolved`
+  excludes it and the prompt stops carrying it) without deleting the reason from the record.
+
+`roadmap` is *not* a `FindingModule`: `/api/org/decision` still refuses it and the org nav badges
+never look its keys up. It is an `OrgDecision` row purely so it flows through the one
+standing-decision path, rather than forking a second suppression list.
 
 ## Validation (`src/lib/report/validate.ts`)
 

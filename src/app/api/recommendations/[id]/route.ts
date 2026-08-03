@@ -12,7 +12,13 @@
 
 import { NextResponse } from "next/server";
 import { REC_NOTE_MAX_LENGTH, REC_STATUSES, type RecStatus } from "@/lib/types";
-import { getRecommendationOrgSlug, updateRecommendation, type RecommendationPatch } from "@/lib/db";
+import {
+  clearRecommendationDismissal,
+  getRecommendationOrgSlug,
+  recordRecommendationDismissal,
+  updateRecommendation,
+  type RecommendationPatch,
+} from "@/lib/db";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
@@ -130,6 +136,27 @@ export async function PATCH(
     // dedups on content — a retried PATCH or a double-click writes one row, not two.
     if (isClosedRecStatus(patch.status) && updated && isClosedRecStatus(updated.status)) {
       await recordRecommendationClose(id, { title: updated.title, dimension: updated.dimension });
+    }
+    // The dismissal counterpart. `done` feeds Shared Org Memory (above); `dismissed` feeds the
+    // STANDING DECISIONS block the next scan's prompt reads — so "we're not doing this, we're on
+    // Bazel" reaches the assessment instead of dying in this row's event timeline and the identical
+    // gap being re-raised. The reason is the patch's `note`; a dismissal without one records nothing
+    // (silence must never become permanent suppression). Moving OUT of dismissed reopens the standing
+    // decision, so an un-dismissed gap stops being suppressed. Both are never-throwing.
+    if (patch.status !== undefined && updated) {
+      if (updated.status === "dismissed") {
+        await recordRecommendationDismissal(
+          id,
+          { title: updated.title, dimension: updated.dimension, reason: note },
+          actorLogin,
+        );
+      } else {
+        await clearRecommendationDismissal(
+          id,
+          { title: updated.title, dimension: updated.dimension },
+          actorLogin,
+        );
+      }
     }
     return NextResponse.json(updated);
   } catch (err) {

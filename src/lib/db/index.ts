@@ -329,6 +329,15 @@ export {
 } from "@/lib/db/org-decisions";
 export { decisionsForRepo, type DecisionNote } from "@/lib/db/org-decisions";
 export {
+  ROADMAP_DECISION_MODULE,
+  isDecisionModule,
+  recommendationDecisionKey,
+  recordRecommendationDismissal,
+  clearRecommendationDismissal,
+  type DecisionModule,
+  type RecommendationDismissal,
+} from "@/lib/db/org-decisions";
+export {
   getPersonalWatchlist,
   countPersonalWatched,
   isPersonalOrg,

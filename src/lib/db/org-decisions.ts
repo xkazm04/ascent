@@ -22,7 +22,38 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, normalizeOrgSlug } from "@/lib/db/org-shared";
 import { createOrgMemory } from "@/lib/db/org-memory";
 import { recordAudit } from "@/lib/db/scans-audit";
-import { isFindingModule, type FindingModule } from "@/lib/org/findings";
+import { fnv1a, isFindingModule, type FindingModule } from "@/lib/org/findings";
+import { normalizeRecTitle } from "@/lib/report/compare";
+
+/**
+ * A fifth decision surface that owns no derived Finding: a scan ROADMAP recommendation the team
+ * dismissed. It is NOT a FindingModule — `/api/org/decision` still refuses it, and nav-counts never
+ * looks its keys up — but it IS an OrgDecision row, so it flows through the one `decisionsForRepo` →
+ * `decisionsBlock` path the scan prompt already reads. Extending that path (rather than forking a
+ * second standing-decision store) is the whole point: "we're not doing this, we're on Bazel" is the
+ * same species of context as "no CI because it's a docs-only mirror".
+ */
+export const ROADMAP_DECISION_MODULE = "roadmap";
+
+/** Every module an OrgDecision row may carry — the four derived-finding modules plus `roadmap`. */
+export type DecisionModule = FindingModule | typeof ROADMAP_DECISION_MODULE;
+
+export function isDecisionModule(v: string | null | undefined): v is DecisionModule {
+  return isFindingModule(v) || v === ROADMAP_DECISION_MODULE;
+}
+
+/**
+ * The cross-scan identity of a roadmap recommendation, as an OrgDecision itemKey.
+ *
+ * Prefixed with the repo's fullName so `decisionsForRepo`'s exact prefix match picks it up unchanged,
+ * and hashed over `normalizeRecTitle` — THE SAME normalizer scan-persist carry-forward and the
+ * "what changed" diff use — so a live-LLM rephrasing of case/punctuation/whitespace keeps the
+ * dismissal attached to the gap it was made about. A materially reworded gap hashes differently and
+ * is a NEW finding, which is correct: the reason was given about the old statement.
+ */
+export function recommendationDecisionKey(fullName: string, dimension: string, title: string): string {
+  return `${fullName}::rec:${dimension}:${fnv1a(normalizeRecTitle(title))}`;
+}
 
 /** open = reopened / awaiting a call. The other three are resolutions. */
 export const DECISION_STATUSES = ["open", "accepted", "dismissed", "snoozed"] as const;
@@ -52,7 +83,7 @@ export interface DecisionRow {
 }
 
 export interface DecideInput {
-  module: FindingModule;
+  module: DecisionModule;
   itemKey: string;
   status: DecisionStatus;
   /** Why. This is the payload agents actually learn from — empty is allowed but discouraged. */
@@ -63,7 +94,7 @@ export interface DecideInput {
 }
 
 /** Every decision an org has recorded. Sparse — typically far smaller than the finding set. */
-export async function listDecisions(orgSlug: string, module?: FindingModule): Promise<DecisionRow[] | null> {
+export async function listDecisions(orgSlug: string, module?: DecisionModule): Promise<DecisionRow[] | null> {
   if (!isDbConfigured()) return null;
   const org = await getOrgBySlug(orgSlug);
   if (!org) return [];
@@ -150,7 +181,7 @@ export async function decide(
   decidedBy: string | null,
 ): Promise<{ id: string; memoryId: string | null } | null> {
   if (!isDbConfigured()) return null;
-  if (!isFindingModule(input.module) || !isDecisionStatus(input.status)) return null;
+  if (!isDecisionModule(input.module) || !isDecisionStatus(input.status)) return null;
   const itemKey = input.itemKey.trim();
   if (!itemKey) return null;
 
@@ -201,4 +232,119 @@ export async function decide(
   );
 
   return { id: row.id, memoryId };
+}
+
+// ── Roadmap dismissals as standing decisions ────────────────────────────────────────────────────
+//
+// A team that dismisses a recommendation ("not doing this, we're on Bazel") is handing the platform
+// the single piece of context the next scan lacks. Until now that reasoning died in the row's private
+// event timeline and the identical gap came back on the next scan. These two adapters route it into
+// the EXISTING OrgDecision store, which `decisionsForRepo` already reads and `decisionsBlock` already
+// renders — no second suppression list, and the prompt's calibration framing ("context you were
+// missing, not a reason to raise the score"; "unless new evidence contradicts its stated reason")
+// applies unchanged.
+
+export interface RecommendationDismissal {
+  title: string;
+  dimension: string;
+  /**
+   * WHY the team dismissed it. **Empty/absent records NOTHING.** A dismissal with no reason must not
+   * become a permanent suppression: `decisionsForRepo` already drops rationale-less rows from the
+   * prompt, and not writing one at all keeps the decisions surface honest too. The team can dismiss
+   * silently; they just don't get to silence the next scan by doing so.
+   */
+  reason?: string | null;
+}
+
+/** Recommendation → Scan → Repository → Organization, the same chain the audit scope resolves. */
+async function recommendationRepoScope(
+  recommendationId: string,
+): Promise<{ orgSlug: string; fullName: string } | null> {
+  const row = await getPrisma().recommendation.findUnique({
+    where: { id: recommendationId },
+    select: { scan: { select: { repo: { select: { fullName: true, org: { select: { slug: true } } } } } } },
+  });
+  const repo = row?.scan?.repo;
+  if (!repo?.fullName || !repo.org?.slug) return null;
+  return { orgSlug: repo.org.slug, fullName: repo.fullName };
+}
+
+/**
+ * Persist a dismissal reason as a standing decision scoped to (org, repo, this gap). Never throws —
+ * a decision write is an enrichment on a PATCH that already committed, exactly like the memory feed.
+ * Returns null when there is nothing to record (no reason, DB off, unresolvable repo).
+ */
+export async function recordRecommendationDismissal(
+  recommendationId: string,
+  input: RecommendationDismissal,
+  decidedBy: string | null = null,
+): Promise<{ id: string; memoryId: string | null } | null> {
+  if (!isDbConfigured()) return null;
+  const reason = input.reason?.trim();
+  if (!reason) return null; // see RecommendationDismissal.reason — silence is not suppression
+  try {
+    const scope = await recommendationRepoScope(recommendationId);
+    if (!scope) return null;
+    return await decide(
+      scope.orgSlug,
+      {
+        module: ROADMAP_DECISION_MODULE,
+        itemKey: recommendationDecisionKey(scope.fullName, input.dimension, input.title),
+        status: "dismissed",
+        rationale: reason,
+        title: `${input.title.trim()} (${input.dimension})`,
+      },
+      decidedBy,
+    );
+  } catch (err) {
+    console.warn(
+      "[org-decisions] roadmap dismissal decision failed (API call unaffected)",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+/**
+ * Un-dismissing must un-suppress. Reopening the recommendation flips its standing decision back to
+ * `open` (which `isResolved` excludes, so `decisionsForRepo` stops sending it) rather than deleting
+ * the row — the reason stays on the record, it just no longer speaks for the team. A no-op when the
+ * gap was never dismissed with a reason: `decide` UPSERTs, so blindly calling it would manufacture an
+ * "open" decision for a gap nobody ever judged.
+ */
+export async function clearRecommendationDismissal(
+  recommendationId: string,
+  input: Pick<RecommendationDismissal, "title" | "dimension">,
+  decidedBy: string | null = null,
+): Promise<{ id: string; memoryId: string | null } | null> {
+  if (!isDbConfigured()) return null;
+  try {
+    const scope = await recommendationRepoScope(recommendationId);
+    if (!scope) return null;
+    const itemKey = recommendationDecisionKey(scope.fullName, input.dimension, input.title);
+    const org = await getOrgBySlug(normalizeOrgSlug(scope.orgSlug));
+    if (!org) return null;
+    const existing = await getPrisma().orgDecision.findUnique({
+      where: { orgId_module_itemKey: { orgId: org.id, module: ROADMAP_DECISION_MODULE, itemKey } },
+      select: { rationale: true, title: true, status: true },
+    });
+    if (!existing || existing.status === "open") return null;
+    return await decide(
+      scope.orgSlug,
+      {
+        module: ROADMAP_DECISION_MODULE,
+        itemKey,
+        status: "open",
+        rationale: existing.rationale,
+        title: existing.title,
+      },
+      decidedBy,
+    );
+  } catch (err) {
+    console.warn(
+      "[org-decisions] roadmap dismissal reopen failed (API call unaffected)",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
 }

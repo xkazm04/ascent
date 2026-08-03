@@ -170,3 +170,88 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     expect(h3).toHaveClass("break-words");
   });
 });
+
+// Direction 1 (dismissal becomes evidence): dismissing is the one moment a team volunteers the
+// context the next scan lacks, so the pick opens an inline reason prompt instead of firing the PATCH
+// immediately. The reason rides the existing `note` contract. Skipping stays a first-class choice —
+// and a skipped reason must send NO note, because a reason-less dismissal must never become a
+// permanent suppression server-side.
+describe("RecommendationTracker dismissal reason", () => {
+  const okFetch = () =>
+    vi.fn(async () => new Response(JSON.stringify({ status: "dismissed" }), { status: 200 }));
+
+  function body(fetchMock: ReturnType<typeof okFetch>) {
+    const call = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "PATCH");
+    return call ? (JSON.parse((call[1] as RequestInit).body as string) as Record<string, unknown>) : null;
+  }
+
+  it("asks why before saving — no PATCH is sent on the pick alone", () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), {
+      target: { value: "dismissed" },
+    });
+
+    expect(screen.getByLabelText("Why is this gap not for you?")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the reason as the note so it becomes a standing decision the next scan reads", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), {
+      target: { value: "dismissed" },
+    });
+    fireEvent.change(screen.getByLabelText("Why is this gap not for you?"), {
+      target: { value: "  We build with Bazel.  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss with this reason" }));
+
+    await screen.findByRole("combobox", { name: "Recommendation status" });
+    expect(body(fetchMock)).toEqual({ status: "dismissed", note: "We build with Bazel." });
+  });
+
+  it("skipping the reason still dismisses, but sends NO note (silence is not suppression)", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), {
+      target: { value: "dismissed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss without a reason" }));
+
+    await screen.findByRole("combobox", { name: "Recommendation status" });
+    expect(body(fetchMock)).toEqual({ status: "dismissed" });
+  });
+
+  it("cancelling closes the prompt and sends nothing", () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), {
+      target: { value: "dismissed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByLabelText("Why is this gap not for you?")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a non-dismissed pick still saves straight away", () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), {
+      target: { value: "done" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Why is this gap not for you?")).not.toBeInTheDocument();
+  });
+});
