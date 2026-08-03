@@ -28,6 +28,25 @@ The same nav definition renders a filtered subset for a PERSONAL workspace
 (`Organization.kind === "personal"`) — only Overview, Security, Backlog, Skills and Memory,
 since fleet aggregation/attribution surfaces need a real org's breadth.
 
+**Getting there (2026-08-03).** The personal workspace's front door is `/me`
+(`src/app/me/page.tsx`), which resolves the signed-in login and redirects to `/org/{login}` — an
+`Organization` with `kind: "personal"`, auto-claimed on first visit by the identity-bound
+personal-namespace seed in `src/lib/authz.ts` (login === slug, so nobody can claim a victim's
+namespace). A viewer with **no** organization is coherent by construction: the claim creates their own
+workspace, and the org layout renders a zero-repo personal org's shell — its add-repo form *is* the
+empty state — instead of the "no data for this org" wall a real org would hit.
+
+`/me` is now reachable from **every** page: the header's signed-in identity
+(`IdentityLink` in `src/components/Brand.tsx`, rendered by `HeaderAccount`, which both `SiteHeader`
+and `OrgHeader` mount) links to it. Previously it did not: under the ACTIVE Supabase login the
+identity was an unlinked `<span>`, and only the DORMANT custom-OAuth branch linked it — to `/connect`,
+the GitHub-App install flow, which is not a workspace. The two branches now share ONE `IdentityLink`
+with one destination rather than a second, differently-behaving link being added beside the dead one.
+`/me` resolves identity with `resolveViewerLogin` (custom-OAuth session › Supabase/dev viewer), the
+same cross-stack precedence the org layout uses, so the link works from whichever stack rendered it;
+under the Supabase wall `getSession()` is null and this collapses to the viewer, unchanged. Pinned by
+`src/components/Brand.test.tsx` and `src/app/me/page.test.ts`.
+
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
 | Overview | Overview | `org/[slug]` (`?tab=overview`) | `src/components/org/overview/` | Four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |

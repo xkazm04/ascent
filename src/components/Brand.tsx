@@ -15,12 +15,50 @@ import { scoreHex } from "@/lib/ui";
 export { Logo };
 
 /**
+ * The signed-in identity, as the app's ONE persistent door to the personal workspace.
+ *
+ * The individual tier works end to end — `/me` resolves the viewer and lands on `/org/{login}`, a
+ * `kind: "personal"` org whose namespace is identity-bound (login === slug, so nobody can claim
+ * someone else's), the org shell renders it even at zero repos, and the nav is filtered to
+ * `PERSONAL_TAB_IDS`. It just had no front door: under the ACTIVE Supabase login the identity was a
+ * plain `<span>` linking nowhere, and only the DORMANT custom-OAuth branch linked it — to `/connect`,
+ * which is the GitHub-App install flow, not a workspace. So an individual's only routes in were two
+ * incidental CTAs (the onboarding gate, the report conversion card).
+ *
+ * One component for both branches rather than a second, differently-behaving identity link beside the
+ * existing one: that inconsistency is what this resolves, so duplicating it would be the wrong fix.
+ * `/me` itself resolves the login across BOTH identity stacks (resolveViewerLogin), which is why the
+ * href needs no branch here.
+ *
+ * Rendered inside HeaderAccount, which both SiteHeader and OrgHeader mount — so the path is present on
+ * every marketing page AND every dashboard tab, which is what "persistent" has to mean.
+ */
+function IdentityLink({ login, image }: { login: string; image?: string | null }) {
+  return (
+    <Link
+      href="/me"
+      className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white"
+      title="Your personal workspace"
+    >
+      {image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
+      )}
+      <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">{login}</span>
+    </Link>
+  );
+}
+
+/**
  * The account cluster shared by both headers: org switcher (when the viewer has installations) + the
  * signed-in identity + sign out, or the sign-in / get-started affordance. Extracted so the marketing
  * SiteHeader and the dashboard OrgHeader render the SAME auth chrome without duplicating the
  * Supabase-vs-custom-OAuth branching.
  */
-async function HeaderAccount() {
+// Exported for Brand.test.tsx: the "a signed-in viewer always has a door to /me" contract is a
+// property of THIS cluster (both auth branches), and SiteHeader/OrgHeader render it as an async child
+// that a test renderer cannot resolve through them.
+export async function HeaderAccount() {
   const session = await getSession();
   const authOn = isAuthConfigured();
   // Supabase is the active login when configured; when it isn't, the header falls back to the
@@ -36,15 +74,7 @@ async function HeaderAccount() {
   if (supaOn) {
     return viewer ? (
       <span className="flex items-center gap-3">
-        <span className="flex items-center gap-2 text-slate-200">
-          {viewer.avatar && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={viewer.avatar} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
-          )}
-          <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">
-            {viewer.login}
-          </span>
-        </span>
+        <IdentityLink login={viewer.login} image={viewer.avatar} />
         <SignOutButton />
       </span>
     ) : (
@@ -55,13 +85,10 @@ async function HeaderAccount() {
     return (
       <span className="flex items-center gap-3">
         {showSwitcher && <OrgSwitcher orgs={orgOptions} active={activeOrg} />}
-        <Link href="/connect" className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white">
-          {session.image && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={session.image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
-          )}
-          <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">{session.login}</span>
-        </Link>
+        {/* Was a link to /connect — the GitHub-App install flow, not an identity destination. Same
+            IdentityLink as the Supabase branch above, so the two can't say different things about
+            what clicking your own name does. */}
+        <IdentityLink login={session.login} image={session.image} />
         <form action="/api/auth/logout" method="post" className="contents">
           <button type="submit" className="focus-ring rounded-sm hover:text-white">
             Sign out
