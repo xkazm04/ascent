@@ -5,6 +5,9 @@ import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { SectionEmpty, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { getContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { resolveOrgWindow } from "@/lib/org/period";
+import { orgTabHref } from "@/lib/org/orgTabs";
+import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
 import { scoreHex } from "@/lib/ui";
 import { decisionMap } from "@/lib/org/decision-map";
 import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
@@ -21,7 +24,12 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
   const hasFilters = segments.length > 0 || techGroups.length > 0;
   const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
 
-  const [insights, decisions] = await Promise.all([
+  // `period` is resolved ONLY to name it in the notice below. RepoContributor stores cumulative
+  // per-(repo, login) commit totals captured at scan time — there is no dated commit history to
+  // re-aggregate, so getContributorInsights takes no window and accepting one would be a lie in the
+  // signature as well as the UI. See SnapshotScopeNotice for the full argument.
+  const [period, insights, decisions] = await Promise.all([
+    resolveOrgWindow(sp),
     getContributorInsights(slug, segmentId, techGroupId),
     decisionMap(slug, "contributors"),
   ]);
@@ -42,6 +50,17 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
           learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
         </p>
         {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
+      </div>
+
+      {/* Above the tiles, not under them: the period the user picked on another tab follows them here
+          via the cookie, and nothing below honours it. */}
+      <div className="mt-6">
+        <SnapshotScopeNotice
+          period={period}
+          subject="contributor"
+          scopedHref={orgTabHref(slug, "teams")}
+          scopedLabel="Teams"
+        />
       </div>
 
       {/* Summary tiles — each deep-links to its evidence section (the Teams tab's tile pattern),
@@ -93,7 +112,9 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
         </p>
       )}
       <p className="mt-4 font-mono text-sm text-slate-600">
-        Metrics reflect the recent-activity commit window captured at scan time. For team-level rollups, see the{" "}
+        {/* The scan-time framing leads the panel now (SnapshotScopeNotice); this keeps only the
+            pointers it uniquely carries. */}
+        For team-level rollups, see the{" "}
         <span className="text-slate-500">Teams</span> tab (CODEOWNERS attribution). Per-person trend over time,
         “who introduced CLAUDE.md/evals”, and GitHub Teams (GraphQL) attribution are still on the roadmap.
       </p>

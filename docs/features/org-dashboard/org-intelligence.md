@@ -186,6 +186,35 @@ inside the window on one surface and outside it on another, and a backlog item c
 `parseDayKey`, `daysBetweenDayKeys`. Pure and isomorphic (no `next/headers`, no I/O), so
 `src/lib/window.ts` — which the client `TimeRangeSelector` also imports — can depend on it.
 
+### Which tabs the period actually governs (2026-08-03)
+
+The period is **cross-tab state**: `resolveOrgWindow` layers `?range=` over the `ascent_period`
+cookie, so a window chosen on Overview follows the user onto every other tab. Two tabs cannot
+honour it, and that is now **disclosed on the tab instead of being silently true**.
+
+| Tab | Period-scoped? |
+| --- | --- |
+| Overview · Delivery · Briefing · Security · Teams | **Yes** — all resolve `resolveOrgWindow(sp)` and pass the window into their queries. |
+| Repositories · Tech Stacks · Passports | **No, by design** — latest-snapshot catalogs. They present no aggregate a range could re-cut. |
+| **Adoption · Contributors** | **No — and they say so.** |
+
+**Why they can't be scoped, and why threading a window would be a fake fix.**
+`RepoContributor` (`prisma/schema.prisma`) is uniquely keyed `(repoId, login)` and upserted each
+scan: it holds *cumulative* `commits` / `aiCommits` totals plus one `lastActiveAt`, with no dated
+commit history. `Scan.prStats` is likewise a pre-computed JSON aggregate read off each repo's
+**latest** scan (`getOrgPrSignals`). Neither can answer "commits in the last 30 days" at any cost.
+Adding a `window` parameter to `getContributorInsights` / `buildAdoptionOverview` would produce a
+signature that accepts a range and ignores it — worse than today, because the lie would then be in
+the code as well as on screen.
+
+**The contract is disclosure.** `SnapshotScopeNotice`
+(`src/components/org/shared/SnapshotScopeNotice.tsx`) renders **above the tiles** on both panels:
+it names the range the user has selected, draws it as a visibly **inert** chip (struck through,
+`aria-disabled` — the period is acknowledged, never implied to be in force), states that the figures
+are a scan-time snapshot, and links to a tab that *does* honour the period. The old footnotes that
+buried this under the numbers were trimmed to the mechanics they uniquely explain. Pinned by
+`SnapshotScopeNotice.test.tsx`.
+
 **Bucket labels state their maths.** The backlog's due buckets are *rolling* days, not
 calendar periods: labels are interpolated from `DUE_SOON_DAYS` (7) and `DUE_MONTH_DAYS` (31)
 in `src/components/org/shared/backlogShared.ts`, so "Due within 31 days" can never drift
