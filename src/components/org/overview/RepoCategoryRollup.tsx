@@ -60,7 +60,9 @@ export function RepoCategoryRollup({
   const levelOpts: FilterOption[] = levelsPresent(trajectories).map((l) => ({ value: l, label: l, leading: levelGlyph(l) }));
 
   const filtered = applyFilters(trajectories, filters);
-  const groups = buildGroups(mode, filtered).sort((a, b) => agg(b.rows).avg - agg(a.rows).avg);
+  // Strongest cohort first. A group with no live-scored repo has NO average (see agg) — it sorts to
+  // the end rather than being coerced to 0, which would rank an unmeasured cohort as the worst one.
+  const groups = buildGroups(mode, filtered).sort((a, b) => (agg(b.rows).avg ?? -1) - (agg(a.rows).avg ?? -1));
   const active = filtersActive(filters);
   const fleet = summarize(filtered);
 
@@ -100,8 +102,27 @@ export function RepoCategoryRollup({
         <span className="text-slate-500">
           <span className="tabular-nums text-slate-200">{fleet.repos}</span> repos
         </span>
-        <span className="text-slate-500">
-          avg <span className="font-bold tabular-nums" style={{ color: scoreHex(fleet.avgOverall) }}>{fleet.avgOverall}</span>
+        {/* The average is over the LIVE-scored repos only. A deterministic-mock score is a floor the
+            scanner emits without calling a model; folding it into the headline made the fleet's
+            grade partly a placeholder while the only disclosure was a separate "N mock" chip beside
+            it. Same precedent as avgMove, which has always excluded engine-transition deltas.
+            All-mock (or filtered-to-nothing-live) sets land on the "—" no-score rendering — never a
+            0 in scoreHex(0) alarm-red, which reads as a catastrophic grade rather than "not
+            measured". The tooltip names the denominator so the number travels with its population. */}
+        <span
+          className="text-slate-500"
+          title={
+            fleet.avgOverall == null
+              ? `No live-scored repositories in this set${fleet.mock > 0 ? ` — all ${fleet.mock} carry a deterministic mock score` : ""}`
+              : `Average over the ${fleet.realScored} live-scored repo${fleet.realScored === 1 ? "" : "s"}${fleet.mock > 0 ? ` · ${fleet.mock} mock placeholder${fleet.mock === 1 ? "" : "s"} excluded` : ""}`
+          }
+        >
+          avg{" "}
+          {fleet.avgOverall == null ? (
+            <span className="text-slate-600">—</span>
+          ) : (
+            <span className="font-bold tabular-nums" style={{ color: scoreHex(fleet.avgOverall) }}>{fleet.avgOverall}</span>
+          )}
         </span>
         {/* Counts wear the canonical DIRECTION_TONE pair (the same source as the per-row deltas they
             summarize) — never hand-picked hexes, per repoTrajectory's module rule. */}
@@ -117,8 +138,8 @@ export function RepoCategoryRollup({
           )}
         </span>
         {fleet.mock > 0 && (
-          <span className="text-slate-500" title="repositories still showing a deterministic mock score — re-scan live to replace">
-            <span className="tabular-nums text-slate-400">{fleet.mock}</span> mock
+          <span className="text-slate-500" title="repositories still showing a deterministic mock score — excluded from the average above; re-scan live to replace">
+            <span className="tabular-nums text-slate-400">{fleet.mock}</span> mock (excluded from avg)
           </span>
         )}
       </div>

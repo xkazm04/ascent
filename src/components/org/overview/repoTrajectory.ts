@@ -176,9 +176,34 @@ export function avgRealMove(rows: RepoTrajectory[]): number | null {
   return moved.length ? Math.round(moved.reduce((a, r) => a + (r.deltaWindow ?? 0), 0) / moved.length) : null;
 }
 
+/** Repos whose CURRENT score is a real graded model result, not the deterministic mock floor. The
+ *  honest denominator for any AVERAGE SCORE — the score twin of `movedRepos` for average movement.
+ *  A mock score is a placeholder the scanner emits without a model; averaging it in reports a
+ *  measurement over a set that was partly never measured. */
+export function realScoredRepos(rows: RepoTrajectory[]): RepoTrajectory[] {
+  return rows.filter((r) => !isMockEngine(r.engine));
+}
+
+/**
+ * Average maturity over the LIVE-scored repos; null when none of them is live-scored.
+ *
+ * Null, never 0 — the same contract `avgRealMove` already holds. `Math.round(0/0)` is NaN and a
+ * `xs.length ? … : 0` guard would hand back a 0 that renders in alarm-red as a catastrophic fleet
+ * grade. "We have no measured score for this set" is a different statement from "this set scores 0",
+ * and only the caller's no-score rendering can say it.
+ */
+export function avgRealScore(rows: RepoTrajectory[]): number | null {
+  const real = realScoredRepos(rows);
+  return real.length ? Math.round(real.reduce((a, r) => a + r.overall, 0) / real.length) : null;
+}
+
 export interface FleetSummary {
   repos: number;
-  avgOverall: number;
+  /** Average maturity over the LIVE-scored repos only; null when the set has none (all-mock, or
+   *  filtered to nothing). Mock placeholders are excluded, matching `avgMove` — see avgRealScore. */
+  avgOverall: number | null;
+  /** The denominator behind `avgOverall` — how many of `repos` carry a real graded score. */
+  realScored: number;
   /** repos with real (non-engine-transition) movement — the movement denominator. */
   moved: number;
   improving: number;
@@ -193,10 +218,10 @@ export function summarize(rows: RepoTrajectory[]): FleetSummary {
   const moved = movedRepos(rows);
   const improving = moved.filter((r) => r.tone === "rising").length;
   const slipping = moved.filter((r) => r.tone === "falling").length;
-  const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
   return {
     repos: rows.length,
-    avgOverall: avg(rows.map((r) => r.overall)),
+    avgOverall: avgRealScore(rows),
+    realScored: realScoredRepos(rows).length,
     moved: moved.length,
     improving,
     slipping,

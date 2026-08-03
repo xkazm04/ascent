@@ -12,6 +12,8 @@ import {
   levelsPresent,
   rolesOf,
   avgRealMove,
+  avgRealScore,
+  realScoredRepos,
   POSTURE_DOT,
   POSTURE_DOT_FALLBACK,
   STACK_ROLE_LABEL,
@@ -65,9 +67,17 @@ export function buildGroups(mode: Mode, rows: RepoTrajectory[]): Group[] {
   }));
 }
 
+/**
+ * A group's two aggregates, both computed over the honest population rather than every row:
+ *  - `avg` excludes deterministic-mock placeholders (avgRealScore) — a mock score is a floor the
+ *    scanner emits without ever calling a model, so averaging it in reports a measurement over a set
+ *    that was partly never measured. Null when the group has no live-scored repo at all.
+ *  - `net` excludes engine-transition (mock → live) deltas — those reflect a scoring-engine switch,
+ *    not real movement — so a cohort's "avg move" reads as genuine code-change momentum.
+ *
+ * `realScored` is `avg`'s denominator, so the renderer can disclose what the number was measured
+ * over instead of leaving the mock count as a chip beside a contaminated figure.
+ */
 export function agg(rows: RepoTrajectory[]) {
-  const avg = Math.round(rows.reduce((a, r) => a + r.overall, 0) / rows.length);
-  // Net move excludes engine-transition (mock → live) deltas — those reflect a scoring-engine switch,
-  // not real movement — so a cohort's "avg move" reads as genuine code-change momentum.
-  return { avg, net: avgRealMove(rows) };
+  return { avg: avgRealScore(rows), realScored: realScoredRepos(rows).length, net: avgRealMove(rows) };
 }

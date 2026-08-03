@@ -443,6 +443,21 @@ lives in metrics; folding log events into usage is a later step.
 | `src/app/api/recommendations/[id]` | `PATCH` (status / `assigneeLogin` / `targetDate`, recording a `RecommendationEvent` attributed to the signed-in user) · `[id]/events` `GET` → the item's activity timeline. |
 | `src/app/api/audit/route.ts` | Audit query endpoint. |
 
+## Mock scores never enter an average (2026-08-03)
+
+A scan run without a model produces a **deterministic mock** score (`engine: "mock"`) — a
+placeholder floor, not a grade. Anywhere the Overview presents a figure as a *measurement*, mock
+rows are excluded from it:
+
+| Figure | Rule |
+| --- | --- |
+| Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none — the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
+| Fleet + per-group `avg move` (`avgRealMove`) | Excludes single-scan repos and **engine-transition** deltas, so a mock→live re-scan cannot fake improvement. Pre-existing; the score average now matches its precedent. |
+| Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |
+
+Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. Pinned by
+`src/components/org/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
+
 ## Known gaps
 
 - **The Overview shows standing, not a punch list.** It renders where the fleet stands and how its
