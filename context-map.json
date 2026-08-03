@@ -364,7 +364,8 @@
             "src/components/StaticNav.tsx",
             "src/components/ui/RouteError.dom.test.tsx",
             "src/lib/og/og-brand.tsx",
-            "src/components/TokenNotice.tsx"
+            "src/components/TokenNotice.tsx",
+            "src/components/Brand.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -667,7 +668,11 @@
             "src/lib/window.test.ts",
             "src/lib/db/org-settings.test.ts",
             "src/lib/db/org-window.test.ts",
-            "src/lib/db/tech-groups-summaries.test.ts"
+            "src/lib/db/tech-groups-summaries.test.ts",
+            "src/lib/db/org-decisions-roadmap.test.ts",
+            "src/lib/db/org-insights-backlog-queries.test.ts",
+            "src/lib/db/org-passport-blockers.test.ts",
+            "src/lib/db/scans-orphans.test.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -1078,11 +1083,8 @@
             "src/app/api/org/repo-dimension/route.ts",
             "src/app/org/[slug]/loading.tsx",
             "src/components/org/overview/FilterMenu.tsx",
-            "src/components/org/overview/fixFirst.test.ts",
-            "src/components/org/overview/fixFirst.ts",
             "src/components/org/overview/orgIcons.tsx",
             "src/components/org/overview/OrgScoreBadges.tsx",
-            "src/components/org/overview/OverviewFixFirst.tsx",
             "src/components/org/overview/PeriodSummary.test.ts",
             "src/components/org/overview/PostureDimensionsPanel.tsx",
             "src/components/org/overview/RepoCategoryRollup.tsx",
@@ -1108,7 +1110,13 @@
             "src/components/org/shell/OrgTabGap.tsx",
             "src/components/org/shell/OrgTabNav.tsx",
             "src/lib/org/orgTabs.test.ts",
-            "src/lib/org/orgTabs.ts"
+            "src/lib/org/orgTabs.ts",
+            "src/app/me/page.test.ts",
+            "src/components/org/overview/fleetAverages.test.ts",
+            "src/components/org/overview/overviewStanding.test.ts",
+            "src/components/org/overview/overviewStanding.ts",
+            "src/components/org/shared/SnapshotScopeNotice.tsx",
+            "src/components/org/shared/SnapshotScopeNotice.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -1473,7 +1481,8 @@
             "src/lib/org/playbook-apply.ts",
             "src/lib/org/skill-outcomes-load.test.ts",
             "src/lib/org/timezone.test.ts",
-            "src/lib/org/timezone.ts"
+            "src/lib/org/timezone.ts",
+            "src/lib/org/nav-counts.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1559,7 +1568,12 @@
             "src/lib/db/sandbox-scenario.ts",
             "src/lib/db/sandbox-scenario.test.ts",
             "src/lib/report/rec-identity.ts",
-            "src/app/api/report/sandbox-scenario/route.ts"
+            "src/app/api/report/sandbox-scenario/route.ts",
+            "src/app/api/recommendations/orphans/route.ts",
+            "src/components/report/OrphanedTracking.tsx",
+            "src/components/report/OrphanedTracking.dom.test.tsx",
+            "src/components/report/recommendationRowUi.tsx",
+            "src/components/report/RecommendationTrackerLifecycle.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
