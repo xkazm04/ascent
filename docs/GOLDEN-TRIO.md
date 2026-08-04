@@ -1,5 +1,10 @@
 # The Golden Trio — ascent's three monetizable strengths
 
+> **Status (2026-08-04 launch decision):** T1 (evidence ledger) and T2 (`.ai` standard + doctor +
+> fleet remediation) are **roadmap — not shipped**. The first market release positions on the
+> shipped trio: guardbanded evidence-backed briefing, deterministic CI gate, and org fleet
+> intelligence. This doc remains the strategy synthesis, not a description of the live product.
+
 _2026-07-28. Synthesis of: the `tiger/` vault (LLM-engine certification, 1 L1 run + 1 live benchmark), the
 49-context codebase map, `docs/` (PRD · VALUE-CASE · ENTERPRISE · ORG-INTELLIGENCE · MATURITY_MODEL ·
 AI_MANIFEST_SPEC · BILLING), and three parallel market sweeps (AI-native maturity assessment · AI ROI &
