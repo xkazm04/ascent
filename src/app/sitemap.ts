@@ -8,10 +8,11 @@ import { publicBaseUrl } from "@/lib/site";
 // SHELL-5: the badge generator, pricing, trends and usage are public, indexable marketing routes that
 // were missing — a crawler reached them only by following links.
 //
-// SEO #1: /connect and /onboarding are intentionally DISALLOWED in robots.ts (private per-user funnels
+// SEO #1: /connect and /launch are intentionally DISALLOWED in robots.ts (private per-user funnels
 // with no indexable content), so they must NOT appear here — advertising a robots-blocked URL produces
 // "Submitted URL blocked by robots.txt" warnings in Search Console. The two SEO contracts must stay
-// disjoint; seo.test.ts now asserts that invariant.
+// disjoint; seo.test.ts asserts that invariant. /onboarding used to sit on the disallow side, but it
+// is the guided entry funnel with real explanatory content, so it is now indexable + enumerated here.
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = publicBaseUrl();
   if (!base) return [];
@@ -31,6 +32,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/badge", priority: 0.5 },
     { path: "/trends", priority: 0.5 },
     { path: "/usage", priority: 0.5 },
+    // Guided onboarding entry — public explanatory funnel, no longer robots-blocked (see SEO #1 above).
+    { path: "/onboarding", priority: 0.5 },
+    // Legal pages — low priority, but enumerated so crawlers (and reviewers) find them directly.
+    { path: "/privacy", priority: 0.3 },
+    { path: "/terms", priority: 0.3 },
   ];
   return routes.map(({ path, priority }) => ({
     url: `${base}${path}`,

@@ -218,7 +218,7 @@ attributed to the installing org and counted as billable in [`/usage`](./src/app
 ```
 src/
   app/
-    page.tsx                          landing (scan box, ladder, dimensions, pricing)
+    page.tsx                          landing (scroll-snap deck: hero/scan, org, fleet, register, levels, dimensions)
     report/…                          report view, permalink, compare
     trends/ · usage/ · connect/       history, metering, App install
     onboarding/ · launch/             org onboarding + fleet star-map
@@ -247,9 +247,11 @@ Phase 2 shipped: DSQL-safe persistence · history + dimension trends · org inte
 (rollups, forecast, gap analysis, contributors, delivery, practices, planning, audit) ·
 GitHub App (private repos, PR auto-gate, push re-scans) · usage metering · regression
 alerts · Bedrock enterprise inference · optional GitHub OAuth.
-Next: a live **Aurora DSQL** cluster (IAM-token auth), enforced **multi-user org roles**,
-**Stripe** billing on the existing usage meter, and **PDF/report export**.
-See [`docs/archive/2026-hackathon/PLAN.md`](./docs/archive/2026-hackathon/PLAN.md).
+Since shipped: enforced **org roles (RBAC)**, **Polar billing** + prepaid scan credits on the usage
+meter, and **PDF report export**.
+Next: a live **Aurora DSQL** cluster (IAM-token auth) and the T1/T2 tracks in
+[`docs/GOLDEN-TRIO.md`](./docs/GOLDEN-TRIO.md) (evidence ledger, `.ai` standard + fleet remediation).
+Hackathon-era plan: [`docs/archive/2026-hackathon/PLAN.md`](./docs/archive/2026-hackathon/PLAN.md).
 
 ## Deploying
 
@@ -266,6 +268,24 @@ Ascent targets **Vercel**. Production requirements:
   first built with `db push` needs a one-time `prisma migrate resolve --applied 0_init`.
 - **Autoscans:** set `CRON_SECRET` (the cron routes fail closed without it) and configure the GitHub
   App. Verify readiness at `GET /api/health` → `autoscan.ready`.
+
+### Deploy & rollback
+
+- **Deploys:** the Vercel Git integration owns deploys — every push to `master` builds and promotes
+  to production. There is no manual deploy step.
+- **Canonical prod host:** `https://ascent-red.vercel.app` (also the value of `ASCENT_PUBLIC_URL`).
+- **Migrations run at build time:** `vercel.json` sets
+  `"buildCommand": "npm run db:deploy && npm run build"`, so committed Prisma migrations
+  (`prisma migrate deploy`) are applied before every production build. A migration failure fails
+  the build — the previous deployment stays live.
+- **Rollback:** Vercel dashboard → project → **Deployments** → pick the previous good deployment →
+  **Promote to Production** (instant, no rebuild). CLI equivalent: `vercel rollback`. Note:
+  rollback restores the code, not the database — migrations are forward-only.
+- **Post-deploy smoke:** `.github/workflows/smoke.yml` runs the `@smoke`-tagged Playwright specs
+  against the deployed host after each production deploy.
+- **Required prod env:** `ASCENT_PUBLIC_URL` plus the variables documented in
+  [`.env.example`](./.env.example) (LLM provider + keys, `DATABASE_URL`, GitHub App set, OAuth
+  `AUTH_SECRET`, Supabase pair, `CRON_SECRET`). Set them in the Vercel project — never commit values.
 
 ## License
 

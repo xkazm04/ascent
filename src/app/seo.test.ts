@@ -5,7 +5,8 @@
 //
 // The contract these tests LOCK so a merge/refactor can't silently break it:
 //  - robots ALWAYS disallows the machine API + the private per-user funnels (/api/, /connect,
-//    /onboarding, /launch). Dropping any entry = an indexable private route = a test failure here.
+//    /launch). Dropping any entry = an indexable private route = a test failure here. /onboarding
+//    left the disallow list deliberately (it is the public guided entry funnel, now in the sitemap).
 //  - robots allows the public marketing/report surface at "/".
 //  - robots only emits the absolute sitemap/host lines when a base URL is configured (they require an
 //    absolute origin); with no base it omits them rather than shipping a relative/broken value.
@@ -36,7 +37,9 @@ afterEach(() => {
 });
 
 // The exact set the disallow list must always cover. Pinned so removing an entry fails the suite.
-const REQUIRED_DISALLOW = ["/api/", "/connect", "/onboarding", "/launch"];
+// /onboarding was deliberately removed from this set: it is the public guided entry funnel and is
+// enumerated in the sitemap instead (the disjointness test below would fail if it were re-added here).
+const REQUIRED_DISALLOW = ["/api/", "/connect", "/launch"];
 
 describe("robots.ts — private/funnel routes stay out of the index", () => {
   it("disallows the machine API + every private funnel route (exact pinned set)", () => {
@@ -104,6 +107,10 @@ describe("sitemap.ts — only public, indexable routes, gated off an absolute ba
     expect(paths).toContain("/");
     expect(paths).toContain("/report");
     expect(paths).toContain("/pricing");
+    // The legal pages + the (now indexable) onboarding funnel are enumerated for direct discovery.
+    expect(paths).toContain("/privacy");
+    expect(paths).toContain("/terms");
+    expect(paths).toContain("/onboarding");
   });
 
   it("strips a trailing slash on the base so URLs are not double-slashed", () => {
@@ -171,10 +178,13 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
     }
   });
 
-  it("the previously-advertised private funnels are no longer in the sitemap", () => {
+  it("the private funnels stay out of the sitemap; /onboarding moved to the indexable side", () => {
     process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
     const paths = sitemap().map((e) => new URL(e.url).pathname);
     expect(paths).not.toContain("/connect");
-    expect(paths).not.toContain("/onboarding");
+    expect(paths).not.toContain("/launch");
+    // /onboarding is no longer robots-blocked, so it belongs in the sitemap (both sides moved together
+    // by design — the disjointness test above would catch a one-sided move).
+    expect(paths).toContain("/onboarding");
   });
 });
