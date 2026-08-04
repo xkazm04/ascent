@@ -1,0 +1,30 @@
+# Post-deploy smoke — runs the @smoke-tagged e2e subset (read-only, no scans, no auth) against a
+# live deployment. Triggered automatically when Vercel marks a deployment successful, or manually
+# against any URL via workflow_dispatch.
+name: Smoke
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Base URL to smoke-test"
+        required: false
+        default: "https://ascent-red.vercel.app"
+  deployment_status:
+
+jobs:
+  smoke:
+    # deployment_status fires for every state transition — only act on success.
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium --with-deps
+      - name: Smoke (@smoke against the deployed URL)
+        env:
+          E2E_BASE_URL: ${{ github.event_name == 'deployment_status' && github.event.deployment_status.environment_url || inputs.url || 'https://ascent-red.vercel.app' }}
+        run: npx playwright test --config playwright.config.ts --grep @smoke

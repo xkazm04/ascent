@@ -10,7 +10,11 @@ import { defineConfig, devices } from "@playwright/test";
 // scan + org specs assert the app degrades gracefully under it. Set a real DATABASE_URL (and a real
 // LLM_PROVIDER) in the env to run the same specs against a live stack instead.
 const PORT = process.env.E2E_PORT || "3100";
-const BASE = `http://localhost:${PORT}`;
+// E2E_BASE_URL points the suite at an already-running deployment (e.g. the Vercel prod URL for the
+// post-deploy @smoke run). When set, no webServer is started — the target is remote and read-only.
+// When unset, behavior is exactly the local default: dev server on E2E_PORT with mock LLM.
+const REMOTE = process.env.E2E_BASE_URL;
+const BASE = REMOTE || `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -21,21 +25,25 @@ export default defineConfig({
   reporter: process.env.CI ? "list" : [["list"]],
   use: { baseURL: BASE, headless: true, trace: "retain-on-failure" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npm run dev",
-    url: BASE,
-    env: {
-      PORT,
-      LLM_PROVIDER: process.env.LLM_PROVIDER || "mock",
-      // Configured (so isDbConfigured() is true) but unreachable — a closed localhost port refuses
-      // instantly, so resilient reads degrade without a per-query connect-timeout stall. This is the
-      // exact state the public-scan and org-dashboard fixes harden against.
-      DATABASE_URL: process.env.DATABASE_URL || "postgres://ascent:ascent@127.0.0.1:55432/ascent",
-      // Real repo structure still comes from GitHub; pass a token through when present so CI scans
-      // aren't throttled by the anonymous rate limit.
-      ...(process.env.GITHUB_TOKEN ? { GITHUB_TOKEN: process.env.GITHUB_TOKEN } : {}),
-    },
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-  },
+  ...(REMOTE
+    ? {}
+    : {
+        webServer: {
+          command: "npm run dev",
+          url: BASE,
+          env: {
+            PORT,
+            LLM_PROVIDER: process.env.LLM_PROVIDER || "mock",
+            // Configured (so isDbConfigured() is true) but unreachable — a closed localhost port refuses
+            // instantly, so resilient reads degrade without a per-query connect-timeout stall. This is the
+            // exact state the public-scan and org-dashboard fixes harden against.
+            DATABASE_URL: process.env.DATABASE_URL || "postgres://ascent:ascent@127.0.0.1:55432/ascent",
+            // Real repo structure still comes from GitHub; pass a token through when present so CI scans
+            // aren't throttled by the anonymous rate limit.
+            ...(process.env.GITHUB_TOKEN ? { GITHUB_TOKEN: process.env.GITHUB_TOKEN } : {}),
+          },
+          reuseExistingServer: !process.env.CI,
+          timeout: 180_000,
+        },
+      }),
 });
