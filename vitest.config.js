@@ -4,7 +4,7 @@
 // modules that use `@/...` imports.
 import { resolve } from "node:path";
 
-export default {
+const config = {
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     // The default environment stays `node` — the overwhelming majority of the suite is pure logic and
@@ -49,3 +49,5 @@ export default {
     alias: [{ find: /^@\//, replacement: resolve(process.cwd(), "src") + "/" }],
   },
 };
+
+export default config;

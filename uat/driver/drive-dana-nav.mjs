@@ -11,7 +11,6 @@ await page.goto(`${BASE}/org/${SLUG}`, { waitUntil: "domcontentloaded", timeout:
 await page.waitForTimeout(800);
 
 const groups = ["Overview", "Fleet", "Intel", "Plan", "Library", "Govern"];
-let allLinks = [];
 for (const g of groups) {
   try {
     const btn = page.getByRole("button", { name: new RegExp("^" + g) }).first();
@@ -22,7 +21,6 @@ for (const g of groups) {
   }
 }
 await page.waitForTimeout(500);
-const nav = await page.locator('nav[aria-label="Organization sections"], complementary').first();
 const ariaSnap = await page.locator("body").ariaSnapshot();
 writeFileSync(`${outDir}nav-expanded.aria.yaml`, ariaSnap);
 await page.screenshot({ path: `${outDir}04-nav-expanded.png`, fullPage: true });

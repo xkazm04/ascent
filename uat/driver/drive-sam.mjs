@@ -84,7 +84,7 @@ writeFileSync(`${outDir}05-report-scoring.aria.yaml`, await page.locator("body")
 log("Opening Dimensions tab");
 try {
   await page.getByRole("tab", { name: /Dimensions/i }).click({ timeout: 5000 });
-} catch (e) {
+} catch {
   try { await page.getByRole("button", { name: /Dimensions/i }).click({ timeout: 5000 }); } catch (e2) { log("Dimensions tab click failed: " + String(e2).split("\n")[0]); }
 }
 await page.waitForTimeout(1000);
@@ -107,7 +107,7 @@ writeFileSync(`${outDir}07-dimension-detail.aria.yaml`, await page.locator("body
 log("Opening Roadmap tab");
 try {
   await page.getByRole("tab", { name: /Roadmap/i }).click({ timeout: 5000 });
-} catch (e) {
+} catch {
   try { await page.getByRole("button", { name: /Roadmap/i }).click({ timeout: 5000 }); } catch (e2) { log("Roadmap tab click failed: " + String(e2).split("\n")[0]); }
 }
 await page.waitForTimeout(1000);
