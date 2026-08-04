@@ -11,7 +11,8 @@ Groomed from the deferred-follow-ups parking lot into the launch milestone. Ever
 marked one of: **done** (with evidence), **closing-this-run** (a 2026-08-04 launch decision or
 in-flight change closes it), **cut** (with reason), or **open** (the true remainder).
 
-**Tally: 12 done · 4 closing this run · 1 cut · 7 open** (5 carried + 2 new operator follow-ups).
+**Tally: 12 done · 4 closing this run · 1 cut · 8 open** (6 carried, after folding §1/§2
+duplicates into §7 · 2 new operator follow-ups).
 
 ## Launch decisions (2026-08-04) that resolve items below
 
