@@ -18,8 +18,10 @@ downgrades a plan on a full refund. The accounting layer stays provider-agnostic
 Notes, all read directly from the model:
 
 - `monthlyPrice` on each tier is **display-only** — a duplicate of the Polar product's price for the
-  `/pricing` page. There is no automated reconciliation between the two, so a price change in the Polar
-  dashboard must be mirrored in `PLAN_FEATURES` or `/pricing` advertises a stale number.
+  `/pricing` page. A price change in the Polar dashboard must still be mirrored in `PLAN_FEATURES` by
+  hand, but drift is now **detected**: `src/lib/price-drift.ts` fetches the live price of every
+  `POLAR_PLAN_PRODUCTS`-mapped product and reports mismatches on the operator KPI route
+  (`GET /api/kpi` → `priceDrift`, gated by `ASCENT_OPS_SECRET`; null when Polar is unconfigured).
 - `includedCredits` is the monthly **metered-scan allowance** (private/org scans only — anonymous public
   scans are never metered and don't touch this). `null` means unlimited (Enterprise).
 - Feature gates are individual predicates, each defaulting unknown/blank plans to `free`:
@@ -260,8 +262,9 @@ into a $ estimate on `/usage` — useful for calibrating pack/plan prices agains
 
 ## Known gaps
 
-- **Price drift risk** — `PLAN_FEATURES[..].monthlyPrice` (display) and the actual Polar product price
-  have no automated reconciliation; a Polar dashboard price change must be mirrored by hand.
+- **Price drift is detected, not fixed** — `src/lib/price-drift.ts` reconciles `monthlyPrice` against the
+  live Polar prices on demand (`GET /api/kpi` → `priceDrift`), but the correction is still a manual edit
+  to `PLAN_FEATURES`, and nothing pushes the alert — an operator has to pull the KPI route to see it.
 - **Allowance boundary is a soft gate** — `countMeteredScansThisMonth` is a non-atomic read, so concurrent
   scans crossing the monthly-allowance boundary can overshoot the free allowance by a small, bounded
   amount (never paid credits, which are hard-gated). A fully atomic bound would need a monthly-usage

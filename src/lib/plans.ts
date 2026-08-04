@@ -5,9 +5,11 @@
 // PRICE CONTRACT (checkout-plans-polar 07-16 #3): what a buyer is CHARGED is whatever the Polar
 // product mapped via POLAR_PLAN_PRODUCTS costs — Polar is the price book. The `monthlyPrice` values
 // below are DISPLAY-ONLY duplicates of those Polar prices for the static /pricing page and SEO copy;
-// there is no automated reconciliation, so a price change in the Polar dashboard MUST be mirrored
-// here in lockstep or /pricing advertises a stale number and buyers are charged something else at
-// checkout. (The old header claimed "no dollar amounts are invented here", which hid this hazard.)
+// a price change in the Polar dashboard MUST be mirrored here in lockstep or /pricing advertises a
+// stale number and buyers are charged something else at checkout. (The old header claimed "no dollar
+// amounts are invented here", which hid this hazard.) An automated reconciliation now exists:
+// src/lib/price-drift.ts fetches the live Polar prices and reports any mismatch on the operator KPI
+// route (GET /api/kpi → `priceDrift`) — a detector, not a fixer; the mirror edit here is still manual.
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
