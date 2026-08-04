@@ -6,6 +6,7 @@
 // could be the thing that failed). Ordinary page/segment errors are handled by nearer error.tsx
 // boundaries with the full branded UI.
 
+import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 
 export default function GlobalError({
@@ -17,8 +18,12 @@ export default function GlobalError({
 }) {
   // Mirror error.tsx's breadcrumb. This is the rarest + highest-severity failure (the whole app
   // shell is down), so it's the one error we must not swallow silently: log it so console breadcrumbs
-  // and error reporters (Sentry-style) hooked into this effect record the digest correlation handle.
-  useEffect(() => console.error("[global-error]", error), [error]);
+  // record the digest correlation handle, and forward it to Sentry (captureException is a no-op when
+  // no NEXT_PUBLIC_SENTRY_DSN is configured — see src/instrumentation-client.ts).
+  useEffect(() => {
+    console.error("[global-error]", error);
+    Sentry.captureException(error);
+  }, [error]);
 
   return (
     <html lang="en">
