@@ -11,12 +11,17 @@
 import Link from "next/link";
 import { SITE_TAGLINE_TITLE } from "@/lib/site";
 
-/** The canonical footer nav, in render order — the default link set (SiteFooter renders it as-is). */
+/** The canonical footer nav, in render order — the default link set (SiteFooter renders it as-is).
+ *  Feedback is the public issue tracker (this repo's GitHub issues) — the one always-available
+ *  feedback channel; Privacy/Terms are the legal pages every public surface must link. */
 export const FOOTER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/badge", label: "Badge" },
   { href: "/connect", label: "Connect" },
   { href: "/usage", label: "Usage" },
+  { href: "https://github.com/xkazm04/ascent/issues", label: "Feedback" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
 ];
 
 /** The hosting/hackathon attribution line — rendered by EVERY footer (it must not drop off public pages). */
@@ -39,7 +44,7 @@ export function SiteFooterCore({
     <>
       {brand}
       <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">{SITE_TAGLINE_TITLE}</p>
-      <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
+      <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 font-mono text-sm uppercase tracking-widest text-slate-400">
         {links.map((l) => (
           <Link key={l.href} href={l.href} className="focus-ring rounded-sm hover:text-accent">
             {l.label}
