@@ -117,6 +117,26 @@ describe("recordQuotaEvent — fire-and-forget counter increment", () => {
     });
     await expect(recordQuotaEvent("quota_deny", "anon")).resolves.toBeUndefined();
   });
+
+  it("landing_view (cookieless visit counter) bumps its own (kind, scope) tally like any other kind", async () => {
+    const upsert = vi.fn(async () => undefined);
+    mockGetPrisma.mockReturnValue({ quotaEvent: { upsert } });
+
+    await recordQuotaEvent("landing_view", "landing");
+
+    const args = upsert.mock.calls[0][0] as UpsertArgs;
+    expect(args.where.kind_scope).toEqual({ kind: "landing_view", scope: "landing" });
+    expect(args.update.count).toEqual({ increment: 1 });
+    expect(args.create).toMatchObject({ kind: "landing_view", scope: "landing", count: 1 });
+  });
+
+  it("landing_view stays best-effort — a thrown write never surfaces to the landing render", async () => {
+    const upsert = vi.fn(async () => {
+      throw new Error("db exploded mid-render");
+    });
+    mockGetPrisma.mockReturnValue({ quotaEvent: { upsert } });
+    await expect(recordQuotaEvent("landing_view", "landing")).resolves.toBeUndefined();
+  });
 });
 
 describe("getQuotaEventTotals — partition + aggregate read shape", () => {
@@ -164,6 +184,20 @@ describe("getQuotaEventTotals — partition + aggregate read shape", () => {
     const totals = await getQuotaEventTotals();
 
     expect(totals).toEqual({ quotaDenies: [], rateLimitTrips: [], total: 0 });
+  });
+
+  it("queries ONLY the abuse kinds — landing_view (and the scan-outcome kinds) never reach the /usage panel", async () => {
+    const findMany = vi.fn(async () => []);
+    mockGetPrisma.mockReturnValue({ quotaEvent: { findMany } });
+
+    await getQuotaEventTotals();
+
+    // The read's where-clause is the exclusion mechanism: a landing_view row is filtered out at the
+    // query, so a high-traffic landing page can never flip the abuse panel visible (its `total`
+    // gates rendering) or inflate its counts.
+    const args = findMany.mock.calls[0][0] as { where: { kind: { in: string[] } } };
+    expect(args.where.kind.in.sort()).toEqual(["quota_deny", "rate_limit"]);
+    expect(args.where.kind.in).not.toContain("landing_view");
   });
 
   it("ignores an unknown/malformed kind — it falls into neither bucket but still counts toward total", async () => {

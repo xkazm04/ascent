@@ -16,7 +16,14 @@ export type QuotaEventKind =
   | "scan_started"
   | "scan_rejected"
   | "scan_failed"
-  | "scan_degraded";
+  | "scan_degraded"
+  // Cookieless visit tally (KPI funnel: visit → signup → activation). Bumped server-side by the
+  // landing page's server component (src/app/page.tsx) — no cookies, no client JS, one bump per
+  // request render. Closes the funnel's top gap: signup + activation already come from
+  // kpi-metrics.ts; this supplies the "visit" count. QuotaEvent.kind is a plain String column
+  // (prisma/schema.prisma), so no migration is needed. Not in ABUSE_KINDS below, so it never
+  // surfaces in the public /usage abuse panel.
+  | "landing_view";
 
 /** The two abuse kinds the public /usage view reports on. Kept explicit so the scan-outcome kinds
  *  above never leak into that panel's counts (its `total` gates whether the panel renders at all). */

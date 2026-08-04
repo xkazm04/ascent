@@ -1,6 +1,6 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { IndexLanding } from "@/components/landing/prototypes/IndexLanding";
-import { getPublicScanGallery } from "@/lib/db";
+import { getPublicScanGallery, recordQuotaEvent } from "@/lib/db";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
@@ -60,6 +60,13 @@ const FAQ_LD = {
 };
 
 export default async function Home() {
+  // Cookieless visit counter — the top of the visit → signup → activation funnel (the other two
+  // stages already come from kpi-metrics.ts; read back on GET /api/kpi). Fire-and-forget exactly
+  // like the scan route's quota tallies: recordQuotaEvent no-ops when no DB is configured and
+  // swallows every store error internally, and the un-awaited `void` call keeps the landing render
+  // entirely off the write path — a slow or broken DB can never block or fail this page.
+  void recordQuotaEvent("landing_view", "landing").catch(() => {});
+
   // Live discovery rail + leaderboard from persisted public scans. Null when persistence is
   // off or nothing has been scored yet — the variants then keep their static examples.
   const gallery = await getPublicScanGallery().catch(() => null);
