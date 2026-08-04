@@ -1,6 +1,6 @@
 {
   "$schema": "https://vibeman.dev/schemas/context-map.json",
-  "projectId": "847cd027-0e92-434d-914d-d94463e00895",
+  "projectId": "32c9b23b-9000-4852-b3f4-5300f4d0eaf5",
   "projectName": "ascent",
   "projectPath": "C:\\Users\\kazda\\kiro\\ascent",
   "version": "2.0.0",
@@ -2306,7 +2306,7 @@
   "summary": {
     "totalGroups": 11,
     "totalContexts": 49,
-    "totalFiles": 1065,
+    "totalFiles": 1455,
     "categories": {
       "api": 9,
       "lib": 8,
@@ -2327,6 +2327,6 @@
     "warnings": 2
   },
   "instructions": "Context map for ascent. Each group is a business domain (domain field); each context is a feature with its files (filePaths) + a technical category. Read this to learn which files belong to which feature BEFORE editing. When you change a context's files, update them here (or run Vibeman's refresh) to keep this fresh.",
-  "generatedAt": "2026-07-27T00:00:00.000Z",
+  "generatedAt": "2026-08-04T00:00:00.000Z",
   "revision": "ecad2b58ad5f"
 }
