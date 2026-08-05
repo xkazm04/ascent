@@ -59,15 +59,37 @@ function tokenPermissions(wf: { path: string; content: string }[]): { score: num
   return { score: clamp10(s), evidence: `${scoped}/${wf.length} workflows set an explicit \`permissions:\` scope${writeAll ? `; ${writeAll} grant broad write` : ""}.`, remediation: rem };
 }
 
+/**
+ * External base images a Dockerfile actually DEPENDS on — the only `FROM` lines that can carry a digest.
+ *
+ * A bare `/^from\s+\S+/` counted every FROM line, which pulled two un-pinnable shapes into the
+ * denominator and scored a correctly-pinned repo down for them:
+ *  • a multi-stage ALIAS reference (`FROM builder AS test`) points at a stage declared earlier in the
+ *    same file — an internal reference, not a dependency, and `builder@sha256:…` is not a thing;
+ *  • `FROM scratch` is the empty base image — there is nothing to pin.
+ * Aliases are collected per-file from the `AS <name>` clauses, so a stage counts as internal only when
+ * THIS Dockerfile declared it (a registry image that merely shares the name still counts as external).
+ */
+function externalBaseImages(content: string): string[] {
+  const lines = [...content.matchAll(/^[ \t]*from[ \t]+(\S+)((?:[ \t]+as[ \t]+\S+)?)/gim)];
+  const aliases = new Set(
+    lines.map((m) => /[ \t]+as[ \t]+(\S+)/i.exec(m[2] ?? "")?.[1]?.toLowerCase()).filter((a): a is string => !!a),
+  );
+  return lines.map((m) => m[1]!).filter((image) => {
+    const ref = image.toLowerCase();
+    return ref !== "scratch" && !aliases.has(ref);
+  });
+}
+
 /** Pinned dependencies — GitHub Actions pinned by full commit SHA vs a movable tag/branch. */
 function pinnedDependencies(wf: { path: string; content: string }[], snap: RepoSnapshot): { score: number | null; evidence: string; remediation?: string } {
   const uses = wf.flatMap((w) => [...w.content.matchAll(/uses:\s*([\w.\-/]+)@([^\s#]+)/gi)]).filter((m) => m[1]!.includes("/"));
   const dockerfiles = snap.files.filter((f) => /(^|\/)(dockerfile|containerfile)$/i.test(f.path));
-  const froms = dockerfiles.flatMap((f) => [...f.content.matchAll(/^from\s+\S+/gim)]);
+  const froms = dockerfiles.flatMap((f) => externalBaseImages(f.content));
   const total = uses.length + froms.length;
   if (total === 0) return { score: null, evidence: "No Actions/Docker dependencies to pin." };
   const shaPinned = uses.filter((m) => /^[0-9a-f]{40}$/i.test(m[2]!)).length;
-  const digestPinned = froms.filter((m) => /@sha256:/i.test(m[0])).length;
+  const digestPinned = froms.filter((image) => /@sha256:/i.test(image)).length;
   const pinned = shaPinned + digestPinned;
   const s = (pinned / total) * 10;
   const rem = s < 8 ? "Pin third-party Actions to a full commit SHA (and container images to a digest)." : undefined;

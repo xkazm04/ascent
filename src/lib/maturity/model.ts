@@ -37,7 +37,14 @@ import type {
 // the stated discrepancy budget, and the engine now enforces that budget — a scan may widen at most
 // MAX_FLAGGED_DIMENSIONS guardbands (and none at all beyond it, which also suppresses the D9
 // visibility hatch). Both move scores, so cached scores must re-derive.
-export const SCORING_RUBRIC_VERSION = "r3";
+// r4 (2026-08-05): two Security (D9) detector corrections in the deterministic check battery
+// (src/lib/security/checks.ts). Pinned-dependencies no longer counts multi-stage `FROM <alias>`
+// references or `FROM scratch` toward the denominator (neither can carry a digest, so a repo that
+// pinned every EXTERNAL image was still scored down for its own stage graph), and the broad-write
+// cap on token-permissions now matches a `contents: write` grant anywhere in a permissions block
+// rather than only as its first key. Both move D9, which the engine takes VERBATIM, so cached
+// scores must re-derive. (Detector point tables count — see the note above.)
+export const SCORING_RUBRIC_VERSION = "r4";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

@@ -133,3 +133,44 @@ describe("computeSecurityChecks — aggregation, split, and n/a handling", () =>
     expect(a.evidence.every((l) => /^.+ \[(posture|exposure)\/\w+\]: (n\/a|\d+)\/10 — /.test(l))).toBe(true);
   });
 });
+
+// Pinned-dependencies counted EVERY Dockerfile `FROM` line toward the denominator, including shapes
+// that structurally cannot carry a digest: a multi-stage alias reference (`FROM builder`) is an
+// internal pointer at a stage this same file declared, and `FROM scratch` is the empty base image.
+// A repo that pinned every EXTERNAL image was therefore still scored down for its own stage graph.
+describe("pinned-dependencies — Dockerfile FROM lines", () => {
+  const score = (content: string) =>
+    get(computeSecurityChecks(snap([{ path: "Dockerfile", content }]), null, null, null), "pinned-dependencies").score;
+
+  it("scores a fully-pinned multi-stage build at 10, not down for its own stage aliases", () => {
+    expect(
+      score(`FROM node:20@sha256:aaaa AS builder
+RUN npm ci
+FROM builder AS test
+RUN npm test
+FROM node:20-slim@sha256:bbbb
+COPY --from=builder /app /app`),
+    ).toBe(10);
+  });
+
+  it("does not count FROM scratch — there is nothing to pin", () => {
+    expect(
+      score(`FROM golang:1.22@sha256:aaaa AS build
+FROM scratch
+COPY --from=build /x /x`),
+    ).toBe(10);
+  });
+
+  it("still penalises a genuinely unpinned external image", () => {
+    const s = score(`FROM node:20@sha256:aaaa AS builder
+FROM python:3.12`);
+    expect(s).toBeLessThan(10);
+    expect(s).toBeGreaterThan(0);
+  });
+
+  it("treats a registry image that merely shares a stage name as external", () => {
+    // `builder` is internal ONLY when this file declared it via `AS builder`.
+    expect(score(`FROM builder:latest
+RUN true`)).toBe(0);
+  });
+});
