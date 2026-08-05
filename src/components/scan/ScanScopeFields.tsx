@@ -61,18 +61,22 @@ export function ScanScopeFields({
   // Reveal the panel whenever a scope is present from outside this component — the parent prefills
   // the branch from a pasted `github.com/owner/repo/tree/develop` link, and a scope the user can't
   // see is a scope they can't correct (and a score they'd misread as the default branch's).
-  // DERIVED rather than synced through an effect: `open` is a pure function of "the user opened it"
-  // OR "a scope exists", so there is no state to keep in step and no render where the panel is
-  // wrongly collapsed. Still one-way — it never re-collapses a panel the user deliberately opened.
-  const [userOpened, setUserOpened] = useState(false);
+  //
+  // TRI-STATE, not a boolean OR: `open = userOpened || hasScope` made the toggle INERT once any scope
+  // value existed — clicking set userOpened=false while hasScope kept `open` true, so the `−` control
+  // and `aria-expanded` never changed and a screen-reader user was told "expanded", activated it, and
+  // got no state change. It also made the collapsed-summary chip below unreachable (its condition
+  // `!open && hasScope` is `!(userOpened||hasScope) && hasScope` — never true). `null` = the user has
+  // not decided, so fall back to auto-reveal; once they decide, their choice wins in both directions.
+  const [userToggled, setUserToggled] = useState<boolean | null>(null);
   const hasScope = Boolean(value.ref || value.subPath);
-  const open = userOpened || hasScope;
+  const open = userToggled ?? hasScope;
 
   return (
     <div className="mt-2">
       <button
         type="button"
-        onClick={() => setUserOpened(!open)}
+        onClick={() => setUserToggled(!open)}
         aria-expanded={open}
         className="focus-ring rounded font-mono text-sm uppercase tracking-widest text-slate-400 transition hover:text-accent"
       >
