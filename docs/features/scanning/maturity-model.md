@@ -183,6 +183,20 @@ signing/protection folds in from the governance API.
 *LLM assessment:* do these run automatically and gate merges/releases, or just sit in
 the repo? This is the shift-left guardrail against vulnerable or secret-leaking AI output.
 
+*Two parsing rules in the battery worth stating, because D9 is taken verbatim* (`src/lib/security/checks.ts`):
+
+- **Pinned dependencies counts only EXTERNAL base images.** A multi-stage alias reference
+  (`FROM builder AS test` — an internal pointer at a stage the same Dockerfile declared) and
+  `FROM scratch` cannot carry a digest, so neither enters the denominator. Counting them scored
+  a repo that had pinned every external image down for its own stage graph. A registry image
+  that merely *shares* a stage's name is still external — a stage is internal only when that
+  file declared it via `AS`.
+- **A broad write grant is capped wherever it appears in a `permissions:` block.** The check
+  walks the block's indented body (ending at the first line that dedents to the key's column)
+  rather than matching the line after the header, so
+  `permissions:\n  issues: read\n  contents: write` is capped like any other broad grant.
+  `packages` / `id-token` / `actions` write count too.
+
 ## 3. Scoring Methodology (hybrid & explainable)
 
 This pseudo-code mirrors the implemented pipeline (`src/lib/scoring/engine.ts`
