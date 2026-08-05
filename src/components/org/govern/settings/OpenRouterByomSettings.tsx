@@ -154,7 +154,7 @@ export function OpenRouterByomSettings({
           Use this provider for scans (replaces any other connected provider)
         </label>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1" aria-busy={busy !== null}>
           <button
             onClick={test}
             disabled={disabledAll || busy !== null || !modelId.trim()}
@@ -183,11 +183,20 @@ export function OpenRouterByomSettings({
         {lastValidatedAt && (
           <p className="text-sm text-slate-500">Last validated {lastValidatedAt.slice(0, 16).replace("T", " ")} UTC.</p>
         )}
-        {msg && (
-          <p role="status" className={`text-sm ${msg.kind === "ok" ? "text-emerald-300" : "text-orange-300"}`}>
-            {msg.text}
-          </p>
-        )}
+        {/* ONE persistent polite live region (always rendered, content swapped) so save / test /
+            disable outcomes are ANNOUNCED. The old `{msg && <p role="status">…}` mounted the region
+            only once there was something to say, and a live region inserted after the fact is never
+            read — leaving "Saved.", "Connection failed." and "Disabled and cleared the key."
+            indistinguishable to a screen reader on a form that stores a customer credential. Errors
+            also carry a textual "Error:" prefix so the kind isn't conveyed by color alone (WCAG
+            1.4.1). Same fix, same reasons as GatePolicyEditor's status region. */}
+        <p
+          role="status"
+          aria-live="polite"
+          className={`text-sm ${msg?.kind === "err" ? "text-orange-300" : "text-emerald-300"}`}
+        >
+          {msg ? (msg.kind === "err" ? `Error: ${msg.text}` : msg.text) : ""}
+        </p>
       </div>
     </Card>
   );
