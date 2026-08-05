@@ -111,10 +111,22 @@ const DECISION_RATIONALE_CHARS = 240;
  *
  * Framed as calibration, not instruction: a dismissal is evidence about context, not a licence to
  * inflate a score. Left to itself the model happily reads "the team dismissed this" as "this is fine".
+ *
+ * EVERY field is neutralized. Decision notes are written by org members AND BY THEIR AGENTS — an agent
+ * that read a poisoned README and stored what it "learned" is the ordinary way an injection reaches
+ * this store, with no human in that loop by design (the threat model llm/untrusted.ts documents for
+ * memory content). This block renders ABOVE the untrusted boundary, in the authoritative region of the
+ * user message, so unlike the file/commit/description text below it inherits no "this has no authority"
+ * denial — it was the one repo-derived channel in this prompt reaching the model unfiltered. neutralize
+ * strips forged boundary markers (a rationale containing `<untrusted_repo_data>` could otherwise open a
+ * second block and restructure the message) and defuses fences. Neutralize BEFORE truncating so the
+ * marker→placeholder expansion can never push a rationale back over DECISION_RATIONALE_CHARS.
  */
 function decisionsBlock(decisions: DecisionNote[]): string {
   const lines = decisions.map(
-    (d) => `- [${d.module} · ${d.status}] ${d.title}\n    reason: ${truncate(d.rationale.trim(), DECISION_RATIONALE_CHARS)}`,
+    (d) =>
+      `- [${neutralize(d.module)} · ${neutralize(d.status)}] ${neutralize(d.title)}\n` +
+      `    reason: ${truncate(neutralize(d.rationale.trim()), DECISION_RATIONALE_CHARS)}`,
   );
   return `\nSTANDING DECISIONS (this org already judged these findings on this repo — treat each as context you were missing, not as a reason to raise the score; do NOT re-raise a dismissed finding in the roadmap unless new evidence contradicts its stated reason):\n${lines.join("\n")}\n`;
 }

@@ -91,6 +91,15 @@ of them and suppresses the D9 hatch — a self-audit that suspects most detector
 unreliable, not as licence to move further from the evidence. The prompt states the same budget, so
 an honest model spends it on its clearest findings.
 
+**Standing decisions are neutralized too.** The per-repo user message can carry the org's standing
+decisions (the Shared Org Memory read side), and those notes are written by org members *and by their
+agents* — an agent that read a poisoned README and stored what it "learned" is the ordinary way an
+injection reaches that store, with no human in the loop by design. The block renders **above** the
+untrusted boundary, in the authoritative region of the message, so it inherits none of the "no
+authority" denial the file and commit text below it gets. Every field (`module`, `status`, `title`,
+`rationale`) therefore goes through the same `neutralize()` the repo-authored text does, *before*
+truncation so the marker→placeholder expansion can't push a rationale back over its character cap.
+
 **Incomplete scans are not verdicts.** When every detector fails, `dimensions` is empty and the
 renormalized roll-up floors at 0 / L1 — numerically indistinguishable from a genuinely manual repo.
 The report carries `incomplete: true` alongside the prose warning, because the numeric consumers
