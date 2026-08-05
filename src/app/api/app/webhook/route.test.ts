@@ -1115,3 +1115,61 @@ describe("POST /api/app/webhook — claim/parse ordering: no half-claimed strand
     expect(mockClaim).toHaveBeenCalledTimes(2);
   });
 });
+
+// A push rescan asks for a real LLM grade. When the provider is down, scanRepository still returns a
+// report — stamped engine.provider = "mock", the deterministic FLOOR rather than a measurement.
+// Persisting that makes the floor the repo's current public reading AND the next run's baseline, and
+// the regression alert would then diff a real prior scan against our own outage and tell the customer
+// their repo regressed. The sibling cron/org-scan routes recognise this exact condition for BILLING
+// (they refund the credit); none of them applied the same judgment to the DATA.
+describe("POST /api/app/webhook — a degraded push rescan is not persisted or alerted on", () => {
+  let n = 0;
+  const pushPayload = () => ({
+    installation: { id: 77 },
+    repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+    ref: "refs/heads/main",
+    after: "beef000000000000000000000000000000000000",
+    deleted: false,
+  });
+  const report = (provider: string) =>
+    ({ repo: { headSha: "beef" }, scannedAt: new Date().toISOString(), engine: { provider, model: "m" } }) as unknown as Awaited<
+      ReturnType<typeof scanRepository>
+    >;
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockIdForOwner.mockResolvedValue("77");
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_tok");
+    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
+    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
+    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
+  });
+
+  it("skips BOTH the persist and the regression alert when the scan degraded to the floor", async () => {
+    mockScan.mockResolvedValue(report("mock"));
+    await post("push", "d-degrade-" + (n++), pushPayload());
+    await runDeferred();
+
+    expect(mockScan).toHaveBeenCalled(); // the scan ran — it just produced nothing authoritative
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockCheckRegression).not.toHaveBeenCalled();
+  });
+
+  it("persists and alerts normally when a real provider answered", async () => {
+    mockScan.mockResolvedValue(report("gemini"));
+    await post("push", "d-degrade-" + (n++), pushPayload());
+    await runDeferred();
+
+    expect(mockPersist).toHaveBeenCalled();
+    expect(mockCheckRegression).toHaveBeenCalled();
+  });
+
+  it("persists a report with NO engine stamp — absence is not proof of degradation", async () => {
+    mockScan.mockResolvedValue({ repo: { headSha: "beef" } } as Awaited<ReturnType<typeof scanRepository>>);
+    await post("push", "d-degrade-" + (n++), pushPayload());
+    await runDeferred();
+
+    expect(mockPersist).toHaveBeenCalled();
+  });
+});

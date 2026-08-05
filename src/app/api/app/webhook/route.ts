@@ -311,6 +311,27 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       }
       const token = await getInstallationToken(installationId);
       const report = await scanRepository(fullName, { token });
+      // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
+      // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic
+      // FLOOR, not a measurement. Persisting it makes that floor the repo's current public reading AND
+      // the next run's regression baseline, and the alert below would then diff a real prior scan
+      // against our own outage and tell the customer their repo regressed. The interactive routes
+      // already refuse to store such a report (scan-finalize.ts's `authoritative` gate); this path
+      // recognised the degrade only for BILLING (the sibling cron/org-scan routes refund the credit on
+      // exactly this condition) and never applied the same judgment to the data.
+      //
+      // Deliberately NOT released for redelivery: a provider outage would degrade the retry too, so a
+      // release turns one outage into a scan storm. The repo is covered by the next push past the
+      // window or its scheduled autoscan — the same "coalesce, don't queue" reasoning as the throttle
+      // above.
+      // Optional-chained on purpose: a report with no engine stamp (a legacy/reconstructed shape) is
+      // not PROVEN degraded, so it persists — fail toward keeping a real scan, never toward dropping one.
+      if (report.engine?.provider === "mock") {
+        console.warn(
+          `[webhook] push rescan for ${fullName} degraded to the deterministic floor (LLM unavailable) — not persisted, no regression alert`,
+        );
+        return;
+      }
       const persisted = await persistScanReport(report, { orgSlug });
       if (persisted && !persisted.deduped) {
         const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
