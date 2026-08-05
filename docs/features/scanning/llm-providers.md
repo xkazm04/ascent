@@ -298,6 +298,23 @@ apply to a caller bringing its own contract.
 - The resolved runner reports **which** provider answered (`engine`, `model`), so a verdict
   can name its source instead of hard-coding one.
 
+### Org-aware resolution (`src/lib/llm/text-org.ts`)
+
+`resolveTextRunner()` reads only env. `resolveTextRunnerForOrg(orgSlug, opts)` is its
+BYOM-aware twin — the text seam's counterpart to `getProviderForOrg()`: an org with an
+**active** connected provider gets a runner built on **its own** credentials (OpenRouter key,
+or Bedrock model/region/creds), and everything else falls through to the env runner unchanged.
+
+Without it, a deployment whose orgs all run BYOM — no platform key at all, which is exactly
+the shape an enterprise buys when it connects its own Bedrock account — got `null` from every
+non-scan LLM surface: scans ran on the org's own model while Shared Org Memory reported "no
+engine" forever, for the customers paying the most, with no configuration that fixed it.
+
+It enforces the **same fail-closed rule** as `getProviderForOrg()`: an active-but-unresolvable
+BYOM config throws, and a state that can't be determined propagates rather than degrading to
+the platform. The prompts this seam carries are org memory content — no less private than
+repo source.
+
 ### Metering
 
 Text-seam calls are **billed model calls**, and they are metered in the seam itself, not by the

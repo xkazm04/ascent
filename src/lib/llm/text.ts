@@ -28,7 +28,7 @@ import { trackLlmCall } from "@/lib/llm/tracklight";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/llm/gemini";
 import { DEFAULT_OPENAI_MODEL } from "@/lib/llm/openai";
 import { DEFAULT_OPENROUTER_MODEL } from "@/lib/llm/openrouter";
-import { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock";
+import { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION, type BedrockCredentials } from "@/lib/llm/bedrock";
 
 /** Same shape as the memory cores' injected `RunPrompt`, kept structural so neither side imports the other. */
 export type TextRunner = (prompt: string, signal?: AbortSignal) => Promise<string>;
@@ -120,10 +120,17 @@ async function geminiText(model: string, apiKey: string, prompt: string, signal:
   return { text, usage: { inputTokens: um?.promptTokenCount, outputTokens: um?.candidatesTokenCount } };
 }
 
-async function bedrockText(model: string, region: string, prompt: string, signal: AbortSignal): Promise<TextResult> {
+async function bedrockText(
+  model: string,
+  region: string,
+  prompt: string,
+  signal: AbortSignal,
+  /** BYOM: the org's own AWS credentials. Omitted = the default chain (the platform's account). */
+  credentials?: BedrockCredentials,
+): Promise<TextResult> {
   // Lazily imported exactly as BedrockProvider does, so the AWS SDK never loads on the other paths.
   const { BedrockRuntimeClient, ConverseCommand } = await import("@aws-sdk/client-bedrock-runtime");
-  const res = await new BedrockRuntimeClient({ region }).send(
+  const res = await new BedrockRuntimeClient({ region, ...(credentials ? { credentials } : {}) }).send(
     new ConverseCommand({
       modelId: model,
       messages: [{ role: "user", content: [{ text: prompt }] }],
@@ -198,6 +205,56 @@ function withTimeout(
 }
 
 /**
+ * OpenRouter runner for an EXPLICIT key + model. Shared by the env selection below and the per-org
+ * BYOM path (text-org.ts), so an org's own key runs the identical transport, headers and metering as
+ * the platform's — there is no second OpenRouter code path to drift.
+ */
+export function openRouterRunner(
+  model: string,
+  apiKey: string,
+  timeoutMs: number,
+  opts: TextRunnerOptions,
+): ResolvedTextRunner {
+  return {
+    engine: "openrouter",
+    model,
+    run: withTimeout("openrouter", model, "OpenRouter", timeoutMs, opts, (signal, prompt) =>
+      openAiCompatibleText({
+        url: `${OPENROUTER_BASE_URL}/chat/completions`,
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          // OpenRouter's requested app-attribution headers, mirroring OpenRouterProvider.
+          "HTTP-Referer": "https://ascent.dev",
+          "X-Title": "Ascent",
+        },
+        model,
+        prompt,
+        label: "OpenRouter",
+        maxTokensEnv: "OPENROUTER_MAX_TOKENS",
+        signal,
+      }),
+    ),
+  };
+}
+
+/** Bedrock runner for an explicit model/region, optionally with an org's own credentials (BYOM). */
+export function bedrockRunner(
+  model: string,
+  region: string,
+  timeoutMs: number,
+  opts: TextRunnerOptions,
+  credentials?: BedrockCredentials,
+): ResolvedTextRunner {
+  return {
+    engine: "bedrock",
+    model,
+    run: withTimeout("bedrock", model, "Bedrock", timeoutMs, opts, (signal, prompt) =>
+      bedrockText(model, region, prompt, signal, credentials),
+    ),
+  };
+}
+
+/**
  * Resolve a text runner for the configured provider, or null when none is reachable here.
  *
  * `null` is expected, not exceptional: an unset/mock provider, a missing key, or a claude-cli selection
@@ -244,40 +301,20 @@ export async function resolveTextRunner(
         ),
       };
     }
-    case "openrouter": {
-      const model = process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL;
-      return {
-        engine: "openrouter",
-        model,
-        run: withTimeout("openrouter", model, "OpenRouter", timeoutMs, opts, (signal, prompt) =>
-          openAiCompatibleText({
-            url: `${OPENROUTER_BASE_URL}/chat/completions`,
-            headers: {
-              authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ""}`,
-              // OpenRouter's requested app-attribution headers, mirroring OpenRouterProvider.
-              "HTTP-Referer": "https://ascent.dev",
-              "X-Title": "Ascent",
-            },
-            model,
-            prompt,
-            label: "OpenRouter",
-            maxTokensEnv: "OPENROUTER_MAX_TOKENS",
-            signal,
-          }),
-        ),
-      };
-    }
-    case "bedrock": {
-      const model = process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
-      const region = process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION;
-      return {
-        engine: "bedrock",
-        model,
-        run: withTimeout("bedrock", model, "Bedrock", timeoutMs, opts, (signal, prompt) =>
-          bedrockText(model, region, prompt, signal),
-        ),
-      };
-    }
+    case "openrouter":
+      return openRouterRunner(
+        process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
+        process.env.OPENROUTER_API_KEY ?? "",
+        timeoutMs,
+        opts,
+      );
+    case "bedrock":
+      return bedrockRunner(
+        process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL,
+        process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION,
+        timeoutMs,
+        opts,
+      );
     case "claude-cli": {
       // The dynamic import lives INSIDE a `NODE_ENV !== "production"` block, not after a guard `throw`:
       // the production build inlines NODE_ENV, folds this to `false`, and prunes the block — import
