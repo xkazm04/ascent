@@ -195,6 +195,21 @@ must never assert something it didn't measure:
   forever with no explanation), the gate posts "Maturity gate could not run" with a Re-run
   button.
 
+### Per-dimension floors
+
+`GatePolicy.minDimensionFor` holds a floor for any of **D1–D9**, and the gate enforces every
+one (the stricter of it and the global `minDimension` — see `effectiveFloor`). The owner's
+form exposes them all: **D9 keeps its own dedicated control** (it is the deterministic
+dimension, the only floor the gate URL / CI input surface as `min_security` / `min-security`,
+and enabling it also forbids the ungoverned posture), and every other dimension is added as a
+row in `DimensionFloorRows`. Before this, a non-D9 floor such as "no repo below 50 on Testing"
+was reachable only by POSTing raw JSON to `/api/org/gate-policy`.
+
+Non-D9 floors render into `policyText` and the PR-comment footer but carry **no** `query` /
+`ci` projection, which is correct rather than a gap: the gate endpoint resolves the org's
+persisted policy as its baseline on every call, so the CI snippet does not need to restate
+them and a param could not weaken them anyway.
+
 ### The audit row
 
 Every save writes an `org.gate_policy` audit row carrying **the bar itself**, not just that it
@@ -235,7 +250,8 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/lib/github/pr-gate.ts` | `runPrGate()` — the shared Check Run + sticky comment writer. |
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
 | `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs. |
-| `src/components/org/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
+| `src/components/org/govern/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
+| `src/components/org/govern/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
 | `scripts/maturity-gate.mjs` | CLI: call the gate API, exit 0/1/2 (`npm run gate`). |

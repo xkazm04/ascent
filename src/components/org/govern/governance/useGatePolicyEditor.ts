@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GatePolicy } from "@/lib/scoring/gate";
 import { clampToDisplayRange } from "@/lib/scoring/gate-numeric";
-import type { LevelId } from "@/lib/types";
+import type { DimensionId, LevelId } from "@/lib/types";
 
 /** What the POST handler scheduled after the save (see the gate-policy route). */
 export type SweepPlan =
@@ -37,6 +37,15 @@ export function appliesWhen(sweep: SweepPlan | undefined): string | null {
     : "No GitHub App installation, so open PRs were not re-checked — the new bar applies on each PR's next push or CI run.";
 }
 
+/** The policy's per-dimension floors minus D9, as form strings. D9 has its own dedicated control. */
+function floorsExceptD9(p: GatePolicy | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [dim, floor] of Object.entries(p?.minDimensionFor ?? {})) {
+    if (dim !== "D9" && floor != null) out[dim] = String(floor);
+  }
+  return out;
+}
+
 export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
   const router = useRouter();
   const [minLevel, setMinLevel] = useState<string>(initial?.minLevel ?? "");
@@ -50,6 +59,12 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
   const [securityFloor, setSecurityFloor] = useState<string>(
     initial?.minDimensionFor?.D9 != null ? String(initial.minDimensionFor.D9) : "50",
   );
+  // Floors on dimensions OTHER than D9, as raw input strings keyed by dim id. GatePolicy has always
+  // supported D1..D9 (sanitizeGatePolicy keeps every valid one) and the gate enforces them, but the form
+  // exposed only D9 — so "Testing ≥ 50" was reachable only by POSTing raw JSON to the API. D9 keeps its
+  // own dedicated control: it is the deterministic dimension, it is the only floor the gate URL / CI
+  // input expose, and enabling it also forbids the ungoverned posture. These carry none of that.
+  const [otherFloors, setOtherFloors] = useState<Record<string, string>>(() => floorsExceptD9(initial));
   const [noUngoverned, setNoUngoverned] = useState<boolean>(Boolean(initial?.forbidPostures?.includes("ungoverned")));
   const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
@@ -62,11 +77,16 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     if (minLevel) p.minLevel = minLevel as LevelId;
     if (minOverall.trim()) p.minOverall = Number(minOverall);
     if (minDimension.trim()) p.minDimension = Number(minDimension);
-    if (security) {
-      // Preserve the configured floor (clamped 0..100) instead of overwriting it with a fixed 50.
-      const floor = clampToDisplayRange(securityFloor);
-      p.minDimensionFor = { D9: floor };
+    // One map for every per-dimension floor: D9 from its dedicated control, the rest from the
+    // dimension-floor rows. Assembled here (rather than D9 overwriting the key) so adding a Testing
+    // floor can't silently drop a configured Security floor, or vice versa.
+    const floors: Partial<Record<DimensionId, number>> = {};
+    for (const [dim, raw] of Object.entries(otherFloors)) {
+      if (raw.trim()) floors[dim as DimensionId] = clampToDisplayRange(raw);
     }
+    // Preserve the configured floor (clamped 0..100) instead of overwriting it with a fixed 50.
+    if (security) floors.D9 = clampToDisplayRange(securityFloor);
+    if (Object.keys(floors).length) p.minDimensionFor = floors;
     if (noUngoverned || security) p.forbidPostures = ["ungoverned"];
     if (requireProtection) p.requireProtectedBranch = true;
     return p;
@@ -80,6 +100,7 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     setMinDimension(p?.minDimension != null ? String(p.minDimension) : "");
     setSecurity(p?.minDimensionFor?.D9 != null);
     setSecurityFloor(p?.minDimensionFor?.D9 != null ? String(p.minDimensionFor.D9) : "50");
+    setOtherFloors(floorsExceptD9(p));
     setNoUngoverned(Boolean(p?.forbidPostures?.includes("ungoverned")));
     setRequireProtection(Boolean(p?.requireProtectedBranch));
   }
@@ -94,8 +115,13 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     if (req.minLevel != null && stored?.minLevel !== req.minLevel) out.push("minimum level");
     if (req.minOverall != null && stored?.minOverall !== req.minOverall) out.push("min overall");
     if (req.minDimension != null && stored?.minDimension !== req.minDimension) out.push("min per-dimension");
-    if (req.minDimensionFor?.D9 != null && stored?.minDimensionFor?.D9 !== req.minDimensionFor.D9)
-      out.push("security floor (D9)");
+    for (const [dim, floor] of Object.entries(req.minDimensionFor ?? {})) {
+      if (floor == null) continue;
+      if (stored?.minDimensionFor?.[dim as DimensionId] === floor) continue;
+      // D9 is named for what it is; the rest are named by dimension so the message points at the row
+      // the owner has to fix. Every one of these can be shed by the ≤0 / out-of-range sanitizer rule.
+      out.push(dim === "D9" ? "security floor (D9)" : `${dim} floor`);
+    }
     if (req.requireProtectedBranch && !stored?.requireProtectedBranch) out.push("protected-branch requirement");
     if (req.forbidPostures?.length && !req.forbidPostures.every((p) => stored?.forbidPostures?.includes(p)))
       out.push("forbidden postures");
@@ -170,6 +196,14 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     setSecurity,
     securityFloor,
     setSecurityFloor,
+    otherFloors,
+    setDimFloor: (dimId: string, value: string | null) =>
+      setOtherFloors((prev) => {
+        const next = { ...prev };
+        if (value === null) delete next[dimId];
+        else next[dimId] = value;
+        return next;
+      }),
     noUngoverned,
     setNoUngoverned,
     requireProtection,

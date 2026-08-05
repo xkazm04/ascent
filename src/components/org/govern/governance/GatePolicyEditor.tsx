@@ -10,6 +10,7 @@
 import type { GatePolicy } from "@/lib/scoring/gate";
 import type { LevelId } from "@/lib/types";
 import { appliesWhen, useGatePolicyEditor } from "./useGatePolicyEditor";
+import { DimensionFloorRows } from "./DimensionFloorRows";
 
 export { appliesWhen };
 
@@ -91,6 +92,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
           Require a protected default branch
         </label>
       </div>
+      <DimensionFloorRows floors={f.otherFloors} onChange={f.setDimFloor} />
       <div className="mt-3 flex flex-wrap items-center gap-2" aria-busy={f.busy !== null}>
         <button
           onClick={() => f.save()}
