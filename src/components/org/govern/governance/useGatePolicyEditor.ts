@@ -149,8 +149,13 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     }
   }
 
+  // No optimistic clear. The form used to blank itself BEFORE the request, so a failed reset left every
+  // field empty while the server still held the old bar — the owner reading "Error: …" over an empty
+  // form has no way to tell which policy is actually enforced, on the control that blocks merges. The
+  // success path already re-seeds from the server's echo (syncForm(stored), stored === null here), so
+  // the clear happens either way; dropping it just means a FAILED reset leaves the truth on screen.
+  // This is the module's stated contract: the stored policy is the source of truth, never the request.
   function reset() {
-    syncForm(null);
     void post(null, "reset");
   }
 

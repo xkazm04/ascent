@@ -101,6 +101,31 @@ describe("GatePolicyEditor — the stored policy is the source of truth", () => 
     expect(sent.policy.minDimensionFor).toEqual({ D9: 70 });
   });
 
+  // A FAILED reset must not blank the form. It used to clear every field optimistically before the
+  // request, so on failure the owner read "Error: …" over an empty form while the server still held the
+  // old bar — no way to tell which policy is actually enforced, on the control that blocks merges.
+  it("keeps the stored policy on screen when a RESET fails", async () => {
+    stubSave({ error: "nope" }, false);
+    render(<GatePolicyEditor org="acme" initial={{ minLevel: "L4", minOverall: 65 }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Error:"));
+    expect((screen.getByRole("combobox", { name: /Minimum level/ }) as HTMLSelectElement).value).toBe("L4");
+    expect((screen.getByRole("spinbutton", { name: /Min overall/ }) as HTMLInputElement).value).toBe("65");
+  });
+
+  it("a SUCCESSFUL reset still clears the form, from the server's echo", async () => {
+    stubSave({ policy: null, sweep: { status: "skipped", reason: "no-watched-repos", repos: 0, cap: 20 } });
+    render(<GatePolicyEditor org="acme" initial={{ minLevel: "L4", minOverall: 65 }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Reset to the archetype default"));
+    expect((screen.getByRole("combobox", { name: /Minimum level/ }) as HTMLSelectElement).value).toBe("");
+    expect((screen.getByRole("spinbutton", { name: /Min overall/ }) as HTMLInputElement).value).toBe("");
+  });
+
   it("treats an all-dropped policy (echo null) as the reset it really is", async () => {
     stubSave({ policy: null, sweep: { status: "skipped", reason: "no-installation", repos: 0, cap: 20 } });
     render(<GatePolicyEditor org="acme" initial={{ minLevel: "L4" }} />);
