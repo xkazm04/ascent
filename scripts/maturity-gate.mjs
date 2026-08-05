@@ -77,8 +77,30 @@ try {
     console.error(`  If the repository is public, check the owner/repo spelling and that ASCENT_URL points at your deployment (${base}).`);
     process.exit(2);
   }
+  // 429 — the endpoint throttled us (the ?mock=0 path and every cache-missing ingest are rate-limited).
+  // A throttle means the repo was NEVER SCORED, so it belongs with 404/503 in the "gate could not run"
+  // class (exit 2), not with "below the bar" (exit 1). Without this branch a 429 fell through to the
+  // verdict read below, where `body.pass` is undefined — printing a FAILED line full of "?" placeholders
+  // and exiting 1, i.e. blaming the repo for the operator's rate limit.
+  if (res.status === 429) {
+    const retryAfter = res.headers.get("retry-after");
+    console.error(`✖ Gate is rate-limited for ${repo} — ${body.error ?? "too many requests"}`);
+    console.error(
+      `  The repository was not scored, so this is not a verdict.${retryAfter ? ` Retry after ${retryAfter}s.` : " Retry shortly."}`,
+    );
+    process.exit(2);
+  }
   if (res.status >= 500) {
     console.error(`✖ Gate error (${res.status}): ${body.error ?? "unknown"}`);
+    process.exit(2);
+  }
+  // Only 200 (pass) and 422 (fail) carry a VERDICT. Anything else that reached here is an unexpected
+  // response, and reading `body.pass` off it would silently report "below the bar" for something that
+  // never produced a bar — the same misattribution the 404/429/503 branches above exist to prevent.
+  // Closing the class, not just the known members.
+  if (res.status !== 200 && res.status !== 422) {
+    console.error(`✖ Gate returned an unexpected status ${res.status} for ${repo}: ${body.error ?? "no explanation given"}`);
+    console.error(`  No verdict was produced. Check that ASCENT_URL points at an Ascent deployment (${base}).`);
     process.exit(2);
   }
   const at = body.ref ? `@${String(body.ref).slice(0, 12)}` : "";

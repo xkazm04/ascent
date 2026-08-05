@@ -147,13 +147,15 @@ It runs Node 20 and invokes `scripts/maturity-gate.mjs`, which builds the query 
 
 | Exit | Meaning |
 | --- | --- |
-| **0** | `pass: true` — prints a green summary. |
+| **0** | `pass: true` (`200`) — prints a green summary. |
 | **1** | The repo is **below the bar** (`422`); lists the `failures`. |
-| **2** | The gate **could not run**: a network error, a 5xx, a bad repo, missing args — **and a `degraded` (`503`) verdict**. |
+| **2** | The gate **could not run**: a network error, a 5xx, a `404`, a `429` throttle, missing args, **a `degraded` (`503`) verdict**, or any status that isn't `200`/`422`. |
 
-`degraded` deliberately exits **2, not 1**: "the grade could not be produced" and "the repo
-is below the bar" mean opposite things to whoever reads the job log, and only the second is
-the repo's fault. `.github/workflows/maturity.yml` is the repo's own example using the
+Only `200` and `422` carry a verdict; every other status exits **2, not 1**, because "the
+grade could not be produced" and "the repo is below the bar" mean opposite things to whoever
+reads the job log, and only the second is the repo's fault. A `429` is the easiest one to get
+wrong — it is the *operator's* rate limit, and the repo was never scored — so it reports the
+throttle (with `Retry-After` when present) instead of a failure line full of `?` placeholders. `.github/workflows/maturity.yml` is the repo's own example using the
 action (and `npm run gate` runs the script locally).
 
 ## Check Run + sticky comment (App mode)
