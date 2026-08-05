@@ -199,6 +199,30 @@ describe("POST /api/org/gate-policy — open-PR re-check sweep", () => {
     expect(mockGate).not.toHaveBeenCalled();
   });
 
+  // A draft can't be merged, so its check blocks nothing — and `ready_for_review` is in the webhook's
+  // PR_ACTIONS, so it gets re-gated against the current bar the moment it becomes mergeable. Spending
+  // the 20-PR courtesy budget on drafts starved the PRs a bar change can actually keep wrongly green.
+  it("does not spend sweep budget on DRAFT PRs", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "api")]);
+    mockFetch.mockResolvedValue([{ ...pr(1), draft: true }, pr(2), { ...pr(3), draft: true }, pr(4)]);
+
+    await save();
+    await runDeferred();
+
+    expect(mockGate).toHaveBeenCalledTimes(2);
+    expect(mockGate.mock.calls.map(([ref]) => ref.prNumber)).toEqual([2, 4]);
+  });
+
+  it("lists a full page regardless of remaining budget, so drafts can't hide mergeable PRs behind them", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "api")]);
+    mockFetch.mockResolvedValue([pr(1)]);
+
+    await save();
+    await runDeferred();
+
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining("per_page=100"), "tok");
+  });
+
   it("skips malformed PR rows rather than gating a PR with no head SHA", async () => {
     mockWatched.mockResolvedValue([repo("acme", "api")]);
     mockFetch.mockResolvedValue([{ number: 3, base: { ref: "main" } }, pr(4)]);

@@ -78,8 +78,12 @@ async function sweepOpenPrGates(
     if (budget <= 0) break;
     let prs: OpenPr[];
     try {
+      // per_page is deliberately NOT the remaining budget. One listing costs the same single API call
+      // at any page size, and sizing it to the budget meant a repo whose first N open PRs are all
+      // drafts (skipped below) could yield nothing while mergeable PRs sat just past the page edge.
+      // The budget still bounds the WORK — it is decremented per gated PR, not per listed one.
       prs = await githubAppFetch<OpenPr[]>(
-        `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/pulls?state=open&per_page=${budget}`,
+        `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/pulls?state=open&per_page=100`,
         token,
       );
     } catch (err) {
@@ -93,6 +97,12 @@ async function sweepOpenPrGates(
     }
     for (const pr of Array.isArray(prs) ? prs : []) {
       if (budget <= 0) break;
+      // A DRAFT costs no budget. GitHub refuses to merge one, so its check blocks nothing today, and
+      // the App webhook's PR_ACTIONS includes `ready_for_review` — the moment a draft becomes
+      // mergeable it is re-gated against the CURRENT bar anyway. Spending the courtesy budget on
+      // drafts starved the PRs actually waiting to merge, which are the only ones a bar change can
+      // wrongly keep green or wrongly keep blocked. (`draft` was declared on OpenPr and never read.)
+      if (pr.draft === true) continue;
       const prNumber = pr.number;
       const headSha = pr.head?.sha;
       const baseRef = pr.base?.ref;

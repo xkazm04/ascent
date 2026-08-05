@@ -195,7 +195,9 @@ not answer the question it exists for — *who lowered the security floor from 7
 
 Saving an org gate policy (`POST /api/org/gate-policy`) schedules a **bounded, best-effort
 sweep** that re-runs `runPrGate` on the org's open PRs — up to 25 watched repos / 20 PRs,
-deferred via `after()`, every failure logged and isolated. Without it, open PRs kept a
+deferred via `after()`, every failure logged and isolated. **Drafts are skipped and cost no
+budget**: GitHub won't merge one, and `ready_for_review` is in the webhook's `PR_ACTIONS`, so
+a draft is re-gated against the current bar the moment it becomes mergeable. Without it, open PRs kept a
 verdict from the *old* bar until their next push. The response reports what was scheduled
 (`sweep: { status: "scheduled", repos, cap }`) or why nothing was
 (`{ status: "skipped", reason: "no-installation" | "no-watched-repos" }`), and the editor
