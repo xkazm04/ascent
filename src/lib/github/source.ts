@@ -72,8 +72,11 @@ const MAX_CODEOWNERS_BYTES = 60_000;
 const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
 const MAX_TOTAL_BYTES = 280_000; // total content budget across all files (raised for full workflow ingest)
 const COMMIT_COUNT = 30;
-const TIMEOUT_API_MS = 12_000; // GitHub REST (metadata/tree/commits)
-const TIMEOUT_FILE_MS = 8_000; // per-file content fetch
+// These budgets now cover the response BODY as well as the headers (see host.ts fetchWithTimeout),
+// so each was raised: the recursive tree read on a large monorepo is multi-megabyte, and the old
+// headers-only figures would have newly aborted exactly the biggest repos.
+const TIMEOUT_API_MS = 30_000; // GitHub REST (metadata/tree/commits) — tree responses are the large ones
+const TIMEOUT_FILE_MS = 15_000; // per-file content fetch (capped at MAX_FILE_BYTES, so far smaller)
 const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate limits)
 
 export interface ParsedRepo {

@@ -61,30 +61,40 @@ export function ghHeaders(
 }
 
 /**
- * `fetch()` with a per-call AbortController timeout so no upstream GitHub call can hang the function,
- * merged with an optional caller `signal` (the request's signal) — the fetch aborts on whichever fires
- * first, the timeout OR a client disconnect. The single source for this controller/timeout/merge
- * plumbing (REST source/governance + GraphQL each previously hand-rolled an identical copy); callers
- * keep their own per-module timeout value and layer their own response-shaping on top of the `Response`.
+ * `fetch()` with a per-call timeout so no upstream GitHub call can hang the function, merged with an
+ * optional caller `signal` (the request's signal) — the fetch aborts on whichever fires first, the
+ * timeout OR a client disconnect. The single source for this timeout/merge plumbing (REST
+ * source/governance + GraphQL each previously hand-rolled an identical copy); callers keep their own
+ * per-module timeout value and layer their own response-shaping on top of the `Response`.
+ *
+ * THE TIMEOUT COVERS THE BODY, not just the headers. This used to be a hand-rolled
+ * `AbortController` + `setTimeout` cleared in a `finally` — which fires the moment `fetch` resolves,
+ * i.e. as soon as the response HEADERS arrive. Every caller in this layer then read the body
+ * (`res.json()` / `res.text()`) outside any timeout at all, so a connection that stalled mid-body hung
+ * until the route's maxDuration or a client disconnect — precisely the failure the per-call timeout
+ * exists to prevent. `AbortSignal.timeout` stays associated with the response body stream, so the
+ * budget now bounds the WHOLE exchange (and there is no timer left to leak or clear).
+ *
+ * Budgets were raised alongside this change: a timeout that covers a multi-megabyte tree response
+ * needs more room than one that only had to reach the first byte.
  */
-export async function fetchWithTimeout(
+export function fetchWithTimeout(
   url: string,
   init: RequestInit,
   ms: number,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
-  try {
-    return await fetch(url, { ...init, signal: combined });
-  } finally {
-    clearTimeout(timer);
-  }
+  const timeout = AbortSignal.timeout(ms);
+  return fetch(url, { ...init, signal: signal ? AbortSignal.any([timeout, signal]) : timeout });
 }
 
-/** Default timeout for a shared GitHub REST GET (matches the REST source/metadata budget). */
-export const DEFAULT_GET_TIMEOUT_MS = 12_000;
+/**
+ * Default timeout for a shared GitHub REST GET, covering headers AND body (see fetchWithTimeout).
+ * Raised from 12s when the budget stopped meaning "time to first byte": a big monorepo's recursive
+ * tree response is multi-megabyte, and the old figure — chosen for a headers-only window — would have
+ * newly aborted exactly the largest repos.
+ */
+export const DEFAULT_GET_TIMEOUT_MS = 30_000;
 
 /**
  * Knobs for the shared GitHub REST GET helpers ({@link ghFetch} / {@link ghGetJson}). Each maps to a

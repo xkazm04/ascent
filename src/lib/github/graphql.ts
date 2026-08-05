@@ -19,7 +19,9 @@ import { fetchWithTimeout, githubGraphqlUrl } from "@/lib/github/host";
 import { GitHubError } from "@/lib/github/source";
 
 const GRAPHQL = githubGraphqlUrl();
-const TIMEOUT_MS = 15_000;
+// Covers the body too (host.ts fetchWithTimeout); raised accordingly — a 100-PR page with reviews
+// and files is a sizable payload.
+const TIMEOUT_MS = 30_000;
 
 export interface PrReview {
   state: string; // APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED | PENDING

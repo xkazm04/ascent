@@ -9,7 +9,9 @@ import type { Governance } from "@/lib/types";
 import { encodePathSegments, ghFetch, githubApiBase } from "@/lib/github/host";
 
 const API = githubApiBase();
-const TIMEOUT_MS = 10_000;
+// Covers the body too (host.ts fetchWithTimeout). Governance payloads are small, so the raise is
+// modest — enough that a slow link cannot turn a working read into a timeout.
+const TIMEOUT_MS = 20_000;
 
 async function getJson(
   url: string,
