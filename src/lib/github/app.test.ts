@@ -12,6 +12,7 @@ import {
   listInstallationRepos,
   listInstallationReposResult,
   invalidateInstallationToken,
+  githubAppFetch,
   AppApiError,
 } from "./app";
 
@@ -444,5 +445,55 @@ describe("listInstallationReposResult — truncation signal", () => {
 
     const out = await listInstallationRepos(INSTALL_ID);
     expect(out.map((r) => r.name)).toEqual(["solo"]);
+  });
+});
+
+// There was NO timeout on the GitHub App surface — a bare fetch covering token minting,
+// getInstallation, the paginated installation-repo listing (up to 50 pages), and every Check Run and
+// sticky-comment write. The sibling REST layer routes everything through fetchWithTimeout; this one
+// did not, so one hung GitHub connection blocked until the platform killed the function — worst inside
+// the webhook's after() work, where the check-run write retries 3x and the comment upsert walks pages.
+describe("githubAppFetch — every App API call is time-bounded", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("passes an abort signal to fetch that is still armed after the response resolves", async () => {
+    let seen: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      seen = init.signal as AbortSignal;
+      return new Response("{}", { status: 200 });
+    }));
+
+    await githubAppFetch("/app/installations/1", "jwt");
+    expect(seen).toBeDefined();
+    expect(seen!.aborted).toBe(false);
+  });
+
+  it("COMBINES a caller-supplied signal with the timeout rather than replacing it", async () => {
+    let seen: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      seen = init.signal as AbortSignal;
+      return new Response("{}", { status: 200 });
+    }));
+    const caller = new AbortController();
+
+    await githubAppFetch("/app/installations/1", "jwt", { signal: caller.signal });
+    expect(seen!.aborted).toBe(false);
+    caller.abort();
+    expect(seen!.aborted).toBe(true); // the caller's cancellation still reaches the request
+  });
+
+  it("keeps the canonical App headers and auth intact", async () => {
+    let init: RequestInit | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, i: RequestInit) => {
+      init = i;
+      return new Response("{}", { status: 200 });
+    }));
+
+    await githubAppFetch("/x", "tok", { method: "POST" });
+    const h = init!.headers as Record<string, string>;
+    expect(h.Authorization).toBe("Bearer tok");
+    expect(h["X-GitHub-Api-Version"]).toBe("2022-11-28");
+    expect(init!.method).toBe("POST");
+    expect(init!.cache).toBe("no-store");
   });
 });

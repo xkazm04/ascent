@@ -6,7 +6,7 @@
 // Setup: see docs/features/github/setup.md.
 
 import { createHmac, createSign, timingSafeEqual } from "crypto";
-import { githubApiBase, isListableRepo } from "@/lib/github/host";
+import { fetchWithTimeout, githubApiBase, isListableRepo } from "@/lib/github/host";
 
 const API = githubApiBase();
 
@@ -98,22 +98,45 @@ export class AppApiError extends Error {
 }
 
 /**
+ * Per-call timeout for every GitHub App API request. Matches the REST scanner's budget
+ * (host.ts DEFAULT_GET_TIMEOUT_MS) and, like it, covers the response BODY as well as the headers.
+ *
+ * There was NO timeout here at all — a bare `fetch` on the whole App surface: token minting,
+ * getInstallation, the paginated installation-repo listing (up to 50 pages), and every Check Run and
+ * sticky-comment write. The sibling REST layer routes everything through fetchWithTimeout; this one
+ * did not, so a single hung GitHub connection blocked until the platform killed the function. That is
+ * worst inside the webhook's after() work, which owns a 300s budget and multiplies the exposure: the
+ * check-run write retries three times, and the sticky-comment upsert can walk 50 pages — any one of
+ * which could hang indefinitely.
+ */
+const APP_API_TIMEOUT_MS = 30_000;
+
+/**
  * Authenticated GitHub API call (App JWT or installation token as the bearer). Exported so the
  * write surfaces (github/write.ts, github/checks.ts) reuse one fetch with consistent headers +
  * AppApiError handling. Throws AppApiError on a non-2xx so callers can branch on `.status`.
+ *
+ * A caller-supplied `init.signal` is COMBINED with the timeout (whichever fires first wins) rather
+ * than replaced, so an existing cancellation still works.
  */
 export async function githubAppFetch<T>(path: string, auth: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${auth}`,
-      "User-Agent": "ascent-maturity-scanner",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(init.headers ?? {}),
+  const { signal: callerSignal, ...rest } = init;
+  const res = await fetchWithTimeout(
+    `${API}${path}`,
+    {
+      ...rest,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${auth}`,
+        "User-Agent": "ascent-maturity-scanner",
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(init.headers ?? {}),
+      },
+      cache: "no-store",
     },
-    cache: "no-store",
-  });
+    APP_API_TIMEOUT_MS,
+    callerSignal ?? undefined,
+  );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new AppApiError(res.status, path, body);
