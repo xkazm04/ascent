@@ -19,9 +19,10 @@
 // keyed on the Supabase identity's user_name — do not assume the custom callback's comments describe
 // live behavior.
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { publicOriginForRequest, safeNext } from "@/lib/auth";
+import { discoverOrgsForLogin } from "@/lib/auth-discovery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,8 +80,33 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await createSupabaseServerClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      // WATCHLIST SEEDING on the ACTIVE stack. Previously this callback did authentication only, so a
+      // brand-new production user landed on an empty dashboard: discovery + seeding lived inside the
+      // DORMANT callback, which never runs here. It is now a shared module (@/lib/auth-discovery), and
+      // the exchange hands back the GitHub `provider_token` we need to call /user/orgs + /user/repos.
+      //
+      // Deferred via after() — NOT inline. Sign-in is the most conversion-sensitive step in the funnel
+      // and this costs two GitHub round-trips plus a DB write; the dormant stack paid that latency
+      // inline, and there is no reason to inherit it. The redirect goes out immediately.
+      //
+      // No installed-org list is passed: Supabase's token comes from ITS OAuth client, not the Ascent
+      // App's, so /user/installations isn't available here. selectSeedTarget then seeds only PUBLIC
+      // repos, which is exactly right — an uninstalled org can't mint a token, so private rows would be
+      // dead watchlist entries. Installation LINKING stays custom-stack-only for the same reason.
+      const providerToken = data?.session?.provider_token;
+      const meta = (data?.user?.user_metadata ?? {}) as Record<string, string | undefined>;
+      const login = meta.user_name ?? meta.preferred_username;
+      if (providerToken && login) {
+        after(() =>
+          discoverOrgsForLogin(providerToken, login).catch((err) =>
+            // discoverOrgsForLogin already swallows its own failures; this is the belt on the braces so
+            // a deferred rejection can never surface as an unhandled error after the response is sent.
+            console.warn("[auth/callback] post-sign-in discovery failed", err instanceof Error ? err.message : err),
+          ),
+        );
+      }
       return NextResponse.redirect(new URL(next, origin));
     }
     console.error("[auth/callback] code exchange failed", error.message);

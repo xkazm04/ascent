@@ -13,13 +13,19 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const { mockExchange, mockAfter, mockDiscover } = vi.hoisted(() => ({
+  mockExchange: vi.fn(),
+  mockAfter: vi.fn(),
+  mockDiscover: vi.fn(),
+}));
+
 vi.mock("next/server", () => ({
   NextResponse: {
     redirect: vi.fn((url: URL) => new Response(null, { status: 307, headers: { location: url.toString() } })),
   },
+  after: mockAfter,
 }));
-
-const { mockExchange } = vi.hoisted(() => ({ mockExchange: vi.fn() }));
+vi.mock("@/lib/auth-discovery", () => ({ discoverOrgsForLogin: mockDiscover }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(async () => ({ auth: { exchangeCodeForSession: mockExchange } })),
@@ -36,6 +42,9 @@ import { GET } from "./route";
 
 beforeEach(() => {
   mockExchange.mockReset();
+  mockAfter.mockReset();
+  mockDiscover.mockReset();
+  mockDiscover.mockResolvedValue({});
 });
 
 const req = (qs: string) => new Request(`https://internal:3000/auth/callback${qs}`);
@@ -94,5 +103,72 @@ describe("GET /auth/callback — Supabase sign-in failure surfacing", () => {
   it("maps a user-cancelled consent screen (error=access_denied) to the 'denied' copy, not breakage", async () => {
     const res = await GET(req("?error=access_denied&error_description=cancelled"));
     expect(res.headers.get("location")).toBe("https://ascent.example/connect?error=denied");
+  });
+});
+
+// (3) Watchlist seeding on the ACTIVE stack. This callback used to do authentication ONLY, so a
+// brand-new production user landed on an empty dashboard — discovery + seeding lived in the DORMANT
+// callback, which never runs here. It is deferred via after() because sign-in is the most
+// conversion-sensitive step in the funnel and this costs two GitHub round-trips plus a DB write.
+describe("post-sign-in discovery + watchlist seeding", () => {
+  const req = () => new Request("https://ascent.example/auth/callback?code=abc");
+  /** Run whatever the route deferred, standing in for the post-response phase. */
+  const runDeferred = async () => {
+    for (const [fn] of mockAfter.mock.calls) await (fn as () => unknown)();
+  };
+
+  it("seeds using the GitHub provider token from the exchange, DEFERRED (not inline)", async () => {
+    mockExchange.mockResolvedValue({
+      data: { session: { provider_token: "gho_tok" }, user: { user_metadata: { user_name: "dev" } } },
+      error: null,
+    });
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(307); // redirected immediately
+    expect(mockDiscover).not.toHaveBeenCalled(); // …before any discovery ran
+    expect(mockAfter).toHaveBeenCalledTimes(1);
+
+    await runDeferred();
+    // No installed-org list: Supabase's token can't enumerate App installations, so seeding is
+    // public-repos-only via selectSeedTarget.
+    expect(mockDiscover).toHaveBeenCalledWith("gho_tok", "dev");
+  });
+
+  it("skips discovery when the exchange returned no provider token", async () => {
+    mockExchange.mockResolvedValue({
+      data: { session: {}, user: { user_metadata: { user_name: "dev" } } },
+      error: null,
+    });
+    await GET(req());
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it("skips discovery when the identity carries no GitHub login", async () => {
+    mockExchange.mockResolvedValue({
+      data: { session: { provider_token: "gho_tok" }, user: { user_metadata: {} } },
+      error: null,
+    });
+    await GET(req());
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it("a discovery failure can never surface after the response is sent", async () => {
+    mockExchange.mockResolvedValue({
+      data: { session: { provider_token: "gho_tok" }, user: { user_metadata: { user_name: "dev" } } },
+      error: null,
+    });
+    mockDiscover.mockRejectedValue(new Error("github down"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await GET(req());
+    await expect(runDeferred()).resolves.toBeUndefined();
+  });
+
+  it("does not attempt discovery when the code exchange itself failed", async () => {
+    mockExchange.mockResolvedValue({ data: null, error: { message: "bad code" } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await GET(req());
+    expect(mockAfter).not.toHaveBeenCalled();
   });
 });
