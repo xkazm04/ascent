@@ -1,4 +1,10 @@
 // Score-noise band — the canonical "is this move real, or scan-to-scan noise?" primitive.
+
+import type { Posture } from "@/lib/types";
+
+/** The canonical posture ids — `"early"`, not the slugified label. Type-only, so this module keeps
+ *  its dependency-free runtime (see the header note below). */
+type PostureId = Posture["id"];
 //
 // A maturity score is the deterministic signal blended 60/40 with an LLM judgment that is guardbanded
 // ±25 to that signal (see scoring/engine.ts + maturity/model.ts). In practice the blended score barely
@@ -56,8 +62,13 @@ export const POSTURE_LEAVE = 48;
  * are still inside the 48–52 corridor — the caller should treat that as no news.
  */
 export function postureTransition(
-  before: string,
-  after: string,
+  // Typed as the canonical posture ids, not `string`. They were plain strings, which is how the
+  // destination check below came to compare against `"getting-started"` — the LABEL, slugified. The
+  // id is `"early"` (see POSTURE_META / postureFor), so that branch could never fire: a repo climbing
+  // OUT of Getting Started was reported as having "left" a quadrant rather than entered one. A
+  // type-only import, so this module stays runtime-dependency-free as documented.
+  before: PostureId,
+  after: PostureId,
   axes: { adoption: number; rigor: number },
 ): "entered" | "left" | "held" {
   if (before === after) return "held";
@@ -69,5 +80,5 @@ export function postureTransition(
   // Direction is defined by the destination, not by score arithmetic: "entered" means the repo now
   // holds a quadrant it did not hold before. Callers that care about a SPECIFIC quadrant (the
   // ungoverned slide, say) still compare the ids themselves — this only answers "is it news?".
-  return after === "ai-native" || before === "getting-started" ? "entered" : "left";
+  return after === "ai-native" || before === "early" ? "entered" : "left";
 }

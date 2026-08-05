@@ -33,17 +33,17 @@ describe("posture transition hysteresis", () => {
   it("is never news when the posture id did not change", () => {
     expect(postureTransition("ai-native", "ai-native", at(80, 80))).toBe("held");
     // …not even when the axes are nowhere near the corridor.
-    expect(postureTransition("getting-started", "getting-started", at(10, 10))).toBe("held");
+    expect(postureTransition("early", "early", at(10, 10))).toBe("held");
   });
 
   it("holds a label flip driven entirely from inside the 48-52 corridor", () => {
     // The exact wobble case: both axes sit on the cut, the quadrant technically changed, no news.
-    expect(postureTransition("getting-started", "ai-native", at(50, 51))).toBe("held");
-    expect(postureTransition("ai-native", "getting-started", at(49, 48))).toBe("held");
+    expect(postureTransition("early", "ai-native", at(50, 51))).toBe("held");
+    expect(postureTransition("ai-native", "early", at(49, 48))).toBe("held");
   });
 
   it("announces once an axis is clear of the corridor — enter high, leave low", () => {
-    expect(postureTransition("getting-started", "ai-native", at(POSTURE_ENTER, 51))).toBe("entered");
+    expect(postureTransition("early", "ai-native", at(POSTURE_ENTER, 51))).toBe("entered");
     expect(postureTransition("ai-native", "ungoverned", at(60, POSTURE_LEAVE - 1))).toBe("left");
   });
 
@@ -51,6 +51,29 @@ describe("posture transition hysteresis", () => {
     // A repo that entered at 52 has to fall below 48 — not merely back under 52 — before the exit is
     // announced. Between the two cuts nothing is reported, which is the whole point of hysteresis.
     expect(POSTURE_LEAVE).toBeLessThan(POSTURE_ENTER);
-    expect(postureTransition("ai-native", "getting-started", at(POSTURE_ENTER - 1, 49))).toBe("held");
+    expect(postureTransition("ai-native", "early", at(POSTURE_ENTER - 1, 49))).toBe("held");
+  });
+});
+
+// The branch that was dead. It compared against "getting-started" — the slugified LABEL — while the
+// canonical id is "early" (POSTURE_META / postureFor), so a repo climbing OUT of Getting Started into
+// any quadrant other than AI-Native took the fallback and was reported as having LEFT one. The params
+// are now typed as Posture["id"], so the same mistake is a compile error rather than a silent fallback.
+describe("postureTransition — direction is defined by the destination", () => {
+  const at = (adoption: number, rigor: number) => ({ adoption, rigor });
+
+  it("a climb out of 'early' into a better quadrant is ENTERED, not left", () => {
+    expect(postureTransition("early", "manual", at(30, 60))).toBe("entered");
+    expect(postureTransition("early", "ungoverned", at(60, 30))).toBe("entered");
+  });
+
+  it("reaching 'ai-native' from anywhere is ENTERED", () => {
+    expect(postureTransition("manual", "ai-native", at(60, 60))).toBe("entered");
+    expect(postureTransition("ungoverned", "ai-native", at(60, 60))).toBe("entered");
+  });
+
+  it("a fall out of a better quadrant is LEFT", () => {
+    expect(postureTransition("ai-native", "manual", at(30, 60))).toBe("left");
+    expect(postureTransition("manual", "early", at(30, 30))).toBe("left");
   });
 });
