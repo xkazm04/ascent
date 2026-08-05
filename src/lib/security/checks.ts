@@ -42,6 +42,31 @@ function branchProtection(gov: Governance | null): { score: number | null; evide
   return { score: clamp10(s), evidence: `Default branch: ${parts.join(", ")}.`, remediation: rem };
 }
 
+/**
+ * Does any `permissions:` block in this workflow grant a broad WRITE scope on a sensitive key?
+ *
+ * Walks each block's indented body rather than pattern-matching one line after the header, so the key's
+ * POSITION in the block is irrelevant. `contents: write` is the lever that matters (it can push to the
+ * default branch); `packages`/`id-token`/`actions` write are the other commonly-abused broad grants.
+ * A block ends at the first line indented at or above the `permissions:` key's own column.
+ */
+function hasBroadWriteGrant(content: string): boolean {
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const header = /^(\s*)permissions:\s*$/.exec(lines[i] ?? "");
+    if (!header) continue;
+    const indent = header[1]!.length;
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j] ?? "";
+      if (!line.trim()) continue; // blank lines don't end a block
+      const lead = /^\s*/.exec(line)![0].length;
+      if (lead <= indent) break; // dedented out of the block
+      if (/^\s*(contents|packages|id-token|actions)\s*:\s*write\s*$/i.test(line)) return true;
+    }
+  }
+  return false;
+}
+
 /** Least-privilege workflow tokens — fraction of workflows that declare a top-level `permissions:`. */
 function tokenPermissions(wf: { path: string; content: string }[]): { score: number | null; evidence: string; remediation?: string } {
   if (!wf.length) return { score: null, evidence: "No GitHub Actions workflows to scope." };
@@ -51,7 +76,13 @@ function tokenPermissions(wf: { path: string; content: string }[]): { score: num
     // Match job-level (indented) `permissions:` blocks too, not just top-level (column 0). Job-scoped
     // least-privilege (`contents: read` on a job) is equally valid and was scored 0 by the old `^perm…`.
     if (/^\s*permissions:/m.test(w.content)) scoped += 1;
-    if (/permissions:\s*write-all/i.test(w.content) || /permissions:\s*\n\s+contents:\s*write/i.test(w.content)) writeAll += 1;
+    // A broad grant counts wherever it sits in the block. The old `permissions:\s*\n\s+contents:\s*write`
+    // required `contents: write` to be the FIRST key, so the extremely common
+    // `permissions:\n  issues: read\n  contents: write` escaped the cap entirely and the workflow scored
+    // as if it were least-privilege — the check's own headline number inverted for the case it exists to
+    // catch. Scan the block's own indented body instead: from `permissions:` to the first line that
+    // dedents back to the key's column or beyond.
+    if (/permissions:\s*write-all/i.test(w.content) || hasBroadWriteGrant(w.content)) writeAll += 1;
   }
   let s = (scoped / wf.length) * 10;
   if (writeAll > 0) s = Math.min(s, 4); // an explicit write-all cap

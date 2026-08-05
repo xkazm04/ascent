@@ -174,3 +174,62 @@ FROM python:3.12`);
 RUN true`)).toBe(0);
   });
 });
+
+// The write-all cap only matched `contents: write` as the FIRST key after the `permissions:` header,
+// so the extremely common `permissions:\n  issues: read\n  contents: write` escaped it and the workflow
+// scored as if it were least-privilege — the check's headline number inverted for the case it exists
+// to catch.
+describe("token-permissions — broad write grants are capped wherever they sit", () => {
+  const scoreOf = (content: string) =>
+    get(computeSecurityChecks(snap([{ path: ".github/workflows/a.yml", content }]), null, null, null), "token-permissions")
+      .score;
+
+  it("caps a contents:write grant that is NOT the first key in the block", () => {
+    expect(
+      scoreOf(`permissions:
+  issues: read
+  pull-requests: read
+  contents: write
+jobs: {}`),
+    ).toBeLessThanOrEqual(4);
+  });
+
+  it("still caps it when it IS the first key (unchanged)", () => {
+    expect(
+      scoreOf(`permissions:
+  contents: write
+jobs: {}`),
+    ).toBeLessThanOrEqual(4);
+  });
+
+  it("caps the other commonly-abused broad grants", () => {
+    for (const key of ["packages", "id-token", "actions"]) {
+      expect(
+        scoreOf(`permissions:
+  contents: read
+  ${key}: write
+jobs: {}`),
+        `${key}: write must be capped`,
+      ).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("does NOT cap a genuinely least-privilege block", () => {
+    expect(
+      scoreOf(`permissions:
+  contents: read
+  issues: read
+jobs: {}`),
+    ).toBe(10);
+  });
+
+  it("does not let a later, dedented key leak into the block", () => {
+    // `contents: write` here belongs to a sibling mapping, not to permissions.
+    expect(
+      scoreOf(`permissions:
+  contents: read
+some-other-key:
+  contents: write`),
+    ).toBe(10);
+  });
+});
