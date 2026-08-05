@@ -10,7 +10,7 @@ import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy } from "@/lib/scoring/gate";
+import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
@@ -157,9 +157,32 @@ export async function GET(
     // previously ANY single policy param (e.g. ?min_overall=60) replaced the whole persisted policy
     // with params + archetype defaults, silently shedding the org's D9 floor / protection rule and
     // letting an anonymous caller (or a PR author editing the workflow URL) pass ?min_dimension=1 for
-    // a green verdict the org never configured. With no persisted policy (DB-less / unknown org / a
-    // read error → null) params override the archetype default per-field, exactly as before.
-    const orgPolicy = await getOrgGatePolicy(ownerN).catch(() => null);
+    // a green verdict the org never configured. With no persisted policy (DB-less / unknown org)
+    // params override the archetype default per-field, exactly as before.
+    //
+    // FAIL CLOSED on a READ ERROR (do not conflate it with "no policy configured"). The read used to
+    // `.catch(() => null)`, so a transient DB blip silently dropped the org's whole configured bar back
+    // to the archetype default — the ONE path in this module that failed OPEN, and on the exact control
+    // every other guard here exists to protect (an incomplete scan fails, an unscored dimension fails, a
+    // degraded grade 503s, a param can only tighten). A repo the real bar rejects could answer 200 for
+    // the duration of the outage. `getOrgGatePolicy` returns null WITHOUT throwing when there is no DB
+    // and when the org/column is unset, so a throw here means only one thing: we could not determine the
+    // bar. Say that (503) rather than enforce a weaker one.
+    let orgPolicy: GatePolicy | null;
+    try {
+      orgPolicy = await getOrgGatePolicy(ownerN);
+    } catch (err) {
+      console.error("[gate] org policy read failed — refusing to gate on the archetype default", err);
+      return NextResponse.json(
+        {
+          repo: `${ownerN}/${repoN}`,
+          ref: ref ?? null,
+          error:
+            "The organization's gate policy could not be read, so this gate would have fallen back to a weaker default bar. No verdict was produced — retry the gate.",
+        },
+        { status: 503 },
+      );
+    }
     const policy = orgPolicy
       ? tightenGatePolicy(orgPolicy, explicitPolicyFromParams(searchParams))
       : policyFromParams(searchParams, report.archetype);

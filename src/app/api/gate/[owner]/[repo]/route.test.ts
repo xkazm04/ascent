@@ -403,6 +403,32 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(policy).toEqual({ minLevel: "L3", minDimension: 40 }); // the policyFromParams spy's return
   });
 
+  // A READ ERROR is not "no policy configured". getOrgGatePolicy returns null (no throw) for every
+  // legitimate unset case, so a rejection means the bar is UNKNOWN — and gating on the archetype
+  // default there would silently relax an org's configured merge bar for the length of a DB blip.
+  it("FAIL-CLOSED: a failing org-policy read returns 503 instead of gating on the archetype default", async () => {
+    mockGetOrgGatePolicy.mockRejectedValueOnce(new Error("connection terminated"));
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    const res = await get();
+    const body = await res.json();
+
+    expect(res.status).toBe(503); // never a 200 the org's real bar would have refused
+    expect(body.pass).toBeUndefined(); // no verdict is claimed at all
+    expect(body.error).toMatch(/could not be read/i);
+    expect(mockEvaluateGate).not.toHaveBeenCalled(); // we never evaluate against a bar we couldn't read
+  });
+
+  it("an UNSET org policy (null, the DB-less / unknown-org case) still resolves via params — unchanged", async () => {
+    mockGetOrgGatePolicy.mockResolvedValueOnce(null);
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    const res = await get("?min_level=L4");
+
+    expect(res.status).toBe(200);
+    expect(mockPolicyFromParams).toHaveBeenCalled(); // the archetype-default path, exactly as before
+  });
+
   // --- (6) DEGRADATION HONESTY (ci-gate-status-checks #2) ----------------------
   // The dangerous failure mode: a caller asks for the real AI grade (?mock=0), the LLM is unavailable,
   // scanRepository degrades to the deterministic MockProvider, and evaluateGate (which reads only

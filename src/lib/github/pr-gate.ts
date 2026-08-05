@@ -102,7 +102,14 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     }
     // Honor the org's persisted gate policy (GATE-1) — the App check previously ignored any configured
     // bar and always used archetype defaults. Falls back to the default when unset/DB-less.
-    const policy = (await getOrgGatePolicy(owner).catch(() => null)) ?? undefined;
+    //
+    // NOT `.catch(() => null)`: getOrgGatePolicy returns null without throwing for every LEGITIMATE
+    // "no bar configured" case (no DB, unknown org, unset column, unparseable value), so a throw means
+    // only that we could not READ the bar. Swallowing it published a green Check Run scored against the
+    // archetype default — silently relaxing the merge gate for the duration of a DB blip, on the one
+    // status that actually blocks merges. Letting it propagate reaches the outer catch, which posts the
+    // neutral "could not run" check and releases the delivery so GitHub's redelivery retries.
+    const policy = (await getOrgGatePolicy(owner)) ?? undefined;
     const gate = evaluateGate(headReport, policy);
 
     // Diff base → head to show the PR's impact. Only meaningful when we actually scored the head

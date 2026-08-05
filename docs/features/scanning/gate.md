@@ -66,12 +66,20 @@ param must never be able to relax a bar an org configured:
   strictest field wins. `explicitPolicyFromParams` deliberately contributes *only* the
   fields the query names — padding the rest with archetype defaults would drag a
   deliberately-relaxed org bar back toward the default.
-- With **no** persisted policy (DB-less / unknown org / a read error), params override the
-  archetype default per field via `policyFromParams(searchParams, report.archetype)`.
+- With **no** persisted policy (DB-less / unknown org), params override the archetype default
+  per field via `policyFromParams(searchParams, report.archetype)`.
 
 Without this, any single param (`?min_dimension=1`) replaced the whole persisted policy and
 handed an anonymous caller — or a PR author editing the workflow URL — a green verdict the
 org never configured.
+
+A **failed read** is not "no policy configured". `getOrgGatePolicy` returns `null` *without
+throwing* for every legitimate unset case (no DB, unknown org, unset or unparseable column),
+so a rejection means only that the bar is **unknown** — and gating on the archetype default
+there would silently relax an org's configured merge bar for the length of a DB blip. Both
+consumers now fail closed: the endpoint returns **`503`** with no verdict at all, and
+`runPrGate` lets the error reach its outer catch, which posts the neutral "could not run"
+check and releases the delivery for GitHub to redeliver.
 
 ### Incomplete scans fail closed (one honest failure)
 
