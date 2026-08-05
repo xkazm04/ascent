@@ -11,6 +11,7 @@ import { GitHubError } from "@/lib/github/source";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
+import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
@@ -187,6 +188,13 @@ export async function GET(
       ? tightenGatePolicy(orgPolicy, explicitPolicyFromParams(searchParams))
       : policyFromParams(searchParams, report.archetype);
     const gate = evaluateGate(report, policy);
+    logGateVerdict(report, gate, {
+      surface: "api",
+      repo: `${ownerN}/${repoN}`,
+      ref,
+      policySource: orgPolicy ? "org" : searchParams.size > 0 ? "params" : "archetype",
+      degraded: degradedToMock(report),
+    });
 
     // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a
     // DEGRADED scan as a confident pass. When the caller asks for the real AI grade (?mock=0) but the

@@ -172,6 +172,23 @@ wrong — it is the *operator's* rate limit, and the repo was never scored — s
 throttle (with `Retry-After` when present) instead of a failure line full of `?` placeholders. `.github/workflows/maturity.yml` is the repo's own example using the
 action (and `npm run gate` runs the script locally).
 
+## Verdict telemetry
+
+Every produced verdict — from both the API endpoint and the App Check Run — emits one queryable
+line, `[gate:verdict] {…}` (`src/lib/scoring/gate-telemetry.ts`), carrying `surface`, `repo`,
+`ref`, `pass`, **`blocked`**, `degraded`, `authoritative`, the deduped failing `codes`,
+`policySource` (`org` / `params` / `archetype`), and the scored reading.
+
+`blocked` is the measurement, and it is deliberately *not* `!pass`: a degraded grade and a
+fork-PR default-branch fallback both fail for reasons that are not "this repo is below the
+bar", so counting them would overstate the gate's bite. The governance fleet view cannot
+answer any of this — it re-evaluates *stored scans* on page load, which is a snapshot of the
+fleet rather than a record of gate traffic, and it never sees ref-scoped PR verdicts.
+
+A log line rather than a table on purpose: gate calls are CI-frequency, and the useful
+questions (block rate over time, which condition bites most, degraded share) are aggregations
+a log drain already does well.
+
 ## Check Run + sticky comment (App mode)
 
 When Ascent is installed as a GitHub App, the webhook gates PRs and writes results back

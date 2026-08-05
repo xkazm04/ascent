@@ -17,6 +17,7 @@ import { scanRepository } from "@/lib/scan";
 import { publicBaseUrl } from "@/lib/site";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment, GATE_COMMENT_MARKER } from "@/lib/scoring/gate-comment";
+import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
 import { diffReports } from "@/lib/scoring/engine";
 
@@ -111,6 +112,16 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // neutral "could not run" check and releases the delivery so GitHub's redelivery retries.
     const policy = (await getOrgGatePolicy(owner)) ?? undefined;
     const gate = evaluateGate(headReport, policy);
+    // The check-run surface is the one that can actually block a merge, so its verdicts are the ones
+    // worth counting. `scoredHead: false` marks the fork fallback as non-authoritative so it is never
+    // tallied as a repository failing the bar.
+    logGateVerdict(headReport, gate, {
+      surface: "check-run",
+      repo: fullName,
+      ref: headSha,
+      policySource: policy ? "org" : "archetype",
+      scoredHead,
+    });
 
     // Diff base → head to show the PR's impact. Only meaningful when we actually scored the head
     // ref; both scans are mock at two refs, so the delta reflects the PR's tree changes alone.
