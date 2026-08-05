@@ -181,6 +181,16 @@ must never assert something it didn't measure:
   forever with no explanation), the gate posts "Maturity gate could not run" with a Re-run
   button.
 
+### The audit row
+
+Every save writes an `org.gate_policy` audit row carrying **the bar itself**, not just that it
+moved: `policy` / `previousPolicy` (the sanitized objects) plus `status` / `previousStatus`,
+the human rendering from `describeGatePolicy` — the same canonical enumeration the dashboard,
+gate URL, CI snippet and PR footer use, so the trail can't advertise a bar different from the
+one enforced. `status` is the field the audit viewer already renders for non-scan rows, so the
+change shows up in the table as e.g. `min L3 · no D9 < 30`. Without those fields the log could
+not answer the question it exists for — *who lowered the security floor from 70 to 30, and when*.
+
 ### When a policy change takes effect
 
 Saving an org gate policy (`POST /api/org/gate-policy`) schedules a **bounded, best-effort

@@ -34,7 +34,12 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-login") }));
-vi.mock("@/lib/scoring/gate", () => ({ sanitizeGatePolicy: vi.fn((p: unknown) => p) }));
+// describeGatePolicy stays REAL (importOriginal) so the audit row's human-readable bar is the exact
+// canonical rendering every other surface uses, not a test-local approximation.
+vi.mock("@/lib/scoring/gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/scoring/gate")>()),
+  sanitizeGatePolicy: vi.fn((p: unknown) => p),
+}));
 vi.mock("@/lib/github/app", () => ({
   isAppConfigured: () => true,
   getInstallationToken: vi.fn(async () => "tok"),
@@ -44,7 +49,7 @@ vi.mock("@/lib/github/pr-gate", () => ({ runPrGate: vi.fn(async () => {}) }));
 
 import { POST } from "./route";
 import { after } from "next/server";
-import { getInstallationIdForOwner, listWatchedRepos } from "@/lib/db";
+import { getInstallationIdForOwner, getOrgGatePolicy, listWatchedRepos, recordOrgAudit } from "@/lib/db";
 import { getInstallationToken, githubAppFetch } from "@/lib/github/app";
 import { runPrGate } from "@/lib/github/pr-gate";
 
@@ -203,6 +208,60 @@ describe("POST /api/org/gate-policy — open-PR re-check sweep", () => {
 
     expect(mockGate).toHaveBeenCalledTimes(1);
     expect(mockGate).toHaveBeenCalledWith(expect.objectContaining({ prNumber: 4 }));
+  });
+
+  // The audit trail for a MERGE-BLOCKING control has to answer "who lowered the security floor from 70
+  // to 30" — `action: "set"` alone cannot. The row now carries the bar before and after, plus the
+  // canonical human rendering in `status` (the field the audit viewer already displays).
+  it("records WHAT the bar became and what it was, not just that it changed", async () => {
+    vi.mocked(getOrgGatePolicy).mockResolvedValueOnce({ minLevel: "L3", minDimensionFor: { D9: 70 } });
+
+    await save({ minLevel: "L3", minDimensionFor: { D9: 30 } });
+
+    expect(recordOrgAudit).toHaveBeenCalledWith(
+      "org.gate_policy",
+      "acme",
+      expect.objectContaining({
+        action: "set",
+        policy: { minLevel: "L3", minDimensionFor: { D9: 30 } },
+        previousPolicy: { minLevel: "L3", minDimensionFor: { D9: 70 } },
+        status: expect.stringContaining("no D9 < 30"), // the weakened floor is legible in the log
+        previousStatus: expect.stringContaining("no D9 < 70"), // …next to the one it replaced
+      }),
+      "owner-login",
+    );
+  });
+
+  it("a CLEAR is audited as the reset it is, naming the bar it removed", async () => {
+    vi.mocked(getOrgGatePolicy).mockResolvedValueOnce({ minOverall: 60 });
+
+    await save(null);
+
+    expect(recordOrgAudit).toHaveBeenCalledWith(
+      "org.gate_policy",
+      "acme",
+      expect.objectContaining({
+        action: "cleared",
+        policy: null,
+        status: "cleared — archetype default",
+        previousStatus: expect.stringContaining("min overall 60"),
+      }),
+      "owner-login",
+    );
+  });
+
+  it("an audit-baseline read failure never fails the save (best-effort, unlike the gate's own read)", async () => {
+    vi.mocked(getOrgGatePolicy).mockRejectedValueOnce(new Error("db down"));
+
+    const res = await save({ minLevel: "L3" });
+
+    expect(res.status).toBe(200);
+    expect(recordOrgAudit).toHaveBeenCalledWith(
+      "org.gate_policy",
+      "acme",
+      expect.objectContaining({ previousPolicy: null, previousStatus: "archetype default" }),
+      "owner-login",
+    );
   });
 
   it("sweeps on a CLEAR too — relaxing the bar must stop blocking PRs, not only tightening it", async () => {

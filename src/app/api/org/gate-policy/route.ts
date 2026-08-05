@@ -26,7 +26,7 @@ import {
 import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
-import { sanitizeGatePolicy } from "@/lib/scoring/gate";
+import { describeGatePolicy, sanitizeGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 import { getInstallationToken, githubAppFetch, isAppConfigured } from "@/lib/github/app";
 import { runPrGate } from "@/lib/github/pr-gate";
 
@@ -145,16 +145,36 @@ export async function POST(request: Request) {
   // null clears (back to the archetype default); anything else is sanitized — an all-invalid object
   // sanitizes to null, which also clears (a no-op policy is the default).
   const clean = body.policy == null ? null : sanitizeGatePolicy(body.policy);
+  // The bar BEFORE this write, captured for the audit row below. Best-effort on purpose — unlike the
+  // gate's own policy read (which fails closed, because gating on the wrong bar is a security event),
+  // this one only enriches a log line and must never fail a save that is otherwise fine.
+  const previous = await getOrgGatePolicy(org).catch(() => null);
   const stored = await setOrgGatePolicy(org, clean);
   if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
   // Supabase wall, so this audit row recorded a null actor in production.
   const actorLogin = await resolveViewerLogin();
   // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
+  //
+  // Record WHAT the bar became, not just that it moved. This is the org's merge-blocking control, and
+  // an audit row saying only `action: "set"` cannot answer the question such a log exists for — "who
+  // lowered the security floor from 70 to 30, and when". Peer routes (alerts thresholds, llm-provider)
+  // already log their actual values; this one didn't. `status` is the generic field the audit viewer
+  // renders for non-scan rows, so the bar shows up in the table with no change to that component, and
+  // the bits come from describeGatePolicy — the same canonical enumeration the dashboard, gate URL, CI
+  // snippet and PR footer render, so the audit trail can't advertise a bar different from the enforced one.
+  const barBits = (p: GatePolicy | null) => describeGatePolicy(p ?? {}).map((c) => c.bit).join(" · ");
   await recordOrgAudit(
     "org.gate_policy",
     org,
-    { org, action: stored ? "set" : "cleared" },
+    {
+      org,
+      action: stored ? "set" : "cleared",
+      status: stored ? barBits(stored) || "no enforced condition" : "cleared — archetype default",
+      policy: stored ?? null,
+      previousPolicy: previous,
+      previousStatus: previous ? barBits(previous) : "archetype default",
+    },
     actorLogin ?? undefined,
   ).catch(() => {});
   // The bar moved — re-evaluate open PRs so they don't sit on a verdict from the OLD policy. Both
