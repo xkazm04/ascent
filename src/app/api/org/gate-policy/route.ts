@@ -43,6 +43,16 @@ const SWEEP_PR_CAP = 20;
 /** Ceiling on repos we ask GitHub to list PRs for, so a large fleet can't turn one save into hundreds
  *  of API calls before the PR budget happens to run out. */
 const SWEEP_REPO_CAP = 25;
+/** How many REPOS are swept at once. Deliberately across repos, never within one: GitHub asks callers
+ *  not to issue concurrent MUTATING requests against the same repository, and every gated PR writes a
+ *  Check Run plus a comment. So each repo's PRs stay strictly serial while several repos progress in
+ *  parallel — the shape that shortens the sweep without courting a secondary rate limit. */
+const SWEEP_CONCURRENCY = 4;
+/** Wall-clock ceiling on the deferred sweep, inside the route's maxDuration=300 with headroom for the
+ *  gate already in flight to finish. Serial sweeps of 20 PRs (2 mock scans each) could exceed the
+ *  runtime's budget and be KILLED mid-flight, which looks identical to "the bar applied everywhere" —
+ *  the response already promised a re-check. Stopping on our own terms lets us SAY what was left. */
+const SWEEP_DEADLINE_MS = 240_000;
 
 type SweepPlan =
   | { status: "scheduled"; repos: number; cap: number }
@@ -73,9 +83,18 @@ async function sweepOpenPrGates(
     console.warn(`[gate-policy] sweep: no installation token for ${org}`, err instanceof Error ? err.message : err);
     return;
   }
+  // The PR budget is claimed SYNCHRONOUSLY (JS single-threaded, so the read-decrement pair is atomic),
+  // which is what lets several repo workers share one cap without over-spending it.
   let budget = SWEEP_PR_CAP;
-  for (const r of repos) {
-    if (budget <= 0) break;
+  const claimPr = (): boolean => (budget > 0 ? (budget -= 1, true) : false);
+  const startedAt = Date.now();
+  const outOfTime = () => Date.now() - startedAt > SWEEP_DEADLINE_MS;
+  let timedOut = false;
+
+  // A shared work queue rather than a slice-per-worker: repos have wildly different PR counts, so a
+  // static split would leave workers idle while one grinds through the busiest repo.
+  const queue = [...repos];
+  const sweepRepo = async (r: { owner: string; name: string }): Promise<void> => {
     let prs: OpenPr[];
     try {
       // per_page is deliberately NOT the remaining budget. One listing costs the same single API call
@@ -93,10 +112,14 @@ async function sweepOpenPrGates(
         `[gate-policy] sweep: could not list open PRs for ${r.owner}/${r.name}`,
         err instanceof Error ? err.message : err,
       );
-      continue;
+      return;
     }
     for (const pr of Array.isArray(prs) ? prs : []) {
-      if (budget <= 0) break;
+      if (budget <= 0) return;
+      if (outOfTime()) {
+        timedOut = true;
+        return;
+      }
       // A DRAFT costs no budget. GitHub refuses to merge one, so its check blocks nothing today, and
       // the App webhook's PR_ACTIONS includes `ready_for_review` — the moment a draft becomes
       // mergeable it is re-gated against the CURRENT bar anyway. Spending the courtesy budget on
@@ -107,13 +130,37 @@ async function sweepOpenPrGates(
       const headSha = pr.head?.sha;
       const baseRef = pr.base?.ref;
       if (!prNumber || !headSha || !baseRef) continue;
-      budget -= 1;
+      if (!claimPr()) return; // another repo's worker took the last slot
       // No hooks: the installation was resolved FROM the org (not from an untrusted webhook payload),
       // so there is no (installationId, owner) pair to bind, and there is no delivery claim to release.
       await runPrGate({ installationId, owner: r.owner, repo: r.name, prNumber, headSha, baseRef });
     }
-  }
-  console.info(`[gate-policy] swept ${SWEEP_PR_CAP - budget} open PR(s) for ${org} after a policy change`);
+  };
+
+  // Each worker pulls the next repo until the queue drains or the sweep runs out of budget/time. The
+  // shift is synchronous, so workers can never take the same repo twice.
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (budget <= 0 || outOfTime()) {
+        if (budget > 0 && queue.length > 0) timedOut = true;
+        return;
+      }
+      const r = queue.shift();
+      if (!r) return;
+      await sweepRepo(r);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SWEEP_CONCURRENCY, repos.length) }, worker));
+
+  // Say what was left undone. A truncated sweep that logs only its successes reads exactly like a
+  // complete one, and the owner was told open PRs would re-check.
+  const swept = SWEEP_PR_CAP - budget;
+  const unswept = queue.length;
+  console.info(
+    `[gate-policy] swept ${swept} open PR(s) for ${org} after a policy change` +
+      (timedOut ? ` — STOPPED at the ${SWEEP_DEADLINE_MS / 1000}s deadline with ${unswept} repo(s) unswept` : "") +
+      (!timedOut && budget <= 0 && unswept > 0 ? ` — hit the ${SWEEP_PR_CAP}-PR cap with ${unswept} repo(s) unswept` : ""),
+  );
 }
 
 /**

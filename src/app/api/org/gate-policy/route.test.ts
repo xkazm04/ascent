@@ -138,8 +138,22 @@ describe("POST /api/org/gate-policy — open-PR re-check sweep", () => {
     await runDeferred();
 
     expect(mockGate).toHaveBeenCalledTimes(20);
-    // Budget exhausted on the first repo → the second repo is never even listed (no wasted API call).
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // The cap that matters — gate WORK (scans + check writes) — is exact. Listings are not: repos are
+    // swept SWEEP_CONCURRENCY at a time, so up to that many can be listed before the budget is known to
+    // be spent. That is a deliberate trade (a listing is one cheap read; a gated PR is two scans), and
+    // it is bounded — never proportional to fleet size.
+    expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(4);
+  });
+
+  it("listing stays bounded by the concurrency, not by fleet size, once the PR budget is spent", async () => {
+    mockWatched.mockResolvedValue(Array.from({ length: 25 }, (_, i) => repo("acme", `r${i}`)));
+    mockFetch.mockResolvedValue(Array.from({ length: 50 }, (_, i) => pr(i + 1)));
+
+    await save();
+    await runDeferred();
+
+    expect(mockGate).toHaveBeenCalledTimes(20); // still exactly the cap across a 25-repo fleet
+    expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(4); // …and 21 repos are never listed at all
   });
 
   it("caps the number of repos it lists PRs for", async () => {

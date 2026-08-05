@@ -197,7 +197,14 @@ Saving an org gate policy (`POST /api/org/gate-policy`) schedules a **bounded, b
 sweep** that re-runs `runPrGate` on the org's open PRs — up to 25 watched repos / 20 PRs,
 deferred via `after()`, every failure logged and isolated. **Drafts are skipped and cost no
 budget**: GitHub won't merge one, and `ready_for_review` is in the webhook's `PR_ACTIONS`, so
-a draft is re-gated against the current bar the moment it becomes mergeable. Without it, open PRs kept a
+a draft is re-gated against the current bar the moment it becomes mergeable.
+
+Repos are swept **4 at a time, PRs within a repo strictly serially** — GitHub asks callers not
+to issue concurrent mutating requests against the *same* repository, and every gated PR writes
+a Check Run plus a comment. A **240s deadline** (inside `maxDuration = 300`) stops the sweep on
+its own terms rather than being killed mid-flight, and the completion log names what was left
+(`STOPPED at the 240s deadline with N repo(s) unswept`) so a truncated sweep can't read as a
+complete one. Without it, open PRs kept a
 verdict from the *old* bar until their next push. The response reports what was scheduled
 (`sweep: { status: "scheduled", repos, cap }`) or why nothing was
 (`{ status: "skipped", reason: "no-installation" | "no-watched-repos" }`), and the editor
