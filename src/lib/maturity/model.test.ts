@@ -10,6 +10,7 @@ import {
   SCORING_RUBRIC_VERSION,
   axisMeasured,
   axisScore,
+  isDimensionId,
   levelForScore,
   overallScoreFor,
 } from "@/lib/maturity/model";
@@ -234,6 +235,31 @@ describe("lens weight: missing vs. genuinely-zero (G3-05)", () => {
       warnSpy.mockRestore();
     } finally {
       ARCHETYPE_WEIGHTS.org.D1 = saved;
+    }
+  });
+});
+
+// The guard is DERIVED from DIMENSIONS, not a re-stated `/^D[1-9]$/` range. The regex could not keep
+// the "one place to update" promise its own comment made: a D10 would be silently rejected (one digit),
+// and a removed dimension silently accepted. These assertions read the rubric, so they follow it.
+describe("isDimensionId", () => {
+  it("accepts exactly the ids the rubric defines", () => {
+    for (const d of DIMENSIONS) expect(isDimensionId(d.id)).toBe(true);
+    expect(DIMENSIONS.filter((d) => isDimensionId(d.id))).toHaveLength(DIMENSIONS.length);
+  });
+
+  it("rejects ids the rubric does not define", () => {
+    const known = new Set(DIMENSIONS.map((d) => d.id as string));
+    for (const v of ["D0", "D10", "D99", "d1", "D", "", "DX", "1"]) {
+      if (known.has(v)) continue;
+      expect(isDimensionId(v), `${v} must not be a dimension id`).toBe(false);
+    }
+  });
+
+  it("does not accept inherited object keys", () => {
+    // The reason this uses Object.hasOwn rather than `in`: `"toString" in DIMENSION_BY_ID` is true.
+    for (const v of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      expect(isDimensionId(v), `${v} must not be a dimension id`).toBe(false);
     }
   });
 });

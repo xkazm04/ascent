@@ -208,12 +208,18 @@ export const DIMENSION_BY_ID: Record<DimensionId, DimensionDef> = Object.fromEnt
 ) as Record<DimensionId, DimensionDef>;
 
 /**
- * Canonical dimension-id guard (D1..D9) — the single source of truth for "is this a valid
- * DimensionId?", narrowing the input so callers can pass it straight to the DB. Replaces the
- * `/^D[1-9]$/` literal that was copy-pasted across the org route handlers; if the rubric ever
- * grows/shrinks a dimension this is the one place to update.
+ * Canonical dimension-id guard — the single source of truth for "is this a valid DimensionId?",
+ * narrowing the input so callers can pass it straight to the DB. Replaces the `/^D[1-9]$/` literal
+ * that was copy-pasted across the org route handlers.
+ *
+ * DERIVED from DIMENSIONS rather than re-stating the range: the old `/^D[1-9]$/` promised to be "the
+ * one place to update" if the rubric grows or shrinks, but it could not keep that promise — adding a
+ * D10 leaves the regex silently rejecting it (one digit only), and removing a dimension leaves it
+ * silently accepting an id the rubric no longer has. Reading the rubric makes the promise structural.
+ * `Object.hasOwn`, not `in`, so inherited keys ("toString") can't pass as dimension ids. Identical
+ * behavior today — DIMENSION_BY_ID's keys are exactly D1..D9.
  */
-export const isDimensionId = (v: string): v is DimensionId => /^D[1-9]$/.test(v);
+export const isDimensionId = (v: string): v is DimensionId => Object.hasOwn(DIMENSION_BY_ID, v);
 
 export const LEVEL_BY_ID: Record<LevelId, MaturityLevel> = Object.fromEntries(
   LEVELS.map((l) => [l.id, l]),
