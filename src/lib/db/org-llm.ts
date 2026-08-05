@@ -275,21 +275,52 @@ export async function isByomActive(orgSlug: string): Promise<boolean> {
 }
 
 /**
- * Resolve the BYOM provider params (incl. DECRYPTED creds) when BYOM is active for this org, else null.
- * The ONLY decrypt path. Returns null (never throws) if anything is off — a bad/tampered blob makes the
- * scan fall back to the platform path rather than 500. Used solely by getProviderForOrg.
+ * The THREE states a BYOM lookup can be in. A single `ByomProviderParams | null` cannot express them:
+ * `null` collapsed "this org has no BYOM" (fall through to the platform provider — correct) into
+ * "this org's BYOM is ACTIVE but unresolvable" (an ENCRYPTION_KEY rotation, a tampered blob), which
+ * must fail closed. The caller then had to re-derive the difference with a SECOND isByomActive() call,
+ * and any error in that second call silently resolved to "inactive" — reopening the exact fallback the
+ * distinction exists to prevent.
+ */
+export type ByomResolution =
+  | { state: "inactive" }
+  | { state: "active"; params: ByomProviderParams }
+  | { state: "unresolvable" };
+
+/**
+ * Resolve an org's BYOM state in ONE pass — the only decrypt path, and the single read of the org's
+ * BYOM configuration (it used to be read twice per scan: once here and once by the caller's
+ * disambiguating isByomActive).
+ *
+ * THROWS on an infrastructure failure (DB unreachable, plan lookup down). That is deliberate and is
+ * the whole point: a caller cannot distinguish "no BYOM" from "couldn't tell" if this swallows the
+ * error, and guessing "no BYOM" routes an enterprise org's private source to the platform provider.
+ * A DECRYPT failure is different — it is a determinate answer ("active, but we cannot use it"), so it
+ * returns `unresolvable` rather than throwing.
+ */
+export async function resolveByomState(orgSlug: string): Promise<ByomResolution> {
+  if (!(await isByomActive(orgSlug))) return { state: "inactive" };
+  const stored = await readStoredByomSecret(orgSlug);
+  if (!stored) return { state: "unresolvable" };
+  const params: ByomProviderParams =
+    stored.provider === "openrouter"
+      ? { kind: "openrouter", model: stored.modelId, apiKey: stored.apiKey }
+      : {
+          kind: "bedrock",
+          model: stored.modelId,
+          ...(stored.region ? { region: stored.region } : {}),
+          credentials: stored.credentials,
+        };
+  return { state: "active", params };
+}
+
+/**
+ * Params-or-null view of {@link resolveByomState}, kept as the db layer's simple accessor (it is part
+ * of the `@/lib/db` barrel's public surface). Prefer resolveByomState in any caller that must tell an
+ * unresolvable ACTIVE config apart from an org that never configured BYOM — collapsing the two is
+ * what made the platform-fallback breach possible.
  */
 export async function resolveByomProvider(orgSlug: string): Promise<ByomProviderParams | null> {
-  if (!(await isByomActive(orgSlug))) return null;
-  const stored = await readStoredByomSecret(orgSlug);
-  if (!stored) return null;
-  if (stored.provider === "openrouter") {
-    return { kind: "openrouter", model: stored.modelId, apiKey: stored.apiKey };
-  }
-  return {
-    kind: "bedrock",
-    model: stored.modelId,
-    ...(stored.region ? { region: stored.region } : {}),
-    credentials: stored.credentials,
-  };
+  const resolved = await resolveByomState(orgSlug);
+  return resolved.state === "active" ? resolved.params : null;
 }

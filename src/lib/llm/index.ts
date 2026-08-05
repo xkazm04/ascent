@@ -216,32 +216,36 @@ export async function getProviderForOrg(
 ): Promise<{ provider: LLMProvider; byom: boolean }> {
   if (opts.forceMock) return { provider: new MockProvider(), byom: false };
   if (orgSlug && orgSlug !== "public") {
-    const { resolveByomProvider, isByomActive } = await import("@/lib/db/org-llm");
-    const byom = await resolveByomProvider(orgSlug).catch(() => null);
-    if (byom) {
+    const { resolveByomState } = await import("@/lib/db/org-llm");
+    // ONE read of the org's BYOM state, and NO `.catch()` around it. The two swallowing catches this
+    // replaced (`resolveByomProvider(...).catch(() => null)` then `isByomActive(...).catch(() => false)`)
+    // meant an infrastructure failure — a DB blip, a plan-lookup timeout — resolved to "this org has no
+    // BYOM" and fell straight through to the platform provider below. That is the exact breach the
+    // fail-closed branch was written to prevent, defeated by the error handling of its own condition:
+    // an Enterprise org's private repository source routed to the platform Gemini/OpenAI endpoint, with
+    // byom:false and no caveat, for the length of the outage. "Couldn't tell" is not "no BYOM", so the
+    // error propagates and the scan fails loudly instead of quietly leaving the customer's boundary.
+    const byom = await resolveByomState(orgSlug);
+    if (byom.state === "active") {
       // Bedrock keeps inference in the org's AWS boundary; OpenRouter routes to third-party upstreams
       // with the org's own key (a cost/flexibility BYOM, not the privacy one). Either way `byom:true`
       // tells the scan pipeline to skip platform credits + the platform fallback.
+      const p = byom.params;
       const provider =
-        byom.kind === "openrouter"
-          ? new OpenRouterProvider({ model: byom.model, apiKey: byom.apiKey })
-          : new BedrockProvider({ model: byom.model, region: byom.region, credentials: byom.credentials });
+        p.kind === "openrouter"
+          ? new OpenRouterProvider({ model: p.model, apiKey: p.apiKey })
+          : new BedrockProvider({ model: p.model, region: p.region, credentials: p.credentials });
       return { provider, byom: true };
     }
-    // resolveByomProvider returned null, which conflates TWO very different states: "BYOM not
-    // configured" (fall through to the platform provider, correct) and "BYOM configured + ACTIVE but
-    // its credentials couldn't be resolved" — an ENCRYPTION_KEY rotation, a decrypt/DB failure, or a
-    // tampered blob. For an active-BYOM org, silently routing its private repository source through the
-    // env platform provider (Gemini / an OpenAI-compatible endpoint) breaches the in-boundary inference
-    // contract that Enterprise paid for, with byom:false and no caveat. FAIL CLOSED: when BYOM is still
-    // active but unresolvable, throw a clear, actionable error rather than falling back to the platform,
-    // so private source never leaves the org's AWS boundary. (Non-active orgs fall through unchanged.)
-    if (await isByomActive(orgSlug).catch(() => false)) {
+    // ACTIVE but unresolvable — an ENCRYPTION_KEY rotation, a decrypt failure, or a tampered blob.
+    // Silently routing this org's private source through the env platform provider would breach the
+    // in-boundary inference contract Enterprise paid for. FAIL CLOSED with an actionable error.
+    if (byom.state === "unresolvable") {
       throw new Error(
-        `BYOM is enabled for organization "${orgSlug}" but its Amazon Bedrock credentials could not be ` +
-          `resolved. Refusing to fall back to the platform LLM provider so your private repository ` +
-          `contents never leave your AWS boundary. Verify ENCRYPTION_KEY and re-save the organization's ` +
-          `BYOM credentials, then retry the scan.`,
+        `BYOM is enabled for organization "${orgSlug}" but its stored provider credentials could not be ` +
+          `resolved. Refusing to fall back to the platform LLM provider, so your repository contents ` +
+          `only ever reach the provider you connected. Verify ENCRYPTION_KEY and re-save the ` +
+          `organization's BYOM credentials, then retry the scan.`,
       );
     }
   }

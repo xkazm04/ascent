@@ -138,22 +138,32 @@ entry point the scan pipeline calls in place of `getProvider()`:
 
 ### Fail-closed on an unresolvable active config
 
-`resolveByomProvider()` returning `null` is ambiguous on its own — it means either "BYOM
-isn't configured for this org" (fine, fall through to the platform provider) or "BYOM is
-enabled but its credentials couldn't be decrypted" (an `ENCRYPTION_KEY` rotation, a
-decrypt/DB failure, or a tampered blob). `getProviderForOrg()` disambiguates by separately
-calling `isByomActive(orgSlug)`: if BYOM is still active but `resolveByomProvider()`
-returned `null`, it **throws** rather than silently falling back to the platform provider:
+A `ByomProviderParams | null` cannot express what the caller needs, because `null` collapses
+"BYOM isn't configured for this org" (fine — fall through to the platform provider) into
+"BYOM is enabled but its credentials couldn't be decrypted" (an `ENCRYPTION_KEY` rotation, a
+decrypt failure, or a tampered blob), which must fail closed. So `resolveByomState()` returns
+a **three-state** result — `inactive` | `active` | `unresolvable` — read **once** per
+selection, and `getProviderForOrg()` throws on `unresolvable`:
 
-> `BYOM is enabled for organization "<slug>" but its Amazon Bedrock credentials could not
-> be resolved. Refusing to fall back to the platform LLM provider so your private
-> repository contents never leave your AWS boundary. Verify ENCRYPTION_KEY and re-save the
+> `BYOM is enabled for organization "<slug>" but its stored provider credentials could not
+> be resolved. Refusing to fall back to the platform LLM provider, so your repository
+> contents only ever reach the provider you connected. Verify ENCRYPTION_KEY and re-save the
 > organization's BYOM credentials, then retry the scan.`
 
-This is the fail-closed rule: an org that has opted into in-boundary inference must never
-have its private repository source silently rerouted through the platform's Gemini/OpenAI-
-compatible endpoint with no caveat. Non-active orgs (BYOM never configured, or disabled)
-fall through to `getProvider(opts)` unchanged.
+This is the fail-closed rule: an org that connected its own provider must never have its
+repository source silently rerouted through the platform's Gemini/OpenAI-compatible endpoint
+with no caveat. Non-active orgs fall through to `getProvider(opts)` unchanged.
+
+**An infrastructure failure is not "no BYOM".** `resolveByomState()` **throws** when it
+cannot determine the state (DB unreachable, plan lookup down) and the caller does **not**
+catch it. The earlier shape wrapped both of its reads in `.catch(() => null / false)`, so a
+DB blip resolved to "this org has no BYOM" and fell through to the platform provider — the
+exact breach the fail-closed branch was written to prevent, defeated by the error handling of
+its own condition. A *decrypt* failure is different: it is a determinate answer ("active, but
+unusable"), so it returns `unresolvable` rather than throwing.
+
+`resolveByomProvider()` remains as the params-or-null accessor on the `@/lib/db` barrel;
+anything that must distinguish an unresolvable active config uses `resolveByomState()`.
 
 ### Encryption and credential handling (`org-llm.ts`)
 
