@@ -446,6 +446,34 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(body.pass).toBe(false); // the underlying verdict is still in the body for context
   });
 
+  // The wedge this guard exists to prevent: a degraded report cached under the ::llm key makes EVERY
+  // later ?mock=0 call on that commit a cache HIT, so the route re-serves the floor score, 503s again,
+  // and never re-scans — for the whole 15-minute TTL. The response tells the operator to retry, so the
+  // bug presents as "retrying does nothing" long after the provider recovered.
+  it("DEGRADED: the fallback-to-mock report is NOT cached — a retry re-scans instead of re-serving the floor", async () => {
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockCacheGet.mockReturnValue(undefined); // cache MISS → route scans
+    mockScan.mockResolvedValue(degradedReport()); // LLM unavailable → deterministic mock fallback
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    const res = await get("?mock=0");
+
+    expect(res.status).toBe(503);
+    expect(mockCacheSet).not.toHaveBeenCalled(); // the ::llm entry stays empty, so the next call re-scans
+  });
+
+  it("a HEALTHY ?mock=0 scan IS still cached (the guard is scoped to degradation, not to the LLM path)", async () => {
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockCacheGet.mockReturnValue(undefined);
+    mockScan.mockResolvedValue(report()); // a real provider answered — authoritative, cache it
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    const res = await get("?mock=0");
+
+    expect(res.status).toBe(200);
+    expect(mockCacheSet).toHaveBeenCalledWith("acme/widget@sha123::llm", expect.anything());
+  });
+
   // The other half of the contract: the DEFAULT gate path runs the deterministic mock scan BY DESIGN
   // (documented behavior). engine.provider === "mock" here is EXPECTED, not a fallback — the guard keys
   // on `!mock`, so a default gate stays a normal 200-pass / 422-fail and the deterministic CI contract

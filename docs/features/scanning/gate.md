@@ -101,6 +101,13 @@ fabricated floor. The full verdict is still returned (plus `engine` / `confidenc
 (`?mock` omitted → mock) is the *documented* deterministic rubric, not a degradation, and
 keeps the exact 200/422 contract.
 
+A degraded report is also **never written to the scan cache** — the same `degradedToMock`
+guard `scan-finalize.ts` applies to every other cache write. Without it the floor score
+landed under the `::llm` key, so every retry for that commit was a cache *hit* that re-served
+the floor and 503'd again without re-scanning: the gate stayed wedged for the full 15-minute
+TTL while the response told the operator to retry. Skipping the write is what makes "retry
+the gate" actually true.
+
 ### Private repositories
 
 The public endpoint cannot gate a private repo, on purpose. Every ingest passes

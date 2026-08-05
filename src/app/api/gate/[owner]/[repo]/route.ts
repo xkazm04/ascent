@@ -5,6 +5,7 @@
 // Runs a fast deterministic (mock) scan by default; pass ?mock=0 to score with the configured LLM.
 
 import { NextResponse } from "next/server";
+import type { ScanReport } from "@/lib/types";
 import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
@@ -57,6 +58,11 @@ export async function GET(
     const rl = await rateLimitRequestShared(req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   }
+  // The degrade-to-mock predicate, hoisted so the CACHE-WRITE guard below and the honesty guard that
+  // sets the 503 (further down) can never disagree about what "degraded" means. Same rule as
+  // scan-finalize.ts's `classifyScanResult().degradedToMock`, inlined for the module-graph reason
+  // documented there.
+  const degradedToMock = (r: ScanReport) => r.engine.provider === "mock" && !mock;
   try {
     let report;
     if (ref) {
@@ -131,7 +137,15 @@ export async function GET(
           if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
         }
         report = await scanRepository(`${ownerN}/${repoN}`, { mock, noAmbientToken: true });
-        cacheSet(key, report);
+        // CACHE-POISONING GUARD: every OTHER cache writer in the codebase (scan-finalize.ts's
+        // `authoritative` check) refuses to store a report that degraded to mock; this route was the
+        // one writer without it. The key here is the ::llm key on the ?mock=0 path, so a single
+        // transient provider outage cached the deterministic FLOOR as if it were the AI grade — and
+        // because the degraded honesty guard below then 503s on exactly that report, the gate WEDGED:
+        // every retry read the poisoned entry (never re-scanning) and got the same 503 telling it to
+        // retry, for the full 15-minute TTL, long after the provider recovered. Skipping the write
+        // costs one re-scan and makes "retry the gate" true again.
+        if (!degradedToMock(report)) cacheSet(key, report);
       }
     }
 
@@ -165,7 +179,7 @@ export async function GET(
     // and @/lib/access — keep this unauthenticated route's module graph lean. The DEFAULT gate path
     // (?mock omitted → mock=true) is the DOCUMENTED deterministic rubric, not a degradation: !mock is
     // false there, so it keeps the exact 200-pass / 422-fail contract CI keys on.
-    const degraded = report.engine.provider === "mock" && !mock;
+    const degraded = degradedToMock(report);
     // Fail closed on degradation: force a non-2xx status (503 — the requested authoritative grade could
     // not be produced) so `curl --fail` trips and CI cannot merge on a floor score, even when the gate
     // math would "pass". Healthy scans (a real provider, or an explicit ?mock request) are untouched.
