@@ -6,7 +6,7 @@
 //   - `/stats/commit_activity` — 52 weeks of commit volume (may 202 on first call → one retry).
 
 import type { Governance } from "@/lib/types";
-import { ghFetch, githubApiBase } from "@/lib/github/host";
+import { encodePathSegments, ghFetch, githubApiBase } from "@/lib/github/host";
 
 const API = githubApiBase();
 const TIMEOUT_MS = 10_000;
@@ -36,9 +36,18 @@ export async function fetchBranchGovernance(
   signal?: AbortSignal,
 ): Promise<Governance | null> {
   try {
+    // encodePathSegments, NOT encodeURIComponent — a branch name may contain slashes (`release/2.1`,
+    // `feature/x` are ordinary git refs, and either can be a repo's DEFAULT branch). Whole-string
+    // encoding collapses that to the single literal token `release%2F2.1`, which GitHub treats as a
+    // branch that does not exist: the protection-bearing read 404s, the guard below reads that as
+    // "protection unknown", and the repo silently loses ALL governance — D9's branch-protection check
+    // drops to n/a and the CI gate's requireProtectedBranch rule (readable-gated) never enforces for it.
+    // This is exactly the drift host.ts's encodePathSegments docblock exists to prevent. Identical output
+    // for a slash-free branch, so the common case is byte-for-byte unchanged.
+    const ref = encodePathSegments(branch);
     const [branchRes, rulesRes] = await Promise.all([
-      getJson(`${API}/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`, token, signal),
-      getJson(`${API}/repos/${owner}/${repo}/rules/branches/${encodeURIComponent(branch)}`, token, signal),
+      getJson(`${API}/repos/${owner}/${repo}/branches/${ref}`, token, signal),
+      getJson(`${API}/repos/${owner}/${repo}/rules/branches/${ref}`, token, signal),
     ]);
 
     // The branch read carries the `protected` flag and is the ONLY authority for a "not protected"
