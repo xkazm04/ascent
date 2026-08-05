@@ -142,8 +142,22 @@ That is the authenticated path — the public `/api/gate/...` endpoint is for pu
 | `require-protection` | Fail if the default branch has no branch-protection rules (when readable). |
 | `live` | Use the live LLM (`true`) instead of mock. |
 
+Outputs (written on **every** exit path, so `status` always says what happened):
+
+| Output | Notes |
+| --- | --- |
+| `status` | `pass` \| `fail` \| `degraded` \| `not-found` \| `rate-limited` \| `error` — the value worth branching on. |
+| `pass` | `'true'` only when the repo cleared the bar; a degraded or errored run is never `'true'`. |
+| `degraded` | `'true'` when the AI grade could not be produced, so the verdict is not authoritative. |
+| `level` / `overall` / `posture` | The scored ref's reading; empty when nothing was scored. |
+
+A failing gate fails the step, so read the outputs under `continue-on-error: true` (or
+`if: always()`) when the workflow wants to handle the verdict itself — post its own comment,
+set a label, record the score. Without these the exit code was the only signal that escaped.
+
 It runs Node 20 and invokes `scripts/maturity-gate.mjs`, which builds the query string
-(`--min-level L3` → `?min_level=L3`), calls `${ASCENT_URL}/api/gate/<repo>?…`, and exits:
+(`--min-level L3` → `?min_level=L3`), calls `${ASCENT_URL}/api/gate/<repo>?…`, writes the
+outputs above to `$GITHUB_OUTPUT`, and exits:
 
 | Exit | Meaning |
 | --- | --- |

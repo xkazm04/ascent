@@ -63,6 +63,30 @@ inputs:
     description: "Score with the configured LLM instead of the deterministic mock."
     required: false
     default: "false"
+# Outputs let a workflow DO something with the verdict instead of only reacting to the exit code —
+# post its own comment, set a label, record the score, or branch on WHY the gate did not run. They are
+# written on every exit path, including the error ones, so `status` always says what happened.
+# NOTE: a failing gate fails this step, so read the outputs under `continue-on-error: true` (or
+# `if: always()`) when you want the workflow to keep going and handle the verdict itself.
+outputs:
+  status:
+    description: "pass | fail | degraded | not-found | rate-limited | error — the single value worth branching on."
+    value: ${{ steps.gate.outputs.status }}
+  pass:
+    description: "'true' only when the repo cleared the bar (a degraded or errored run is never 'true')."
+    value: ${{ steps.gate.outputs.pass }}
+  degraded:
+    description: "'true' when the AI grade could not be produced and the verdict is NOT authoritative."
+    value: ${{ steps.gate.outputs.degraded }}
+  level:
+    description: "Maturity level of the scored ref, e.g. L3 (empty when nothing was scored)."
+    value: ${{ steps.gate.outputs.level }}
+  overall:
+    description: "Overall score 0..100 (empty when nothing was scored)."
+    value: ${{ steps.gate.outputs.overall }}
+  posture:
+    description: "Posture id of the scored ref, e.g. governed (empty when nothing was scored)."
+    value: ${{ steps.gate.outputs.posture }}
 runs:
   using: composite
   steps:
@@ -75,7 +99,9 @@ runs:
     # feeds these from event data (`repo: ${{ github.event.client_payload.repo }}`, a PR title, a
     # dispatch input), which is attacker-controllable. Passing them as environment variables and
     # referencing "$VAR" keeps every value inert data.
-    - shell: bash
+    # `id` is what makes the step's $GITHUB_OUTPUT writes addressable as steps.gate.outputs.* above.
+    - id: gate
+      shell: bash
       env:
         ASCENT_URL: ${{ inputs.ascent-url }}
         INPUT_REPO: ${{ inputs.repo }}
