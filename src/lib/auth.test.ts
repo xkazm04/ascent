@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
+import { createHmac } from "node:crypto";
 
 // auth.ts imports `cookies` AND `headers` from next/headers at module load. The original pure-helper
 // tests never touch the cookie store; the new session-state / authorization tests below drive both,
@@ -764,5 +765,62 @@ describe("getActiveOrg — tampered ACTIVE_ORG cookie can't widen access", () =>
     seedSessionAndActiveOrgCookie(session, "totally-made-up-org");
     const active = await getActiveOrg(session);
     expect(orgOptionsForSession(session)).toContain(active);
+  });
+});
+
+// hmac() falls back to an empty key when AUTH_SECRET is unset, which makes every signature trivially
+// forgeable — anyone can compute HMAC-SHA256 under "". Every SIGNING path is guarded by
+// isAuthConfigured() (which requires AUTH_SECRET), but the VERIFYING path is not: /api/auth/logout and
+// /api/auth/revoke-sessions call decodeSession directly with no configured-check, and in the documented
+// production config AUTH_SECRET is absent (the Supabase wall is the active stack). So a hand-crafted
+// `ascent_session` carrying ANY login verified there, and logout would bump that login's session version.
+describe("session signing requires a real AUTH_SECRET", () => {
+  const forge = (payloadObj: object): string => {
+    const payload = Buffer.from(JSON.stringify(payloadObj)).toString("base64url");
+    const sig = createHmac("sha256", "").update(payload).digest("base64url");
+    return `${payload}.${sig}`;
+  };
+  const victimSession = () => ({
+    login: "victim",
+    installations: [],
+    exp: Date.now() + 3_600_000,
+    rexp: Date.now() + 3_600_000,
+  });
+
+  it("REFUSES a cookie forged under the empty key when AUTH_SECRET is unset", () => {
+    const forged = forge(victimSession());
+    const saved = process.env.AUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      expect(decodeSession(forged)).toBeNull();
+    } finally {
+      process.env.AUTH_SECRET = saved;
+    }
+  });
+
+  it("would otherwise have verified — the forgery is real, not hypothetical", () => {
+    // Same bytes, checked against the empty key directly: the signature IS valid under "".
+    const forged = forge(victimSession());
+    const [payload, sig] = forged.split(".");
+    expect(createHmac("sha256", "").update(payload!).digest("base64url")).toBe(sig);
+  });
+
+  it("still refuses that forgery when a real secret IS configured (signature mismatch)", () => {
+    expect(decodeSession(forge(victimSession()))).toBeNull();
+  });
+
+  it("refuses to SIGN a session with no AUTH_SECRET rather than minting a forgeable cookie", () => {
+    const saved = process.env.AUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      expect(() => encodeSession(victimSession() as Parameters<typeof encodeSession>[0])).toThrow(/AUTH_SECRET/);
+    } finally {
+      process.env.AUTH_SECRET = saved;
+    }
+  });
+
+  it("round-trips normally with a secret configured (the real path is untouched)", () => {
+    const s = victimSession() as Parameters<typeof encodeSession>[0];
+    expect(decodeSession(encodeSession(s))?.login).toBe("victim");
   });
 });

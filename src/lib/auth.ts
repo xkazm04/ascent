@@ -92,6 +92,19 @@ export function isAuthConfigured(): boolean {
   );
 }
 
+/**
+ * Is there a real signing key? `hmac` below falls back to `""` when AUTH_SECRET is unset, which makes
+ * every signature trivially forgeable — anyone can compute HMAC-SHA256 under an empty key. Every
+ * signing path is guarded by isAuthConfigured() (which requires AUTH_SECRET), but the VERIFYING path
+ * is not: /api/auth/logout and /api/auth/revoke-sessions call decodeSession directly, with no
+ * configured-check. In the documented production config AUTH_SECRET is absent (the Supabase wall is
+ * the active stack), so a hand-crafted `ascent_session` cookie carrying any `login` verified there.
+ * Guard the verification itself, so the property holds no matter which caller forgets the check.
+ */
+function hasAuthSecret(): boolean {
+  return Boolean(process.env.AUTH_SECRET);
+}
+
 function hmac(data: string): string {
   return createHmac("sha256", process.env.AUTH_SECRET ?? "").update(data).digest("base64url");
 }
@@ -100,6 +113,9 @@ function hmac(data: string): string {
  *  ASCII, so `value.length` equals its byte length — used by both encodeSession (the size guard)
  *  and buildSession (size-aware trimming). */
 function signSession(s: Session): string {
+  // Symmetric with decodeSession's guard: never mint a cookie signed under an empty key. Only reachable
+  // with the custom stack configured (isAuthConfigured requires AUTH_SECRET), so this is a backstop.
+  if (!hasAuthSecret()) throw new Error("AUTH_SECRET is not set — refusing to sign a session");
   const payload = Buffer.from(JSON.stringify(s)).toString("base64url");
   return `${payload}.${hmac(payload)}`;
 }
@@ -120,6 +136,9 @@ export function encodeSession(s: Session): string {
 }
 
 export function decodeSession(value: string): Session | null {
+  // No signing key ⇒ no signature can be trusted (see hasAuthSecret). Fail closed BEFORE the compare,
+  // so a forged cookie cannot be verified under an empty key by a caller that skipped isAuthConfigured().
+  if (!hasAuthSecret()) return null;
   const dot = value.lastIndexOf(".");
   if (dot < 0) return null;
   const payload = value.slice(0, dot);
