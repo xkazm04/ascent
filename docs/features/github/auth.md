@@ -93,13 +93,13 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 
 | Route | Method | Behavior |
 | --- | --- | --- |
-| `/auth/callback` | `GET` | **Supabase.** Exchanges the PKCE `?code=` for a session (setting auth cookies), then redirects to `?next=` — run through `safeNext()` so a tampered value can't bounce to an external origin. Defaults to `/launch`. |
+| `/auth/callback` | `GET` | **Supabase.** Exchanges the PKCE `?code=` for a session (setting auth cookies), then redirects to `?next=` — run through `safeNext()` so a tampered value can't bounce to an external origin. Defaults to `/launch`. Also **seeds the watchlist** from the exchange's GitHub `provider_token`, deferred via `after()` so sign-in latency is untouched — see [Org auto-discovery](#org-auto-discovery-srclibgithubdiscoverts). |
 | `/api/auth/session` | `GET` | Dual-stack JSON session status for client components and "session expires in N minutes" nudges. Under the Supabase wall the Supabase viewer is reported, `installations` is always `[]` (App installs resolve per-org via `canReadOrg`), and `expiresAt` is null (Supabase refreshes its own tokens). Otherwise falls through to custom-OAuth state. No token is ever in the payload. |
 | `/api/auth/viewer` | `GET` | The *effective* viewer for client components (the scan form's notify control) — honors the dev bypass viewer, unlike a raw client-side Supabase call. Returns `{ signedIn, email, gated }`. |
 | `/api/auth/login` | `GET` | **Dormant stack.** CSRF `state` cookie + `next` cookie, redirect to GitHub authorize with scope `read:user read:org`. |
 | `/api/auth/callback` | `GET` | **Dormant stack.** Verify `state`, exchange `code`, fetch user + App installations, `upsertInstallation()` each, auto-discover orgs, set the signed session. The GitHub token is used here and discarded. |
 | `/api/auth/logout` | `POST` | Same-origin check, bump the login's session version (server-side revocation), delete the cookie, redirect to `/`. |
-| `/api/auth/revoke-sessions` | `POST` | "Sign out everywhere else" — bumps the session version so other devices and any leaked cookie copy are rejected, while re-minting *this* cookie at the new version. POST-only + same-origin, mirroring logout's CSRF guard. Best-effort: with no DB there is no revocation authority. |
+| `/api/auth/revoke-sessions` | `POST` | **Dual-stack** "sign out everywhere else". Under the wall: `supabase.auth.signOut({ scope: "others" })` — revokes every other refresh token server-side and deliberately leaves *this* browser signed in; a failed revoke reports `?error=revoke` rather than claiming success. Dormant stack: bumps the session version so other devices and any leaked cookie copy are rejected, re-minting *this* cookie at the new version (best-effort — with no DB there is no revocation authority). POST-only + same-origin either way, mirroring logout's CSRF guard. |
 
 ---
 
@@ -108,6 +108,12 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 Still present and fully implemented; unconfigured in production. Documented because
 it remains the code path when `GITHUB_OAUTH_*` **is** configured (some local and
 e2e setups), and because `resolveViewerLogin()` still gives it precedence.
+
+`AUTH_SECRET` is **load-bearing, not optional**: `signSession()` throws without it and
+`decodeSession()` refuses every cookie. The HMAC key would otherwise fall back to the
+empty string, and since two callers (`/api/auth/logout`, `/api/auth/revoke-sessions`)
+decode before any `isAuthConfigured()` check, anyone could forge a session for any login
+against a deployment that set `GITHUB_OAUTH_*` but not `AUTH_SECRET`.
 
 The session is a **signed, HTTP-only cookie** (`ascent_session`), HMAC-SHA256 over a
 base64url payload:
@@ -151,13 +157,25 @@ transient blip shouldn't log everyone out — bounded by the short access TTL.
 
 ### Org auto-discovery (`src/lib/github/discover.ts`)
 
-On the dormant stack only. A brand-new user has no App installation, so the callback
-uses the short-lived user token to list their orgs (`/user/orgs`) and recently-pushed
-repos (`/user/repos`), ranks each org by activity, then **suggests** not-yet-installed
-orgs in onboarding and **pre-seeds the watchlist** for the most active one via
-`seedWatchlist()`. Best-effort throughout — a denied scope or rate limit degrades to
-fewer suggestions and never blocks sign-in. Ranking is pure and unit-tested; seeding
-is idempotent.
+A brand-new user has no App installation, so the callback uses the short-lived user token
+to list their orgs (`/user/orgs`) and recently-pushed repos (`/user/repos`), ranks each
+org by activity, then **suggests** not-yet-installed orgs in onboarding and **pre-seeds
+the watchlist** for the most active one via `seedWatchlist()`. Best-effort throughout — a
+denied scope or rate limit degrades to fewer suggestions and never blocks sign-in.
+Ranking is pure and unit-tested; seeding is idempotent.
+
+`discoverOrgsForLogin()` in `src/lib/auth-discovery.ts` is the shared entry point, called
+by **both** callbacks. It used to be module-private inside the dormant `route.ts` — where
+only HTTP handlers may be exported — so the live stack could not reach it at all.
+
+What each stack gets differs, and the difference is intrinsic:
+
+| | Dormant custom stack | Supabase wall (production) |
+| --- | --- | --- |
+| Token issuer | the Ascent App's own OAuth client | Supabase's OAuth client |
+| Watchlist seeding | yes, inline | yes, deferred via `after()` |
+| `/user/installations` | available → private repos may be seeded | unavailable → `selectSeedTarget` seeds **public repos only**, which is correct (an uninstalled org can't mint a token, so private rows would be dead entries) |
+| `suggestedOrgs` surfaced | yes (embedded in the signed cookie) | not yet — see Known gaps |
 
 > For a GitHub **App** user-to-server token the OAuth `scope` is advisory — access is
 > governed by the App's permissions — so `/user/orgs` may return less than a classic
@@ -165,15 +183,21 @@ is idempotent.
 
 ## Known gaps
 
-- **Sign-in-moment product behavior doesn't run in production.** The Supabase
-  callback does authentication only: exchange code, set cookies, redirect. Four
-  behaviors live exclusively in the dormant custom callback and therefore never fire
-  for a production sign-in — `upsertInstallation()` owner→installation linking (prod
-  links only via the `/api/app/setup` webhook), session revocation-version stamping,
-  org auto-discovery + watchlist seeding (**a brand-new production user lands on an
-  empty dashboard**), and the `resync=1` round-trip. Closing this means porting them
-  as a post-`exchangeCodeForSession` hook keyed on the Supabase identity's
-  `user_name`.
+- **Some sign-in-moment product behavior still doesn't run in production.** The
+  Supabase callback now seeds the watchlist (above), but three behaviors remain
+  exclusive to the dormant custom callback: `upsertInstallation()` owner→installation
+  linking (prod links only via the `/api/app/setup` webhook), session
+  revocation-version stamping, and the `resync=1` round-trip. Linking in particular
+  **cannot** simply be ported — it needs an App-client token, which Supabase's
+  `provider_token` is not.
+- **Discovered org suggestions aren't surfaced under the wall.** `connect/page.tsx`
+  reads `seededOrg`/`suggestedOrgs` off the dormant session cookie, so a production
+  viewer gets the seeding but never sees the "you might want to install on…" list.
+  Needs a render-side change to read discovery from somewhere the live stack has.
+- **The "sign out everywhere else" button is unreachable in production.**
+  `/api/auth/revoke-sessions` now works on both stacks, but `connect/page.tsx` renders
+  its form only inside a `{session && …}` block — the dormant cookie — so a Supabase
+  viewer cannot click it.
 - **Read scope only** — the dormant stack requests `read:user read:org`; repo writes
   (practice PRs, checks) go through the [GitHub App](./github-app.md) installation
   token, not a user token.
