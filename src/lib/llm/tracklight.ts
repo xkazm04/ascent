@@ -53,6 +53,13 @@ export interface LlmCallTrack {
   /** The scan degraded to the deterministic floor — tagged so degradation rate is observable. */
   degraded?: boolean;
   operation?: string;
+  /**
+   * Which seam issued the call — the BASE tag on the event. Defaults to "scan" so every existing
+   * caller is byte-identical. The free-form text seam (src/lib/llm/text.ts, used by Shared Org Memory)
+   * issues real, billed model calls that are not scans; tagging them "scan" would quietly inflate
+   * scan cost/latency rollups with traffic from a different surface.
+   */
+  surface?: string;
   tags?: string[];
 }
 
@@ -181,7 +188,7 @@ export function buildEventBody(ev: LlmCallTrack, project?: string): Record<strin
   }
   if (status) body.status = status;
 
-  body.tags = ["scan", ...(ev.degraded ? ["degraded"] : []), ...(ev.tags ?? [])];
+  body.tags = [ev.surface ?? "scan", ...(ev.degraded ? ["degraded"] : []), ...(ev.tags ?? [])];
 
   const metadata: Record<string, unknown> = {};
   if (ev.repo) metadata.repo = ev.repo;

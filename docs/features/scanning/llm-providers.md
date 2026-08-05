@@ -298,6 +298,17 @@ apply to a caller bringing its own contract.
 - The resolved runner reports **which** provider answered (`engine`, `model`), so a verdict
   can name its source instead of hard-coding one.
 
+### Metering
+
+Text-seam calls are **billed model calls**, and they are metered in the seam itself, not by the
+callers: `TextRunnerOptions.onUsage` receives the provider's token counts (the same hook
+`AssessOptions.onUsage` gives the scan path), and every call — success, error, or timeout —
+is mirrored to tracklight with its latency under the **`text`** surface tag rather than
+`scan`, so this traffic can't inflate scan cost/latency rollups. Before this, these were the
+only LLM calls in the app no meter could see: absent from `/usage`, from the cost estimate,
+and from the observability mirror, while every scan-path call was fully accounted. Metering
+in the seam means a caller cannot forget it.
+
 ## Untrusted-content boundary (`src/lib/llm/untrusted.ts`)
 
 The `<untrusted_repo_data>` boundary — marker constants, forged-marker stripping and
