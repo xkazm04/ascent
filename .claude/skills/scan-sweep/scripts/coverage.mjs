@@ -18,10 +18,15 @@ for (const h of hist) {
   if (!e.last || h.at > e.last) { e.last = h.at; e.strategy = h.strategy ?? null; }
   byScope.set(h.scope, e);
 }
-const rows = (map.contexts ?? []).map((c) => {
+// context-map.json nests contexts under `groups[].contexts[]` and names the file list `filePaths`.
+// Reading a top-level `map.contexts` / `c.file_paths` yielded an empty row set, so the table always
+// printed "0/0 contexts swept" — reporting every context as never-swept regardless of the ledger,
+// which is exactly backwards for a pick list. `map.contexts` is kept as a fallback for a flat map.
+const allContexts = (map.groups ?? []).flatMap((g) => g.contexts ?? []).concat(map.contexts ?? []);
+const rows = allContexts.map((c) => {
   const e = byScope.get(c.name);
   return {
-    name: c.name, files: (c.file_paths ?? []).length,
+    name: c.name, files: (c.filePaths ?? c.file_paths ?? []).length,
     lenses: e ? e.lenses.size : 0, sweeps: e ? e.sweeps : 0,
     findings: e ? e.findings : 0, fixed: e ? e.fixed : 0,
     strategy: e && e.strategy ? e.strategy : '-',
