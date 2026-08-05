@@ -58,6 +58,31 @@ persisted timestamp instead of racing it.
 | --- | --- | --- |
 | `PUSH_RESCAN_MIN_INTERVAL_MINUTES` | `15` | Minimum minutes between push-triggered scans of the same repo. `0` disables the throttle (every default-branch push scans). |
 
+### A degraded rescan is discarded, not persisted
+
+The push rescan asks for a real LLM grade. When the provider is unavailable `scanRepository`
+still returns a report — stamped `engine.provider = "mock"`, the deterministic **floor**
+rather than a measurement. `runPushRescan` therefore **skips both the persist and the
+regression alert** on such a report: storing it would make the floor the repo's current
+public reading *and* the next run's baseline, and the alert would diff a real prior scan
+against our own outage and tell the customer their repo regressed. During a provider outage
+that would fire fleet-wide at once. This mirrors the `authoritative` gate the interactive
+scan routes apply in `scan-finalize.ts`.
+
+The delivery is deliberately **not** released for redelivery: an outage would degrade the
+retry too, so releasing turns one outage into a scan storm. The repo is covered by the next
+push past the throttle window, or by its scheduled autoscan.
+
+### Every App API call is time-bounded
+
+`githubAppFetch` routes through `host.ts`'s `fetchWithTimeout` at **30s**, covering the
+response body as well as the headers. That budget applies to the whole App surface: token
+minting, `getInstallation`, the paginated installation-repo listing, and every Check Run and
+sticky-comment write. It matters most inside the webhook's `after()` work, where
+`createCheckRun` retries three times and `upsertStickyComment` can walk many pages — without
+a bound, one hung connection there costs the required merge status. A caller-supplied
+`init.signal` is combined with the timeout rather than replaced.
+
 15 minutes is longer than a median scan (~6 min), so bursts can't queue scans back-to-back, and it
 caps push-driven spend at ≤4 scans/hour/repo.
 
