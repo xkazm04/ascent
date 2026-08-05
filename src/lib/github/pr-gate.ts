@@ -120,8 +120,14 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
       if (baseReport) baseline = diffReports(baseReport, headReport);
     }
 
-    const comment = buildGateComment(headReport, gate, baseline, { baselineSuffix: "in this PR", scoredHead });
     const detailsUrl = publicBaseUrl() + reportPermalink(fullName, headReport.repo.headSha);
+    // The same destination the Check Run gets as `details_url`, threaded into the sticky comment so the
+    // PR timeline has a way back to the evidence too (buildGateComment ignores a non-absolute value).
+    const comment = buildGateComment(headReport, gate, baseline, {
+      baselineSuffix: "in this PR",
+      scoredHead,
+      reportUrl: detailsUrl,
+    });
 
     // GATE-3 / ci-gate-status-checks #3: the Check Run IS the required merge status — a swallowed failure
     // here leaves it permanently pending. createCheckRun now retries transient GitHub errors internally;

@@ -218,3 +218,36 @@ describe("buildGateComment — default-branch fallback (scoredHead: false)", () 
     expect(buildGateComment(report(), passGate).title).toMatch(/^Passed — /);
   });
 });
+
+// The sticky comment is the surface a developer actually reads in the PR timeline, and it had no link
+// to the report at all — the verdict was a dead end for anyone wanting the reasoning behind it. The
+// Check Run carries the same destination natively as `details_url`, so this belongs to the COMMENT only.
+describe("buildGateComment — the way back to the report", () => {
+  const url = "https://ascent.example.dev/report/acme/api/abc123";
+
+  it("links the full report from the sticky comment", () => {
+    const c = buildGateComment(report(), passGate, null, { reportUrl: url });
+    expect(c.commentBody).toContain(`[**See the full report →**](<${url}>)`);
+  });
+
+  it("does NOT duplicate the link into the check-run summary (details_url already carries it)", () => {
+    const c = buildGateComment(report(), passGate, null, { reportUrl: url });
+    expect(c.summary).not.toContain(url);
+  });
+
+  it("renders no link when the URL is missing or not absolute (a misconfigured base URL stays silent)", () => {
+    expect(buildGateComment(report(), passGate).commentBody).not.toContain("See the full report");
+    expect(buildGateComment(report(), passGate, null, { reportUrl: "/report/acme/api" }).commentBody).not.toContain(
+      "See the full report",
+    );
+    expect(buildGateComment(report(), passGate, null, { reportUrl: "javascript:alert(1)" }).commentBody).not.toContain(
+      "See the full report",
+    );
+  });
+
+  it("keeps the policy footer last, so the link never displaces the enforced bar", () => {
+    const c = buildGateComment(report(), passGate, null, { reportUrl: url });
+    expect(c.commentBody.trimEnd().endsWith("</sub>")).toBe(true);
+    expect(c.commentBody.indexOf("See the full report")).toBeLessThan(c.commentBody.indexOf("<sub>Policy:"));
+  });
+});

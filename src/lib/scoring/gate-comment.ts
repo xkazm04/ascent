@@ -54,6 +54,15 @@ export interface GateCommentOptions {
    * Defaults to true (the normal head-scored path).
    */
   scoredHead?: boolean;
+  /**
+   * Absolute URL of the full Ascent report for this scan. Rendered as a link in the sticky COMMENT
+   * only — the Check Run already carries the same destination natively as `details_url`, so putting it
+   * in `summary` too would duplicate it on that surface. The comment is the surface developers actually
+   * read on a PR, and it had no way back to the report at all: the failures and the top-3 prompts were
+   * the end of the road. Ignored unless it is an absolute http(s) URL, so a misconfigured
+   * `publicBaseUrl()` renders no link rather than a broken relative one.
+   */
+  reportUrl?: string;
 }
 
 /**
@@ -175,11 +184,19 @@ export function buildGateComment(
   // marketing on a check that doesn't enforce it. Companion voice: explains, never instructs.
   const securedByD9 = gate.policy.minDimensionFor?.D9 != null;
 
+  // Only an absolute http(s) URL becomes a link; anything else renders nothing. Wrapped in <> (valid
+  // CommonMark, honored by GitHub) so a URL containing parentheses can't terminate the link early.
+  const reportUrl = /^https?:\/\//i.test(opts.reportUrl ?? "") ? opts.reportUrl : null;
+
   // Provider/mode now lives in `summary` (above), so the footer carries only the policy — no dupe.
   const commentBody = [
     GATE_COMMENT_MARKER,
     summary,
     "",
+    // The way back to the evidence. The Check Run gets this destination as its native `details_url`,
+    // but the sticky comment — the surface a developer actually reads in the PR timeline — had no link
+    // to the report at all, so the verdict was a dead end for anyone wanting the reasoning behind it.
+    ...(reportUrl ? [`[**See the full report →**](<${reportUrl}>)`, ""] : []),
     ...(securedByD9
       ? [
           "<sub>The Security (D9) floor is fully deterministic — its score comes straight from the security " +
