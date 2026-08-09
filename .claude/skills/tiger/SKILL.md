@@ -1,6 +1,7 @@
 ---
 name: tiger
 description: Goes for the throat of an LLM-powered app — its LLM call sites, the highest-value/highest-cost/highest-variance part — and certifies them across three lenses an ordinary test suite is blind to. (A) Engine quality of the integration code (wrapping, logging/observability, caching efficiency). (B) Business value of the model's output, using UAT's Character-driven L1 method but scoped ONLY to the LLM pieces (is the output senior-grade, grounded, trustworthy, worth the wait, per Character). (C) Model optimization as an alternative scenario — benchmarking the same Characters across different models × thinking levels to find the cheapest config that still clears every bar, and whether a premium config meaningfully upgrades value. Everything is memorized to an Obsidian vault (`tiger/`) so each run builds on the last — the vault IS cross-session memory. Stack-agnostic engine; per-app specifics live in the vault. Invoke with `/tiger init|run|benchmark|recall [args]`.
+version: 1.0
 ---
 
 # Tiger — certify the LLM engine, the highest-value part of an AI app
@@ -152,3 +153,19 @@ Read the vault's `sessions/*` + `backlog.md` + `engine/*` and report the **traje
 
 ## Using this on a new app
 1. Drop `/tiger` into the repo (`.claude/skills/tiger.md` — a portable, copy-to-other-repos asset, like `/uat`). 2. `/tiger init` → discovers the LLM call sites, scaffolds the `tiger/` vault, reuses the UAT roster (or derives one). 3. `/tiger run` → cheap L1 sweep across all three lenses → a session note + an impact-ranked backlog + a predicted model frontier. 4. Fix the Lens-A/B items; **`/tiger benchmark`** when you want the real cost frontier. 5. `/tiger recall` any time to see the engine's trajectory. The vault carries the memory forward — run it on a cadence and the dials become a story.
+
+---
+
+## Skill Reflection
+
+After the run’s real work is done, reflect twice — autonomously, without asking the user. Be honest about volume: most runs produce NOTHING for lane 2. An empty reflection is a valid result; a forced lesson is pollution. Calibration: nothing (common) / one line (sometimes) / a lesson entry (occasionally) / a redesign proposal (rare).
+
+Lane 1 — PROJECT learnings (what the next session in THIS repo needs): write via the MEMORY BLOCK contract if this prompt carries one, else append node lines to `.personas/memory-outbox.jsonl` per that contract. Project-specific insight only.
+
+Lane 2 — METHOD learnings (what would improve THIS SKILL for every project):
+1. If nothing generalizes beyond this repo, stop here.
+2. Append an entry to `LESSONS.md` in this skill’s directory: `## <version-used> — <YYYY-MM-DD> — <project-name>` followed by `- ` bullets (create the file with a `# Lessons — <skill>` heading if absent). Record the version the run USED, not a bump target. Wrap a bullet in a `### Redesign proposal` sub-block when it argues for a methodic redesign you are NOT applying now.
+3. Version bump — ONLY when you also edit SKILL.md to apply the improvement in the same change: minor (1.2 → 1.3) for a prompt/step refinement, major (1.x → 2.0) for a methodic redesign. Update the `version:` frontmatter field (add `version: 1.1` if the file had none — absent means 1.0). Never bump without an applied edit; never edit the method without a bump.
+4. Sync ritual (only when you bumped): (a) commit the skill directory as a STANDALONE commit on the current branch — message `skill(<name>): v<new> — <one-line reason>` — containing nothing but this skill’s files; (b) copy the updated skill directory to `~/.claude/skills/<name>/` (overwrite) so sibling projects can adopt it. EXCEPTION: read `.personas/skill-registry.json` first — if the library already carries a HIGHER version than yours, do not overwrite it; keep your lesson in LESSONS.md and note the version conflict in the entry.
+
+Sibling awareness: `.personas/skill-registry.json` (repo root, when present) lists this skill’s installed version, the workspace library version, and which sibling projects run it at which version with recent usage. Use it to judge whether a lesson is worth a bump (heavily-used siblings raise the bar for majors) and to notice you are BEHIND (library newer than yours → prefer recording the lesson over editing a stale method).
