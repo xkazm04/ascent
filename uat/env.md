@@ -27,7 +27,7 @@ product and report nonsense findings.
 2026-08-10 run used **port 3002**.
 
 ## LLM provider (for the *app's* own scoring, not the UAT driver) — RESOLVED: Claude Code CLI
-- **UAT default: `LLM_PROVIDER=claude-cli`** (pinned in `.env.local`). The app's own scoring shells out to the local `claude` CLI in headless mode (`src/lib/llm/claude-cli.ts`), running under your **Claude Pro/Max subscription** (not pay-per-token — the provider deletes `ANTHROPIC_API_KEY` from the child env). Requires `claude` on PATH + logged in (`claude /login`). This is so **every LLM test reflects real Claude output**, not the deterministic floor — which is what makes the **senior-quality** dimension meaningful. `LLM_FALLBACK_PROVIDER=mock` is set so a CLI hiccup (not logged in / rate-limited) degrades gracefully instead of failing a sweep.
+- **UAT default: `LLM_PROVIDER=claude-cli`** (pinned in `.env.local`). The app's own scoring shells out to the local `claude` CLI in headless mode (`src/lib/llm/claude-cli.ts`), running under your **Claude Pro/Max subscription** (not pay-per-token — the provider deletes `ANTHROPIC_API_KEY` from the child env). Requires `claude` on PATH + logged in (`claude /login`). This is so **every LLM test reflects real Claude output**, not the deterministic floor — which is what makes the **senior-quality** dimension meaningful. ~~`LLM_FALLBACK_PROVIDER=mock` is set so a CLI hiccup (not logged in / rate-limited) degrades gracefully instead of failing a sweep.~~ **Corrected 2026-08-10: `LLM_FALLBACK_PROVIDER` is NOT set in `.env.local`.** `scan-assess.ts:283` therefore resolves `providerByName(undefined)` → null, and the chain falls through to the terminal `MockProvider` at `:355` anyway — so the *outcome* is still a graceful degrade, but the documented safety net does not exist as described. Set it explicitly if you want the intermediate hop.
 - **Budget for latency**: a claude-cli scan calls the model once over sampled file content — typically tens of seconds, up to ~5–10 min on a large repo (`CLAUDE_CLI_TIMEOUT_MS`, default 150s; the seeders allow longer). The page streams progress over SSE; an early client-timeout would itself be a finding.
 - Other modes if you need them: `mock` (deterministic, keyless — cheapest, fine for pure-structural L1), `gemini` (+`GEMINI_API_KEY`), `bedrock` (enterprise-privacy path Elena cares about).
 - Note: the **UAT Character driver is a separate capable LLM** driving the browser — it does not collide with the app's claude-cli provider.
@@ -43,6 +43,17 @@ product and report nonsense findings.
 - **Two seeders (both drive the RUNNING dev server's real API path, so start `npm run dev` first):**
   - `node scripts/seed-org.mjs <org> [count]` → **the org dashboard.** Scans a public org's repos via POST `/api/org/import`; the dashboard then lives at **`/org/<org>`** (the slug is just the GitHub org login). Default = mock LLM (fast); `--live` uses the real provider. Example: `node scripts/seed-org.mjs vercel 20` → visit **`/org/vercel`**. This is the seed for the `/org/[slug]` journeys (Dana, Marcus, Priya, Raj, Nadia). `node scripts/seed-org-extras.mjs <org>` adds members/teams/segments for those facets. Defaults to base `http://localhost:3000`.
   - `npm run db:local:seed` (= `node scripts/seed-scans.mjs [baseUrl] [repo…]`) → **individual repo scans + history/trends** (default set: anthropics/claude-code, vercel/swr, prisma/prisma, tailwindlabs/tailwindcss, vercel/turbo). ⚠️ Its default baseUrl is `http://localhost:3001` — pass `http://localhost:3000` explicitly if your dev server is on 3000. Set `LLM_PROVIDER=claude-cli` for subscription-quality (not mock) data; expect 5–10 min/repo on a live provider.
+- **⚠ KNOWN FIXTURE GAP — no seeded org can produce a forecast (found 2026-08-10).** Both seeders
+  scan an org in a **single pass**, so every repo gets one scan on one calendar day.
+  `forecastTrajectory` returns `null` below **2 distinct calendar days**, so `rollup.forecast` is
+  null, so `briefing.ts:283` nulls `forecastHeadline`, so **no trajectory/ETA line renders anywhere** —
+  verified across six generated board PDFs (`vercel`|`acme` × 30d|90d|180d, all HTTP 200, zero
+  `Trajectory:` lines). Consequence: **every finding about trajectory/ETA honesty is untestable at
+  L2** and must resolve `uncertain — not reproducible on this host` (DANA-L1-001, DANA-L1-002 in
+  `runs/2026-08-10-ascent-first/`). To close it, a future run needs an org seeded with **≥3 scans of
+  one repo spread across ≥2 calendar days** — and **≥14 days of span** to exercise `isProjectable`,
+  the presentability gate `/trends` uses and the briefing path does not. Backdating `scannedAt` on
+  seeded rows is the cheapest route.
 - Public scan target for journeys: paste a real public repo (e.g. `vercel/next.js`, `facebook/react`). A `GITHUB_TOKEN` raises rate limits and unlocks PR + branch-governance signals; without it, public scans still run (lower rate limit).
 
 ## Auth — RESOLVED: bypassed, but backed by a real local profile
