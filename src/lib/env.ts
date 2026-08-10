@@ -46,6 +46,30 @@ export function creditGrantsEnabled(): boolean {
 }
 
 /**
+ * Whether the ANONYMOUS PUBLIC scan funnel is walled behind sign-in. Opt-in, default OFF.
+ *
+ * UAT TOMAS-L1-01 (blocker). The public funnel used to inherit the general sign-in wall, so in
+ * production `POST /api/scan` on a public repo answered
+ * `401 {"code":"auth_required"}` — while everything READ-ONLY stayed open (saved report 200, badge
+ * 200, gate 422). The one walled action was the only one that converts a buyer, under a landing CTA
+ * reading "Scan a repository" and a README section headed "Free & public — no signup: everything
+ * here works anonymously". The scan route's own comment two hundred lines above the wall already
+ * said "anonymous public scans stay free and no-signup" — the code and its stated intent had drifted.
+ *
+ * So the default now matches the promise, and re-walling is a deliberate operator act (set
+ * `ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN=1`) rather than an accident of inheriting a gate meant for
+ * private scans. Anonymous public scans remain bounded by the two limits that were always the real
+ * cost ceiling — the shared per-IP/global burst limiter and the rolling monthly free-scan quota
+ * (`public-scan-quota.ts`) — both of which run on this exact path regardless of this flag.
+ *
+ * PRIVATE / installed-org scans are unaffected: they are walled by their own gate, which does not
+ * consult this flag.
+ */
+export function publicScanSignInRequired(): boolean {
+  return envBool("ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN");
+}
+
+/**
  * Whether the login wall is actually enforced right now: Supabase configured AND the dev bypass off.
  * The COMPOSED predicate lives here (next/headers-free) alongside its two operands so the server gate
  * (src/lib/access.ts, which re-exports it) and the proxy's cookie-refresh decision (src/proxy.ts) share

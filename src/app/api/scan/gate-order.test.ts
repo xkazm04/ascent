@@ -191,7 +191,23 @@ describe("G8-49 — /api/scan and /api/scan/stream answer the pre-scan gates ide
       expect(mockConsumeQuota).not.toHaveBeenCalled();
     });
 
-    it("answers an UNTHROTTLED anonymous caller with 401 when the sign-in wall is on", async () => {
+    // UAT TOMAS-L1-01 — the advertised free, no-signup PUBLIC scan must not 401. Everything
+    // read-only was already open; walling the one action a buyer needs was the blocker.
+    it("lets an UNTHROTTLED anonymous caller run a PUBLIC scan even with the sign-in wall on", async () => {
+      mockShared.mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof rateLimitRequestShared>>);
+      mockAuthGateEnabled.mockReturnValue(true);
+      mockGetViewer.mockResolvedValue(null);
+
+      // The request proceeds past the wall into the (mocked) scan, which may reject downstream —
+      // irrelevant here. What matters is that it reached the monthly quota gate, which sits
+      // immediately after the sign-in wall, instead of being turned away at it.
+      await post().catch(() => {});
+
+      expect(mockConsumeQuota).toHaveBeenCalled();
+    });
+
+    it("re-walls the public funnel when the operator opts in via ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN", async () => {
+      vi.stubEnv("ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN", "1");
       mockShared.mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof rateLimitRequestShared>>);
       mockAuthGateEnabled.mockReturnValue(true);
       mockGetViewer.mockResolvedValue(null);
@@ -200,6 +216,22 @@ describe("G8-49 — /api/scan and /api/scan/stream answer the pre-scan gates ide
 
       expect(res.status).toBe(401);
       expect(await res.json()).toMatchObject({ code: "auth_required" });
+      expect(mockConsumeQuota).not.toHaveBeenCalled();
+      vi.unstubAllEnvs();
+    });
+
+    it("still answers 401 for a PRIVATE / installed-org scan when the sign-in wall is on", async () => {
+      // The exemption is scoped to the anonymous public funnel; a scan that resolved an installation
+      // token is a gated feature and is walled exactly as before.
+      mockAuth.mockResolvedValue({ orgSlug: "acme", token: "ghs_x" } as Awaited<ReturnType<typeof resolveScanAuth>>);
+      mockShared.mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof rateLimitRequestShared>>);
+      mockAuthGateEnabled.mockReturnValue(true);
+      mockGetViewer.mockResolvedValue(null);
+
+      const res = await post();
+
+      expect(res.status).toBe(401);
+      expect(mockConsumeQuota).not.toHaveBeenCalled();
     });
   });
 

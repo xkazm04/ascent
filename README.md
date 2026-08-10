@@ -93,9 +93,13 @@ Deep dive: [`docs/features/scanning/scan.md`](./docs/features/scanning/scan.md).
 
 ### Free & public — no signup
 
-Everything here works anonymously, with or without an LLM key.
+Everything here works anonymously, with or without an LLM key — including **running** a scan,
+not just reading one.
 
-- **Scan any public repo** → a full, auditable report.
+- **Scan any public repo** → a full, auditable report. No signup. Bounded by a shared burst rate
+  limit and a rolling monthly free-scan allowance, not by a login. (Operators who need to wall the
+  anonymous funnel on their own deployment can set `ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN=1`;
+  private / installed-org scans always require sign-in.)
 - **Live streaming report** — determinate progress UI over SSE; score ring, level ladder,
   adoption × rigor posture, dimension radar, per-dimension evidence/gaps with a
   signal→LLM→blended **provenance track**, contributor AI-attribution, PR signals, a

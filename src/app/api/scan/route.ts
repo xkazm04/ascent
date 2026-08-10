@@ -255,7 +255,12 @@ async function runScan(
   // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.
   // Shared with /api/scan/stream via scanAuthGate (which owns the authGateEnabled short-circuit, so a
   // disabled gate still resolves no viewer); this route renders the rejection as JSON.
-  const authGate = await scanAuthGate(getViewer);
+  // UAT TOMAS-L1-01 — the anonymous PUBLIC funnel is exempt (see scan-gates.ts). `orgSlug === "public"`
+  // with no caller-supplied body token means no token at all is in play (the repo-idiom for "anonymous
+  // public funnel"), so an exempted scan cannot reach a private repo; the
+  // private/org wall two hundred lines above still answers those, and this path stays bounded by the
+  // burst limiter above and the monthly free-scan quota below.
+  const authGate = await scanAuthGate(getViewer, { publicScan: orgSlug === "public" && !token });
   if (!authGate.ok) {
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }

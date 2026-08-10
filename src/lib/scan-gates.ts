@@ -38,6 +38,7 @@
 import { recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequestShared, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { authGateEnabled, type Viewer } from "@/lib/access";
+import { publicScanSignInRequired } from "@/lib/env";
 
 /**
  * Outcome of one pre-scan gate. `ok: true` means "proceed"; a rejection carries only what the caller
@@ -66,9 +67,21 @@ export async function scanRateLimitGate(req: Request): Promise<ScanGatePass | Sc
 }
 
 /**
- * Public sign-in wall: in production (Supabase configured + bypass hard-off, via authGateEnabled) a REAL
- * new scan requires a signed-in viewer; no-op in dev / when auth is bypassed. Viewing a SAVED report
- * stays free — the callers place this AFTER their free cache/peek returns.
+ * Sign-in wall for a REAL new scan: in production (Supabase configured + bypass hard-off, via
+ * authGateEnabled) a scan requires a signed-in viewer; no-op in dev / when auth is bypassed. Viewing a
+ * SAVED report stays free — the callers place this AFTER their free cache/peek returns.
+ *
+ * UAT TOMAS-L1-01 — THE ANONYMOUS PUBLIC FUNNEL IS EXEMPT BY DEFAULT. This gate used to wall every
+ * scan, public included, which made `POST /api/scan` on a public repo 401 in production while every
+ * read-only surface stayed open: the product left open every surface that would not convince a buyer
+ * and walled the single one that would, under a page promising "no signup". `publicScanSignInRequired()`
+ * (`ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN`, default off) lets an operator re-wall it deliberately.
+ * The cost ceiling for the anonymous funnel is unchanged and does not depend on this flag: the shared
+ * burst limiter runs before this gate and the rolling monthly free-scan quota runs after it.
+ *
+ * `publicScan` is the caller's resolved `orgSlug === PUBLIC_ORG` — i.e. no installation token was
+ * minted, so this cannot reach a private repo. A private / installed-org scan (`publicScan: false`) is
+ * walled exactly as before.
  *
  * Takes a viewer THUNK, not a viewer, to preserve both call sites exactly: the JSON route never resolves
  * a viewer when the gate is disabled (short-circuit), while the stream route resolves one earlier in
@@ -76,8 +89,10 @@ export async function scanRateLimitGate(req: Request): Promise<ScanGatePass | Sc
  */
 export async function scanAuthGate(
   resolveViewer: () => Promise<Viewer | null> | Viewer | null,
+  opts: { publicScan: boolean },
 ): Promise<ScanGatePass | ScanAuthRejection> {
   if (!authGateEnabled()) return PASS;
+  if (opts.publicScan && !publicScanSignInRequired()) return PASS;
   if (await resolveViewer()) return PASS;
   return { ok: false, reason: "auth_required" };
 }

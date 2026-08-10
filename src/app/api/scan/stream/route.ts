@@ -76,9 +76,12 @@ export async function POST(request: Request) {
   // the operator PAT, which would leak the private repo the mint gate just denied.
   const { token, orgSlug, noAmbientToken } = await resolveScanAuth(parsed, body.installationId);
 
-  // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled)
-  // EVERY scan requires a signed-in viewer — LLM cost is easily abused, so the public funnel is gated
-  // too, not just private/org scans. Viewing a SAVED report stays free: the client peeks the cache
+  // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled) a
+  // PRIVATE / installed-org scan requires a signed-in viewer. The anonymous PUBLIC funnel is exempt by
+  // default (UAT TOMAS-L1-01 — the advertised free no-signup scan was answering 401; rationale and the
+  // ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN opt-in live in scan-gates.ts). LLM cost on that funnel is
+  // ceilinged by the burst limiter above and the monthly free-scan quota below, not by this wall.
+  // Viewing a SAVED report stays free: the client peeks the cache
   // (GET /api/scan?peek=1, ungated) first and only reaches this stream for a real new scan. No-op in
   // dev / when auth is bypassed. Fail fast before the quota + stream.
   // Resolve the viewer ONCE here, in request scope — next/headers cookies are NOT readable inside the
@@ -87,13 +90,15 @@ export async function POST(request: Request) {
   const viewer = await getViewer();
   // Shared with /api/scan via scanAuthGate; the viewer is handed to it already resolved (it takes a
   // thunk so the JSON route can keep its lazy resolve). Rejected before the stream opens → JSON 401.
-  const authGate = await scanAuthGate(() => viewer);
+  const authGate = await scanAuthGate(() => viewer, { publicScan: orgSlug === "public" && !token });
   if (!authGate.ok) {
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
 
   // SCOPE (G7-07 / G7-08). Placed AFTER the sign-in wall (so an anonymous caller can't drive the
-  // GitHub ref-resolve behind it) and BEFORE the quota consume below (so a typo'd branch name 400/404s
+  // GitHub ref-resolve behind a PRIVATE/org scan's installation token — the funnel exemption above is
+  // token-less by construction, and `noAmbientToken` below is what keeps a non-installed owner's
+  // private repo from being probed through the operator PAT) and BEFORE the quota consume below (so a typo'd branch name 400/404s
   // without burning one of the free tier's monthly slots — the same reason an unparseable URL is
   // rejected up front). The ref is resolved to its own commit sha server-side; see scan-scope-server.ts
   // for why that, and not the client's word for it, is what keeps the cache collision-free.
