@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { briefingMarkdown, engineMixCaveat, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingMarkdown, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -108,6 +108,64 @@ describe("valueRealizedLine — the renewal-justification, only when there's val
     expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 0, pointsMoved: 0, reposPromoted: 0 })).toBeNull();
     expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 0, pointsMoved: null, reposPromoted: 0 })).toBeNull();
   });
+
+  // UAT DANA-L1-012 — the points figure is fleet-wide; the movement line beside it is
+  // comparable-only. A board reader could not reconcile "-6 pts" with "0 improved and 0 regressed".
+  it("states the basis of the points figure when the scanned count is supplied", () => {
+    expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 }, 6)).toBe(
+      "1 recommendation completed · fleet -6 pts across 6 scanned repos",
+    );
+  });
+});
+
+// UAT DANA-L1-010 — a fleet REGRESSION was printed under the heading "Value this period" on the live
+// board PDF. The heading follows the sign; the number is never suppressed (G1).
+describe("valueRealizedHeading — the tool must know which direction is good", () => {
+  it("calls a negative period 'Activity', not 'Value'", () => {
+    expect(valueRealizedHeading({ recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 })).toBe("Activity this period");
+  });
+  it("keeps 'Value this period' for a gain, a flat period, and an unmeasurable one", () => {
+    expect(valueRealizedHeading({ recsEngaged: 0, recsActioned: 1, pointsMoved: 6, reposPromoted: 0 })).toBe("Value this period");
+    expect(valueRealizedHeading({ recsEngaged: 0, recsActioned: 1, pointsMoved: 0, reposPromoted: 0 })).toBe("Value this period");
+    expect(valueRealizedHeading({ recsEngaged: 0, recsActioned: 1, pointsMoved: null, reposPromoted: 0 })).toBe("Value this period");
+  });
+  it("still prints the regression itself — the fix is a label, never a filter", () => {
+    expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 }, 6)).toContain("-6 pts");
+  });
+});
+
+// UAT DANA-L1-011/-012 — "PERCENTILE — vs 1 repos" in a headline board tile: an apology where a
+// benchmark should be.
+describe("benchmarkCaption — a suppressed percentile says why, never quotes the corpus that failed it", () => {
+  const bm = (percentile: number | null, corpusRepos: number) => ({
+    percentile,
+    corpusRepos,
+    corpusAvgOverall: 50,
+    cohort: null,
+  });
+  it("never prints a corpus size beside a suppressed percentile", () => {
+    expect(benchmarkCaption(bm(null, 1))).toBe("not enough peers to rank");
+    expect(benchmarkCaption(bm(null, 1))).not.toContain("1");
+  });
+  it("names the corpus when there IS a percentile", () => {
+    expect(benchmarkCaption(bm(72, 140))).toBe("vs 140 repos in the public corpus");
+  });
+  it("distinguishes an empty corpus from an unrankable one", () => {
+    expect(benchmarkCaption(bm(null, 0))).toBe("no corpus yet");
+    expect(benchmarkCaption(null)).toBe("no corpus yet");
+  });
+});
+
+// UAT DANA-L1-012 — the movement denominator is a SUBSET of the scanned denominator; say so.
+describe("movementLine — the comparable set is named as a subset of the scanned set", () => {
+  it("states both denominators", () => {
+    expect(movementLine({ up: 1, down: 1, compared: 2 }, 6)).toBe(
+      "2 of 2 repos with a comparable prior scan moved (of 6 scanned) (1 up / 1 down)",
+    );
+  });
+  it("is null when nothing was comparable", () => {
+    expect(movementLine({ up: 0, down: 0, compared: 0 }, 6)).toBeNull();
+  });
 });
 
 describe("engineMixCaveat — fires on ANY mock presence, with wording scaled to the degradation", () => {
@@ -162,13 +220,16 @@ describe("briefingMarkdown", () => {
   });
 
   it("surfaces the value realized this period (the renewal-justification line)", () => {
-    expect(md).toContain("Value this period: 3 recommendations completed · fleet +4 pts · 2 repos leveled up");
+    // UAT DANA-L1-012 — the fleet points figure now names its own basis (the scanned set), so it can
+    // be reconciled with the comparable-only movement line beside it.
+    expect(md).toContain("Value this period: 3 recommendations completed · fleet +4 pts across 8 scanned repos · 2 repos leveled up");
   });
 
   it("surfaces the fleet adoption rate and the FULL movement scale (not just the top-3 listed)", () => {
     expect(md).toContain("Fleet adoption: 58% of scanned repos at a high AI-adoption posture");
     // 5 up + 2 down full counts, even though only 1 gainer + 1 regression are listed below.
-    expect(md).toContain("7 of 8 compared repos moved (5 ▲ / 2 ▼)");
+    // UAT DANA-L1-012 — the comparable set is now named as a subset of the scanned set.
+    expect(md).toContain("7 of 8 repos with a comparable prior scan moved (of 8 scanned) (5 up / 2 down)");
   });
 
   it("NAMES the recommended next move from the RANKED list (not the old risks[0]/security heuristic)", () => {
@@ -177,7 +238,8 @@ describe("briefingMarkdown", () => {
     // not to GENERATE the recommendation.
     expect(md).toContain("## Recommended next move");
     expect(md).toContain("Add a dependency-scanning workflow — the widest shared gap across the fleet");
-    expect(md).toContain("shared by 6 repositories");
+    // UAT DANA-L1-012 — the rec's repo count is scoped against the scanned set.
+    expect(md).toContain("shared by 6 of the 8 scanned repositories");
     expect(md).toContain("+7 maturity points on each affected repository, advancing 2 of them to the next level");
     // The next-widest gaps come from the same list, in rank order.
     expect(md).toContain("- Adopt a shared test-coverage gate (D2, medium impact, 3 repos)");
@@ -750,7 +812,7 @@ describe("briefingMarkdown — partially-populated briefing renders only present
       ...emptyBriefing,
       benchmark: { percentile: 60, corpusRepos: 100, corpusAvgOverall: 50, cohort: null },
     });
-    expect(md).toContain("60th percentile vs 100 repos (corpus avg 50)");
+    expect(md).toContain("60th percentile vs 100 repos in the public corpus (corpus avg 50)");
     expect(md).not.toMatch(/Peer cohort/);
     expect(md).not.toMatch(/undefined|null|NaN/);
   });

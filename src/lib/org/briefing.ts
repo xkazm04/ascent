@@ -50,14 +50,68 @@ export function forecastConfidenceNote(confidence: number | null): string | null
 
 /** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled
  *  up"), or null when nothing measurable happened this period — so the renewal line only appears when
- *  there's value to show, never as an empty "0 · 0 · 0". Shared by the exec page and the markdown. */
-export function valueRealizedLine(vr: ExecBriefing["valueRealized"]): string | null {
+ *  there's value to show, never as an empty "0 · 0 · 0". Shared by the exec page and the markdown.
+ *
+ *  UAT DANA-L1-012 — `scannedRepos` names the basis of the points figure. `pointsMoved` is the
+ *  fleet-wide average delta over every SCANNED repo, while the movement line beside it counts only
+ *  repos with a COMPARABLE prior scan. A live board PDF put "fleet -6 pts" next to "Of 2 repositories
+ *  comparable across the period, 0 improved and 0 regressed", and the reader could not reconcile them:
+ *  "A board member does not need to know the word 'cohort-matched'; they need the page not to
+ *  contradict itself." The two numbers were never in conflict — only one of them stated its scope. */
+export function valueRealizedLine(vr: ExecBriefing["valueRealized"], scannedRepos?: number): string | null {
   const parts: string[] = [];
   if (vr.recsActioned > 0) parts.push(`${vr.recsActioned} recommendation${vr.recsActioned === 1 ? "" : "s"} completed`);
   else if (vr.recsEngaged > 0) parts.push(`${vr.recsEngaged} recommendation${vr.recsEngaged === 1 ? "" : "s"} actioned`);
-  if (vr.pointsMoved != null && vr.pointsMoved !== 0) parts.push(`fleet ${vr.pointsMoved > 0 ? "+" : ""}${vr.pointsMoved} pts`);
+  if (vr.pointsMoved != null && vr.pointsMoved !== 0) {
+    const basis = scannedRepos && scannedRepos > 0 ? ` across ${scannedRepos} scanned repo${scannedRepos === 1 ? "" : "s"}` : "";
+    parts.push(`fleet ${vr.pointsMoved > 0 ? "+" : ""}${vr.pointsMoved} pts${basis}`);
+  }
   if (vr.reposPromoted > 0) parts.push(`${vr.reposPromoted} repo${vr.reposPromoted === 1 ? "" : "s"} leveled up`);
   return parts.length ? parts.join(" · ") : null;
+}
+
+/**
+ * The HEADING the value-realized line is printed under — "Value this period" only when the period
+ * actually produced value.
+ *
+ * UAT DANA-L1-010. `valueRealizedLine` pushes `pointsMoved` sign-blind, so the live board PDF printed
+ * *"Value this period: 1 recommendation completed · fleet −6 pts"* — a fleet REGRESSION under the word
+ * "Value", on the artifact most likely to leave the building unedited. The reader's verdict was not
+ * "formatting bug": *"That is the tool not knowing which direction is good — and the sign is right
+ * there in the variable."*
+ *
+ * The fix is a heading, not a filter: the regression is still printed, in full, with its basis. G1 —
+ * a briefing may never become quieter by hiding its own bad news; it may only stop mislabelling it.
+ */
+export function valueRealizedHeading(vr: ExecBriefing["valueRealized"]): string {
+  return vr.pointsMoved != null && vr.pointsMoved < 0 ? "Activity this period" : "Value this period";
+}
+
+/**
+ * Caption for the benchmark percentile tile — what the percentile is measured AGAINST, or why there
+ * isn't one.
+ *
+ * UAT DANA-L1-011/-012: the tile printed its corpus size even when the percentile itself had been
+ * suppressed, so a board slide carried a headline tile reading "PERCENTILE — vs 1 repos".
+ * *"'Versus one repo' is not a benchmark, it's an apology, and it's sitting in a headline slot on a
+ * page with my org's name at the top."* A suppressed percentile now says why it is absent instead of
+ * quoting the corpus that was too small to produce it.
+ */
+export function benchmarkCaption(benchmark: ExecBriefing["benchmark"]): string {
+  if (!benchmark || benchmark.corpusRepos === 0) return "no corpus yet";
+  if (benchmark.percentile == null) return "not enough peers to rank";
+  return `vs ${benchmark.corpusRepos} repos in the public corpus`;
+}
+
+/**
+ * The movement line's denominator, stated. UAT DANA-L1-012 — "Of 2 repositories comparable across the
+ * period" sat on the same page as "6 of 6 repositories scanned" with nothing saying the 2 was a subset
+ * of the 6. Returns null when nothing is comparable (the callers already skip the line then).
+ */
+export function movementLine(movement: ExecBriefing["movement"], scannedRepos: number): string | null {
+  if (movement.compared <= 0) return null;
+  const of = scannedRepos > 0 ? ` (of ${scannedRepos} scanned)` : "";
+  return `${movement.up + movement.down} of ${movement.compared} repos with a comparable prior scan moved${of} (${movement.up} up / ${movement.down} down)`;
 }
 
 export interface BriefingDim {
@@ -348,9 +402,14 @@ export function briefingNextMove(b: ExecBriefing): OrgRec | null {
 
 /** One prose line for the ranked next move — the exact sentence the markdown export and the board
  *  PDF both print, so the two can't drift. Every number in it comes from the rec row itself. */
-export function nextMoveLine(rec: OrgRec): string {
+export function nextMoveLine(rec: OrgRec, scannedRepos?: number): string {
   const dimLabel = DIMENSION_BY_ID[rec.dimId as DimensionId]?.name ?? rec.dimId;
-  const repos = `${rec.repoCount} repositor${rec.repoCount === 1 ? "y" : "ies"}`;
+  // UAT DANA-L1-012 — "shared by 3 repositories" was the fourth unlabelled repository denominator on
+  // one board page. It is a subset of the scanned set; say so.
+  const repos =
+    scannedRepos && scannedRepos > 0
+      ? `${rec.repoCount} of the ${scannedRepos} scanned repositor${scannedRepos === 1 ? "y" : "ies"}`
+      : `${rec.repoCount} repositor${rec.repoCount === 1 ? "y" : "ies"}`;
   const gain =
     rec.projectedPoints != null
       ? ` Closing it is worth about +${rec.projectedPoints} maturity points on each affected repository${rec.liftsRepos > 0 ? `, advancing ${rec.liftsRepos} of them to the next level` : ""}.`
@@ -376,11 +435,11 @@ export function briefingMarkdown(b: ExecBriefing): string {
   out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
   out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
   out.push(`- Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`);
-  const vline = valueRealizedLine(b.valueRealized);
-  if (vline) out.push(`- Value this period: ${vline}`);
+  const vline = valueRealizedLine(b.valueRealized, b.coverage.scanned);
+  if (vline) out.push(`- ${valueRealizedHeading(b.valueRealized)}: ${vline}`);
   if (b.adoptionRate != null) out.push(`- Fleet adoption: ${b.adoptionRate}% of scanned repos at a high AI-adoption posture`);
   if (b.benchmark?.percentile != null) {
-    out.push(`- Benchmark: ${b.benchmark.percentile}th percentile vs ${b.benchmark.corpusRepos} repos (corpus avg ${b.benchmark.corpusAvgOverall})`);
+    out.push(`- Benchmark: ${b.benchmark.percentile}th percentile ${benchmarkCaption(b.benchmark)} (corpus avg ${b.benchmark.corpusAvgOverall})`);
   }
   if (b.benchmark?.cohort && b.benchmark.cohort.overallPercentile != null) {
     const c = b.benchmark.cohort;
@@ -416,8 +475,8 @@ export function briefingMarkdown(b: ExecBriefing): string {
   if (b.topGainers.length || b.topRegressions.length) {
     out.push("");
     out.push("## Movement this period");
-    if (b.movement.compared > 0)
-      out.push(`- ${b.movement.up + b.movement.down} of ${b.movement.compared} compared repos moved (${b.movement.up} ▲ / ${b.movement.down} ▼)`);
+    const mline = movementLine(b.movement, b.coverage.scanned);
+    if (mline) out.push(`- ${mline}`);
     for (const m of b.topGainers) out.push(moveLine("▲", m));
     for (const m of b.topRegressions) out.push(moveLine("▼", m));
   }
@@ -437,7 +496,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
   if (move) {
     out.push("");
     out.push("## Recommended next move");
-    out.push(nextMoveLine(move));
+    out.push(nextMoveLine(move, b.coverage.scanned));
     const rest = (b.recommendations ?? []).slice(1);
     if (rest.length > 0) {
       out.push("");

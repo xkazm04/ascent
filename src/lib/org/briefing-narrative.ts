@@ -117,7 +117,10 @@ export function deterministicNarrative(b: ExecBriefing): string {
   }
   if (b.movement.compared > 0) {
     s.push(
-      `Of ${b.movement.compared} repositories comparable across the period, ${b.movement.up} improved and ${b.movement.down} regressed.`,
+      // UAT DANA-L1-012 — this sentence and the "N of M repositories scanned" sentence above it were
+      // two unlabelled repository denominators in the same paragraph. Name the subset relationship so a
+      // fleet-wide delta and a comparable-only movement count can be reconciled by the reader.
+      `Of the ${b.coverage.scanned} scanned repositories, ${b.movement.compared} had a comparable prior scan in the period; of those, ${b.movement.up} improved and ${b.movement.down} regressed.`,
     );
   }
   if (b.forecastHeadline) s.push(b.forecastHeadline);

@@ -124,9 +124,27 @@ function briefing(over: Partial<ExecBriefing> = {}): ExecBriefing {
 describe("BriefingDocument — carries the value / adoption / movement-scale lines the other surfaces show", () => {
   const t = text(briefing());
 
-  it("renders the 'Value this period' renewal-justification line", () => {
-    expect(t).toContain("Value this period:");
-    expect(t).toContain("3 recommendations completed · fleet +4 pts · 2 repos leveled up");
+  it("renders the 'Value this period' renewal-justification line, with the points figure's basis", () => {
+    expect(t).toMatch(/Value this period\s*:/);
+    // UAT DANA-L1-012 — the fleet delta names the set it is averaged over, so it can be reconciled
+    // with the comparable-only movement line on the same page.
+    expect(t).toContain("3 recommendations completed · fleet +4 pts across 8 scanned repos · 2 repos leveled up");
+  });
+
+  // UAT DANA-L1-010 — the live board PDF printed "Value this period: … fleet -6 pts". The heading
+  // follows the sign now; the regression itself is still printed in full (G1).
+  it("prints a fleet REGRESSION under 'Activity this period', never under 'Value' — and still prints it", () => {
+    const down = text(briefing({ valueRealized: { recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 } }));
+    expect(down).toMatch(/Activity this period\s*:/);
+    expect(down).not.toContain("Value this period");
+    expect(down).toContain("-6 pts across 8 scanned repos");
+  });
+
+  // UAT DANA-L1-011 — "PERCENTILE — vs 1 repos" in a headline tile.
+  it("never captions a suppressed percentile with the corpus that was too small to produce it", () => {
+    const thin = text(briefing({ benchmark: { percentile: null, corpusRepos: 1, corpusAvgOverall: 50, cohort: null } }));
+    expect(thin).toContain("not enough peers to rank");
+    expect(thin).not.toContain("vs 1 repos");
   });
 
   it("renders the fleet-adoption rate line", () => {
@@ -137,7 +155,9 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
   it("renders the FULL movement scale, not just the capped top-3 rows", () => {
     // 5 up + 2 down of 8 compared — the same counts briefingMarkdown prints (ASCII up/down: the
     // built-in Helvetica has no ▲/▼ glyphs).
-    expect(t).toMatch(/7\s+of\s+8\s+compared repos moved/);
+    // UAT DANA-L1-012 — the comparable set is named as a subset of the scanned set.
+    expect(t).toMatch(/7\s+of\s+8\s+repos with a comparable prior scan moved/);
+    expect(t).toMatch(/of\s+8\s+scanned/);
     expect(t).toMatch(/5\s+up \/\s+2\s+down/);
   });
 
@@ -153,7 +173,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     );
     expect(empty).not.toContain("Value this period");
     expect(empty).not.toContain("Fleet adoption");
-    expect(empty).not.toContain("compared repos moved");
+    expect(empty).not.toContain("comparable prior scan moved");
     expect(empty).not.toMatch(/undefined|NaN/);
   });
 });

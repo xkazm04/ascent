@@ -14,7 +14,7 @@
 //     ExecutiveTab.test.tsx (moved from the old page.test.tsx) pins that this tab still does so.
 
 import Link from "next/link";
-import { buildExecBriefing, briefingMarkdown, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, briefingMarkdown, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { PriorPeriodGrid } from "./briefingShared";
 import {
@@ -120,10 +120,11 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
         orgSlug={slug}
       />
 
-      {valueRealizedLine(briefing.valueRealized) && (
+      {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
+      {valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned) && (
         <div className="rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
-          <span className="font-mono text-sm uppercase tracking-widest text-accent">Value this period</span>{" "}
-          <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized)}</span>
+          <span className="font-mono text-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
+          <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
         </div>
       )}
 

@@ -7,7 +7,7 @@
 
 import type { ReactNode } from "react";
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { briefingNextMove, engineMixCaveat, engineMixLabel, forecastConfidenceNote, nextMoveLine, valueRealizedLine } from "@/lib/org/briefing";
+import { benchmarkCaption, briefingNextMove, engineMixCaveat, engineMixLabel, forecastConfidenceNote, movementLine, nextMoveLine, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -112,7 +112,9 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           <Stat
             label="Percentile"
             value={b.benchmark?.percentile != null ? `${b.benchmark.percentile}` : "—"}
-            sub={b.benchmark && b.benchmark.corpusRepos > 0 ? `vs ${b.benchmark.corpusRepos} repos` : "no corpus"}
+            // UAT DANA-L1-011/-012 — never caption a suppressed percentile with the corpus that was
+            // too small to produce it ("PERCENTILE — vs 1 repos" in a headline board tile).
+            sub={benchmarkCaption(b.benchmark)}
             color={b.benchmark?.percentile != null ? scoreColor(b.benchmark.percentile) : FAINT}
           />
         </View>
@@ -136,8 +138,13 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         {/* executive-briefing 07-16 #4: the PDF is the surface "most likely to leave the building
             unedited", yet it silently dropped the value-realized (renewal-justification) and
             fleet-adoption lines the exec page + LLM markdown carry. Keep the three renderers in lockstep. */}
-        {valueRealizedLine(b.valueRealized) ? (
-          <Text style={styles.line}>Value this period: {valueRealizedLine(b.valueRealized)}</Text>
+        {/* UAT DANA-L1-010 — the heading follows the SIGN. A fleet regression printed under the word
+            "Value" is the tool not knowing which direction is good; the number itself is never hidden
+            (G1), and it now carries the basis its neighbouring movement line is counted on. */}
+        {valueRealizedLine(b.valueRealized, b.coverage.scanned) ? (
+          <Text style={styles.line}>
+            {valueRealizedHeading(b.valueRealized)}: {valueRealizedLine(b.valueRealized, b.coverage.scanned)}
+          </Text>
         ) : null}
         {b.adoptionRate != null ? (
           <Text style={styles.line}>Fleet adoption: {b.adoptionRate}% of scanned repos at a high AI-adoption posture</Text>
@@ -207,7 +214,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
                 built-in Helvetica has no ▲/▼ glyphs (see ./latin1). */}
             {b.movement.compared > 0 ? (
               <Text style={{ ...baseStyles.muted, marginBottom: 4 }}>
-                {b.movement.up + b.movement.down} of {b.movement.compared} compared repos moved ({b.movement.up} up / {b.movement.down} down)
+                {movementLine(b.movement, b.coverage.scanned)}
               </Text>
             ) : null}
             {b.topGainers.map((m) => <MoveLine key={`g-${m.name}`} tone="up" m={m} />)}
@@ -240,7 +247,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           return (
             <View>
               <SectionHeading>Recommended next move</SectionHeading>
-              <Text style={styles.nextMove}>{latin1Safe(nextMoveLine(rec))}</Text>
+              <Text style={styles.nextMove}>{latin1Safe(nextMoveLine(rec, b.coverage.scanned))}</Text>
             </View>
           );
         })()}

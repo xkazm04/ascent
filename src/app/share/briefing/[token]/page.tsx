@@ -13,7 +13,7 @@ import {
   BriefingTiles,
 } from "@/components/org/intelligence/executive/briefingCards";
 import { TokenNotice } from "@/components/TokenNotice";
-import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
@@ -186,10 +186,11 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         {/* executive-briefing 07-16 #4: the audience the "value this period" line was built for
             (leadership/renewal) is exactly the audience holding this link — carry it here like the
             exec page, the LLM markdown and the PDF do, so the three surfaces tell one story. */}
-        {valueRealizedLine(briefing.valueRealized) && (
+        {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
+      {valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned) && (
           <div className="mt-4 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
-            <span className="font-mono text-sm uppercase tracking-widest text-accent">Value this period</span>{" "}
-            <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized)}</span>
+            <span className="font-mono text-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
+            <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
           </div>
         )}
 
