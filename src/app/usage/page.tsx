@@ -2,7 +2,8 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { EmptyState } from "@/components/EmptyState";
 import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
-import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
+import { countMeteredScansThisMonth, getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
+import { creditNotice } from "./creditNotice";
 import { boundUsageDays } from "@/lib/db/usage";
 import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
@@ -92,8 +93,12 @@ export default async function UsagePage({
   let recon: CreditReconciliation | null = null;
   // Public-funnel abuse counters (QUOTA-6) — only meaningful on the shared public view; best-effort.
   let quotaEvents: QuotaEventTotals | null = null;
+  // Month-to-date metered scans — the third input the charge resolver needs (UAT DANA-L1-003). The
+  // banner cannot decide "refused" from the balance alone: a scan under the monthly allowance is free
+  // whatever the balance is. Same round-trip, same best-effort posture as the credit read.
+  let meteredThisMonth: number | null = null;
   try {
-    [usage, credit, badgeReach, recon, quotaEvents] = await Promise.all([
+    [usage, credit, badgeReach, recon, quotaEvents, meteredThisMonth] = await Promise.all([
       getUsageSummary(org, days),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
@@ -101,6 +106,7 @@ export default async function UsagePage({
       getBadgeReach(org).catch(() => null),
       org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, days).catch(() => null),
       org.toLowerCase() === PUBLIC_ORG ? getQuotaEventTotals().catch(() => null) : Promise.resolve(null),
+      org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : countMeteredScansThisMonth(org).catch(() => null),
     ]);
   } catch {
     usage = null;
@@ -138,8 +144,21 @@ export default async function UsagePage({
   const creditBalance = credit && !credit.unlimited ? credit.balance : null;
   const dailyBurn = usage.periodDays > 0 ? billable / usage.periodDays : 0;
   const runwayDays = creditBalance != null && dailyBurn > 0 ? Math.floor(creditBalance / dailyBurn) : null;
-  // Low = the balance wouldn't cover another period at the current burn (or is already 0).
-  const lowBalance = creditBalance != null && (creditBalance === 0 || (billable > 0 && creditBalance <= billable));
+  // UAT DANA-L1-003 (recurrence 2) — the banner is resolved by `creditNotice`, which asks
+  // `resolveScanCharge` (the resolver BOTH billing gates already share) instead of re-deriving a local
+  // predicate that ignored the monthly allowance and was non-monotonic in the balance. Rationale in
+  // ./creditNotice.ts. `meteredThisMonth` is null when the read failed or the org is public/unlimited;
+  // a failed read means no banner, which is the right way to fail on a warning surface.
+  const notice =
+    credit && meteredThisMonth != null
+      ? creditNotice({
+          plan: credit.plan,
+          unlimited: credit.unlimited,
+          usageThisMonth: meteredThisMonth,
+          balance: credit.balance,
+          billableInPeriod: billable,
+        })
+      : null;
 
   return (
     <Shell>
@@ -151,9 +170,8 @@ export default async function UsagePage({
         recon={recon}
         quotaEvents={quotaEvents}
         billable={billable}
-        creditBalance={creditBalance}
         runwayDays={runwayDays}
-        lowBalance={lowBalance}
+        notice={notice}
       />
     </Shell>
   );

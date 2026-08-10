@@ -4,6 +4,7 @@ import { AllotmentPanel } from "./AllotmentPanel";
 import { Stat, Bar, providerMeta } from "./usagePanels";
 import { BadgeReachPanel, AbuseLimitsPanel } from "./usageAllTimePanels";
 import type { BadgeReach, CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
+import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
 
 export function UsageDashboard({
@@ -14,9 +15,8 @@ export function UsageDashboard({
   recon,
   quotaEvents,
   billable,
-  creditBalance,
   runwayDays,
-  lowBalance,
+  notice,
 }: {
   org: string;
   usage: UsageSummary;
@@ -25,9 +25,8 @@ export function UsageDashboard({
   recon: CreditReconciliation | null;
   quotaEvents: QuotaEventTotals | null;
   billable: number;
-  creditBalance: number | null;
   runwayDays: number | null;
-  lowBalance: boolean;
+  notice: CreditNotice | null;
 }) {
   return (
     <div className="animate-fade-up">
@@ -42,13 +41,18 @@ export function UsageDashboard({
 
       {/* Low-balance / depleted notice — the "am I about to be cut off?" answer, surfaced
           BEFORE the 402 paywall does it for us. Links to the org dashboard's credits chip,
-          which is where top-ups (manual grants today, billing later) actually happen. */}
-      {lowBalance && (
+          which is where top-ups (manual grants today, billing later) actually happen.
+
+          UAT DANA-L1-003 (recurrence 2): the decision is NOT made here. `creditNotice` derives it
+          from `resolveScanCharge` — the same resolver that issues the 402 — so this banner can no
+          longer contradict the AllotmentPanel below it, and can no longer fire on a brand-new org
+          that still holds its full monthly allowance. */}
+      {notice && (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3">
           <p className="text-base text-warn">
-            {creditBalance === 0
-              ? "Out of private-scan credits — the next private scan will be refused (402) until you top up."
-              : `Low balance: ${creditBalance} credit${creditBalance === 1 ? "" : "s"} left vs ${billable.toLocaleString()} private scans in the last ${usage.periodDays}d.`}
+            {notice.kind === "denied"
+              ? "Out of private-scan credits and this month's included allowance is spent — the next private scan will be refused (402) until you top up."
+              : `Low balance: ${notice.balance} credit${notice.balance === 1 ? "" : "s"} left vs ${billable.toLocaleString()} private scans in the last ${usage.periodDays}d.`}
           </p>
           <a
             href={`/org/${encodeURIComponent(org)}`}
