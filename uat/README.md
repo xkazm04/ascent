@@ -22,6 +22,18 @@ Ascent is **the maturity index for AI-native engineering**: point it at a GitHub
 | `driver/drive.mjs` | Portable browser driver (L2 only). |
 | `runs/<date-slug>/` | Journals, screenshots, `findings.json`, `report.md`, per-Character feedback, `SUMMARY.md`. |
 
+## Where a drain lands (the per-app half of `/uat drain`)
+
+`/uat drain` turns a run into a triaged design backlog. Five runs before 2026-08-10 were never
+drained partly because this file never said where the output goes. It does now:
+
+| Artifact | Home |
+|---|---|
+| Analysis doc (the three sections) | `docs/product/uat-insights/<run-id>.md` |
+| `build` items | [`docs/BACKLOG.md`](../docs/BACKLOG.md), under a per-run section, each citing its finding id |
+| Declines + guardrails | the same backlog section — a decline is recorded so it can't resurface as a fresh idea |
+| `concept-doc` items | the owning `docs/features/<area>/` doc, extended rather than duplicated |
+
 ## Run it
 
 ```
