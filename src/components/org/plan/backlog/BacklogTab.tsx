@@ -16,7 +16,10 @@
 
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { BacklogPanel } from "@/components/org/plan/backlog/BacklogPanel";
+// PROTOTYPE (branch prototype-debt-surface): the panel is rendered through DebtSwitcher, whose
+// "Baseline" tab is the untouched BacklogPanel. Revert this import + the render below to drop the
+// scaffold.
+import { DebtSwitcher } from "@/components/org/plan/backlog/debt/DebtSwitcher";
 import { PersonalBacklog } from "@/components/org/PersonalBacklog";
 import { getOrgBacklog, isPersonalOrg } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -60,7 +63,7 @@ export async function BacklogTab({ slug, sp }: { slug: string; sp: SearchParams 
         title="Recommendation backlog"
         description="Every open gap across the fleet, as a roadmap you can run — assign an owner, set a due date, and track each one from open to done. Grouped by owner and by due date; every change is recorded in the item's history."
       />
-      <BacklogPanel slug={slug} initial={backlog} segmentId={segmentId} techGroupId={techGroupId} />
+      <DebtSwitcher slug={slug} initial={backlog} segmentId={segmentId} techGroupId={techGroupId} />
     </div>
   );
 }
