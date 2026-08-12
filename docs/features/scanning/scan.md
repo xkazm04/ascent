@@ -250,6 +250,35 @@ These are running all-time totals, not a time series, so the rate is a lifetime 
 - **Warnings** — appended for: no token (PR signals skipped), LLM fallback, truncated
   tree, low coverage (< 50%), or a detector error.
 
+### App Readiness Passport & autonomy tier (`src/lib/analyze/passport*.ts`)
+
+`scan-compose.ts` also attaches `report.passport = buildPassport(report, snapshot)` — a pure,
+deterministic, display/persist-only projection (never fed back to the prompt or the score). Passport
+**0.3.0** added two structured artifact booleans and a derived autonomy verdict:
+
+- **`artifacts.sandbox`** — a committed, reproducible environment definition: `.devcontainer/` /
+  `devcontainer.json`, `Dockerfile`, `docker-compose`/`compose` files, `flake.nix`/`shell.nix`/
+  `default.nix`, or `.tool-versions` (tree-index presence).
+- **`artifacts.hooks`** — guardrail hooks: `.husky/`, `lefthook.*`, `.pre-commit-config.*`, or a
+  `"hooks"` block in `.claude/settings.json` — the settings file counts **only when its content was
+  fetched** (presence alone proves nothing about hooks).
+- **`autonomy`** (`src/lib/analyze/passport-autonomy.ts`) — the per-repo autonomy tier: "what can
+  you safely hand an agent in this repo?" A cumulative T0→T3 ladder:
+  - **T0 observe-only** — the default.
+  - **T1 tests/docs/refactors** — agent instructions committed + a one-command `test` script +
+    `tests.level ≥ partial`.
+  - **T2 features with review** — T1 + `ci.level ≥ gated` + `tests.level ≥ substantial` +
+    (`hooks` OR `sandbox`).
+  - **T3 scheduled autonomous** — T2 + `aiInWorkflow` + `evals ≠ none` + versioned migrations.
+
+  Each unmet predicate emits a human-readable `missing` string in `autonomy.unlocks` (cumulative per
+  tier — the checklist that unblocks it), and `autonomy.inputs` records the raw predicates so the
+  grant is auditable. **Token honesty**: a tokenless scan (`governance` null) caps the grant at T1
+  and names the limitation in `missing`. **Migration honesty**: `PASSPORT_VERSION` is `0.3.0`;
+  `upgradePassport` (applied read-time via `parsePassportJson`) derives tiers for stored pre-0.3.0
+  rows *without* a rescan, but leaves `sandbox`/`hooks` absent (unknown, never a fabricated false) —
+  the T2 checklist then names the re-scan instead of a missing artifact.
+
 ## Maturity model (`src/lib/maturity/model.ts`)
 
 The model file is configuration, not logic — a single source of truth for levels,
@@ -303,6 +332,8 @@ cancelled only when the last interested caller disconnects.
 | `src/lib/github/source.ts` | `GitHubPublicSource.fetchSnapshot()` — metadata, tree, file sampling, commits, conditional head. |
 | `src/lib/analyze/index.ts` | `analyzeSignals()` — the 9 detectors, `classifyArchetype`, `detectAiUsage`, `computeContributors`. |
 | `src/lib/analyze/pulls.ts` | PR stats over GraphQL; folds into D6/D7/D8. |
+| `src/lib/analyze/passport.ts` | `buildPassport()` — the pure App Readiness Passport projection (barrel for grades/score/autonomy/overlay/migrate siblings), incl. the 0.3.0 sandbox/hooks detectors. |
+| `src/lib/analyze/passport-autonomy.ts` | `deriveAutonomyTier()` — the T0–T3 per-repo autonomy ladder + unlock checklists (token-capped; read-time derivation for stored rows). |
 | `src/lib/github/governance.ts` | Branch protection / rulesets / commit activity. |
 | `src/lib/scoring/engine.ts` | `assembleReport()` — guardband, blend, rollup, axes, posture. |
 | `src/lib/scoring/prompt.ts` | `buildAssessmentPrompt()` — renders the LLM prompt. |

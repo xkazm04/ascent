@@ -286,6 +286,13 @@ export interface AppPassport {
       evals: "none" | "partial" | "full";
       /** 0.2.0: graded ladder (was boolean in 0.1.0 — see upgradePassport). */
       skills: ArtifactGrade;
+      /** 0.3.0: a reproducible environment definition is committed (devcontainer / Dockerfile /
+       *  nix / .tool-versions). ABSENT (undefined) on passports lifted from pre-0.3.0 scans — the
+       *  old scan never looked, so the migration must not fabricate a false. */
+      sandbox?: boolean;
+      /** 0.3.0: guardrail hooks are configured (.husky / lefthook / .pre-commit-config, or a
+       *  `hooks` block in .claude/settings.json). ABSENT (undefined) on pre-0.3.0 lifts. */
+      hooks?: boolean;
     };
     selfVerify: { build: boolean; test: boolean; lint: boolean; typecheck: boolean };
     aiInWorkflow: boolean;
@@ -303,6 +310,36 @@ export interface AppPassport {
   };
   links: { report?: string; contextMap?: string; manifest?: string };
   evidence: { confidence: number; source: string; files: string[]; notes?: string[] };
+  /** 0.3.0: per-repo autonomy tier — "what can you safely hand an agent in this repo?" Derived
+   *  (never authored) by passport-autonomy.ts from the fields above + scan governance. Optional so
+   *  a pre-0.3.0 blob parses; upgradePassport fills it read-time. */
+  autonomy?: AutonomyBlock;
+}
+
+/** Autonomy tier ladder: T0 observe-only → T1 tests/docs/refactors → T2 features with review →
+ *  T3 scheduled autonomous. See src/lib/analyze/passport-autonomy.ts for the exact predicates. */
+export type AutonomyTierId = "T0" | "T1" | "T2" | "T3";
+
+export interface AutonomyBlock {
+  tier: AutonomyTierId;
+  /** For every tier above the granted one: the human-readable checklist of what unblocks it.
+   *  Each entry's `missing` is cumulative (includes still-unmet lower-tier predicates). */
+  unlocks: { tier: AutonomyTierId; missing: string[] }[];
+  /** The raw predicate inputs the verdict rests on — so a reader can audit the grant.
+   *  `sandbox`/`hooks` are null when the stored scan predates 0.3.0 (unknown, not false). */
+  inputs: {
+    agentInstructions: boolean;
+    selfVerifyTest: boolean;
+    testsLevel: string;
+    ciLevel: string;
+    sandbox: boolean | null;
+    hooks: boolean | null;
+    aiInWorkflow: boolean;
+    evals: string;
+    migrations: string;
+    /** Branch-protection enforcement was observable (token scan). False caps the grant at T1. */
+    enforcementVisible: boolean;
+  };
 }
 
 export interface RepoSnapshot {

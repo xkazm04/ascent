@@ -28,7 +28,7 @@ import { GET } from "./route";
 const req = (qs: string) => new Request(`http://t/api/report/passport${qs}`);
 const samplePassport = {
   passport: "app-passport",
-  passportVersion: "0.2.0",
+  passportVersion: "0.3.0",
   identity: { name: "web" },
   automationReadiness: { level: "L4", artifacts: { memory: "curated", skills: "none" } },
   productionReadiness: { band: "beta" },
@@ -88,11 +88,14 @@ describe("GET /api/report/passport", () => {
       migratedFrom?: string;
       automationReadiness: { artifacts: { memory: string; skills: string } };
       evidence: { notes?: string[] };
+      autonomy?: { tier: string };
     };
-    expect(body.passportVersion).toBe("0.2.0");
+    expect(body.passportVersion).toBe("0.3.0");
     expect(body.migratedFrom).toBe("0.1.0");
     expect(body.automationReadiness.artifacts).toEqual({ memory: "adhoc", skills: "none" });
     expect(body.evidence.notes?.length).toBeGreaterThan(0);
+    // 0.3.0 lift: old rows get an autonomy tier read-time, without a rescan.
+    expect(body.autonomy?.tier).toBe("T0");
   });
 
   it("sets a sanitized download filename with ?download", async () => {

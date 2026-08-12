@@ -1,9 +1,10 @@
 // ⚠️ PROTOTYPE DERIVATION — NOT a production data model. ⚠️
 //
-// The Autonomy Passport reframe (P1) asks a question the passport does not yet answer directly:
-// "what can you safely hand an agent in THIS repo?" There is no `autonomyTier` column, no gate
-// table, no scan signal named "sandbox" or "hooks". This module derives the whole tier ladder from
-// the AppPassport + org rollup fields that DO exist today, and marks every gate with a `source`:
+// The Autonomy Passport reframe (P1) asks: "what can you safely hand an agent in THIS repo?"
+// Since passport 0.3.0 (W1b) the production answer lives in `pp.autonomy` (derived by
+// src/lib/analyze/passport-autonomy.ts) and the artifacts block carries REAL `sandbox`/`hooks`
+// detector booleans — this module PREFERS those when present and keeps its own derivation as the
+// fallback for pre-0.3.0 data. Every gate is marked with a `source`:
 //
 //   source: "scan"    — read straight off observed passport/scan fields. Trustworthy today.
 //   source: "derived" — a PROXY assembled from adjacent observed fields. Directionally right,
@@ -172,12 +173,31 @@ function ciGate(pp: AppPassport, protectedBranch: boolean | undefined): Autonomy
   };
 }
 
-/** ⚠️ DERIVED PROXY. The scan does not look for devcontainer.json / Dockerfile / nix / sandbox
- *  config today. This approximates "can an agent get a reproducible environment" from delivery
- *  discipline (IaC, rollback, versioned migrations) + a declared package manager. */
+/** REAL when the passport carries the 0.3.0 `sandbox` detector boolean (devcontainer / Dockerfile /
+ *  nix / .tool-versions from the tree index). Pre-0.3.0 passports fall back to the DERIVED PROXY:
+ *  delivery discipline (IaC, rollback, versioned migrations) + a declared package manager. */
 function sandboxGate(pp: AppPassport): AutonomyGate {
   const d = pp.productionReadiness.delivery;
   const pm = pp.stack.packageManager;
+  const detected = pp.automationReadiness.artifacts.sandbox;
+  if (typeof detected === "boolean") {
+    const score = detected ? 85 : 12;
+    return {
+      id: "sandbox",
+      label: "Reproducible sandbox",
+      short: "SNDBX",
+      status: statusOf(score),
+      score,
+      evidence: detected
+        ? "environment definition committed (devcontainer / Dockerfile / nix / .tool-versions)"
+        : "no devcontainer / Dockerfile / nix / .tool-versions in the tree",
+      action: detected
+        ? "Give the agent a disposable environment it can break without consequence."
+        : "Check an environment definition into the repo (devcontainer or Dockerfile).",
+      source: "scan",
+      gatesTier: 2,
+    };
+  }
   const score = Math.round(
     Math.min(100, (d.iac ? 35 : 0) + (d.rollback ? 20 : 0) + (d.migrations === "versioned" ? 25 : d.migrations === "scripted" ? 12 : 0) + (pm ? 20 : 0)),
   );
@@ -237,14 +257,17 @@ function contextGate(pp: AppPassport, conformance: number | null, key: string): 
   };
 }
 
-/** ⚠️ MOCK. Pre-commit/pre-push hooks, agent permission policy and tool allow-lists are not scanned
- *  at all. Approximated from lint/typecheck self-verify + security posture so the shape is right. */
+/** REAL when the passport carries the 0.3.0 `hooks` detector boolean (.husky / lefthook /
+ *  .pre-commit-config, or a `hooks` block in .claude/settings.json). Pre-0.3.0 passports fall back
+ *  to the MOCK: lint/typecheck self-verify + security posture with a hashed hook-presence bit. */
 function hooksGate(pp: AppPassport, key: string): AutonomyGate {
   const sv = pp.automationReadiness.selfVerify;
   const sec = pp.productionReadiness.security;
   const base = (sv.lint ? 22 : 0) + (sv.typecheck ? 22 : 0) + (Math.max(0, SEC_RANK.indexOf(sec.level)) / 4) * 36;
-  // MOCK: whether a hook config exists in the repo.
-  const hooked = hashUnit(key + ":hooks") > 0.55;
+  const detected = pp.automationReadiness.artifacts.hooks;
+  // Pre-0.3.0 fallback MOCK: whether a hook config exists in the repo.
+  const hooked = typeof detected === "boolean" ? detected : hashUnit(key + ":hooks") > 0.55;
+  const real = typeof detected === "boolean";
   const score = Math.round(Math.min(100, base + (hooked ? 20 : 0)));
   return {
     id: "hooks",
@@ -253,14 +276,14 @@ function hooksGate(pp: AppPassport, key: string): AutonomyGate {
     status: statusOf(score),
     score,
     evidence: `${sv.lint ? "lint" : "no lint"} · ${sv.typecheck ? "typecheck" : "no typecheck"} · ${sec.level} security${
-      hooked ? " · pre-commit hooks (mock)" : " · no hook config (mock)"
+      hooked ? ` · pre-commit hooks${real ? "" : " (mock)"}` : ` · no hook config${real ? "" : " (mock)"}`
     }`,
     action: !sv.typecheck
       ? "Add a typecheck an agent must pass before it can push."
       : !hooked
         ? "Install pre-commit/pre-push hooks so guardrails run without a reviewer present."
         : "Scope the agent's tool allow-list and no-AI paths explicitly.",
-    source: "mock",
+    source: real ? "scan" : "mock",
     gatesTier: 3,
   };
 }
@@ -318,6 +341,10 @@ export function deriveAutonomy(input: AutonomyInput): RepoAutonomy {
 
   let tier: AutonomyTier = 0;
   for (const t of TIERS) if (holds(map, t)) tier = t;
+  // Prefer the REAL persisted verdict (0.3.0 pp.autonomy, derived by passport-autonomy.ts with the
+  // token-honesty cap) over this surface's gate-score approximation when the passport carries it.
+  const persisted = pp.autonomy?.tier;
+  if (persisted) tier = Number(persisted.slice(1)) as AutonomyTier;
 
   const nextTier = tier < 3 ? ((tier + 1) as AutonomyTier) : null;
   const required = nextTier ? TIER_REQUIRES[nextTier] : [];
@@ -357,12 +384,12 @@ export const tierCounts = (repos: RepoAutonomy[]): Record<AutonomyTier, number> 
 
 // ── what a real implementation needs ────────────────────────────────────────────────────────────
 
-/** Signals this surface wants that the scan does not produce today. */
+/** Signals this surface wants that the scan does not produce today.
+ *  CLOSED by W1b (passport 0.3.0): sandbox + hooks detectors (artifacts.sandbox/.hooks) and the
+ *  derived `pp.autonomy` tier block persisted in the passport JSON. */
 export const DATA_MODEL_GAPS = [
-  "sandbox: detect devcontainer.json / Dockerfile / nix / .tool-versions — 'can an agent get a reproducible env'",
   "context freshness: last-modified of AGENTS.md/CLAUDE.md vs repo commit rate (quality over presence)",
-  "hooks: .husky / lefthook / pre-commit config, plus Claude/agent settings.json hook + permission blocks",
   "agent policy: declared tool allow-list, no-AI paths, review tier by risk (feeds P2 AI stance)",
   "attribution: AI-assisted PR share via git trailers, to verify a granted tier is actually being used",
-  "persistence: an autonomyTier column per repo + an owner override, so a grant is a decision, not a guess",
+  "owner override: pp.autonomy is derived + persisted, but a grant should also be an overridable recorded decision",
 ] as const;

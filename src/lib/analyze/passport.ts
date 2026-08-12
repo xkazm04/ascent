@@ -18,12 +18,14 @@ import type { AppPassport, AutomationLevel, Governance, PrStats, RepoSnapshot, S
 import { AI_TOOL_ALT } from "./ai-tools";
 import { gradeMemory, gradeSkills } from "./passport-grades";
 import { deriveProductionScore } from "./passport-score";
+import { deriveAutonomyTier } from "./passport-autonomy";
 import { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 
 export type { AppPassport, ArtifactGrade, AutomationLevel, DeclinedByChoice, ProductionBand } from "@/lib/types";
 // Barrel: the themed sub-modules stay the implementation, this file stays the one import path callers use.
 export { GRADE_RANK, gradeMemory, gradeSkills } from "./passport-grades";
 export { deriveProductionScore } from "./passport-score";
+export { TOKENLESS_MISSING, deriveAutonomyForStored, deriveAutonomyTier } from "./passport-autonomy";
 export { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 export {
   DECLINABLE_PATHS,
@@ -177,7 +179,53 @@ function detectArtifacts(p: ReturnType<typeof probes>): AppPassport["automationR
   const manifest = p.hasPath((x) => x === ".ai/manifest.yaml" || x === ".ai/manifest.yml");
   const evals = p.hasPath((x) => /(^|\/)(eval|evals|golden)(\/|s?\.)/.test(x) || x.includes(".golden.")) ? "partial" : "none";
   const skills = gradeSkills(p);
-  return { agentInstructions, contextGraph, memory, manifest, evals, skills };
+  // 0.3.0: structured autonomy-tier inputs (previously only a D1 evidence string for devcontainer).
+  const sandbox = detectSandbox(p);
+  const hooks = detectHooks(p);
+  return { agentInstructions, contextGraph, memory, manifest, evals, skills, sandbox, hooks };
+}
+
+/** 0.3.0: a committed, reproducible environment definition — "can an agent get a disposable env
+ *  that matches CI's". Tree-index only (presence is the claim; no content needed). */
+function detectSandbox(p: ReturnType<typeof probes>): boolean {
+  return p.hasPath(
+    (x) =>
+      x.startsWith(".devcontainer/") ||
+      x === ".devcontainer.json" ||
+      x.endsWith("/devcontainer.json") ||
+      x === "dockerfile" ||
+      x.endsWith("/dockerfile") ||
+      x === "docker-compose.yml" ||
+      x === "docker-compose.yaml" ||
+      x === "compose.yml" ||
+      x === "compose.yaml" ||
+      x === "flake.nix" ||
+      x === "shell.nix" ||
+      x === "default.nix" ||
+      x === ".tool-versions",
+  );
+}
+
+/** 0.3.0: guardrail hooks that run without a reviewer present. Config-file presence in the tree,
+ *  plus a `hooks` block in .claude/settings.json — the latter only when the CONTENT was fetched
+ *  (a settings.json that merely exists proves nothing about hooks; don't claim it). */
+function detectHooks(p: ReturnType<typeof probes>): boolean {
+  if (
+    p.hasPath(
+      (x) =>
+        x.startsWith(".husky/") ||
+        x === "lefthook.yml" ||
+        x === "lefthook.yaml" ||
+        x === ".lefthook.yml" ||
+        x === ".lefthook.yaml" ||
+        x === "lefthook.toml" ||
+        x === ".pre-commit-config.yaml" ||
+        x === ".pre-commit-config.yml",
+    )
+  )
+    return true;
+  const claudeSettings = p.get(".claude/settings.json");
+  return Boolean(claudeSettings && /"hooks"\s*:/.test(claudeSettings));
 }
 
 const dimScore = (report: ScanReport, id: string): number => report.dimensions.find((d) => d.id === id)?.score ?? 0;
@@ -316,7 +364,7 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   if (security.level === "none" || security.level === "policy") prodBlockers.push("No dependency/secret/SAST scanning wired in.");
   if (tokenless) prodBlockers.push("Enforcement (branch protection) not observable on this scan — CI/security capped at their present rung.");
 
-  return {
+  const pp: AppPassport = {
     passport: "app-passport",
     passportVersion: PASSPORT_VERSION,
     generatedAt: report.scannedAt.slice(0, 10),
@@ -355,6 +403,10 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       ),
     },
   };
+  // 0.3.0: the autonomy tier is a projection OF the passport (+ live governance), derived last so
+  // it reads the exact fields persisted above — never a second, drifting computation.
+  pp.autonomy = deriveAutonomyTier(pp, gov ?? null);
+  return pp;
 }
 
 /** Tolerant parse of a persisted passport JSON blob — null on missing/malformed (read-path degrade).
