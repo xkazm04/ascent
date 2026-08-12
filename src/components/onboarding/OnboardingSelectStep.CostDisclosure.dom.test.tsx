@@ -63,7 +63,9 @@ describe("onboarding cost disclosure at the commit point", () => {
         credit={{ balance: 40, unlimited: false, allowanceRemaining: 0 }}
       />,
     );
-    const box = screen.getByRole("checkbox");
+    // W6b added a second checkbox (fast preview first) above this one — target the autoscan opt-in
+    // by its label, not by role alone.
+    const box = screen.getByRole("checkbox", { name: /Also autoscan/i });
     expect(box).not.toBeChecked();
     expect(getAutoWatchOptIn()).toBe(false);
     expect(screen.getByText(/One-time scan/)).toBeInTheDocument();

@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { useOnboardingFlow } from "./useOnboardingFlow";
 import { getAutoWatchOptIn, resetAutoWatchOptIn, setAutoWatchOptIn } from "./OnboardingSelectStep.watchOptIn";
+import { resetPreviewFirst, setPreviewFirst } from "./OnboardingSelectStep.previewFirst";
 
 const REPOS = [{ fullName: "acme/api", private: true, language: "TS", stars: 5, pushedAt: null }];
 
@@ -20,6 +21,10 @@ let bodies: Record<string, unknown>[] = [];
 beforeEach(() => {
   bodies = [];
   resetAutoWatchOptIn();
+  // These pin the DIRECT (non-upgrade) wire: W6b's "fast preview first" default would otherwise
+  // reroute the App-path run through the preview-then-upgrade plan (mock + watch + schedule "off"),
+  // which has its own pins in useOnboardingFlow.previewFirst.dom.test.tsx.
+  setPreviewFirst(false);
   sessionStorage.clear();
   vi.stubGlobal(
     "fetch",
@@ -41,6 +46,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   resetAutoWatchOptIn();
+  resetPreviewFirst();
 });
 
 async function loadAndScan(result: { current: ReturnType<typeof useOnboardingFlow> }) {

@@ -8,8 +8,9 @@
 // OrgScanButton's own Progress state lives, same as it did inline in the component before the split.
 
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useScanStream } from "@/components/org/shared/useScanStream";
+import { consumeUpgradeScanFlag } from "@/components/onboarding/upgradeScan";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 
 interface Progress {
@@ -45,7 +46,12 @@ export function useOrgScanButton(org: string, watchedCount: number) {
   const inert = p.running || noWatched;
 
   async function run(scope?: ScanScope) {
-    if (inert) return;
+    // A run already in flight is always refused. `noWatched` refuses only an UNSCOPED run: it exists
+    // because "Scan all watched (0)" would have nothing to walk. A scope that NAMES its repos (the
+    // truncated-run "Continue", W6b's preview-then-upgrade auto-start) carries its own work list, and
+    // the server intersects it with the watchlist anyway — refusing it here on a possibly-stale
+    // watchedCount (a client-router-cached layout payload) would silently swallow the auto-start.
+    if (p.running || (noWatched && !scope?.repos?.length)) return;
     // For a SCOPED (stale-only) scan the count isn't known up front — the server picks the stale subset
     // — so start the denominator at 0 and let the server's first progress/notice event fill it in,
     // rather than showing a misleading "0/<all watched>" (or an instant 100% on a tiny stale subset).
@@ -106,6 +112,30 @@ export function useOrgScanButton(org: string, watchedCount: number) {
       onNetworkError: () => setP((s) => ({ ...s, running: false, error: "Network error." })),
     });
   }
+
+  // W6b preview-then-upgrade auto-start: the onboarding wizard's "fast preview first" run leaves a
+  // one-shot sessionStorage flag naming this org + the just-previewed repos; consume it on mount and
+  // start the LIVE scan of exactly those repos through this hook's own `run` — the same header
+  // stream, meter, credit disclosures, and refusal surface as a manual click. Mounted by the org
+  // LAYOUT (OrgShellActions), so the stream survives `?tab=` navigation while engine-aware dedup
+  // upgrades the preview rows in place.
+  //
+  // Guard rails: `consumeUpgradeScanFlag` removes the key BEFORE the run starts (a refresh — or
+  // StrictMode's doubled effect — can never fire a second billable run) and drops stale/foreign-org
+  // flags; the SERVER stays the authority on membership (requireOrgAccess) and money
+  // (checkScanEntitlement + per-repo reservation → the 402/notice surfaces this hook already
+  // renders), so a crafted flag can never scan an org the viewer can't, nor spend past the balance.
+  // `autoStarted` keeps the effect idempotent within one mount without widening its deps.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current) return;
+    const repos = consumeUpgradeScanFlag(org);
+    if (!repos) return;
+    autoStarted.current = true;
+    void run({ repos });
+    // Mount-only by design: the flag is one-shot and `run` is stable for this purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
   // The curated demo org is seeded with synthetic histories, not live-scannable repos — a "Stale only"

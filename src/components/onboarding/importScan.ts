@@ -29,6 +29,11 @@ export interface ImportScanRequest {
    *  EVERY scan, so anonymous preview users were auto-enrolled in weekly autoscans on repos they don't
    *  own. Left overridable so a future disclosed opt-in can request it explicitly. */
   watch?: boolean;
+  /** Explicit watch cadence. Only meaningful with watch:true; omitted, the weekly default applies.
+   *  W6b's preview-then-upgrade runs pass "off" when the user did NOT opt into the recurring
+   *  autoscan: the live upgrade needs the repos WATCHED (the header scan walks the watchlist), but
+   *  watching must not smuggle in the weekly billable draw the user never consented to. */
+  schedule?: "off" | "weekly";
   /** G7-17: this is the token-less PUBLIC funnel — run the scan for REAL and meter it against the free
    *  monthly public-scan allowance rather than prepaid credits. The server honors it only when the run
    *  is genuinely token-less (private repos 404 there), so it can't buy a free private scan. */
@@ -103,8 +108,9 @@ export async function runImportScan(
         publicFunnel: request.publicFunnel ?? undefined,
         watch,
         // Send the cadence only when actually watching, so the body never implies a schedule the
-        // server won't set (it ignores `schedule` under watch:false anyway).
-        schedule: watch ? IMPORT_WATCH_SCHEDULE : undefined,
+        // server won't set (it ignores `schedule` under watch:false anyway). An explicit caller
+        // cadence (W6b: "off" for watch-without-recurring-draw) wins over the weekly default.
+        schedule: watch ? (request.schedule ?? IMPORT_WATCH_SCHEDULE) : undefined,
       }),
       signal: controller.signal,
     });
