@@ -1,20 +1,33 @@
-// Shared presentational pieces for the AI-era-debt prototype (Debt Ledger, post-consolidation).
-// Server-safe — no hooks, no handlers.
+// Shared presentational pieces for the Debt Ledger. Server-safe — no hooks, no handlers.
 
-import { Kicker } from "@/components/ui";
-import { fmtDelta, deltaHex } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
 import { OVERDUE_ACCENT } from "@/components/org/shared/backlogShared";
-import { pct, pct1, ppDelta, type RepoDebt } from "./debtModel";
+import { fmtRate, type DebtFleet, type RepoDebt } from "./debtModel";
 
-/** The prototype's honesty label: names exactly which half of the surface is fabricated. */
-export function MockNotice({ className = "" }: { className?: string }) {
+/**
+ * The ledger's field notes — the honesty label the mock notice grew into. Names what each column
+ * measures, that the rework rates are LOWER BOUNDS (window-scoped matcher; renamed reverts escape),
+ * how much of the ledger is measured at all, and that AI-churn share is deferred with its signal.
+ */
+export function FieldNotes({ fleet }: { fleet: DebtFleet }) {
+  const unmeasured = fleet.repos - fleet.measuredRows;
   return (
-    <p className={`rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400 ${className}`}>
-      <span className="font-mono text-xs uppercase tracking-[0.22em] text-amber-300">Mock half</span>{" "}
-      Overdue debt, owners, dimensions and projected points are <strong className="font-medium text-slate-200">real</strong> backlog
-      data. Rework rate, reversion rate and AI-authored churn are <strong className="font-medium text-amber-200">simulated</strong> —
-      no data model exists for them yet.
+    <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
+      <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Field notes</span>{" "}
+      Interest = share of merged PRs later reverted (revert linkage within the scanned PR window — a{" "}
+      <strong className="font-medium text-slate-200">lower bound</strong>; renamed or later reverts escape). Write-offs =
+      PRs titled &ldquo;Revert&rdquo;. Exposure = {fleet.exposureGrounded ? "AI-trailer-attributed merged PRs" : "AI-involved PRs (marker-based)"}.
+      {unmeasured > 0 && (
+        <>
+          {" "}
+          <strong className="font-medium text-amber-200">
+            {unmeasured} of {fleet.repos} accounts
+          </strong>{" "}
+          show &ldquo;—&rdquo; because their latest scan predates rework tracking — re-scan to measure; a dash is never a zero.
+        </>
+      )}{" "}
+      AI-churn share (rework landing on AI-authored lines) is deferred until per-file churn ingest exists — it is omitted, not
+      simulated.
     </p>
   );
 }
@@ -25,31 +38,19 @@ export function MockNotice({ className = "" }: { className?: string }) {
  */
 export const pressureHex = (pressure: number): string => scoreHex(100 - pressure);
 
-/** A rate + its period-over-period movement in percentage points, in the brand's delta tone. */
-export function RateCell({
-  now,
-  prev,
-  decimals = 0,
-  label,
-}: {
-  now: number;
-  prev: number;
-  decimals?: 0 | 1;
-  label?: string;
-}) {
-  const d = ppDelta(now, prev);
-  return (
-    <div className="flex flex-col">
-      {label && <Kicker tone="muted">{label}</Kicker>}
-      <span className="font-mono tabular-nums text-white">{decimals === 1 ? pct1(now) : pct(now)}</span>
-      <span className="font-mono text-xs tabular-nums" style={{ color: deltaHex(d) }}>
-        {fmtDelta(d)} pp
+/** A nullable 0–100 rate cell: the rate, or an honest dash with the reason in the tooltip. */
+export function RateCell({ value, unmeasuredReason }: { value: number | null; unmeasuredReason: string }) {
+  if (value == null) {
+    return (
+      <span className="font-mono tabular-nums text-slate-500" title={unmeasuredReason}>
+        —
       </span>
-    </div>
-  );
+    );
+  }
+  return <span className="font-mono tabular-nums text-white">{fmtRate(value)}</span>;
 }
 
-/** Dimension chips (D1…D9) carrying a repo's overdue debt — real data, the "where" of the gap. */
+/** Dimension chips (D1…D9) carrying a repo's overdue debt — the "where" of the gap. */
 export function DimChips({ dims }: { dims: string[] }) {
   if (dims.length === 0) return null;
   return (
@@ -63,20 +64,49 @@ export function DimChips({ dims }: { dims: string[] }) {
   );
 }
 
-/** One-line plain-language verdict for a repo — the "what's the takeaway" requirement. */
-export function verdictFor(row: RepoDebt, medianRework: number): { text: string; tone: string } {
-  const hot = row.q.reworkRate > medianRework;
+/** Why a quality cell is a dash — the per-row tooltip copy (one place, so the wording can't drift). */
+export function unmeasuredReasonFor(row: RepoDebt): string {
+  if (!row.q.hasScan) return "No scanned PR data for this repo yet";
+  if (!row.q.measured) return "Latest scan predates rework tracking — re-scan to measure";
+  return "Fewer than 5 merged PRs in the window — not measurable";
+}
+
+/** One-line plain-language verdict for a repo — the "what's the takeaway" requirement. Null-aware:
+ *  an unmeasured repo gets an honest "not measured" verdict, never a fabricated healthy/hot one. */
+export function verdictFor(row: RepoDebt, medianRework: number | null): { text: string; tone: string } {
+  if (row.q.reworkRate == null) {
+    if (row.overdue > 0) {
+      return {
+        text: `${row.overdue} overdue fixes; quality unmeasured — ${unmeasuredReasonFor(row).toLowerCase()}`,
+        tone: OVERDUE_ACCENT,
+      };
+    }
+    return { text: `Quality unmeasured — ${unmeasuredReasonFor(row).toLowerCase()}`, tone: "#94a3b8" };
+  }
+  const hot = medianRework != null && row.q.reworkRate > medianRework;
   if (row.overdue > 0 && hot) {
     return {
-      text: `Compounding — ${pct(row.q.reworkRate)} of changes reworked while ${row.overdue} fixes sit past due`,
+      text: `Compounding — ${fmtRate(row.q.reworkRate)} of merged PRs reverted while ${row.overdue} fixes sit past due`,
       tone: pressureHex(row.pressure),
     };
   }
   if (hot) {
-    return { text: `Rework above fleet median on ${pct(row.q.aiChurnShare)} AI-authored churn`, tone: OVERDUE_ACCENT };
+    return {
+      text:
+        row.q.aiReworkRate != null
+          ? `Rework above ledger median — ${fmtRate(row.q.aiReworkRate)} of AI-involved merges reverted`
+          : `Rework above ledger median (${fmtRate(row.q.reworkRate)} of merged PRs reverted)`,
+      tone: OVERDUE_ACCENT,
+    };
   }
   if (row.overdue > 0) {
     return { text: `${row.overdue} overdue fixes, but quality is holding`, tone: "#eab308" };
   }
-  return { text: `Leveraged — ${pct(row.q.aiAuthoredShare)} AI-authored, rework under the fleet median`, tone: "#22c55e" };
+  return {
+    text:
+      row.q.exposure != null
+        ? `Holding — ${fmtRate(row.q.exposure)} AI exposure, rework at or under the ledger median`
+        : "Holding — rework at or under the ledger median",
+    tone: "#22c55e",
+  };
 }

@@ -56,12 +56,14 @@ export interface PrNode {
   comments: { totalCount: number };
   /** The merge/squash commit's message (W2) — where a squash-merge (the dominant style) lands the PR
    *  commits' AI attribution trailers, which the title/body/label markers never see. Null on unmerged
-   *  PRs; optional because pre-W2 fixtures/persisted shapes lack the key. */
-  mergeCommit?: { message: string } | null;
+   *  PRs; optional because pre-W2 fixtures/persisted shapes lack the key. `oid` (W5) is the commit SHA
+   *  the revert-linkage matcher resolves `This reverts commit <sha>` messages against — optional for
+   *  the same fixture-compat reason, and adds zero API calls (same query, one scalar per node). */
+  mergeCommit?: { oid?: string; message: string } | null;
   /** The PR's own last ≤15 commit messages (W2) — trailer attribution for rebase-merge repos, where
    *  no merge commit survives. Bounded at 15 to keep the page payload growth proportional to the
-   *  trailer question, not the repo's PR depth. */
-  commits?: { nodes: ({ commit: { message: string } } | null)[] };
+   *  trailer question, not the repo's PR depth. `oid` (W5): see mergeCommit above. */
+  commits?: { nodes: ({ commit: { oid?: string; message: string } } | null)[] };
 }
 
 export interface PullRequestsResult {
@@ -159,8 +161,8 @@ const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String
         labels(first:10){ nodes{ name } }
         reviews(first:20){ totalCount nodes{ state submittedAt author{ login __typename } } }
         comments{ totalCount }
-        mergeCommit{ message }
-        commits(last:15){ nodes{ commit{ message } } }
+        mergeCommit{ oid message }
+        commits(last:15){ nodes{ commit{ oid message } } }
       }
     }
   }

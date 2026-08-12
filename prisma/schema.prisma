@@ -403,6 +403,11 @@ model AiChange {
    * Reviews submitted on the PR (any state) — distinguishes "unreviewed" from "reviewed, not approved".
    */
   reviewCount   Int       @default(0)
+  // W5 revert linkage: the merged revert PR that rolled this AI change back, matched within the
+  // scanned PR window (title `Revert "<original title>"` / message `This reverts commit <sha>`).
+  // A LOWER BOUND — null means "no revert matched in the window", never "was never reverted".
+  revertedByPr  Int?
+  revertedAt    DateTime?
   createdAt     DateTime // the PR's own creation time, not the row's
   recordedAt    DateTime  @default(now())
 

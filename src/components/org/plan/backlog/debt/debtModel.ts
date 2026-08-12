@@ -1,18 +1,64 @@
-// The join behind every "AI-era debt" variant: REAL overdue recommendation debt (from OrgBacklog)
-// × MOCK delivery-quality metrics (debtMockData.ts — see its header for what is fabricated and why).
+// The join behind the Debt Ledger: REAL overdue recommendation debt (from OrgBacklog — the same rows
+// the backlog panel below it manages) × REAL delivery-quality metrics from each repo's latest scan
+// (OrgRework, org-rework.ts — revert linkage + rework rates, W5; trailer exposure, W2).
 //
-// One repo-keyed row is the unit of the whole surface. Every variant renders the SAME `RepoDebt[]`
-// through a different metaphor, so a direction can be judged on presentation rather than on which
-// numbers it happened to pick.
+// One repo-keyed row is the unit of the surface. NULL DISCIPLINE: a repo whose latest scan predates
+// rework tracking (pre-W5 blob) or whose PR sample is under the ≥5 floor renders "—", never a zero —
+// the pressure composite renormalizes over the terms that ARE measured.
 //
-// Server-safe (no hooks, no DOM) so any variant may be a server component if it drops its hooks.
+// DEFERRED (tier B): "AI churn share" (share of rework landing on AI-authored lines) has NO real
+// signal yet — it needs per-commit file paths (`files(first:50)` ingest). The prototype's mock column
+// was REMOVED rather than faked; it returns when the churn ingest lands (pairs with stance path-zone
+// enforcement, which needs the same data).
+//
+// Server-safe (no hooks, no DOM).
 
-import type { BacklogItem, OrgBacklog } from "@/lib/db";
+import type { BacklogItem, OrgBacklog, OrgRework, RepoReworkRow } from "@/lib/db";
 import { dimShort } from "@/lib/ui";
-import { fleetMedian, mockFleetQuality, type RepoAiQuality } from "./debtMockData";
 
 /** Impact → projected-points fallback when the scan predates persisted dimensions (projectedPoints null). */
 const IMPACT_POINTS: Record<string, number> = { high: 6, medium: 3, low: 1.5 };
+
+/** One repo's delivery-quality slice of the ledger. All rates 0..100 whole percents; null = "no sample". */
+export interface RepoDebtQuality {
+  /** % of merged PRs later reverted in the window (W5 revert linkage — a lower bound). */
+  reworkRate: number | null;
+  /** The same, over AI-involved merged PRs only. */
+  aiReworkRate: number | null;
+  /** % of analyzed PRs titled `Revert…` (W1a) — the write-off rate. */
+  revertRate: number | null;
+  /** AI exposure: the trailer-grounded aiTrailerRate when measured, else the broader aiInvolvedRate. */
+  exposure: number | null;
+  /** True when `exposure` is the trailer-grounded rate (W2), false for the marker-based fallback. */
+  exposureGrounded: boolean;
+  /** False = the latest scan PREDATES rework tracking (pre-W5 blob) — "re-scan to measure". */
+  measured: boolean;
+  /** False = the repo has no scanned PR data at all (or was never scanned). */
+  hasScan: boolean;
+}
+
+const NO_SCAN: RepoDebtQuality = {
+  reworkRate: null,
+  aiReworkRate: null,
+  revertRate: null,
+  exposure: null,
+  exposureGrounded: false,
+  measured: false,
+  hasScan: false,
+};
+
+function qualityOf(r: RepoReworkRow | undefined): RepoDebtQuality {
+  if (!r) return NO_SCAN;
+  return {
+    reworkRate: r.reworkRate,
+    aiReworkRate: r.aiReworkRate,
+    revertRate: r.revertRate,
+    exposure: r.aiTrailerRate ?? r.aiInvolvedRate,
+    exposureGrounded: r.aiTrailerRate != null,
+    measured: r.measured,
+    hasScan: true,
+  };
+}
 
 export interface RepoDebt {
   repo: string; // owner/name
@@ -33,32 +79,36 @@ export interface RepoDebt {
   dims: string[];
   /** Unassigned active items — debt nobody has picked up. */
   unowned: number;
-  /** MOCK delivery-quality metrics for this repo. */
-  q: RepoAiQuality;
+  /** REAL delivery-quality metrics from the repo's latest scan (nullable — see RepoDebtQuality). */
+  q: RepoDebtQuality;
   /**
    * 0–100 composite, HIGHER = MORE DEBT PRESSURE. Deliberately not a maturity score — render it
-   * through `scoreHex(100 - pressure)` / `heatCell(100 - pressure, …)` so the brand's red→green
-   * ramp still means "green is good" and the ramp is not re-purposed with an inverted meaning.
-   * Blend: overdue principal 35% · rework rate 30% · reversion rate 20% · AI churn share 15%.
+   * through `scoreHex(100 - pressure)` so the brand's red→green ramp keeps meaning "green is good".
+   * Blend over the MEASURED terms only (weights renormalize when a rate is null): overdue principal
+   * 45% · rework rate 35% (full weight at ≥35%) · write-off rate 20% (full weight at ≥9%). The
+   * prototype's AI-churn term is deferred with its signal (see module header).
    */
   pressure: number;
 }
 
 export interface DebtFleet {
   rows: RepoDebt[]; // sorted by pressure, worst first
-  /** Fleet totals — the masthead numbers. */
+  /** Fleet totals — the masthead numbers. Backlog half is org-real; rates are fleet scan aggregates. */
   repos: number;
   overdue: number;
+  dueSoon: number;
   principal: number;
   unowned: number;
-  /** Weighted-by-churn fleet rework rate, and the same one period earlier (for the trend arrow). */
-  reworkRate: number;
-  reworkRatePrev: number;
-  reversionRate: number;
-  reversionRatePrev: number;
-  aiAuthoredShare: number;
-  medianRework: number;
-  medianAiShare: number;
+  /** Analyzed-weighted fleet rates from OrgRework (whole scanned fleet, not just backlog repos). */
+  reworkRate: number | null;
+  aiReworkRate: number | null;
+  revertRate: number | null;
+  exposure: number | null;
+  exposureGrounded: boolean;
+  /** Median rework across the MEASURED ledger rows — the "vs fleet" line verdicts compare against. */
+  medianRework: number | null;
+  /** Measurement coverage: how many ledger rows have a rework-tracking scan behind them. */
+  measuredRows: number;
   /** The repo carrying the most pressure, or null on an empty fleet. */
   worst: RepoDebt | null;
 }
@@ -80,29 +130,26 @@ function topDims(items: BacklogItem[]): string[] {
     .map(([id]) => dimShort(id));
 }
 
-/** Join one repo's real backlog slice with its mock quality metrics. `maxPrincipal` normalizes pressure. */
-function buildRow(repo: string, items: BacklogItem[], q: RepoAiQuality, maxPrincipal: number): RepoDebt {
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+/** Pressure composite over the measured terms only — a null rate drops out and its weight
+ *  renormalizes, so "not measured" never reads as "0 pressure" OR as fabricated risk. */
+function pressureOf(principalNorm: number, q: RepoDebtQuality): number {
+  const terms: { v: number; w: number }[] = [{ v: clamp01(principalNorm), w: 0.45 }];
+  if (q.reworkRate != null) terms.push({ v: clamp01(q.reworkRate / 35), w: 0.35 });
+  if (q.revertRate != null) terms.push({ v: clamp01(q.revertRate / 9), w: 0.2 });
+  const wsum = terms.reduce((s, t) => s + t.w, 0);
+  return Math.round((100 * terms.reduce((s, t) => s + t.v * t.w, 0)) / wsum);
+}
+
+/** Join one repo's real backlog slice with its real scan quality. `maxPrincipal` normalizes pressure. */
+function buildRow(repo: string, items: BacklogItem[], q: RepoDebtQuality, maxPrincipal: number): RepoDebt {
   const overdueItems = items.filter((i) => i.overdue);
   const principal = overdueItems.reduce((s, i) => s + pointsOf(i), 0);
   const daysOver = overdueItems.map((i) => (i.dueInDays == null ? 0 : -i.dueInDays));
   const oldest = overdueItems.reduce<BacklogItem | null>(
     (worst, i) => (worst == null || (i.dueInDays ?? 0) < (worst.dueInDays ?? 0) ? i : worst),
     null,
-  );
-
-  const principalNorm = maxPrincipal > 0 ? principal / maxPrincipal : 0;
-  const pressure = Math.round(
-    100 *
-      Math.max(
-        0,
-        Math.min(
-          1,
-          principalNorm * 0.35 +
-            Math.min(1, q.reworkRate / 0.35) * 0.3 +
-            Math.min(1, q.reversionRate / 0.09) * 0.2 +
-            q.aiChurnShare * 0.15,
-        ),
-      ),
   );
 
   return {
@@ -117,15 +164,16 @@ function buildRow(repo: string, items: BacklogItem[], q: RepoAiQuality, maxPrinc
     dims: topDims(overdueItems.length ? overdueItems : items),
     unowned: items.filter((i) => i.assigneeLogin == null).length,
     q,
-    pressure,
+    pressure: pressureOf(maxPrincipal > 0 ? principal / maxPrincipal : 0, q),
   };
 }
 
 /**
- * Build the whole surface's data from the backlog the tab already loads. Pure — call it in a
- * `useMemo` (client) or straight in a server component.
+ * Build the ledger's data from the backlog the tab already loads + the fleet rework read. Pure —
+ * call it in a server component (BacklogTab) or a `useMemo`. `rework` may be null (DB off, no PR
+ * data) — every quality cell then renders as unmeasured, never as zero.
  */
-export function buildDebtFleet(b: OrgBacklog): DebtFleet {
+export function buildDebtFleet(b: OrgBacklog, rework: OrgRework | null): DebtFleet {
   const items = activeItems(b);
   const byRepo = new Map<string, BacklogItem[]>();
   for (const i of items) {
@@ -134,43 +182,43 @@ export function buildDebtFleet(b: OrgBacklog): DebtFleet {
     else byRepo.set(i.repo, [i]);
   }
 
-  const quality = mockFleetQuality([...byRepo.keys()]);
+  const reworkByRepo = new Map<string, RepoReworkRow>((rework?.perRepo ?? []).map((r) => [r.fullName, r]));
   const maxPrincipal = Math.max(
     0,
     ...[...byRepo.values()].map((list) => list.filter((i) => i.overdue).reduce((s, i) => s + pointsOf(i), 0)),
   );
 
   const rows = [...byRepo.entries()]
-    .map(([repo, list]) => buildRow(repo, list, quality.get(repo)!, maxPrincipal))
+    .map(([repo, list]) => buildRow(repo, list, qualityOf(reworkByRepo.get(repo)), maxPrincipal))
     .sort((a, z) => z.pressure - a.pressure || z.principal - a.principal);
 
-  const all = rows.map((r) => r.q);
-  const churn = all.reduce((s, q) => s + q.churnPerWeek, 0) || 1;
-  const weighted = (pick: (q: RepoAiQuality) => number) =>
-    all.reduce((s, q) => s + pick(q) * q.churnPerWeek, 0) / churn;
+  const measured = rows.map((r) => r.q.reworkRate).filter((v): v is number => v != null);
 
   return {
     rows,
     repos: rows.length,
     overdue: rows.reduce((s, r) => s + r.overdue, 0),
+    dueSoon: b.dueSoon,
     principal: Math.round(rows.reduce((s, r) => s + r.principal, 0) * 10) / 10,
     unowned: rows.reduce((s, r) => s + r.unowned, 0),
-    reworkRate: weighted((q) => q.reworkRate),
-    reworkRatePrev: weighted((q) => q.reworkRatePrev),
-    reversionRate: weighted((q) => q.reversionRate),
-    reversionRatePrev: weighted((q) => q.reversionRatePrev),
-    aiAuthoredShare: weighted((q) => q.aiAuthoredShare),
-    medianRework: fleetMedian(all, (q) => q.reworkRate),
-    medianAiShare: fleetMedian(all, (q) => q.aiAuthoredShare),
+    reworkRate: rework?.avgReworkRate ?? null,
+    aiReworkRate: rework?.avgAiReworkRate ?? null,
+    revertRate: rework?.avgRevertRate ?? null,
+    exposure: rework ? (rework.avgAiTrailerRate ?? rework.avgAiInvolvedRate) : null,
+    exposureGrounded: rework?.avgAiTrailerRate != null,
+    medianRework: fleetMedian(measured),
+    measuredRows: rows.filter((r) => r.q.measured).length,
     worst: rows[0] ?? null,
   };
 }
 
-/** "24%" — a 0–1 rate as whole percent. */
-export const pct = (n: number): string => `${Math.round(n * 100)}%`;
-/** "24.3%" — one decimal, for the small reversion rates where whole percent flattens the signal. */
-export const pct1 = (n: number): string => `${(n * 100).toFixed(1)}%`;
-/** Percentage-POINT delta between two rates, rounded — the input to fmtDelta/deltaHex. */
-export const ppDelta = (now: number, prev: number): number => Math.round((now - prev) * 1000) / 10;
-/** "5.2k" — compact churn volume. */
-export const fmtChurn = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+/** Median of an already-filtered measured sample; null on an empty one. */
+export function fleetMedian(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+/** "24%" for a 0–100 rate, "—" for "no sample". */
+export const fmtRate = (n: number | null): string => (n == null ? "—" : `${Math.round(n)}%`);

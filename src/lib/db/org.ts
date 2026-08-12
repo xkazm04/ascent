@@ -92,6 +92,8 @@ export {
   type OrgActivity,
 } from "@/lib/db/org-signals";
 
+export { getOrgRework, buildOrgRework, type OrgRework, type RepoReworkRow, type ReworkScanRow } from "@/lib/db/org-rework";
+
 export {
   getOrgMovers,
   getOrgRecommendations,

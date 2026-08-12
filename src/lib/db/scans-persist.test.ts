@@ -109,6 +109,7 @@ function fakePrisma(opts: {
     scanDimension: { deleteMany: vi.fn(async () => ({})) },
     repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     repoTeam: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
+    aiChange: { upsert: vi.fn(async () => ({})) },
     auditLog: { create: vi.fn(async () => ({})) },
   };
 
@@ -884,5 +885,56 @@ describe("persistScanReport — sha-less cross-instance dedup key", () => {
 
     await expect(persistScanReport(makeReport({ headSha: null }))).rejects.toBe(boom);
     expect(mockFindScanByDedupKey).not.toHaveBeenCalled();
+  });
+});
+
+// ── W5: AiChange revert stamping is EVIDENCE-PRESERVING on re-scan ───────────────────────────────
+// The PR window slides, so a later scan can see a PR whose revert has aged out of the window. A null
+// stamp on the UPDATE path means "no revert matched THIS window", not "the old stamp was wrong" —
+// the update must omit the pair entirely, while create records the honest null.
+
+describe("persistScanReport — AiChange revert stamp (W5)", () => {
+  const aiChange = (over: Record<string, unknown> = {}) => ({
+    prNumber: 7,
+    title: "feat: ai thing",
+    authorLogin: "alice",
+    authorIsBot: false,
+    aiSignal: "trailer",
+    aiTools: ["Claude"],
+    state: "MERGED",
+    mergedAt: "2026-06-01T00:00:00.000Z",
+    approved: true,
+    approverLogin: "bob",
+    approvedAt: "2026-05-31T00:00:00.000Z",
+    reviewCount: 1,
+    createdAt: "2026-05-30T00:00:00.000Z",
+    revertedByPr: null,
+    revertedAt: null,
+    ...over,
+  });
+
+  async function persistWith(changes: Array<Record<string, unknown>>) {
+    const fixture = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(fixture.prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+    const report = Object.assign(makeReport({ headSha: "sha_w5" }), { aiChanges: changes });
+    await persistScanReport(report);
+    return fixture.tx.aiChange.upsert.mock.calls.map((c) => c[0] as { create: Record<string, unknown>; update: Record<string, unknown> });
+  }
+
+  it("writes a matched revert's number + merge time into both create and update", async () => {
+    const [call] = await persistWith([aiChange({ revertedByPr: 42, revertedAt: "2026-06-03T00:00:00.000Z" })]);
+    expect(call!.create.revertedByPr).toBe(42);
+    expect(call!.create.revertedAt).toEqual(new Date("2026-06-03T00:00:00.000Z"));
+    expect(call!.update.revertedByPr).toBe(42);
+    expect(call!.update.revertedAt).toEqual(new Date("2026-06-03T00:00:00.000Z"));
+  });
+
+  it("an unmatched record creates with honest nulls but OMITS the pair from update (never erases an old stamp)", async () => {
+    const [call] = await persistWith([aiChange()]);
+    expect(call!.create.revertedByPr).toBeNull();
+    expect(call!.create.revertedAt).toBeNull();
+    expect("revertedByPr" in call!.update).toBe(false);
+    expect("revertedAt" in call!.update).toBe(false);
   });
 });
