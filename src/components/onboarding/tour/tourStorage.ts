@@ -42,6 +42,20 @@ export function readTourState(slug: string): TourStorageState | null {
   }
 }
 
+/**
+ * Merge a partial update into this org's saved state.
+ *
+ * The record has TWO writers since W6c and they own different halves: the drawer owns `open` (a
+ * presentation choice — and the onboarding companion may open itself), the engine owns `index` (the
+ * spotlight cursor). Before W6c the engine wrote the whole record with `open: enabled`, which stopped
+ * being true the moment `enabled` came to mean "a spotlight is running" rather than "the drawer is
+ * open" — a patch keeps each writer from clobbering the other's field.
+ */
+export function patchTourState(slug: string, patch: Partial<TourStorageState>): void {
+  const current = readTourState(slug) ?? { open: false, index: 0 };
+  writeTourState(slug, { ...current, ...patch });
+}
+
 /** Persist this org's tour state. Best-effort — a storage failure must never break the drawer. */
 export function writeTourState(slug: string, state: TourStorageState): void {
   if (typeof window === "undefined") return;

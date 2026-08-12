@@ -87,7 +87,8 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
         Creates a single-use link (expires in 7 days). A GitHub login pins the invite to that account.
         Owner is granted by promoting an existing member, not by invite.
       </p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      {/* data-tour: the onboarding companion's "bring the team in" spotlight — the whole invite form. */}
+      <div data-tour="invite-member" className="mt-2 flex flex-wrap items-center gap-2">
         <input
           type="text"
           value={inviteTarget}

@@ -63,7 +63,8 @@ export function SkillsPanel({
         categories={categories}
       />
 
-      <div className="mt-4">
+      {/* data-tour: the onboarding companion's "make the fix repeatable" spotlight. */}
+      <div data-tour="skills-registry" className="mt-4">
         <SkillsLibraryTable
           slug={slug}
           skills={s.skills}

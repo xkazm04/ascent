@@ -68,7 +68,9 @@ export function ScheduleSelect({
   }
 
   return (
-    <span className="inline-flex flex-col items-start gap-0.5">
+    // data-tour: the onboarding companion's "instrument the loop" spotlight. One per leaderboard row;
+    // the engine's querySelector resolves the first, which is the right "here is the cadence control".
+    <span data-tour="watch-schedule" className="inline-flex flex-col items-start gap-0.5">
       <select
         value={value}
         aria-disabled={inert || undefined}

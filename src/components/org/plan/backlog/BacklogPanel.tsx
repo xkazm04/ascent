@@ -32,7 +32,8 @@ export function BacklogPanel({
   const p = useBacklogPanel({ slug, initial, segmentId, techGroupId });
 
   return (
-    <div className="space-y-5">
+    // data-tour: the onboarding companion's "resolve one gap" spotlight (GETTING_STARTED_ANCHORS).
+    <div data-tour="backlog-recs" className="space-y-5">
       <SummaryStrip b={p.backlog} />
 
       <BacklogViewControls
