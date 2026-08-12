@@ -468,6 +468,19 @@ model contributed"), and the scan's `warnings`; the card **refuses to draw a num
 `incomplete` scan (a renormalized 0/100 is not a measurement) and shows a DEMO badge for a
 mock-engine report.
 
+## Passport autonomy tier (0.3.0)
+
+The App Readiness Passport (`src/lib/analyze/passport.ts`, exported at `/api/report/passport`)
+carries a derived `autonomy` block since passport **0.3.0**: a per-repo T0–T3 tier ("what can you
+safely hand an agent in this repo") with per-tier `unlocks[].missing` checklists and auditable
+`inputs`, derived by `src/lib/analyze/passport-autonomy.ts`. Tokenless scans cap at T1; stored
+pre-0.3.0 rows are lifted read-time by `upgradePassport` (tiers without a rescan, sandbox/hooks left
+unknown — never fabricated). Detection rules and the exact ladder live in
+[scan.md](../scanning/scan.md#app-readiness-passport--autonomy-tier-srclibanalyzepassportts). The
+Passports tab's Clearance prototype (`src/components/org/intelligence/passports/autonomy/`) prefers
+the real `pp.autonomy` tier and the real `sandbox`/`hooks` gates when the passport carries them,
+falling back to its labeled proxy/mock derivation for pre-0.3.0 data.
+
 ## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
 
 Both routes open a draft PR into the scanned repository using the **org's GitHub App installation

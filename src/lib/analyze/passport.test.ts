@@ -263,12 +263,12 @@ const V010: AppPassport = {
   evidence: { confidence: 0.7, source: "static-scan", files: [] },
 };
 
-describe("upgradePassport — 0.1.0 → 0.2.0 on read", () => {
+describe("upgradePassport — 0.1.0 → current on read", () => {
   it("lifts boolean memory/skills to the ladder: true→adhoc, false→none", () => {
     const up = upgradePassport(V010);
     expect(up.automationReadiness.artifacts.memory).toBe("adhoc");
     expect(up.automationReadiness.artifacts.skills).toBe("none");
-    expect(up.passportVersion).toBe("0.2.0");
+    expect(up.passportVersion).toBe(PASSPORT_VERSION);
   });
 
   it("TAGS the result so a migrated floor is never read as a fresh assessment", () => {
