@@ -198,6 +198,17 @@ model Membership {
   // control has no watermark, and the movement window falls back to `createdAt` (since you joined)
   // rather than replaying the org's whole history. Advanced by POST /api/org/alerts { seen: true }.
   alertsSeenAt DateTime?
+  // Org-scoped onboarding stamp (W6a). The getting-started gate is a STAMP, not an empty-data
+  // heuristic: either timestamp, once set, silences the guided onboarding flow for THIS member in
+  // THIS org forever (the kp pattern). Two nullable columns rather than one enum so "finished it"
+  // and "dismissed it" stay distinguishable. Written ONLY by the member's own
+  // POST /api/org/onboarding (self-stamp, exactly like alertsSeenAt above). Step DONENESS is never
+  // stored per step — it is derived from real data at read time (src/lib/org/getting-started.ts),
+  // so doing the work through any door completes a step and the checklist can't drift.
+  // The add-column migration backfills every EXISTING row as completed (stamped with the migration
+  // date) so no live org/dev DB gets ambushed — only memberships created after W6a start null.
+  onboardingCompletedAt DateTime?
+  onboardingSkippedAt   DateTime?
 
   org  Organization @relation(fields: [orgId], references: [id])
   user User         @relation(fields: [userId], references: [id])

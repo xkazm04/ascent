@@ -99,6 +99,33 @@ navigation and re-anchors on arrival.
 - Escape collapses the drawer; while collapsed the engine is fully inert (no navigation, no
   highlight, no key capture).
 
+### Server-side onboarding model (W6a: stamp + derived getting-started)
+
+The backend for the next-generation onboarding channel (the tour drawer evolves into a task
+checklist in a later lane) ships as two primitives, both deliberately server-owned:
+
+- **The gate is a stamp, not an empty-data heuristic.** `Membership.onboardingCompletedAt` /
+  `onboardingSkippedAt` — either one, once set, silences the guided flow for that member in that
+  org forever (an org whose data later empties out must not re-trigger onboarding). Self-scoped
+  like the alerts watermark: `POST /api/org/onboarding { org, status: "completed"|"skipped" }`
+  stamps the *caller's own* membership row (viewer-gated tenant wall, same-origin enforced, not
+  audit-logged — the norm for self-scoped read-state stamps). The add-column migration backfilled
+  every pre-existing membership as completed, so only new memberships see the flow —
+  `npm run dev:empty` (fresh memberships) fires it naturally.
+- **Step doneness is derived from real data, never recorded per step.**
+  `GET /api/org/getting-started?org=` (member-gated, polling-safe) serves five typed steps
+  mirroring the onboarding narrative — `first-scan` (≥1 persisted scan; personal: a watched
+  pointer), `gap-engaged` (rec assigned/done, ImprovementPr, or a personal overlay), `registry`
+  (≥1 live OrgSkill/OrgMemory), `loop` (≥2 of watch schedule · alerts webhook · published AI
+  stance), `team` (≥2 members or a pending invite) — each with `{ done, available, tab, anchor }`
+  plus an `allDone` rollup over *available* steps and the caller's own stamp. `available` renders
+  honestly: personal workspaces lose the fleet `loop`/`team` steps, and a role below the step's
+  write gate (member/admin/owner) sees it unavailable instead of a 403. Derivation:
+  `src/lib/org/getting-started.ts` (pure model) over `getGettingStartedFacts`
+  (`src/lib/db/org-onboarding.ts`, one pass of existence-shaped lookups). Anchors are shared
+  constants (`GETTING_STARTED_ANCHORS`); `first-scan` reuses the existing `results-view`
+  `data-tour` anchor, the rest await the UI lane.
+
 ## Launch / fleet map (`src/app/launch/page.tsx`, `src/components/launch/FleetMap.tsx`)
 
 `/launch?next=<safe-url>` is the post-OAuth entrance (the callback redirects here on first
@@ -130,6 +157,10 @@ cluster, each repo a star:
 | `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`, checklist builder. |
 | `src/components/onboarding/OnboardingChecklist.tsx` | Signal-driven activation checklist (5–6 conditional steps). |
 | `src/components/onboarding/tour/` | The org-dashboard tour: steps, engine, persistence, drawer. |
+| `src/lib/org/getting-started.ts` | Pure getting-started model: derived steps, availability honesty, `allDone`. |
+| `src/lib/db/org-onboarding.ts` | Membership onboarding stamp read/write + one-pass getting-started facts. |
+| `src/app/api/org/onboarding/route.ts` | `POST` the caller's own completed/skipped stamp (the flow gate). |
+| `src/app/api/org/getting-started/route.ts` | `GET` the derived checklist + the caller's stamp (polling-safe). |
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
 

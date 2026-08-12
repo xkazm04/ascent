@@ -73,12 +73,33 @@ CREATE TABLE "Membership" (
     "role" TEXT NOT NULL DEFAULT 'member',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "alertsSeenAt" TIMESTAMP(3),
+    "onboardingCompletedAt" TIMESTAMP(3),
+    "onboardingSkippedAt" TIMESTAMP(3),
 
     CONSTRAINT "Membership_pkey" PRIMARY KEY ("id")
 );
 -- Idempotent add-column (same rule as Scan's below): pglite-boot rewrites CREATE TABLE -> IF NOT
 -- EXISTS, so an EXISTING local .pglite DB needs the new column applied explicitly.
 ALTER TABLE "Membership" ADD COLUMN IF NOT EXISTS "alertsSeenAt" TIMESTAMP(3);
+-- Onboarding stamp (W6a): idempotent add-column + ONE-TIME backfill in a guarded DO block, NOT a
+-- bare ALTER + UPDATE. pglite-boot re-execs this file on EVERY boot, so a bare
+-- "UPDATE ... WHERE ... IS NULL" would re-stamp memberships created since the last restart and the
+-- onboarding flow could never fire locally. Guarding on "column absent" makes the backfill run
+-- exactly once — the moment the columns first land on an EXISTING dev DB — matching the real
+-- migration's semantics: existing memberships are stamped completed (never ambushed by a flow for
+-- a workspace they already use), only NEW memberships start null. A fresh DB takes the columns from
+-- the CREATE TABLE above (zero rows to backfill) and skips this block on every boot thereafter.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'Membership' AND column_name = 'onboardingCompletedAt'
+  ) THEN
+    ALTER TABLE "Membership" ADD COLUMN "onboardingCompletedAt" TIMESTAMP(3);
+    ALTER TABLE "Membership" ADD COLUMN "onboardingSkippedAt" TIMESTAMP(3);
+    UPDATE "Membership" SET "onboardingCompletedAt" = CURRENT_TIMESTAMP;
+  END IF;
+END $$;
 
 -- CreateTable
 CREATE TABLE "Repository" (

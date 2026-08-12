@@ -113,6 +113,16 @@ export {
   type AlertsWatermark,
 } from "@/lib/db/members";
 export {
+  getOnboardingStamp,
+  setOnboardingStamp,
+  isOnboardingStatus,
+  getGettingStartedFacts,
+  EMPTY_GETTING_STARTED_FACTS,
+  type OnboardingStamp,
+  type OnboardingStatus,
+  type GettingStartedFacts,
+} from "@/lib/db/org-onboarding";
+export {
   getOrgMovementSince,
   MOVEMENT_CAP,
   type OrgMovement,
