@@ -16,6 +16,10 @@ import { GovernanceFailReasonsCard } from "./GovernanceFailReasonsCard";
 import { GovernanceFailingReposCard } from "./GovernanceFailingReposCard";
 import { GovernanceClosestToGreenCard } from "./GovernanceClosestToGreenCard";
 import { GovernanceCiCard } from "./GovernanceCiCard";
+// PROTOTYPE (branch prototype-ai-stance): the AI-stance directional variants sit behind a tab strip
+// alongside the shipped baseline. Remove both imports and the wrapper at consolidation.
+import { StanceSwitcher } from "../stance/StanceSwitcher";
+import { buildMockStance } from "../stance/stanceMock";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -33,8 +37,12 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
 
   const filterBar = <ScopeFilterBar {...barProps} />;
 
+  // PROTOTYPE: the stance mock derives its repo spine from the real governance overview.
+  const stance = buildMockStance(g, slug, true);
+  const unpublished = buildMockStance(g, slug, false);
+
   if (!g) {
-    return (
+    const baseline = (
       <div>
         <div className="mb-4 flex justify-end">{filterBar}</div>
         <SectionEmpty>
@@ -44,13 +52,14 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
         </SectionEmpty>
       </div>
     );
+    return <StanceSwitcher baseline={baseline} stance={stance} unpublished={unpublished} slug={slug} />;
   }
 
   const md = governanceMarkdown(g);
   const snippet = ciActionYaml(g.ciWith).join("\n");
   const passColor = scoreHex(g.passRate);
 
-  return (
+  const baseline = (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <SectionHeader
@@ -81,4 +90,6 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       <GovernanceCiCard gateQuery={g.gateQuery} snippet={snippet} />
     </div>
   );
+
+  return <StanceSwitcher baseline={baseline} stance={stance} unpublished={unpublished} slug={slug} />;
 }
