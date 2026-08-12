@@ -265,4 +265,30 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
 
     expect(res!.trend).toEqual(expected); // same-day pair collapses to one point (avg 70)
   });
+
+  it("carries contextHealth parsed off Repository.contextHealthJson (W4) — null for pre-W4/malformed rows", async () => {
+    const ch = {
+      version: "1",
+      present: true,
+      files: [{ path: "CLAUDE.md", sectionsScore: 40 }],
+      freshness: { score: 55, ageDays: 10, commitsSinceEdit: 12, approximate: true },
+      quality: { score: 40, signals: [] },
+      drift: { score: 100, refsTotal: 0, deadRefs: [] },
+      score: 48,
+    };
+    const { prisma } = fakePrisma([]);
+    prisma.repository.findMany = vi.fn(async () => [
+      { ...repoRow("r1", new Date("2026-05-12T12:00:00Z")), contextHealthJson: JSON.stringify(ch) },
+      { ...repoRow("r2", new Date("2026-05-12T12:00:00Z")), contextHealthJson: "not json" },
+      { ...repoRow("r3", new Date("2026-05-12T12:00:00Z")) }, // pre-W4 row: no column value at all
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/r1")!.contextHealth).toEqual(ch);
+    // Malformed and absent blobs both degrade to null — the UI's "not assessed" path, never a crash.
+    expect(res!.repos.find((r) => r.fullName === "acme/r2")!.contextHealth).toBeNull();
+    expect(res!.repos.find((r) => r.fullName === "acme/r3")!.contextHealth).toBeNull();
+  });
 });

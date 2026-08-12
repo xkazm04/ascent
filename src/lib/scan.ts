@@ -199,7 +199,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   signal?.throwIfAborted();
 
   // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
-  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, activityPromise, aiChanges } =
+  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, activityPromise, guidanceFreshnessPromise, aiChanges } =
     await ingestRepository({
       parsed,
       source,
@@ -279,6 +279,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     governance,
     aiChanges,
     activityPromise,
+    guidanceFreshnessPromise,
     techStack,
     usage,
     llmLatencyMs,

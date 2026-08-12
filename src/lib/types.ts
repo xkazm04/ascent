@@ -137,6 +137,20 @@ export interface FetchedFile {
   bytes: number;
 }
 
+/**
+ * Freshness of one detected agent-guidance file (CLAUDE.md / AGENTS.md / …), from a single cheap
+ * `GET /repos/{o}/{r}/commits?path=<file>&per_page=1` at ingest time (W4 — Context Health). The
+ * lookup works keylessly within rate limits, and it MUST degrade instead of failing the scan
+ * (token-honesty doctrine): an entry with only `path` means "freshness unknown", never "never edited".
+ */
+export interface GuidanceFreshness {
+  path: string;
+  /** ISO timestamp of the last commit touching this file (committer date). Absent = unknown. */
+  lastModifiedAt?: string;
+  /** SHA of that last commit — the head the file's guidance was written against. Absent = unknown. */
+  lastCommitSha?: string;
+}
+
 export interface CommitInfo {
   message: string;
   authorName?: string;
@@ -666,6 +680,66 @@ export interface ScoreIntegrity {
   effectiveBlend: number;
 }
 
+// ---------------------------------------------------------------------------
+// Context Health (W4) — quality-over-presence read of the agent-guidance layer
+// ---------------------------------------------------------------------------
+
+/** One detected guidance file's persisted context-health facts. */
+export interface ContextHealthFile {
+  path: string;
+  /** ISO timestamp of the file's last commit. Absent = freshness lookup skipped/failed (unknown). */
+  lastModifiedAt?: string;
+  /** SHA of that last commit. Absent when unknown. */
+  lastCommitSha?: string;
+  /** File size in bytes, from the already-fetched tree (no extra call). Absent when the tree entry carried none. */
+  bytes?: number;
+  /** 0..100 — the file's guidance-quality grade (normalized `guidanceQuality` points; 0 when the
+   *  file's content wasn't in the ingest sample). */
+  sectionsScore: number;
+}
+
+/**
+ * Context Health — how healthy a repo's agent-context layer (CLAUDE.md / AGENTS.md / rules files)
+ * is, beyond mere presence: freshness against the repo's own change rate, guidance quality, and
+ * reference drift. DISPLAY/PERSIST-ONLY, like `techStack` and `passport` — it never feeds the scan
+ * score or the LLM prompt (no rubric bump; pinned by a test in context-health.test.ts).
+ * See src/lib/analyze/context-health.ts.
+ */
+export interface ContextHealth {
+  /** Shape version for read-time tolerance ("1"). */
+  version: string;
+  /** At least one guidance file was detected in the tree. */
+  present: boolean;
+  files: ContextHealthFile[];
+  /**
+   * Staleness of the primary (best) guidance file. `commitsSinceEdit` is APPROXIMATE by design —
+   * it is read off the scan's weekly `commitActivity` buckets since `lastModifiedAt`, not a
+   * per-commit walk — and it is a LOWER BOUND when the edit predates the ~12-week window
+   * (`windowCapped`). All-null (score included) = freshness unknown: the per-file history lookup
+   * was skipped or failed, which must never fail the scan.
+   */
+  freshness: {
+    /** 0..100 remaining potency under churn (decayPotency), or null when unknown. */
+    score: number | null;
+    ageDays: number | null;
+    commitsSinceEdit: number | null;
+    /** Always true — the staleness count is bucket-derived, never an exact rev-list. */
+    approximate: boolean;
+    /** The edit predates the commit-activity window, so commitsSinceEdit undercounts. */
+    windowCapped?: boolean;
+  };
+  /** Guidance quality of the primary file — normalized `guidanceQuality` (the D1 grader) output. */
+  quality: { score: number; signals: string[] };
+  /**
+   * Reference drift: `@file`-style path references in the guidance vs the ACTUAL tree index (zero
+   * extra fetches). A dead ref is guidance confidently pointing at a file that no longer exists —
+   * the most defensible drift signal. score = 100 when every ref resolves (or there are none).
+   */
+  drift: { score: number; refsTotal: number; deadRefs: string[] };
+  /** 0..100 composite (quality/freshness/drift blend; renormalized when freshness is unknown). */
+  score: number;
+}
+
 export interface ScanReport {
   repo: RepoMeta;
   overallScore: number;
@@ -711,6 +785,9 @@ export interface ScanReport {
   /** App Readiness Passport — the descriptive, tool-naming portfolio scorecard derived from this scan.
    *  Display/persist-only (never scored); undefined on reconstructed snapshots. See lib/analyze/passport. */
   passport?: AppPassport;
+  /** Context Health (W4) — guidance-file freshness/quality/drift. Display/persist-only (never scored,
+   *  never in the LLM prompt); undefined on reconstructed snapshots that never ran ingestion. */
+  contextHealth?: ContextHealth | null;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
   /** NOTHING could be scored: every detector failed or returned no data, so `dimensions` is empty and

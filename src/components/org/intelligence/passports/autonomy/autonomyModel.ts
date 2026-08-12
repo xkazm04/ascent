@@ -388,7 +388,11 @@ export const tierCounts = (repos: RepoAutonomy[]): Record<AutonomyTier, number> 
  *  CLOSED by W1b (passport 0.3.0): sandbox + hooks detectors (artifacts.sandbox/.hooks) and the
  *  derived `pp.autonomy` tier block persisted in the passport JSON. */
 export const DATA_MODEL_GAPS = [
-  "context freshness: last-modified of AGENTS.md/CLAUDE.md vs repo commit rate (quality over presence)",
+  // W4 note: the DATA now exists — scans persist per-guidance-file freshness/quality/drift as
+  // Repository.contextHealthJson (src/lib/analyze/context-health.ts). Remaining gap is WIRING:
+  // this surface reads only AppPassport, so contextGate's staleness penalty is still mock until
+  // the gate consumes contextHealth (the planned "present AND healthy" T1 predicate, W4 v2).
+  "context freshness: signal persisted (W4 contextHealthJson) but not yet consumed by this gate — contextGate still mocks staleness",
   "agent policy: declared tool allow-list, no-AI paths, review tier by risk (feeds P2 AI stance)",
   "attribution: AI-assisted PR share via git trailers, to verify a granted tier is actually being used",
   "owner override: pp.autonomy is derived + persisted, but a grant should also be an overridable recorded decision",

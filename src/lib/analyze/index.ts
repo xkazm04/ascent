@@ -109,8 +109,12 @@ class Scorer {
 /**
  * Grade the *quality* of agent guidance (CLAUDE.md / AGENTS.md content), not just its
  * presence — this is where advanced AI-native technique shows up. Returns scored signals.
+ *
+ * Exported for Context Health (src/lib/analyze/context-health.ts — W4), which reuses these exact
+ * graded signals as its display-only quality half so the two surfaces can never disagree about
+ * what "good guidance" means. Its use THERE never feeds the score — only the D1 detector below does.
  */
-function guidanceQuality(text: string): { points: number; label: string }[] {
+export function guidanceQuality(text: string): { points: number; label: string }[] {
   const t = text.toLowerCase();
   const out: { points: number; label: string }[] = [];
   if (text.length >= 4000) out.push({ points: 8, label: "Detailed agent guidance (4k+ chars)" });

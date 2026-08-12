@@ -7,6 +7,7 @@
 import type {
   CommitInfo,
   FetchedFile,
+  GuidanceFreshness,
   RepoFile,
   RepoMeta,
   RepoSnapshot,
@@ -462,8 +463,55 @@ interface GhCommitResponse {
   commit: {
     message: string;
     author?: { name?: string; date?: string } | null;
+    /** Committer date = when the change actually LANDED — the freshness clock Context Health wants. */
+    committer?: { date?: string } | null;
   };
   author?: { login?: string } | null;
+}
+
+// ── Context Health (W4): per-guidance-file freshness ─────────────────────────────────────────────
+
+/** Hard cap on per-file history lookups per scan — the entire marginal REST cost of Context Health. */
+export const MAX_GUIDANCE_FRESHNESS_LOOKUPS = 3;
+
+/**
+ * Last-modified date + last-commit SHA for each detected guidance file (CLAUDE.md / AGENTS.md / …),
+ * via `GET /repos/{o}/{r}/commits?path=<file>&per_page=1&sha=<ref>` — one lightweight REST call per
+ * file, capped at {@link MAX_GUIDANCE_FRESHNESS_LOOKUPS} (so ≤3 calls per scan). Works KEYLESSLY
+ * within the anonymous rate limit, and MUST degrade instead of failing the scan (token-honesty
+ * doctrine): any per-file failure — rate limit, timeout, empty history — returns an entry carrying
+ * only `path`, which downstream reads as "freshness unknown", never as a fabricated date.
+ */
+export async function fetchGuidanceFreshness(
+  { owner, repo }: ParsedRepo,
+  ref: string,
+  paths: string[],
+  opts: { token?: string; signal?: AbortSignal } = {},
+): Promise<GuidanceFreshness[]> {
+  const capped = paths.slice(0, MAX_GUIDANCE_FRESHNESS_LOOKUPS);
+  return Promise.all(
+    capped.map(async (path): Promise<GuidanceFreshness> => {
+      try {
+        const url =
+          `${API}/repos/${owner}/${repo}/commits` +
+          `?path=${encodeURIComponent(path)}&per_page=1&sha=${encodePathSegments(ref)}`;
+        const res = await fetchWithTimeout(
+          url,
+          { headers: ghHeaders(opts.token), cache: "no-store" },
+          TIMEOUT_API_MS,
+          opts.signal,
+        );
+        if (!res.ok) return { path };
+        const body = (await res.json()) as GhCommitResponse[];
+        const c = Array.isArray(body) ? body[0] : undefined;
+        const date = c?.commit?.committer?.date ?? c?.commit?.author?.date;
+        if (!c?.sha || !date) return { path };
+        return { path, lastModifiedAt: date, lastCommitSha: c.sha };
+      } catch {
+        return { path }; // degrade-don't-fail: unknown freshness, the scan proceeds
+      }
+    }),
+  );
 }
 
 export class GitHubPublicSource implements RepoSource {

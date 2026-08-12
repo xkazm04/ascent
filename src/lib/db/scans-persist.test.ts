@@ -361,6 +361,53 @@ describe("persistScanReport — mock → live engine upgrade", () => {
   });
 });
 
+// ── Context Health persistence (W4) — the scan row + the Repository cache column ──────────────────
+//
+// Same contract as techStackJson/passportJson: the per-scan blob is stamped when the report carries
+// one (null when it doesn't — a reconstructed snapshot), and the Repository CACHE column is only
+// written when present, so a reconstructed persist can't wipe the stored latest.
+describe("persistScanReport — contextHealthJson (W4)", () => {
+  const contextHealth = {
+    version: "1",
+    present: true,
+    files: [{ path: "CLAUDE.md", sectionsScore: 50 }],
+    freshness: { score: 70, ageDays: 5, commitsSinceEdit: 4, approximate: true },
+    quality: { score: 50, signals: [] },
+    drift: { score: 100, refsTotal: 0, deadRefs: [] },
+    score: 62,
+  };
+
+  it("stamps the per-scan blob AND caches the latest on the Repository when the report carries one", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const report = makeReport({ headSha: "sha_ch" });
+    (report as { contextHealth?: unknown }).contextHealth = contextHealth;
+    await persistScanReport(report);
+
+    expect(createdScans[0]!.contextHealthJson).toBe(JSON.stringify(contextHealth));
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as {
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    };
+    expect(upsertArgs.update.contextHealthJson).toBe(JSON.stringify(contextHealth));
+    expect(upsertArgs.create.contextHealthJson).toBe(JSON.stringify(contextHealth));
+  });
+
+  it("a report WITHOUT contextHealth writes null on the scan and leaves the Repository cache untouched", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_noch" }));
+
+    expect(createdScans[0]!.contextHealthJson).toBeNull();
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown> };
+    expect(upsertArgs.update).not.toHaveProperty("contextHealthJson"); // never wipes the cached latest
+  });
+});
+
 // ── CRITICAL #2: carry-forward preserves tracked recommendation state ─────────────────────────────
 
 describe("persistScanReport — carry-forward of recommendation tracking state", () => {
