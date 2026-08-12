@@ -344,6 +344,50 @@ export interface AutonomyBlock {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Org AI stance (W3) — the published "what may AI do here" policy artifact
+// ---------------------------------------------------------------------------
+
+/** A declared no-AI zone: repos (matched by fullName glob) and/or paths closed to AI authorship.
+ *  Repo globs are CHECKABLE against scan attribution today; path globs are ADVISORY-ONLY (commit
+ *  file paths aren't ingested), and every surface must label them so. */
+export interface AiStanceZone {
+  /** Globs over "owner/name" (e.g. "acme/billing-*"); `*` doesn't cross the "/", `**` does. */
+  repoGlobs: string[];
+  /** Globs over in-repo paths (e.g. "prisma/migrations/**") — advisory until file paths are ingested. */
+  pathGlobs: string[];
+  /** Why the zone is sealed — the sentence a dev needs. */
+  reason?: string;
+}
+
+/** The review requirement the stance attaches to one autonomy tier band (T0..T3). */
+export interface AiStanceReviewTier {
+  tier: AutonomyTierId;
+  /** e.g. "Two approvals, one from the module owner. Agent pre-review required." */
+  review: string;
+}
+
+/**
+ * The org's AI stance — serialized as JSON-in-TEXT on OrgAiStance.stanceJson (no-jsonb DSQL
+ * contract) and sanitized at the edge by sanitizeStance (src/lib/org/stance.ts). Compliance against
+ * it is always "declared vs OBSERVED attribution" from existing scan data — never "enforced".
+ */
+export interface AiStance {
+  /** Permitted AI tools/agents (display names, e.g. "Claude Code", "Copilot"). */
+  permittedTools: string[];
+  /** Permitted model families/ids (e.g. "claude-opus", "gpt-5"). */
+  permittedModels: string[];
+  noAiZones: AiStanceZone[];
+  /** Review requirements per autonomy tier band (sparse — an absent tier has no stance text). */
+  reviewTiers: AiStanceReviewTier[];
+  provenance: {
+    /** Every AI-assisted change must carry an attribution trailer (checked via aiTrailerRate). */
+    requireTrailer: boolean;
+    /** Every AI-attributed PR must have a human approval before merge (checked via AiChange rows). */
+    requireHumanApproval: boolean;
+  };
+}
+
 export interface RepoSnapshot {
   meta: RepoMeta;
   /** Full recursive tree of file/dir paths (may be truncated by GitHub). */

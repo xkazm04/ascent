@@ -977,6 +977,45 @@ CREATE UNIQUE INDEX "SandboxScenario_orgId_repoFullName_authorLogin_key" ON "San
 -- CreateIndex
 CREATE INDEX "SandboxScenario_orgId_repoFullName_idx" ON "SandboxScenario"("orgId", "repoFullName");
 
+-- CreateTable
+CREATE TABLE "OrgAiStance" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "version" INTEGER NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "stanceJson" TEXT NOT NULL,
+    "publishedBy" TEXT,
+    "publishedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgAiStance_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "OrgArtifactAck" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "artifact" TEXT NOT NULL DEFAULT 'ai-stance',
+    "version" INTEGER NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "ackedBy" TEXT,
+    "ackedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgArtifactAck_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgAiStance_orgId_version_key" ON "OrgAiStance"("orgId", "version");
+
+-- CreateIndex
+CREATE INDEX "OrgAiStance_orgId_status_idx" ON "OrgAiStance"("orgId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgArtifactAck_orgId_artifact_repoFullName_key" ON "OrgArtifactAck"("orgId", "artifact", "repoFullName");
+
+-- CreateIndex
+CREATE INDEX "OrgArtifactAck_orgId_artifact_version_idx" ON "OrgArtifactAck"("orgId", "artifact", "version");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

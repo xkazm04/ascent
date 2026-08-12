@@ -1,32 +1,77 @@
-// Shared pieces for the AI-stance prototype (Perimeter, post-consolidation). Server-safe: no hooks,
-// no handlers.
+// Shared pieces for the AI-stance section (Governance tab, W3 — the Perimeter made real).
+// Server-safe: no hooks, no handlers. Colors/labels here are the single source for every stance
+// surface so the checkpoint, the bands, and the repo nodes can't drift apart.
 
 import { Kicker } from "@/components/ui";
-import { ACK_LABEL, type StanceAck } from "./stanceMock";
+import type { StanceAckState } from "@/lib/org/stance";
+import type { AutonomyTierId } from "@/lib/types";
 
-/**
- * The "publish your stance" primary CTA — the state every variant must answer first, since an org
- * with no published stance is the common case and the research says ambiguity is the top blocker.
- * The shell is shared; each variant supplies its own metaphor-consistent copy.
- */
-export function StancePublishCta({
-  kicker,
-  title,
-  body,
-  cta,
-  bullets,
+/** Tier color runs the same red→green *direction* as the level ramp, inverted: T3 is the tightest. */
+export const TIER_HEX: Record<AutonomyTierId, string> = {
+  T0: "#22c55e",
+  T1: "#84cc16",
+  T2: "#f97316",
+  T3: "#ef4444",
+};
+
+/** Display meta for the four autonomy tier bands — the SHARED resolver's ladder semantics
+ *  (passport-autonomy.ts), phrased for the perimeter read. */
+export const TIER_META: Record<AutonomyTierId, { name: string; blurb: string }> = {
+  T0: { name: "Observe-only", blurb: "Nothing an agent produces should merge unread." },
+  T1: { name: "Tests · docs · refactors", blurb: "Checked work an agent's output can be verified against." },
+  T2: { name: "Features with review", blurb: "Gated CI and substantial tests back delegated feature work." },
+  T3: { name: "Scheduled autonomous", blurb: "Evals, provenance and versioned migrations back unattended runs." },
+};
+
+const ACK_HEX: Record<StanceAckState, string> = { current: "#10b981", stale: "#f97316", unacked: "#ef4444" };
+
+export function ackLabel(ack: StanceAckState, ackedVersion: number | null): string {
+  if (ack === "current") return `Acknowledged v${ackedVersion}`;
+  if (ack === "stale") return `On an older version (v${ackedVersion})`;
+  return "Never acknowledged";
+}
+
+/** Acknowledgement state — whether the repo has adopted the CURRENT stance version. */
+export function AckMark({
+  ack,
+  ackedVersion,
+  showLabel = true,
 }: {
-  kicker: string;
-  title: string;
-  body: string;
-  cta: string;
-  bullets: { label: string; text: string }[];
+  ack: StanceAckState;
+  ackedVersion: number | null;
+  showLabel?: boolean;
 }) {
   return (
+    <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: ACK_HEX[ack] }} title={ackLabel(ack, ackedVersion)}>
+      <span aria-hidden className="inline-block size-1.5 rounded-full" style={{ backgroundColor: ACK_HEX[ack] }} />
+      {showLabel && <span className="font-mono text-xs uppercase tracking-[0.18em]">{ack}</span>}
+    </span>
+  );
+}
+
+/**
+ * The "publish your stance" empty state — the common case (no stance yet), answered first because
+ * the research names policy ambiguity as the top blocker. The owner's editor renders directly
+ * below this shell; non-owners see who to ask.
+ */
+export function StancePublishCta({ slug, canEdit }: { slug: string; canEdit: boolean }) {
+  const bullets = [
+    { label: "Checkpoint", text: "Which tools and models may cross into org code at all." },
+    { label: "Bands", text: "Review requirements per autonomy tier, fed by each repo's real passport tier." },
+    { label: "Sealed", text: "Repos and paths closed to AI authorship entirely." },
+    { label: "Proof", text: "What a change must carry to show which side of the line it came from." },
+  ];
+  return (
     <div className="rounded-2xl border border-divider bg-surface/40 p-8">
-      <Kicker>{kicker}</Kicker>
-      <h2 className="mt-3 max-w-2xl text-2xl font-medium text-white sm:text-3xl">{title}</h2>
-      <p className="mt-3 max-w-2xl text-base text-slate-300">{body}</p>
+      <Kicker>{slug} · perimeter undrawn</Kicker>
+      <h3 className="mt-3 max-w-2xl text-2xl font-medium text-white sm:text-3xl">
+        There is no line. Every repo is treated the same by every agent.
+      </h3>
+      <p className="mt-3 max-w-2xl text-base text-slate-300">
+        Without a published stance the fleet has one undifferentiated risk surface: a docs PR and a migration get the
+        same review, and nothing marks the paths that should never be agent-authored. Draw the perimeter once and every
+        repo inherits a band.
+      </p>
 
       <div className="mt-6 grid gap-px overflow-hidden rounded-xl border border-divider bg-divider sm:grid-cols-2 lg:grid-cols-4">
         {bullets.map((b) => (
@@ -37,27 +82,11 @@ export function StancePublishCta({
         ))}
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button className="focus-ring rounded-md border border-accent/50 bg-accent/10 px-4 py-2 text-base font-medium text-white transition hover:bg-accent/20">
-          {cta}
-        </button>
-        <button className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white">
-          Start from the reference stance
-        </button>
-        <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">Opens a PR to .github/AI-STANCE.md</span>
-      </div>
+      <p className="mt-6 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+        {canEdit
+          ? "Draft the stance below, then publish v1 — repos adopt it as a committed AI_POLICY.md."
+          : "An org owner publishes the stance; once live, this section reads the fleet against it."}
+      </p>
     </div>
-  );
-}
-
-const ACK_HEX: Record<StanceAck, string> = { current: "#10b981", stale: "#f97316", unacked: "#ef4444" };
-
-/** Acknowledgement state — whether the repo has adopted the CURRENT stance version. */
-export function AckMark({ ack, showLabel = true }: { ack: StanceAck; showLabel?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: ACK_HEX[ack] }} title={ACK_LABEL[ack]}>
-      <span aria-hidden className="inline-block size-1.5 rounded-full" style={{ backgroundColor: ACK_HEX[ack] }} />
-      {showLabel && <span className="font-mono text-xs uppercase tracking-[0.18em]">{ack}</span>}
-    </span>
   );
 }

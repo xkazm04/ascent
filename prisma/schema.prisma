@@ -992,6 +992,50 @@ model OrgLlmConfig {
   @@unique([orgId])
 }
 
+// The org's published AI stance (W3) — the versioned "what may AI do here" policy artifact the
+// research names the #1 governance capability. VERSIONED ROWS (mirror the Playbook versioning
+// precedent, but immutable-per-publish): each publish appends a row at version N+1 and marks the
+// prior published row "superseded", so history is complete and an acknowledgement can pin the exact
+// text a repo adopted. At most one "draft" and one "published" row per org at a time. `stanceJson`
+// is the serialized AiStance (JSON-in-TEXT — the schema's no-jsonb DSQL-safety contract, exactly
+// like Organization.gatePolicy), sanitized at the edge in src/lib/db/org-stance.ts via
+// sanitizeStance (src/lib/org/stance.ts). Compliance is DERIVED at read time from existing scan
+// data (declared vs observed attribution) — never stored, so it can't go stale.
+model OrgAiStance {
+  id          String    @id @default(uuid())
+  orgId       String
+  version     Int // 1..N, unique per org; a draft holds the version it will publish as
+  status      String    @default("draft") // draft | published | superseded
+  stanceJson  String // serialized AiStance (see src/lib/types.ts)
+  publishedBy String? // GitHub login who published (null while draft)
+  publishedAt DateTime? // null while draft
+  createdAt   DateTime  @default(now())
+
+  @@unique([orgId, version])
+  @@index([orgId, status])
+}
+
+// A repo's acknowledgement of an org-level artifact version — "this repo has adopted stance vN".
+// The per-repo ⇄ org-artifact-version link the Perimeter prototype named as the single biggest
+// schema gap: nothing recorded adoption of an org artifact before this. One row per
+// (org, artifact, repo): re-acknowledging a NEWER version UPDATES the row (mirror OrgDecision's
+// sparse-upsert shape — an unacked repo has no row at all). `artifact` is "ai-stance" today; the
+// column exists so a later org artifact (e.g. a published autonomy writ) can reuse the primitive
+// without a second table, but nothing here is generalized beyond that name. Standalone under
+// relationMode="prisma" (denormalized orgId, no DB FKs), always queried by orgId.
+model OrgArtifactAck {
+  id           String   @id @default(uuid())
+  orgId        String
+  artifact     String   @default("ai-stance") // which org artifact kind was acknowledged
+  version      Int // the artifact version the repo acknowledged
+  repoFullName String // "owner/name"
+  ackedBy      String? // GitHub login
+  ackedAt      DateTime @default(now())
+
+  @@unique([orgId, artifact, repoFullName])
+  @@index([orgId, artifact, version])
+}
+
 // Normalized AI-usage records feeding the /delivery AI ROI resolver (integrations increment 2). One
 // row per (source, scope, scopeKey, day). scope=repo carries MEASURED per-repo spend (Claude Code OTel
 // git.repository); scope=org an ALLOCATED total (Copilot/OpenAI, distributed to repos by git evidence).

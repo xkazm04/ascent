@@ -56,6 +56,20 @@ export {
 export { getOrgGatePolicy, setOrgGatePolicy } from "@/lib/db/org-gate";
 
 export {
+  getActiveOrgStance,
+  getDraftOrgStance,
+  listOrgStanceVersions,
+  saveOrgStanceDraft,
+  publishOrgStance,
+  ackOrgStance,
+  getOrgStanceAcks,
+  getStanceRepoFacts,
+  STANCE_ARTIFACT_KIND,
+  type OrgStanceRow,
+  type StanceAckRow,
+} from "@/lib/db/org-stance";
+
+export {
   getContributorInsights,
   computeOrgResilience,
   type ContributorInsight,
