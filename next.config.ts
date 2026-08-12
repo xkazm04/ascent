@@ -41,6 +41,10 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Empty-tenant dev mode (`npm run dev:empty`, scripts/dev-empty.mjs): a second dev server runs
+  // beside the normal one, so its build cache must not collide with the normal server's .next.
+  // Scoped strictly to ASCENT_EMPTY=1 — normal dev and production builds are unaffected.
+  ...(process.env.ASCENT_EMPTY === "1" ? { distDir: ".next-empty" } : {}),
   async headers() {
     return [
       {
