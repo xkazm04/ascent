@@ -207,14 +207,14 @@ export default async function OrgLayout({
           <div className="animate-fade-up">{shellState === "first-scan" ? <OrgFirstScanEmpty slug={slug} /> : children}</div>
         </div>
       </main>
-      {/* Guided onboarding drawer for ANY org dashboard — it used to mount only on the curated demo org,
-          so every real customer who finished onboarding and clicked "View dashboard" never saw the one
-          surface that teaches this dashboard. It opens closed (just the pull tab) and the engine skips
-          steps whose anchor this org doesn't render, so a thin/personal org degrades instead of pointing
-          at nothing. Mounted in the layout (not a page) so the tour survives sub-page navigation and
-          re-anchors after each redirect. Skipped on the first-scan empty state — there is nothing to
-          teach until data exists, and every anchor it would point at is absent. */}
-      {shellState !== "first-scan" && <TourChecklist slug={slug} />}
+      {/* THE guidance channel for ANY org dashboard (W6c) — the onboarding companion when this member's
+          onboarding is unstamped and unfinished, the discoverable teaching drawer otherwise. Mounted in
+          the layout (not a page) so it survives tab navigation and re-anchors after each deep link.
+          Mounted on the first-scan empty state TOO: that is precisely the member the companion exists
+          for, and its first task ("run your first scan") is the one thing that state is about. Its
+          content is server-derived, so a thin/personal org gets a shorter, honest list rather than a
+          menu of steps it can't perform. */}
+      <TourChecklist slug={slug} />
     </>
   );
 }

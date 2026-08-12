@@ -6,14 +6,18 @@
 // ORG LAYOUT (which persists across sub-page navigation), the engine survives a redirect and re-resolves
 // the anchor once the new page mounts.
 //
-// `enabled` mirrors whether the drawer is open. While collapsed the engine keeps its cursor but does
-// nothing observable — no forced navigation, no highlight, no Escape capture — so a hidden tour never
-// yanks the page around; reopening resumes the current step and re-activates the highlight.
+// `enabled` means "a spotlight is RUNNING". While disabled the engine keeps its cursor but does
+// nothing observable — no forced navigation, no highlight, no Escape capture — so a dormant tour never
+// yanks the page around; re-enabling resumes the current step and re-activates the highlight.
+// (Before W6c this mirrored "the drawer is open". The onboarding companion opens itself, and an
+// auto-opened drawer must NOT teleport the member to its first task's tab — so the two came apart:
+// the drawer owns `open`, the engine owns "a spotlight the member asked for".)
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { orgTabHref, resolveActiveOrgTab } from "@/lib/org/orgTabs";
 import type { TourStep } from "./types";
-import { readTourState, writeTourState } from "./tourStorage";
+import { patchTourState, readTourState } from "./tourStorage";
 
 /** rAF frames the engine waits for a step's anchor to mount before declaring it absent (~2s at 60fps).
  *  Generous, because a cross-page step must survive the destination page's data fetch + render. */
@@ -39,13 +43,28 @@ export interface TourEngine {
   exit: () => void;
 }
 
+export interface TourEngineOptions {
+  /** A spotlight is running: the engine may navigate, highlight and capture Escape. */
+  enabled: boolean;
+  onExit: () => void;
+  /**
+   * Step OVER a step whose anchor never mounted, continuing in the direction of travel. True for a
+   * linear walk (Back / Next through the teach arc). FALSE for the task drawer, where each spotlight
+   * is a discrete request: silently sliding to a different TASK because this one's control isn't on
+   * screen would answer a question the member didn't ask. There the miss degrades to plain
+   * navigation — the tab switch already happened; only the ring is missing.
+   */
+  autoAdvanceOverSkipped?: boolean;
+}
+
 export function useTourEngine(
   slug: string,
   steps: TourStep[],
-  { enabled, onExit }: { enabled: boolean; onExit: () => void },
+  { enabled, onExit, autoAdvanceOverSkipped = true }: TourEngineOptions,
 ): TourEngine {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   // The cursor starts at 0 and is RESTORED after mount, never seeded lazily: this hook renders inside a
   // server-rendered org layout, so a lazy initializer reading sessionStorage would make the client's first
   // render disagree with the SSR'd markup (the "3/6" counter) — a hydration mismatch.
@@ -66,8 +85,12 @@ export function useTourEngine(
   const dirRef = useRef<1 | -1>(1);
   const step = steps[index] ?? null;
 
-  const hrefFor = useCallback((s: TourStep) => (s.page ? `/org/${slug}/${s.page}` : `/org/${slug}`), [slug]);
-  const onPage = !step || pathname === hrefFor(step);
+  const hrefFor = useCallback((s: TourStep) => orgTabHref(slug, s.tab), [slug]);
+  // "Am I on the step's surface?" is a TAB question, not a pathname one: every org tab renders at
+  // `/org/<slug>?tab=…` and the old sub-paths are redirect stubs. resolveActiveOrgTab reads both
+  // positions, so the engine settles correctly whether the member arrived by deep link or legacy URL.
+  const activeTab = resolveActiveOrgTab(pathname, searchParams.get("tab"));
+  const onPage = !step || activeTab === step.tab;
 
   // Restore the saved cursor once, on mount (see the hydration note above). Declared BEFORE the persist
   // effect so the read always beats the first write.
@@ -81,26 +104,27 @@ export function useTourEngine(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
-  // Persist open-state + cursor for this org, so a hard refresh mid-tour resumes exactly where it was
-  // instead of silently rewinding to step 1 with the drawer shut. Gated on `hydrated` so the pre-restore
-  // render can't overwrite the very record it's about to read. Best-effort (see tourStorage).
+  // Persist the cursor for this org, so a hard refresh mid-tour resumes exactly where it was instead of
+  // silently rewinding to step 1. Gated on `hydrated` so the pre-restore render can't overwrite the very
+  // record it's about to read. A PATCH: the drawer owns `open` in the same record (see tourStorage).
   useEffect(() => {
     if (!hydrated) return;
-    writeTourState(slug, { open: enabled, index });
-  }, [hydrated, slug, enabled, index]);
+    patchTourState(slug, { index });
+  }, [hydrated, slug, index]);
 
-  // Redirect to the step's page when it differs (only while open). Pure side effect — the layout-mounted
-  // host persists the engine across this navigation, so advancing the cursor is all it takes to move pages.
+  // Deep-link to the step's tab when it differs (only while a spotlight runs). Pure side effect — the
+  // layout-mounted host persists the engine across this navigation, so advancing the cursor is all it
+  // takes to move surfaces.
   useEffect(() => {
-    if (enabled && step && pathname !== hrefFor(step)) router.push(hrefFor(step));
-  }, [enabled, step, pathname, hrefFor, router]);
+    if (enabled && step && !onPage) router.push(hrefFor(step));
+  }, [enabled, step, onPage, hrefFor, router]);
 
   // Measure + track the anchor rect. Every setState here fires inside an rAF or an event callback (never
   // synchronously in the effect body), so it reads as DOM→React synchronization rather than a render
   // cascade. After a redirect the target mounts a beat late, so poll on rAF (bounded) until it appears —
   // and when that budget runs out, mark the step skipped instead of polling for a target that never comes.
   useEffect(() => {
-    if (!enabled || !step || pathname !== hrefFor(step) || !step.anchor) return;
+    if (!enabled || !step || !onPage || !step.anchor) return;
     const { id: stepId, anchor } = step;
     const find = () => document.querySelector<HTMLElement>(`[data-tour="${anchor}"]`);
     let raf = 0;
@@ -128,11 +152,11 @@ export function useTourEngine(
       window.removeEventListener("scroll", track, true);
       window.removeEventListener("resize", track);
     };
-  }, [enabled, step, pathname, hrefFor]);
+  }, [enabled, step, onPage, hrefFor]);
 
   // Step over a step this org's dashboard can't anchor, continuing in the current direction of travel.
   useEffect(() => {
-    if (!enabled || !step || !skipped[step.id]) return;
+    if (!autoAdvanceOverSkipped || !enabled || !step || !skipped[step.id]) return;
     const dir = dirRef.current;
     for (let i = index + dir; i >= 0 && i < steps.length; i += dir) {
       const candidate = steps[i];
@@ -142,7 +166,7 @@ export function useTourEngine(
       }
     }
     // Nothing live ahead — stay put; the drawer renders this step as unavailable rather than spinning.
-  }, [enabled, step, skipped, index, steps]);
+  }, [autoAdvanceOverSkipped, enabled, step, skipped, index, steps]);
 
   // Escape collapses the drawer — bound only while it's open.
   useEffect(() => {

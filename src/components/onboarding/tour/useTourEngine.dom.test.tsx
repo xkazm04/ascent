@@ -1,26 +1,32 @@
 // @vitest-environment jsdom
 //
-// First tests for the dashboard tour engine. The tour/ directory shipped with ZERO coverage while
-// carrying the four behaviors a guided tour lives or dies on: the step cursor, cross-page redirection,
+// Tests for the dashboard tour engine. The tour/ directory shipped with ZERO coverage while carrying
+// the four behaviors a guided tour lives or dies on: the step cursor, cross-surface deep-linking,
 // skipping a step this org can't anchor, and session persistence of where the user got to.
+//
+// W6c changed three parts of the contract, pinned below: steps address a TAB (not a sub-path), the
+// engine persists only the cursor (the drawer owns `open`), and auto-advancing over a dead step is
+// opt-out — the task drawer turns it off so a missing control never silently changes which task the
+// member is looking at.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { TourStep } from "./types";
-import { tourStorageKey } from "./tourStorage";
+import { tourStorageKey, writeTourState } from "./tourStorage";
 
-const nav = vi.hoisted(() => ({ pathname: "/org/acme", push: vi.fn<(href: string) => void>() }));
+const nav = vi.hoisted(() => ({ pathname: "/org/acme", search: "", push: vi.fn<(href: string) => void>() }));
 vi.mock("next/navigation", () => ({
   usePathname: () => nav.pathname,
+  useSearchParams: () => new URLSearchParams(nav.search),
   useRouter: () => ({ push: nav.push }),
 }));
 
 import { ANCHOR_POLL_FRAMES, useTourEngine } from "./useTourEngine";
 
 const STEPS: TourStep[] = [
-  { id: "a", chapter: "scope", page: "", anchor: "alpha", kicker: "Scope · 1", title: "Step A", body: "a" },
-  { id: "b", chapter: "results", page: "", anchor: "beta", kicker: "Results · 1", title: "Step B", body: "b" },
-  { id: "c", chapter: "modules", page: "repositories", anchor: "gamma", kicker: "Modules · 1", title: "Step C", body: "c" },
+  { id: "a", tab: "overview", anchor: "alpha", kicker: "Scope · 1", title: "Step A", body: "a" },
+  { id: "b", tab: "overview", anchor: "beta", kicker: "Results · 1", title: "Step B", body: "b" },
+  { id: "c", tab: "repositories", anchor: "gamma", kicker: "Modules · 1", title: "Step C", body: "c" },
 ];
 
 // Deterministic rAF: the engine polls for its anchor on animation frames, so the tests drive those frames
@@ -37,6 +43,7 @@ function flushFrames(n: number) {
 
 beforeEach(() => {
   nav.pathname = "/org/acme";
+  nav.search = "";
   nav.push.mockReset();
   frames = [];
   sessionStorage.clear();
@@ -58,9 +65,9 @@ function anchor(name: string) {
   return el;
 }
 
-function mount(enabled: boolean, slug = "acme") {
+function mount(enabled: boolean, slug = "acme", autoAdvanceOverSkipped = true) {
   const onExit = vi.fn();
-  const hook = renderHook(() => useTourEngine(slug, STEPS, { enabled, onExit }));
+  const hook = renderHook(() => useTourEngine(slug, STEPS, { enabled, onExit, autoAdvanceOverSkipped }));
   return { ...hook, onExit };
 }
 
@@ -90,22 +97,31 @@ describe("useTourEngine — cursor", () => {
   });
 });
 
-describe("useTourEngine — cross-page redirection", () => {
-  it("pushes the step's page when the cursor moves off the current one, and never while collapsed", () => {
+describe("useTourEngine — cross-tab deep linking", () => {
+  it("pushes the step's TAB href when the cursor moves off the current one", () => {
     const { result, rerender } = mount(true);
-    expect(nav.push).not.toHaveBeenCalled(); // step A already lives on the overview
+    expect(nav.push).not.toHaveBeenCalled(); // step A already lives on the overview tab
 
-    act(() => result.current.goTo(2)); // step C lives on /repositories
-    expect(nav.push).toHaveBeenCalledWith("/org/acme/repositories");
+    act(() => result.current.goTo(2)); // step C lives on the repositories tab
+    expect(nav.push).toHaveBeenCalledWith("/org/acme?tab=repositories");
 
-    // Once the navigation lands, the engine stops pushing.
-    nav.pathname = "/org/acme/repositories";
+    // Once the navigation lands, the engine stops pushing — settled on `?tab=`, not on a sub-path that
+    // a permanent redirect would immediately rewrite.
+    nav.search = "tab=repositories";
     nav.push.mockReset();
     rerender();
     expect(nav.push).not.toHaveBeenCalled();
   });
 
-  it("stays inert while the drawer is closed", () => {
+  it("treats a legacy sub-path as being on the step's tab", () => {
+    nav.pathname = "/org/acme/repositories";
+    const { result } = mount(true);
+    act(() => result.current.goTo(2));
+    // Already on the repositories surface (reached by the permanent redirect stub), so no further push.
+    expect(nav.push).not.toHaveBeenCalledWith("/org/acme?tab=repositories");
+  });
+
+  it("stays inert while no spotlight is running", () => {
     const { result } = mount(false);
     act(() => result.current.goTo(2));
     expect(nav.push).not.toHaveBeenCalled();
@@ -138,19 +154,33 @@ describe("useTourEngine — a step this org can't anchor", () => {
     act(() => result.current.goTo(1));
     act(() => flushFrames(ANCHOR_POLL_FRAMES + 2));
     expect(result.current.isSkipped("b")).toBe(true);
-    // Step C sits on another page, so the cursor lands there and waits for the redirect rather than
+    // Step C sits on another tab, so the cursor lands there and waits for the deep link rather than
     // spinning on a dead step.
     expect(result.current.index).toBe(2);
-    expect(nav.push).toHaveBeenCalledWith("/org/acme/repositories");
+    expect(nav.push).toHaveBeenCalledWith("/org/acme?tab=repositories");
+  });
+
+  it("holds the cursor on a dead step when auto-advance is off (the task drawer)", () => {
+    anchor("beta");
+    const { result } = mount(true, "acme", false);
+    act(() => flushFrames(ANCHOR_POLL_FRAMES + 2));
+    // The member asked for step A specifically; a missing control degrades to plain navigation, it does
+    // not answer a different question by sliding to step B.
+    expect(result.current.isSkipped("a")).toBe(true);
+    expect(result.current.index).toBe(0);
+    expect(result.current.seeking).toBe(false);
+    expect(result.current.rect).toBeNull();
   });
 });
 
 describe("useTourEngine — session persistence", () => {
-  it("round-trips the cursor + open state across a remount, keyed per org", () => {
+  it("round-trips the cursor across a remount, keyed per org, without touching the drawer's `open`", () => {
+    writeTourState("acme", { open: true, index: 0 }); // the drawer's field, written by the drawer
     const first = mount(true);
     act(() => first.result.current.next());
     expect(first.result.current.index).toBe(1);
 
+    // The engine patches ONLY `index` — `open` survives because the drawer owns it.
     expect(JSON.parse(sessionStorage.getItem(tourStorageKey("acme"))!)).toEqual({ open: true, index: 1 });
     expect(sessionStorage.getItem(tourStorageKey("beta"))).toBeNull();
 
@@ -166,7 +196,7 @@ describe("useTourEngine — session persistence", () => {
     expect(other.result.current.index).toBe(0);
   });
 
-  it("records the collapsed state so a refresh doesn't reopen a drawer the user shut", () => {
+  it("persists the cursor even while no spotlight runs", () => {
     const { result, unmount } = mount(false);
     act(() => result.current.goTo(2));
     expect(JSON.parse(sessionStorage.getItem(tourStorageKey("acme"))!)).toEqual({ open: false, index: 2 });

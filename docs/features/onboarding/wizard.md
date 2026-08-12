@@ -106,26 +106,56 @@ The import path powers **free-tier onboarding**: it scans a whole public org wit
 requiring the [GitHub App](../github/github-app.md), and feeds straight into the
 [org dashboard](../org-dashboard/org-intelligence.md).
 
-### Dashboard tour (`src/components/onboarding/tour/`)
+### The onboarding companion (`src/components/onboarding/tour/`)
 
-Onboarding hands off to a dashboard the user has never read, so the org layout mounts a guided
-**tour drawer** on every org dashboard (`TourChecklist`, right-edge pull tab, collapsed by
-default and `inert` while collapsed — it was demo-org-only until 2026-07-27). Opening it runs
-`useTourEngine` over `ORG_TOUR_STEPS`: a six-step, three-chapter arc (set scope → read results →
-explore modules) that redirects across org sub-pages and pins a non-blocking accent ring to each
-step's `data-tour` anchor. Because the host is the **layout**, the tour survives sub-page
-navigation and re-anchors on arrival.
+**Ascent runs ONE guidance channel on the org dashboard.** The right-edge drawer the layout mounts
+(`TourChecklist`, pull tab, `inert` while collapsed) used to hold a fixed six-step teach arc; since
+W6c it holds the **server-derived getting-started checklist**, and the teach steps are demoted to
+spotlight copy the tasks borrow. A second "activation" surface next to it would have split the one
+question a new member has ("what do I do next?") across two answers that could disagree.
 
-- **Skips what an org doesn't have.** The anchor is polled on rAF for a bounded budget; if it
-  never mounts the step is marked unavailable ("n/a" in the list) and the cursor steps over it in
-  the current direction of travel. Real conditionals: `scan-scope` is non-personal-orgs-only, and
-  `results-view` / `results-controls` exist only once the fleet rollup has data.
-- **Persists per org.** Open state + step cursor live in `sessionStorage` under a per-org key
-  (`tourStorage.ts`), so a hard refresh mid-tour resumes exactly where it was and two orgs never
-  share a cursor. Restores are one-shot mount effects — the drawer renders inside a
-  server-rendered layout, so a lazy storage read would desync hydration.
-- Escape collapses the drawer; while collapsed the engine is fully inert (no navigation, no
-  highlight, no key capture).
+**Two postures, decided by the caller's own stamp** (`decidePosture`, `tasks.ts`):
+
+| | `companion` | `teaching` |
+| --- | --- | --- |
+| Who | a member whose `onboarding` stamp is null and who still has an available undone step | stamped (completed **or** skipped), `allDone`, the demo org, or anyone with no membership row |
+| Entry | the drawer **opens itself** | collapsed pull tab, discoverable — today's behaviour exactly |
+| Body | ONE promoted next task (primary CTA + "Show me") over the full task rail | task rail + the "Learn the dashboard" teach rail |
+| Footer | "Skip setup" (stamps) | — |
+
+A stored session decision always wins over the posture, so a member who shut the companion is not
+re-opened on every navigation. **Collapsing is not skipping**: Escape and the collapse control stay
+pure UI state; only "Skip setup" writes.
+
+- **Doneness is the server's, never the drawer's.** `useGettingStarted` polls
+  `GET /api/org/getting-started` every 20s (skipping hidden tabs), so a scan finishing in another
+  tab, a rec assigned from the backlog tab, or a teammate accepting an invite all tick a row with no
+  click in here. Progress is `done/total` over **available** steps only.
+- **Unavailable steps render honestly** — the same dashed-marker / "n/a" treatment the teach list
+  used, plus the reason ("Invites are owner-only"). A personal workspace therefore sees a genuinely
+  shorter list (3 steps) rather than a mostly-disabled one.
+- **Tasks map to spotlights, reusing the engine.** Each task deep-links to the tab the API names
+  (`orgTabHref`) and highlights the `data-tour` anchor it names — `backlog-recs`, `skills-registry`,
+  `watch-schedule`, `invite-member` are stamped on the real controls (BacklogPanel, SkillsPanel,
+  ScheduleSelect, MemberInvites). Where a teach step is the honest partner it lends its copy: the
+  undone `first-scan` task spotlights `scan-scope` (the control that *makes* the baseline — the
+  results grid doesn't exist yet) and switches to `results-view` once done; `loop` borrows
+  "Choose what's in scope". The three teach steps no task claims stay reachable in the teaching rail.
+- **A missing anchor degrades to plain navigation.** The engine polls on rAF for a bounded budget and
+  marks the step skipped; in the drawer, auto-advance is OFF (`autoAdvanceOverSkipped: false`) — the
+  member asked for *this* task, so the tab switch stands and only the ring is missing. Never a stuck
+  "seeking" state, and never a silent jump to a different task.
+- **Both stamps are written from here.** "Skip setup" POSTs `{status:"skipped"}`; reaching `allDone`
+  POSTs `{status:"completed"}` once (one-shot ref, fire-and-forget — a failed stamp never blocks the
+  UI, it just lets the companion open once more).
+- **Persists per org.** The drawer owns `open`, the engine owns the cursor, in one `sessionStorage`
+  record patched by both (`tourStorage.ts`). Restores are one-shot mount effects — the drawer renders
+  inside a server-rendered layout, so a lazy storage read would desync hydration; the drawer's
+  snapshot is taken *before* the engine's persist effect, or a fresh mount would always look like the
+  member had already collapsed it.
+- The engine addresses **tabs**, not sub-paths (`TourStep.tab`): every org surface lives in the
+  `?tab=` shell and the old sub-paths are permanent redirect stubs, which a pathname comparison could
+  never settle on.
 
 ### Server-side onboarding model (W6a: stamp + derived getting-started)
 
@@ -151,8 +181,8 @@ checklist in a later lane) ships as two primitives, both deliberately server-own
   write gate (member/admin/owner) sees it unavailable instead of a 403. Derivation:
   `src/lib/org/getting-started.ts` (pure model) over `getGettingStartedFacts`
   (`src/lib/db/org-onboarding.ts`, one pass of existence-shaped lookups). Anchors are shared
-  constants (`GETTING_STARTED_ANCHORS`); `first-scan` reuses the existing `results-view`
-  `data-tour` anchor, the rest await the UI lane.
+  constants (`GETTING_STARTED_ANCHORS`), all five now stamped on real controls and consumed by the
+  companion above.
 
 ## Launch / fleet map (`src/app/launch/page.tsx`, `src/components/launch/FleetMap.tsx`)
 
@@ -186,8 +216,12 @@ cluster, each repo a star:
 | `src/components/onboarding/importPlan.ts` | Pure `{ mock, watch, schedule, upgradeAfter }` plan for one run — the whole preview-then-upgrade matrix. |
 | `src/components/onboarding/upgradeScan.ts` | The one-shot, org-scoped, 15-min-TTL sessionStorage handoff the org header consumes to auto-start the live scan. |
 | `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`. |
-| `src/components/onboarding/OnboardingChecklist.tsx` | The checklist component — now rendered by the **connect page** only (the wizard's done phase dropped it in W6b). |
-| `src/components/onboarding/tour/` | The org-dashboard tour: steps, engine, persistence, drawer. |
+| `src/components/onboarding/OnboardingChecklist.tsx` | The **pre-org** funnel checklist — rendered by the connect page only (the wizard's done phase dropped it in W6b). Deliberately kept: it serves the state *before* any org dashboard exists (install App → pick repos → first scan), derived from session + watchlist, with no membership and therefore no getting-started model to read. The companion takes over the moment there is a dashboard; the two never render on the same page. |
+| `src/components/onboarding/tour/TourChecklist.tsx` | The drawer: chrome, posture, both stamp writes. |
+| `src/components/onboarding/tour/tasks.ts` | Pure content model: rows, progress, next task, posture, spotlight mapping. |
+| `src/components/onboarding/tour/useGettingStarted.ts` | Poll the derived checklist; POST the stamp. |
+| `src/components/onboarding/tour/useTourEngine.ts` | Cursor, tab deep-link, rAF anchor poll, skip-when-absent, cursor persistence. |
+| `src/components/onboarding/tour/steps.ts` | The teach library the tasks borrow spotlight copy from. |
 | `src/lib/org/getting-started.ts` | Pure getting-started model: derived steps, availability honesty, `allDone`. |
 | `src/lib/db/org-onboarding.ts` | Membership onboarding stamp read/write + one-pass getting-started facts. |
 | `src/app/api/org/onboarding/route.ts` | `POST` the caller's own completed/skipped stamp (the flow gate). |
@@ -204,7 +238,5 @@ cluster, each repo a star:
   "select is public-only" is no longer true — the *funnel* is, the *selector* isn't).
 - **The public listing is bounded** — it walks at most 5 pages before giving up, so a large or
   fork-heavy account yields a recent slice (disclosed in the select step, not silently).
-- **The tour's steps are fixed** — they teach the fleet dashboard; a personal workspace or an
-  unscanned org sees several of them skipped rather than a tailored arc.
 - **Launch needs sign-in + the App** — anonymous or unconfigured-auth visitors get a
   sign-in notice; the map is empty until installations exist.
