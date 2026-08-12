@@ -77,7 +77,10 @@ base branch").
 ### Shared write path, drift guard, and PR tracking (`src/lib/practices/apply.ts`)
 
 Both the single-repo and batch routes go through `applyPracticeToRepo()`, so the
-three behaviors below apply to either:
+three behaviors below apply to either. Its inner write (openDraftPr + the uniform
+`path`/`pr`/`reused` audit envelope) is exported as `openArtifactDraftPr()`, which the
+AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply` — see
+[org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
 
 - **Content-drift guard.** The caller may pass the `expectedFingerprint` it previewed.
   If `artifactFingerprint(artifact.body)` no longer matches, apply returns

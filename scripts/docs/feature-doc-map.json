@@ -161,10 +161,14 @@
         "src/lib/org/**",
         "src/lib/db/org-rollup.ts",
         "src/lib/db/org-insights.ts",
+        "src/lib/db/org-stance.ts",
         "src/lib/db/segments.ts",
         "src/lib/db/branding.ts",
         "src/lib/integrations/**",
-        "src/app/api/org/invites/**"
+        "src/app/api/org/invites/**",
+        "src/app/api/org/ai-stance/**",
+        "src/components/org/govern/stance/**",
+        "src/components/org/govern/governance/GovernancePanel.tsx"
       ]
     },
     {

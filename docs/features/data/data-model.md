@@ -6,7 +6,7 @@ layers on the **optional** Prisma persistence layer in `prisma/schema.prisma` + 
 When `DATABASE_URL` is unset, `isDbConfigured()` returns false and DB-backed features degrade
 to empty/notice states rather than erroring.
 
-The schema now defines **40 models**. It is **DSQL-safe by design** so the same migrations run
+The schema now defines **44 models**. It is **DSQL-safe by design** so the same migrations run
 on local Postgres and Amazon Aurora DSQL (see the header comment in `prisma/schema.prisma`):
 
 - `relationMode = "prisma"` — **no foreign-key constraints** emitted (DSQL has none);
@@ -76,6 +76,8 @@ inline comments (most models carry a multi-line design-rationale comment there).
 | --- | --- | --- |
 | `AuditLog` | Compliance trail. Tamper-**evident**: every write folds a per-row HMAC into `meta._sig`, and every read recomputes it (see below). | `orgId?` (null for anonymous public scans), `actorId?`, `action`, JSON `meta` (incl. `_sig`), `at`; indexed `[orgId, at]` for keyset pagination |
 | `OrgDecision` | A human decision on a derived, recomputed-every-render finding (a failing check, a solo-maintained repo, a passport blocker) — the state layer that lets a rail badge's count actually go down. Upsert on `(orgId, module, itemKey)`; `itemKey` must be the finding's deterministic identity. | `module` (security\|teams\|passports\|contributors), `itemKey`, `status` (open\|accepted\|dismissed\|snoozed), `rationale`, `title`, `decidedBy?`, `memoryId?` (the `OrgMemory` row it writes through to), `snoozedUntil?`; `@@unique([orgId, module, itemKey])` |
+| `OrgAiStance` | The org's published **AI stance** (W3) as **versioned rows** — each publish appends version N+1 and marks the prior published row `superseded`, so history is complete and an acknowledgement can pin the exact text a repo adopted. At most one `draft` and one `published` row per org. `stanceJson` is the serialized `AiStance` (permitted tools/models, no-AI zones, review tiers per autonomy tier, provenance requirements — JSON-in-TEXT, sanitized on write AND read by `sanitizeStance`). Compliance against it is derived at read time from existing scan data, never stored. | `version`, `status` (draft\|published\|superseded), `stanceJson`, `publishedBy?`, `publishedAt?`; `@@unique([orgId, version])`, indexed `[orgId, status]` |
+| `OrgArtifactAck` | A repo's acknowledgement of an org-level **artifact version** — the repo ⇄ stance-version link nothing recorded before (the Perimeter prototype's named schema gap). Sparse upsert per `(orgId, artifact, repoFullName)` (the `OrgDecision` shape: re-acknowledging updates; unacked = no row). `artifact` is `"ai-stance"` today; the column exists so a later org artifact can reuse the primitive without a second table. | `artifact`, `version`, `repoFullName`, `ackedBy?`, `ackedAt`; `@@unique([orgId, artifact, repoFullName])` |
 
 #### Audit-trail tamper-evidence (sign on write, verify on read)
 

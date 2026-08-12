@@ -540,6 +540,39 @@ rows are excluded from it:
 Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. Pinned by
 `src/components/org/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
 
+## AI stance (Governance tab, W3)
+
+The Governance tab carries a second section under the gate cards: the org's **published AI
+stance** — the versioned "what may AI do here" policy artifact (permitted tools/models, no-AI
+zones, review requirements per autonomy tier, provenance requirements). The gate is the *enforced*
+bar; the stance is the *declared* policy, and every readout is **declared vs OBSERVED attribution**
+from existing scan data — never "enforced", and the copy must never claim it is.
+
+- **Model** — `OrgAiStance` versioned rows (draft → published → superseded; see
+  [data-model.md](../data/data-model.md)) with `stanceJson` typed as `AiStance` in `src/lib/types.ts`
+  and guarded by `sanitizeStance` (`src/lib/org/stance.ts`, the sibling of `sanitizeGatePolicy`).
+  Acknowledgements live on `OrgArtifactAck` (repo ⇄ artifact version, `artifact = "ai-stance"`),
+  upserted per repo — `current` / `stale` / `unacked` is derived against the ACTIVE version.
+- **Compliance** — pure `evaluateStanceCompliance` (`src/lib/org/stance.ts`) over per-repo facts
+  read by `getStanceRepoFacts` (`src/lib/db/org-stance.ts`): observed tool taxonomy + `aiInvolvedRate`
+  + W2 `aiTrailerRate` from the latest scan's `prStats`, unapproved MERGED `AiChange` rows, and the
+  repo's ack. The fleet assembly (`buildStanceOverview`, `src/lib/org/stance-overview.ts`) **stamps
+  the stance version it evaluated**. Repo-scoped no-AI zones are checkable (glob vs fullName);
+  **path-scoped zones are advisory-only** (commit file paths aren't ingested) and every surface
+  labels them with the shared `PATH_ZONE_ADVISORY_LABEL`.
+- **UI** — `src/components/org/govern/stance/`: `StanceSection` (server) renders the **Perimeter**
+  (`StancePerimeter` + `perimeterParts`): checkpoint strip (declared tools/models vs
+  observed-undeclared), four tier bands T0→T3 fed by each repo's **real autonomy tier from the
+  shared `passport-autonomy` resolver** (repos with no passport are shown as "tier not assessed",
+  never defaulted), and the sealed-zones panel. No published stance → the publish-CTA empty state.
+  Owners get `StanceEditor` (sibling of `GatePolicyEditor`: save draft / publish vN), an
+  ack button per non-current repo, and an "Open AI_POLICY.md PR" control.
+- **API** — `/api/org/ai-stance` (member GET; owner POST draft/publish, audit-logged as
+  `org.ai_stance` with version + summary), `/api/org/ai-stance/ack` (admin; `org.ai_stance_ack`),
+  `/api/org/ai-stance/apply` (admin; opens a draft PR committing `AI_POLICY.md` — rendered by
+  `src/lib/org/stance-artifact.ts` — through the shared practices apply machinery; the filename
+  deliberately matches the D1 detector's `ai[-_]policy` reward, so adoption lifts D1).
+
 ## Known gaps
 
 - **The Overview shows standing, not a punch list.** It renders where the fleet stands and how its

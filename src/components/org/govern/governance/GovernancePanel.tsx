@@ -16,10 +16,9 @@ import { GovernanceFailReasonsCard } from "./GovernanceFailReasonsCard";
 import { GovernanceFailingReposCard } from "./GovernanceFailingReposCard";
 import { GovernanceClosestToGreenCard } from "./GovernanceClosestToGreenCard";
 import { GovernanceCiCard } from "./GovernanceCiCard";
-// PROTOTYPE (branch prototype-ai-stance): the AI-stance directional variants sit behind a tab strip
-// alongside the shipped baseline. Remove both imports and the wrapper at consolidation.
-import { StanceSwitcher } from "../stance/StanceSwitcher";
-import { buildMockStance } from "../stance/stanceMock";
+// W3: the AI-stance prototype switcher is retired — the Perimeter is a real section below the gate
+// cards, fed by the persisted OrgAiStance + per-repo compliance from existing scan data.
+import { StanceSection } from "../stance/StanceSection";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -37,29 +36,27 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
 
   const filterBar = <ScopeFilterBar {...barProps} />;
 
-  // PROTOTYPE: the stance mock derives its repo spine from the real governance overview.
-  const stance = buildMockStance(g, slug, true);
-  const unpublished = buildMockStance(g, slug, false);
-
   if (!g) {
-    const baseline = (
-      <div>
+    // The stance still renders without scans: it is persisted org CONFIG, not scan-derived — the
+    // publish CTA / editor is exactly what a fresh org should meet here.
+    return (
+      <div className="space-y-6">
         <div className="mb-4 flex justify-end">{filterBar}</div>
         <SectionEmpty>
           {scoped
             ? "No scanned repositories for this filter — pick another segment/stack or clear the filter to evaluate the whole fleet."
             : "No scanned repositories yet — scan some of this org's repositories to evaluate the fleet against the governance gate."}
         </SectionEmpty>
+        <StanceSection slug={slug} canEdit={canEdit} />
       </div>
     );
-    return <StanceSwitcher baseline={baseline} stance={stance} unpublished={unpublished} slug={slug} />;
   }
 
   const md = governanceMarkdown(g);
   const snippet = ciActionYaml(g.ciWith).join("\n");
   const passColor = scoreHex(g.passRate);
 
-  const baseline = (
+  return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <SectionHeader
@@ -88,8 +85,8 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       <GovernanceFailingReposCard slug={slug} g={g} />
       <GovernanceClosestToGreenCard slug={slug} g={g} />
       <GovernanceCiCard gateQuery={g.gateQuery} snippet={snippet} />
+
+      <StanceSection slug={slug} canEdit={canEdit} />
     </div>
   );
-
-  return <StanceSwitcher baseline={baseline} stance={stance} unpublished={unpublished} slug={slug} />;
 }

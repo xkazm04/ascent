@@ -12,6 +12,41 @@ import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
 import { recordAudit, recordPracticePr } from "@/lib/db";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
+/**
+ * The shared "open a draft PR seeding one generated artifact, then audit-log it" step — the inner
+ * write both the practice apply AND the AI-stance AI_POLICY.md apply run through, so a change to
+ * openDraftPr options or the audit envelope lands once instead of forking the customer-repo write
+ * path. `audit.meta` carries the caller's payload; `path`/`pr`/`reused` are appended uniformly.
+ */
+export async function openArtifactDraftPr(
+  token: string,
+  ref: ParsedRepo,
+  artifact: ArtifactSpec,
+  base: string | undefined,
+  audit: { action: string; orgId?: string; actorId?: string; meta?: Record<string, unknown> },
+): Promise<OpenPrResult> {
+  const pr = await openDraftPr({
+    token,
+    owner: ref.owner,
+    repo: ref.repo,
+    branch: artifact.branch,
+    base,
+    path: artifact.path,
+    content: artifact.body,
+    commitMessage: artifact.commitMessage,
+    prTitle: artifact.prTitle,
+    prBody: artifact.prBody,
+  });
+
+  await recordAudit(
+    audit.action,
+    { ...(audit.meta ?? {}), path: artifact.path, pr: pr.number, reused: pr.reused },
+    { orgId: audit.orgId, actorId: audit.actorId },
+  );
+
+  return pr;
+}
+
 export type ApplyPracticeResult =
   | { kind: "ok"; pr: OpenPrResult; ctx: RepoContextMeta; artifact: ArtifactSpec }
   | { kind: "unknown-practice"; ctx: RepoContextMeta }
@@ -45,31 +80,16 @@ export async function applyPracticeToRepo(
     return { kind: "content-drift", ctx, artifact };
   }
 
-  const pr = await openDraftPr({
-    token,
-    owner: ref.owner,
-    repo: ref.repo,
-    branch: artifact.branch,
-    base,
-    path: artifact.path,
-    content: artifact.body,
-    commitMessage: artifact.commitMessage,
-    prTitle: artifact.prTitle,
-    prBody: artifact.prBody,
-  });
-
-  await recordAudit(
-    "practice.pr_opened",
-    {
+  const pr = await openArtifactDraftPr(token, ref, artifact, base, {
+    action: "practice.pr_opened",
+    orgId: audit.orgId,
+    actorId: audit.actorId,
+    meta: {
       repo: ctx.fullName,
       practiceId,
-      path: artifact.path,
-      pr: pr.number,
-      reused: pr.reused,
       ...(audit.batch ? { batch: true } : {}),
     },
-    { orgId: audit.orgId, actorId: audit.actorId },
-  );
+  });
 
   // Lifecycle: hand the PR to the SAME ImprovementPr machinery the war room polls (merge detection +
   // post-merge impact), so applying a practice no longer dead-ends at an audit row — the practices

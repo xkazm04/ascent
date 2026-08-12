@@ -24,6 +24,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // recordAudit/recordOrgAudit call site in src/ and fails if a recorded action has no entry here — so
   // the next new action can't silently fall off the same way.
   { value: "org.gate_policy", label: "Gate policy", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // W3 — the AI-stance module: draft/publish writes, per-repo acknowledgements, and the
+  // AI_POLICY.md draft PR (recorded via openArtifactDraftPr with this action).
+  { value: "org.ai_stance", label: "AI stance", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org.ai_stance_ack", label: "Stance ack", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },

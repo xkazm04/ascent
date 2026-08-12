@@ -181,7 +181,7 @@ function shape(p: PracticeDef): string {
  * anyway, but `description` is free-form user text and is the real injection vector; sanitize all
  * repo-supplied strings uniformly (defense in depth). Ordinary punctuation is preserved.
  */
-function safeText(s: string): string {
+export function safeText(s: string): string {
   return s.replace(/[\r\n\t]+/g, " ").replace(/[`<>]/g, "").trim();
 }
 
