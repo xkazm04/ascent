@@ -183,6 +183,8 @@ CREATE TABLE "AiChange" (
     "approverLogin" TEXT,
     "approvedAt" TIMESTAMP(3),
     "reviewCount" INTEGER NOT NULL DEFAULT 0,
+    "revertedByPr" INTEGER,
+    "revertedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL,
     "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

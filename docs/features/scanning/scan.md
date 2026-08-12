@@ -196,6 +196,16 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
   PRs an AI/bot reviewer — `ai-tools.ts:AI_REVIEW_BOTS`: CodeRabbit, Copilot code review,
   Greptile, … — reviewed **before the first human review**). Per-channel counts
   (`aiAuthoredPrs`/`aiMarkedPrs`/`aiTrailerPrs`) sum to the AI-involved population.
+  **Revert linkage (W5, `pulls.ts:linkReverts`)** matches merged revert PRs to the merged
+  PRs they roll back, entirely within the fetched window (zero extra API calls): by title
+  (`Revert "<original title>"`, with a merged-before-the-revert chronology guard) and by
+  message (`This reverts commit <sha>` in the revert's body / commit messages, resolved
+  prefix-tolerantly against the targets' merge-commit + PR-commit SHAs — `PR_QUERY` fetches
+  `oid` alongside each commit message for this). Two more rates ride the same floors:
+  `reworkRate` (share of merged PRs later reverted; ≥5 merged) and `aiReworkRate` (the same
+  over AI-involved merged PRs; additionally ≥5 AI-involved merged). Both are **lower
+  bounds** — a renamed revert, or a revert merged outside the window, escapes the matcher —
+  and are documented as "at least this share", never a census.
   The same call also returns `aiChanges` — the **AI-change population** (`extractAiChanges`):
   one evidence row per AI-attributed PR carrying the author, how it was identified
   (`authored` by an agent, `marked` by a human, or `trailer` from commit messages), the
@@ -203,7 +213,10 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
   row count always reconciles with `aiInvolvedRate`. Persisted (never scored) as `AiChange`;
   costs no extra GitHub calls — the PR nodes were already fetched and previously discarded.
   `approved: false` with a null approver is the finding an auditor is looking for, and
-  `reviewCount` distinguishes it from "never reviewed at all".
+  `reviewCount` distinguishes it from "never reviewed at all". W5 adds a revert stamp to
+  each row (`revertedByPr`/`revertedAt`, from the same `linkReverts` pass as the rates, so
+  the stamped population always reconciles with `aiReworkRate`) — null means "no revert
+  matched in the window", never "was never reverted".
 - `src/lib/github/governance.ts:fetchBranchGovernance` — branch protection + rulesets.
   Folds into D6/D3/D8. `fetchCommitActivity` adds 52-week commit history.
 

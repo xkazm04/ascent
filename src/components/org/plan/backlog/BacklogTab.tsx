@@ -16,12 +16,14 @@
 
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-// PROTOTYPE (branch prototype-debt-surface): the panel is rendered through DebtSwitcher, whose
-// "Baseline" tab is the untouched BacklogPanel. Revert this import + the render below to drop the
-// scaffold.
-import { DebtSwitcher } from "@/components/org/plan/backlog/debt/DebtSwitcher";
+// W5: the Debt Ledger (real data — revert linkage + rework rates from org-rework.ts) renders as the
+// tab's debt summary ABOVE the working BacklogPanel. The prototype switcher is retired: the panel is
+// management UI (grouping, bulk edit, CSV) the ledger doesn't replace, so they stack instead.
+import { DebtLedger } from "@/components/org/plan/backlog/debt/DebtLedger";
+import { buildDebtFleet } from "@/components/org/plan/backlog/debt/debtModel";
+import { BacklogPanel } from "@/components/org/plan/backlog/BacklogPanel";
 import { PersonalBacklog } from "@/components/org/PersonalBacklog";
-import { getOrgBacklog, isPersonalOrg } from "@/lib/db";
+import { getOrgBacklog, getOrgRework, isPersonalOrg } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -37,7 +39,12 @@ export async function BacklogTab({ slug, sp }: { slug: string; sp: SearchParams 
   // resolved ids also thread into BacklogPanel so its post-edit refresh stays on the same view.
   const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
 
-  const backlog = await getOrgBacklog(slug, segmentId, new Date(), techGroupId);
+  // The ledger's quality half (rework/write-offs/exposure) reads each repo's latest scan — same
+  // scope as the backlog, loaded in parallel. Null (DB off / no PR data) renders as unmeasured.
+  const [backlog, rework] = await Promise.all([
+    getOrgBacklog(slug, segmentId, new Date(), techGroupId),
+    getOrgRework(slug, segmentId, techGroupId),
+  ]);
   const scoped = segmentId != null || techGroupId != null;
   const scopeBar = <ScopeFilterBar {...barProps} className="mb-4 flex flex-wrap items-center justify-end gap-2" />;
 
@@ -63,7 +70,10 @@ export async function BacklogTab({ slug, sp }: { slug: string; sp: SearchParams 
         title="Recommendation backlog"
         description="Every open gap across the fleet, as a roadmap you can run — assign an owner, set a due date, and track each one from open to done. Grouped by owner and by due date; every change is recorded in the item's history."
       />
-      <DebtSwitcher slug={slug} initial={backlog} segmentId={segmentId} techGroupId={techGroupId} />
+      <div className="space-y-8">
+        <DebtLedger slug={slug} fleet={buildDebtFleet(backlog, rework)} />
+        <BacklogPanel slug={slug} initial={backlog} segmentId={segmentId} techGroupId={techGroupId} />
+      </div>
     </div>
   );
 }

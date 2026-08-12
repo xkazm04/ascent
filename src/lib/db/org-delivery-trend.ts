@@ -55,7 +55,8 @@ export type DeliveryRateKey =
   | "revertRate"
   | "smallPrRate"
   | "aiTrailerRate"
-  | "aiPreReviewedRate";
+  | "aiPreReviewedRate"
+  | "reworkRate";
 
 /** Every metric the trend emits — the rates plus the duration metrics (hours, their own axis). */
 export type DeliveryMetricKey = DeliveryRateKey | "hoursToMerge" | "hoursToFirstReview";
@@ -95,6 +96,10 @@ export interface DeliveryTrendPoint {
   /** Analyzed-weighted share of merged PRs AI/bot-reviewed before the first human review (W2).
    *  Null = no sample, same semantics as aiTrailerRate. */
   aiPreReviewedRate: number | null;
+  /** Analyzed-weighted share of merged PRs later reverted by a matched revert in the window (W5) — a
+   *  lower bound (see pulls.ts linkReverts). Null = no sample: every pre-W5 blob and every
+   *  below-floor scan back-fills honestly as null. */
+  reworkRate: number | null;
   /** Share of the day's governance-READABLE scans whose default branch is protected. Null when no
    *  scan that day could read governance (never a measured 0 — "couldn't read" ≠ "unprotected"). */
   protectedRate: number | null;
@@ -170,6 +175,7 @@ const PR_RATES = [
   "smallPrRate",
   "aiTrailerRate",
   "aiPreReviewedRate",
+  "reworkRate",
 ] as const;
 type PrRateField = (typeof PR_RATES)[number];
 
@@ -287,6 +293,7 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         hoursToFirstReview: meanTenth(a.ttfr),
         aiTrailerRate: rate("aiTrailerRate"),
         aiPreReviewedRate: rate("aiPreReviewedRate"),
+        reworkRate: rate("reworkRate"),
         protectedRate: a.govReadable > 0 ? Math.round((a.govProtected / a.govReadable) * 100) : null,
         // Hollow only when the day has NO live scan at all — one live scan makes the day's aggregate
         // a real (if mixed) measurement, and the note under the chart explains the mix.

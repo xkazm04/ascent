@@ -64,6 +64,40 @@ to the fleet?" — deterministically, with **no writes**.
   before/after with deltas, and the biggest movers. The result is read-only and never
   persisted.
 
+## Debt Ledger (Backlog tab)
+
+The Backlog tab (`src/components/org/plan/backlog/BacklogTab.tsx`) opens with the **Debt
+Ledger** (W5, 2026-08-12) — AI-era quality debt as a statement of account, rendered ABOVE
+the working backlog panel (which keeps grouping, inline edits, search/filter, bulk actions
+and CSV export — the ledger summarizes, the panel manages). The prototype's variant
+switcher and mock data (`DebtSwitcher.tsx`, `debtMockData.ts`) are retired; every number is
+real:
+
+- **Principal / Overdue / Due-soon** — the backlog itself (`getOrgBacklog`): score points
+  locked up in past-due recommendations (projected points, impact-based fallback for
+  legacy scans), per repo and fleet-wide. The panel's old Overdue/Due-soon tiles moved up
+  here.
+- **Interest** — `reworkRate` (share of merged PRs later reverted; W5 revert linkage) from
+  each repo's latest scan via `src/lib/db/org-rework.ts` (`getOrgRework`, mirroring
+  `org-signals.ts`: latest-scan blobs, analyzed-PR-weighted fleet aggregates). A per-repo
+  **AI interest** column shows `aiReworkRate` (the same over AI-involved merges).
+- **Write-offs** — `revertRate` (revert-titled PRs, W1a). **Exposure** — the
+  trailer-grounded `aiTrailerRate` (W2) where measured, falling back to the marker-based
+  `aiInvolvedRate` and labeled as the fallback.
+- **Pressure** (row sort + verdict tone) — a 0–100 composite over the MEASURED terms only
+  (overdue principal 45% · rework 35% · write-offs 20%, weights renormalizing when a rate
+  is null), documented in `debtModel.ts`.
+
+**Null discipline:** a repo whose latest scan predates rework tracking, has no PR data, or
+is under the ≥5-sample floors renders an honest "—" with the reason in the tooltip and the
+ledger's field notes ("scan predates rework tracking — re-scan to measure") — never a zero.
+The rework rates are **lower bounds** (window-scoped matcher; renamed reverts escape),
+stated in the field notes.
+
+**Deferred:** *AI churn share* (rework landing on AI-authored lines) has no real signal yet
+— it needs per-PR file paths (tier B churn ingest, pairs with stance path-zone enforcement).
+The prototype's mock column was removed rather than faked; it returns with its signal.
+
 ## Detector backlog
 
 `getOrgDiscrepancies(slug)` aggregates the LLM auditor's flagged signals (where it thinks a
@@ -80,6 +114,8 @@ deterministic detectors.
 | `src/components/org/plan/InitiativesPanel.tsx` | Initiatives CRUD + seeding from fleet moves. |
 | `src/components/org/plan/Simulator.tsx` | What-if form + projection display. |
 | `src/lib/db/plan.ts` | Goals, initiatives, `simulateOrgFix`, `fleetSnapshot`, `currentFor`. |
+| `src/components/org/plan/backlog/debt/` | Debt Ledger: `DebtLedger.tsx` (the statement), `debtModel.ts` (backlog × rework join, pressure composite), `debtParts.tsx` (field notes, rate cells, verdicts). |
+| `src/lib/db/org-rework.ts` | Fleet rework read: per-repo `reworkRate`/`aiReworkRate`/`revertRate`/exposure from latest-scan `prStats` blobs + weighted fleet aggregates (`buildOrgRework` pure + `getOrgRework`). |
 | `src/lib/scoring/orgsim.ts` | Pure fleet simulator (`recomputeRepo`, `simulateFleet`). |
 | `src/app/api/org/goals/*`, `initiatives/*`, `simulate/route.ts` | Planning APIs. |
 

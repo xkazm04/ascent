@@ -169,6 +169,12 @@ export interface AiChangeRecord {
   approvedAt: string | null;
   reviewCount: number;
   createdAt: string;
+  /** PR number of the merged revert that rolled this change back (W5 revert linkage), or null when
+   * no revert was matched IN THE SCANNED WINDOW — a lower bound, not proof it was never reverted. */
+  revertedByPr: number | null;
+  /** When that revert merged (ISO), or null. Separate from `revertedByPr` only in being the revert's
+   * own timestamp — the pair is stamped (or absent) together. */
+  revertedAt: string | null;
 }
 
 /** A contributor's recent activity, incl. how much of it is AI-attributed. */
@@ -545,6 +551,15 @@ export interface PrStats {
    * with no human review at all (W2). The "AI pre-review" adoption signal. Null under the ≥5
    * merged-PR floor. */
   aiPreReviewedRate: number | null;
+  /** Of MERGED PRs, the share later REVERTED by another merged PR in the same window (W5) — matched
+   * via `Revert "<original title>"` titles and `This reverts commit <sha>` messages. A LOWER BOUND:
+   * a renamed revert, or a revert merged after the window, escapes the matcher. Null under the ≥5
+   * merged-PR floor, never a fabricated 0. */
+  reworkRate: number | null;
+  /** The same reverted-share, over AI-INVOLVED merged PRs only (W5) — "does AI-assisted work get
+   * rolled back more?". Same lower-bound semantics; null unless BOTH floors hold (≥5 merged AND
+   * ≥5 AI-involved merged PRs). */
+  aiReworkRate: number | null;
 }
 
 /** Default-branch governance — from the branch `protected` flag + the (read-only) rulesets API.

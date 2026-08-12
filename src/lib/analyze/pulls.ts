@@ -84,6 +84,89 @@ function aiPreReviewed(pr: PrNode): boolean {
   return firstAi !== null && (firstHuman === null || firstAi <= firstHuman);
 }
 
+// ── Revert linkage (W5, tier A — deterministic, zero extra API calls) ─────────
+//
+// Within the fetched PR window, match merged REVERT PRs to the merged PRs they roll back, through
+// the two artifacts GitHub's own revert flow produces:
+//   title   — the revert PR is titled `Revert "<original title>"` (exact inner-title match);
+//   message — its body / merge-commit / PR-commit messages carry `This reverts commit <sha>`,
+//             resolved against the target PRs' merge-commit + PR-commit SHAs (prefix-tolerant).
+// The result is a LOWER BOUND by construction: a manually renamed revert, a revert whose target
+// merged before the window, or a revert that lands after the scan all escape. That is disclosed on
+// every field this feeds (PrStats.reworkRate / aiReworkRate, AiChange.revertedByPr) — the honest
+// framing is "at least this share was rolled back", never a census.
+
+const REVERT_TITLE = /^\s*revert\b/i;
+const REVERT_QUOTED = /revert\s+"(.+)"\s*$/i;
+const REVERTS_COMMIT = /this reverts commit\s+([0-9a-f]{7,40})/gi;
+
+/** All commit messages we fetched for a PR (merge commit first, then its own commits). */
+const commitMessages = (pr: PrNode): string[] =>
+  [pr.mergeCommit?.message, ...(pr.commits?.nodes ?? []).map((n) => n?.commit?.message)].filter((m): m is string => !!m);
+
+/** All commit SHAs we fetched for a PR (same nodes as the messages; absent on pre-W5 shapes). */
+const commitShas = (pr: PrNode): string[] =>
+  [pr.mergeCommit?.oid, ...(pr.commits?.nodes ?? []).map((n) => n?.commit?.oid)].filter((s): s is string => !!s).map((s) => s.toLowerCase());
+
+/**
+ * Map of reverted-PR number → the merged revert PR that rolled it back (earliest revert wins).
+ * Only MERGED reverts count (an open revert PR hasn't reverted anything yet), only MERGED PRs can be
+ * targets, and a title match additionally requires the target to have merged BEFORE the revert —
+ * two same-titled PRs must not link backwards. SHA matches are unambiguous and need no such guard.
+ */
+export function linkReverts(nodes: PrNode[]): Map<number, { byPr: number; at: string | null }> {
+  const merged = nodes.filter((pr) => pr.state === "MERGED" || !!pr.mergedAt);
+  if (merged.length < 2) return new Map();
+
+  const byTitle = new Map<string, PrNode[]>();
+  const bySha: { sha: string; pr: PrNode }[] = [];
+  for (const pr of merged) {
+    const t = pr.title.trim();
+    const list = byTitle.get(t);
+    if (list) list.push(pr);
+    else byTitle.set(t, [pr]);
+    for (const sha of commitShas(pr)) bySha.push({ sha, pr });
+  }
+
+  const out = new Map<number, { byPr: number; at: string | null }>();
+  const record = (target: PrNode, revert: PrNode) => {
+    if (target.number === revert.number) return;
+    const prev = out.get(target.number);
+    // Earliest revert wins — the first roll-back is the rework event; later re-reverts don't move it.
+    // (A null mergedAt sorts last via the "￿" sentinel, so a timestamped revert always beats it.)
+    if (!prev || (revert.mergedAt ?? "￿") < (prev.at ?? "￿")) {
+      out.set(target.number, { byPr: revert.number, at: revert.mergedAt });
+    }
+  };
+
+  for (const revert of merged) {
+    const isTitledRevert = REVERT_TITLE.test(revert.title);
+    // `This reverts commit <sha>` appears in the revert's body (GitHub's generated PR body) and in
+    // its commit messages — scan both. Cheap guard: only PRs that even mention a revert.
+    const revertText = `${revert.bodyText ?? ""}\n${commitMessages(revert).join("\n")}`;
+    const mentionsSha = revertText.toLowerCase().includes("this reverts commit");
+    if (!isTitledRevert && !mentionsSha) continue;
+
+    if (isTitledRevert) {
+      const inner = REVERT_QUOTED.exec(revert.title.trim())?.[1];
+      for (const target of inner ? (byTitle.get(inner.trim()) ?? []) : []) {
+        // Chronology guard for title matches: the target merged before the revert did.
+        if (target.mergedAt && revert.mergedAt && target.mergedAt < revert.mergedAt) record(target, revert);
+      }
+    }
+    if (mentionsSha) {
+      for (const m of revertText.matchAll(REVERTS_COMMIT)) {
+        const sha = m[1]!.toLowerCase();
+        for (const { sha: candidate, pr: target } of bySha) {
+          // Prefix-tolerant both ways: messages often carry the full 40-char SHA, humans abbreviate.
+          if (candidate.startsWith(sha) || sha.startsWith(candidate)) record(target, revert);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function median(xs: number[]): number | null {
   // Drop any non-finite entries first: a single malformed timestamp upstream would otherwise
   // make the comparator return NaN (unstable sort) and can yield a NaN median.
@@ -134,6 +217,11 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     aiTrailerPrs = 0,
     trailerMerged = 0, // merged PRs carrying an AI trailer, regardless of channel precedence
     preReviewedMerged = 0; // merged PRs with an AI/bot review before the first human review
+  let revertedMerged = 0, // merged PRs later reverted by another merged PR in the window (W5)
+    aiInvolvedMerged = 0, // merged PRs that are AI-involved (the aiReworkRate denominator)
+    aiRevertedMerged = 0; // …of those, the ones later reverted (its numerator)
+  // W5 revert linkage — one pass over the same nodes, no extra fetches.
+  const reverts = linkReverts(nodes);
 
   for (const pr of nodes) {
     const isMerged = pr.state === "MERGED" || !!pr.mergedAt;
@@ -185,6 +273,12 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     if (isMerged) {
       if (ai.hasTrailer) trailerMerged++;
       if (aiPreReviewed(pr)) preReviewedMerged++;
+      const reverted = reverts.has(pr.number);
+      if (reverted) revertedMerged++;
+      if (ai.signal !== null) {
+        aiInvolvedMerged++;
+        if (reverted) aiRevertedMerged++;
+      }
     }
   }
 
@@ -237,6 +331,12 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     // swings the rate 25–100pts. Below the floor: null ("not measurable"), never a fabricated 0.
     aiTrailerRate: merged >= 5 ? pct(trailerMerged, merged) : null,
     aiPreReviewedRate: merged >= 5 ? pct(preReviewedMerged, merged) : null,
+    // W5: revert-linkage rates. Same ≥5 merged floor as the W2 rates above; the AI split ADDITIONALLY
+    // floors on its own denominator (≥5 AI-involved merged PRs) — at 1–4 AI merges one revert swings
+    // the rate 25–100pts. Both are LOWER BOUNDS (see linkReverts): null means "not measurable",
+    // a number means "at least this share was rolled back in the window".
+    reworkRate: merged >= 5 ? pct(revertedMerged, merged) : null,
+    aiReworkRate: merged >= 5 && aiInvolvedMerged >= 5 ? pct(aiRevertedMerged, aiInvolvedMerged) : null,
   };
 }
 
@@ -426,6 +526,9 @@ export type { AiChangeRecord };
 
 export function extractAiChanges(nodes: PrNode[]): AiChangeRecord[] {
   const out: AiChangeRecord[] = [];
+  // The SAME linkage the summarizer computes (linkReverts is pure and cheap), so a stamped evidence
+  // row can never disagree with the aiReworkRate shown beside it.
+  const reverts = linkReverts(nodes);
   for (const pr of nodes) {
     // The SAME shared predicate the summarizer uses (readAiInvolvement) — one detector, two readings.
     const ai = readAiInvolvement(pr);
@@ -456,6 +559,10 @@ export function extractAiChanges(nodes: PrNode[]): AiChangeRecord[] {
       approvedAt: first?.submittedAt ?? null,
       reviewCount: pr.reviews.totalCount,
       createdAt: pr.createdAt,
+      // W5 revert linkage — a lower bound (window-scoped matcher); null is "no revert matched", not
+      // "never reverted". Stamped as a pair or not at all.
+      revertedByPr: reverts.get(pr.number)?.byPr ?? null,
+      revertedAt: reverts.get(pr.number)?.at ?? null,
     });
   }
   return out;

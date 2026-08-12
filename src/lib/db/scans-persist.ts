@@ -459,10 +459,18 @@ export async function persistScanReport(
               reviewCount: c.reviewCount,
               createdAt: new Date(c.createdAt),
             };
+            // W5 revert stamp — EVIDENCE-PRESERVING on re-scan: the PR window slides, so a later scan
+            // can see this PR while its revert has aged out of the window. A null stamp on the update
+            // path means "no revert matched THIS window", not "the old stamp was wrong" — so the pair
+            // is only written when a revert was matched (create still records the honest null).
+            const reverted =
+              c.revertedByPr != null
+                ? { revertedByPr: c.revertedByPr, revertedAt: c.revertedAt ? new Date(c.revertedAt) : null }
+                : null;
             await tx.aiChange.upsert({
               where: { repoId_prNumber: { repoId: repo.id, prNumber: c.prNumber } },
-              create: { repoId: repo.id, prNumber: c.prNumber, ...row },
-              update: row,
+              create: { repoId: repo.id, prNumber: c.prNumber, ...row, ...(reverted ?? { revertedByPr: null, revertedAt: null }) },
+              update: { ...row, ...(reverted ?? {}) },
             });
           }
         }

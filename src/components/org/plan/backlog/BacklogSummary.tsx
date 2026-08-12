@@ -1,15 +1,14 @@
 import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
-import { DUE_SOON_DAYS, OVERDUE_ACCENT } from "@/components/org/shared/backlogShared";
 import type { BacklogOwnerGroup, OrgBacklog } from "@/lib/db";
 
 export function SummaryStrip({ b }: { b: OrgBacklog }) {
   // Use the canonical Tile ledger so these tiles match every other dashboard surface, instead of a
-  // local Stat copy that drifted; only the column rhythm (6-across) is local.
+  // local Stat copy that drifted; only the column rhythm (4-across) is local. The Overdue and
+  // Due-soon tiles moved to the Debt Ledger masthead above this panel (W5) — duplicating them here
+  // would show the same debt twice on one tab; this strip keeps the WORKFLOW counts.
   return (
-    <div className={`${TILE_LEDGER} grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`}>
+    <div className={`${TILE_LEDGER} grid-cols-2 lg:grid-cols-4`}>
       <Tile label="Active" value={b.active} />
-      <Tile label="Overdue" value={b.overdue} color={b.overdue ? OVERDUE_ACCENT : undefined} />
-      <Tile label={`Due ≤ ${DUE_SOON_DAYS}d`} value={b.dueSoon} color={b.dueSoon ? "#eab308" : undefined} />
       <Tile label="Unassigned" value={b.unassigned} color={b.unassigned ? "#fbbf24" : undefined} />
       <Tile label="In progress" value={b.inProgress} />
       <Tile label="Done" value={b.done} color={b.done ? "#22c55e" : undefined} />

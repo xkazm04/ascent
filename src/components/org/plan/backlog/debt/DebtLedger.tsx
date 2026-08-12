@@ -1,49 +1,48 @@
-// VARIANT A — "The Debt Ledger". METAPHOR: a statement of account.
+// "The Debt Ledger" — the Backlog tab's debt summary. METAPHOR: a statement of account.
 //
 // AI-era debt read as a balance sheet: overdue recommendations are the PRINCIPAL (score points
-// locked up), the rework rate is the INTEREST RATE that principal accrues at, reversions are
-// WRITE-OFFS, and AI-authored churn is the EXPOSURE the interest is charged on. Editorial, dense,
-// single column, mono-typeset — a document you read top to bottom and could hand to a VP.
+// locked up), the rework rate is the INTEREST that principal accrues at (merged PRs later reverted —
+// W5 revert linkage), reversion-titled PRs are WRITE-OFFS (W1a), and AI-attributed delivery is the
+// EXPOSURE the interest is charged on (W2 trailers). Every number is real: the backlog half comes
+// from OrgBacklog, the quality half from each repo's latest scan (org-rework.ts). Unmeasured cells
+// render an honest "—" with the reason — never a zero. AI-churn share is deferred with its signal
+// (see debtModel.ts header).
 //
-// How it differs from the baseline: the baseline groups the SAME recommendations by owner/due date
-// as a to-do list. This never lists an item. It aggregates to one row per repo and re-frames each
-// row as an account whose cost is still being paid.
+// Renders ABOVE the working BacklogPanel (grouping, bulk edit, CSV) — it aggregates to one row per
+// repo and re-frames each as an account whose cost is still being paid; the panel below stays the
+// place the individual items are managed.
 
-import { Dateline, Kicker } from "@/components/ui";
-import { OrgTable, SectionHeader, Tile, TILE_LEDGER, fmtDelta, deltaHex } from "@/components/org/shared/ui";
-import { OVERDUE_ACCENT } from "@/components/org/shared/backlogShared";
+import { Kicker } from "@/components/ui";
+import { OrgTable, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { DUE_SOON_DAYS, OVERDUE_ACCENT } from "@/components/org/shared/backlogShared";
 import { reportPermalink } from "@/lib/ui";
 import type { DebtFleet } from "./debtModel";
-import { fmtChurn, pct, pct1, ppDelta } from "./debtModel";
-import { DimChips, MockNotice, RateCell, pressureHex, verdictFor } from "./debtParts";
+import { fmtRate } from "./debtModel";
+import { DimChips, FieldNotes, RateCell, pressureHex, unmeasuredReasonFor, verdictFor } from "./debtParts";
 
 export function DebtLedger({ slug, fleet }: { slug: string; fleet: DebtFleet }) {
-  const reworkDelta = ppDelta(fleet.reworkRate, fleet.reworkRatePrev);
-  const reversionDelta = ppDelta(fleet.reversionRate, fleet.reversionRatePrev);
-
   return (
     <div className="animate-fade-up space-y-5">
-      <Dateline
-        left={`Debt ledger · ${slug}`}
-        right={`${fleet.repos} accounts · ${fleet.overdue} overdue · statement of quality debt`}
-      />
-
       <SectionHeader
-        title="What AI velocity is costing you"
+        title="Debt ledger"
         descriptionClassName="max-w-3xl"
-        description="Every repo as an account. The principal is the score points locked up in recommendations already past due; the interest rate is the share of merged changes reworked within 30 days. High interest on a large principal is debt that compounds faster than the team pays it down."
+        description="Every repo as an account. The principal is the score points locked up in recommendations already past due; the interest rate is the share of merged PRs later reverted. High interest on a large principal is debt that compounds faster than the team pays it down."
       />
 
       <div className={`${TILE_LEDGER} grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`}>
         <Tile label="Principal" value={fleet.principal} sub="pts overdue" color={fleet.principal ? OVERDUE_ACCENT : undefined} />
         <Tile label="Overdue" value={fleet.overdue} sub="recommendations" color={fleet.overdue ? OVERDUE_ACCENT : undefined} />
-        <Tile label="Interest" value={pct(fleet.reworkRate)} sub="rework rate" delta={reworkDelta} deltaLabel="pp vs prior" />
-        <Tile label="Write-offs" value={pct1(fleet.reversionRate)} sub="reverted PRs" delta={reversionDelta} deltaLabel="pp vs prior" />
-        <Tile label="Exposure" value={pct(fleet.aiAuthoredShare)} sub="AI-authored PRs" />
-        <Tile label="Unowned" value={fleet.unowned} sub="no assignee" color={fleet.unowned ? "#fbbf24" : undefined} />
+        <Tile label={`Due ≤ ${DUE_SOON_DAYS}d`} value={fleet.dueSoon} sub="coming due" color={fleet.dueSoon ? "#eab308" : undefined} />
+        <Tile label="Interest" value={fmtRate(fleet.reworkRate)} sub="merged PRs reverted" />
+        <Tile label="Write-offs" value={fmtRate(fleet.revertRate)} sub="revert-titled PRs" />
+        <Tile
+          label="Exposure"
+          value={fmtRate(fleet.exposure)}
+          sub={fleet.exposureGrounded ? "AI-trailer merges" : "AI-involved PRs"}
+        />
       </div>
 
-      <MockNotice />
+      <FieldNotes fleet={fleet} />
 
       <OrgTable
         caption="Per-repo quality debt ledger"
@@ -54,6 +53,7 @@ export function DebtLedger({ slug, fleet }: { slug: string; fleet: DebtFleet }) 
             <th className="px-4 py-3 text-right">Principal</th>
             <th className="px-4 py-3 text-right">Age</th>
             <th className="px-4 py-3 text-right">Interest</th>
+            <th className="px-4 py-3 text-right">AI interest</th>
             <th className="px-4 py-3 text-right">Write-offs</th>
             <th className="px-4 py-3 text-right">Exposure</th>
             <th className="px-4 py-3">Servicing</th>
@@ -62,6 +62,7 @@ export function DebtLedger({ slug, fleet }: { slug: string; fleet: DebtFleet }) 
       >
         {fleet.rows.map((row) => {
           const v = verdictFor(row, fleet.medianRework);
+          const reason = unmeasuredReasonFor(row);
           return (
             <tr key={row.repo} className="align-top">
               <td className="px-4 py-3">
@@ -82,19 +83,20 @@ export function DebtLedger({ slug, fleet }: { slug: string; fleet: DebtFleet }) 
               <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-300">
                 {row.avgDaysOverdue ? `${row.avgDaysOverdue}d` : "—"}
               </td>
-              <td className="px-4 py-3">
-                <div className="flex justify-end">
-                  <RateCell now={row.q.reworkRate} prev={row.q.reworkRatePrev} />
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex justify-end">
-                  <RateCell now={row.q.reversionRate} prev={row.q.reversionRatePrev} decimals={1} />
-                </div>
+              <td className="px-4 py-3 text-right">
+                <RateCell value={row.q.reworkRate} unmeasuredReason={reason} />
               </td>
               <td className="px-4 py-3 text-right">
-                <div className="font-mono tabular-nums text-slate-200">{pct(row.q.aiChurnShare)}</div>
-                <div className="font-mono text-xs tabular-nums text-slate-500">{fmtChurn(row.q.churnPerWeek)} ln/wk</div>
+                <RateCell
+                  value={row.q.aiReworkRate}
+                  unmeasuredReason={row.q.reworkRate == null ? reason : "Fewer than 5 AI-involved merged PRs — not measurable"}
+                />
+              </td>
+              <td className="px-4 py-3 text-right">
+                <RateCell value={row.q.revertRate} unmeasuredReason={reason} />
+              </td>
+              <td className="px-4 py-3 text-right">
+                <RateCell value={row.q.exposure} unmeasuredReason={reason} />
               </td>
               <td className="max-w-[22rem] px-4 py-3">
                 <span className="inline-flex items-center gap-2">
@@ -117,8 +119,9 @@ export function DebtLedger({ slug, fleet }: { slug: string; fleet: DebtFleet }) 
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-t border-divider pt-4">
         <Kicker tone="muted">Statement total</Kicker>
         <p className="font-mono text-sm tabular-nums text-slate-400">
-          {fleet.principal} pts principal across {fleet.repos} accounts · interest{" "}
-          <span style={{ color: deltaHex(reworkDelta) }}>{fmtDelta(reworkDelta)} pp</span> this period
+          {fleet.principal} pts principal across {fleet.repos} accounts
+          {fleet.reworkRate != null && <> · fleet interest {fmtRate(fleet.reworkRate)}</>}
+          {fleet.aiReworkRate != null && <> ({fmtRate(fleet.aiReworkRate)} on AI-involved merges)</>}
           {fleet.worst && <> · worst account {fleet.worst.repoName}</>}
         </p>
       </div>
