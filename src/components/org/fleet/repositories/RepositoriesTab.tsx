@@ -16,6 +16,7 @@ import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
+import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -48,6 +49,12 @@ export async function RepositoriesTab({
   return (
     <div className="stagger-children space-y-6">
       <FleetTabs slug={slug} active="repositories" />
+      {/* PROTOTYPE (P4 — Context Health): a quality-over-presence lens on the fleet's agent-context
+          layer, anchored above the leaderboard. Behind its own variant switcher; remove this block
+          to restore the tab exactly. */}
+      <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
+        <ContextHealthPanel slug={slug} />
+      </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <RepositoriesLeaderboardPanel slug={slug} sp={sp} />
       </Suspense>
