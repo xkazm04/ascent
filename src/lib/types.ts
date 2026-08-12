@@ -156,8 +156,10 @@ export interface AiChangeRecord {
   title: string;
   authorLogin: string | null;
   authorIsBot: boolean;
-  /** How it was identified: an AI agent opened it, or a human marked AI assistance. */
-  aiSignal: "authored" | "marked";
+  /** How it was identified: an AI agent opened it, a human marked AI assistance in title/body/labels,
+   * or (W2) its merge-commit / PR-commit messages carry an AI attribution trailer. Precedence when
+   * several apply: authored > marked > trailer. */
+  aiSignal: "authored" | "marked" | "trailer";
   aiTools: string[];
   state: string;
   mergedAt: string | null;
@@ -486,6 +488,19 @@ export interface PrStats {
   revertRate: number; // titles starting with "Revert"
   draftRate: number;
   tools: { name: string; count: number }[]; // detected AI-tool taxonomy
+  /** Per-channel counts of the AI-involved population (W2), by detection precedence
+   * authored > marked > trailer — they sum to the AI-involved PR count exactly. */
+  aiAuthoredPrs: number; // an AI agent bot opened the PR
+  aiMarkedPrs: number; // AI markers in title / body / labels (and not bot-authored)
+  aiTrailerPrs: number; // ONLY the commit-message trailers said so (and no marker/bot author)
+  /** Of MERGED PRs, the share whose merge-commit or PR-commit messages carry an AI attribution
+   * trailer (W2) — trailer-GROUNDED attribution, independent of the channel precedence above (a
+   * marked PR that also carries a trailer counts here). Null under the ≥5 merged-PR sample floor. */
+  aiTrailerRate: number | null;
+  /** Of MERGED PRs, the share that received an AI/bot review BEFORE the first human review — or
+   * with no human review at all (W2). The "AI pre-review" adoption signal. Null under the ≥5
+   * merged-PR floor. */
+  aiPreReviewedRate: number | null;
 }
 
 /** Default-branch governance — from the branch `protected` flag + the (read-only) rulesets API.

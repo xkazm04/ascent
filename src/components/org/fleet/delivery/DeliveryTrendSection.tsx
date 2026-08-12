@@ -44,6 +44,18 @@ export const DELIVERY_TREND_METRICS: MetricDef[] = [
     unit: "%",
   },
   {
+    key: "aiTrailerRate",
+    label: "AI trailers",
+    help: "Share of merged PRs whose commit messages carry an AI attribution trailer — grounded attribution, not self-declared. Context, not a target.",
+    unit: "%",
+  },
+  {
+    key: "aiPreReviewedRate",
+    label: "AI pre-review",
+    help: "Share of merged PRs an AI/bot reviewer looked at before the first human review.",
+    unit: "%",
+  },
+  {
     key: "protectedRate",
     label: "Protected default branch",
     help: "Share of repos with a protected default branch, among those whose rules Ascent could read.",

@@ -20,7 +20,10 @@ import { GitHubError } from "@/lib/github/source";
 
 const GRAPHQL = githubGraphqlUrl();
 // Covers the body too (host.ts fetchWithTimeout); raised accordingly — a 100-PR page with reviews
-// and files is a sizable payload.
+// and files is a sizable payload. W2 adds mergeCommit{message} + commits(last:15){message} per PR
+// (trailer attribution) and __typename on review authors: a full 100-PR page now resolves
+// ~100×(20 reviews + 10 labels + 15 commits) ≈ 4,600 nodes (≈ 46 rate-limit points, up from ~31) —
+// still far under GitHub's 500k-node page budget, and the added payload is commit MESSAGES only.
 const TIMEOUT_MS = 30_000;
 
 export interface PrReview {
@@ -29,8 +32,10 @@ export interface PrReview {
   /** Who submitted the review. Null for a deleted account (GitHub nulls `author` on those), so a
    *  consumer must treat "reviewed but no name" as a real, expected case rather than an error — the
    *  approval still happened. This is what makes a NAMED approver derivable at all: the aggregate
-   *  rates never needed it, so the field was simply not requested. */
-  author: { login: string } | null;
+   *  rates never needed it, so the field was simply not requested.
+   *  `__typename` (W2) distinguishes a Bot reviewer (an AI pre-review such as CodeRabbit / Copilot
+   *  code review) from a human — optional because review nodes persisted before W2 lack it. */
+  author: { login: string; __typename?: string } | null;
 }
 
 export interface PrNode {
@@ -49,6 +54,14 @@ export interface PrNode {
   labels: { nodes: { name: string }[] };
   reviews: { totalCount: number; nodes: PrReview[] };
   comments: { totalCount: number };
+  /** The merge/squash commit's message (W2) — where a squash-merge (the dominant style) lands the PR
+   *  commits' AI attribution trailers, which the title/body/label markers never see. Null on unmerged
+   *  PRs; optional because pre-W2 fixtures/persisted shapes lack the key. */
+  mergeCommit?: { message: string } | null;
+  /** The PR's own last ≤15 commit messages (W2) — trailer attribution for rebase-merge repos, where
+   *  no merge commit survives. Bounded at 15 to keep the page payload growth proportional to the
+   *  trailer question, not the repo's PR depth. */
+  commits?: { nodes: ({ commit: { message: string } } | null)[] };
 }
 
 export interface PullRequestsResult {
@@ -144,8 +157,10 @@ const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String
         additions deletions changedFiles
         author{ login __typename }
         labels(first:10){ nodes{ name } }
-        reviews(first:20){ totalCount nodes{ state submittedAt author{ login } } }
+        reviews(first:20){ totalCount nodes{ state submittedAt author{ login __typename } } }
         comments{ totalCount }
+        mergeCommit{ message }
+        commits(last:15){ nodes{ commit{ message } } }
       }
     }
   }

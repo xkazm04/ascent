@@ -53,7 +53,9 @@ export type DeliveryRateKey =
   | "aiGovernedRate"
   | "protectedRate"
   | "revertRate"
-  | "smallPrRate";
+  | "smallPrRate"
+  | "aiTrailerRate"
+  | "aiPreReviewedRate";
 
 /** Every metric the trend emits — the rates plus the duration metrics (hours, their own axis). */
 export type DeliveryMetricKey = DeliveryRateKey | "hoursToMerge" | "hoursToFirstReview";
@@ -87,6 +89,12 @@ export interface DeliveryTrendPoint {
   /** Mean of the day's per-repo median hours-to-FIRST-review (W1a) — the review-capacity signal,
    *  same median-of-medians shape as hoursToMerge. Null = no sample. */
   hoursToFirstReview: number | null;
+  /** Analyzed-weighted share of merged PRs whose commit messages carry an AI trailer (W2). Null = no
+   *  sample — every pre-W2 blob and every below-floor (<5 merged) scan back-fills honestly as null. */
+  aiTrailerRate: number | null;
+  /** Analyzed-weighted share of merged PRs AI/bot-reviewed before the first human review (W2).
+   *  Null = no sample, same semantics as aiTrailerRate. */
+  aiPreReviewedRate: number | null;
   /** Share of the day's governance-READABLE scans whose default branch is protected. Null when no
    *  scan that day could read governance (never a measured 0 — "couldn't read" ≠ "unprotected"). */
   protectedRate: number | null;
@@ -149,10 +157,20 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-// revertRate + smallPrRate (W1a) ride the same analyzed-weighted machinery as the original four:
-// `num()` returns null for a blob written before the fields existed, so old rows contribute no
-// weight instead of a fabricated 0 — which is exactly what lets the trend back-fill from history.
-const PR_RATES = ["mergeRate", "reviewedRate", "aiInvolvedRate", "aiGovernedRate", "revertRate", "smallPrRate"] as const;
+// revertRate + smallPrRate (W1a) and aiTrailerRate + aiPreReviewedRate (W2) ride the same
+// analyzed-weighted machinery as the original four: `num()` returns null for a blob written before
+// the fields existed, so old rows contribute no weight instead of a fabricated 0 — which is exactly
+// what lets the trend back-fill from history.
+const PR_RATES = [
+  "mergeRate",
+  "reviewedRate",
+  "aiInvolvedRate",
+  "aiGovernedRate",
+  "revertRate",
+  "smallPrRate",
+  "aiTrailerRate",
+  "aiPreReviewedRate",
+] as const;
 type PrRateField = (typeof PR_RATES)[number];
 
 interface DayAcc {
@@ -267,6 +285,8 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         revertRate: rate("revertRate"),
         smallPrRate: rate("smallPrRate"),
         hoursToFirstReview: meanTenth(a.ttfr),
+        aiTrailerRate: rate("aiTrailerRate"),
+        aiPreReviewedRate: rate("aiPreReviewedRate"),
         protectedRate: a.govReadable > 0 ? Math.round((a.govProtected / a.govReadable) * 100) : null,
         // Hollow only when the day has NO live scan at all — one live scan makes the day's aggregate
         // a real (if mixed) measurement, and the note under the chart explains the mix.

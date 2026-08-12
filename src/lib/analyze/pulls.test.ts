@@ -321,3 +321,120 @@ describe("extractAiChanges — the AI-change population", () => {
     expect(rows[0]!.approverLogin).toBe("bob");
   });
 });
+
+// ── W2: trailer-based attribution (the third detection channel) ───────────────
+//
+// A squash-merged Claude Code PR whose author never wrote "🤖" in the description still carries
+// `Co-Authored-By: Claude` in the squash commit — the channel AI_MARKER structurally missed. One
+// shared predicate powers the rate AND the evidence rows, so both must agree in every case below.
+
+const TRAILER = "feat: thing\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
+
+describe("summarizePullRequests / extractAiChanges — trailer attribution (W2)", () => {
+  it("detects a trailer in the MERGE commit (squash-merge, the dominant case)", () => {
+    const nodes = [pr({ number: 1, mergeCommit: { message: TRAILER } })];
+    const stats = summarizePullRequests(nodes, 1);
+    const rows = extractAiChanges(nodes);
+    expect(stats.aiInvolvedRate).toBe(100);
+    expect(stats.aiTrailerPrs).toBe(1);
+    expect(rows[0]).toMatchObject({ aiSignal: "trailer" });
+    expect(rows[0]!.aiTools).toContain("Claude"); // tool attribution sees the commit text
+  });
+
+  it("detects a trailer in the PR's own commits (rebase-merge — no merge commit survives)", () => {
+    const nodes = [pr({ number: 2, mergeCommit: null, commits: { nodes: [{ commit: { message: "chore: wip" } }, { commit: { message: TRAILER } }] } })];
+    expect(summarizePullRequests(nodes, 1).aiTrailerPrs).toBe(1);
+    expect(extractAiChanges(nodes)[0]!.aiSignal).toBe("trailer");
+  });
+
+  it("recognizes the Assisted-By trailer phrase (shared vocabulary with the commit-level detector)", () => {
+    const nodes = [pr({ number: 3, mergeCommit: { message: "feat: x\n\nAssisted-By: Copilot" } })];
+    expect(summarizePullRequests(nodes, 1).aiTrailerPrs).toBe(1);
+    expect(extractAiChanges(nodes)[0]!.aiTools).toContain("Copilot");
+  });
+
+  it("an UNMERGED PR's trailer commits do not attribute it (trailer is a merged-PR channel)", () => {
+    const nodes = [pr({ number: 4, state: "OPEN", mergedAt: null, commits: { nodes: [{ commit: { message: TRAILER } }] } })];
+    expect(summarizePullRequests(nodes, 1).aiInvolvedRate).toBe(0);
+    expect(extractAiChanges(nodes)).toHaveLength(0);
+  });
+
+  it("precedence: a marked PR that ALSO carries a trailer stays 'marked' — but the trailer still grounds aiTrailerRate", () => {
+    const merged = (n: number, over: Partial<PrNode> = {}) => pr({ number: n, ...over });
+    const nodes = [
+      merged(1, { title: "feat: parser 🤖 Generated with Claude Code", mergeCommit: { message: TRAILER } }), // marked + trailer
+      merged(2, { mergeCommit: { message: TRAILER } }), // trailer only
+      merged(3), merged(4), merged(5), // plain merged PRs (past the >=5 floor)
+    ];
+    const stats = summarizePullRequests(nodes, 5);
+    const rows = extractAiChanges(nodes);
+    expect(rows.map((r) => r.aiSignal)).toEqual(["marked", "trailer"]);
+    expect(stats.aiMarkedPrs).toBe(1);
+    expect(stats.aiTrailerPrs).toBe(1); // channel counts sum to the involved population
+    expect(stats.aiTrailerRate).toBe(40); // 2 of 5 merged carry a trailer — precedence-independent
+  });
+
+  it("aiTrailerRate honours the >=5 MERGED floor — null below it, never a fabricated 0", () => {
+    const nodes = [pr({ number: 1, mergeCommit: { message: TRAILER } }), pr({ number: 2 }), pr({ number: 3 }), pr({ number: 4 })];
+    expect(summarizePullRequests(nodes, 4).aiTrailerRate).toBeNull(); // 4 merged < 5
+    expect(summarizePullRequests([], 0).aiTrailerRate).toBeNull();
+  });
+
+  it("a node without the W2 fields (legacy fixture / partial page) is simply not trailer-attributed", () => {
+    expect(summarizePullRequests([pr({ number: 1 })], 1).aiTrailerPrs).toBe(0);
+  });
+});
+
+// ── W2: AI pre-review (review-capacity signal) ────────────────────────────────
+
+describe("summarizePullRequests — aiPreReviewedRate (W2)", () => {
+  const review = (state: string, login: string | null, submittedAt: string | null, typename = "User") => ({
+    state,
+    submittedAt,
+    author: login ? { login, __typename: typename } : null,
+  });
+  const merged = (n: number, reviews: ReturnType<typeof review>[] = []) =>
+    pr({ number: n, reviews: { totalCount: reviews.length, nodes: reviews } });
+
+  it("counts a merged PR whose AI reviewer submitted BEFORE the first human review", () => {
+    const nodes = [
+      merged(1, [review("COMMENTED", "coderabbitai[bot]", "2026-01-01T01:00:00Z", "Bot"), review("APPROVED", "alice", "2026-01-01T02:00:00Z")]),
+      merged(2, [review("APPROVED", "alice", "2026-01-01T01:00:00Z"), review("COMMENTED", "coderabbitai[bot]", "2026-01-01T02:00:00Z", "Bot")]), // human first
+      merged(3, [review("COMMENTED", "copilot-pull-request-reviewer[bot]", "2026-01-01T01:00:00Z", "Bot")]), // AI only, no human at all
+      merged(4),
+      merged(5),
+    ];
+    // PRs 1 and 3 are pre-reviewed; 2 (human first), 4/5 (no reviews) are not.
+    expect(summarizePullRequests(nodes, 5).aiPreReviewedRate).toBe(40);
+  });
+
+  it("a Bot-typed AI-agent reviewer (copilot[bot]) counts; a deleted account reads as human", () => {
+    const nodes = [
+      merged(1, [review("COMMENTED", "copilot[bot]", "2026-01-01T01:00:00Z", "Bot"), review("APPROVED", "alice", "2026-01-01T02:00:00Z")]),
+      merged(2, [review("APPROVED", null, "2026-01-01T01:00:00Z"), review("COMMENTED", "greptile-apps[bot]", "2026-01-01T02:00:00Z", "Bot")]), // deleted human first
+      merged(3),
+      merged(4),
+      merged(5),
+    ];
+    expect(summarizePullRequests(nodes, 5).aiPreReviewedRate).toBe(20); // only PR 1
+  });
+
+  it("ignores PENDING reviews (null submittedAt) — an unsubmitted review pre-reviewed nothing", () => {
+    const nodes = [
+      merged(1, [review("COMMENTED", "coderabbitai[bot]", null, "Bot"), review("APPROVED", "alice", "2026-01-01T02:00:00Z")]),
+      merged(2), merged(3), merged(4), merged(5),
+    ];
+    expect(summarizePullRequests(nodes, 5).aiPreReviewedRate).toBe(0); // measured 0, not null — floor is met
+  });
+
+  it("honours the >=5 MERGED floor — null below it", () => {
+    const nodes = [merged(1, [review("COMMENTED", "coderabbitai[bot]", "2026-01-01T01:00:00Z", "Bot")])];
+    expect(summarizePullRequests(nodes, 1).aiPreReviewedRate).toBeNull();
+  });
+
+  it("a review-bot review does NOT flag the PR as AI-involved (reviewers are not authors)", () => {
+    const nodes = [merged(1, [review("APPROVED", "coderabbitai[bot]", "2026-01-01T01:00:00Z", "Bot")])];
+    expect(summarizePullRequests(nodes, 1).aiInvolvedRate).toBe(0);
+    expect(extractAiChanges(nodes)).toHaveLength(0);
+  });
+});

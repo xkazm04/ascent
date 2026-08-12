@@ -14,7 +14,7 @@ import type {
   Signal,
 } from "@/lib/types";
 import { clamp } from "@/lib/maturity/model";
-import { AI_TOOL_ALT } from "./ai-tools";
+import { AI_TRAILER_SOURCE } from "./ai-tools";
 
 // ---------------------------------------------------------------------------
 // Analysis context — precomputed views over the snapshot for cheap querying.
@@ -594,12 +594,10 @@ const d6: Detector = (idx, snap) => {
 // ---------------------------------------------------------------------------
 // D7 — Commit & Velocity Signals
 // ---------------------------------------------------------------------------
-// Tool-name alternation sourced from the single AI vocabulary (ai-tools.ts) so commit, PR, and
-// passport attribution recognize the same set; the fixed phrases are commit-trailer specific.
-const AI_TRAILER = new RegExp(
-  `co-authored-by:\\s*(${AI_TOOL_ALT})|generated with \\[?claude code|🤖 generated with|noreply@anthropic`,
-  "i",
-);
+// The whole trailer vocabulary — key phrases (co-authored-by / assisted-by) AND the tool-name
+// alternation — is sourced from ai-tools.ts (AI_TRAILER_SOURCE), so commit-level and PR-level
+// trailer attribution can never drift apart (W2).
+const AI_TRAILER = new RegExp(AI_TRAILER_SOURCE, "i");
 const CONVENTIONAL =
   /^(feat|fix|chore|docs|refactor|test|build|ci|perf|style|revert)(\(.+\))?!?:/i;
 

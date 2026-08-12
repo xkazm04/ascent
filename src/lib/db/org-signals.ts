@@ -24,6 +24,11 @@ export interface PrRepoRow {
   /** Median hours from a PR opening to its first review — the review-capacity signal (W1a).
    *  Null when no PR in the window received a review (or the blob predates the field). */
   medianHoursToFirstReview: number | null;
+  /** % of merged PRs whose merge-commit / PR-commit messages carry an AI attribution trailer (W2) —
+   *  the trailer-GROUNDED attribution rate. Null under the ≥5 merged floor or on a pre-W2 blob. */
+  aiTrailerRate: number | null;
+  /** % of merged PRs with an AI/bot review before the first human review (W2). Same null semantics. */
+  aiPreReviewedRate: number | null;
 }
 
 export interface OrgPrSignals {
@@ -35,6 +40,8 @@ export interface OrgPrSignals {
   avgAiInvolvedRate: number; // analyzed-weighted
   avgAiGovernedRate: number | null; // analyzed-weighted repo aiGovernedRate (null when NO repo has a sample)
   avgRevertRate: number | null; // analyzed-weighted; null only when NO blob carries the field (pre-W1a scans)
+  avgAiTrailerRate: number | null; // analyzed-weighted; null when NO blob carries a merged-PR trailer sample (W2)
+  avgAiPreReviewedRate: number | null; // analyzed-weighted; same null semantics (W2)
   typicalHoursToMerge: number | null; // mean of per-repo medians (a median-of-medians, left unweighted)
   typicalHoursToFirstReview: number | null; // mean of per-repo first-review medians (same shape as above)
   tools: { name: string; count: number }[];
@@ -82,6 +89,8 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
           medianHoursToMerge: p.medianHoursToMerge,
           revertRate: num(p.revertRate),
           medianHoursToFirstReview: num(p.medianHoursToFirstReview),
+          aiTrailerRate: num(p.aiTrailerRate),
+          aiPreReviewedRate: num(p.aiPreReviewedRate),
         });
       }
     } catch {
@@ -136,6 +145,11 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     // W1a: revertRate is analyzed-denominated (like mergeRate), but stays nullable because a
     // pre-field historical blob has no measurement to contribute — absence, not a measured 0.
     avgRevertRate: weightedRate((s) => num(s.revertRate)),
+    // W2: merged-PR-denominated rates ride the same analyzed-weighted machinery (analyzed is the
+    // persisted volume proxy — see the weighting note above); a pre-W2 blob or a below-floor sample
+    // is null and contributes no weight, never a fabricated 0.
+    avgAiTrailerRate: weightedRate((s) => num(s.aiTrailerRate)),
+    avgAiPreReviewedRate: weightedRate((s) => num(s.aiPreReviewedRate)),
     typicalHoursToMerge: meanTenth(ttm),
     typicalHoursToFirstReview: meanTenth(ttfr),
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),

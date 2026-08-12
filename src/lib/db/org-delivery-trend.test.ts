@@ -266,6 +266,56 @@ describe("buildDeliveryTrend — W1a metrics (revertRate / smallPrRate / hoursTo
   });
 });
 
+// ── W2 metrics: aiTrailerRate + aiPreReviewedRate ─────────────────────────────
+//
+// Same num() discipline as W1a: a blob written before W2 — or one persisting null for a below-floor
+// merged sample — contributes no weight, so history back-fills honestly instead of fabricating 0s.
+
+/** A blob exactly as a pre-W2 scan persisted it: the trailer/pre-review keys are absent. */
+function preW2PrStats(over: Partial<PrStats> = {}): string {
+  const o = JSON.parse(prStats(over)) as Record<string, unknown>;
+  delete o.aiTrailerRate;
+  delete o.aiPreReviewedRate;
+  return JSON.stringify(o);
+}
+
+describe("buildDeliveryTrend — W2 metrics (aiTrailerRate / aiPreReviewedRate)", () => {
+  it("weights both rates by analyzed PRs, like every sibling rate", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 30, aiTrailerRate: 20, aiPreReviewedRate: 10 }) }),
+        scan({ scannedAt: new Date("2026-05-01T02:00:00Z"), prStats: prStats({ analyzed: 10, aiTrailerRate: 60, aiPreReviewedRate: 50 }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    expect(points[0]!.aiTrailerRate).toBe(30); // (20·30 + 60·10)/40
+    expect(points[0]!.aiPreReviewedRate).toBe(20); // (10·30 + 50·10)/40
+  });
+
+  it("a pre-W2 legacy blob contributes NOTHING to the new metrics but still feeds the old ones", () => {
+    const points = buildDeliveryTrend(
+      [scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: preW2PrStats({ analyzed: 20, mergeRate: 70 }) })],
+      TZ,
+    );
+    expect(points).toHaveLength(1);
+    expect(points[0]!.mergeRate).toBe(70);
+    expect(points[0]!.aiTrailerRate).toBeNull();
+    expect(points[0]!.aiPreReviewedRate).toBeNull();
+  });
+
+  it("a persisted null (below the >=5 merged floor) carries no weight next to a measured scan", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 990, aiTrailerRate: null, aiPreReviewedRate: null }) }),
+        scan({ scannedAt: new Date("2026-05-01T02:00:00Z"), prStats: prStats({ analyzed: 10, aiTrailerRate: 40, aiPreReviewedRate: 20 }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    expect(points[0]!.aiTrailerRate).toBe(40); // zero-filling the 990-PR null would drag it to ~0
+    expect(points[0]!.aiPreReviewedRate).toBe(20);
+  });
+});
+
 describe("buildDeliveryRateFit — hoursToFirstReview (the review-time delta readout)", () => {
   it("is published in DELIVERY_FIT_METRICS", async () => {
     const { DELIVERY_FIT_METRICS } = await import("./org-delivery-trend");

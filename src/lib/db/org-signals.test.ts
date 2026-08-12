@@ -462,6 +462,82 @@ describe("getOrgPrSignals W1a metrics (revertRate + medianHoursToFirstReview)", 
   });
 });
 
+// ── getOrgPrSignals: W2 trailer attribution + AI pre-review ───────────────────
+//
+// aiTrailerRate / aiPreReviewedRate follow the exact W1a discipline: analyzed-weighted fleet rate,
+// and a blob written before W2 (or a below-floor sample persisted as null) contributes NOTHING —
+// null, never a fabricated 0 or NaN.
+
+/** A blob as a pre-W2 scan persisted it: the trailer/pre-review keys don't exist. */
+function preW2PrStats(over: Partial<PrStats> = {}): string {
+  const o = JSON.parse(prStats(over)) as Record<string, unknown>;
+  delete o.aiTrailerRate;
+  delete o.aiPreReviewedRate;
+  return JSON.stringify(o);
+}
+
+describe("getOrgPrSignals W2 metrics (aiTrailerRate + aiPreReviewedRate)", () => {
+  it("aggregates analyzed-weighted trailer and pre-review rates", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, aiTrailerRate: 40, aiPreReviewedRate: 20 }),
+        prStats({ analyzed: 30, aiTrailerRate: 8, aiPreReviewedRate: 0 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgAiTrailerRate).toBe(16); // (40·10 + 8·30)/40 — weighted, not mean(40,8)=24
+    expect(res!.avgAiPreReviewedRate).toBe(5); // (20·10 + 0·30)/40 — the measured 0 IS data
+  });
+
+  it("a pre-W2 blob contributes nothing — never a fabricated 0", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        preW2PrStats({ analyzed: 90 }), // huge but pre-field → zero weight for the new metrics
+        prStats({ analyzed: 10, aiTrailerRate: 30, aiPreReviewedRate: 10 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgAiTrailerRate).toBe(30); // a 0-treated legacy blob would drag this to 3
+    expect(res!.avgAiPreReviewedRate).toBe(10);
+    expect(res!.repos).toBe(2);
+  });
+
+  it("an all-legacy fleet reads null (no sample) — and garbage never leaks NaN", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        preW2PrStats(),
+        JSON.stringify({ ...(JSON.parse(prStats()) as object), aiTrailerRate: "oops", aiPreReviewedRate: {} }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgAiTrailerRate).toBeNull();
+    expect(res!.avgAiPreReviewedRate).toBeNull();
+  });
+
+  it("perRepo rows carry the new fields — null for a legacy blob or a below-floor sample", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "prStats",
+        [prStats({ aiTrailerRate: 25, aiPreReviewedRate: 12 }), preW2PrStats(), prStats({ aiTrailerRate: null, aiPreReviewedRate: null })],
+        { extra: (i) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` }) },
+      ),
+    );
+
+    const res = await getOrgPrSignals("acme");
+    const byName = new Map(res!.perRepo.map((r) => [r.name, r]));
+
+    expect(byName.get("repo-0")).toMatchObject({ aiTrailerRate: 25, aiPreReviewedRate: 12 });
+    expect(byName.get("repo-1")).toMatchObject({ aiTrailerRate: null, aiPreReviewedRate: null });
+    expect(byName.get("repo-2")).toMatchObject({ aiTrailerRate: null, aiPreReviewedRate: null }); // persisted null = below floor
+  });
+});
+
 // ── getOrgGovernance ──────────────────────────────────────────────────────────
 
 const govExtra = (i: number) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` });
