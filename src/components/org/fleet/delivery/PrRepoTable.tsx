@@ -46,6 +46,19 @@ function Row({ r }: { r: PrRepoRow }) {
       <td className="px-3 py-1.5 text-center text-sm">
         <Rate value={r.aiGovernedRate} dashTitle="too few AI-involved PRs to measure" />
       </td>
+      {/* Reverts: deliberately UNCOLORED (like AI share) — scoreHex tones high=good, and a revert
+          rate is the opposite; a plain figure beats an inverted traffic light. Null = the stored
+          scan predates the field, not a clean 0. */}
+      <td className="px-3 py-1.5 text-center font-mono text-sm tabular-nums text-slate-400">
+        {r.revertRate == null ? (
+          <span className="text-slate-600" title="scan predates revert tracking — rescan to measure">—</span>
+        ) : (
+          `${r.revertRate}%`
+        )}
+      </td>
+      <td className="px-3 py-1.5 text-right font-mono text-sm tabular-nums text-slate-400" title="median hours to first review">
+        {fmtHours(r.medianHoursToFirstReview)}
+      </td>
       <td className="px-3 py-1.5 text-right font-mono text-sm tabular-nums text-slate-400">{fmtHours(r.medianHoursToMerge)}</td>
     </tr>
   );
@@ -61,6 +74,8 @@ function Head() {
       <th className="px-3 py-2 text-center" title="PRs ≤ 200 changed lines">Small</th>
       <th className="px-3 py-2 text-center">AI share</th>
       <th className="px-3 py-2 text-center" title="AI-involved PRs with an approving review">AI reviewed</th>
+      <th className="px-3 py-2 text-center" title="PRs whose title starts with 'Revert' — shipped work that came back out">Reverts</th>
+      <th className="px-3 py-2 text-right" title="median hours from opening to first review">1st review</th>
       <th className="px-3 py-2 text-right" title="median hours to merge">Merge time</th>
     </tr>
   );
@@ -71,7 +86,7 @@ export function PrRepoTable({ rows }: { rows: PrRepoRow[] }) {
   const folded = rows.slice(VISIBLE_ROWS);
   return (
     <div>
-      <OrgTable minWidth={760} caption="Pull-request signals by repository, riskiest first" head={<Head />}>
+      <OrgTable minWidth={920} caption="Pull-request signals by repository, riskiest first" head={<Head />}>
         {visible.map((r) => (
           <Row key={r.fullName} r={r} />
         ))}
@@ -82,7 +97,7 @@ export function PrRepoTable({ rows }: { rows: PrRepoRow[] }) {
             <span aria-hidden className="inline-block text-slate-600 transition-transform group-open:rotate-90">›</span>
             {folded.length} more repo{folded.length > 1 ? "s" : ""} with healthier signals
           </summary>
-          <OrgTable className="mt-2" minWidth={760} caption="Remaining repositories (healthier pull-request signals)" head={<Head />}>
+          <OrgTable className="mt-2" minWidth={920} caption="Remaining repositories (healthier pull-request signals)" head={<Head />}>
             {folded.map((r) => (
               <Row key={r.fullName} r={r} />
             ))}

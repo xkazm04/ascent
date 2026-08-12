@@ -1,7 +1,7 @@
 // The PR-signal headline readings as ONE hairline-divided instrument band (the DeliveryStrip /
-// TeamsSignals idiom) instead of six free-floating Tiles. Fixes the tile grid's failure modes:
-// long tracked-out labels wrapping to three lines, values landing at different heights, and six
-// bordered cards' worth of padding for six numbers. Each cell is label → value+context on one
+// TeamsSignals idiom) instead of free-floating Tiles. Fixes the tile grid's failure modes:
+// long tracked-out labels wrapping to three lines, values landing at different heights, and eight
+// bordered cards' worth of padding for eight numbers. Each cell is label → value+context on one
 // baseline → a thin meter (threshold-marked where a target exists), bottom-aligned across the band.
 // Server-safe.
 
@@ -43,10 +43,15 @@ function Cell({
   );
 }
 
+/** Revert-rate tone mirrors pulls.ts's stability transform (100 − rate·6): a 5% revert rate is
+ *  already a stability problem, so a raw scoreHex(5) — deep red for a LOW number — would invert the
+ *  meaning, and scoreHex(100−5) would flatter it. */
+const revertHex = (rate: number) => scoreHex(Math.max(0, 100 - rate * 6));
+
 export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
   return (
     <div className="overflow-hidden rounded-xl border border-divider bg-surface/40">
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4">
         <Cell
           label="Review coverage"
           value={pr.avgReviewedRate == null ? "—" : `${pr.avgReviewedRate}%`}
@@ -55,13 +60,26 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           meter={pr.avgReviewedRate ?? undefined}
           threshold={pr.avgReviewedRate == null ? undefined : REVIEW_TARGET}
         />
+        <Cell
+          label="First review"
+          value={fmtHours(pr.typicalHoursToFirstReview)}
+          sub={pr.typicalHoursToFirstReview == null ? "no reviews sampled" : "typical wait, per-repo median"}
+        />
         <Cell label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} meter={pr.avgMergeRate} />
+        <Cell label="Merge time" value={fmtHours(pr.typicalHoursToMerge)} sub="typical, per-repo median" />
         <Cell
           label="Small PRs"
           value={`${pr.avgSmallPrRate}%`}
           sub="≤200 lines"
           color={scoreHex(pr.avgSmallPrRate)}
           meter={pr.avgSmallPrRate}
+        />
+        <Cell
+          label="Reverts"
+          value={pr.avgRevertRate == null ? "—" : `${pr.avgRevertRate}%`}
+          sub={pr.avgRevertRate == null ? "not in these scans" : "of PRs — lower is better"}
+          color={pr.avgRevertRate == null ? undefined : revertHex(pr.avgRevertRate)}
+          meter={pr.avgRevertRate ?? undefined}
         />
         <Cell
           label="AI involved"
@@ -78,7 +96,6 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           meter={pr.avgAiGovernedRate ?? undefined}
           threshold={pr.avgAiGovernedRate == null ? undefined : REVIEW_TARGET}
         />
-        <Cell label="Merge time" value={fmtHours(pr.typicalHoursToMerge)} sub="typical, per-repo median" />
       </div>
     </div>
   );

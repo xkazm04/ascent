@@ -373,6 +373,95 @@ describe("getOrgPrSignals volume-weighted fleet rates", () => {
   });
 });
 
+// ── getOrgPrSignals: W1a surfaced blob metrics (revert rate + review latency) ─────────────────
+//
+// revertRate / medianHoursToFirstReview were computed and persisted by every scan but never
+// aggregated. They follow the exact discipline of their siblings: analyzed-weighted rate /
+// mean-of-medians duration, and — the part these tests exist for — a HISTORICAL blob written
+// before the fields existed contributes nothing (null, never a fabricated 0 or NaN).
+
+/** A blob as an old scan persisted it: the W1a fields simply don't exist as keys. */
+function legacyPrStats(over: Partial<PrStats> = {}): string {
+  const o = JSON.parse(prStats(over)) as Record<string, unknown>;
+  delete o.revertRate;
+  delete o.medianHoursToFirstReview;
+  return JSON.stringify(o);
+}
+
+describe("getOrgPrSignals W1a metrics (revertRate + medianHoursToFirstReview)", () => {
+  it("aggregates analyzed-weighted revert rate and mean-of-medians first-review latency", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, revertRate: 10, medianHoursToFirstReview: 2 }),
+        prStats({ analyzed: 30, revertRate: 2, medianHoursToFirstReview: 6 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgRevertRate).toBe(4); // (10·10 + 2·30)/40 = 4 — weighted, not mean(10,2)=6
+    expect(res!.typicalHoursToFirstReview).toBe(4); // mean(2,6) — median-of-medians, unweighted
+  });
+
+  it("an old blob lacking the fields contributes nothing — never a fabricated 0", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        legacyPrStats({ analyzed: 90 }), // huge but pre-field → zero weight for the new metrics
+        prStats({ analyzed: 10, revertRate: 8, medianHoursToFirstReview: 5 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // A 0-treated legacy blob would drag this to (0·90 + 8·10)/100 = 1.
+    expect(res!.avgRevertRate).toBe(8);
+    expect(res!.typicalHoursToFirstReview).toBe(5);
+    // The legacy repo still counts for the fields it DOES carry.
+    expect(res!.repos).toBe(2);
+  });
+
+  it("an all-legacy fleet reads null (no sample), not 0 — and garbage never leaks NaN", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        legacyPrStats(),
+        JSON.stringify({ ...(JSON.parse(prStats()) as object), revertRate: "oops", medianHoursToFirstReview: {} }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgRevertRate).toBeNull();
+    expect(res!.typicalHoursToFirstReview).toBeNull();
+  });
+
+  it("perRepo rows carry the new fields — null for a legacy blob, measured values otherwise", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [prStats({ revertRate: 3, medianHoursToFirstReview: 7 }), legacyPrStats()], {
+        extra: (i) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` }),
+      }),
+    );
+
+    const res = await getOrgPrSignals("acme");
+    const byName = new Map(res!.perRepo.map((r) => [r.name, r]));
+
+    expect(byName.get("repo-0")).toMatchObject({ revertRate: 3, medianHoursToFirstReview: 7 });
+    expect(byName.get("repo-1")).toMatchObject({ revertRate: null, medianHoursToFirstReview: null });
+  });
+
+  it("a measured 0 revert rate is data (averaged in), distinct from the legacy null", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, revertRate: 0 }),
+        prStats({ analyzed: 10, revertRate: 10 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgRevertRate).toBe(5); // mean(0,10) weighted — the 0 counts
+  });
+});
+
 // ── getOrgGovernance ──────────────────────────────────────────────────────────
 
 const govExtra = (i: number) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` });

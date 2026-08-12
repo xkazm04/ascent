@@ -18,6 +18,12 @@ export interface PrRepoRow {
   aiInvolvedRate: number;
   aiGovernedRate: number | null;
   medianHoursToMerge: number | null;
+  /** % of analyzed PRs whose title starts with "Revert" (W1a). Null only when the stored blob
+   *  predates the field — never a fabricated 0 for an unmeasured repo. */
+  revertRate: number | null;
+  /** Median hours from a PR opening to its first review — the review-capacity signal (W1a).
+   *  Null when no PR in the window received a review (or the blob predates the field). */
+  medianHoursToFirstReview: number | null;
 }
 
 export interface OrgPrSignals {
@@ -28,7 +34,9 @@ export interface OrgPrSignals {
   avgSmallPrRate: number; // analyzed-weighted
   avgAiInvolvedRate: number; // analyzed-weighted
   avgAiGovernedRate: number | null; // analyzed-weighted repo aiGovernedRate (null when NO repo has a sample)
+  avgRevertRate: number | null; // analyzed-weighted; null only when NO blob carries the field (pre-W1a scans)
   typicalHoursToMerge: number | null; // mean of per-repo medians (a median-of-medians, left unweighted)
+  typicalHoursToFirstReview: number | null; // mean of per-repo first-review medians (same shape as above)
   tools: { name: string; count: number }[];
   perRepo: PrRepoRow[]; // sorted riskiest first: lowest review coverage, then slowest merges
 }
@@ -46,6 +54,12 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
   });
+
+  // Finite-or-null guard for the W1a fields: historical blobs written before revertRate /
+  // medianHoursToFirstReview existed simply lack the keys, and a drifted blob could carry garbage.
+  // Either way the answer is null ("no sample"), never NaN in a weighted mean. Mirrors
+  // org-delivery-trend's num().
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
   const stats: PrStats[] = [];
   const perRepo: PrRepoRow[] = [];
@@ -66,6 +80,8 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
           aiInvolvedRate: p.aiInvolvedRate,
           aiGovernedRate: p.aiGovernedRate,
           medianHoursToMerge: p.medianHoursToMerge,
+          revertRate: num(p.revertRate),
+          medianHoursToFirstReview: num(p.medianHoursToFirstReview),
         });
       }
     } catch {
@@ -103,6 +119,8 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     return wsum > 0 ? Math.round(sum / wsum) : null;
   };
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
+  const ttfr = stats.map((s) => num(s.medianHoursToFirstReview)).filter((x): x is number => x != null);
+  const meanTenth = (xs: number[]): number | null => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null);
   const toolMap = new Map<string, number>();
   for (const s of stats) for (const t of s.tools) toolMap.set(t.name, (toolMap.get(t.name) ?? 0) + t.count);
 
@@ -115,7 +133,11 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     avgSmallPrRate: weightedRate((s) => s.smallPrRate) ?? 0,
     avgAiInvolvedRate: weightedRate((s) => s.aiInvolvedRate) ?? 0,
     avgAiGovernedRate: weightedRate((s) => s.aiGovernedRate),
-    typicalHoursToMerge: ttm.length ? Math.round((ttm.reduce((a, b) => a + b, 0) / ttm.length) * 10) / 10 : null,
+    // W1a: revertRate is analyzed-denominated (like mergeRate), but stays nullable because a
+    // pre-field historical blob has no measurement to contribute — absence, not a measured 0.
+    avgRevertRate: weightedRate((s) => num(s.revertRate)),
+    typicalHoursToMerge: meanTenth(ttm),
+    typicalHoursToFirstReview: meanTenth(ttfr),
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     perRepo,
   };
