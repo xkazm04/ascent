@@ -1,24 +1,20 @@
 "use client";
 
-// PROTOTYPE SCAFFOLD (throwaway) — the A/B tab strip for the AI-stance directional variants.
-// The Governance tab's panel is an async SERVER component, so the already-fetched governance
-// overview is turned into the mock stance server-side and handed down as props; this client wrapper
-// only holds the `variant` selection. Baseline is the default tab, so the tab loads visually
-// unchanged. Delete this file (and the whole `stance/` folder's non-winners) at consolidation.
+// PROTOTYPE SCAFFOLD, consolidated — Perimeter won the AI-stance round; Charter and Ledger are
+// deleted. Baseline STAYS the default tab because Perimeter still renders the mock stance doc
+// (stanceMock.ts) — it only becomes the render once a real stance model lands. The Governance tab's
+// panel is an async SERVER component, so the already-fetched governance overview is turned into the
+// mock stance server-side and handed down as props; this client wrapper only holds the selection.
 
 import { useState } from "react";
 import type { AiStanceDoc } from "./stanceMock";
-import { StanceCharter } from "./StanceCharter";
 import { StancePerimeter } from "./StancePerimeter";
-import { StanceLedger } from "./StanceLedger";
 
-type Variant = "baseline" | "charter" | "perimeter" | "ledger";
+type Variant = "baseline" | "perimeter";
 
 const TABS: { id: Variant; label: string; hint: string }[] = [
   { id: "baseline", label: "Baseline", hint: "The shipped gate view" },
-  { id: "charter", label: "A · Charter", hint: "The stance as a published document" },
-  { id: "perimeter", label: "B · Perimeter", hint: "The stance as a fleet boundary map" },
-  { id: "ledger", label: "C · Ledger", hint: "The stance as a versioned contract + compliance ledger" },
+  { id: "perimeter", label: "Perimeter", hint: "The stance as a fleet boundary map" },
 ];
 
 export function StanceSwitcher({
@@ -67,9 +63,7 @@ export function StanceSwitcher({
       </div>
 
       {variant === "baseline" ? baseline : null}
-      {variant === "charter" ? <StanceCharter doc={doc} slug={slug} /> : null}
       {variant === "perimeter" ? <StancePerimeter doc={doc} slug={slug} /> : null}
-      {variant === "ledger" ? <StanceLedger doc={doc} slug={slug} /> : null}
     </div>
   );
 }

@@ -1,16 +1,17 @@
 "use client";
 
-// PROTOTYPE SCAFFOLD — the A/B tab strip for the Context Health panel's directional variants.
-// Throwaway: when a direction wins, this collapses and the winner renders directly (see the
-// /prototype skill, Phase 5). Data is fetched by the SERVER panel (ContextHealthPanel.tsx) and
-// handed down as props — the `await` never moves into this client component.
+// PROTOTYPE SCAFFOLD, consolidated — Half-life won the Context Health round; Prompt Audit and
+// Map-vs-Territory are deleted. This panel is ADDITIVE to the shipped Repositories tab, so its
+// "Baseline" is the panel hidden — and Baseline STAYS the default because Half-life still runs on
+// the clearly-labeled contextHealthMock synthesis. It becomes the render once the real per-file
+// context signals land (see the data-model notes in contextHealthMock.ts). Data is fetched by the
+// SERVER panel (ContextHealthPanel.tsx) and handed down as props — the `await` never moves into
+// this client component.
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
 import type { RepoContextHealth } from "./contextHealthMock";
 import { ContextHalfLife } from "./ContextHalfLife";
-import { ContextPromptAudit } from "./ContextPromptAudit";
-import { ContextMapTerritory } from "./ContextMapTerritory";
 
 export interface ContextVariantProps {
   slug: string;
@@ -18,17 +19,15 @@ export interface ContextVariantProps {
 }
 
 const VARIANTS = [
-  { id: "half-life", label: "Half-life", note: "decay under churn", Body: ContextHalfLife },
-  { id: "audit", label: "Prompt audit", note: "editorial quality ledger", Body: ContextPromptAudit },
-  { id: "map", label: "Map vs territory", note: "spatial drift", Body: ContextMapTerritory },
+  { id: "baseline", label: "Baseline", note: "the tab as shipped — panel hidden" },
+  { id: "half-life", label: "Half-life", note: "decay under churn" },
 ] as const;
 
 type VariantId = (typeof VARIANTS)[number]["id"];
 
 export function ContextHealthSwitcher({ slug, rows }: ContextVariantProps) {
-  const [variant, setVariant] = useState<VariantId>("half-life");
+  const [variant, setVariant] = useState<VariantId>("baseline");
   const active = VARIANTS.find((v) => v.id === variant) ?? VARIANTS[0];
-  const Body = active.Body;
 
   return (
     <div className="space-y-4">
@@ -56,7 +55,7 @@ export function ContextHealthSwitcher({ slug, rows }: ContextVariantProps) {
           {active.note}
         </span>
       </div>
-      <Body slug={slug} rows={rows} />
+      {variant === "half-life" && <ContextHalfLife slug={slug} rows={rows} />}
     </div>
   );
 }

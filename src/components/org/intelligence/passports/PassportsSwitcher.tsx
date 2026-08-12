@@ -1,11 +1,9 @@
 "use client";
 
-// PROTOTYPE SCAFFOLD (P1 — Autonomy Passport). Throwaway A/B strip that lets the Passports tab
-// render the untouched baseline portfolio or any of the three directional variants of the
-// "what can you safely hand an agent in this repo?" reframe. The server tab does the fetching and
-// the tier derivation; this client wrapper only holds the selection.
-//
-// Delete this file (and the `autonomy/` folder's losers) when a direction wins.
+// PROTOTYPE SCAFFOLD (P1 — Autonomy Passport), consolidated: Clearance won the round; the other two
+// variants are deleted. Baseline STAYS the default tab because Clearance still runs on clearly-labeled
+// derived/mock gates — it only becomes the render once the real data spine lands. The server tab does
+// the fetching and the tier derivation; this client wrapper only holds the selection.
 
 import { useState } from "react";
 import type { DecisionMap } from "@/lib/org/decision-map";
@@ -13,16 +11,12 @@ import { PassportPortfolio } from "./PassportPortfolio";
 import type { PassportRow } from "./PassportTable";
 import type { RepoAutonomy } from "./autonomy/autonomyModel";
 import { AutonomyClearance } from "./autonomy/AutonomyClearance";
-import { AutonomyAirlock } from "./autonomy/AutonomyAirlock";
-import { AutonomyWrit } from "./autonomy/AutonomyWrit";
 
-type VariantId = "baseline" | "clearance" | "airlock" | "writ";
+type VariantId = "baseline" | "clearance";
 
 const VARIANTS: { id: VariantId; label: string; note: string }[] = [
   { id: "baseline", label: "Baseline", note: "current automation × production portfolio" },
-  { id: "clearance", label: "A · Clearance", note: "the passport as a security clearance, per repo" },
-  { id: "airlock", label: "B · Airlock", note: "tier chambers and the sealed doors between them" },
-  { id: "writ", label: "C · Writ", note: "the org's standing delegation order, as a document" },
+  { id: "clearance", label: "Clearance", note: "the passport as a security clearance, per repo" },
 ];
 
 export function PassportsSwitcher({
@@ -63,8 +57,6 @@ export function PassportsSwitcher({
 
       {variant === "baseline" && <PassportPortfolio rows={rows} org={org} decisions={decisions} />}
       {variant === "clearance" && <AutonomyClearance repos={autonomy} />}
-      {variant === "airlock" && <AutonomyAirlock repos={autonomy} />}
-      {variant === "writ" && <AutonomyWrit repos={autonomy} org={org} />}
     </div>
   );
 }

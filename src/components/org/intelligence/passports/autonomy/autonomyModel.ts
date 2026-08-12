@@ -348,32 +348,6 @@ export function deriveAutonomy(input: AutonomyInput): RepoAutonomy {
 
 // ── fleet aggregates ────────────────────────────────────────────────────────────────────────────
 
-export interface GateBottleneck {
-  gate: GateId;
-  label: string;
-  short: string;
-  /** Repos this gate is currently blocking from their next tier. */
-  blocked: string[];
-  /** Mean score across the whole fleet for this gate. */
-  mean: number;
-  source: GateSource;
-}
-
-export function fleetBottlenecks(repos: RepoAutonomy[]): GateBottleneck[] {
-  return GATE_ORDER.map((id) => {
-    const all = repos.map((r) => r.gates.find((g) => g.id === id)!);
-    const blocked = repos.filter((r) => r.blocking.some((g) => g.id === id)).map((r) => r.name);
-    return {
-      gate: id,
-      label: all[0]?.label ?? id,
-      short: all[0]?.short ?? id.toUpperCase(),
-      blocked,
-      mean: all.length ? Math.round(all.reduce((s, g) => s + g.score, 0) / all.length) : 0,
-      source: all[0]?.source ?? "mock",
-    };
-  }).sort((a, b) => b.blocked.length - a.blocked.length || a.mean - b.mean);
-}
-
 export const tierCounts = (repos: RepoAutonomy[]): Record<AutonomyTier, number> => ({
   0: repos.filter((r) => r.tier === 0).length,
   1: repos.filter((r) => r.tier === 1).length,

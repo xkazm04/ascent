@@ -1,10 +1,9 @@
-// Shared presentational pieces for the three AI-era-debt variants. Hoisted out of the first variant
-// the moment the second needed them (skill guardrail: extract shared structure mid-prototype rather
-// than at refactor time). Server-safe — no hooks, no handlers.
+// Shared presentational pieces for the AI-era-debt prototype (Debt Ledger, post-consolidation).
+// Server-safe — no hooks, no handlers.
 
 import { Kicker } from "@/components/ui";
 import { fmtDelta, deltaHex } from "@/components/org/shared/ui";
-import { scoreHex, heatCell } from "@/lib/ui";
+import { scoreHex } from "@/lib/ui";
 import { OVERDUE_ACCENT } from "@/components/org/shared/backlogShared";
 import { pct, pct1, ppDelta, type RepoDebt } from "./debtModel";
 
@@ -25,7 +24,6 @@ export function MockNotice({ className = "" }: { className?: string }) {
  * (`scoreHex(100 - pressure)`): green still reads as healthy, and the ramp keeps its one meaning.
  */
 export const pressureHex = (pressure: number): string => scoreHex(100 - pressure);
-export const pressureCell = (pressure: number, alpha = 0.5) => heatCell(100 - pressure, alpha);
 
 /** A rate + its period-over-period movement in percentage points, in the brand's delta tone. */
 export function RateCell({
@@ -62,79 +60,6 @@ export function DimChips({ dims }: { dims: string[] }) {
         </span>
       ))}
     </span>
-  );
-}
-
-/** Overdue principal as a chip — points locked up + how old the debt is. */
-export function PrincipalChip({ row }: { row: RepoDebt }) {
-  if (row.overdue === 0) {
-    return <span className="font-mono text-xs text-slate-500">no overdue debt</span>;
-  }
-  return (
-    <span className="font-mono text-xs tabular-nums" style={{ color: OVERDUE_ACCENT }}>
-      {row.overdue} overdue · {row.principal} pts · {row.avgDaysOverdue}d avg age
-    </span>
-  );
-}
-
-/**
- * A 12-week two-series trace: AI-authored share (accent) against rework rate (orange), with the gap
- * between them shaded. Dependency-free SVG on a 0–1 domain, sized by the caller. Entrance-only motion.
- */
-export function DivergenceTrace({
-  row,
-  width = 220,
-  height = 48,
-  className = "",
-}: {
-  row: RepoDebt;
-  width?: number;
-  height?: number;
-  className?: string;
-}) {
-  const pts = row.q.series;
-  const x = (i: number) => (i / (pts.length - 1)) * width;
-  const y = (v: number) => height - v * height;
-  const line = (pick: (p: (typeof pts)[number]) => number) =>
-    pts.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(pick(p)).toFixed(1)}`).join(" ");
-  const band =
-    `${line((p) => p.aiAuthoredShare)} ` +
-    pts
-      .slice()
-      .reverse()
-      .map((p, i) => `L${x(pts.length - 1 - i).toFixed(1)},${y(p.reworkRate).toFixed(1)}`)
-      .join(" ") +
-    " Z";
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      width={width}
-      height={height}
-      className={`animate-fade-in overflow-visible ${className}`}
-      role="img"
-      aria-label={`${row.repoName}: AI-authored share ${pct(row.q.aiAuthoredShare)} against rework rate ${pct(row.q.reworkRate)} over 12 weeks`}
-    >
-      <path d={band} fill={OVERDUE_ACCENT} opacity={0.1} />
-      <path d={line((p) => p.reworkRate)} fill="none" stroke={OVERDUE_ACCENT} strokeWidth={1.5} />
-      <path d={line((p) => p.aiAuthoredShare)} fill="none" stroke="var(--color-accent)" strokeWidth={1.5} strokeOpacity={0.9} />
-      <circle cx={width} cy={y(pts[pts.length - 1]!.aiAuthoredShare)} r={2.4} fill="var(--color-accent)" />
-      <circle cx={width} cy={y(pts[pts.length - 1]!.reworkRate)} r={2.4} fill={OVERDUE_ACCENT} />
-    </svg>
-  );
-}
-
-/** The two-line legend the traces share, so each variant doesn't re-explain the colors. */
-export function TraceLegend({ className = "" }: { className?: string }) {
-  return (
-    <div className={`flex flex-wrap items-center gap-4 font-mono text-xs uppercase tracking-[0.18em] ${className}`}>
-      <span className="flex items-center gap-1.5 text-slate-400">
-        <span className="h-px w-4" style={{ backgroundColor: "var(--color-accent)" }} /> AI-authored share
-      </span>
-      <span className="flex items-center gap-1.5 text-slate-400">
-        <span className="h-px w-4" style={{ backgroundColor: OVERDUE_ACCENT }} /> Rework rate
-      </span>
-    </div>
   );
 }
 

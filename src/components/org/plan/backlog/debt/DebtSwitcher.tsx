@@ -1,27 +1,22 @@
 "use client";
 
-// PROTOTYPE SCAFFOLD — throwaway. The A/B tab strip for the "AI-era debt" directional variants.
-//
-// The Backlog tab is a SERVER component (it awaits getOrgBacklog), so the variant state cannot live
-// there; this client wrapper takes the already-fetched OrgBacklog as props and renders the tab strip
-// plus the active variant. "Baseline" is the default and renders the untouched BacklogPanel, so the
-// tab loads exactly as it does today.
+// PROTOTYPE SCAFFOLD, consolidated — Debt Ledger won the "AI-era debt" round; Fault Lines and
+// Leverage Map are deleted. Baseline STAYS the default (and renders the untouched BacklogPanel)
+// because the ledger's quality metrics are still mock (debtMockData.ts) — it only becomes the
+// render once the real delivery-quality signal lands. The Backlog tab is a SERVER component (it
+// awaits getOrgBacklog), so the variant state lives in this client wrapper.
 
 import { useMemo, useState } from "react";
 import type { OrgBacklog } from "@/lib/db";
 import { BacklogPanel } from "@/components/org/plan/backlog/BacklogPanel";
 import { buildDebtFleet } from "./debtModel";
 import { DebtLedger } from "./DebtLedger";
-import { DebtFaultLines } from "./DebtFaultLines";
-import { DebtLeverageMap } from "./DebtLeverageMap";
 
-type VariantId = "baseline" | "ledger" | "faultlines" | "leverage";
+type VariantId = "baseline" | "ledger";
 
 const TABS: { id: VariantId; label: string; hint: string }[] = [
   { id: "baseline", label: "Baseline", hint: "Today's recommendation backlog" },
-  { id: "ledger", label: "A · Debt Ledger", hint: "Statement of account — how much, and at what interest" },
-  { id: "faultlines", label: "B · Fault Lines", hint: "Tectonics — where pressure is building, and how fast" },
-  { id: "leverage", label: "C · Leverage Map", hint: "Cartography — who converts velocity into value" },
+  { id: "ledger", label: "Debt Ledger", hint: "Statement of account — how much, and at what interest" },
 ];
 
 export function DebtSwitcher({
@@ -62,8 +57,6 @@ export function DebtSwitcher({
         <BacklogPanel slug={slug} initial={initial} segmentId={segmentId} techGroupId={techGroupId} />
       )}
       {variant === "ledger" && <DebtLedger slug={slug} fleet={fleet} />}
-      {variant === "faultlines" && <DebtFaultLines slug={slug} fleet={fleet} />}
-      {variant === "leverage" && <DebtLeverageMap slug={slug} fleet={fleet} />}
     </div>
   );
 }
