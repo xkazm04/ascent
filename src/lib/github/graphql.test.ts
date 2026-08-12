@@ -151,8 +151,8 @@ describe("PR_QUERY — the W2 trailer/pre-review fields are actually requested",
     mockFetch.mockResolvedValue(res(200, { data: page([PR]) }));
     await fetchPullRequests("acme", "core", "tok");
     const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string) as { query: string };
-    expect(body.query).toContain("mergeCommit{ message }");
-    expect(body.query).toContain("commits(last:15){ nodes{ commit{ message } } }");
+    expect(body.query).toContain("mergeCommit{ oid message }");
+    expect(body.query).toContain("commits(last:15){ nodes{ commit{ oid message } } }");
     expect(body.query).toContain("reviews(first:20){ totalCount nodes{ state submittedAt author{ login __typename } } }");
   });
 });
