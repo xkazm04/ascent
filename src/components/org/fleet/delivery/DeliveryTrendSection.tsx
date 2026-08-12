@@ -5,7 +5,7 @@
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { TimeRangeSelector } from "@/components/org/overview/TimeRangeSelector";
-import { DIRECTION_TONE } from "@/components/ui";
+import { DIRECTION_TONE, deltaHex } from "@/components/ui";
 import type { DeliveryMetricKey, DeliveryRateFit, OrgDeliveryTrend } from "@/lib/db/org-delivery-trend";
 import type { RangeKey } from "@/lib/window";
 import { DeliveryTrendPanel } from "./DeliveryTrendPanel";
@@ -56,6 +56,26 @@ export const DELIVERY_TREND_METRICS: MetricDef[] = [
     unit: "%",
   },
   {
+    key: "smallPrRate",
+    label: "Small PRs",
+    help: "Share of PRs at ≤ 200 changed lines — the batch size a reviewer can actually hold.",
+    unit: "%",
+  },
+  {
+    key: "revertRate",
+    label: "Revert rate",
+    help: "Share of PRs whose title starts with “Revert” — shipped work that had to come back out.",
+    unit: "%",
+    higherIsBetter: false,
+  },
+  {
+    key: "hoursToFirstReview",
+    label: "Time to first review",
+    help: "Typical hours a PR waits for its first review — the review-capacity signal.",
+    unit: "h",
+    higherIsBetter: false,
+  },
+  {
     key: "hoursToMerge",
     label: "Time to merge",
     help: "Typical hours from a PR opening to it merging. Review latency — not deployment lead time.",
@@ -64,25 +84,39 @@ export const DELIVERY_TREND_METRICS: MetricDef[] = [
   },
 ];
 
-function FitReadout({ fit, label }: { fit: DeliveryRateFit; label: string }) {
+/** Per-fit presentation: unit suffix + which direction is the GOOD news. Review latency (W1a) is a
+ *  duration — its slope is hours/week, and a RISING line is the Assist→Delegate bottleneck forming,
+ *  so its tone must invert while the arrow keeps reporting the true direction. */
+const FIT_META: Partial<Record<DeliveryMetricKey, { label: string; suffix: string; higherIsBetter: boolean }>> = {
+  reviewedRate: { label: "Review coverage trend", suffix: "pts/week", higherIsBetter: true },
+  aiGovernedRate: { label: "AI review trend", suffix: "pts/week", higherIsBetter: true },
+  hoursToFirstReview: { label: "Review latency trend", suffix: "h/week", higherIsBetter: false },
+};
+
+function FitReadout({ fit }: { fit: DeliveryRateFit }) {
+  const meta = FIT_META[fit.metric] ?? { label: fit.metric, suffix: "pts/week", higherIsBetter: true };
   // The shared insufficiency gate decides whether a slope may be SHOWN AT ALL. Below the floor the
   // copy from `forecastInsufficiency` is rendered verbatim — the same sentence the trends page and
   // the org rollup show — instead of a confident "+3.2/wk" read off four days of noise.
   if (fit.insufficiency) {
     return (
       <div className="min-w-0">
-        <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
+        <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{meta.label}</div>
         <div className="mt-0.5 text-sm text-slate-500">{fit.insufficiency}</div>
       </div>
     );
   }
-  const tone = DIRECTION_TONE[fit.trajectory];
+  // Arrow = the true direction of the line; color = whether that direction is good. deltaHex over the
+  // goodness-signed slope (the DeliveryTrendPanel idiom) keeps a falling review-latency line lime and
+  // a rising one orange, without lying about which way it moves.
+  const arrow = DIRECTION_TONE[fit.trajectory].arrow;
+  const color = deltaHex(meta.higherIsBetter ? fit.perWeek : -fit.perWeek);
   return (
     <div className="min-w-0">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="mt-0.5 font-mono text-base" style={{ color: tone.color }}>
-        <span aria-hidden>{tone.arrow}</span> {fit.perWeek > 0 ? "+" : ""}
-        {fit.perWeek} pts/week
+      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{meta.label}</div>
+      <div className="mt-0.5 font-mono text-base" style={{ color }}>
+        <span aria-hidden>{arrow}</span> {fit.perWeek > 0 ? "+" : ""}
+        {fit.perWeek} {meta.suffix}
       </div>
       <div className="font-mono text-sm text-slate-600">
         fit over {fit.points} days · {fit.spanDays}d span
@@ -90,11 +124,6 @@ function FitReadout({ fit, label }: { fit: DeliveryRateFit; label: string }) {
     </div>
   );
 }
-
-const FIT_LABELS: Partial<Record<DeliveryMetricKey, string>> = {
-  reviewedRate: "Review coverage trend",
-  aiGovernedRate: "AI review trend",
-};
 
 export function DeliveryTrendSection({
   trend,
@@ -121,10 +150,10 @@ export function DeliveryTrendSection({
         right={<TimeRangeSelector range={range} from={from} to={to} />}
       />
 
-      {/* Slope reads — only for the two governance metrics, and only when the shared floor allows. */}
+      {/* Slope reads — the governance rates plus review latency (W1a), gated by the shared floor. */}
       <div className="mt-4 flex flex-wrap gap-x-10 gap-y-3">
         {trend.fits.map((f) => (
-          <FitReadout key={f.metric} fit={f} label={FIT_LABELS[f.metric] ?? f.metric} />
+          <FitReadout key={f.metric} fit={f} />
         ))}
       </div>
 

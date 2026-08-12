@@ -210,6 +210,100 @@ describe("buildDeliveryTrend — resilience and engine honesty", () => {
   });
 });
 
+// ── W1a surfaced blob metrics: revertRate + smallPrRate + hoursToFirstReview ─────────────────
+//
+// These were persisted in every historical prStats blob but never read window-wide. The trend must
+// BACK-FILL from those old rows day one — which hinges on the num() discipline: a blob written
+// before a field existed yields null for that field (no weight), while its other fields still count.
+
+/** A blob exactly as an old scan persisted it: the W1a keys are absent, everything else present. */
+function legacyPrStats(over: Partial<PrStats> = {}): string {
+  const o = JSON.parse(prStats(over)) as Record<string, unknown>;
+  delete o.revertRate;
+  delete o.smallPrRate;
+  delete o.medianHoursToFirstReview;
+  return JSON.stringify(o);
+}
+
+describe("buildDeliveryTrend — W1a metrics (revertRate / smallPrRate / hoursToFirstReview)", () => {
+  it("back-fills from historical blobs: rates analyzed-weighted, latency a mean of medians", async () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 30, revertRate: 10, smallPrRate: 90, medianHoursToFirstReview: 2 }) }),
+        scan({ scannedAt: new Date("2026-05-01T02:00:00Z"), prStats: prStats({ analyzed: 10, revertRate: 2, smallPrRate: 50, medianHoursToFirstReview: 6 }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    expect(points[0]!.revertRate).toBe(8); // (10·30 + 2·10)/40
+    expect(points[0]!.smallPrRate).toBe(80); // (90·30 + 50·10)/40
+    expect(points[0]!.hoursToFirstReview).toBe(4); // mean(2,6), unweighted like hoursToMerge
+  });
+
+  it("a pre-field legacy blob contributes NOTHING to the new metrics but still feeds the old ones", () => {
+    const points = buildDeliveryTrend(
+      [scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: legacyPrStats({ analyzed: 20, mergeRate: 70 }) })],
+      TZ,
+    );
+    // The old row still produces a point (back-fill!), with the new fields honestly null.
+    expect(points).toHaveLength(1);
+    expect(points[0]!.mergeRate).toBe(70);
+    expect(points[0]!.revertRate).toBeNull();
+    expect(points[0]!.smallPrRate).toBeNull();
+    expect(points[0]!.hoursToFirstReview).toBeNull();
+  });
+
+  it("a legacy blob sharing a day with a modern one carries no weight in the new rates", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: legacyPrStats({ analyzed: 990 }) }),
+        scan({ scannedAt: new Date("2026-05-01T02:00:00Z"), prStats: prStats({ analyzed: 10, revertRate: 6, medianHoursToFirstReview: 3 }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    // Zero-weighting the legacy 990-PR blob keeps the measured 6% intact (0-filled it would be ~0%).
+    expect(points[0]!.revertRate).toBe(6);
+    expect(points[0]!.hoursToFirstReview).toBe(3);
+  });
+});
+
+describe("buildDeliveryRateFit — hoursToFirstReview (the review-time delta readout)", () => {
+  it("is published in DELIVERY_FIT_METRICS", async () => {
+    const { DELIVERY_FIT_METRICS } = await import("./org-delivery-trend");
+    expect(DELIVERY_FIT_METRICS).toContain("hoursToFirstReview");
+  });
+
+  it("fits an OLS slope on review latency through the SAME shared insufficiency gate", () => {
+    const points = buildDeliveryTrend(
+      [
+        ["2026-05-01", 10],
+        ["2026-05-15", 14],
+        ["2026-05-29", 18],
+        ["2026-06-12", 22],
+      ].map(([date, h], i) =>
+        scan({ scannedAt: new Date(`${date}T12:00:00Z`), repoId: `r${i}`, prStats: prStats({ medianHoursToFirstReview: h as number }) }),
+      ),
+      TZ,
+    );
+    const fit = buildDeliveryRateFit(points, "hoursToFirstReview");
+    expect(fit.insufficiency).toBeNull();
+    expect(fit.trajectory).toBe("rising"); // review latency RISING — the Assist→Delegate bottleneck
+    expect(fit.perWeek).toBeCloseTo(2, 0); // +4h per fortnight ≈ +2h/week, in HOURS not points
+  });
+
+  it("drops days where only legacy blobs ran instead of zero-filling them", () => {
+    const rows = [
+      scan({ scannedAt: new Date("2026-05-01T12:00:00Z"), repoId: "r1", prStats: prStats({ medianHoursToFirstReview: 10 }) }),
+      scan({ scannedAt: new Date("2026-05-15T12:00:00Z"), repoId: "r2", prStats: legacyPrStats() }), // pre-field day
+      scan({ scannedAt: new Date("2026-05-29T12:00:00Z"), repoId: "r3", prStats: prStats({ medianHoursToFirstReview: 10 }) }),
+      scan({ scannedAt: new Date("2026-06-12T12:00:00Z"), repoId: "r4", prStats: prStats({ medianHoursToFirstReview: 10 }) }),
+    ];
+    const fit = buildDeliveryRateFit(buildDeliveryTrend(rows, TZ), "hoursToFirstReview");
+    expect(fit.points).toBe(3); // the legacy day contributed nothing
+    expect(fit.perWeek).toBe(0);
+    expect(fit.trajectory).toBe("flat"); // a zero-filled legacy day would fabricate a dip
+  });
+});
+
 // ── THE PROJECTION GATE ──────────────────────────────────────────────────────
 // The delivery slope must not invent its own idea of "enough history". It has to be the SAME floor
 // (`forecastInsufficiency` — MIN_FORECAST_POINTS distinct days AND MIN_FORECAST_SPAN_DAYS of calendar

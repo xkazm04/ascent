@@ -18,6 +18,11 @@ interface Priority {
 }
 
 const SLOW_MERGE_HOURS = 48;
+/** A PR waiting a full working day for its FIRST review is the review-capacity ceiling showing —
+ *  the universally named Assist→Delegate bottleneck (W1a review-capacity signal). */
+const SLOW_FIRST_REVIEW_HOURS = 24;
+/** Fleet revert share above this reads as rework eating delivery, not noise. */
+const REVERT_ALERT_RATE = 5;
 
 function nameFew(names: string[], max = 3): string {
   const head = names.slice(0, max).join(", ");
@@ -69,6 +74,35 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
         severity: "improve",
         title: "Put AI-assisted PRs under human review",
         evidence: `${pr.avgAiInvolvedRate}% of PRs are AI-involved, but only ${pr.avgAiGovernedRate}% of those get an approving review.`,
+        href: "#per-repo",
+        action: "See repos",
+      });
+    }
+    // W1a review-capacity read: slow first review WHILE AI is scaling PR volume is the named
+    // Assist→Delegate bottleneck — review capacity, not authoring, is what caps delegation.
+    if (pr.typicalHoursToFirstReview != null && pr.typicalHoursToFirstReview > SLOW_FIRST_REVIEW_HOURS) {
+      const aiPressure = pr.avgAiInvolvedRate >= 10;
+      out.push({
+        severity: "improve",
+        title: "Unblock the review queue",
+        evidence: `A typical PR waits ${fmtHours(pr.typicalHoursToFirstReview)} for its first review${
+          aiPressure ? ` while ${pr.avgAiInvolvedRate}% of PRs are AI-involved — review capacity, not authoring, is the bottleneck to delegating more` : ""
+        }.`,
+        href: "#per-repo",
+        action: "See repos",
+      });
+    }
+    if (pr.avgRevertRate != null && pr.avgRevertRate >= REVERT_ALERT_RATE) {
+      const worst = pr.perRepo.reduce<(typeof pr.perRepo)[number] | null>(
+        (acc, r) => (r.revertRate != null && (acc?.revertRate == null || r.revertRate > acc.revertRate) ? r : acc),
+        null,
+      );
+      out.push({
+        severity: "improve",
+        title: "Stabilize what ships",
+        evidence: `${pr.avgRevertRate}% of PRs are reverts — shipped work coming back out${
+          worst?.revertRate != null ? ` (worst: ${worst.name} at ${worst.revertRate}%)` : ""
+        }.`,
         href: "#per-repo",
         action: "See repos",
       });

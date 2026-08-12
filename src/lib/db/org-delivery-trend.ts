@@ -46,10 +46,17 @@ export interface DeliveryScanRow {
 }
 
 /** The rate metrics the trend tracks. All are 0..100 percentages, so they share one y-axis. */
-export type DeliveryRateKey = "mergeRate" | "reviewedRate" | "aiInvolvedRate" | "aiGovernedRate" | "protectedRate";
+export type DeliveryRateKey =
+  | "mergeRate"
+  | "reviewedRate"
+  | "aiInvolvedRate"
+  | "aiGovernedRate"
+  | "protectedRate"
+  | "revertRate"
+  | "smallPrRate";
 
-/** Every metric the trend emits — the rates plus the one duration metric (hours, its own axis). */
-export type DeliveryMetricKey = DeliveryRateKey | "hoursToMerge";
+/** Every metric the trend emits — the rates plus the duration metrics (hours, their own axis). */
+export type DeliveryMetricKey = DeliveryRateKey | "hoursToMerge" | "hoursToFirstReview";
 
 /** One calendar day of delivery signal, aggregated over the scans that ran that day. */
 export interface DeliveryTrendPoint {
@@ -72,6 +79,14 @@ export interface DeliveryTrendPoint {
   /** Mean of the day's per-repo median hours-to-merge (a median-of-medians, left unweighted —
    *  identical to `getOrgPrSignals.typicalHoursToMerge`). Null = no sample. */
   hoursToMerge: number | null;
+  /** Analyzed-weighted share of PRs whose title starts with "Revert" (W1a). Null = no sample —
+   *  including every scan written before the field existed, so old rows back-fill honestly. */
+  revertRate: number | null;
+  /** Analyzed-weighted share of PRs at ≤ 200 changed lines (W1a). Null = no sample. */
+  smallPrRate: number | null;
+  /** Mean of the day's per-repo median hours-to-FIRST-review (W1a) — the review-capacity signal,
+   *  same median-of-medians shape as hoursToMerge. Null = no sample. */
+  hoursToFirstReview: number | null;
   /** Share of the day's governance-READABLE scans whose default branch is protected. Null when no
    *  scan that day could read governance (never a measured 0 — "couldn't read" ≠ "unprotected"). */
   protectedRate: number | null;
@@ -123,38 +138,47 @@ export interface OrgDeliveryTrend {
   fits: DeliveryRateFit[];
 }
 
-/** Metrics we publish a slope for. Deliberately the two "is delivery governed?" rates — the ones a
- *  leader acts on — not every series on the chart. */
-export const DELIVERY_FIT_METRICS: DeliveryMetricKey[] = ["reviewedRate", "aiGovernedRate"];
+/** Metrics we publish a slope for. Deliberately the "is delivery governed?" rates a leader acts on —
+ *  not every series on the chart — plus hoursToFirstReview (W1a): review latency's direction is the
+ *  Assist→Delegate bottleneck read (is review capacity keeping up with AI-scaled output?), so its
+ *  slope is the readout, not just its level. Its perWeek is in HOURS per week, not points. */
+export const DELIVERY_FIT_METRICS: DeliveryMetricKey[] = ["reviewedRate", "aiGovernedRate", "hoursToFirstReview"];
 
 /** A finite number, or null. Guards a drifted/garbage blob field from poisoning a weighted mean. */
 function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+// revertRate + smallPrRate (W1a) ride the same analyzed-weighted machinery as the original four:
+// `num()` returns null for a blob written before the fields existed, so old rows contribute no
+// weight instead of a fabricated 0 — which is exactly what lets the trend back-fill from history.
+const PR_RATES = ["mergeRate", "reviewedRate", "aiInvolvedRate", "aiGovernedRate", "revertRate", "smallPrRate"] as const;
+type PrRateField = (typeof PR_RATES)[number];
+
 interface DayAcc {
   scans: number;
   repos: Set<string>;
   live: number;
   analyzed: number;
-  sum: Record<"mergeRate" | "reviewedRate" | "aiInvolvedRate" | "aiGovernedRate", number>;
-  weight: Record<"mergeRate" | "reviewedRate" | "aiInvolvedRate" | "aiGovernedRate", number>;
+  sum: Record<PrRateField, number>;
+  weight: Record<PrRateField, number>;
   ttm: number[];
+  ttfr: number[];
   govReadable: number;
   govProtected: number;
 }
 
-const PR_RATES = ["mergeRate", "reviewedRate", "aiInvolvedRate", "aiGovernedRate"] as const;
-
 function emptyDay(): DayAcc {
+  const zeros = () => Object.fromEntries(PR_RATES.map((k) => [k, 0])) as Record<PrRateField, number>;
   return {
     scans: 0,
     repos: new Set<string>(),
     live: 0,
     analyzed: 0,
-    sum: { mergeRate: 0, reviewedRate: 0, aiInvolvedRate: 0, aiGovernedRate: 0 },
-    weight: { mergeRate: 0, reviewedRate: 0, aiInvolvedRate: 0, aiGovernedRate: 0 },
+    sum: zeros(),
+    weight: zeros(),
     ttm: [],
+    ttfr: [],
     govReadable: 0,
     govProtected: 0,
   };
@@ -214,6 +238,8 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
       }
       const ttm = num(pr.medianHoursToMerge);
       if (ttm !== null) acc.ttm.push(ttm);
+      const ttfr = num(pr.medianHoursToFirstReview);
+      if (ttfr !== null) acc.ttfr.push(ttfr);
     }
     if (govProtected !== null) {
       acc.govReadable += 1;
@@ -226,7 +252,8 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
   return [...byDay.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
     .map(([date, a]) => {
-      const rate = (k: (typeof PR_RATES)[number]) => (a.weight[k] > 0 ? Math.round(a.sum[k] / a.weight[k]) : null);
+      const rate = (k: PrRateField) => (a.weight[k] > 0 ? Math.round(a.sum[k] / a.weight[k]) : null);
+      const meanTenth = (xs: number[]) => (xs.length ? Math.round((xs.reduce((x, y) => x + y, 0) / xs.length) * 10) / 10 : null);
       return {
         date,
         scans: a.scans,
@@ -236,7 +263,10 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         reviewedRate: rate("reviewedRate"),
         aiInvolvedRate: rate("aiInvolvedRate"),
         aiGovernedRate: rate("aiGovernedRate"),
-        hoursToMerge: a.ttm.length ? Math.round((a.ttm.reduce((x, y) => x + y, 0) / a.ttm.length) * 10) / 10 : null,
+        hoursToMerge: meanTenth(a.ttm),
+        revertRate: rate("revertRate"),
+        smallPrRate: rate("smallPrRate"),
+        hoursToFirstReview: meanTenth(a.ttfr),
         protectedRate: a.govReadable > 0 ? Math.round((a.govProtected / a.govReadable) * 100) : null,
         // Hollow only when the day has NO live scan at all — one live scan makes the day's aggregate
         // a real (if mixed) measurement, and the note under the chart explains the mix.
