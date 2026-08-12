@@ -93,6 +93,7 @@ CREATE TABLE "Repository" (
     "techStackJson" TEXT,
     "passportJson" TEXT,
     "passportOverridesJson" TEXT,
+    "contextHealthJson" TEXT,
     "stars" INTEGER NOT NULL DEFAULT 0,
     "headSha" TEXT,
     "headEtag" TEXT,
@@ -117,6 +118,7 @@ CREATE TABLE "Repository" (
 -- Idempotent add-column (same rule as Scan's below): pglite-boot rewrites CREATE TABLE -> IF NOT
 -- EXISTS, so an EXISTING local .pglite DB needs the new column applied explicitly.
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "missingSince" TIMESTAMP(3);
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "Segment" (
@@ -214,6 +216,7 @@ CREATE TABLE "Scan" (
     "commitActivity" TEXT,
     "techStackJson" TEXT,
     "passportJson" TEXT,
+    "contextHealthJson" TEXT,
     "warningsJson" TEXT,
     "aiUsageJson" TEXT,
     "rubricVersion" TEXT,
@@ -233,6 +236,7 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "warningsJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineByom" BOOLEAN;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (

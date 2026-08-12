@@ -295,6 +295,40 @@ deterministic, display/persist-only projection (never fed back to the prompt or 
   rows *without* a rescan, but leaves `sandbox`/`hooks` absent (unknown, never a fabricated false) —
   the T2 checklist then names the re-scan instead of a missing artifact.
 
+### Context Health (`src/lib/analyze/context-health.ts`) — W4
+
+`scan-compose.ts` also attaches `report.contextHealth = deriveContextHealth(…)` — the
+quality-over-presence read of the repo's agent-context layer (CLAUDE.md / AGENTS.md /
+`.cursorrules` / Copilot instructions). Like `passport`/`techStack` it is **display/persist-only**:
+it never feeds the score or the LLM prompt (pinned by the "stays display-only" test in
+`context-health.test.ts`); folding it into D1 later is a deliberate `SCORING_RUBRIC_VERSION` event.
+
+- **Ingest cost** — at most **3 extra REST calls per scan**: `pickGuidanceFiles` selects ≤3
+  guidance files from the already-fetched tree (root-first, CLAUDE.md > AGENTS.md > rules files) and
+  `fetchGuidanceFreshness` (`src/lib/github/source.ts`) asks
+  `GET /repos/{o}/{r}/commits?path=<file>&per_page=1&sha=<ref>` for each — the file's last-modified
+  date + last-commit SHA. Works **keylessly** within rate limits; the promise overlaps the LLM stage
+  (awaited at compose time, like commit activity). File **size in bytes** comes free from the tree.
+- **Degrade, never fail** — any per-file lookup failure (rate limit, timeout, empty history) yields
+  a `path`-only entry that derives as *freshness unknown* (`freshness.score: null`); the composite
+  renormalizes over quality+drift. A scan is never failed or a date fabricated for this signal.
+- **Staleness is approximate by design** — `commitsSinceEdit` is read off the scan's weekly
+  `commitActivity` buckets since the guidance's last edit (partial week pro-rated), flagged
+  `approximate: true` always and `windowCapped` (a lower bound) when the edit predates the ~12-week
+  window. Tokenless scans have no activity blob → age is reported, potency stays unknown.
+- **Quality** reuses `guidanceQuality()` (the D1 content grader, exported from
+  `src/lib/analyze/index.ts`) normalized to 0..100 — the two surfaces can't disagree about what
+  good guidance means.
+- **Drift** — `@file`-style path references in the guidance are extracted and checked against the
+  tree index (zero extra fetches); a **dead ref** (guidance pointing at a deleted file) is the
+  measurable drift signal.
+- **Shape** — `ContextHealth { version, present, files[{path, lastModifiedAt?, lastCommitSha?,
+  bytes?, sectionsScore}], freshness{score|null, ageDays, commitsSinceEdit, approximate,
+  windowCapped?}, quality{score, signals}, drift{score, refsTotal, deadRefs}, score }`. Persisted as
+  `Scan.contextHealthJson`, latest cached on `Repository.contextHealthJson`
+  ([data-model.md](../data/data-model.md)); surfaced as the Repositories tab's Half-life panel
+  ([org-intelligence.md](../org-dashboard/org-intelligence.md)).
+
 ## Maturity model (`src/lib/maturity/model.ts`)
 
 The model file is configuration, not logic — a single source of truth for levels,
@@ -350,6 +384,7 @@ cancelled only when the last interested caller disconnects.
 | `src/lib/analyze/pulls.ts` | PR stats over GraphQL; folds into D6/D7/D8. |
 | `src/lib/analyze/passport.ts` | `buildPassport()` — the pure App Readiness Passport projection (barrel for grades/score/autonomy/overlay/migrate siblings), incl. the 0.3.0 sandbox/hooks detectors. |
 | `src/lib/analyze/passport-autonomy.ts` | `deriveAutonomyTier()` — the T0–T3 per-repo autonomy ladder + unlock checklists (token-capped; read-time derivation for stored rows). |
+| `src/lib/analyze/context-health.ts` | `deriveContextHealth()` — guidance freshness/quality/drift (W4); `pickGuidanceFiles`, `commitsSince`, decay math, `parseContextHealthJson`. Display-only. |
 | `src/lib/github/governance.ts` | Branch protection / rulesets / commit activity. |
 | `src/lib/scoring/engine.ts` | `assembleReport()` — guardband, blend, rollup, axes, posture. |
 | `src/lib/scoring/prompt.ts` | `buildAssessmentPrompt()` — renders the LLM prompt. |

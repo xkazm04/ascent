@@ -8,6 +8,7 @@
 
 import { detectAiUsage } from "@/lib/analyze";
 import { buildPassport } from "@/lib/analyze/passport";
+import { deriveContextHealth } from "@/lib/analyze/context-health";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 import type { AiChangeRecord } from "@/lib/analyze/pulls";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
@@ -18,6 +19,7 @@ import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import type {
   DimensionSignals,
   Governance,
+  GuidanceFreshness,
   LlmAssessment,
   PrStats,
   RepoArchetype,
@@ -43,6 +45,8 @@ export interface ComposePhaseInput {
   aiChanges: AiChangeRecord[];
   /** Still-in-flight display-only commit activity, awaited here. */
   activityPromise: Promise<number[] | null>;
+  /** Still-in-flight per-guidance-file freshness lookups (W4 Context Health), awaited here. */
+  guidanceFreshnessPromise: Promise<GuidanceFreshness[]>;
   techStack: TechStack;
   /** Token usage of the winning attempt + the LLM stage latency — the metering basis. */
   usage: TokenUsage;
@@ -81,6 +85,17 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
   // (never scored, like techStack). report.governance/prStats are already set above; a tokenless scan
   // leaves them null, which makes buildPassport honestly cap the enforced "gated" rungs. See passport.ts.
   report.passport = buildPassport(report, snapshot);
+  // Context Health (W4): guidance-file freshness + quality + reference drift — a pure projection of
+  // the snapshot, the ≤3 freshness lookups, and the just-awaited commitActivity. DISPLAY/PERSIST-ONLY
+  // like passport/techStack: computed AFTER scoring, never in the LLM prompt, no rubric bump (pinned
+  // by the "stays display-only" test in context-health.test.ts). Degraded inputs (keyless, unknown
+  // freshness) narrow the result honestly instead of failing the scan.
+  report.contextHealth = deriveContextHealth({
+    snapshot,
+    freshness: await input.guidanceFreshnessPromise,
+    commitActivity: report.commitActivity ?? null,
+    now,
+  });
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...input.usage, latencyMs: input.llmLatencyMs };

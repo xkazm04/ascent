@@ -49,9 +49,8 @@ export async function RepositoriesTab({
   return (
     <div className="stagger-children space-y-6">
       <FleetTabs slug={slug} active="repositories" />
-      {/* PROTOTYPE (P4 — Context Health): a quality-over-presence lens on the fleet's agent-context
-          layer, anchored above the leaderboard. Behind its own variant switcher; remove this block
-          to restore the tab exactly. */}
+      {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
+          layer, anchored above the leaderboard. Fed by each scan's persisted contextHealthJson. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
         <ContextHealthPanel slug={slug} />
       </Suspense>

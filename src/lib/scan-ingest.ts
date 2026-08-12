@@ -7,13 +7,14 @@
 // canonical commit identity (fetchSnapshot otherwise records the TREE object's sha). An explicit
 // PR `ref` always wins over it.
 
-import type { ParsedRepo, ProgressFn, RepoSource } from "@/lib/github/source";
+import { fetchGuidanceFreshness, type ParsedRepo, type ProgressFn, type RepoSource } from "@/lib/github/source";
 import { fetchPrStats, type AiChangeRecord } from "@/lib/analyze/pulls";
+import { pickGuidanceFiles } from "@/lib/analyze/context-health";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { fetchSecurityPosture } from "@/lib/github/security-posture";
 import { fetchSecurityExposure } from "@/lib/security/exposure";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import type { Governance, PrStats, RepoSnapshot, SecurityExposure, SecurityPosture } from "@/lib/types";
+import type { Governance, GuidanceFreshness, PrStats, RepoSnapshot, SecurityExposure, SecurityPosture } from "@/lib/types";
 
 export interface IngestPhaseInput {
   parsed: ParsedRepo;
@@ -45,6 +46,9 @@ export interface IngestPhaseResult {
   securityExposure: SecurityExposure | null;
   /** Display-only; still in flight. Awaited at compose time so it overlaps the LLM call. */
   activityPromise: Promise<number[] | null>;
+  /** Context Health (W4): per-guidance-file last-modified lookups (≤3 REST calls, keyless-safe,
+   *  degrade-don't-fail). Display-only; still in flight, awaited at compose time like activity. */
+  guidanceFreshnessPromise: Promise<GuidanceFreshness[]>;
   /** AI-attributed PRs as durable evidence rows; empty when scanning without a token. */
   aiChanges: AiChangeRecord[];
 }
@@ -103,6 +107,19 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   const activityPromise: Promise<number[] | null> = token
     ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
+  // Context Health (W4): last-modified per detected guidance file. Deliberately NOT token-gated —
+  // the /commits?path= endpoint answers anonymously within rate limits — and pinned to the commit
+  // actually scored (else the read ref) so the freshness matches the snapshot. Bounded to ≤3 calls;
+  // any failure degrades per-file to "freshness unknown" instead of failing the scan.
+  const guidancePaths = pickGuidanceFiles(snapshot.tree).map((f) => f.path);
+  const guidanceFreshnessPromise: Promise<GuidanceFreshness[]> = guidancePaths.length
+    ? fetchGuidanceFreshness(
+        parsed,
+        snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch,
+        guidancePaths,
+        { token, signal },
+      ).catch(() => guidancePaths.map((path) => ({ path })))
+    : Promise.resolve([]);
 
   emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
   const [prResult, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
@@ -125,5 +142,6 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     securityPosture,
     securityExposure,
     activityPromise,
+    guidanceFreshnessPromise,
   };
 }

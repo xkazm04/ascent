@@ -121,6 +121,9 @@ export async function persistScanReport(
   if (report.techStack) repoUpdate.techStackJson = JSON.stringify(report.techStack);
   // Same for the App Readiness Passport (P1) — cache the latest only when this report carries one.
   if (report.passport) repoUpdate.passportJson = JSON.stringify(report.passport);
+  // Same for Context Health (W4) — cache the latest only when this report carries one, so a
+  // reconstructed snapshot leaves the existing cache untouched.
+  if (report.contextHealth) repoUpdate.contextHealthJson = JSON.stringify(report.contextHealth);
   const repo = await withRetry(
     () =>
       upsertRacing(
@@ -139,6 +142,7 @@ export async function persistScanReport(
               primaryLanguage: report.repo.primaryLanguage ?? null,
               techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
               passportJson: report.passport ? JSON.stringify(report.passport) : null,
+              contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
               stars: report.repo.stars,
               lastScanAt: scannedAtDate,
               headSha,
@@ -338,6 +342,10 @@ export async function persistScanReport(
             commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
             techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
             passportJson: report.passport ? JSON.stringify(report.passport) : null,
+            // Context Health (W4) — per-scan history; the latest is also cached on
+            // Repository.contextHealthJson above. Display-only (never scored). Null on a
+            // reconstructed snapshot, which must read as "not assessed", never as absent context.
+            contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
             // Reliability caveats (degrade-to-mock / low-coverage / no-token / stack-fit) — persisted so a
             // reloaded scan keeps its disclosure instead of reading as a confident full scan (P1-5).
             warningsJson: report.warnings?.length ? JSON.stringify(report.warnings) : null,

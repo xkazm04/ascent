@@ -249,6 +249,10 @@ model Repository {
   // { criticality?, lifecycle?, rollback? }. Applied as a read-time overlay over the scan-derived
   // passport (never mutates the stored scan). Null = none set. See src/lib/db/passport-overrides.ts.
   passportOverridesJson String?
+  // Latest Context Health (JSON ContextHealth — guidance-file freshness, quality, drift) cached from
+  // the most recent scan, mirroring techStackJson/passportJson. Display-only (never scored). Null
+  // until the first post-W4 scan — the UI reads null as "not assessed by this scan", never as absent.
+  contextHealthJson     String?
   stars                 Int       @default(0)
   // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
   // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
@@ -473,6 +477,10 @@ model Scan {
   // Per-scan App Readiness Passport — JSON AppPassport. Per-scan history; latest cached on
   // Repository.passportJson. Display-only (never scored). See src/lib/analyze/passport.ts.
   passportJson   String?
+  // Per-scan Context Health (W4) — JSON ContextHealth: per-guidance-file last-modified + size +
+  // quality, approximate commits-since-edit staleness, and dead @file-reference drift. Latest cached
+  // on Repository.contextHealthJson. Display-only (never scored). See src/lib/analyze/context-health.ts.
+  contextHealthJson String?
   // Non-fatal scan caveats (JSON string[]): degrade-to-mock, low-coverage, truncated, no-token, and
   // stack-fit warnings. Persisted so a reloaded/permalinked scan keeps its reliability disclosure
   // instead of silently reading as a confident full scan (reference-scan P1-5). null = none.

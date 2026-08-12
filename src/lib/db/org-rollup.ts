@@ -8,7 +8,8 @@ import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, se
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
-import type { AppPassport, PrStats, TechStack } from "@/lib/types";
+import { parseContextHealthJson } from "@/lib/analyze/context-health";
+import type { AppPassport, ContextHealth, PrStats, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -133,6 +134,10 @@ export interface OrgRepoRow {
   /** App Readiness Passport cached from the latest scan — null until first scan / if absent. Drives the
    *  portfolio passports view (the two readiness axes + named stack). */
   passport: AppPassport | null;
+  /** Context Health (W4) cached from the latest scan — guidance-file freshness/quality/drift, the
+   *  Half-life panel's per-repo input. Null when the latest scan PREDATES the signal (or on parse
+   *  failure), which the UI must render as "not assessed by this scan — re-scan", never as absent. */
+  contextHealth: ContextHealth | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -365,6 +370,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         const pp = parsePassportJson(r.passportJson);
         return pp ? applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) : null;
       })(),
+      contextHealth: parseContextHealthJson(r.contextHealthJson),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

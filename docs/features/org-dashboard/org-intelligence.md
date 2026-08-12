@@ -51,7 +51,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | --- | --- | --- | --- | --- |
 | Overview | Overview | `org/[slug]` (`?tab=overview`) | `src/components/org/overview/` | Four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
 | Overview | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
-| Fleet | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | Repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
+| Fleet | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4 — see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
 | Fleet | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
 | Fleet | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
 | Fleet | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
@@ -94,6 +94,29 @@ has-scans) — the same restriction `getOrgRollup` already applies everywhere el
 tagged-but-unwatched/unscanned repos legitimately shows a smaller number on the Segments tab than
 on its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces now carry a
 tooltip saying which one they are.
+
+### Context half-life (the Repositories tab's context-layer lens — W4, real)
+
+`ContextHealthPanel` (`src/components/org/fleet/repositories/context-health/`) renders above the
+leaderboard: the quality-over-presence read of the fleet's agent-context layer (CLAUDE.md /
+AGENTS.md / rules files). It went **real** in W4 — the P4 prototype's Baseline/Half-life switcher
+and its `contextHealthMock` synthesis are deleted; every number now comes from the
+`contextHealthJson` each scan persists (derivation:
+[scan.md → Context Health](../scanning/scan.md#context-health-srclibanalyzecontext-healthts--w4)).
+
+- **Data path** — `getOrgRollup` parses `Repository.contextHealthJson` onto `OrgRepoRow.contextHealth`
+  (defensive parse; malformed → null); `contextHealthModel.ts` builds the rows and the fleet summary
+  purely, reusing the shared decay math (`decayPotency`/`halfLife`/`guidanceTolerance` from
+  `src/lib/analyze/context-health.ts`) so scan-time potency and the panel's projection can't drift.
+- **Fleet tiles** — context **coverage %** (repos with guidance / assessed repos), median projected
+  **half-life** at current commit rates, **past half-life** count (potency < 50), and **dead
+  references** (guidance pointing at deleted files). The band bar splits classifiable repos into
+  fresh / aging / stale / absent; repos are listed most-urgent first (decayed before missing —
+  a wrong map misleads an agent further than no map).
+- **Honesty rules** — staleness figures are always **≈** (weekly-bucket derived, `windowCapped`
+  lower bounds labeled with a `+`); a degraded freshness lookup renders potency **"?" (unknown)**,
+  never a fabricated band; and a repo whose latest scan **predates W4** renders as
+  *"Not assessed by this scan — re-scan to measure context health"*, never as absent context.
 
 ### Tech Stacks — dimension analysis, and what each verdict rests on
 
