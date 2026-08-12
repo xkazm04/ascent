@@ -51,7 +51,8 @@ const revertHex = (rate: number) => scoreHex(Math.max(0, 100 - rate * 6));
 export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
   return (
     <div className="overflow-hidden rounded-xl border border-divider bg-surface/40">
-      <div className="grid grid-cols-2 sm:grid-cols-4">
+      {/* 10 cells since W2 — 2×5 keeps the band's rows even. */}
+      <div className="grid grid-cols-2 sm:grid-cols-5">
         <Cell
           label="Review coverage"
           value={pr.avgReviewedRate == null ? "—" : `${pr.avgReviewedRate}%`}
@@ -95,6 +96,20 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           color={pr.avgAiGovernedRate == null ? undefined : scoreHex(pr.avgAiGovernedRate)}
           meter={pr.avgAiGovernedRate ?? undefined}
           threshold={pr.avgAiGovernedRate == null ? undefined : REVIEW_TARGET}
+        />
+        {/* W2 — trailer-grounded attribution (commit trailers, not self-declared markers). Uncolored
+            like "AI involved" would mislead: it's context, not a target, so no scoreHex tone. */}
+        <Cell
+          label="AI trailers"
+          value={pr.avgAiTrailerRate == null ? "—" : `${pr.avgAiTrailerRate}%`}
+          sub={pr.avgAiTrailerRate == null ? "not in these scans" : "of merged PRs, from commit trailers"}
+          meter={pr.avgAiTrailerRate ?? undefined}
+        />
+        <Cell
+          label="AI pre-review"
+          value={pr.avgAiPreReviewedRate == null ? "—" : `${pr.avgAiPreReviewedRate}%`}
+          sub={pr.avgAiPreReviewedRate == null ? "not in these scans" : "AI reviewed before a human"}
+          meter={pr.avgAiPreReviewedRate ?? undefined}
         />
       </div>
     </div>

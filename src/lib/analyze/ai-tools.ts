@@ -32,3 +32,32 @@ export const AI_TOOLS: AiTool[] = [
 
 /** The tool tokens joined as a regex-alternation group body, e.g. `claude|copilot|…|github-actions`. */
 export const AI_TOOL_ALT = AI_TOOLS.map((t) => t.token).join("|");
+
+/**
+ * AI REVIEW bots (W2) — agents that REVIEW PRs rather than author them. Kept SEPARATE from
+ * `AI_TOOLS`: these tokens mark an AI pre-review (pulls.ts `aiPreReviewedRate`), not AI authorship,
+ * and folding them into `AI_TOOL_ALT` would let a review bot's mention flag a PR as AI-authored.
+ * Lowercase, regex-safe substrings matched case-insensitively against review-author logins
+ * (e.g. `coderabbitai[bot]`, `copilot-pull-request-reviewer[bot]`, `greptile-apps[bot]`).
+ */
+export const AI_REVIEW_BOTS: string[] = [
+  "coderabbit", // coderabbitai[bot]
+  "copilot-pull-request-reviewer", // GitHub Copilot code review
+  "greptile", // greptile-apps[bot]
+  "gemini-code-assist", // Gemini Code Assist review bot
+  "qodo", // Qodo Merge (formerly pr-agent)
+  "ellipsis-dev", // Ellipsis review bot
+];
+
+/** The review-bot tokens as a regex-alternation group body. */
+export const AI_REVIEW_BOT_ALT = AI_REVIEW_BOTS.join("|");
+
+/**
+ * The commit-message TRAILER vocabulary (W2) — the regex body matching an AI attribution trailer
+ * (`Co-Authored-By:`/`Assisted-By:` naming a tool, "generated with Claude Code", the 🤖 marker, an
+ * anthropic noreply address). SINGLE source for every commit-trailer detector: commit-level
+ * `AI_TRAILER` (index.ts, over the 30 snapshot commits) and PR-level trailer attribution (pulls.ts,
+ * over merge-commit + PR-commit messages) both compile this same body, so adding a trailer phrase
+ * here — as `assisted-by:` was — is recognized by both at once. Compile with the `i` flag.
+ */
+export const AI_TRAILER_SOURCE = `(?:co-authored-by|assisted-by):\\s*(?:${AI_TOOL_ALT})|generated with \\[?claude code|🤖 generated with|noreply@anthropic`;

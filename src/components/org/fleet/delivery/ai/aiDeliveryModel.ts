@@ -128,6 +128,15 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
 
   // Allocated-mode context: the connected org total (dominant source) distributed by AI-PR weight.
   const aiPrOf = (row: { analyzed: number; aiInvolvedRate: number }) => Math.round((row.analyzed * row.aiInvolvedRate) / 100);
+  // W2 allocation weight: prefer TRAILER-grounded counts over the marker rate where a repo's scan
+  // carries them. A commit trailer (Co-Authored-By / Assisted-By in the merge commit) is evidence the
+  // tooling itself wrote, while the marker rate leans on self-declared PR descriptions/labels — so
+  // trailer counts are the better proxy for where AI spend actually landed. Repos whose scans predate
+  // trailer tracking (aiTrailerRate null) keep the marker-based weight; this only refines how a
+  // connected ORG-LEVEL total is split. Fidelity note: this remains the "allocated" tier — it
+  // complements the measured per-repo OTel path (which is untouched above), it does not replace it.
+  const allocWeightOf = (row: { analyzed: number; aiInvolvedRate: number; aiTrailerRate: number | null }) =>
+    row.aiTrailerRate != null ? Math.round((row.analyzed * row.aiTrailerRate) / 100) : aiPrOf(row);
   let allocSource = "";
   let allocTotalCents = 0;
   let allocSeats = 0;
@@ -137,7 +146,7 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
     allocSource = top?.source ?? usage.sources[0] ?? "";
     allocTotalCents = usage.orgTotals.reduce((s, t) => s + t.costCents, 0);
     allocSeats = usage.orgTotals.reduce((s, t) => s + t.seats, 0);
-    weightSum = Math.max(1, pr.perRepo.reduce((s, row) => s + aiPrOf(row), 0));
+    weightSum = Math.max(1, pr.perRepo.reduce((s, row) => s + allocWeightOf(row), 0));
   }
 
   const repos: AiRepoRoi[] = pr.perRepo.map((row) => {
@@ -154,7 +163,7 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
       tool = u ? (SOURCE_NAME[u.source] ?? u.source) : "—";
       planned = monthlySpend > 0 || seats > 0; // has telemetry = tracked/paid
     } else if (fidelity === "allocated") {
-      const w = aiPRs / weightSum;
+      const w = allocWeightOf(row) / weightSum; // trailer-grounded when the scan carries it (W2)
       monthlySpend = Math.round((allocTotalCents / 100) * w);
       seats = Math.round(allocSeats * w);
       tool = SOURCE_NAME[allocSource] ?? allocSource ?? "—";

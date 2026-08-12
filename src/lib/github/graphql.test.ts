@@ -142,3 +142,17 @@ describe("GraphQL error taxonomy — rate-limited vs not-found vs generic", () =
     expect(result.nodes).toHaveLength(1);
   });
 });
+
+describe("PR_QUERY — the W2 trailer/pre-review fields are actually requested", () => {
+  it("asks for mergeCommit message, the last 15 PR-commit messages, and review-author __typename", async () => {
+    // The detection channel is only as real as the query behind it: if a refactor dropped these
+    // selections, aiTrailerRate/aiPreReviewedRate would silently degrade to permanent 0/null with no
+    // type error (the PrNode fields are optional for legacy-fixture compatibility). Pin the ask.
+    mockFetch.mockResolvedValue(res(200, { data: page([PR]) }));
+    await fetchPullRequests("acme", "core", "tok");
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string) as { query: string };
+    expect(body.query).toContain("mergeCommit{ message }");
+    expect(body.query).toContain("commits(last:15){ nodes{ commit{ message } } }");
+    expect(body.query).toContain("reviews(first:20){ totalCount nodes{ state submittedAt author{ login __typename } } }");
+  });
+});

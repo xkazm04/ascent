@@ -79,6 +79,46 @@ describe("buildAiDeliveryModel — simulated mode suppresses spend-derived verdi
   });
 });
 
+describe("buildAiDeliveryModel — allocated mode prefers trailer-grounded weights (W2)", () => {
+  // An org-level connected total, no per-repo telemetry → "allocated" fidelity.
+  const allocatedUsage = () =>
+    ({
+      hasMeasured: false,
+      hasAllocated: true,
+      perRepo: {},
+      orgTotals: [{ source: "claude-code", costCents: 100_000, seats: 10, tokens: 0, sessions: 0 }],
+      sources: ["claude-code"],
+    }) as unknown as OrgUsageRollup;
+
+  it("splits the org total by trailer-attributed PR volume when scans carry aiTrailerRate", () => {
+    // Identical marker rates (50/50 split under the old weight); trailers say 40% vs 10% → 80/20.
+    const m = buildAiDeliveryModel(
+      signals([
+        prRow({ fullName: "acme/a", name: "a", analyzed: 100, aiInvolvedRate: 50, aiTrailerRate: 40, aiPreReviewedRate: null }),
+        prRow({ fullName: "acme/b", name: "b", analyzed: 100, aiInvolvedRate: 50, aiTrailerRate: 10, aiPreReviewedRate: null }),
+      ]),
+      allocatedUsage(),
+    )!;
+    expect(m.fidelity).toBe("allocated");
+    const byName = Object.fromEntries(m.repos.map((r) => [r.name, r.monthlySpend]));
+    expect(byName.a).toBe(800); // 40/(40+10) of $1,000
+    expect(byName.b).toBe(200);
+  });
+
+  it("falls back to the marker-based weight for repos whose scans predate trailer tracking", () => {
+    const m = buildAiDeliveryModel(
+      signals([
+        prRow({ fullName: "acme/a", name: "a", analyzed: 100, aiInvolvedRate: 30 }), // pre-W2 row: no trailer fields
+        prRow({ fullName: "acme/b", name: "b", analyzed: 100, aiInvolvedRate: 70 }),
+      ]),
+      allocatedUsage(),
+    )!;
+    const byName = Object.fromEntries(m.repos.map((r) => [r.name, r.monthlySpend]));
+    expect(byName.a).toBe(300); // 30/(30+70) — unchanged legacy behavior
+    expect(byName.b).toBe(700);
+  });
+});
+
 describe("buildAiDeliveryModel — measured mode keeps the full taxonomy (unchanged)", () => {
   it("assigns idle to a paying+low-adoption repo and shadow to an adopted+unplanned repo", () => {
     const m = buildAiDeliveryModel(fleet, measuredUsage())!;

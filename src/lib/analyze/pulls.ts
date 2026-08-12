@@ -5,7 +5,7 @@
 
 import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
-import { AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT } from "./ai-tools";
+import { AI_REVIEW_BOT_ALT, AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT, AI_TRAILER_SOURCE } from "./ai-tools";
 import { SMALL_PR_MAX_LINES } from "./pr-thresholds";
 import type { AiChangeRecord, DimensionSignals, Governance, PrStats } from "@/lib/types";
 
@@ -19,6 +19,70 @@ const AI_MARKER = new RegExp(
   "i",
 );
 const AI_TOOLS: { name: string; re: RegExp }[] = AI_TOOL_VOCAB.map((t) => ({ name: t.name, re: new RegExp(t.token, "i") }));
+// Commit-message trailer attribution (W2) — the SAME trailer vocabulary the commit-level detector
+// (index.ts AI_TRAILER) compiles, applied to a merged PR's merge-commit + PR-commit messages. This is
+// the channel the title/body markers structurally miss: a squash-merged Claude Code PR whose author
+// never wrote "🤖" in the description still carries `Co-Authored-By: Claude` in the squash commit.
+const AI_TRAILER = new RegExp(AI_TRAILER_SOURCE, "i");
+// AI REVIEW bots (CodeRabbit / Copilot code review / Greptile / …) — reviewers, not authors; the
+// vocabulary is deliberately separate from AI_TOOL_ALT (see ai-tools.ts).
+const AI_REVIEWER = new RegExp(`(${AI_REVIEW_BOT_ALT})`, "i");
+
+/**
+ * THE single "is this PR AI-involved" predicate (W2) — the one reading `summarizePullRequests` (the
+ * rates) and `extractAiChanges` (the evidence rows) BOTH consume, so the population can never
+ * disagree with its own percentage. Three channels, in precedence order:
+ *   authored — an AI agent bot opened the PR;
+ *   marked   — AI fingerprints in title / body(1500) / labels;
+ *   trailer  — a MERGED PR whose merge-commit or PR-commit messages carry an AI attribution trailer.
+ * `hasTrailer` is reported independently of the precedence (a marked PR that also carries a trailer
+ * is `signal:"marked"` but still trailer-grounded — the honest numerator for `aiTrailerRate`).
+ * `toolText` includes the commit messages, so per-tool attribution sees trailer-only tools too.
+ */
+function readAiInvolvement(pr: PrNode): {
+  signal: "authored" | "marked" | "trailer" | null;
+  hasTrailer: boolean;
+  toolText: string;
+} {
+  const login = pr.author?.login ?? "";
+  const isBotAuthor = pr.author?.__typename === "Bot";
+  const isMerged = pr.state === "MERGED" || !!pr.mergedAt;
+  const surface = `${login} ${pr.title} ${pr.bodyText?.slice(0, 1500) ?? ""} ${pr.labels.nodes
+    .map((l) => l.name)
+    .join(" ")}`;
+  // Merge commit first (squash-merge — the dominant case), then the PR's own commits (rebase-merge).
+  // Null-guarded per element: a partial GraphQL page can blank individual commit nodes.
+  const commitText = [pr.mergeCommit?.message, ...(pr.commits?.nodes ?? []).map((n) => n?.commit?.message)]
+    .filter((m): m is string => !!m)
+    .join("\n");
+  const hasTrailer = isMerged && commitText !== "" && AI_TRAILER.test(commitText);
+  const signal =
+    isBotAuthor && AI_AGENT.test(login) ? "authored" : AI_MARKER.test(surface) ? "marked" : hasTrailer ? "trailer" : null;
+  return { signal, hasTrailer, toolText: `${surface}\n${commitText}` };
+}
+
+/**
+ * AI pre-review (W2): did an AI/bot reviewer submit a review BEFORE the first human review (or is
+ * there an AI review and no human review at all)? An AI reviewer is a login in the review-bot
+ * vocabulary, or a Bot-typed account matching the AI-agent vocabulary (e.g. `copilot[bot]`); a
+ * deleted account (null author) counts as human — the conservative read. Pending reviews (null
+ * submittedAt) are ignored: an unsubmitted review pre-reviewed nothing.
+ */
+function aiPreReviewed(pr: PrNode): boolean {
+  let firstAi: string | null = null;
+  let firstHuman: string | null = null;
+  for (const r of pr.reviews.nodes) {
+    if (!r.submittedAt) continue;
+    const login = r.author?.login ?? "";
+    const isAi = AI_REVIEWER.test(login) || (r.author?.__typename === "Bot" && AI_AGENT.test(login));
+    if (isAi) {
+      if (firstAi === null || r.submittedAt < firstAi) firstAi = r.submittedAt;
+    } else if (firstHuman === null || r.submittedAt < firstHuman) {
+      firstHuman = r.submittedAt;
+    }
+  }
+  return firstAi !== null && (firstHuman === null || firstAi <= firstHuman);
+}
 
 function median(xs: number[]): number | null {
   // Drop any non-finite entries first: a single malformed timestamp upstream would otherwise
@@ -65,6 +129,11 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
   const ttfr: number[] = [];
   const toolCounts = new Map<string, number>();
   let aiApprovedCount = 0; // AI-involved PRs that received an approving review
+  let aiAuthoredPrs = 0, // per-channel counts (precedence authored > marked > trailer) — sum to aiInvolved
+    aiMarkedPrs = 0,
+    aiTrailerPrs = 0,
+    trailerMerged = 0, // merged PRs carrying an AI trailer, regardless of channel precedence
+    preReviewedMerged = 0; // merged PRs with an AI/bot review before the first human review
 
   for (const pr of nodes) {
     const isMerged = pr.state === "MERGED" || !!pr.mergedAt;
@@ -102,17 +171,20 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
       if (h != null) ttfr.push(h);
     }
 
-    const login = pr.author?.login ?? "";
     if (isBotAuthor) bot++;
-    const haystack = `${login} ${pr.title} ${pr.bodyText?.slice(0, 1500) ?? ""} ${pr.labels.nodes
-      .map((l) => l.name)
-      .join(" ")}`;
-    const aiAuthored = isBotAuthor && AI_AGENT.test(login);
-    const aiMarked = AI_MARKER.test(haystack);
-    if (aiAuthored || aiMarked) {
+    // One shared predicate for all three channels — the same read extractAiChanges makes.
+    const ai = readAiInvolvement(pr);
+    if (ai.signal !== null) {
       aiInvolved++;
+      if (ai.signal === "authored") aiAuthoredPrs++;
+      else if (ai.signal === "marked") aiMarkedPrs++;
+      else aiTrailerPrs++;
       if (approved) aiApprovedCount++;
-      for (const t of AI_TOOLS) if (t.re.test(haystack)) toolCounts.set(t.name, (toolCounts.get(t.name) ?? 0) + 1);
+      for (const t of AI_TOOLS) if (t.re.test(ai.toolText)) toolCounts.set(t.name, (toolCounts.get(t.name) ?? 0) + 1);
+    }
+    if (isMerged) {
+      if (ai.hasTrailer) trailerMerged++;
+      if (aiPreReviewed(pr)) preReviewedMerged++;
     }
   }
 
@@ -157,6 +229,14 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     revertRate: pct(revert, analyzed),
     draftRate: pct(draft, analyzed),
     tools,
+    aiAuthoredPrs,
+    aiMarkedPrs,
+    aiTrailerPrs,
+    // Merged-PR-denominated rates (W2), behind the SAME >= 5 sample floor as reviewedRate /
+    // aiGovernedRate above and for the same statistical reason: at 1–4 merged PRs one squash commit
+    // swings the rate 25–100pts. Below the floor: null ("not measurable"), never a fabricated 0.
+    aiTrailerRate: merged >= 5 ? pct(trailerMerged, merged) : null,
+    aiPreReviewedRate: merged >= 5 ? pct(preReviewedMerged, merged) : null,
   };
 }
 
@@ -332,9 +412,10 @@ export async function fetchPrStats(
 /**
  * The AI-involved subset of a PR page, as evidence rows.
  *
- * Detection is IDENTICAL to summarizePullRequests (same AI_AGENT / AI_MARKER / AI_TOOLS), so the
- * population here always reconciles with the `aiInvolvedRate` shown next to it — a governance artifact
- * whose row count disagreed with its own percentage would be worse than no artifact.
+ * Detection is IDENTICAL to summarizePullRequests (both call the shared readAiInvolvement predicate —
+ * authored / marked / trailer), so the population here always reconciles with the `aiInvolvedRate`
+ * shown next to it — a governance artifact whose row count disagreed with its own percentage would be
+ * worse than no artifact.
  *
  * The approver is the FIRST approving review in submission order, which is the reviewer who actually
  * unblocked the merge. `approved: true` with a null `approverLogin` is a real case (deleted account),
@@ -346,14 +427,9 @@ export type { AiChangeRecord };
 export function extractAiChanges(nodes: PrNode[]): AiChangeRecord[] {
   const out: AiChangeRecord[] = [];
   for (const pr of nodes) {
-    const login = pr.author?.login ?? "";
-    const isBotAuthor = pr.author?.__typename === "Bot";
-    const haystack = `${login} ${pr.title} ${pr.bodyText?.slice(0, 1500) ?? ""} ${pr.labels.nodes
-      .map((l) => l.name)
-      .join(" ")}`;
-    const aiAuthored = isBotAuthor && AI_AGENT.test(login);
-    const aiMarked = AI_MARKER.test(haystack);
-    if (!aiAuthored && !aiMarked) continue;
+    // The SAME shared predicate the summarizer uses (readAiInvolvement) — one detector, two readings.
+    const ai = readAiInvolvement(pr);
+    if (ai.signal === null) continue;
 
     // Earliest APPROVED review by submission time. A null submittedAt (a pending review) sorts last so
     // it can never be picked as "the approval" ahead of a real, timestamped one.
@@ -366,12 +442,13 @@ export function extractAiChanges(nodes: PrNode[]): AiChangeRecord[] {
       prNumber: pr.number,
       title: pr.title,
       authorLogin: pr.author?.login ?? null,
-      authorIsBot: isBotAuthor,
-      // An agent-authored PR and a human-marked one carry very different governance weight, and it is
-      // the first thing asked about a sampled row — so record which test matched rather than re-deriving
-      // it later from a title regex that may have moved on.
-      aiSignal: aiAuthored ? "authored" : "marked",
-      aiTools: AI_TOOLS.filter((t) => t.re.test(haystack)).map((t) => t.name),
+      authorIsBot: pr.author?.__typename === "Bot",
+      // An agent-authored PR, a human-marked one, and a trailer-only one carry very different
+      // governance weight, and it is the first thing asked about a sampled row — so record which
+      // channel matched (precedence authored > marked > trailer) rather than re-deriving it later
+      // from a title regex that may have moved on.
+      aiSignal: ai.signal,
+      aiTools: AI_TOOLS.filter((t) => t.re.test(ai.toolText)).map((t) => t.name),
       state: pr.state,
       mergedAt: pr.mergedAt,
       approved: Boolean(first),

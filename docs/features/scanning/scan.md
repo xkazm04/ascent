@@ -180,14 +180,30 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
 
 - `src/lib/analyze/pulls.ts:fetchPrStats` — recent PR stats over GraphQL (merge/review
   rates, time-to-merge, AI-involved/AI-governed rates, tool taxonomy). Folds into D6/D7/D8.
+  `PR_QUERY` fetches each PR's title/body/labels/reviews **plus (W2) the merge-commit
+  message, the PR's last ≤15 commit messages, and `__typename` on review authors** — the
+  inputs for trailer attribution and AI pre-review below.
+  AI involvement is detected through **three channels** (one shared predicate,
+  `readAiInvolvement`, precedence `authored > marked > trailer`):
+  `authored` — an AI agent bot opened the PR; `marked` — AI fingerprints in
+  title/body/labels; `trailer` (W2) — a **merged** PR whose merge-commit or PR-commit
+  messages carry an AI attribution trailer (`Co-Authored-By:` / `Assisted-By:` naming a
+  tool — the squash-merge case the self-declared markers structurally miss). The trailer
+  vocabulary is shared with the commit-level detector via `ai-tools.ts:AI_TRAILER_SOURCE`.
+  Two merged-PR-denominated rates land in `PrStats` behind the same ≥5-sample floor as
+  their siblings (null below it, never a fabricated 0): `aiTrailerRate` (share of merged
+  PRs carrying a trailer, precedence-independent) and `aiPreReviewedRate` (share of merged
+  PRs an AI/bot reviewer — `ai-tools.ts:AI_REVIEW_BOTS`: CodeRabbit, Copilot code review,
+  Greptile, … — reviewed **before the first human review**). Per-channel counts
+  (`aiAuthoredPrs`/`aiMarkedPrs`/`aiTrailerPrs`) sum to the AI-involved population.
   The same call also returns `aiChanges` — the **AI-change population** (`extractAiChanges`):
   one evidence row per AI-attributed PR carrying the author, how it was identified
-  (`authored` by an agent vs `marked` by a human), the tools named, and **who approved it and
-  when**. Same detectors as the rates, so the row count always reconciles with
-  `aiInvolvedRate`. Persisted (never scored) as `AiChange`; costs no extra GitHub calls — the
-  PR nodes were already fetched and previously discarded. `approved: false` with a null
-  approver is the finding an auditor is looking for, and `reviewCount` distinguishes it from
-  "never reviewed at all".
+  (`authored` by an agent, `marked` by a human, or `trailer` from commit messages), the
+  tools named, and **who approved it and when**. Same shared predicate as the rates, so the
+  row count always reconciles with `aiInvolvedRate`. Persisted (never scored) as `AiChange`;
+  costs no extra GitHub calls — the PR nodes were already fetched and previously discarded.
+  `approved: false` with a null approver is the finding an auditor is looking for, and
+  `reviewCount` distinguishes it from "never reviewed at all".
 - `src/lib/github/governance.ts:fetchBranchGovernance` — branch protection + rulesets.
   Folds into D6/D3/D8. `fetchCommitActivity` adds 52-week commit history.
 
