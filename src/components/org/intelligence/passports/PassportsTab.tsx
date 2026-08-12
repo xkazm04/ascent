@@ -15,7 +15,8 @@
 
 import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
-import { PassportPortfolio } from "./PassportPortfolio";
+import { PassportsSwitcher } from "./PassportsSwitcher";
+import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
 import type { PassportRow } from "./PassportTable";
 import { getOrgRollup } from "@/lib/db";
 import { decisionMap } from "@/lib/org/decision-map";
@@ -67,6 +68,21 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     };
   });
 
+  // PROTOTYPE (P1 — Autonomy Passport): the tier verdict is derived server-side from the same cached
+  // passports the rows come from, so no extra query. See autonomy/autonomyModel.ts — several gates
+  // are proxies/placeholders until the scan grows the signals listed in DATA_MODEL_GAPS.
+  const autonomy: RepoAutonomy[] = withPassport.map((r) =>
+    deriveAutonomy({
+      fullName: r.fullName,
+      name: r.name,
+      passport: r.passport!,
+      protectedBranch: r.latest?.protected,
+      aiConformance: r.aiConformance,
+      lastScanAt: r.lastScanAt,
+      engine: r.latest?.engine ?? null,
+    }),
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -82,7 +98,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
           No passports yet for this view. Passports are produced by scans — scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
-        <PassportPortfolio rows={rows} org={slug} decisions={decisions} />
+        <PassportsSwitcher rows={rows} autonomy={autonomy} org={slug} decisions={decisions} />
       )}
     </div>
   );
