@@ -7,7 +7,7 @@ import { ScanStep } from "@/components/onboarding/OnboardingScanStep";
 import { Shell } from "@/components/onboarding/OnboardingFlow.Shell";
 import { GateStep } from "@/components/onboarding/OnboardingGateStep";
 import type { AuthMode } from "@/components/auth/SignInButtonFor";
-import { MAX_SELECT, buildChecklistSteps, type OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
+import { MAX_SELECT, type OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 import { useOnboardingFlow } from "@/components/onboarding/useOnboardingFlow";
 
 // Re-exported so `OnboardingFlow`'s public API (the OrgCredit type) is unchanged for importers.
@@ -52,7 +52,7 @@ export function OnboardingFlow({
     credit,
     previewScan,
     previewCause,
-    invitedCount,
+    upgradePlanned,
     setInvitedCount,
     creditSkipped,
     listTruncated,
@@ -71,9 +71,6 @@ export function OnboardingFlow({
     startScan,
     retryRepo,
   } = useOnboardingFlow({ personalOrg });
-
-  const checklistSteps = (): ReturnType<typeof buildChecklistSteps> =>
-    buildChecklistSteps({ hasInstallation, selected, phase, sourceInstallId, invitedCount, sourceLabel });
 
   // Finding #4 (double-submission): `startScan` has no re-entrancy lock, and the "Scan {n} repos"
   // button stays mounted for the ~1 frame between a click and setPhase("scanning"), so a fast
@@ -164,8 +161,8 @@ export function OnboardingFlow({
         announce={announce}
         preview={previewScan}
         previewCause={previewCause}
+        upgradePlanned={upgradePlanned}
         creditSkipped={creditSkipped}
-        checklistSteps={checklistSteps()}
         inviteOrg={sourceInstallId ? sourceLabel : null}
         onInvited={() => setInvitedCount((c) => c + 1)}
         onCancel={cancelScan}

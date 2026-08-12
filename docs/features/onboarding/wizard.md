@@ -15,7 +15,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param — used by the connect page's discovered-org chips — starts the public path immediately. |
 | **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **120s stall timeout** (`STALL_MS`, sized for a real LLM scan of one large repo). |
-| **done** | `OnboardingChecklist` + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. |
+| **done** | A **short dashboard handoff** (W6b — the old in-wizard activation checklist is gone; activation continues on the dashboard) + the invite panel (App path) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued — open the dashboard and it starts automatically"). |
 
 **Real vs. preview scans.** `resolveScanMode` (`scanMode.ts`) settles this before any POST, and it
 now has **two** real paths:
@@ -60,19 +60,47 @@ The tick is per-run consent, not a preference: `resetRun` ("Scan another") clear
 in a two-consumer store (`OnboardingSelectStep.watchOptIn.ts`) read by both the checkbox and
 `startScan`, so the disclosed commitment and the POSTed one cannot drift.
 
+**Fast preview first — the preview-then-upgrade choreography (W6b, App path with headroom).** A
+second checkbox in the cost disclosure, **default ON** (same store pattern:
+`OnboardingSelectStep.previewFirst.ts`; `resetRun` restores the default). When the money gate
+resolves *real* on the App path and the toggle is on, `resolveImportPlan` (`importPlan.ts`) reroutes
+the run:
+
+1. The wizard imports the selection as an **instant mock preview** (`mock: true`, ~8s/repo — real
+   pipeline, deterministic scores, disclosed as preview everywhere they render). Nothing is charged.
+2. The import **watches** the repos regardless of the autoscan opt-in — the dashboard's live upgrade
+   goes through `/api/org/scan`, which walks the watchlist — but with `schedule: "off"` unless the
+   weekly autoscan was opted into, so watching never smuggles in a recurring draw.
+3. On the stream's `result`, the wizard writes a **one-shot sessionStorage handoff flag**
+   (`upgradeScan.ts`: org + exact repo set + timestamp, 15-min TTL) and the done phase becomes the
+   dashboard handoff.
+4. On `/org/<slug>`, the header scan button (`useOrgScanButton`, mounted by the org **layout**)
+   consumes the flag on mount — removed *before* the run starts, so a refresh or StrictMode double
+   effect can never re-trigger — and starts the **live scan of exactly those repos** through the
+   existing header stream. The stream survives `?tab=` navigation, the header meter shows progress,
+   and `persistScanReport`'s engine-aware dedup retires each mock row in place as live results land
+   (`src/lib/db/scans-persist.ts`). Credits are drawn *there*, by the same server gates as a manual
+   header scan (`requireOrgAccess`, `checkScanEntitlement`, per-repo reservation) — the disclosure
+   under the Scan button says so while the toggle is on.
+
+With the toggle off, the run is the pre-W6b behavior: live in the wizard, credits drawn immediately.
+The public funnel and credit-less orgs never take the upgrade path (`resolveImportPlan` pins this) —
+their runs are unchanged.
+
 **Resume.** The wizard snapshots its resumable inputs (source, install id, selection) to
 `sessionStorage` (`RESUME_KEY`) on every change and rehydrates on mount, re-fetching the source's
 repos and re-applying the selection — a refresh or auth bounce lands back on **select**, not step
 one. The snapshot wins over `?org=`; it clears once the scan is saved.
 
-`OnboardingChecklist` derives its steps from **real signals** (does the session have an
-installation? are repos selected? is the phase done? was the run on the App path?) — install the
-App, pick repos, run a scan, set a watch schedule, *invite your team* (App path only, so the list
-is **5 or 6 steps**), view cross-repo analysis — with a progress bar and the first incomplete step
-highlighted as the next action (linking to `/connect` etc.). "Set a watch schedule" ticks only on
-the App path, because that's the only path whose import *can* enroll a watch (and only when the
-select step's autoscan opt-in was ticked — the step is a prompt, not a record of enrolment). The flow is
-accessible (`role=progressbar`, `aria-live` announcements, per-step focus move, keyboard nav).
+**The done phase no longer carries an activation checklist (W6b).** It used to render
+`OnboardingChecklist` over a wizard-state-derived 5–6 step list (`buildChecklistSteps`, now deleted
+along with its test); the wizard's job ends at the handoff, and activation continues on the
+dashboard — which, since the [zero-repo wall fell](../org-dashboard/org-intelligence.md), renders
+for this org even before the first live scan lands. `OnboardingChecklist` itself stays: the
+[connect page](../github/github-app.md) still renders it over its own three-step funnel progress
+(install → pick → first scan), with a progress bar, the first incomplete step highlighted as the
+next action, and its accessibility intact (`role=progressbar`, `aria-live` announcements, per-step
+focus move, keyboard nav).
 
 The import path powers **free-tier onboarding**: it scans a whole public org without
 requiring the [GitHub App](../github/github-app.md), and feeds straight into the
@@ -154,8 +182,11 @@ cluster, each repo a star:
 | `src/components/onboarding/useOnboardingFlow.ts` | All wizard state/effects: listings, credit gate, resume snapshot, `?org=` handoff, SSE run. |
 | `src/components/onboarding/OnboardingSelectStep.CostDisclosure.tsx` | Immediate + recurring cost copy and the weekly-autoscan opt-in checkbox. |
 | `src/components/onboarding/OnboardingSelectStep.watchOptIn.ts` | The opt-in store shared by the checkbox and `startScan` (default **off**). |
-| `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`, checklist builder. |
-| `src/components/onboarding/OnboardingChecklist.tsx` | Signal-driven activation checklist (5–6 conditional steps). |
+| `src/components/onboarding/OnboardingSelectStep.previewFirst.ts` | The "fast preview first" store, same two-consumer shape (default **on**). |
+| `src/components/onboarding/importPlan.ts` | Pure `{ mock, watch, schedule, upgradeAfter }` plan for one run — the whole preview-then-upgrade matrix. |
+| `src/components/onboarding/upgradeScan.ts` | The one-shot, org-scoped, 15-min-TTL sessionStorage handoff the org header consumes to auto-start the live scan. |
+| `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`. |
+| `src/components/onboarding/OnboardingChecklist.tsx` | The checklist component — now rendered by the **connect page** only (the wizard's done phase dropped it in W6b). |
 | `src/components/onboarding/tour/` | The org-dashboard tour: steps, engine, persistence, drawer. |
 | `src/lib/org/getting-started.ts` | Pure getting-started model: derived steps, availability honesty, `allDone`. |
 | `src/lib/db/org-onboarding.ts` | Membership onboarding stamp read/write + one-pass getting-started facts. |

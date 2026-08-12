@@ -8,6 +8,11 @@ import {
   setAutoWatchOptIn,
   subscribeAutoWatchOptIn,
 } from "@/components/onboarding/OnboardingSelectStep.watchOptIn";
+import {
+  getPreviewFirst,
+  setPreviewFirst,
+  subscribePreviewFirst,
+} from "@/components/onboarding/OnboardingSelectStep.previewFirst";
 import { CREDIT_ESTIMATE_NOTE } from "@/lib/credit-estimate";
 import { immediateScanCredits, WatchCostTail } from "@/components/credit/WatchCostTail";
 
@@ -38,10 +43,12 @@ export function ScanCostDisclosure({
   /** Prepaid balance for the source org (App path only) — null when the balance couldn't be read. */
   credit: { balance: number; unlimited: boolean; allowanceRemaining?: number | null } | null;
 }) {
-  // The checkbox renders from the SAME store startScan reads, so the disclosed commitment and the
-  // committed request can't drift. Server snapshot is the safe default (false).
+  // The checkboxes render from the SAME stores startScan reads, so the disclosed commitment and the
+  // committed request can't drift. Server snapshots are the safe defaults (false / true).
   const optedIn = useSyncExternalStore(subscribeAutoWatchOptIn, getAutoWatchOptIn, () => false);
+  const previewFirst = useSyncExternalStore(subscribePreviewFirst, getPreviewFirst, () => true);
   const toggleId = useId();
+  const previewFirstId = useId();
 
   if (count === 0) return null;
 
@@ -63,6 +70,30 @@ export function ScanCostDisclosure({
 
   return (
     <div className="mt-3 max-w-xl space-y-2">
+      {/* W6b "fast preview first" (default ON): instant mock preview now; the LIVE scan auto-starts
+          from the dashboard header and replaces the preview rows in place. This is WHERE the credit
+          draw moves, so the choice sits with the money copy — the immediate credits quoted below are
+          drawn by the live upgrade on the dashboard, not by the wizard click, while it's ticked. */}
+      <label htmlFor={previewFirstId} className="flex cursor-pointer items-start gap-2 text-sm text-slate-400">
+        <input
+          id={previewFirstId}
+          type="checkbox"
+          checked={previewFirst}
+          onChange={(e) => setPreviewFirst(e.target.checked)}
+          className="focus-ring mt-0.5 h-4 w-4 accent-accent"
+        />
+        <span>
+          Fast preview first — instant estimated scores now (free), then the full live scan starts on
+          your dashboard and replaces them.{" "}
+          {previewFirst ? (
+            <span className="text-slate-500">
+              Credits below are drawn when the live scan starts there, never for the preview.
+            </span>
+          ) : (
+            <span className="text-slate-500">Unticked: the live scan runs here and draws credits now.</span>
+          )}
+        </span>
+      </label>
       <label htmlFor={toggleId} className="flex cursor-pointer items-start gap-2 text-sm text-slate-400">
         <input
           id={toggleId}

@@ -34,7 +34,29 @@ since fleet aggregation/attribution surfaces need a real org's breadth.
 personal-namespace seed in `src/lib/authz.ts` (login === slug, so nobody can claim a victim's
 namespace). A viewer with **no** organization is coherent by construction: the claim creates their own
 workspace, and the org layout renders a zero-repo personal org's shell — its add-repo form *is* the
-empty state — instead of the "no data for this org" wall a real org would hit.
+empty state.
+
+**The zero-repo wall fell for members (W6b, 2026-08-12).** The layout's empty-org decision is now the
+pure `resolveOrgShellState` (`src/app/org/[slug]/orgShellGate.ts`, pinned by its co-located test):
+a **member's** zero-repo fleet org renders the FULL shell — org header (alerts · credits · scan) +
+rail + tabs — with a first-scan empty state in the content slot (`OrgFirstScanEmpty`: "Your dashboard
+is waiting for its first scan" → `/onboarding`), instead of the old "No data for &lt;slug&gt;" wall.
+The wall remains for non-members on an empty org (an outsider still can't distinguish "exists,
+empty" from "no data yet") and for slugs with no org row at all; the DB-unreachable and
+no-`DATABASE_URL` gates are unchanged. Membership is resolved via `resolveViewerLogin` across both
+auth stacks (this also fixed the header role chip never resolving under the Supabase wall). The tour
+drawer is skipped in the first-scan state — its anchors don't exist yet.
+
+**Preview-then-upgrade auto-start (W6b).** The header's `useOrgScanButton` consumes a one-shot
+sessionStorage flag written by the onboarding wizard's "fast preview first" run
+(`src/components/onboarding/upgradeScan.ts`: org-scoped, 15-min TTL, removed before the run starts so
+a refresh can never re-trigger) and starts the LIVE scan of exactly the just-previewed repos through
+the existing header stream — same meter, same credit disclosures/refusals, same server gates
+(`requireOrgAccess`, `checkScanEntitlement`, per-repo reservation). Because the stream lives in the
+layout, it survives `?tab=` navigation while `persistScanReport`'s engine-aware dedup upgrades the
+preview (mock-engine) rows in place; mock provenance stays disclosed wherever rows render engine
+labels (the "mock placeholder" convention in the Overview rollup / Clearance cards) until the live
+rows land. See [the wizard doc](../onboarding/wizard.md) for the wizard half.
 
 `/me` is now reachable from **every** page: the header's signed-in identity
 (`IdentityLink` in `src/components/Brand.tsx`, rendered by `HeaderAccount`, which both `SiteHeader`

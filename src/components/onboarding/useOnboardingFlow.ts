@@ -9,6 +9,9 @@ import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMo
 import { runRepoRetry } from "@/components/onboarding/retryRepo";
 import { byProminence } from "@/components/onboarding/byProminence";
 import { getAutoWatchOptIn, resetAutoWatchOptIn } from "@/components/onboarding/OnboardingSelectStep.watchOptIn";
+import { getPreviewFirst, resetPreviewFirst } from "@/components/onboarding/OnboardingSelectStep.previewFirst";
+import { resolveImportPlan } from "@/components/onboarding/importPlan";
+import { setUpgradeScanFlag } from "@/components/onboarding/upgradeScan";
 import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
 import type { PickErrorSource } from "@/components/onboarding/OnboardingPickStep";
 import {
@@ -59,6 +62,10 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   const [previewScan, setPreviewScan] = useState(true);
   // How many teammates were invited from the done state (App path) — marks the checklist step done.
   const [invitedCount, setInvitedCount] = useState(0);
+  // W6b: the just-run preview was "fast preview first" on the App path — a LIVE upgrade scan is owed
+  // and its one-shot handoff flag was written on completion, so the done phase renders the dashboard
+  // handoff ("open your dashboard — the live scan starts there") instead of the plain preview banner.
+  const [upgradePlanned, setUpgradePlanned] = useState(false);
   // Whether the public listing STOPPED LOOKING before the end of the account (/api/org/repos returns
   // `truncated` for exactly this: its page budget ran out with more pages available). The flag has been
   // on the response since the listing was bounded, but nothing ever read it — so a fork-heavy org's
@@ -342,9 +349,13 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setInvitedCount(0);
     setCreditSkipped(0);
     setGate(null);
+    setUpgradePlanned(false);
     // The autoscan opt-in is per-run consent, not a sticky preference: a second run must start from
-    // the safe default rather than inherit a tick the user made for a different repo set.
+    // the safe default rather than inherit a tick the user made for a different repo set. Preview-
+    // first likewise returns to its (safe, ON) default — a run that deliberately paid up front must
+    // not silently make the NEXT run pay up front too.
     resetAutoWatchOptIn();
+    resetPreviewFirst();
   }
 
   async function startScan() {
@@ -386,7 +397,22 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
       creditReady,
       fetchCredit,
     });
-    setPreviewScan(!canRunReal);
+    // W6b "fast preview first": on the App path with real headroom, the select step's (default-ON)
+    // toggle turns this run into an instant mock preview and defers the LIVE, credit-drawing scan to
+    // the dashboard header (one-shot flag written in onResult below). The whole request matrix —
+    // mock/watch/schedule and whether an upgrade is owed — is the pure resolveImportPlan, so the
+    // disclosed choreography and the committed POST cannot drift.
+    const plan = resolveImportPlan({
+      canRunReal,
+      publicFunnel,
+      sourceInstallId,
+      previewFirst: getPreviewFirst(),
+      watchOptIn: getAutoWatchOptIn(),
+    });
+    // An upgrade run IS a preview run — disclosed as such on the done screen, with the handoff copy
+    // (upgradePlanned) instead of the "install the App / top up" recovery, which would misdiagnose.
+    setPreviewScan(!canRunReal || plan.upgradeAfter);
+    setUpgradePlanned(plan.upgradeAfter);
     setPreviewCause(!canRunReal && creditUnknown ? "credit_unknown" : null);
     try {
       const outcome = await runImportScan(
@@ -396,7 +422,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
           // Pass the installation id (when this source came from the GitHub App) so the server
           // mints an installation token — required to read the private repos we just listed.
           installationId: sourceInstallId ?? undefined,
-          mock: !canRunReal,
+          mock: plan.mock,
           // G7-17: tell the server to meter this run against the free monthly public-scan allowance
           // rather than prepaid credits. Only ever true on the token-less public-handle path.
           publicFunnel,
@@ -404,8 +430,12 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
           // store). Omitting the field meant runImportScan defaulted it to `Boolean(installationId)` —
           // true on every App-path run — so a scan click silently subscribed each repo to a standing,
           // billable weekly draw. Pass it EXPLICITLY: the server also defaults `watch` to true, so
-          // "not opted in" must travel as false, never as an omission.
-          watch: getAutoWatchOptIn(),
+          // "not opted in" must travel as false, never as an omission. The ONE exception is a
+          // preview-then-upgrade run (plan.upgradeAfter), which watches with `schedule: "off"` when
+          // not opted in — the header's live upgrade scans WATCHED repos only, and watching without a
+          // schedule carries no recurring draw (see resolveImportPlan).
+          watch: plan.watch,
+          schedule: plan.schedule,
         },
         controller,
         {
@@ -442,6 +472,15 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
               if (leftover > 0) setCreditSkipped((n) => Math.max(n, leftover));
               return next;
             });
+            // Preview-then-upgrade handoff: the mock rows are persisted, so record the one-shot flag
+            // NOW (org + exact repo set). The dashboard header consumes it on mount and starts the
+            // live scan there; a wizard refresh can't re-write it (the done phase never re-runs).
+            if (plan.upgradeAfter) {
+              setUpgradeScanFlag(
+                sourceLabel,
+                picks.map((r) => r.fullName),
+              );
+            }
             setPhase("done");
             setAnnounce(`Scan complete — ${total} ${total === 1 ? "repository" : "repositories"}.`);
           },
@@ -513,6 +552,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     credit,
     previewScan,
     previewCause,
+    upgradePlanned,
     invitedCount,
     setInvitedCount,
     creditSkipped,

@@ -2,12 +2,14 @@ import { ORG_SHELL, OrgHeader, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { OrgTabNav } from "@/components/org/shell/OrgTabNav";
 import { OrgShellActions } from "@/components/org/shell/OrgShellActions";
+import { OrgFirstScanEmpty } from "@/components/org/shell/OrgFirstScanEmpty";
+import { resolveOrgShellState } from "./orgShellGate";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getNavCounts } from "@/lib/org/nav-counts";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
-import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
+import { authBypassEnabled, authGateEnabled, getViewer, resolveViewerLogin } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 
@@ -96,10 +98,13 @@ export default async function OrgLayout({
   // PrismaClientInitializationError that, unguarded, crashed the whole dashboard with a raw stack.
   // Surface the same calm empty-state the DB-less branch above uses, so the demo degrades instead of
   // 500-ing. A query error against a LIVE DB still propagates (it's a real bug, not "DB down").
-  // The login whose org role we resolve + (under the dev bypass) persist below: the custom-OAuth
-  // session wins; otherwise, under ASCENT_AUTH_BYPASS, the synthetic "developer" viewer.
+  // The login whose org role we resolve: resolveViewerLogin covers BOTH auth stacks (custom-OAuth
+  // session wins, then the Supabase/bypass viewer). It used to be `session?.login ?? bypassViewer?.
+  // login`, which missed real Supabase viewers entirely — their Membership row is their only standing,
+  // and W6b's first-scan gate below keys on exactly that role. bypassViewer stays bypass-only: it
+  // additionally gates the dev-only owner-seeding seam further down.
   const bypassViewer = authBypassEnabled() ? await getViewer() : null;
-  const roleLogin = session?.login ?? bypassViewer?.login ?? null;
+  const roleLogin = (await resolveViewerLogin()) ?? null;
 
   let summary: Awaited<ReturnType<typeof getOrgHeaderSummary>>;
   let credit: Awaited<ReturnType<typeof getCreditState>> | null;
@@ -133,9 +138,24 @@ export default async function OrgLayout({
     }
     throw err;
   }
-  // A PERSONAL workspace renders its shell even with zero repos — the overview's add-repo form IS the
-  // empty state (pointing an individual at /connect, the GitHub-App install flow, would be wrong).
-  if (!summary || (summary.repoCount === 0 && summary.kind !== "personal")) {
+  // The empty-org gate, resolved by the pure orgShellGate so tests can pin it:
+  //  - "wall"       — no org row at all, or a zero-repo fleet org viewed by a NON-member: the old
+  //                   "No data" dead end, unchanged (a non-member still can't distinguish "exists,
+  //                   empty" from "no data yet").
+  //  - "first-scan" — W6b: a MEMBER's zero-repo fleet org renders the FULL shell (header + rail +
+  //                   tabs) with an onboarding-oriented empty state in the content slot, so the
+  //                   product is visible before the first scan instead of walled off behind it.
+  //  - "shell"      — populated org, or a PERSONAL workspace at any repo count (its overview's
+  //                   add-repo form IS the empty state; pointing an individual at /connect, the
+  //                   GitHub-App install flow, would be wrong).
+  const isMember = Boolean(myRole) || Boolean(bypassViewer);
+  const shellState = resolveOrgShellState({
+    summary: summary ? { repoCount: summary.repoCount, kind: summary.kind } : null,
+    isMember,
+  });
+  // `!summary` is redundant with "wall" (the gate returns "wall" for a null summary) but narrows the
+  // type for everything below without a non-null assertion.
+  if (shellState === "wall" || !summary) {
     return (
       <Frame>
         <OrgEmpty title={`No data for ${slug}`} body="Watch some repositories on /connect and run a scan, then this dashboard fills in." href="/connect" cta="Go to Connect" />
@@ -149,7 +169,8 @@ export default async function OrgLayout({
   // local runs (UAT/demo) operate on a genuine profile in the production-schema PGlite DB — the
   // Members tab, the role chip and RBAC reads then reflect a real row instead of a hollow open gate.
   // authBypassEnabled() is hard-disabled in production, so this can never seed a ghost owner on a real
-  // deployment; gated on a populated org so a bogus-slug visit never materializes an empty org. (myRole
+  // deployment; gated on an EXISTING org (summary is non-null past the wall — populated, or W6b's
+  // member zero-repo state) so a bogus-slug visit never materializes an org that isn't there. (myRole
   // above is null on the very first visit and fills in once the row exists.)
   if (bypassViewer && slug !== "public") {
     await ensureOwnerMembership(slug, bypassViewer.login, bypassViewer.name).catch(() => {});
@@ -180,7 +201,10 @@ export default async function OrgLayout({
           <aside data-tour="modules-nav" className="lg:sticky lg:top-20 lg:self-start">
             <OrgTabNav slug={slug} counts={navCounts ?? undefined} kind={summary.kind} />
           </aside>
-          <div className="animate-fade-up">{children}</div>
+          {/* W6b: a member's zero-repo fleet org gets the first-scan empty state in the content slot
+              (every tab would be empty anyway); the moment the first import lands, repoCount > 0 and
+              the real tab content takes over. */}
+          <div className="animate-fade-up">{shellState === "first-scan" ? <OrgFirstScanEmpty slug={slug} /> : children}</div>
         </div>
       </main>
       {/* Guided onboarding drawer for ANY org dashboard — it used to mount only on the curated demo org,
@@ -188,8 +212,9 @@ export default async function OrgLayout({
           surface that teaches this dashboard. It opens closed (just the pull tab) and the engine skips
           steps whose anchor this org doesn't render, so a thin/personal org degrades instead of pointing
           at nothing. Mounted in the layout (not a page) so the tour survives sub-page navigation and
-          re-anchors after each redirect. */}
-      <TourChecklist slug={slug} />
+          re-anchors after each redirect. Skipped on the first-scan empty state — there is nothing to
+          teach until data exists, and every anchor it would point at is absent. */}
+      {shellState !== "first-scan" && <TourChecklist slug={slug} />}
     </>
   );
 }

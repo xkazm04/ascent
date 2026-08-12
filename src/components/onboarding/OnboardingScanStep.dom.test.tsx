@@ -18,7 +18,6 @@ describe("OnboardingScanStep preview banner cause (first-run-onboarding-wizard 2
     rows: {},
     error: null,
     announce: "",
-    checklistSteps: [],
     onCancel: noop,
     onViewDashboard: noop,
     onScanAnother: noop,
@@ -39,6 +38,15 @@ describe("OnboardingScanStep preview banner cause (first-run-onboarding-wizard 2
     expect(screen.getByText(/install the GitHub App/i)).toBeInTheDocument();
     expect(screen.queryByText(/couldn't verify your credit balance/i)).toBeNull();
   });
+
+  it("shows the live-upgrade handoff (W6b preview-then-upgrade) instead of the install/top-up recovery", () => {
+    render(<ScanStep {...base} preview upgradePlanned />);
+    const banner = screen.getByText(/live scan is queued/i).closest("p")!;
+    expect(banner.textContent).toMatch(/preview/i);
+    expect(banner.textContent).not.toMatch(/install the GitHub App/i);
+    // The primary CTA carries the handoff — the live scan starts on the dashboard.
+    expect(screen.getByRole("button", { name: /open dashboard — live scan starts there/i })).toBeInTheDocument();
+  });
 });
 
 describe("OnboardingScanStep invite error (announced + danger token)", () => {
@@ -54,7 +62,6 @@ describe("OnboardingScanStep invite error (announced + danger token)", () => {
         rows={{}}
         error={null}
         announce=""
-        checklistSteps={[]}
         onCancel={noop}
         onViewDashboard={noop}
         onScanAnother={noop}

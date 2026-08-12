@@ -1,6 +1,5 @@
 "use client";
 
-import { OnboardingChecklist, type ChecklistStep } from "@/components/onboarding/OnboardingChecklist";
 import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
 import { LEVELS } from "@/lib/maturity/model";
@@ -17,8 +16,9 @@ const LEVEL_BLURB: Record<LevelId, string> = {
   L5: "Autonomous — repeatable AI harness, evals, and trustworthy automation.",
 };
 
-/** The scanning + done phases: live region, progress bar, streamed rows, and (on done) the
- *  activation checklist + dashboard CTAs. */
+/** The scanning + done phases: live region, progress bar, streamed rows, and (on done) a short
+ *  dashboard handoff + the invite panel. (W6b trimmed the old activation checklist out of the done
+ *  phase — the dashboard, not the wizard, is where activation continues.) */
 export function ScanStep({
   phase,
   rows,
@@ -26,8 +26,8 @@ export function ScanStep({
   announce,
   preview = false,
   previewCause = null,
+  upgradePlanned = false,
   creditSkipped = 0,
-  checklistSteps,
   onCancel,
   onViewDashboard,
   onScanAnother,
@@ -46,10 +46,13 @@ export function ScanStep({
    *  means the credit read failed (balance unknown, fail-closed) — the user may well have the App
    *  installed AND credits, so the banner must not tell them to install/top up. */
   previewCause?: "credit_unknown" | null;
+  /** W6b: this preview was "fast preview first" — a LIVE upgrade scan is queued behind the one-shot
+   *  handoff flag and auto-starts from the dashboard header. Switches the preview banner + done CTA
+   *  to the handoff copy (the default "install the App / top up" recovery would misdiagnose). */
+  upgradePlanned?: boolean;
   /** Repos the server deferred for insufficient credits — disclosed on the done screen so the run
    *  isn't presented as complete coverage when some repos were skipped. */
   creditSkipped?: number;
-  checklistSteps: ChecklistStep[];
   onCancel: () => void;
   onViewDashboard: () => void;
   onScanAnother: () => void;
@@ -145,7 +148,15 @@ export function ScanStep({
 
       {phase === "done" && preview && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
-          {previewCause === "credit_unknown" ? (
+          {upgradePlanned ? (
+            // Preview-then-upgrade: the live scan is queued, not missing — the default recovery copy
+            // ("install the App / top up") would misdiagnose a fully set-up, paying org.
+            <>
+              These are <strong>preview</strong> scores — instant estimates, nothing charged. Your{" "}
+              <strong>live scan is queued</strong>: open the dashboard and it starts automatically,
+              replacing these previews in place while you look around.
+            </>
+          ) : previewCause === "credit_unknown" ? (
             // The credit read failed (balance unknown) — the user may have the App AND credits, so the
             // default "install the App" recovery copy would misdiagnose. Explain the real cause + the
             // real recovery: nothing was charged; scan again once the balance is readable.
@@ -190,9 +201,14 @@ export function ScanStep({
             </ul>
           </details>
 
-          <div className="mt-6">
-            <OnboardingChecklist steps={checklistSteps} />
-          </div>
+          {/* W6b handoff: the wizard's job ends here — activation (alerts, schedules, practices,
+              goals) continues on the dashboard, which now renders for this org even before the live
+              scan lands. The old in-wizard activation checklist duplicated that surface and is gone. */}
+          <p className="mt-6 max-w-xl text-slate-400">
+            {upgradePlanned
+              ? "Your dashboard is live — the preview above is being upgraded to a full live scan the moment you open it. You can browse every tab while it runs."
+              : "Your dashboard is live — alerts, rescan schedules, and the rest of the setup continue there."}
+          </p>
 
           {/* Invite teammates at peak motivation (App path only) — grants viewer access to the
               scanned org via the RBAC backend. No GitHub App install needed for the invitee. */}
@@ -203,7 +219,7 @@ export function ScanStep({
               onClick={onViewDashboard}
               className="rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
             >
-              View dashboard
+              {upgradePlanned ? "Open dashboard — live scan starts there" : "View dashboard"}
             </button>
             <button
               onClick={onScanAnother}
