@@ -6,12 +6,15 @@
 import Link from "next/link";
 import { fmtMoney, type AiDeliveryModel, type Verdict } from "./aiDeliveryModel";
 import { VerdictChip } from "./aiShared";
+import { CreateInitiativeButton } from "@/components/org/plan/CreateInitiativeButton";
 
-// Concern cohorts get an action rail; starter/working don't need one.
-const COHORTS: { verdict: Verdict; verb: string }[] = [
-  { verdict: "ungoverned", verb: "Require review on" },
-  { verdict: "idle", verb: "Reclaim seats on" },
-  { verdict: "shadow", verb: "Bring under a plan" },
+// Concern cohorts get an action rail; starter/working don't need one. Each cohort maps to the
+// dimension its remedy actually moves — review guardrails are D6, tooling adoption is D1, process
+// governance is D8 — so "Track as initiative" files the cohort against the right lever in Plan.
+const COHORTS: { verdict: Verdict; verb: string; dimId: string }[] = [
+  { verdict: "ungoverned", verb: "Require review on", dimId: "D6" },
+  { verdict: "idle", verb: "Reclaim seats on", dimId: "D1" },
+  { verdict: "shadow", verb: "Bring under a plan", dimId: "D8" },
 ];
 
 // idle/shadow are money- & plan-framed ("reclaim seats", "bring under a plan") — honest actions only
@@ -22,7 +25,7 @@ const MONEY_COHORTS = new Set<Verdict>(["idle", "shadow"]);
 export function AiRoiQuadrantActions({ model, slug, simulated }: { model: AiDeliveryModel; slug: string; simulated: boolean }) {
   return (
     <div className="space-y-3">
-      {COHORTS.filter(({ verdict }) => !(simulated && MONEY_COHORTS.has(verdict))).map(({ verdict, verb }) => {
+      {COHORTS.filter(({ verdict }) => !(simulated && MONEY_COHORTS.has(verdict))).map(({ verdict, verb, dimId }) => {
         const rows = model.repos.filter((r) => r.verdict === verdict);
         if (rows.length === 0) return null;
         const spend = rows.reduce((s, r) => s + r.monthlySpend, 0);
@@ -45,6 +48,14 @@ export function AiRoiQuadrantActions({ model, slug, simulated }: { model: AiDeli
               ))}
               {rows.length > 8 && <li className="font-mono text-sm text-slate-600">+{rows.length - 8}</li>}
             </ul>
+            <div className="mt-2">
+              <CreateInitiativeButton
+                slug={slug}
+                title={`${verb} ${rows.length} repo${rows.length > 1 ? "s" : ""}`}
+                dimId={dimId}
+                repos={rows.map((r) => r.fullName)}
+              />
+            </div>
           </div>
         );
       })}

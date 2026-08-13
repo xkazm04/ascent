@@ -9,6 +9,7 @@ import { ChangeTag, CoverageChip } from "@/components/org/fleet/tech-stacks/anal
 import { coverageOf, type DimInsight } from "@/components/org/fleet/tech-stacks/fleetAnalysis";
 import type { AnalysisScope } from "@/components/org/fleet/tech-stacks/analysisScope";
 import { buildPlaybook } from "@/components/org/fleet/tech-stacks/transferPlaybook";
+import { CreateInitiativeButton } from "@/components/org/plan/CreateInitiativeButton";
 
 function Handoff({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -85,7 +86,16 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
               </li>
             ))}
           </ul>
-          <div className="mt-2">
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            {/* Files the playbook's structured target directly (fleet-scoped: the laggard endpoint is
+                a stack cohort, not a repo list — Plan's progress view resolves coverage per repo). */}
+            <CreateInitiativeButton
+              slug={org}
+              title={`Lift ${d.dimId} · ${d.label} in ${d.laggard.name} to ${p.target}`}
+              dimId={d.dimId}
+              targetScore={p.target}
+              repos={[]}
+            />
             <Handoff href={`/org/${org}/plan`}>assign an owner &amp; track as a goal in Plan →</Handoff>
           </div>
         </div>

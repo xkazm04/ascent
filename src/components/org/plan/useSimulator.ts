@@ -57,6 +57,10 @@ export function useSimulator({ slug, dims }: { slug: string; dims: DimOption[] }
       id: ++idRef.current,
       label,
       scope: scope.size > 0 ? `${scope.size} repo${scope.size === 1 ? "" : "s"}` : `all (${result.repos.length})`,
+      // Same sourcing rule as trackAsInitiative: the explicit selection, or the concrete repos the
+      // projection covered — never the mutable live scope at commit time.
+      fixes: result.fixes,
+      repos: scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName),
       before: result.before,
       after: result.after,
       promotions: result.promotions,

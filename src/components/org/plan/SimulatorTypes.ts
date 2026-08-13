@@ -18,6 +18,11 @@ export interface SavedScenario {
    *  identically-labelled cards simulated over different fleet slices compared as if they were the
    *  same experiment, reading scope size as scenario quality (investment 07-16 #4). */
   scope: string;
+  /** The immutable legs + concrete repo set the projection covered, captured at save time so a saved
+   *  scenario can still be committed as an Initiative after the live form has moved on. Single-leg
+   *  only at the button (the same non-atomicity policy trackAsInitiative documents). */
+  fixes: FleetProjection["fixes"];
+  repos: string[];
   before: FleetProjection["before"];
   after: FleetProjection["after"];
   promotions: number;

@@ -123,7 +123,7 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
         <TeamAdoption teams={a.teams} pairing={a.teamPairing} slug={slug} />
       </div>
 
-      {showEnablement && <EnablementTargets targets={a.enablement} nonePool={a.distribution.none} />}
+      {showEnablement && <EnablementTargets slug={slug} targets={a.enablement} nonePool={a.distribution.none} />}
 
       {d ? (
         <DeliveryStrip delivery={d} slug={slug} />

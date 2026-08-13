@@ -2,16 +2,25 @@
 
 import { signedDelta as signed } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
-import type { SavedScenario } from "@/components/org/plan/SimulatorTypes";
+import { CreateInitiativeButton } from "@/components/org/plan/CreateInitiativeButton";
+import type { DimOption, SavedScenario } from "@/components/org/plan/SimulatorTypes";
 
-/** SIM-5: saved scenarios + a 2-up compare (client-only scratchpad). */
+/** SIM-5: saved scenarios + a 2-up compare (client-only scratchpad). Single-leg saves can be
+ *  committed as an Initiative — the scratchpad's snapshot (fixes + concrete repo set, captured at
+ *  save time) survives the live form moving on, so a reviewed scenario no longer evaporates on
+ *  navigation. Multi-leg saves stay compare-only: initiatives are single-dimension by design and a
+ *  per-leg loop was rejected as non-atomic (see trackAsInitiative in useSimulator.ts). */
 export function SavedScenarios({
+  slug,
+  dims,
   saved,
   compare,
   comparing,
   onToggleCompare,
   onRemove,
 }: {
+  slug: string;
+  dims: DimOption[];
   saved: SavedScenario[];
   compare: number[];
   comparing: SavedScenario[];
@@ -24,27 +33,41 @@ export function SavedScenarios({
         Saved scenarios <span className="text-slate-600">· tick two to compare</span>
       </div>
       <div className="mt-2 space-y-1.5">
-        {saved.map((s) => (
-          <label key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-1.5 font-mono text-sm">
-            <input type="checkbox" checked={compare.includes(s.id)} onChange={() => onToggleCompare(s.id)} className="accent-accent" />
-            <span className="min-w-0 flex-1 truncate text-slate-200">
-              {s.label} <span className="text-slate-500">· {s.scope}</span>
-            </span>
-            <span className="shrink-0 text-slate-500">
-              overall <span style={{ color: scoreHex(s.after.avgOverall) }}>{s.after.avgOverall}</span>{" "}
-              <span className="text-emerald-300">{signed(s.after.avgOverall - s.before.avgOverall)}</span>
-              {s.promotions > 0 && <span className="text-accent"> · {s.promotions}↑</span>}
-            </span>
-            <button
-              onClick={() => onRemove(s.id)}
-              aria-label={`Remove scenario ${s.label}`}
-              title="Remove"
-              className="text-slate-600 hover:text-orange-300"
-            >
-              ×
-            </button>
-          </label>
-        ))}
+        {saved.map((s) => {
+          const fix = s.fixes.length === 1 ? s.fixes[0] : undefined;
+          const dimLabel = fix ? (dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId) : null;
+          return (
+            <label key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-1.5 font-mono text-sm">
+              <input type="checkbox" checked={compare.includes(s.id)} onChange={() => onToggleCompare(s.id)} className="accent-accent" />
+              <span className="min-w-0 flex-1 truncate text-slate-200">
+                {s.label} <span className="text-slate-500">· {s.scope}</span>
+              </span>
+              {fix && (
+                <CreateInitiativeButton
+                  slug={slug}
+                  title={`Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${s.repos.length} repo${s.repos.length === 1 ? "" : "s"}`}
+                  dimId={fix.dimId}
+                  targetScore={fix.target}
+                  repos={s.repos}
+                  label="Track →"
+                />
+              )}
+              <span className="shrink-0 text-slate-500">
+                overall <span style={{ color: scoreHex(s.after.avgOverall) }}>{s.after.avgOverall}</span>{" "}
+                <span className="text-emerald-300">{signed(s.after.avgOverall - s.before.avgOverall)}</span>
+                {s.promotions > 0 && <span className="text-accent"> · {s.promotions}↑</span>}
+              </span>
+              <button
+                onClick={() => onRemove(s.id)}
+                aria-label={`Remove scenario ${s.label}`}
+                title="Remove"
+                className="text-slate-600 hover:text-orange-300"
+              >
+                ×
+              </button>
+            </label>
+          );
+        })}
       </div>
 
       {comparing.length === 2 && (

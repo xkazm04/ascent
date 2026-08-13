@@ -76,6 +76,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       {/* SIM-5: saved scenarios + a 2-up compare (client-only scratchpad). */}
       {sim.saved.length > 0 && (
         <SavedScenarios
+          slug={slug}
+          dims={dims}
           saved={sim.saved}
           compare={sim.compare}
           comparing={sim.comparing}

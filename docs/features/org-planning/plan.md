@@ -41,6 +41,20 @@ fleet recommendation** (e.g. "Add AGENTS.md to these 8 repos").
   bar, status dropdown) plus a "**Start from a fleet move**" section that turns the top
   untracked `getOrgRecommendations` results into a one-click initiative.
 - **DB:** `createInitiative`, `listInitiatives`, `updateInitiativeStatus`.
+- **Seeding from the diagnostic tabs** (2026-08-14): the shared
+  `src/components/org/plan/CreateInitiativeButton.tsx` files the already-constructed payload
+  from four read surfaces straight into `POST /api/org/initiatives` (idempotent server-side
+  on `(org, title, dimId)`):
+  - **Delivery** — each ROI concern cohort (`AiRoiQuadrantActions`) tracks its repo set
+    against the dimension its remedy moves (ungoverned→D6, idle→D1, shadow→D8).
+  - **Tech Stacks** — a transformation playbook (`PlaybookDetail`) tracks its `dimId` +
+    `target` as a fleet-scoped initiative.
+  - **Adoption** — an enablement target (`EnablementTargets`) tracks a D1 enablement
+    initiative naming the login in the title (no assignee — the person to enable is not the
+    initiative's owner).
+  - **Simulator** — saved scenarios carry their immutable `fixes` + concrete repo set, so a
+    single-leg save can be committed as an initiative after the live form has moved on
+    (multi-leg saves stay compare-only; per-leg looping was rejected as non-atomic).
 
 An optional `practiceId` links an initiative to a [Practice Library](../org-dashboard/practices.md) item.
 
