@@ -6,6 +6,7 @@
 import { Logo } from "@/components/Brand";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { PriorPeriodGrid } from "@/components/org/intelligence/executive/briefingShared";
+import { BriefingProofBanner } from "@/components/org/intelligence/executive/BriefingProofBanner";
 import {
   BriefingDimensionCards,
   BriefingGoalsCard,
@@ -193,6 +194,10 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
           </div>
         )}
+
+        {/* The rollout proof travels with the shared board link too — plain numbers, no links into
+            the app (the banner component carries none), same line the exec tab and PDF render. */}
+        <BriefingProofBanner proof={briefing.proof} className="mt-4" />
 
         {/* Engine-mix provenance — the shared board link must show the same mock-degraded caveat the
             owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were

@@ -14,6 +14,8 @@ import {
   type RepoMove,
 } from "@/lib/db";
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
+import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
+import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import { providerLabel as engineLabel } from "@/lib/llm/config";
@@ -211,6 +213,15 @@ export interface ExecBriefing {
    *  (the `BriefingMove.fullName` precedent). `buildExecBriefing` ALWAYS sets it; read it through
    *  `briefingNextMove(b)` rather than indexing it directly. */
   recommendations?: OrgRec[];
+  /** Practice-rollout PROOF — the "did the transformation work" numbers (starter PRs opened/merged
+   *  from the Practice Library and the measured post-merge dimension lift). This is the only place
+   *  the product PROVES improvement rather than reporting standing, so it belongs in front of the
+   *  audience that funds the work — previously it was page-local to the Practices tab. Always
+   *  FLEET-WIDE: practices are not segment-scoped, so a segment-scoped briefing still reports the
+   *  whole library's rollout (renderers say so). Null when no practice was ever applied — "never
+   *  tried" must not render as "tried and nothing landed". OPTIONAL for the same
+   *  fixture-compatibility reason as `recommendations`; `buildExecBriefing` always sets it. */
+  proof?: { open: number; merged: number; lift: number | null; liftPractices: number } | null;
   /** Optional LLM-written executive narrative (G5-03). NEVER produced by `buildExecBriefing` — a
    *  deliverable path opts in explicitly via `attachBriefingNarrative` (see ./briefing-narrative),
    *  which is grounded strictly in the figures above and degrades to deterministic copy. Null/absent
@@ -258,7 +269,7 @@ export async function buildExecBriefing(
       }
     : undefined;
 
-  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs] = await Promise.all([
+  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption] = await Promise.all([
     getOrgRollup(orgSlug, window, segmentId, techGroupId),
     getOrgBenchmark(orgSlug),
     getOrgMovers(orgSlug, window, segmentId, techGroupId),
@@ -271,6 +282,13 @@ export async function buildExecBriefing(
     // scope). `.catch(() => null)` mirrors that page: a recommendations failure must degrade the
     // section, never 500 the whole briefing/PDF.
     getOrgRecommendations(orgSlug, 5, segmentId, techGroupId).catch(() => null),
+    // The proof block's inputs — the same three reads the Practices tab makes, folded through
+    // buildPracticeLibrarySummary. NOT segment-scoped (practices aren't); techGroupId matches the
+    // practices surface's own scoping. Each degrades independently — a practices failure must cost
+    // the proof section, never the briefing/PDF.
+    getOrgPractices(orgSlug, null, techGroupId).catch(() => null),
+    listPlaybooks(orgSlug).catch(() => null),
+    getPlaybookAdoption(orgSlug).catch(() => ({})),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
@@ -387,8 +405,30 @@ export async function buildExecBriefing(
     })),
     regressionCount: movers?.regressers.length ?? 0,
     recommendations: orgRecs ?? [],
+    proof: practices ? buildPracticeLibrarySummary(orgSlug, practices, playbooks ?? [], playbookAdoption).rollout : null,
     narrative: null,
   };
+}
+
+/** One prose line for the practice-rollout proof — shared by the exec page, the board PDF, the share
+ *  page and the markdown so the four can't drift (the valueRealizedLine pattern). Null when no
+ *  practice was ever applied OR nothing is in flight: the proof section only appears when there is
+ *  proof, never as "0 · 0". */
+export function briefingProofLine(p: ExecBriefing["proof"]): string | null {
+  if (!p || (p.open === 0 && p.merged === 0)) return null;
+  const parts: string[] = [];
+  if (p.merged > 0) parts.push(`${p.merged} improvement PR${p.merged === 1 ? "" : "s"} merged from the Practice Library`);
+  if (p.open > 0) parts.push(`${p.open} still open`);
+  if (p.lift != null && p.liftPractices > 0) {
+    parts.push(
+      `${p.lift >= 0 ? "+" : ""}${p.lift} avg measured dimension lift across ${p.liftPractices} practice${p.liftPractices === 1 ? "" : "s"}`,
+    );
+  } else if (p.merged > 0) {
+    // Honesty over silence: merged work with no measured lift yet is a real state the reader should
+    // see, not a blank — the same framing PracticeRolloutStrip uses.
+    parts.push("no post-merge lift measured yet");
+  }
+  return parts.join(" · ");
 }
 
 /** The single ranked next move, resolved from the briefing's own `recommendations` list. Null when
@@ -486,6 +526,14 @@ export function briefingMarkdown(b: ExecBriefing): string {
     for (const g of b.goals) {
       out.push(`- ${g.label}: ${g.current}/${g.target} (${g.pct}%, ${g.pace}${g.etaDays != null ? `, ETA ~${g.etaDays}d` : ""})`);
     }
+  }
+  // Proof before the ask: the rollout numbers are the briefing's evidence that acting on the last
+  // ask worked. Fleet-wide by construction (practices aren't segment-scoped) — say so.
+  const proofLine = briefingProofLine(b.proof ?? null);
+  if (proofLine) {
+    out.push("");
+    out.push("## Proof — improvement shipped and measured");
+    out.push(`- Fleet-wide: ${proofLine}`);
   }
   // Name the recommended next move from the SAME ranked list the on-screen page renders (G5-02).
   // This used to be `risks[0] ?? security`, computed only here: on a small, high-scoring fleet with

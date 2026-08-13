@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingMarkdown, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingMarkdown, briefingProofLine, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -16,6 +16,11 @@ vi.mock("@/lib/db", () => ({
   // G5-02: the ranked next-move list is now assembled INTO the briefing (one source for screen,
   // PDF and markdown), so the db boundary gains this read.
   getOrgRecommendations: vi.fn(),
+  // The proof block's inputs (practice rollout onto the briefing). Default: never applied — the
+  // proof field resolves to null and existing assertions are untouched.
+  getOrgPractices: vi.fn(async () => null),
+  listPlaybooks: vi.fn(async () => []),
+  getPlaybookAdoption: vi.fn(async () => ({})),
 }));
 
 // buildExecBriefing reads the engine mix through the @/lib/db/org barrel (the same barrel every
@@ -956,5 +961,43 @@ describe("buildExecBriefing — deterministic generatedOn (frozen clock)", () =>
     const len = new Date("2026-06-18T00:00:00.000Z").getTime() - start.getTime(); // 7 days, off frozen now
     expect(priorWindow.endExclusive?.getTime()).toBe(start.getTime());
     expect(priorWindow.start?.getTime()).toBe(start.getTime() - len);
+  });
+});
+
+// ── Proof (practice rollout on the briefing) ─────────────────────────────────────────────────────
+
+describe("briefingProofLine", () => {
+  it("is null when no practice was ever applied (proof null) or nothing is in flight", () => {
+    expect(briefingProofLine(null)).toBeNull();
+    expect(briefingProofLine({ open: 0, merged: 0, lift: null, liftPractices: 0 })).toBeNull();
+  });
+
+  it("reports merges, open PRs and the measured lift in one line", () => {
+    expect(briefingProofLine({ open: 2, merged: 5, lift: 9, liftPractices: 3 })).toBe(
+      "5 improvement PRs merged from the Practice Library · 2 still open · +9 avg measured dimension lift across 3 practices",
+    );
+  });
+
+  it("says so when merged work has no measured lift yet — honesty over silence", () => {
+    expect(briefingProofLine({ open: 0, merged: 1, lift: null, liftPractices: 0 })).toBe(
+      "1 improvement PR merged from the Practice Library · no post-merge lift measured yet",
+    );
+  });
+
+  it("keeps a negative mean lift signed instead of hiding it", () => {
+    expect(briefingProofLine({ open: 0, merged: 2, lift: -3, liftPractices: 2 })).toContain("-3 avg measured dimension lift");
+  });
+});
+
+describe("briefingMarkdown — proof section", () => {
+  it("prints the fleet-wide proof section before the recommended next move", () => {
+    const md = briefingMarkdown({ ...fixture, proof: { open: 1, merged: 4, lift: 7, liftPractices: 2 } });
+    expect(md).toContain("## Proof — improvement shipped and measured");
+    expect(md).toContain("- Fleet-wide: 4 improvement PRs merged from the Practice Library");
+    expect(md.indexOf("## Proof")).toBeLessThan(md.indexOf("## Recommended next move"));
+  });
+
+  it("omits the section entirely when there is no proof (fixture has none)", () => {
+    expect(briefingMarkdown(fixture)).not.toContain("## Proof");
   });
 });

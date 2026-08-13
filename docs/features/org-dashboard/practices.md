@@ -180,7 +180,11 @@ straight at the CI-gates practice and its exemplars.
   `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
   deliberate bound, not a limitation to remove: one click must never become hundreds of
   PRs); larger fleets need repeated, re-confirmed passes. The `base` override has no UI yet.
-- **The rollout rollup is page-local** — `summarizeRollout` folds the rows the Practices
-  page already has, so the fleet ROI number lives only there. It is not yet a section in
-  the executive briefing (`src/lib/org/briefing.ts`), which remains the natural next home.
+- (Closed 2026-08-14.) ~~The rollout rollup is page-local.~~ The rollout proof now rides
+  the executive briefing: `buildExecBriefing` folds `buildPracticeLibrarySummary(...)
+  .rollout` onto `ExecBriefing.proof`, and one shared `briefingProofLine` renders it on the
+  Briefing tab (`BriefingProofBanner`), the public share page, the board PDF and the
+  Copy-for-LLM markdown (`## Proof — improvement shipped and measured`). Always fleet-wide
+  (practices aren't segment-scoped) and every renderer says so; null when nothing was ever
+  applied, so "never tried" can't read as "tried and nothing landed".
 - **Catalog is global** — orgs can't customize practices or starter checklists.

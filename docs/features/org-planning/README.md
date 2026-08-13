@@ -18,6 +18,7 @@ Context-map group: **Org Planning & Execution** (`feature`).
 | Investment Simulator & Forecast | `/org/[slug]/plan`, `/api/org/simulate` | `src/lib/scoring/orgsim.ts`, `src/lib/maturity/forecast.ts` |
 | Playbooks | `/api/org/playbooks[/id][/repos][/apply]` | `src/lib/db/playbooks.ts`, `src/lib/org/playbook-brief.ts` |
 | Executive Briefing | `/org/[slug]/executive`, `/api/org/briefing/{pdf,share}` | `src/lib/org/briefing.ts`, `src/lib/pdf/briefing-document.tsx` |
+| — Proof section (2026-08-14) | practice-rollout proof on every briefing surface | `ExecBriefing.proof` + `briefingProofLine` (briefing.ts), `BriefingProofBanner.tsx` (tab + share page), PDF line, `## Proof` markdown section — fleet-wide, null when never applied |
 | Live War Room | `/org/[slug]/live`, `/api/org/ops`, `/api/org/live-share` | `src/components/org/live/**`, `src/lib/live-share.ts` |
 
 ## Known gaps

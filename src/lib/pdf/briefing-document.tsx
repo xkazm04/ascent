@@ -7,7 +7,7 @@
 
 import type { ReactNode } from "react";
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { benchmarkCaption, briefingNextMove, engineMixCaveat, engineMixLabel, forecastConfidenceNote, movementLine, nextMoveLine, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { benchmarkCaption, briefingNextMove, briefingProofLine, engineMixCaveat, engineMixLabel, forecastConfidenceNote, movementLine, nextMoveLine, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -148,6 +148,12 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         ) : null}
         {b.adoptionRate != null ? (
           <Text style={styles.line}>Fleet adoption: {b.adoptionRate}% of scanned repos at a high AI-adoption posture</Text>
+        ) : null}
+        {/* The rollout PROOF — same briefingProofLine the exec tab, share page and markdown print,
+            so the durable board artifact carries the "it worked" numbers too. Fleet-wide by
+            construction (practices aren't segment-scoped). */}
+        {briefingProofLine(b.proof ?? null) ? (
+          <Text style={styles.line}>Proof — improvement shipped: {briefingProofLine(b.proof ?? null)} (fleet-wide)</Text>
         ) : null}
         {/* Engine-mix provenance — the durable artifact must carry the same mock-degraded caveat the
             page + "Copy for LLM" markdown show, so a board/auditor PDF can't present synthetic scores

@@ -23,6 +23,7 @@ import {
   BriefingMovementCard,
   BriefingTiles,
 } from "./briefingCards";
+import { BriefingProofBanner } from "./BriefingProofBanner";
 import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { ExecutiveTrajectoryCard } from "./ExecutiveTrajectoryCard";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -127,6 +128,10 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
           <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
         </div>
       )}
+
+      {/* The rollout PROOF — previously page-local to Practices; the VP defending the AI budget
+          reads this page, so the "it worked" numbers live here too (same line as PDF/markdown). */}
+      <BriefingProofBanner proof={briefing.proof} />
 
       {/* GB: fleet signals as ONE wrap-row strip instead of three stacked <p> lines. */}
       <ExecutiveSignalsStrip briefing={briefing} />
