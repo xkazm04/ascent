@@ -19,6 +19,7 @@
 
 import { Suspense } from "react";
 import { TimeRangeSelector } from "./TimeRangeSelector";
+import { OverviewFixFirstPanel } from "./OverviewFixFirstPanel";
 import { OverviewFleetPanel } from "./OverviewFleetPanel";
 import { OverviewScopeReadout } from "./OverviewScopeReadout";
 import { resolveBillingReturn } from "./overviewBilling";
@@ -86,6 +87,13 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
           <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
         </div>
       </div>
+
+      {/* "Fix first" punch-list — its own boundary so its reads (movers + goals; findings ride the
+          rail badges' cache) stream independently and can never hold the fleet panel, per the
+          two-tier rule at the top of this file. Falls back to nothing: guidance, not chrome. */}
+      <Suspense fallback={null}>
+        <OverviewFixFirstPanel slug={slug} win={win} scopeQuery={typeof sp.stack === "string" ? `stack=${sp.stack}` : undefined} />
+      </Suspense>
 
       <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
         <OverviewFleetPanel slug={slug} scope={scope} win={win} periodTitle={period.title} sortDim={dimParam} search={search} />

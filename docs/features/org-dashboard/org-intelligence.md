@@ -71,7 +71,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Overview | Overview | `org/[slug]` (`?tab=overview`) | `src/components/org/overview/` | Four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
+| Overview | Overview | `org/[slug]` (`?tab=overview`) | `src/components/org/overview/` | The **Fix first** band (up to 3 triage-ordered next moves — worst regresser, busiest unresolved findings queue, behind-pace goal — own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
 | Overview | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
 | Fleet | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4 — see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
 | Fleet | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
@@ -620,15 +620,14 @@ from existing scan data — never "enforced", and the copy must never claim it i
 
 ## Known gaps
 
-- **The Overview shows standing, not a punch list.** It renders where the fleet stands and how its
-  composition is moving; it does NOT rank "what to fix first". A derived three-item punch list
-  (`OverviewFixFirst` / `fixFirst.ts`) existed and was deleted on 2026-08-03 because three of its
-  four inputs — `getOrgMovers`, `getOrgGapAnalysis`, `listGoals` — are queries the Overview does not
-  make, and adding them would put three reads on the dashboard's landing path to render three lines.
-  The same answers live one click away and unabridged: gap analysis and reusable exemplars on
-  [Practices](./practices.md), goal pacing on [Plan](../org-planning/plan.md), and the ranked
-  narrative on the Briefing tab. Reviving it means giving it its own `<Suspense>` boundary and
-  accepting the reads — a deliberate decision, not a restore.
+- (Closed 2026-08-13.) ~~The Overview shows standing, not a punch list.~~ The three-item **Fix
+  first** band is back on the Overview (`OverviewFixFirstPanel` → pure `deriveFixFirst` in
+  `src/components/org/overview/fixFirst.ts`), revived from the 2026-08-03 deletion with a cheaper
+  input set: worst regresser (`getOrgMovers`), the busiest unresolved derived-findings queue
+  (`getOrgFindings` — already `unstable_cache`d for the rail badges, decisions subtracted fresh),
+  and the first behind-pace active goal (`listGoals`). It streams in its own `<Suspense>` boundary
+  so the fleet panel is never held, drops `getOrgGapAnalysis` (the expensive read that motivated
+  the deletion), and renders nothing when there is nothing actionable.
 
 - **No per-contributor drill-down page, deliberately** — and no per-person time-series to build one
   from: `RepoContributor` is uniquely keyed `(repoId, login)` and upserted each scan, so it is a
