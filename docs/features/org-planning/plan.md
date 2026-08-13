@@ -140,7 +140,12 @@ deterministic detectors.
   `Simulator.SavedScenarios.tsx` drive the UI), but each leg is projected on its own:
   the model doesn't express a dependency between legs, so it can't capture "fixing D3
   makes D6 cheaper".
-- **Goal metrics are point-in-time** — progress reads the latest scan, with no "trend
-  toward goal" line.
+- (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row now
+  carries `series` — the same per-day metric trend the pace/ETA projection is fitted on
+  (`metricSeries`), display-clamped to the plan's retention floor and capped at 90 daily
+  points — and the shared `GoalCard` draws it as a trajectory line toward the dashed
+  target (`src/components/org/shared/GoalTrend.tsx`), on both the Plan tab and the
+  overview goals panel. The `pct` meter's documented blind spot (standing, not travel) is
+  now covered by the line above it.
 - **Detector backlog is read-only** — no drill-in or auto-filing to a detector-improvement
   process.

@@ -1078,3 +1078,35 @@ describe("updateInitiative — optimistic compare-and-set", () => {
     expect(model.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("listGoals — the display trend series attached to each goal", () => {
+  it("attaches the metric's per-day series (retention-clamped, ≤90 points) to the goal row", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", metric: "overall", target: 90 }],
+      repos: [{ fullName: "acme/api", name: "api", overall: 50 }],
+    });
+    const day = 86_400_000;
+    const at = (daysAgo: number) => new Date(Date.now() - daysAgo * day);
+    // Two recent observations inside every plan's retention floor, one ancient one outside the
+    // default (free ⇒ 30d) window — the clamp must drop it from the DISPLAY series.
+    prisma.scan.findMany = vi.fn(async () => [
+      { scannedAt: at(400), overallScore: 10, adoptionScore: 10, rigorScore: 10 },
+      { scannedAt: at(5), overallScore: 48, adoptionScore: 40, rigorScore: 55 },
+      { scannedAt: at(1), overallScore: 52, adoptionScore: 44, rigorScore: 60 },
+    ]) as never;
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+    expect(g.series.map((p) => p.value)).toEqual([48, 52]);
+    expect(g.series.length).toBeLessThanOrEqual(90);
+    // Chronological, ISO-dated points — the shape GoalTrend draws.
+    expect(g.series[0]!.date < g.series[1]!.date).toBe(true);
+  });
+
+  it("is an empty series (not a crash, not undefined) when the org has no scans", async () => {
+    const { prisma } = fakePrisma({ goals: [{ id: "g1", target: 80 }] });
+    mockGetPrisma.mockReturnValue(prisma);
+    const g = (await listGoals(ORG_SLUG))![0]!;
+    expect(g.series).toEqual([]);
+  });
+});

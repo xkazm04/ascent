@@ -2,7 +2,7 @@
 // convention (<Feature>Types.ts) to keep goalView.tsx under the 200-LOC cap. Re-exported from
 // goalView.tsx so every existing import site is unchanged.
 
-import type { GoalPace, Trajectory } from "@/lib/maturity/forecast";
+import type { GoalPace, SeriesPoint, Trajectory } from "@/lib/maturity/forecast";
 import type { GoalLaggard } from "@/lib/db/plan";
 
 /** The serializable shape the goal UI renders — mirrors GoalProgress from src/lib/db/plan.ts. */
@@ -29,6 +29,9 @@ export interface GoalProgressView {
   requiredPerWeek: number | null;
   laggards: GoalLaggard[];
   belowCount: number;
+  /** The metric's per-day trend the pace was fitted on (display-clamped server-side). OPTIONAL so
+   *  callers holding pre-series payloads still render — the card just omits the trend line. */
+  series?: SeriesPoint[];
 }
 
 /** An initiative linked to a goal — the tracked work advancing it (GOAL-6 cross-render). */

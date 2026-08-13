@@ -7,6 +7,7 @@
 // so every existing import of "@/components/org/shared/goalView" keeps resolving unchanged.
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
+import { GoalTrend } from "@/components/org/shared/GoalTrend";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { GOAL_PACE_TONE, readout, INIT_STATUS_LABEL } from "./goalViewLogic";
@@ -79,6 +80,16 @@ export function GoalCard({
         threshold={goal.target}
         color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
       />
+      {/* The trajectory toward the target — the meter shows standing, this shows TRAVEL (the pct
+          field's documented blind spot). Same series the pace verdict was fitted on. */}
+      {(goal.series?.length ?? 0) >= 2 && (
+        <GoalTrend
+          className="mt-2"
+          series={goal.series!}
+          target={goal.target}
+          color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
+        />
+      )}
       <p className="mt-2 font-mono text-sm leading-relaxed" style={{ color: pace.color }}>
         {readout(goal)}
       </p>

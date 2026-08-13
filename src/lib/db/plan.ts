@@ -7,6 +7,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { retentionCutoff } from "@/lib/plans";
 import { DEFAULT_INITIATIVE_TARGET, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
@@ -225,6 +226,13 @@ export interface GoalProgress {
   laggards: GoalLaggard[];
   /** Total repos below the target (laggards may be truncated). */
   belowCount: number;
+  /**
+   * The metric's per-day fleet-average trend — the SAME series the pace/ETA projection was fitted
+   * on, exposed so the goal card can draw the trajectory toward the target instead of a
+   * point-in-time meter. Display-clamped to the plan's retention floor (the projector still fits
+   * the full series — behavior unchanged) and capped to the most recent 90 daily points.
+   */
+  series: SeriesPoint[];
 }
 
 export async function createGoal(
@@ -270,12 +278,22 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
-  const [goals, snap] = await Promise.all([
+  const [goals, snap, orgRow] = await Promise.all([
     prisma.goal.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
     fleetSnapshot(orgId),
+    prisma.organization.findUnique({ where: { id: orgId }, select: { plan: true } }),
   ]);
   const series = await metricSeries(orgId, new Set(goals.map((g) => g.metric)));
   const now = Date.now();
+  // Display clamp for the per-goal trend series: entitlement-gated exactly like getOrgRollup's
+  // trend (a Free org must not SEE history deeper than its retention floor). The projector keeps
+  // fitting the full series — clamping what feeds pace/ETA would silently change verdicts.
+  const retentionStart = retentionCutoff(orgRow?.plan, now);
+  const cutoffKey = retentionStart ? retentionStart.toISOString().slice(0, 10) : null;
+  const displaySeries = (metric: string): SeriesPoint[] => {
+    const s = series[metric] ?? [];
+    return (cutoffKey ? s.filter((p) => p.date >= cutoffKey) : s).slice(-90);
+  };
   // GOAL-4: the achieved transition is SYMMETRIC. A goal that first reaches its target is stamped
   // achieved (status + achievedAt) exactly once; a goal already "achieved" whose live value has since
   // regressed below target is reverted to "active" (achievedAt cleared) so the board reflects the
@@ -328,6 +346,7 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       requiredPerWeek: proj.requiredPerWeek,
       laggards: below.slice(0, 12),
       belowCount: below.length,
+      series: displaySeries(g.metric),
     };
   });
   // Best-effort persistence of the transition (both directions) — a failed write just re-marks on the
