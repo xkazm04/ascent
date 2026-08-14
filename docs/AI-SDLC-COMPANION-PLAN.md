@@ -347,7 +347,34 @@ metric arriving free with deployment frequency. These land in **Bought**, not in
 
 ---
 
-## Wave 5 — The agent door (MCP server)
+## Wave 5 — The agent door (MCP server) ✅ SHIPPED 2026-08-14
+
+> **Status:** shipped as `POST /api/mcp`, implementing MCP revision **2026-07-28**, with 34 tests.
+> Suite green at 6561. Docs: [skills.md](features/org-knowledge/skills.md#the-agent-door--mcp-server-w5-2026-08-14).
+>
+> **The research changed the build, and made it much smaller.** The 2026-07-28 revision made MCP
+> **stateless** — it removed the `initialize` handshake, protocol sessions and `Mcp-Session-Id`, the
+> standalone GET/SSE stream, and stream resumability. Every request self-describes through `_meta`.
+> For a Next.js app on serverless that is decisive: **a single `force-dynamic` POST handler is a
+> conformant server** — no session store, no sticky routing, no long-lived connection fighting a
+> function timeout. Those were exactly the three things that would have made this wave real
+> infrastructure work a year ago.
+>
+> **So there is no SDK dependency**, and that is a conclusion from the spec rather than a preference:
+> an SDK would import transport and session machinery this revision deleted, to save ~150 lines. What
+> the revision *adds* — mandatory `Mcp-Method`/`Mcp-Name` header/body validation with `-32020` on
+> mismatch, `server/discover`, `resultType`, `ttlMs`/`cacheScope`, deterministic tool order, Origin
+> validation — is implemented rather than skipped.
+>
+> **Deviations from the draft:**
+> - **Scopes are two-level.** `mcp:read` is the door; a tool over a scoped resource *also* requires
+>   that resource's scope. Granting an agent the door does not silently grant it the org's memory.
+>   `tools/list` filters by granted scopes, which the revision explicitly permits.
+> - **Bearer tokens, not OAuth 2.1 resource-server conformance.** Stated as a limit in the code and
+>   the docs rather than glossed. A `WWW-Authenticate` challenge is emitted; a paired authorization
+>   server is the upgrade path.
+> - **An out-of-scope tool returns the same error as a nonexistent one**, so the door cannot be used
+>   to enumerate what an org has that this token cannot reach.
 
 Port's "make the governed route the fastest route" only works if the governed route is reachable at
 the moment code is being written. Ascent currently ships its standard as files in a PR; it should

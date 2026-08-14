@@ -14,6 +14,7 @@ const SCOPE_LABEL: Record<SkillTokenScope, string> = {
   "skills:write": "Register / update skills",
   "telemetry:write": "Report usage",
   "memory:read": "Recall org memory",
+  "mcp:read": "Agent door (MCP) — read org standing",
 };
 
 export function ApiTokensPanel({

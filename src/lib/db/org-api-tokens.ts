@@ -14,7 +14,12 @@ const TOKEN_PREFIX = "askl_";
  *  bearer credential, so it is scoped down to exactly what the holder needs. `memory:read` is the
  *  control-plane door the recall route's own header always promised — an agent pulling the org's
  *  budget-packed memory into its context without a cookie session. */
-export const SKILL_TOKEN_SCOPES = ["skills:read", "skills:write", "telemetry:write", "memory:read"] as const;
+// W5 adds `mcp:read` — the scope that admits a token to the MCP door at all. It is deliberately
+// SEPARATE from the resource scopes beside it rather than implying them: a token holding `mcp:read`
+// alone sees only the org-standing tools, and `memory:read` / `skills:read` each unlock their own
+// tool on top. So granting an agent the door does not silently grant it the org's memory, and an
+// existing memory token does not silently become an agent door.
+export const SKILL_TOKEN_SCOPES = ["skills:read", "skills:write", "telemetry:write", "memory:read", "mcp:read"] as const;
 export type SkillTokenScope = (typeof SKILL_TOKEN_SCOPES)[number];
 
 export function isSkillTokenScope(v: string): v is SkillTokenScope {

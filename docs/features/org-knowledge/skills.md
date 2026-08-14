@@ -290,6 +290,75 @@ The **push** route is the one exception: it gates directly on
 `planAllowsSkillsLibrary`, not `workspaceAllowsSkills` — a personal workspace
 cannot use the CLI/CI push path even though it can author through the UI.
 
+## The agent door — MCP server (W5, 2026-08-14)
+
+`POST /api/mcp` is an MCP server implementing revision **2026-07-28**. It exists because ascent
+already ships the org's standard as *files in a PR* (the `.ai/` foundation, practice starters,
+pushed skills) — which reaches an agent at setup time, not at the moment it is deciding how to write
+the next change. That moment is where Port's *"make the governed route the fastest route"* either
+happens or does not.
+
+### Why there is no MCP SDK dependency
+
+The 2026-07-28 revision made MCP **stateless**: it removed the `initialize`/`notifications/initialized`
+handshake, protocol-level sessions and the `Mcp-Session-Id` header, the standalone GET/SSE stream,
+and stream resumability (`Last-Event-ID`). Every request self-describes through `_meta`, and list
+results may not vary per-connection.
+
+For a Next.js app on serverless that is decisive: **a single `force-dynamic` POST handler is a
+conformant server.** No session store, no sticky routing, no long-lived connection fighting a
+function timeout — the three things that used to make hosting MCP real infrastructure work in this
+deployment shape. An SDK would import transport and session machinery this revision deleted.
+
+What the revision *adds* is header/body validation, and it is implemented rather than skipped:
+`Mcp-Method` and `Mcp-Name` mirror body fields so intermediaries can route without parsing, and a
+mismatch **must** be rejected with `-32020` — otherwise a load balancer and this server could act on
+different requests. `validateHeaders` (`src/lib/mcp/protocol.ts`) enforces it, including the
+`=?base64?…?=` sentinel decode before comparison.
+
+Also implemented per the revision: `server/discover` (mandatory), `resultType` on every result,
+`ttlMs` + `cacheScope` on `tools/list`, deterministic tool ordering, Origin validation (403), and
+`405` on GET/DELETE.
+
+### Tools, and the scope model
+
+| Tool | Requires | Answers |
+| --- | --- | --- |
+| `get_ai_stance` | `mcp:read` | Permitted tools/models, no-AI zones, review tiers, approval requirement |
+| `get_gate_verdict` | `mcp:read` | Would this repo clear the org's gate, and what fails |
+| `get_practice_shape` | `mcp:read` | The reusable *shape* of a practice the org already does well |
+| `get_repo_standing` | `mcp:read` | Level, adoption vs rigor, per-dimension scores |
+| `list_open_recommendations` | `mcp:read` | Gaps the org has already decided matter |
+| `recall_org_memory` | `mcp:read` **+** `memory:read` | Decisions, incidents and conventions already ruled on |
+
+`mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
+token holding it alone sees only the org-standing tools, and `memory:read` unlocks recall *on top*.
+So granting an agent the door does not silently grant it the org's memory, and an existing memory
+token does not silently become an agent door. `tools/list` filters to what the token holds — which
+the revision explicitly permits, since credentials are per-request input rather than connection
+state — so an agent is never shown a tool it would then be refused.
+
+An out-of-scope tool is answered with the **same** `Unknown tool` error as a nonexistent one, so the
+door does not become an oracle for which tools an org has that this token cannot reach.
+
+### What it deliberately does not do
+
+- **Read-only.** A write tool is a governance surface: it needs the stance model to authorize it, a
+  machine audit actor, and an answer to *"what stops an agent closing its own recommendation"*.
+  Shipping reads first answers the distribution question without pre-committing any of those.
+- **Bearer tokens, not OAuth 2.1.** The revision describes MCP servers as OAuth resource servers
+  validating tokens from a paired authorization server. This uses the org API tokens that already
+  exist and emits a `WWW-Authenticate` challenge on 401. That is honest bearer auth, not resource-server
+  conformance, and the distinction is stated rather than glossed.
+- **No `subscriptions/listen`.** The catalog is a compile-time constant, so `listChanged: false` is
+  the truthful capability declaration rather than advertising a channel that never fires.
+
+Every handler is a **projection of a shipped read** — the gate tool runs the same `evaluateGateLite`
+against the same persisted policy the CI gate and dashboard use, so an agent is never told it would
+clear a bar CI then blocks. Absence is always answered explicitly ("this repo has never been
+scanned", "no stance published — absence is not permission") rather than as an empty object a model
+would read as *nothing to worry about*.
+
 ## Known gaps
 
 - `OrgSkillEvent.source` is documented as `cli | hook | ci | web` but is
