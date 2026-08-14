@@ -193,39 +193,39 @@ real view is now the `?tab=segments` view of `org/[slug]/repositories/page.tsx`
 (`src/components/org/repositories/SegmentsSection.tsx`) under the shared `FleetTabs`. The
 repositories page branches to it *before* running the repo-inventory/rollup reads, so the
 Segments view doesn't pay for a rollup it won't render. It shows user-defined fleet slices
-(platform, mobile, legacy…) — per-segment maturity rollups plus a side-by-side
+(platform, mobile, legacy…): per-segment maturity rollups plus a side-by-side
 segment-vs-segment comparison (headline metrics + per-dimension Δ). Tags are managed on the
 main Repositories view of the same page (`RepoSegmentsPanel`).
 
-**Two different `repoCount`s, by design — label whichever one you render.** `listSegments`'s
+**Two different `repoCount`s, by design: label whichever one you render.** `listSegments`'s
 `SegmentRow.repoCount` counts every repo ever **tagged** into the segment, watched or not,
 scanned or not (the number `RepoSegmentsPanel`'s tagging chips show). `SegmentSummary.repoCount`
 (from `listSegmentSummaries` / `compareSegments`, used by the Segments tab's rollup cards and
 comparison view) counts only the segment's repos in the **fleet-rollup universe** (watched OR
-has-scans) — the same restriction `getOrgRollup` already applies everywhere else. A segment with
+has-scans), the same restriction `getOrgRollup` already applies everywhere else. A segment with
 tagged-but-unwatched/unscanned repos legitimately shows a smaller number on the Segments tab than
 on its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces now carry a
 tooltip saying which one they are.
 
-### Context half-life (the Repositories tab's context-layer lens — W4, real)
+### Context half-life (the Repositories tab's context-layer lens, W4, real)
 
 `ContextHealthPanel` (`src/components/org/fleet/repositories/context-health/`) renders above the
 leaderboard: the quality-over-presence read of the fleet's agent-context layer (CLAUDE.md /
-AGENTS.md / rules files). It went **real** in W4 — the P4 prototype's Baseline/Half-life switcher
+AGENTS.md / rules files). It went **real** in W4: the P4 prototype's Baseline/Half-life switcher
 and its `contextHealthMock` synthesis are deleted; every number now comes from the
 `contextHealthJson` each scan persists (derivation:
 [scan.md → Context Health](../scanning/scan.md#context-health-srclibanalyzecontext-healthts--w4)).
 
-- **Data path** — `getOrgRollup` parses `Repository.contextHealthJson` onto `OrgRepoRow.contextHealth`
+- **Data path**: `getOrgRollup` parses `Repository.contextHealthJson` onto `OrgRepoRow.contextHealth`
   (defensive parse; malformed → null); `contextHealthModel.ts` builds the rows and the fleet summary
   purely, reusing the shared decay math (`decayPotency`/`halfLife`/`guidanceTolerance` from
   `src/lib/analyze/context-health.ts`) so scan-time potency and the panel's projection can't drift.
-- **Fleet tiles** — context **coverage %** (repos with guidance / assessed repos), median projected
+- **Fleet tiles**: context **coverage %** (repos with guidance / assessed repos), median projected
   **half-life** at current commit rates, **past half-life** count (potency < 50), and **dead
   references** (guidance pointing at deleted files). The band bar splits classifiable repos into
-  fresh / aging / stale / absent; repos are listed most-urgent first (decayed before missing —
-  a wrong map misleads an agent further than no map).
-- **Honesty rules** — staleness figures are always **≈** (weekly-bucket derived, `windowCapped`
+  fresh / aging / stale / absent; repos are listed most-urgent first (decayed before missing,
+  since a wrong map misleads an agent further than no map).
+- **Honesty rules**: staleness figures are always **≈** (weekly-bucket derived, `windowCapped`
   lower bounds labeled with a `+`); a degraded freshness lookup renders potency **"?" (unknown)**,
   never a fabricated band; and a repo whose latest scan **predates W4** renders as
   *"Not assessed by this scan — re-scan to measure context health"*, never as absent context.
@@ -243,7 +243,7 @@ whose scans actually carry it, so a "divergent" call can rest on 2 of 8 scored s
 Each `DimInsight` carries `count` (contributing stacks) and `scoredCount` (the denominator), and
 both the diagnosis row and the expanded playbook render an `n/N stacks` chip beside the verdict.
 `coverageOf` grades that ratio: **full** (unanimous), **partial**, or **low** (< 60% of the scored
-stacks). A low-coverage row is **de-weighted, never hidden or reclassified** — its class pill and
+stacks). A low-coverage row is **de-weighted, never hidden or reclassified**: its class pill and
 spread bar drop to neutral ink instead of the class colour, the chip says "low coverage" in words
 (not colour alone), and the playbook adds a plain-language caveat naming the numbers. The
 classification thresholds themselves are untouched by coverage; the verdict still shows, its
@@ -252,7 +252,7 @@ a two-stack pattern and a fleet-wide one looked identical.)
 
 ## Dashboard rollups (`src/lib/db/org.ts`)
 
-`src/lib/db/org.ts` is a ~114-line **barrel** — a thin re-export surface, not where the
+`src/lib/db/org.ts` is a ~114-line **barrel**: a thin re-export surface, not where the
 queries live. The implementation is split across themed `src/lib/db/org-*.ts` sub-modules,
 each guarded by `DATABASE_URL` at its call sites, so `@/lib/db/org` (and the `@/lib/db`
 barrel) keep an unchanged public surface for callers:
@@ -269,7 +269,7 @@ barrel) keep an unchanged public surface for callers:
 | `src/lib/db/org-teams.ts` | `getOrgTeamRollup`, `rollupTeams`. |
 | `src/lib/db/org-nav-counts.ts` | `getOrgNavCounts`, `getOrgPassportBlockers`. |
 
-### Shell cost discipline — nobody buys a rollup to read a scalar (2026-08-03)
+### Shell cost discipline: nobody buys a rollup to read a scalar (2026-08-03)
 
 `getOrgRollup` is the dashboard's heaviest read: every repo's latest scan **with its dimension
 rows**, plus governance / passport / tech-stack JSON parsing, plus two unbounded `scan.findMany`
@@ -283,14 +283,14 @@ now on narrow queries.
 | `passports` nav badge (`deriveFindings`, org **shell** → every tab) | full unscoped `getOrgRollup`, read `repos[].passport.*.blockers` | `getOrgPassportBlockers` |
 | `opengraph-image.tsx` (per crawler fetch) | full unscoped `getOrgRollup`, read 5 scalars | `getOrgHeaderSummary` |
 
-- **`getOrgPassportBlockers(slug)`** (`src/lib/db/org-nav-counts.ts`) — the passport blob lives on
+- **`getOrgPassportBlockers(slug)`** (`src/lib/db/org-nav-counts.ts`): the passport blob lives on
   `Repository`, not on `Scan`, so the badge needs no scan join at all: three columns over the same
   repo set the rollup uses (`watched OR has-scans`), same `applyPassportOverrides` composition, both
   readiness axes. The badge number is unchanged. This one matters most because the derivation runs in
   the **shell**, so the old cost was charged to tabs that read nothing else from the fleet (Audit).
 - **`getOrgHeaderSummary` gained `avgAdoption`, `avgRigor`, `postureCounts`** rather than a second
   parallel summary query being forked for the OG card. They come off the same latest-scan-per-repo
-  pass the summary already runs — three more columns on an existing `select`, no extra round-trip —
+  pass the summary already runs (three more columns on an existing `select`, no extra round-trip),
   and each derivation mirrors `getOrgRollup`'s exactly, so the two can never disagree.
 
 Neither change alters a single rendered value. Measured on the seeded local fleet (`acme`: 20 repos /
