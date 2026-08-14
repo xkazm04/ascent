@@ -59,6 +59,14 @@ inputs:
     description: "Fail if the default branch has no branch-protection rules (when readable)."
     required: false
     default: "false"
+  min-ai-governed:
+    description: "Minimum % of AI-attributed merged PRs that carried an approving human review (100 = every one). SKIPPED when unmeasurable — no token, or fewer than 5 AI-attributed PRs in the window."
+    required: false
+    default: ""
+  no-ungoverned-ai:
+    description: "Shorthand for min-ai-governed: 100 — fail if any AI-attributed PR merged without a human approval."
+    required: false
+    default: "false"
   live:
     description: "Score with the configured LLM instead of the deterministic mock."
     required: false
@@ -112,6 +120,8 @@ runs:
         INPUT_MIN_SECURITY: ${{ inputs.min-security }}
         INPUT_NO_UNGOVERNED: ${{ inputs.no-ungoverned }}
         INPUT_REQUIRE_PROTECTION: ${{ inputs.require-protection }}
+        INPUT_MIN_AI_GOVERNED: ${{ inputs.min-ai-governed }}
+        INPUT_NO_UNGOVERNED_AI: ${{ inputs.no-ungoverned-ai }}
         INPUT_LIVE: ${{ inputs.live }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
@@ -126,5 +136,7 @@ runs:
         if [ -n "$INPUT_REF" ]; then ARGS+=(--ref "$INPUT_REF"); fi
         if [ "$INPUT_NO_UNGOVERNED" = "true" ]; then ARGS+=(--no-ungoverned); fi
         if [ "$INPUT_REQUIRE_PROTECTION" = "true" ]; then ARGS+=(--require-protection); fi
+        if [ -n "$INPUT_MIN_AI_GOVERNED" ]; then ARGS+=(--min-ai-governed "$INPUT_MIN_AI_GOVERNED"); fi
+        if [ "$INPUT_NO_UNGOVERNED_AI" = "true" ]; then ARGS+=(--no-ungoverned-ai); fi
         if [ "$INPUT_LIVE" = "true" ]; then ARGS+=(--live); fi
         node "$ACTION_PATH/scripts/maturity-gate.mjs" "${ARGS[@]}"

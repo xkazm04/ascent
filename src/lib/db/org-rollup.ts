@@ -26,6 +26,32 @@ function parseGovernanceLite(raw: string | null | undefined): { readable: boolea
   }
 }
 
+/**
+ * W2 — the provenance signal the fleet gate's `minAiGovernedRate` bar reads, pulled from the same
+ * persisted `prStats` blob everything else on this row already parses.
+ *
+ * Returns undefined for a missing/malformed blob and NULLs the rate when the engine itself declined
+ * to compute one (no token, or under its ≥5 AI-PR sample floor). Both cases must reach the gate as
+ * "not measurable" so the criterion is SKIPPED — failing a repo for having too little AI activity
+ * would invert the policy this bar exists to express. `aiPrSample` reconstructs the AI-PR count from
+ * the rate the engine stored, purely so a failure message can say what it was measured over.
+ */
+function parseProvenanceLite(raw: string | null | undefined): { aiGovernedRate: number | null; aiPrSample: number | null } | undefined {
+  if (!raw) return undefined;
+  try {
+    const p = JSON.parse(raw) as Partial<PrStats>;
+    if (!p || typeof p.analyzed !== "number") return undefined;
+    const rate = typeof p.aiGovernedRate === "number" && Number.isFinite(p.aiGovernedRate) ? p.aiGovernedRate : null;
+    const involved =
+      typeof p.aiInvolvedRate === "number" && Number.isFinite(p.aiInvolvedRate)
+        ? Math.round((p.aiInvolvedRate / 100) * p.analyzed)
+        : null;
+    return { aiGovernedRate: rate, aiPrSample: involved };
+  } catch {
+    return undefined;
+  }
+}
+
 /** The Repositories table's commit window: the trailing weekly buckets kept for the Commits column,
  *  ~1 month. The scan persists a longer series (governance.fetchCommitActivity → ~12 weeks, also fed to
  *  the Delivery trend); we slice the last month HERE so this column reads as a 1-month figure without
@@ -177,6 +203,13 @@ export interface OrgRepoRow {
     govReadable?: boolean;
     /** Whether the default branch is protected (governance.protected), when readable. */
     protected?: boolean;
+    /** W2 — share (0..100) of AI-attributed merged PRs with an approving human review
+     *  (PrStats.aiGovernedRate). Null with no token and under the engine's ≥5 AI-PR sample floor.
+     *  Carried so the fleet gate can enforce `minAiGovernedRate` with the SAME not-measurable
+     *  semantics as the CI gate — otherwise the dashboard would show repos passing that CI blocks. */
+    aiGovernedRate?: number | null;
+    /** AI-attributed PRs behind that rate, for the failure message. */
+    aiPrSample?: number | null;
   } | null;
 }
 
@@ -359,6 +392,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     // CI gate — previously the rollup carried no protection data, so that bar was silently dead in
     // the dashboard while the copyable CI snippet enforced it (dashboard↔CI drift).
     const gov = parseGovernanceLite(s?.governance);
+    // W2 provenance signal for the fleet gate — parsed from the SAME persisted prStats blob the
+    // activity columns read, so it costs no extra query and no extra parse pass of its own.
+    const prov = parseProvenanceLite(s?.prStats);
     return {
       fullName: r.fullName,
       owner: r.owner,
@@ -390,6 +426,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
             dims: s.dimensions,
             govReadable: gov?.readable,
             protected: gov?.protected,
+            aiGovernedRate: prov?.aiGovernedRate ?? null,
+            aiPrSample: prov?.aiPrSample ?? null,
           }
         : null,
     };

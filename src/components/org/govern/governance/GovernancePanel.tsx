@@ -16,6 +16,7 @@ import { GovernanceFailReasonsCard } from "./GovernanceFailReasonsCard";
 import { GovernanceFailingReposCard } from "./GovernanceFailingReposCard";
 import { GovernanceClosestToGreenCard } from "./GovernanceClosestToGreenCard";
 import { GovernanceCiCard } from "./GovernanceCiCard";
+import { EvidencePackCard } from "./EvidencePackCard";
 // W3: the AI-stance prototype switcher is retired — the Perimeter is a real section below the gate
 // cards, fed by the persisted OrgAiStance + per-repo compliance from existing scan data.
 import { StanceSection } from "../stance/StanceSection";
@@ -85,6 +86,11 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       <GovernanceFailingReposCard slug={slug} g={g} />
       <GovernanceClosestToGreenCard slug={slug} g={g} />
       <GovernanceCiCard gateQuery={g.gateQuery} snippet={snippet} />
+
+      {/* W2 — the evidence pack sits with the stance and the gate policy on purpose: this is where an
+          org declares its review controls, so it is where it should be able to file proof they
+          operated. `canEdit` is the owner check the panel already made; named evidence is owner-only. */}
+      <EvidencePackCard slug={slug} canExportNamed={canEdit} />
 
       <StanceSection slug={slug} canEdit={canEdit} />
     </div>

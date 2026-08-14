@@ -172,6 +172,45 @@ wrong — it is the *operator's* rate limit, and the repo was never scored — s
 throttle (with `Retry-After` when present) instead of a failure line full of `?` placeholders. `.github/workflows/maturity.yml` is the repo's own example using the
 action (and `npm run gate` runs the script locally).
 
+## The ungoverned-AI-change gate (W2, 2026-08-14)
+
+`minAiGovernedRate` (0–100) is the **provenance** criterion: the minimum share of AI-attributed
+merged PRs that carried an approving human review. `100` means *every AI-attributed change must be
+approved before it merges*. The research behind
+[`docs/AI-SDLC-STANDARDS-LANDSCAPE.md`](../../AI-SDLC-STANDARDS-LANDSCAPE.md) §3.4 found this policy
+**described everywhere and productized nowhere** — it is the sharpest unclaimed slice in the market,
+and it is deliberately built on `PrStats.aiGovernedRate`, the **same** deterministic signal the
+[evidence pack](../org-dashboard/org-intelligence.md#change-management-evidence-pack-w2-2026-08-14)
+reports. A gate and an audit artifact that disagreed about whether AI work is governed would
+discredit both.
+
+| Surface | How to set it |
+| --- | --- |
+| Gate API | `?min_ai_governed=100`, or `?no_ungoverned_ai=1` for the strict shorthand |
+| GitHub Action | `min-ai-governed: '100'`, or `no-ungoverned-ai: 'true'` |
+| CLI | `--min-ai-governed 100`, or `--no-ungoverned-ai` |
+| Org policy | persisted `minAiGovernedRate` (sanitized like every other numeric bar) |
+
+A failure reads: *"62% of AI-attributed merged PRs carried an approving human review, below the
+required 100% (20 AI-attributed PRs sampled)."* Its `GateFailure.code` is `provenance`.
+
+### It is the ONE criterion that does not fail closed — deliberately
+
+Every other rule in this gate fails closed, because an unscored value means the measurement
+**broke**. Here `aiGovernedRate` is null when the measurement was never **due**: no token (so no
+`prStats` at all — including the whole unauthenticated `/api/gate` path), or fewer than five
+AI-attributed PRs in the window. Failing those would block repositories for having *little* AI
+activity, inverting the intent of a policy that exists to govern repositories with a lot of it.
+
+So a null rate **skips** the criterion, exactly as `requireProtectedBranch` skips when governance was
+unreadable. The practical consequence worth knowing: the anonymous gate endpoint can never enforce
+this bar. It lands where the data lives — the App-mode Check Run and the fleet governance view.
+
+`OrgRepoRow.latest` now carries `aiGovernedRate`/`aiPrSample` (parsed from the same persisted
+`prStats` blob the activity columns already read, so no extra query), and `buildGovernanceOverview`
+threads them into `evaluateGateLite`. Without that, an org setting the bar would see repos marked
+passing on the dashboard that CI blocks — the exact drift the shared evaluator exists to prevent.
+
 ## Verdict telemetry
 
 Every produced verdict — from both the API endpoint and the App Check Run — emits one queryable
@@ -271,6 +310,7 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/components/org/govern/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
+| `src/lib/db/org-rollup.ts` | `parseProvenanceLite` — the fleet gate's `aiGovernedRate` input. |
 | `scripts/maturity-gate.mjs` | CLI: call the gate API, exit 0/1/2 (`npm run gate`). |
 | `.github/workflows/maturity.yml` | Example workflow gating this repo. |
 

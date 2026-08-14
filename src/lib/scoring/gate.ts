@@ -28,10 +28,26 @@ export interface GatePolicy {
    *  branch actually protected?" an explicit, enforceable bar. Opt-in, and only fails when governance was
    *  READABLE (a token saw the rules), so a no-token scan never false-fails. */
   requireProtectedBranch?: boolean;
+  /**
+   * THE UNGOVERNED-AI-CHANGE BAR (W2). Minimum share (0..100) of AI-attributed merged PRs that
+   * carried an approving human review — `PrStats.aiGovernedRate`. 100 means "every AI-attributed
+   * change must be approved before it merges".
+   *
+   * This is the one policy in the market that is described everywhere and productized nowhere
+   * (docs/AI-SDLC-STANDARDS-LANDSCAPE.md §3.4), and it is deliberately built on the SAME
+   * deterministic signal the evidence pack reports — a gate and an audit artifact that disagreed
+   * about whether AI work is governed would discredit both.
+   *
+   * ONLY ENFORCED WHEN MEASURABLE. `aiGovernedRate` is null with no token, and null under the ≥5
+   * AI-PR sample floor. Null → the criterion is SKIPPED, exactly like `requireProtectedBranch`'s
+   * readable gate. Failing an unmeasurable repo would punish repos for having little AI activity,
+   * which inverts the policy's whole intent.
+   */
+  minAiGovernedRate?: number;
 }
 
 export interface GateFailure {
-  code: "level" | "overall" | "dimension" | "posture" | "governance" | "incomplete";
+  code: "level" | "overall" | "dimension" | "posture" | "governance" | "provenance" | "incomplete";
   message: string;
 }
 
@@ -139,6 +155,17 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
   if (p.requireProtectedBranch) {
     out.push({ text: "Default branch must be protected", bit: "protected branch", query: ["require_protection", "1"], ci: `require-protection: 'true'` });
   }
+  if (typeof p.minAiGovernedRate === "number") {
+    out.push({
+      text:
+        p.minAiGovernedRate >= 100
+          ? "Every AI-attributed merged PR must carry an approving human review"
+          : `≥ ${p.minAiGovernedRate}% of AI-attributed merged PRs approved by a human`,
+      bit: `AI review ≥ ${p.minAiGovernedRate}%`,
+      query: ["min_ai_governed", String(p.minAiGovernedRate)],
+      ci: `min-ai-governed: '${p.minAiGovernedRate}'`,
+    });
+  }
   return out;
 }
 
@@ -196,6 +223,10 @@ export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
     if (allowed.length) pol.forbidPostures = allowed;
   }
   if (r.requireProtectedBranch === true) pol.requireProtectedBranch = true;
+  // W2. Same floor contract as every other numeric bar: <=0 is an always-pass wearing a configured
+  // policy's clothes, >100 is unreachable — both drop the key rather than install a fake gate.
+  const air = floorScore(r.minAiGovernedRate);
+  if (air !== undefined) pol.minAiGovernedRate = air;
   return Object.keys(pol).length ? pol : null;
 }
 
@@ -224,6 +255,14 @@ interface NormalizedGate {
   governanceEnforce: boolean;
   /** The exact governance-failure message for this shape (report names the branch; lite is generic). */
   governanceMessage: string;
+  /**
+   * Share (0..100) of AI-attributed merged PRs that carried an approving human review, or NULL when
+   * unmeasurable (no token, or under the ≥5 AI-PR sample floor). Null SKIPS `minAiGovernedRate` —
+   * see the policy field's doc for why an unmeasurable repo must not fail this bar.
+   */
+  aiGovernedRate: number | null;
+  /** How many AI PRs backed that rate, for the failure message. */
+  aiPrSample: number | null;
 }
 
 function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
@@ -289,6 +328,24 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
   if (pol.requireProtectedBranch && g.governanceEnforce) {
     failures.push({ code: "governance", message: g.governanceMessage });
   }
+  // PROVENANCE (W2): were AI-attributed changes actually reviewed by a human before merge?
+  //
+  // Deliberately NOT fail-closed, which is the opposite of every criterion above — and the exception
+  // is principled. The other criteria fail closed because an unscored dimension means the measurement
+  // BROKE. Here, null means the measurement was never DUE: the repo had no token, or fewer than five
+  // AI PRs in the window. Failing those would block every repo with little AI activity from merging,
+  // on a policy whose entire purpose is to govern repos that have a lot of it.
+  if (typeof pol.minAiGovernedRate === "number" && g.aiGovernedRate != null) {
+    if (g.aiGovernedRate < pol.minAiGovernedRate) {
+      const sample = g.aiPrSample != null ? ` (${g.aiPrSample} AI-attributed PRs sampled)` : "";
+      failures.push({
+        code: "provenance",
+        message:
+          `${Math.round(g.aiGovernedRate)}% of AI-attributed merged PRs carried an approving human review, ` +
+          `below the required ${pol.minAiGovernedRate}%${sample}.`,
+      });
+    }
+  }
 
   return failures;
 }
@@ -313,6 +370,10 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
       dims: report.dimensions.map((d) => ({ id: d.id, name: d.name, score: d.score })),
       governanceEnforce: !!(report.governance?.readable && !report.governance.protected),
       governanceMessage: `Default branch "${report.governance?.defaultBranch}" has no branch-protection rules — the gate requires a protected default branch.`,
+      // W2: null on a token-less scan (no prStats at all) AND under the engine's own ≥5 AI-PR floor,
+      // which is exactly the "not measurable" the provenance rule skips on.
+      aiGovernedRate: report.prStats?.aiGovernedRate ?? null,
+      aiPrSample: report.prStats ? Math.round((report.prStats.aiInvolvedRate / 100) * report.prStats.analyzed) : null,
     },
     pol,
   );
@@ -332,6 +393,11 @@ export interface GateSnapshot {
    *  only when `govReadable` is true (parity with evaluateGate's readable-gated check); absent → skipped. */
   protected?: boolean;
   govReadable?: boolean;
+  /** Share (0..100) of AI-attributed merged PRs with an approving human review. Absent/null →
+   *  `minAiGovernedRate` is skipped, the same not-measurable rule evaluateGate applies. */
+  aiGovernedRate?: number | null;
+  /** AI PRs behind that rate, for the failure message. */
+  aiPrSample?: number | null;
 }
 
 /**
@@ -353,6 +419,10 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
       // that don't yet carry per-repo protection leave it unset → skipped (no false-fail on the fleet view).
       governanceEnforce: !!(snap.govReadable && snap.protected === false),
       governanceMessage: "Default branch has no branch-protection rules — the gate requires a protected default branch.",
+      // Parity with evaluateGate: a rollup that doesn't carry the rate leaves it undefined → skipped,
+      // so the fleet view never invents a provenance failure the CI gate wouldn't also raise.
+      aiGovernedRate: snap.aiGovernedRate ?? null,
+      aiPrSample: snap.aiPrSample ?? null,
     },
     policy,
   );
@@ -397,6 +467,12 @@ export function explicitPolicyFromParams(params: URLSearchParams): GatePolicy {
   if (wantSecurity) pol.minDimensionFor = { [SECURITY_DIM]: minSecurity ?? DEFAULT_SECURITY_MIN };
   if (noUngoverned === "1" || noUngoverned === "true" || wantSecurity) pol.forbidPostures = ["ungoverned"];
   if (requireProtection === "1" || requireProtection === "true") pol.requireProtectedBranch = true;
+  // W2: `?min_ai_governed=100` is the ungoverned-AI-change gate. `?no_ungoverned_ai=1` is the
+  // shorthand for the strict form, since 100 is the only value most callers want.
+  const strictAi = params.get("no_ungoverned_ai");
+  const minAiGoverned = floorParam(params, "min_ai_governed");
+  if (minAiGoverned !== undefined) pol.minAiGovernedRate = minAiGoverned;
+  else if (strictAi === "1" || strictAi === "true") pol.minAiGovernedRate = 100;
   return pol;
 }
 
@@ -455,5 +531,9 @@ export function tightenGatePolicy(a: GatePolicy, b: GatePolicy): GatePolicy {
   const postures = [...new Set([...(a.forbidPostures ?? []), ...(b.forbidPostures ?? [])])];
   if (postures.length) pol.forbidPostures = postures;
   if (a.requireProtectedBranch || b.requireProtectedBranch) pol.requireProtectedBranch = true;
+  // W2: strictest wins, same as every other numeric bar — a query param can raise the org's
+  // provenance requirement but never lower it.
+  const minAiGoverned = maxOpt(a.minAiGovernedRate, b.minAiGovernedRate);
+  if (minAiGoverned !== undefined) pol.minAiGovernedRate = minAiGoverned;
   return pol;
 }

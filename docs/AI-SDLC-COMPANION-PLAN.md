@@ -193,7 +193,28 @@ rail reads as a story; and the "Bought" panel shows only verified movement. Re-r
 
 ---
 
-## Wave 2 — The Conformance Pack (gives the journey a destination)
+## Wave 2 — The Conformance Pack (gives the journey a destination) ✅ SHIPPED 2026-08-14
+
+> **Status:** shipped. The pack (`src/lib/conformance/`, `GET /api/org/conformance-pack`, the
+> Governance-tab card) and the ungoverned-AI-change gate (`GatePolicy.minAiGovernedRate`, wired
+> through the API, the Action, the CLI, the persisted org policy and the fleet view) are live with 53
+> new tests. Docs: [gate.md](features/scanning/gate.md#the-ungoverned-ai-change-gate-w2-2026-08-14) ·
+> [org-intelligence.md](features/org-dashboard/org-intelligence.md#change-management-evidence-pack-w2-2026-08-14).
+>
+> **Deviations from the draft below, all deliberate:**
+> - **Per-row HMAC was not added to the pack.** `signAudit` signs *audit rows*; the pack's integrity
+>   comes from SHA-256 over the exact bytes delivered (response header + both hashes embedded in the
+>   manifest, so the three files verify each other). Signing each CSV row with a server secret the
+>   examiner cannot hold would be theatre — they cannot verify an HMAC without the key.
+> - **PR titles are omitted from the CSV**, not included. They are attacker-influenced free text that
+>   routinely carries ticket ids and customer names, and `repository` + `pr_number` already lets an
+>   examiner re-verify the row against GitHub.
+> - **The gate is the one criterion that does NOT fail closed.** Reasoning in the gate doc: a null
+>   `aiGovernedRate` means the measurement was never *due* (no token, or under the ≥5 AI-PR floor),
+>   not that it *broke*. Failing those would block repos for having little AI activity.
+> - **Rubric version / retention window** were dropped from the provenance block. Neither bears on
+>   whether a human approved a change; including them would pad the artifact with numbers an examiner
+>   would then reasonably ask us to defend.
 
 Without a destination a companion is a dashboard that greets you. The quarterly pack is what the
 transition is *for* — and per `AI-SDLC-STANDARDS-LANDSCAPE.md:98-100`, nobody ships it.

@@ -57,6 +57,10 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "issue.create", label: "Issue created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "billing.autorecharge", label: "Auto-recharge", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "conformance.reported", label: "Conformance report", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // W2 — an evidence pack leaving the building. Amber, not sky: this is a governance-relevant EGRESS
+  // (it can name individuals against unreviewed changes), so it should read as an event to notice in
+  // the trail rather than as routine reporting.
+  { value: "conformance.pack.export", label: "Evidence pack exported", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "data.erased", label: "Data erased", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
 ];

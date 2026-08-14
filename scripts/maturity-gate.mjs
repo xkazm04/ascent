@@ -11,6 +11,10 @@
 //   --min-security 50     minimum Security (D9) score — the security gate floor
 //   --no-ungoverned       fail if the posture is "ungoverned" (heavy AI, light guardrails)
 //   --require-protection  fail if the default branch has no branch-protection rules (when readable)
+//   --min-ai-governed 100 minimum % of AI-attributed merged PRs with an approving human review
+//   --no-ungoverned-ai    shorthand for --min-ai-governed 100 (the ungoverned-AI-change gate).
+//                         Both are SKIPPED when the repo has no token or fewer than 5 AI PRs — an
+//                         unmeasurable repo is never failed on a provenance bar.
 //   --ref <sha|branch>    gate a specific ref (e.g. a PR head sha) instead of the default branch
 //   --live                score with the configured LLM instead of the deterministic mock
 //
@@ -73,6 +77,8 @@ if (opt("min-dimension")) qs.set("min_dimension", opt("min-dimension"));
 if (opt("min-security")) qs.set("min_security", opt("min-security"));
 if (flag("no-ungoverned")) qs.set("no_ungoverned", "1");
 if (flag("require-protection")) qs.set("require_protection", "1");
+if (opt("min-ai-governed")) qs.set("min_ai_governed", opt("min-ai-governed"));
+else if (flag("no-ungoverned-ai")) qs.set("no_ungoverned_ai", "1");
 if (flag("live")) qs.set("mock", "0");
 // --ref <sha|branch>: gate a specific ref (e.g. a PR head) so the score reflects what the PR
 // changes, not the default branch. In a PR workflow: --ref "$GITHUB_SHA" or the PR head sha.

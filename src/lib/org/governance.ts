@@ -119,7 +119,7 @@ export async function buildGovernanceOverview(
   // (evaluateGateLite) and cannot observe an empty-dimensions report, so it stays 0 here. The repo
   // gate is the surface that fails such a scan closed.
   const byReason: Record<GateFailure["code"], number> = {
-    level: 0, overall: 0, dimension: 0, posture: 0, governance: 0, incomplete: 0,
+    level: 0, overall: 0, dimension: 0, posture: 0, governance: 0, provenance: 0, incomplete: 0,
   };
   const failures: GovernanceFailure[] = [];
   const greenPath: GreenPathItem[] = [];
@@ -140,8 +140,21 @@ export async function buildGovernanceOverview(
     // the fleet view — the dashboard's pass-rate must match the CI gate it advertises (the gate URL /
     // ciWith snippet enforce protection). Absent governance leaves them undefined → the rule is
     // skipped (readable-gated parity with evaluateGate), never a false-fail.
+    // W2: aiGovernedRate/aiPrSample travel too, for the same dashboard↔CI parity reason as the
+    // protection fields above — with the org's provenance bar set, a fleet view that silently
+    // skipped it would show repos as passing that the CI gate blocks. Null → the rule is skipped
+    // (not measurable), never a false-fail.
     const result = evaluateGateLite(
-      { level: s.level, overall: s.overall, posture: s.posture, dims: s.dims, protected: s.protected, govReadable: s.govReadable },
+      {
+        level: s.level,
+        overall: s.overall,
+        posture: s.posture,
+        dims: s.dims,
+        protected: s.protected,
+        govReadable: s.govReadable,
+        aiGovernedRate: s.aiGovernedRate,
+        aiPrSample: s.aiPrSample,
+      },
       policy,
     );
     if (result.pass) {

@@ -328,6 +328,62 @@ level, and an R² fit-quality confidence. Shared layout primitives (`Tile`, `Car
 `SectionHeader`, `Meter`, `SectionEmpty`, posture labels) live in
 `src/components/org/ui.tsx`.
 
+## Change-management evidence pack (W2, 2026-08-14)
+
+The artifact a SOC 2 Type II examiner actually asks for, assembled from evidence rows ascent already
+stores. Downloaded from the **Governance** tab (`EvidencePackCard`), served by
+`GET /api/org/conformance-pack`, built by `src/lib/conformance/pack.ts`.
+
+The 2026 auditor position is specific: sufficient evidence for change-management control CC8.1 over
+AI-generated code requires **a population of AI-generated changes over the audit period, a sample
+drawn from it, and evidence for each sampled item that the control operated.** A percentage is not
+evidence — which is why `AiChange` stores rows.
+
+**Four files, one object.** `file` omitted → JSON; `file=manifest` → the markdown cover note;
+`file=sample` / `file=findings` → CSV. Each download carries `x-ascent-content-sha256`, and the
+manifest additionally embeds both CSV hashes, so the three files verify each other.
+
+### The rules that make it usable as evidence
+
+- **The sample is drawn, never chosen.** Seeded Fisher-Yates (mulberry32 over sha256 of the seed) on
+  a stable created-at ordering. The seed is `<org>:<from>:<to>` and is printed in the manifest, so a
+  third party reproduces the same rows. The seed depends on org + period **only** — a
+  content-derived seed would silently re-draw an auditor's already-filed sample the moment a late
+  scan added one row. A population at or below the sample size is returned whole and says so.
+- **Findings come from the full population, never just the sample.** A sample bounds the work the
+  *auditor* does; it must not bound what the *vendor* discloses.
+- **The population is a LOWER BOUND, stated in the artifact.** Rows exist only for PRs inside a
+  repo's scanned window, and unmarked AI assistance is not detected at all.
+- **Identities are pseudonymous by default.** Pseudonyms are stable within a pack and unlinkable
+  across packs (the seed is folded into the hash). `identities=named` is **owner-gated** and returns
+  403 for anyone else — never a silent downgrade, because an examiner who believes they hold named
+  evidence and does not would draw a conclusion the artifact cannot support.
+- **PR titles are omitted from CSV rows.** Free text routinely carries ticket ids and customer
+  names; `repository` + `pr_number` is sufficient to re-verify against GitHub. The column is kept and
+  named `title_omitted` so the omission is visible rather than looking like a missing field.
+- **Mock-scored repos are disclosed**, with a count, as a limitation — not a footnote.
+- **Every export is audited** (`conformance.pack.export`), recording scope, seed and identity mode.
+
+### Claims discipline — non-negotiable
+
+Inherited verbatim from [`AI-SDLC-STANDARDS-LANDSCAPE.md`](../../AI-SDLC-STANDARDS-LANDSCAPE.md) §5
+and pinned by tests in `pack.test.ts`:
+
+- Say **"evidence for"** a control, never **"compliance with"** a standard. Compliance and
+  certification words may appear only inside a **disclaimer**, and a test enforces that by requiring
+  every sentence containing one to also contain a negation.
+- Anchor to **SOC 2 CC8.1** first, **ISO/IEC 42001** Annex A second, and say the examiner decides.
+- **Never** claim EU AI Act conformity. The pack disclaims it *explicitly* rather than staying
+  silent, and states the deferral dates (Annex III 2 Dec 2027, Annex I 2 Aug 2028).
+
+The per-item verdict is deterministic and four-valued — `operated` · `not-operated` ·
+`reviewed-not-approved` · `not-applicable`. "Reviewed but not approved" is kept distinct from "nobody
+looked" because an examiner will ask which, and conflating them misstates the control environment in
+both directions.
+
+Its enforcement counterpart is the [ungoverned-AI-change gate](../scanning/gate.md#the-ungoverned-ai-change-gate-w2-2026-08-14),
+which reads the same signal.
+
 ## Canonical time-zone policy (`src/lib/org/timezone.ts`)
 
 Every calendar-day decision the org dashboard makes — window preset starts, custom-range

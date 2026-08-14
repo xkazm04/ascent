@@ -10,6 +10,7 @@ import {
   evaluateGateLite,
   sanitizeGatePolicy,
   defaultGatePolicy,
+  describeGatePolicy,
   DEFAULT_SECURITY_MIN,
 } from "./gate";
 import type { GatePolicy } from "./gate";
@@ -503,5 +504,127 @@ describe("evaluateGate — incomplete scan fails closed (G3-10)", () => {
   it("leaves a report with at least one scored dimension on the normal path", () => {
     const res = evaluateGate(report({ d9: 80 }));
     expect(res.failures.every((f) => f.code !== "incomplete")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// W2 — the ungoverned-AI-change gate. The one policy the research found described everywhere and
+// productized nowhere, so its semantics are pinned here in detail.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A report carrying the PR-stats block the provenance rule reads. */
+function reportWithPrStats(o: { aiGovernedRate: number | null; aiInvolvedRate?: number; analyzed?: number }): ScanReport {
+  return {
+    ...report({ d9: 80 }),
+    prStats: {
+      analyzed: o.analyzed ?? 40,
+      aiInvolvedRate: o.aiInvolvedRate ?? 50,
+      aiGovernedRate: o.aiGovernedRate,
+    },
+  } as unknown as ScanReport;
+}
+
+describe("minAiGovernedRate — the ungoverned-AI-change gate (W2)", () => {
+  const strict: GatePolicy = { minAiGovernedRate: 100 };
+
+  it("fails a repo where AI changes merged without human approval", () => {
+    const g = evaluateGate(reportWithPrStats({ aiGovernedRate: 62 }), strict);
+    expect(g.pass).toBe(false);
+    const f = g.failures.find((x) => x.code === "provenance");
+    expect(f).toBeDefined();
+    expect(f!.message).toContain("62%");
+    expect(f!.message).toContain("100%");
+  });
+
+  it("names the sample the rate was measured over", () => {
+    // 50% of 40 analyzed PRs = 20 AI-attributed PRs.
+    const g = evaluateGate(reportWithPrStats({ aiGovernedRate: 10, aiInvolvedRate: 50, analyzed: 40 }), strict);
+    expect(g.failures.find((x) => x.code === "provenance")!.message).toContain("20 AI-attributed PRs sampled");
+  });
+
+  it("passes a repo where every AI change was approved", () => {
+    expect(evaluateGate(reportWithPrStats({ aiGovernedRate: 100 }), strict).pass).toBe(true);
+  });
+
+  it("supports a partial bar, not just the strict form", () => {
+    const pol: GatePolicy = { minAiGovernedRate: 80 };
+    expect(evaluateGate(reportWithPrStats({ aiGovernedRate: 85 }), pol).pass).toBe(true);
+    expect(evaluateGate(reportWithPrStats({ aiGovernedRate: 79 }), pol).pass).toBe(false);
+  });
+
+  // THE deliberate exception to this module's fail-closed discipline, and the reason it is safe:
+  // every other criterion fails closed because an unscored value means the measurement BROKE. Here
+  // null means the measurement was never DUE — no token, or under the engine's ≥5 AI-PR floor.
+  // Failing those would block repos for having LITTLE AI activity, inverting the policy's intent.
+  it("SKIPS the rule when the rate is unmeasurable, rather than failing closed", () => {
+    expect(evaluateGate(reportWithPrStats({ aiGovernedRate: null }), strict).pass).toBe(true);
+  });
+
+  it("SKIPS the rule entirely when the scan carried no PR stats at all (token-less scan)", () => {
+    // This is the unauthenticated /api/gate path: no token ⇒ no prStats ⇒ no provenance verdict.
+    expect(evaluateGate(report({ d9: 80 }), strict).pass).toBe(true);
+  });
+
+  it("is inert when the policy does not set the bar", () => {
+    expect(evaluateGate(reportWithPrStats({ aiGovernedRate: 0 }), {}).failures).toEqual([]);
+  });
+
+  it("evaluateGateLite agrees with evaluateGate — the dashboard cannot show a repo CI would block", () => {
+    const snap = { level: "L4", overall: 70, posture: "ai-native", dims: [{ dimId: "D9", score: 80 }], aiGovernedRate: 62, aiPrSample: 20 };
+    const lite = evaluateGateLite(snap, strict);
+    const full = evaluateGate(reportWithPrStats({ aiGovernedRate: 62 }), strict);
+    expect(lite.pass).toBe(full.pass);
+    expect(lite.failures.find((f) => f.code === "provenance")!.message).toBe(
+      full.failures.find((f) => f.code === "provenance")!.message,
+    );
+  });
+
+  it("evaluateGateLite skips the rule when the rollup carries no rate", () => {
+    const snap = { level: "L4", overall: 70, posture: "ai-native", dims: [{ dimId: "D9", score: 80 }] };
+    expect(evaluateGateLite(snap, strict).pass).toBe(true);
+  });
+});
+
+describe("minAiGovernedRate — policy plumbing", () => {
+  it("?min_ai_governed=N sets the bar", () => {
+    expect(explicitPolicyFromParams(new URLSearchParams("min_ai_governed=90")).minAiGovernedRate).toBe(90);
+  });
+
+  it("?no_ungoverned_ai=1 is the strict shorthand", () => {
+    expect(explicitPolicyFromParams(new URLSearchParams("no_ungoverned_ai=1")).minAiGovernedRate).toBe(100);
+  });
+
+  it("an explicit value wins over the shorthand", () => {
+    expect(explicitPolicyFromParams(new URLSearchParams("no_ungoverned_ai=1&min_ai_governed=80")).minAiGovernedRate).toBe(80);
+  });
+
+  // Same always-pass guard every numeric bar carries: a 0 bar looks configured and enforces nothing.
+  it("drops a <=0 or >100 bar rather than installing a fake gate", () => {
+    expect(explicitPolicyFromParams(new URLSearchParams("min_ai_governed=0")).minAiGovernedRate).toBeUndefined();
+    expect(explicitPolicyFromParams(new URLSearchParams("min_ai_governed=150")).minAiGovernedRate).toBeUndefined();
+    expect(sanitizeGatePolicy({ minAiGovernedRate: 0 })).toBeNull();
+    expect(sanitizeGatePolicy({ minAiGovernedRate: 101 })).toBeNull();
+  });
+
+  it("survives the persisted-policy round trip", () => {
+    expect(sanitizeGatePolicy({ minAiGovernedRate: 100 })).toEqual({ minAiGovernedRate: 100 });
+  });
+
+  // A query param may TIGHTEN the org's bar, never relax it — the unauthenticated gate endpoint
+  // merges params over the persisted policy, so a PR author editing the workflow URL must not be
+  // able to weaken the provenance requirement their org configured.
+  it("tightens: the strictest bar wins", () => {
+    expect(tightenGatePolicy({ minAiGovernedRate: 80 }, { minAiGovernedRate: 100 }).minAiGovernedRate).toBe(100);
+    expect(tightenGatePolicy({ minAiGovernedRate: 100 }, { minAiGovernedRate: 50 }).minAiGovernedRate).toBe(100);
+    expect(tightenGatePolicy({ minAiGovernedRate: 100 }, {}).minAiGovernedRate).toBe(100);
+  });
+
+  it("describeGatePolicy renders it into the policy text, the gate URL and the CI input", () => {
+    const [c] = describeGatePolicy({ minAiGovernedRate: 100 });
+    expect(c!.text).toContain("Every AI-attributed merged PR");
+    expect(c!.query).toEqual(["min_ai_governed", "100"]);
+    expect(c!.ci).toContain("min-ai-governed");
+    // A partial bar reads as a percentage rather than as the absolute sentence.
+    expect(describeGatePolicy({ minAiGovernedRate: 80 })[0]!.text).toContain("80%");
   });
 });
