@@ -33,7 +33,7 @@ export function RegenerateTokenButton({ slug, onRotated }: { slug: string; onRot
       onRotated(data.token, data.epoch ?? 0);
       setConfirming(false);
     } catch {
-      setError("Request failed — is the app reachable?");
+      setError("Request failed. Is the app reachable?");
     } finally {
       setBusy(false);
     }
@@ -65,8 +65,8 @@ export function RegenerateTokenButton({ slug, onRotated }: { slug: string; onRot
     <div className="rounded-lg border border-orange-400/40 bg-orange-400/5 p-3">
       <p className="text-sm text-slate-300">
         Regenerating invalidates the current token <strong className="font-semibold text-white">immediately</strong>. Every Claude Code
-        exporter, CI job and collector still configured with it stops reporting (HTTP 401) until it is reconfigured with the new token —
-        telemetry sent in the meantime is not queued or recovered. Only this organization is affected.
+        exporter, CI job and collector still configured with it stops reporting (HTTP 401) until it is reconfigured with the new token.
+        Telemetry sent in the meantime is not queued or recovered. Only this organization is affected.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button

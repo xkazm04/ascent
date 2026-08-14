@@ -65,7 +65,7 @@ function StandingColumn({
       <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <a
           href={`#${teamAnchorId(standing.slug)}`}
-          title={`${standing.slug} — jump to its row`}
+          title={`${standing.slug}: jump to its row`}
           className="focus-ring rounded font-mono text-lg text-white transition hover:text-accent"
         >
           {standing.slug}
@@ -144,7 +144,7 @@ export function TeamsStandings({ standings, capturedAt }: { standings: TeamStand
         description={
           <>
             <span className="font-mono text-slate-300">{leader.slug}</span> leads at {leader.avgOverall} and{" "}
-            <span className="font-mono text-slate-300">{laggard.slug}</span> trails at {laggard.avgOverall} — a{" "}
+            <span className="font-mono text-slate-300">{laggard.slug}</span> trails at {laggard.avgOverall}, a{" "}
             <span className="text-slate-200">{spread}-point spread</span> across {teamCount} teams. Each bar attributes the gap
             to a specific dimension, measured against the fleet average of {fleetAvgOverall}.
           </>
@@ -162,7 +162,7 @@ export function TeamsStandings({ standings, capturedAt }: { standings: TeamStand
         </div>
       </Surface>
       <p className="mt-2 text-sm text-slate-500">
-        A decomposition, not a verdict — a low dimension is where a pairing or a borrowed pattern would move the number most.
+        A decomposition, not a verdict: a low dimension is where a pairing or a borrowed pattern would move the number most.
         {/* Honest caption for the gate above — the old `CHAMPION_MIN_POP > 0 &&` was compile-time
             true (it guarded nothing) and the copy omitted the population floor entirely. */}
         {` Champions shown only for teams with at least ${CHAMPION_MIN_POP} contributors and AI-attributed activity.`}

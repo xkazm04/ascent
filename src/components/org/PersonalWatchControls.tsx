@@ -66,7 +66,7 @@ export function AddRepoForm({ remaining }: { remaining: number }) {
         </button>
       </div>
       {full && (
-        <p className="font-mono text-sm text-slate-500">Watchlist full — untrack a repository to add another.</p>
+        <p className="font-mono text-sm text-slate-500">Watchlist full. Untrack a repository to add another.</p>
       )}
       {error && (
         <p role="alert" className="text-sm text-rose-400">

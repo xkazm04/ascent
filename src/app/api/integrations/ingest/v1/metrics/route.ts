@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
             note:
               parsed.skipped["unsupported-host"] > 0
                 ? `${droppedTotal} datapoint(s) were not stored. Ascent attributes usage to GitHub repositories; set OTEL_RESOURCE_ATTRIBUTES=git.repository to a GitHub remote for the repos you want measured.`
-                : `${droppedTotal} datapoint(s) were not stored — see the skipped counts.`,
+                : `${droppedTotal} datapoint(s) were not stored. See the skipped counts.`,
           }
         : {}),
     },

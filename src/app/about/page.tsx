@@ -3,7 +3,7 @@ import { SiteHeader } from "@/components/Brand";
 import { AboutLanding } from "@/components/about/AboutLanding";
 
 export const metadata: Metadata = {
-  title: "About Ascent — the maturity index for AI-native engineering",
+  title: "About Ascent: the maturity index for AI-native engineering",
   description:
     "Ascent scores your organization's AI-development maturity and shows the highest-ROI path from manual development to a fully LLM-based, governed engineering org.",
 };

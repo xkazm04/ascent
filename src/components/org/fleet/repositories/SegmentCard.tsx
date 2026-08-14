@@ -28,7 +28,7 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
       {unscanned ? (
         <div className="mt-2 flex items-baseline gap-2">
           <span aria-hidden className="font-mono text-3xl font-bold text-slate-600">—</span>
-          <span className="font-mono text-sm text-slate-500">No scans yet — scan this segment to score it</span>
+          <span className="font-mono text-sm text-slate-500">No scans yet, scan this segment to score it</span>
         </div>
       ) : (
         <>
@@ -47,7 +47,7 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
       {/* G4-08: repoCount here is the watched-or-scanned rollup universe, NOT every repo tagged into the
           segment (that count lives on the Repositories tab's tagging chips) — the title disambiguates
           so the two screens' numbers are never read as contradicting each other. */}
-      <div className="mt-1 font-mono text-sm text-slate-600" title="Repos in this segment that are watched or have a scan — may be fewer than the total tagged into the segment">
+      <div className="mt-1 font-mono text-sm text-slate-600" title="Repos in this segment that are watched or have a scan (may be fewer than the total tagged into the segment)">
         {s.scannedCount}/{s.repoCount} scanned
       </div>
       {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}

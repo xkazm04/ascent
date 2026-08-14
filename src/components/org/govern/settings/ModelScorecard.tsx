@@ -40,9 +40,9 @@ function ArtifactRow({ m }: { m: ModelScore }) {
         {short(m.model)}
       </span>
       <span className="text-sm text-slate-400 sm:col-span-3">
-        <span className="text-amber-300">{ADAPTER_ARTIFACT_LABEL}</span>{" "}
+        <span className="text-amber-300">{ADAPTER_ARTIFACT_LABEL}</span>
         <span className="text-slate-500">
-          — output was truncated at the {m.outTok.toLocaleString()}-token cap on every attempt, so nothing was
+          : output was truncated at the {m.outTok.toLocaleString()}-token cap on every attempt, so nothing was
           scored. See <span className="font-mono">docs/features/scanning/llm-model-matrix.md</span>.
         </span>
       </span>
@@ -115,7 +115,7 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
       <SectionHeader
         size="sm"
         title="Measured model quality"
-        description="How each model performs on Ascent's repo-maturity assessment — judged output quality, calibration against the labeled benchmark, reliability, and speed. Use it to pick the model to connect above."
+        description="How each model performs on Ascent's repo-maturity assessment: judged output quality, calibration against the labeled benchmark, reliability, and speed. Use it to pick the model to connect above."
       />
       <div className="mt-4">
         <div className="hidden grid-cols-[1.5fr_1.7fr_0.9fr_0.9fr_0.7fr] gap-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid">
@@ -139,12 +139,12 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
           className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-xs leading-relaxed text-orange-200"
         >
           This benchmark is {ageDays} days old (over {MATRIX_STALE_AFTER_DAYS}). Model lineups turn over faster
-          than that — treat it as a historical record and re-run the matrix before pinning a model.
+          than that. Treat it as a historical record and re-run the matrix before pinning a model.
         </p>
       )}
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
         Measured {date} · judge {short(MATRIX_SCORES.judge)} · {MATRIX_SCORES.repos} labeled repos.
-        Overall = 60% judged quality + 40% calibration, scaled by reliability. Small sample — directional,
+        Overall = 60% judged quality + 40% calibration, scaled by reliability. Small sample: directional,
         not a leaderboard to the decimal. Cost is not billed for these slugs; latency is the speed proxy.
         Rows marked <span className="text-amber-300">{ADAPTER_ARTIFACT_LABEL}</span> hit the harness&apos;s
         output-token cap and carry no verdict either way.

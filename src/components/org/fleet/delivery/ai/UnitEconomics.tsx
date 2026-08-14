@@ -47,12 +47,12 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
         <SectionHeader
           size="sm"
           title="Unit economics"
-          description="What a unit of AI work costs — cost per session that produced code, and cost per merged AI-attributed change."
+          description="What a unit of AI work costs: cost per session that produced code, and cost per merged AI-attributed change."
         />
         <p className="mt-3 text-sm text-slate-400">
           No agent sessions recorded in {periodTitle.toLowerCase()}. This reads per-session telemetry, which needs the
-          Claude Code exporter to send a <code className="font-mono text-slate-300">session.id</code> resource attribute
-          — connect it on{" "}
+          Claude Code exporter to send a <code className="font-mono text-slate-300">session.id</code> resource attribute.
+          Connect it on{" "}
           <a href={orgTabHref(slug, "integrations")} className="focus-ring text-accent hover:text-white">
             Integrations
           </a>
@@ -67,7 +67,7 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
       <SectionHeader
         size="sm"
         title="Unit economics"
-        description={`Measured over ${f.sessions.toLocaleString()} agent ${f.sessions === 1 ? "session" : "sessions"} in ${periodTitle.toLowerCase()}. Cost per unit of work is the number adoption metrics can't give you — agents are billed per attempt, not per result.`}
+        description={`Measured over ${f.sessions.toLocaleString()} agent ${f.sessions === 1 ? "session" : "sessions"} in ${periodTitle.toLowerCase()}. Cost per unit of work is the number adoption metrics can't give you: agents are billed per attempt, not per result.`}
       />
 
       <div className={`${TILE_LEDGER} mt-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5`}>
@@ -93,7 +93,7 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
       <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
         <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">How to read this</span>{" "}
         <strong className="font-medium text-slate-200">&ldquo;Produced code&rdquo; is not a success rate.</strong> A
-        session with no commit is often a question, a code read or a debugging pass — the measure says what was observed
+        session with no commit is often a question, a code read or a debugging pass: the measure says what was observed
         and leaves the judgement to you.{" "}
         <strong className="font-medium text-slate-200">Cost per merged AI change is an allocation</strong>, not a
         per-PR price: the telemetry carries no pull-request id, so spend is divided across the AI-attributed changes
@@ -105,7 +105,7 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
               {f.reposWithoutDenominator}{" "}
               {f.reposWithoutDenominator === 1 ? "repository is" : "repositories are"} excluded from that ratio
             </strong>{" "}
-            for having agent spend but no merged AI-attributed change in the window — their spend is real and is
+            for having agent spend but no merged AI-attributed change in the window. Their spend is real and is
             included in &ldquo;Agent spend&rdquo; above.
           </>
         )}
@@ -143,7 +143,7 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
               </td>
               <td className="px-4 py-3 text-right">
                 {r.costPerMergedAiChange == null ? (
-                  <Absent reason="No AI-attributed change merged in this repo during the period — no denominator, which is not the same as free" />
+                  <Absent reason="No AI-attributed change merged in this repo during the period: no denominator, which is not the same as free" />
                 ) : (
                   <span className="font-mono tabular-nums text-white" title={`over ${r.mergedAiChanges} merged AI changes`}>
                     {usd(r.costPerMergedAiChange)}

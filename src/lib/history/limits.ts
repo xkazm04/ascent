@@ -26,5 +26,5 @@ export function isHistoryCapped(scanCount: number): boolean {
 /** User-facing note for a capped series, or null when the whole history is on screen. */
 export function historyCapNote(scanCount: number): string | null {
   if (!isHistoryCapped(scanCount)) return null;
-  return `Showing the newest ${HISTORY_SCAN_CAP} scans — “All” is capped at this depth, and the CSV export covers exactly the same ${HISTORY_SCAN_CAP}.`;
+  return `Showing the newest ${HISTORY_SCAN_CAP} scans: “All” is capped at this depth, and the CSV export covers exactly the same ${HISTORY_SCAN_CAP}.`;
 }

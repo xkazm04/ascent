@@ -392,7 +392,7 @@ export function monthlyQuotaExceeded(result: QuotaResult): Response {
   // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
   const error =
-    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to Pro for more monthly scans, or add scan credits — or try again once the window resets.`;
+    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to Pro for more monthly scans, add scan credits, or try again once the window resets.`;
   // G8-29: shares tooManyResponse's status/content-type construction with rate-limit.ts's
   // tooManyRequests, but is NOT the same response — this body carries `code`/`remaining`/`resetAt`/
   // `scope` for the client meter, and the headers add the `x-ascent-quota-*` fields the per-minute

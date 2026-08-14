@@ -63,7 +63,7 @@ export function TeamsMatrixDetail({
             key={r.fullName}
             href={`/report/${r.fullName}`}
             className="focus-ring rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400 transition hover:border-accent hover:text-white"
-            title={`${r.fullName} · overall ${r.overall}${r.isDefaultOwner ? " · primary owner" : ""} — open report`}
+            title={`${r.fullName} · overall ${r.overall}${r.isDefaultOwner ? " · primary owner" : ""} · open report`}
           >
             {r.isDefaultOwner && <span className="mr-1 text-slate-600">★</span>}
             {r.name}

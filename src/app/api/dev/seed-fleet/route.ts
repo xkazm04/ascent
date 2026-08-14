@@ -48,13 +48,13 @@ async function persistAll(reports: ScanReport[], orgSlug: string): Promise<numbe
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json(
-      { error: "forbidden — set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
+      { error: "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
       { status: 403 },
     );
   }
   if (!isDbConfigured()) {
     return NextResponse.json(
-      { error: "persistence is disabled — set DATABASE_URL (or DSQL_ENDPOINT) first" },
+      { error: "persistence is disabled: set DATABASE_URL (or DSQL_ENDPOINT) first" },
       { status: 400 },
     );
   }

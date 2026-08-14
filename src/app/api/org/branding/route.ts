@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   try {
     credit = await getCreditState(org);
   } catch {
-    return NextResponse.json({ error: "Couldn’t verify your plan right now — please try again." }, { status: 503 });
+    return NextResponse.json({ error: "Couldn’t verify your plan right now. Please try again." }, { status: 503 });
   }
   if (!planAllowsWhiteLabel(credit?.plan)) {
     return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });

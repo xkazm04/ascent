@@ -105,7 +105,7 @@ export function TvDecide({ data }: { data: TvStageData }) {
   const { ops } = data;
   const next = ops.state.triage[0];
   if (!next) {
-    return <p className="py-10 text-center text-lg text-slate-400">Radar clear — every direction triaged.</p>;
+    return <p className="py-10 text-center text-lg text-slate-400">Radar clear. Every direction triaged.</p>;
   }
   const busy = ops.busy[next.recommendationId];
   return (
@@ -160,7 +160,7 @@ export function TvInflight({ data }: { data: TvStageData }) {
         </div>
         <div className="mt-3 space-y-2.5">
           {ops.state.inFlight.length === 0 ? (
-            <p className="text-lg text-slate-400">No PRs in flight — accept a direction to open one.</p>
+            <p className="text-lg text-slate-400">No PRs in flight. Accept a direction to open one.</p>
           ) : (
             ops.state.inFlight.map((p) => <FlightRowDetail key={p.id} item={p} />)
           )}

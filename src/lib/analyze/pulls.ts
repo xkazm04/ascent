@@ -413,7 +413,7 @@ export function applyPrSignals(
             label:
               reviewedRate == null
                 ? opts?.offPlatformReview
-                  ? "PR review coverage n/a (review runs off-GitHub — credited in D6)"
+                  ? "PR review coverage n/a (review runs off-GitHub, credited in D6)"
                   : "PR review coverage n/a (fewer than 5 human-merged PRs in window)"
                 : `PR review coverage ${reviewedRate}%`,
             detail: `${pr.merged} merged · ${pr.smallPrRate}% small · ${pr.revertRate}% reverted`,

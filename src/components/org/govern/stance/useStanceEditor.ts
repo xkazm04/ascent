@@ -113,7 +113,7 @@ export function useStanceEditor(org: string, initial: AiStance | null, nextVersi
         kind: "note",
         text:
           action === "publish"
-            ? `Published v${d.stance?.version ?? nextVersion} — the fleet readout now evaluates against it.`
+            ? `Published v${d.stance?.version ?? nextVersion}. The fleet readout now evaluates against it.`
             : `Draft saved (will publish as v${d.stance?.version ?? nextVersion}).`,
       });
       router.refresh();

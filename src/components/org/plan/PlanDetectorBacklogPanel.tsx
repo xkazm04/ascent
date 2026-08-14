@@ -13,11 +13,11 @@ export async function PlanDetectorBacklogPanel({ slug }: { slug: string }) {
       <SectionHeader
         size="sm"
         title="Detector backlog"
-        description="Where the scan's LLM auditor suspects the deterministic detectors missed something — a prioritized list of calibration work."
+        description="Where the scan's LLM auditor suspects the deterministic detectors missed something: a prioritized list of calibration work."
       />
       {!discrepancies || discrepancies.total === 0 ? (
         <p className="mt-4 text-base text-slate-500">
-          No flagged detector misses across {discrepancies?.scanned ?? 0} scanned repos — the auditor and the detectors agree.
+          No flagged detector misses across {discrepancies?.scanned ?? 0} scanned repos; the auditor and the detectors agree.
         </p>
       ) : (
         <>

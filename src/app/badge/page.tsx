@@ -20,7 +20,7 @@ export default function BadgePage() {
           <h1 className="mt-1 text-3xl font-bold text-white">Maturity badge generator</h1>
           <p className="mt-2 max-w-2xl text-slate-400">
             Drop a live Ascent maturity badge into your README. It links back to the full report,
-            so a reader can click through and scan their own repo — pick a repo and a style, then
+            so a reader can click through and scan their own repo. Pick a repo and a style, then
             copy the snippet for Markdown, HTML, or AsciiDoc. The same repo fills in the free CI
             gate snippets at the bottom.
           </p>

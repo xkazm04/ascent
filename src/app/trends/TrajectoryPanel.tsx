@@ -22,7 +22,7 @@ function FitBasis({ scanCount, forecast }: { scanCount: number; forecast: Foreca
   const span = forecast ? `${forecast.points} distinct scan ${forecast.points === 1 ? "day" : "days"} across ${forecast.spanDays} ${forecast.spanDays === 1 ? "day" : "days"}` : null;
   return (
     <p className="mt-2 text-sm text-slate-500">
-      Fit over this repository&rsquo;s full recorded history — all {scanCount}{" "}
+      Fit over this repository&rsquo;s full recorded history: all {scanCount}{" "}
       {scanCount === 1 ? "scan" : "scans"}
       {span ? ` (${span})` : ""}. It does not follow the 5d / 30d / 90d range toggle below.
     </p>
@@ -49,7 +49,7 @@ export function TrajectoryPanel({
         <Card className="mt-2">
           <p className="text-base text-slate-300">{insufficient}</p>
           <p className="mt-2 text-sm text-slate-500">
-            Scan again over the coming weeks — the projection appears once there is enough spread to
+            Scan again over the coming weeks. The projection appears once there is enough spread to
             read a trend rather than noise.
           </p>
         </Card>

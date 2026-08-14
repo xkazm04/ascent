@@ -14,7 +14,7 @@ function TeamAnchor({ slug, label, className = "" }: { slug: string; label: stri
   return (
     <a
       href={`#${teamAnchorId(slug)}`}
-      title={`${slug} — jump to its row`}
+      title={`${slug}: jump to its row`}
       className={`focus-ring rounded font-mono text-white transition hover:text-accent ${className}`}
     >
       {label}
@@ -51,7 +51,7 @@ export function TeamsSignals({
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-500">
-                A natural source of patterns others can borrow — an input, not a verdict.{" "}
+                A natural source of patterns others can borrow: an input, not a verdict.{" "}
                 <Link href={orgTabHref(slug, "contributors")} className="focus-ring rounded text-accent transition hover:text-white">
                   See contributors →
                 </Link>
@@ -59,7 +59,7 @@ export function TeamsSignals({
             </>
           ) : (
             <p className="mt-2 text-sm text-slate-500">
-              No AI-attributed activity yet — a leader appears once teams&apos; recent commits carry AI attribution.
+              No AI-attributed activity yet. A leader appears once teams&apos; recent commits carry AI attribution.
             </p>
           )}
         </div>
@@ -81,12 +81,12 @@ export function TeamsSignals({
                 ))}
               </ul>
               <p className="mt-2 text-sm text-slate-500">
-                The biggest learnable gaps on a shared dimension — invitations to pair, never directives.
+                The biggest learnable gaps on a shared dimension: invitations to pair, never directives.
               </p>
             </>
           ) : (
             <p className="mt-2 text-sm text-slate-500">
-              No clear strong→weak gap between teams right now — a pairing appears when one team is strong (≥65) on a
+              No clear strong→weak gap between teams right now. A pairing appears when one team is strong (≥65) on a
               dimension where another sits below 50.
             </p>
           )}

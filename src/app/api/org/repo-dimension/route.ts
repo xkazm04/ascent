@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   }
   const slash = repo.indexOf("/");
   if (slash <= 0 || slash === repo.length - 1) {
-    return NextResponse.json({ error: "Invalid 'repo' — expected owner/name." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid 'repo': expected owner/name." }, { status: 400 });
   }
   const owner = repo.slice(0, slash);
   const name = repo.slice(slash + 1);

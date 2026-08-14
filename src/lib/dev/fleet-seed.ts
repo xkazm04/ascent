@@ -229,7 +229,7 @@ export function reportsForRepo(spec: RepoSpec, scansPerRepo: number, weeksBack: 
       teams: teamsFor(spec, rng),
       commitActivity: Array.from({ length: 12 }, () => Math.floor(rng() * 40)),
       dimensions: dims,
-      headline: `${spec.name} is ${level.name} (${overallScore}/100) — ${posture.label}.`,
+      headline: `${spec.name} is ${level.name} (${overallScore}/100): ${posture.label}.`,
       strengths: [`${posture.label} posture`, "Active contributor base"],
       risks: rigorScore < 50 ? ["Guardrails lag AI adoption"] : ["Maintain rigor as velocity grows"],
       roadmap: roadmapFor(dims, level.id),

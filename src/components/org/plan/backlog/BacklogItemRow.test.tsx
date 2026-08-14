@@ -137,7 +137,7 @@ describe("BacklogItemRow due-date chip (G6-28)", () => {
   it("renders a 'no due date' control for an undated item instead of nothing", () => {
     renderRow(); // default item: targetDate null, dueInDays null
     const chip = screen.getByRole("button", { name: "no due date" });
-    expect(chip).toHaveAttribute("title", "No due date set — click to set one");
+    expect(chip).toHaveAttribute("title", "No due date set. Click to set one");
   });
 
   it("the 'no due date' control focuses this row's due input so a date can be added", () => {

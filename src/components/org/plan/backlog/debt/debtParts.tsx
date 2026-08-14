@@ -14,7 +14,7 @@ export function FieldNotes({ fleet }: { fleet: DebtFleet }) {
   return (
     <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
       <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Field notes</span>{" "}
-      Interest = share of merged PRs later reverted (revert linkage within the scanned PR window — a{" "}
+      Interest = share of merged PRs later reverted (revert linkage within the scanned PR window, a{" "}
       <strong className="font-medium text-slate-200">lower bound</strong>; renamed or later reverts escape). Write-offs =
       PRs titled &ldquo;Revert&rdquo;. Exposure = {fleet.exposureGrounded ? "AI-trailer-attributed merged PRs" : "AI-involved PRs (marker-based)"}.
       {unmeasured > 0 && (
@@ -23,10 +23,10 @@ export function FieldNotes({ fleet }: { fleet: DebtFleet }) {
           <strong className="font-medium text-amber-200">
             {unmeasured} of {fleet.repos} accounts
           </strong>{" "}
-          show &ldquo;—&rdquo; because their latest scan predates rework tracking — re-scan to measure; a dash is never a zero.
+          show &ldquo;—&rdquo; because their latest scan predates rework tracking. Re-scan to measure; a dash is never a zero.
         </>
       )}{" "}
-      AI-churn share (rework landing on AI-authored lines) is deferred until per-file churn ingest exists — it is omitted, not
+      AI-churn share (rework landing on AI-authored lines) is deferred until per-file churn ingest exists; it is omitted, not
       simulated.
     </p>
   );
@@ -67,8 +67,8 @@ export function DimChips({ dims }: { dims: string[] }) {
 /** Why a quality cell is a dash — the per-row tooltip copy (one place, so the wording can't drift). */
 export function unmeasuredReasonFor(row: RepoDebt): string {
   if (!row.q.hasScan) return "No scanned PR data for this repo yet";
-  if (!row.q.measured) return "Latest scan predates rework tracking — re-scan to measure";
-  return "Fewer than 5 merged PRs in the window — not measurable";
+  if (!row.q.measured) return "Latest scan predates rework tracking; re-scan to measure";
+  return "Fewer than 5 merged PRs in the window; not measurable";
 }
 
 /** One-line plain-language verdict for a repo — the "what's the takeaway" requirement. Null-aware:
@@ -77,16 +77,16 @@ export function verdictFor(row: RepoDebt, medianRework: number | null): { text: 
   if (row.q.reworkRate == null) {
     if (row.overdue > 0) {
       return {
-        text: `${row.overdue} overdue fixes; quality unmeasured — ${unmeasuredReasonFor(row).toLowerCase()}`,
+        text: `${row.overdue} overdue fixes; quality unmeasured: ${unmeasuredReasonFor(row).toLowerCase()}`,
         tone: OVERDUE_ACCENT,
       };
     }
-    return { text: `Quality unmeasured — ${unmeasuredReasonFor(row).toLowerCase()}`, tone: "#94a3b8" };
+    return { text: `Quality unmeasured: ${unmeasuredReasonFor(row).toLowerCase()}`, tone: "#94a3b8" };
   }
   const hot = medianRework != null && row.q.reworkRate > medianRework;
   if (row.overdue > 0 && hot) {
     return {
-      text: `Compounding — ${fmtRate(row.q.reworkRate)} of merged PRs reverted while ${row.overdue} fixes sit past due`,
+      text: `Compounding: ${fmtRate(row.q.reworkRate)} of merged PRs reverted while ${row.overdue} fixes sit past due`,
       tone: pressureHex(row.pressure),
     };
   }
@@ -94,7 +94,7 @@ export function verdictFor(row: RepoDebt, medianRework: number | null): { text: 
     return {
       text:
         row.q.aiReworkRate != null
-          ? `Rework above ledger median — ${fmtRate(row.q.aiReworkRate)} of AI-involved merges reverted`
+          ? `Rework above ledger median: ${fmtRate(row.q.aiReworkRate)} of AI-involved merges reverted`
           : `Rework above ledger median (${fmtRate(row.q.reworkRate)} of merged PRs reverted)`,
       tone: OVERDUE_ACCENT,
     };
@@ -105,8 +105,8 @@ export function verdictFor(row: RepoDebt, medianRework: number | null): { text: 
   return {
     text:
       row.q.exposure != null
-        ? `Holding — ${fmtRate(row.q.exposure)} AI exposure, rework at or under the ledger median`
-        : "Holding — rework at or under the ledger median",
+        ? `Holding: ${fmtRate(row.q.exposure)} AI exposure, rework at or under the ledger median`
+        : "Holding: rework at or under the ledger median",
     tone: "#22c55e",
   };
 }

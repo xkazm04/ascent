@@ -19,9 +19,9 @@ export interface StackFit {
 }
 
 const CAVEAT: Record<StackKind, string> = {
-  ml: "Partial fit: this looks like an ML / notebook project. Automated Testing (D2) and Code Quality & Guardrails (D6) are tuned for application/service code and under-read experiment-driven notebook work — read those dimensions as a floor, not a verdict.",
+  ml: "Partial fit: this looks like an ML / notebook project. Automated Testing (D2) and Code Quality & Guardrails (D6) are tuned for application/service code and under-read experiment-driven notebook work, so read those dimensions as a floor, not a verdict.",
   mobile: "Partial fit: this looks like a mobile app. CI/CD & Delivery (D3) reads web/service pipelines, so a mobile release train (fastlane / Xcode Cloud / app-store submission, code signing) may not be fully credited.",
-  embedded: "Partial fit: this looks like an embedded / firmware project — typically low-velocity and safety-gated by design. The AI-native maturity ladder targets application development, so a low level can be expected and the trajectory is best read as informational.",
+  embedded: "Partial fit: this looks like an embedded / firmware project (typically low-velocity and safety-gated by design). The AI-native maturity ladder targets application development, so a low level can be expected and the trajectory is best read as informational.",
 };
 
 const ML_LANGS = new Set(["jupyter notebook"]);

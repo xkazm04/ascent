@@ -120,7 +120,7 @@ export async function PersonalOverview({ slug }: { slug: string }) {
         <SectionHeader
           size="sm"
           title="Your repositories"
-          description="Public repos you track — scores and history come from the shared public corpus, so every scan of these repos (yours or anyone's) grows the same trend."
+          description="Public repos you track: scores and history come from the shared public corpus, so every scan of these repos (yours or anyone's) grows the same trend."
           right={
             usage ? (
               // The free workspace's meters — the honest readout beside the 402s the write APIs

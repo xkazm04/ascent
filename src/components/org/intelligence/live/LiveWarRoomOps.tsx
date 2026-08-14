@@ -72,7 +72,7 @@ export function ShipLoopBand({
         {s.mockPrs && (
           <span
             className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 font-mono text-xs text-amber-300"
-            title="GitHub App not configured — PRs are simulated locally (they merge on their own after ~90s)"
+            title="GitHub App not configured: PRs are simulated locally (they merge on their own after ~90s)"
           >
             mock PRs
           </span>

@@ -78,7 +78,7 @@ describe("AlertsControl dirty-state guard (ambiguity-ui 2026-07-16 #4)", () => {
     await openWithSavedWebhook();
     editWebhook("https://hooks.slack.com/services/T/B/candidate");
     fireEvent.click(screen.getByRole("button", { name: "Send test" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Test alert delivered ✓ — not saved yet"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Test alert delivered ✓ (not saved yet)"));
   });
 
   it("a clean form's test notice stays terminal (no misleading 'not saved yet')", async () => {

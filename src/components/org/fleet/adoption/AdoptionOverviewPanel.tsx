@@ -44,7 +44,7 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
       <div>
         <div className="mb-4 flex justify-end">{filterBar}</div>
         <SectionEmpty>
-          No contributor data {segmentId || activeStack ? "for this filter" : "yet"} — scan some of this org&apos;s repositories (with a
+          No contributor data {segmentId || activeStack ? "for this filter" : "yet"}: scan some of this org&apos;s repositories (with a
           GitHub token for commit history) to measure AI adoption.
         </SectionEmpty>
       </div>
@@ -64,7 +64,7 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title="AI adoption"
-          description="How AI-native the org's engineering actually is — commit-level AI attribution, the champions carrying the culture, and the delivery health it sits beside. Copy the brief into Claude Code for an enablement plan."
+          description="How AI-native the org's engineering actually is: commit-level AI attribution, the champions carrying the culture, and the delivery health it sits beside. Copy the brief into Claude Code for an enablement plan."
         />
         <div className="flex flex-wrap items-center gap-2">
           {filterBar}
@@ -131,7 +131,7 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
         <Surface radius="xl" className="px-5 py-4">
           <Kicker tone="muted">Delivery · context</Kicker>
           <p className="mt-1 text-sm text-slate-500">
-            No pull-request data yet — connect a GitHub token or the GitHub App to read PR signals alongside adoption.{" "}
+            No pull-request data yet. Connect a GitHub token or the GitHub App to read PR signals alongside adoption.{" "}
             <Link href={`/org/${slug}/settings`} className="font-mono text-xs uppercase tracking-widest transition hover:text-accent">
               Settings →
             </Link>
@@ -142,7 +142,7 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
       <p className="font-mono text-sm text-slate-600">
         {/* The scan-time framing now leads the panel (SnapshotScopeNotice) instead of hiding here, so
             this footnote carries only the attribution mechanics it uniquely explains. */}
-        AI attribution reads co-authorship and tool markers on commits and PRs. Team rollups use CODEOWNERS attribution — see the{" "}
+        AI attribution reads co-authorship and tool markers on commits and PRs. Team rollups use CODEOWNERS attribution; see the{" "}
         <Link href={orgTabHref(slug, "teams")} className="text-slate-500 transition hover:text-accent">Teams</Link> tab.
       </p>
     </div>

@@ -44,7 +44,7 @@ export function IntegrationsPanel({
                 <span className="shrink-0" style={{ color: FIDELITY_META[f].hex }}>
                   {FIDELITY_META[f].label}
                 </span>
-                <span className="text-slate-500">— {FIDELITY_META[f].note}</span>
+                <span className="text-slate-500">: {FIDELITY_META[f].note}</span>
               </li>
             ))}
           </ul>

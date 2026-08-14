@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     if (result.kind === "content-drift") {
       // The repo's context changed since the preview — refuse rather than commit unreviewed content.
       return NextResponse.json(
-        { error: "The repo changed since your preview — the starter would differ from what you reviewed. Preview again to see the current version.", code: "content-drift" },
+        { error: "The repo changed since your preview: the starter would differ from what you reviewed. Preview again to see the current version.", code: "content-drift" },
         { status: 409 },
       );
     }

@@ -88,20 +88,20 @@ export function DataErasureDialog({
             tone="erased"
             items={[
               <>
-                <strong className="font-semibold text-white">Every scan in this organization</strong> — each run&apos;s
+                <strong className="font-semibold text-white">Every scan in this organization</strong>: each run&apos;s
                 scores, its per-dimension breakdowns, its recommendations, and the accept/dismiss history recorded
                 against them.
               </>,
               <>
-                <strong className="font-semibold text-white">Every repository&apos;s scan-derived cache</strong> — the
+                <strong className="font-semibold text-white">Every repository&apos;s scan-derived cache</strong>: the
                 detected tech stack, the passport, the pinned head commit (SHA and ETag), and the last-scan time,
                 status and error.
               </>,
               ...(includeAudit
                 ? [
                     <>
-                      <strong className="font-semibold text-white">This organization&apos;s entire audit trail</strong>{" "}
-                      — every recorded action, with no date cutoff. Only the <code>data.erased</code> entry for this
+                      <strong className="font-semibold text-white">This organization&apos;s entire audit trail</strong>:{" "}
+                      every recorded action, with no date cutoff. Only the <code>data.erased</code> entry for this
                       erasure survives it.
                     </>,
                   ]
@@ -117,7 +117,7 @@ export function DataErasureDialog({
                 Erasure removes the data; it does not delete the tenant or sign anyone out.
               </>,
               <>
-                <strong className="font-semibold text-white">Everything you configured</strong> — which repos are
+                <strong className="font-semibold text-white">Everything you configured</strong>: which repos are
                 watched, their scan schedules, your segments and their tags, and any passport overrides.
               </>,
               ...(includeAudit
@@ -147,7 +147,7 @@ export function DataErasureDialog({
           />
           <span>
             Also erase the audit trail (no date cutoff). Destroying the compliance record is a separate decision from
-            erasing scan data — leave this off unless the request covers it.
+            erasing scan data. Leave this off unless the request covers it.
           </span>
         </label>
 

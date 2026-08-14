@@ -51,7 +51,7 @@ export function MemoryCard({
           )}
           <span
             className={`rounded border px-1.5 py-0.5 font-mono text-xs ${CONFIDENCE_TONE[band] ?? "border-slate-700 text-slate-400"}`}
-            title={`Trust score ${m.confidence.toFixed(2)} — drives ranking and pruning`}
+            title={`Trust score ${m.confidence.toFixed(2)}: drives ranking and pruning`}
           >
             {band} trust
           </span>
@@ -66,7 +66,7 @@ export function MemoryCard({
           {autoFed && (
             <span
               className="rounded border border-sky-500/40 px-1.5 py-0.5 font-mono text-xs text-sky-300"
-              title="Recorded automatically by the scan pipeline — an observed fact, not a human claim."
+              title="Recorded automatically by the scan pipeline: an observed fact, not a human claim."
             >
               auto · scan
             </span>

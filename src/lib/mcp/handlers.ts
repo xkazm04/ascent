@@ -143,7 +143,7 @@ async function aiStance(org: string): Promise<ToolResult> {
   const published = await getActiveOrgStance(org);
   if (!published) {
     return fail(
-      `This organization has not published an AI stance. Absence is not permission — check with the org rather than assuming any tool, model or path is allowed.`,
+      `This organization has not published an AI stance. Absence is not permission. Check with the org rather than assuming any tool, model or path is allowed.`,
     );
   }
   const s = published.stance;
@@ -160,7 +160,7 @@ async function aiStance(org: string): Promise<ToolResult> {
       // The stance is a DECLARATION. Nothing in ascent enforces the path zones at commit time, and
       // an agent told otherwise might treat a zone as a hard wall it can lean on.
       enforcement:
-        "This stance is declared policy, not a runtime control. Path-scoped no-AI zones are advisory — honor them yourself.",
+        "This stance is declared policy, not a runtime control. Path-scoped no-AI zones are advisory; honor them yourself.",
     },
   };
 }
@@ -216,7 +216,7 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
         query,
         count: 0,
         entries: [],
-        note: "No stored memory matched. That means nothing was recorded on this topic — not that the approach is endorsed.",
+        note: "No stored memory matched. That means nothing was recorded on this topic, not that the approach is endorsed.",
       },
     };
   }

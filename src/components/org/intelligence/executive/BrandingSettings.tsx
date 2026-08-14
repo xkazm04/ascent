@@ -35,7 +35,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
       {/* Honest scope: branding reaches the CLIENT-FACING deliverables (PDF + shared briefing links).
           This in-app dashboard keeps Ascent chrome — see the boundary note in ExecutiveTab.tsx. */}
       <p className="mt-2 text-sm text-slate-500">
-        White-label your client-facing briefing deliverables — the downloaded PDF and read-only shared
+        White-label your client-facing briefing deliverables: the downloaded PDF and read-only shared
         briefing links show your name and logo instead of Ascent&apos;s (the accent colours the PDF). This
         in-app dashboard keeps Ascent&apos;s look.
       </p>
@@ -86,7 +86,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
                   setBrandColor(DEFAULT_BRAND_ACCENT);
                 }}
                 className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 transition hover:border-accent hover:text-white"
-                title="Clear the custom accent — briefings follow Ascent's current default colour"
+                title="Clear the custom accent, and briefings follow Ascent's current default colour"
               >
                 Use default
               </button>

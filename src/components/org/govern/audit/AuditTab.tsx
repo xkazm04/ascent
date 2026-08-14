@@ -35,7 +35,7 @@ export async function AuditTab({ slug }: { slug: string }) {
         title="Audit trail"
         description={
           <>
-            Every recorded action for <span className="font-mono">{slug}</span> — who did
+            Every recorded action for <span className="font-mono">{slug}</span>: who did
             what, and the scan it touched. Newest first.
           </>
         }

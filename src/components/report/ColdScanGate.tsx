@@ -49,8 +49,8 @@ export function ColdScanGate({ repo }: { repo: string }) {
         // on claude-cli), and an anonymous public scan IS persisted — that is exactly how this
         // permalink resolves for the next visitor. The honest terms are spelled out in the teaser.
         title={`No report yet for ${display}`}
-        body={`This repository hasn't been scanned on Ascent yet. Scanning it runs a live model assessment, so it takes a few minutes — it's free for public repositories and needs no account.${
-          sha ? ` This link pins commit ${sha.slice(0, 7)} — the scan will score that commit.` : ""
+        body={`This repository hasn't been scanned on Ascent yet. Scanning it runs a live model assessment, so it takes a few minutes. It's free for public repositories and needs no account.${
+          sha ? ` This link pins commit ${sha.slice(0, 7)}, so the scan will score that commit.` : ""
         }`}
         actions={[{ label: "← Back home", href: "/" }]}
       >

@@ -71,7 +71,7 @@ export function useInitiativesPanel({ slug, initial, goals }: { slug: string; in
         // against what actually persisted, instead of a generic error over a reverted stale row.
         setItems(prev);
         await refresh();
-        setError("This initiative changed concurrently — the list was reloaded, please retry.");
+        setError("This initiative changed concurrently. The list was reloaded, please retry.");
         return;
       }
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to update initiative.");

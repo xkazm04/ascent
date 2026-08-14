@@ -129,7 +129,7 @@ describe("RadarChart degenerate-shape guard (fewer than 3 dimensions)", () => {
 
   it("a zero in the fallback renders an EMPTY track plus an explicit 'zero' line, not a hairline fill", () => {
     const { container } = render(<RadarChart dimensions={[dim("D1", "AI Tooling", 0), dim("D2", "Testing", 41)]} />);
-    expect(screen.getByText(/zero — nothing detected/i)).toBeInTheDocument();
+    expect(screen.getByText(/zero: nothing detected/i)).toBeInTheDocument();
     // Exactly one filled bar (Testing's) — the zero contributes no fill div at all.
     const fills = Array.from(container.querySelectorAll<HTMLElement>("div[style*='width']"));
     expect(fills.map((f) => f.style.width)).toEqual(["41%"]);

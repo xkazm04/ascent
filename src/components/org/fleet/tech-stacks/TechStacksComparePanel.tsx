@@ -41,7 +41,7 @@ export async function TechStacksComparePanel({
     <>
       <SectionHeader
         title="Compare stacks"
-        description="Two stacks side by side, mirrored per dimension — e.g. Frontend is AI-Native while Backend·Python is still Manual."
+        description="Two stacks side by side, mirrored per dimension: e.g. Frontend is AI-Native while Backend·Python is still Manual."
         right={<TechStackComparePicker options={options} a={aKey} b={bKey} />}
       />
       {comparison ? (

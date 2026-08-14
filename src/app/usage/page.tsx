@@ -10,7 +10,7 @@ import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
 
 export const metadata = {
-  title: "Usage & metering — Ascent",
+  title: "Usage & metering · Ascent",
   description: "Scan volume, token usage and estimated cost for your organization's Ascent scans.",
 };
 
@@ -72,7 +72,7 @@ export default async function UsagePage({
   if (!isDbConfigured()) {
     return (
       <Notice title="Usage metering needs a database">
-        Metering aggregates stored scans — set DATABASE_URL (local Postgres or Aurora DSQL)
+        Metering aggregates stored scans: set DATABASE_URL (local Postgres or Aurora DSQL)
         to start counting.
       </Notice>
     );
@@ -115,7 +115,7 @@ export default async function UsagePage({
     return (
       <Notice title="Usage metering is temporarily unavailable">
         We couldn&apos;t reach the database to compute your usage summary. This is usually
-        transient — please refresh in a moment.
+        transient. Please refresh in a moment.
       </Notice>
     );
   }

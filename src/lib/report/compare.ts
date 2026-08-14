@@ -95,7 +95,7 @@ export function reconcileDoneRec(
       before: b,
       after: a,
       delta,
-      note: `${dimId} held at ${a} since the previous scan — the score hasn’t caught up yet.`,
+      note: `${dimId} held at ${a} since the previous scan; the score hasn’t caught up yet.`,
     };
   }
   return {
@@ -107,7 +107,7 @@ export function reconcileDoneRec(
     note:
       delta > 0
         ? `${dimId} rose ${signed(delta)} since the previous scan (${b} → ${a}).`
-        : `${dimId} is ${Math.abs(delta)} lower than the previous scan (${b} → ${a}) — something else may have moved.`,
+        : `${dimId} is ${Math.abs(delta)} lower than the previous scan (${b} → ${a}); something else may have moved.`,
   };
 }
 

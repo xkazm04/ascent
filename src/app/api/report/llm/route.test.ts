@@ -243,7 +243,7 @@ describe("reportLlmMarkdown honesty contract", () => {
     const md = reportLlmMarkdown(REPORT);
     expect(md).toContain("| D1 | Context Engineering | 70 | 15% | Solid AGENTS.md with a \\| pipe in it |");
     expect(md).toContain("- no per-package context");
-    expect(md).toContain("**Add eval harness** — D5 · impact: high · effort: medium · unlocks: L3->L4");
+    expect(md).toContain("**Add eval harness** · D5 · impact: high · effort: medium · unlocks: L3->L4");
   });
 
   it("is deterministic — the same report renders the same bytes (what makes the equality test mean anything)", () => {

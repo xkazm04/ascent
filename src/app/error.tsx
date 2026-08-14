@@ -18,7 +18,7 @@ export default function AppError(props: { error: Error & { digest?: string }; re
       {...props}
       fullScreen
       title="Something went wrong"
-      description="An unexpected error occurred while loading this page. This is usually a transient hiccup — retrying often resolves it."
+      description="An unexpected error occurred while loading this page. This is usually a transient hiccup. Retrying often resolves it."
       logLabel="[ascent] app-route-error"
     />
   );

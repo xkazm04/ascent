@@ -46,13 +46,13 @@ export function ContributorsPanel({ report }: { report: ScanReport }) {
             </span>
           </div>
           <p className="mt-1 text-base text-slate-400">
-            From sampled commit history — bar shows the share that&apos;s AI-attributed.
+            From sampled commit history. The bar shows the share that&apos;s AI-attributed.
           </p>
           {/* Orientation, in the same voice as the roadmap's "these aren't orders": say what the bar
               is FOR (a conversation about how the work gets done) and hand over a question, never a
               target. A high share is not a win and a low one is not a failing. */}
           <p className="mt-1 text-base text-slate-500">
-            Not a leaderboard, and no share is the &ldquo;right&rdquo; one — a reading to explore: does the spread
+            Not a leaderboard, and no share is the &ldquo;right&rdquo; one. It&apos;s something to explore: does the spread
             match how your team believes it works?
           </p>
 
@@ -84,7 +84,7 @@ export function ContributorsPanel({ report }: { report: ScanReport }) {
           {/* Honest about the edge of the data: this list is the sampled commit window, and a stored
               scan keeps only its most active 50 — so "everyone" here is not everyone in the repo. */}
           <p className="mt-3 border-t border-divider pt-3 text-sm text-slate-500">
-            Authors of the commits this scan sampled — not the repo&apos;s full contributor list.
+            Authors of the commits this scan sampled, not the repo&apos;s full contributor list.
             {atStoredCap && ` A saved scan keeps the ${STORED_CAP} most active, so longer tails are cut here.`}
           </p>
         </Surface>

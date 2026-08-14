@@ -21,7 +21,7 @@ export async function TechStacksTab({ slug, sp }: { slug: string; sp: OrgSearchP
   if (groups.length === 0) {
     return (
       <SectionEmpty>
-        No tech stacks detected yet. Stacks are derived from each repo&apos;s manifests at scan time — scan some of this org&apos;s{" "}
+        No tech stacks detected yet. Stacks are derived from each repo&apos;s manifests at scan time. Scan some of this org&apos;s{" "}
         <Link href={orgTabHref(slug, "repositories")} className="text-accent hover:text-white">repositories</Link>, then this view groups them by Frontend / Backend·language / Mobile / Data·ML / Infra.
       </SectionEmpty>
     );
@@ -32,7 +32,7 @@ export async function TechStacksTab({ slug, sp }: { slug: string; sp: OrgSearchP
       <div>
         <SectionHeader
           title="Tech stacks"
-          description="Per-stack maturity across the fleet. Overlay stack profiles to compare their shape, then read the dimension analysis and transformation playbooks — the selection drives both."
+          description="Per-stack maturity across the fleet. Overlay stack profiles to compare their shape, then read the dimension analysis and transformation playbooks: the selection drives both."
         />
         <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
           <TechStacksAnalysisPanel slug={slug} />

@@ -18,7 +18,7 @@ export function GovernancePolicyCard({
 }) {
   return (
     <Card>
-      <SectionHeader size="sm" title="Active policy" description="The bar every repo is held to — change it once, enforce it everywhere." />
+      <SectionHeader size="sm" title="Active policy" description="The bar every repo is held to. Change it once, enforce it everywhere." />
       <ul className="mt-3 space-y-1.5">
         {policyText.map((t) => (
           <li key={t} className="flex items-start gap-2 text-sm text-slate-300">

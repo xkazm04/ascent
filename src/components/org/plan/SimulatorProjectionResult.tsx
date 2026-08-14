@@ -60,7 +60,7 @@ export function ProjectionResult({
           disabled={tracking || tracked || result.fixes.length > 1}
           title={
             result.fixes.length > 1
-              ? "An initiative tracks a single dimension, but this scenario raises several — tracking it would silently drop the extra legs. Remove the extra dimensions and re-simulate to track the primary move."
+              ? "An initiative tracks a single dimension, but this scenario raises several. Tracking it would silently drop the extra legs. Remove the extra dimensions and re-simulate to track the primary move."
               : undefined
           }
           className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
@@ -76,7 +76,7 @@ export function ProjectionResult({
         </button>
         {!tracked && result.fixes.length > 1 && (
           <span className="font-mono text-sm text-slate-500">
-            Tracking supports one dimension — remove the extra legs to track the primary move.
+            Tracking supports one dimension; remove the extra legs to track the primary move.
           </span>
         )}
         {/* role="status": the track outcome (success or failure) must reach assistive tech — the

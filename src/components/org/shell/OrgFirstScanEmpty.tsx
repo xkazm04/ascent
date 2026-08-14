@@ -12,7 +12,7 @@ export function OrgFirstScanEmpty({ slug }: { slug: string }) {
       title="Your dashboard is waiting for its first scan"
       body={
         <>
-          Pick repositories in onboarding and <strong>{slug}</strong> fills in around you — instant
+          Pick repositories in onboarding and <strong>{slug}</strong> fills in around you: instant
           preview scores first, then the live scan starts from this dashboard&apos;s header and
           upgrades them in place while you explore the tabs.
         </>

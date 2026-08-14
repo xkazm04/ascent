@@ -24,7 +24,7 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="AI perimeter"
-        description="One line around the fleet: what the stance permits to cross, how deep a change may go without extra review, and what stays sealed. Every scanned repo is placed in the band its REAL autonomy tier puts it in, and every readout compares the declaration with observed git attribution — declared, not enforced."
+        description="One line around the fleet: what the stance permits to cross, how deep a change may go without extra review, and what stays sealed. Every scanned repo is placed in the band its REAL autonomy tier puts it in, and every readout compares the declaration with observed git attribution: declared, not enforced."
         right={
           <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
             v{o.stanceVersion}

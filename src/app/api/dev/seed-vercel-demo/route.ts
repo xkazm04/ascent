@@ -43,12 +43,12 @@ function authorized(req: NextRequest): boolean {
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json(
-      { error: "forbidden — set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
+      { error: "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
       { status: 403 },
     );
   }
   if (!isDbConfigured()) {
-    return NextResponse.json({ error: "persistence is disabled — set DATABASE_URL (or DSQL_ENDPOINT) first" }, { status: 400 });
+    return NextResponse.json({ error: "persistence is disabled: set DATABASE_URL (or DSQL_ENDPOINT) first" }, { status: 400 });
   }
 
   const prisma = getPrisma();
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   const org = await prisma.organization.findUnique({ where: { slug }, select: { id: true } });
   if (!org) {
     return NextResponse.json(
-      { error: `Org "${DEMO_ORG.fromSlug}"/"${slug}" not found — import it first: node scripts/seed-org.mjs vercel` },
+      { error: `Org "${DEMO_ORG.fromSlug}"/"${slug}" not found. Import it first: node scripts/seed-org.mjs vercel` },
       { status: 404 },
     );
   }

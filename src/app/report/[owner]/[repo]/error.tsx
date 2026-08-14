@@ -39,7 +39,7 @@ export default function ReportError({
         <h1 className="mt-4 text-2xl font-semibold text-white">Couldn&apos;t load this report</h1>
         <p className="mt-3 max-w-md text-base text-slate-400">
           Something went wrong rendering this repository&apos;s maturity report. It may be a transient
-          scan or data issue — try again, or scan the repo fresh.
+          scan or data issue. Try again, or scan the repo fresh.
         </p>
         {error.digest && (
           <p className="mt-2 font-mono text-sm text-slate-500">Reference: {error.digest}</p>

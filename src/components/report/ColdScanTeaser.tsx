@@ -76,7 +76,7 @@ export function ColdScanTeaser() {
         <div className="min-w-[16rem] flex-1">
           <p className="text-sm leading-relaxed text-slate-400">
             Every dimension comes back with evidence from the repository, a level, and a ranked route
-            to the next one — plus a shareable report at this URL. No number is shown for this repo
+            to the next one, plus a shareable report at this URL. No number is shown for this repo
             until a scan has actually produced one.
           </p>
         </div>
@@ -99,7 +99,7 @@ export function ColdScanTeaser() {
         <div className="mb-2 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">Before you start</div>
         <ul className="space-y-1.5">
           <Term>
-            <strong className="font-semibold text-slate-300">Free for public repositories</strong> — no
+            <strong className="font-semibold text-slate-300">Free for public repositories:</strong> no
             account, no card. Free scans are capped at a few per month per visitor; past that you&apos;ll be
             asked to sign in for a higher allowance.
           </Term>
@@ -121,7 +121,7 @@ export function ColdScanTeaser() {
         <Link href={demoOrgHref()} className="focus-ring rounded text-accent underline-offset-4 hover:underline">
           Explore the live demo →
         </Link>{" "}
-        <span className="text-slate-500">— {DEMO_ORG_NAME}, already scanned, in the real format.</span>
+        <span className="text-slate-500">({DEMO_ORG_NAME}, already scanned, in the real format.)</span>
       </p>
     </Surface>
   );

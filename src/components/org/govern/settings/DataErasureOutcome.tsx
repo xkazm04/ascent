@@ -119,7 +119,7 @@ export function DataErasureOutcome({
         kicker={resumable ? "Erasure incomplete" : result.audited ? "Erasure complete" : "Erased without a trace"}
         title={
           resumable
-            ? "Stopped at a safe boundary — run it again to continue"
+            ? "Stopped at a safe boundary: run it again to continue"
             : result.audited
               ? `Erased every scan in ${slug}`
               : `Erased ${slug}, but the compliance record was not written`
@@ -131,7 +131,7 @@ export function DataErasureOutcome({
           <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-200">
             This organization is too large to erase inside one request, so the erase stopped cleanly at a batch
             boundary instead of being cut off mid-delete. Everything counted below is already gone for good; the rest
-            is still here. Running it again picks up exactly where it stopped — repeating the request is safe.
+            is still here. Running it again picks up exactly where it stopped. Repeating the request is safe.
           </p>
         )}
         {!result.audited && (
@@ -140,7 +140,7 @@ export function DataErasureOutcome({
             className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger-soft"
           >
             The deletes below were applied and cannot be undone, but the <code>data.erased</code> audit entry could
-            not be written — this erasure has no trace in the audit trail. Record it out of band (ticket, DSR log)
+            not be written. This erasure has no trace in the audit trail. Record it out of band (ticket, DSR log)
             before you close this dialog.
           </p>
         )}

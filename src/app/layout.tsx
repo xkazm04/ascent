@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   // ABSOLUTE urls, which unfurlers require. Only set when a public origin is configured (else Next
   // warns and falls back to a relative base) — SHELL-4.
   ...(BASE_URL ? { metadataBase: new URL(BASE_URL) } : {}),
-  title: `Ascent — ${SITE_TAGLINE}`,
+  title: `Ascent: ${SITE_TAGLINE}`,
   // Built from the canonical rubric so the share/search snippet can never drift from the model
   // (it previously hardcoded "7 dimensions" while the model defines 9 and the hero rendered 9).
   description: SITE_DESCRIPTION,

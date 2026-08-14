@@ -82,7 +82,7 @@ export function FleetTimetablePanel({
     return (
       <div className="mt-4 rounded-2xl border border-divider bg-surface/40 p-6">
         <Kicker>Fleet evolution</Kicker>
-        <p className="mt-2 text-base text-slate-400">No scan history yet — scan some repositories and their score-over-time lands here.</p>
+        <p className="mt-2 text-base text-slate-400">No scan history yet. Scan some repositories and their score-over-time lands here.</p>
       </div>
     );
   }

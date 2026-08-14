@@ -38,7 +38,7 @@ export function RescanBanner({
         className="animate-fade-up sticky top-16 z-10 mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-base text-danger-soft backdrop-blur"
       >
         <span aria-hidden>⚠</span>
-        <span className="flex-1">Re-scan failed — your existing report is unchanged. {error}</span>
+        <span className="flex-1">Re-scan failed. Your existing report is unchanged. {error}</span>
         <button
           type="button"
           onClick={onRetry}
@@ -97,7 +97,7 @@ export function RescanBanner({
         />
       </div>
       <p className="mt-1.5 text-sm text-slate-500">
-        Your current report stays up — it’ll refresh when the re-scan finishes. This usually takes a
+        Your current report stays up. It’ll refresh when the re-scan finishes. This usually takes a
         few minutes.
       </p>
     </div>

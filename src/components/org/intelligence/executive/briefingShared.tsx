@@ -35,7 +35,7 @@ export function DimRow({ dimId, label, avg, href }: { dimId: string; label: stri
   return href ? (
     <Link
       href={href}
-      title={`See the ${label} practice — exemplar, gap repos, and how to lift this dimension`}
+      title={`See the ${label} practice: exemplar, gap repos, and how to lift this dimension`}
       className="focus-ring group -mx-1 flex items-center gap-3 rounded-md px-1 py-0.5 text-sm transition hover:bg-slate-800/40"
     >
       {body}

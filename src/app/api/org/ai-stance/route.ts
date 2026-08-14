@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   if (stored === null) {
     // An all-invalid stance sanitizes to nothing. Unlike the gate (where null clears), an empty
     // stance is refused: "no stance" is the absence of rows, never a published empty document.
-    return NextResponse.json({ error: "The stance is empty after validation — nothing was stored." }, { status: 400 });
+    return NextResponse.json({ error: "The stance is empty after validation, so nothing was stored." }, { status: 400 });
   }
 
   await recordOrgAudit(
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       org,
       action,
       version: stored.version,
-      status: `${action === "publish" ? "published" : "draft"} v${stored.version} — ${stanceBits(stored.stance)}`,
+      status: `${action === "publish" ? "published" : "draft"} v${stored.version}: ${stanceBits(stored.stance)}`,
       stance: stored.stance,
     },
     actorLogin ?? undefined,

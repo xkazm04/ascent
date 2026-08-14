@@ -146,13 +146,13 @@ export function ContextHalfLife({ slug, rows }: { slug: string; rows: RepoContex
         <p className="mt-3 text-sm text-slate-400">
           {s.withContext}/{s.assessed} assessed repos carry an agent-context file;{" "}
           <span className="font-mono tabular-nums text-slate-200">≈{fmtCompact(s.unguidedCommits)}</span> commits have
-          landed since those files were last edited (approximate — read from weekly commit buckets, not per-commit
+          landed since those files were last edited (approximate: read from weekly commit buckets, not per-commit
           history).
           {s.notAssessed > 0 && (
             <>
               {" "}
               <span className="text-slate-300">
-                {s.notAssessed} repo{s.notAssessed === 1 ? " was" : "s were"} scanned before context health existed —
+                {s.notAssessed} repo{s.notAssessed === 1 ? " was" : "s were"} scanned before context health existed;
                 re-scan to measure {s.notAssessed === 1 ? "it" : "them"}.
               </span>
             </>

@@ -89,7 +89,7 @@ export function DebtLedger({ slug, fleet }: { slug: string; fleet: DebtFleet }) 
               <td className="px-4 py-3 text-right">
                 <RateCell
                   value={row.q.aiReworkRate}
-                  unmeasuredReason={row.q.reworkRate == null ? reason : "Fewer than 5 AI-involved merged PRs — not measurable"}
+                  unmeasuredReason={row.q.reworkRate == null ? reason : "Fewer than 5 AI-involved merged PRs; not measurable"}
                 />
               </td>
               <td className="px-4 py-3 text-right">

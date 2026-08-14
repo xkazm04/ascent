@@ -9,7 +9,7 @@ import { Brand, OG_SIZE, OG_CONTENT_TYPE, BRAND_ACCENT, BRAND_WHITE, BRAND_MUTED
 // need a signed read-only share token (the heavier alternative noted in the finding).
 
 export const runtime = "nodejs";
-export const alt = "Ascent — your engineering fleet, mapped";
+export const alt = "Ascent, your engineering fleet, mapped";
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
 

@@ -24,7 +24,7 @@ import { RegisterCta, RegisterPager } from "@/components/leaderboard/RegisterPag
 
 export const dynamic = "force-dynamic";
 
-const TITLE = "The AI-native register — Ascent";
+const TITLE = "The AI-native register · Ascent";
 const DESCRIPTION =
   "Every public repository Ascent has scored, ranked by AI-native maturity with a full per-dimension breakdown. Model-scored entries only; preview scans are listed separately and never ranked.";
 
@@ -76,7 +76,7 @@ export default async function LeaderboardPage({
             </h1>
             <p className="mt-3 max-w-2xl text-lg leading-relaxed text-slate-400">
               Every public repository Ascent has scored, ranked by overall maturity and broken down
-              across all nine dimensions. Every public scan is open — click any repo to read its full
+              across all nine dimensions. Every public scan is open. Click any repo to read its full
               report, or open an owner&apos;s{" "}
               <span className="text-slate-300">public scorecard</span> from its name.
             </p>
@@ -116,7 +116,7 @@ export default async function LeaderboardPage({
             <p className="mx-auto mt-2 max-w-md text-base text-slate-400">
               {unranked.length > 0
                 ? "Every public scan so far came from the deterministic preview rubric, so there is nothing to rank. A real scan puts a repo on the board."
-                : "The register fills as repositories get scanned. Be the first — scan a public repo and it lands on the board."}
+                : "The register fills as repositories get scanned. Be the first: scan a public repo and it lands on the board."}
             </p>
             <Link
               href="/?scan=1"
@@ -132,7 +132,7 @@ export default async function LeaderboardPage({
           // the loop, so they are shown without positions and with the `demo` qualifier on every row.
           <section aria-labelledby="unranked" className="mt-14">
             <h2 id="unranked" className="text-xl font-bold tracking-tight text-white">
-              Preview scans — not ranked
+              Preview scans (not ranked)
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
               These repositories were scored by the deterministic preview rubric: no model contributed a

@@ -30,10 +30,10 @@ export function settle<T>(r: PromiseSettledResult<T>): SettledResult<T> {
  */
 export function deliveryEmptyMessage(opts: { anyFailed: boolean; segmentId: string | null; techGroupId: string | null }): string {
   if (opts.anyFailed) {
-    return "Delivery data couldn't load right now (a query failed) — try refreshing this page.";
+    return "Delivery data couldn't load right now (a query failed). Try refreshing this page.";
   }
   if (opts.segmentId || opts.techGroupId) {
-    return "No delivery signals for this filter — pick another segment/stack or scan more of its repos (signals need a GitHub token).";
+    return "No delivery signals for this filter. Pick another segment/stack or scan more of its repos (signals need a GitHub token).";
   }
   return "Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab.";
 }

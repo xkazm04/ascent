@@ -75,9 +75,9 @@ export async function POST(request: Request) {
       const status = err.status === 403 || err.status === 404 || err.status === 409 ? err.status : 502;
       const hint =
         err.status === 403
-          ? "The installation lacks contents/PR write access — update the GitHub App's permissions."
+          ? "The installation lacks contents/PR write access. Update the GitHub App's permissions."
           : err.status === 409
-            ? "That file already exists in the repo — Ascent won't overwrite it with a starter."
+            ? "That file already exists in the repo. Ascent won't overwrite it with a starter."
             : "GitHub rejected the request. Check the repo and try again.";
       return NextResponse.json({ error: hint }, { status });
     }

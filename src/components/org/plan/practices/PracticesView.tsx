@@ -74,7 +74,7 @@ export function PracticesView({
       <SectionHeader
         title="Practice Library"
         descriptionClassName="max-w-3xl"
-        description="Your org's standards in one place — playbooks you author and practices mined from your strongest repos. Open a row for the exemplar, gaps, and apply actions; add your own with “+ New practice”."
+        description="Your org's standards in one place: playbooks you author and practices mined from your strongest repos. Open a row for the exemplar, gaps, and apply actions; add your own with “+ New practice”."
         right={
           <button
             onClick={() => {
@@ -94,7 +94,7 @@ export function PracticesView({
 
       {rows.length === 0 ? (
         <SectionEmpty>
-          No practices yet — author one with “+ New practice”, or scan this org&apos;s repos to mine some.
+          No practices yet. Author one with “+ New practice”, or scan this org&apos;s repos to mine some.
         </SectionEmpty>
       ) : (
         <PracticeLedger rows={rows} onOpen={setOpenRow} />

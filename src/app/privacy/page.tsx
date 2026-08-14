@@ -20,7 +20,7 @@ const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
 const FEEDBACK_URL = "https://github.com/xkazm04/ascent/issues";
 
 export const metadata = {
-  title: "Privacy policy — Ascent",
+  title: "Privacy policy · Ascent",
   description:
     "How Ascent handles repository data, contributor commit metadata, accounts, billing, cookies, retention, and data erasure.",
 };

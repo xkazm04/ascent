@@ -34,20 +34,20 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
 
       <div className="mt-4 space-y-3 text-sm text-slate-400">
         <p>
-          Evidence <strong className="font-medium text-slate-200">for</strong> an internal change-management control —
+          Evidence <strong className="font-medium text-slate-200">for</strong> an internal change-management control:
           the criterion a SOC 2 Type II examination tests, and an input to an ISO/IEC 42001 Statement of Applicability.
           It is not a certification and makes no claim under the EU AI Act. Ascent certifies nothing; the examiner
           decides.
         </p>
         <p>
           The sample is drawn by a seeded shuffle over the period&apos;s changes, so re-running this export reproduces
-          the same rows — the seed is printed in the manifest. Default draw is {DEFAULT_SAMPLE_SIZE} items; the{" "}
+          the same rows. The seed is printed in the manifest. Default draw is {DEFAULT_SAMPLE_SIZE} items; the{" "}
           <strong className="font-medium text-slate-200">findings</strong> file lists every merged-without-approval
           change in the <em>full</em> population, not only the sampled ones.
         </p>
         <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2">
           <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Before you file it</span> The
-          population is a <strong className="font-medium text-slate-200">lower bound</strong> — a change is recorded
+          population is a <strong className="font-medium text-slate-200">lower bound</strong>: a change is recorded
           only when it falls inside a repository&apos;s scanned pull-request window, and AI assistance left unmarked is
           not detected at all. Identities are pseudonymous unless an owner exports named evidence. Every limitation is
           restated at the top of the manifest.
@@ -73,7 +73,7 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
           </a>
           <p className="mt-2 text-sm text-slate-500">
             Named evidence puts real GitHub logins against changes that merged unreviewed. Export it when an examiner
-            needs to re-verify specific rows against GitHub — not as the default artifact you circulate.
+            needs to re-verify specific rows against GitHub, not as the default artifact you circulate.
           </p>
         </div>
       )}

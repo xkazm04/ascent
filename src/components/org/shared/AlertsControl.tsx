@@ -132,7 +132,7 @@ export function AlertsControl({ org }: { org: string }) {
               {/* Standing dirty-state cue: the dialog closes on ANY outside click/Escape, so a form
                   with unapplied edits needs a visible marker that outlasts a transient notice.
                   (ambiguity-ui 2026-07-16 #4) */}
-              {dirty && <div className="mt-2 font-mono text-xs text-warn">Unsaved changes — Save to apply.</div>}
+              {dirty && <div className="mt-2 font-mono text-xs text-warn">Unsaved changes. Save to apply.</div>}
               {/* fleet-alerts-digests #6: a PERSISTENT polite live region so Save / Clear / Send-test
                   results (and errors) are announced to screen readers. Previously these were plain
                   <p>s that mounted on demand — no SR voiced them, so a keyboard/SR admin got no

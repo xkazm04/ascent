@@ -68,7 +68,7 @@ export default async function Image({ params }: { params: Promise<{ owner: strin
                 {displayOwner}
               </div>
               <div style={{ display: "flex", fontSize: 26, color: BRAND_MUTED }}>
-                Adoption {card.avgAdoption} · Rigor {card.avgRigor} — across {card.verifiedCount} model-scored
+                Adoption {card.avgAdoption} · Rigor {card.avgRigor}, across {card.verifiedCount} model-scored
                 public {card.verifiedCount === 1 ? "repo" : "repos"}.
               </div>
             </div>
@@ -102,7 +102,7 @@ export default async function Image({ params }: { params: Promise<{ owner: strin
       <FallbackOgCard
         eyebrow="Public scorecard"
         title={displayOwner}
-        tagline={`AI-native maturity across ${displayOwner}'s public repositories — a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence.`}
+        tagline={`AI-native maturity across ${displayOwner}'s public repositories (a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions) with evidence.`}
       />
     ),
     { ...size },

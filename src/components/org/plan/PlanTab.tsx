@@ -24,7 +24,7 @@ export function PlanTab({ slug }: { slug: string }) {
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="Plan"
-        description="From insight to plan — set targets, simulate the impact of a fix across the fleet, and track the work. The calibration backlog keeps the score honest."
+        description="From insight to plan: set targets, simulate the impact of a fix across the fleet, and track the work. The calibration backlog keeps the score honest."
       />
 
       {/* The call that precedes every target below: is the weakness the fleet's or one repo's? */}

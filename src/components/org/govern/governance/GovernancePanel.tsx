@@ -45,8 +45,8 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
         <div className="mb-4 flex justify-end">{filterBar}</div>
         <SectionEmpty>
           {scoped
-            ? "No scanned repositories for this filter — pick another segment/stack or clear the filter to evaluate the whole fleet."
-            : "No scanned repositories yet — scan some of this org's repositories to evaluate the fleet against the governance gate."}
+            ? "No scanned repositories for this filter. Pick another segment/stack or clear the filter to evaluate the whole fleet."
+            : "No scanned repositories yet. Scan some of this org's repositories to evaluate the fleet against the governance gate."}
         </SectionEmpty>
         <StanceSection slug={slug} canEdit={canEdit} />
       </div>

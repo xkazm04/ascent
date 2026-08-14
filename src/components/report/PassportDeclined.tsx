@@ -23,7 +23,7 @@ export function PassportDeclined({ declined }: { declined: AppPassport["declined
               declined
             </span>
             <span className="text-slate-300">{d.label}</span>
-            {d.reason ? <span className="text-slate-500">— {d.reason}</span> : null}
+            {d.reason ? <span className="text-slate-500">({d.reason})</span> : null}
             {d.blocker ? <span className="text-slate-600 line-through">{d.blocker}</span> : null}
           </li>
         ))}

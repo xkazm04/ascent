@@ -53,7 +53,7 @@ export function RepoRescanButton({
       onRefused: (d, status) =>
         setOutcome(
           d?.code === "INSUFFICIENT_CREDITS"
-            ? { kind: "credits", message: "Out of scan credits — top up to rescan." }
+            ? { kind: "credits", message: "Out of scan credits. Top up to rescan." }
             : { kind: "error", message: d?.error ?? `Failed (${status}).` },
         ),
       onMessage: ({ event, data }) => {
@@ -64,7 +64,7 @@ export function RepoRescanButton({
         } else if (event === "error") failed = String(data.error ?? "Scan failed.");
       },
       onStreamEnd: () => {
-        if (skipped) setOutcome({ kind: "credits", message: "Skipped — out of scan credits." });
+        if (skipped) setOutcome({ kind: "credits", message: "Skipped (out of scan credits)." });
         else if (failed) setOutcome({ kind: "error", message: failed });
         else router.refresh(); // pull the fresh score/level/last-scan into the row
       },
@@ -79,7 +79,7 @@ export function RepoRescanButton({
         type="button"
         onClick={run}
         aria-disabled={inert || undefined}
-        title={disabled ? disabledHint : `Rescan ${fullName} now — draws 1 credit (free if unchanged)`}
+        title={disabled ? disabledHint : `Rescan ${fullName} now. Draws 1 credit (free if unchanged).`}
         aria-label={`Rescan ${fullName}`}
         aria-describedby={disabled && disabledHint ? hintId : undefined}
         className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${

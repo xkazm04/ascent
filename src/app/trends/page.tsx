@@ -18,9 +18,9 @@ import type { LevelId } from "@/lib/types";
 import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
 
 export const metadata = {
-  title: "Maturity trends — Ascent",
+  title: "Maturity trends · Ascent",
   description:
-    "Track a repository's AI-native maturity over time — per-dimension trends and a forecast of when it reaches the next level.",
+    "Track a repository's AI-native maturity over time, with per-dimension trends and a forecast of when it reaches the next level.",
 };
 
 export const dynamic = "force-dynamic";
@@ -76,7 +76,7 @@ export default async function TrendsPage({
       <Shell>
         <Notice
           title="Trends need a database"
-          body="Progress tracking is a Phase 2 feature — set DATABASE_URL (local Postgres or Aurora DSQL) to record scan history."
+          body="Progress tracking is a Phase 2 feature. Set DATABASE_URL (local Postgres or Aurora DSQL) to record scan history."
           repo={`${parsed.owner}/${parsed.repo}`}
         />
       </Shell>
@@ -152,7 +152,7 @@ export default async function TrendsPage({
 
         {history.scans.length === 1 && (
           <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-base text-slate-400">
-            Only a baseline scan so far — the trend lines fill in after the next scan.
+            Only a baseline scan so far. The trend lines fill in after the next scan.
           </p>
         )}
 

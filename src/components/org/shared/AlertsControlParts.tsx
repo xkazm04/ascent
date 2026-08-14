@@ -50,7 +50,7 @@ export function ThresholdFields({
           admin reasonably concludes the fields tune the digest too, changes them, and watches
           "nothing happen". (ambiguity-ui 2026-07-16 #2) */}
       <div className="mt-3 text-sm text-slate-400">
-        Regression sensitivity (points) — applies to per-repo regression alerts; blank inherits the default.
+        Regression sensitivity (points): applies to per-repo regression alerts; blank inherits the default.
         The weekly digest keeps its own fleet-wide noise band.
       </div>
       <div className="mt-1.5 flex flex-wrap gap-3">

@@ -50,7 +50,7 @@ export function MinedPracticeDetail({ p, onPromote }: { p: OrgPractice; onPromot
                 </span>
               </div>
             ) : (
-              <div className="mt-1 text-sm text-slate-500">No strong exemplar yet — this is greenfield for the org.</div>
+              <div className="mt-1 text-sm text-slate-500">No strong exemplar yet. This is greenfield for the org.</div>
             )}
           </div>
           <div>
@@ -67,7 +67,7 @@ export function MinedPracticeDetail({ p, onPromote }: { p: OrgPractice; onPromot
                 {p.gapRepos.length > 12 && <span className="font-mono text-sm text-slate-600">+{p.gapRepos.length - 12}</span>}
               </div>
             ) : (
-              <div className="mt-1 text-sm text-slate-500">No clear gaps — well adopted across the fleet.</div>
+              <div className="mt-1 text-sm text-slate-500">No clear gaps: well adopted across the fleet.</div>
             )}
           </div>
         </div>

@@ -29,6 +29,7 @@ import type {
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
 import { IMPACT_LEVELS } from "@/lib/llm/schema";
 import { parseJsonLoose } from "@/lib/llm/json";
+import { deEmDash } from "@/lib/llm/prose";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 
 export interface LlmScoreInput {
@@ -99,7 +100,12 @@ const MAX_FIELD_LEN = 2000;
 // (never dangerouslySetInnerHTML). Newlines (\n), CR (\r), and tabs (\t) are preserved as legit prose.
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
-const sanitizeText = (s: string): string => s.replace(CONTROL_CHARS, "").replace(/<!--/g, "&lt;!--");
+// deEmDash is folded in here rather than at each render site because THIS is the chokepoint: every
+// model-supplied string reaches a user through cap(), so one call covers headline, summary, strengths,
+// risks, roadmap titles/rationales and discrepancy claims at once. The prompt already asks the model
+// not to write them (PROSE_STYLE_RULE); this is the guarantee for when it does anyway. See prose.ts.
+const sanitizeText = (s: string): string =>
+  deEmDash(s.replace(CONTROL_CHARS, "").replace(/<!--/g, "&lt;!--"));
 
 // Sanitize BEFORE the hard length cap so the `<!--`→`&lt;!--` expansion can never push the result over
 // MAX_FIELD_LEN (the final slice is the last word on size).

@@ -52,7 +52,7 @@ export function MemoryReflectProposal({
             // The join happens server-side against the same working set; a gap means a row moved
             // underneath us. Say so rather than silently listing fewer memories than we'd retire.
             <li className="text-sm text-orange-300">
-              {memberIds.length - members.length} member row(s) could not be shown — re-run the pass
+              {memberIds.length - members.length} member row(s) could not be shown. Re-run the pass
               before applying.
             </li>
           )}

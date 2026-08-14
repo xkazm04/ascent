@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       const status = err.status === 403 || err.status === 404 || err.status === 410 ? err.status : 502;
       const hint =
         err.status === 403
-          ? "The installation lacks issues write access — update the GitHub App's permissions."
+          ? "The installation lacks issues write access. Update the GitHub App's permissions."
           : err.status === 410
             ? "Issues are disabled on this repository."
             : err.status === 404

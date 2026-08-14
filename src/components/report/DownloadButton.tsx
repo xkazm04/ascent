@@ -84,7 +84,7 @@ export function DownloadButton({
       // Revoke after the download has had a chance to start; immediate revocation races the click.
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch {
-      if (mounted.current) setError("Download failed — check your connection and retry.");
+      if (mounted.current) setError("Download failed. Check your connection and retry.");
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -112,7 +112,7 @@ export function DownloadButton({
             role="alert"
             className="text-sm text-amber-300 underline decoration-amber-300/40 underline-offset-2 transition hover:text-amber-200"
           >
-            <span aria-hidden>⚠</span> {error} — Upgrade →
+            <span aria-hidden>⚠</span> {error} Upgrade →
           </Link>
         ) : (
           <span role="alert" className="text-sm text-red-300">

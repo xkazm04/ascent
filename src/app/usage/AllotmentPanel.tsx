@@ -58,9 +58,9 @@ export function AllotmentPanel({
   const color = FIT_COLOR[fit];
   const msg =
     fit === "over"
-      ? `You're at ~${pct}% of your ${included}/mo allotment — top up or move up a tier before private scans pause.`
+      ? `You're at ~${pct}% of your ${included}/mo allotment: top up or move up a tier before private scans pause.`
       : fit === "under"
-        ? `You're using ~${pct}% of your ${included}/mo allotment — a smaller tier may fit.`
+        ? `You're using ~${pct}% of your ${included}/mo allotment (a smaller tier may fit).`
         : `Comfortably within your ${included}/mo ${label} allotment.`;
 
   return (
@@ -78,7 +78,7 @@ export function AllotmentPanel({
         {msg}
       </p>
       <p className="mt-1 text-sm text-slate-500">
-        Unused credits roll over — they never expire, so a quiet month is not lost. The 90% mark is your
+        Unused credits roll over. They never expire, so a quiet month is not lost. The 90% mark is your
         top-up line, well before the hard 402.
       </p>
     </Surface>

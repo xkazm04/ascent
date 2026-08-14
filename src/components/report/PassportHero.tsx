@@ -44,7 +44,7 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
               mark={auto.level}
               score={auto.score}
               caption="ready for agents"
-              hint="Automation readiness: how ready this codebase is for AI agents to work in it safely — higher means more agent-ready."
+              hint="Automation readiness: how ready this codebase is for AI agents to work in it safely (higher means more agent-ready)."
               color={scoreHex(auto.score)}
               rotate={-4}
               delay={0.05}
@@ -55,7 +55,7 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
               mark={bandLabel(prod.band).toUpperCase()}
               score={prod.score}
               caption="trusted in prod"
-              hint="Production readiness: how trusted this codebase is to run in production — rolled up from CI, tests, security, observability, and delivery."
+              hint="Production readiness: how trusted this codebase is to run in production, rolled up from CI, tests, security, observability, and delivery."
               color={bandColor(prod.band)}
               rotate={4}
               delay={0.13}

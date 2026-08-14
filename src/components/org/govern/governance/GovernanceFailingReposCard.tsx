@@ -10,7 +10,7 @@ import type { GovernanceOverview } from "@/lib/org/governance";
 export function GovernanceFailingReposCard({ slug, g }: { slug: string; g: GovernanceOverview }) {
   return (
     <Card>
-      <SectionHeader size="sm" title="Failing repos" description="Worst first — the specific conditions each repo misses." />
+      <SectionHeader size="sm" title="Failing repos" description="Worst first: the specific conditions each repo misses." />
       {g.failures.length === 0 ? (
         <InlineEmpty>No repos fail the gate. 🎉</InlineEmpty>
       ) : (
@@ -40,7 +40,7 @@ export function GovernanceFailingReposCard({ slug, g }: { slug: string; g: Gover
           other repos?"). */}
       {g.failing > g.failures.length && (
         <p className="mt-3 font-mono text-sm text-slate-500">
-          Showing the worst {g.failures.length} of {g.failing} failing repos — see the{" "}
+          Showing the worst {g.failures.length} of {g.failing} failing repos. See the{" "}
           <Link href={orgTabHref(slug, "repositories")} className="text-accent hover:text-white">
             Repositories
           </Link>{" "}

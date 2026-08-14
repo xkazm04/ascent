@@ -71,7 +71,7 @@ export function RepoCategoryRollup({
       <SectionHeader
         size="sm"
         title="Fleet"
-        description={`Every repository grouped by ${mode} — where each cohort stands and how it's moving · ${periodTitle}`}
+        description={`Every repository grouped by ${mode}: where each cohort stands and how it's moving · ${periodTitle}`}
         right={
           <div className="flex items-center gap-1" role="group" aria-label="Group by">
             <span className="mr-1 font-mono text-xs uppercase tracking-widest text-slate-500">Group</span>
@@ -113,7 +113,7 @@ export function RepoCategoryRollup({
           className="text-slate-500"
           title={
             fleet.avgOverall == null
-              ? `No live-scored repositories in this set${fleet.mock > 0 ? ` — all ${fleet.mock} carry a deterministic mock score` : ""}`
+              ? `No live-scored repositories in this set${fleet.mock > 0 ? ` (all ${fleet.mock} carry a deterministic mock score)` : ""}`
               : `Average over the ${fleet.realScored} live-scored repo${fleet.realScored === 1 ? "" : "s"}${fleet.mock > 0 ? ` · ${fleet.mock} mock placeholder${fleet.mock === 1 ? "" : "s"} excluded` : ""}`
           }
         >
@@ -138,7 +138,7 @@ export function RepoCategoryRollup({
           )}
         </span>
         {fleet.mock > 0 && (
-          <span className="text-slate-500" title="repositories still showing a deterministic mock score — excluded from the average above; re-scan live to replace">
+          <span className="text-slate-500" title="repositories still showing a deterministic mock score (excluded from the average above); re-scan live to replace">
             <span className="tabular-nums text-slate-400">{fleet.mock}</span> mock (excluded from avg)
           </span>
         )}

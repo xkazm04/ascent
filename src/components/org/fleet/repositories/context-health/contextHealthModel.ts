@@ -74,22 +74,22 @@ function bandFor(present: boolean, potency: number | null): ContextBand | null {
 
 function verdictFor(r: Omit<RepoContextRow, "verdict">): string {
   if (!r.scanned) return "Never scanned";
-  if (!r.assessed) return "Not assessed by this scan — re-scan to measure context health";
+  if (!r.assessed) return "Not assessed by this scan; re-scan to measure context health";
   if (!r.present) {
     return r.commitsPerWeek >= 4
-      ? `No agent context — ${Math.round(r.commitsPerWeek)} commits/wk landing unguided`
+      ? `No agent context: ${Math.round(r.commitsPerWeek)} commits/wk landing unguided`
       : "No agent context file detected";
   }
   if (r.band === "stale") {
-    return `≈${r.commitsSinceEdit}${r.windowCapped ? "+" : ""} commits since last edit — the map no longer matches`;
+    return `≈${r.commitsSinceEdit}${r.windowCapped ? "+" : ""} commits since last edit: the map no longer matches`;
   }
   if (r.deadRefs.length > 0) {
     return `References ${r.deadRefs.length} file${r.deadRefs.length === 1 ? "" : "s"} that no longer exist`;
   }
-  if (r.potency == null) return "Freshness unknown — history lookup degraded; quality and drift still measured";
-  if (r.quality < 40) return "Thin guidance — little command / architecture / verify-discipline signal";
+  if (r.potency == null) return "Freshness unknown: history lookup degraded; quality and drift still measured";
+  if (r.quality < 40) return "Thin guidance: little command / architecture / verify-discipline signal";
   if (r.band === "fresh") return "Current, substantive, and every reference resolves";
-  return `Aging — ≈${r.commitsSinceEdit} commits since last edit`;
+  return `Aging: ≈${r.commitsSinceEdit} commits since last edit`;
 }
 
 /** Build the Half-life panel's rows from the fleet rollup — pure, no synthesis. */

@@ -217,7 +217,7 @@ export function DimLine({
               (isMockEngine(mp?.engine) ? MOCK_SR_SUFFIX : "");
             return (
               <li key={p.i}>
-                {mp?.href ? <a href={mp.href}>{`${label} — open this scan's report`}</a> : label}
+                {mp?.href ? <a href={mp.href}>{`${label}. Open this scan's report`}</a> : label}
               </li>
             );
           })}

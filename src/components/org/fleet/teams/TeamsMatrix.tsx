@@ -120,7 +120,7 @@ export function TeamsMatrix({
               const v = byId[d];
               if (v == null) {
                 return (
-                  <td key={d} className="px-1 py-1.5 text-center font-mono text-sm text-slate-700" title={`${t.slug} — no ${DIMENSION_BY_ID[d as DimensionId]?.name ?? d} score yet`}>
+                  <td key={d} className="px-1 py-1.5 text-center font-mono text-sm text-slate-700" title={`${t.slug}: no ${DIMENSION_BY_ID[d as DimensionId]?.name ?? d} score yet`}>
                     ·
                   </td>
                 );

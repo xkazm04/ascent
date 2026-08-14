@@ -26,6 +26,7 @@ import { parseJsonLoose } from "@/lib/llm/json";
 import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
 import type { RunPrompt } from "@/lib/memory/consolidation";
 import { tokenize } from "@/lib/memory/consolidation";
+import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import type { ProviderName } from "@/lib/types";
 
 /** The subset of a stored memory reflection reasons over (structurally satisfied by db MemoryRow). */
@@ -218,6 +219,8 @@ export function buildReflectionPrompt(
 ${MEMORY_UNTRUSTED_BOUNDARY}
 
 ${wrapUntrusted(blocks)}
+
+${PROSE_STYLE_RULE}
 
 Respond with ONLY a JSON object, no prose, no markdown fence:
 {

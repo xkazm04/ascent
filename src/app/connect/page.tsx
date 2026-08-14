@@ -20,7 +20,7 @@ const ERROR_COPY: Record<string, string> = {
   setup_failed: "We couldn't finish setting up the installation. Please try again.",
   oauth: "Sign-in could not be verified. Please try again.",
   oauth_failed: "Sign-in failed. Please try again.",
-  denied: "Sign-in was cancelled on GitHub. Granting access lets Ascent scan your repositories — sign in again when you're ready.",
+  denied: "Sign-in was cancelled on GitHub. Granting access lets Ascent scan your repositories, so sign in again when you're ready.",
   csrf: "Your sign-in attempt expired or didn't match this browser session. Please try signing in again.",
   revoke: "We couldn't sign out your other sessions. Please try again.",
 };
@@ -52,7 +52,7 @@ export default async function ConnectPage({
       <h1 className="mt-1 text-3xl font-bold text-white">Scan your private repositories</h1>
       <p className="mt-2 max-w-2xl text-slate-400">
         Install the Ascent GitHub App on an organization or account. Inference runs against
-        your repositories using a short-lived installation token — Ascent stores only the
+        your repositories using a short-lived installation token. Ascent stores only the
         derived scores and evidence, never your source.
       </p>
       <ConnectPrivacyNotice />
@@ -159,7 +159,7 @@ export default async function ConnectPage({
             role="status"
             className="mt-5 rounded-xl border border-success/30 bg-success/10 p-4 text-base text-success-soft"
           >
-            GitHub access re-synced — {installCount} installation{installCount === 1 ? "" : "s"} now available.
+            GitHub access re-synced. {installCount} installation{installCount === 1 ? "" : "s"} now available.
           </div>
         )}
         {revoked && (
@@ -168,7 +168,7 @@ export default async function ConnectPage({
             className="mt-5 rounded-xl border border-success/30 bg-success/10 p-4 text-base text-success-soft"
           >
             {revoked === "others"
-              ? "Signed out of all other sessions — this browser stays signed in."
+              ? "Signed out of all other sessions. This browser stays signed in."
               : "Your session was refreshed, but other sessions can't be centrally revoked without a database."}
           </div>
         )}
@@ -215,7 +215,7 @@ export default async function ConnectPage({
             <p className="mt-2 text-base text-slate-400">
               The Ascent GitHub App was installed on{" "}
               <span className="font-mono">{pendingInstall}</span>. Re-sync your GitHub access to
-              load its repositories — this refreshes your session without signing you out.
+              load its repositories. This refreshes your session without signing you out.
             </p>
             <div className="mt-4">
               <GitHubSignInButton

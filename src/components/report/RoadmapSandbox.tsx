@@ -122,7 +122,7 @@ export function RoadmapSandbox({
           <h2 className="mt-1 text-xl font-bold text-white">Roadmap sandbox</h2>
           <p className="mt-1 max-w-prose text-base leading-relaxed text-slate-400">
             What if Testing hit 80? Drag any dimension and watch your score, radar, posture, and
-            next-level path recompute instantly — no re-scan.
+            next-level path recompute instantly. No re-scan.
           </p>
         </div>
         <button

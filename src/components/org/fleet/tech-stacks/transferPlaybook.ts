@@ -42,7 +42,7 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "AI-assisted dev enablement guide", kind: "guide" },
     buildFocus: "which assistants and agent-instruction conventions the team should standardize on",
     moves: (L, G) => [
-      `Document how ${L} works AI-first day-to-day — assistant use, agent-instruction files, and the review habits around them.`,
+      `Document how ${L} works AI-first day-to-day: assistant use, agent-instruction files, and the review habits around them.`,
       `Have ${G} adopt those conventions so AI-assisted work becomes the default, not a few champions'.`,
       `Run a short enablement session for ${G}, then track how widely it's actually used.`,
     ],
@@ -53,7 +53,7 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "Testing standards playbook", kind: "playbook" },
     buildFocus: "what to test, what to gate on merge, and how to cover critical paths",
     moves: (L, G) => [
-      `Capture ${L}'s testing bar — what they gate on merge and how they cover critical paths.`,
+      `Capture ${L}'s testing bar: what they gate on merge and how they cover critical paths.`,
       `Have ${G} add tests to its highest-risk areas first, pairing with ${L} to learn the approach.`,
       `Make "tests land with the change" a review expectation in ${G}, then track critical-path coverage.`,
     ],
@@ -64,7 +64,7 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "Delivery pipeline standard", kind: "standard" },
     buildFocus: "which checks gate a merge and how releases are promoted",
     moves: (L, G) => [
-      `Map ${L}'s delivery pipeline — the checks that gate a merge and how releases flow.`,
+      `Map ${L}'s delivery pipeline: the checks that gate a merge and how releases flow.`,
       `Have ${G} adopt the same required checks and promotion steps as a team standard.`,
       `Make a green pipeline before merge non-negotiable in ${G}, then track adherence.`,
     ],
@@ -75,7 +75,7 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "Agent workflow playbook", kind: "playbook" },
     buildFocus: "how to structure work so agents can pick it up and self-verify",
     moves: (L, G) => [
-      `Capture how ${L} makes work agent-ready — task breakdowns, context files, and self-verify loops.`,
+      `Capture how ${L} makes work agent-ready: task breakdowns, context files, and self-verify loops.`,
       `Have ${G} structure its repos and workflows the same way, pairing with ${L}.`,
       `Make agent-ready hand-offs a working norm in ${G}, then track readiness.`,
     ],
@@ -84,9 +84,9 @@ const DIM: Record<string, DimSpec> = {
     types: ["practice", "culture"],
     summary: "treat documentation as a first-class, maintained habit",
     artifact: { name: "Documentation guidelines", kind: "guide" },
-    buildFocus: "what must stay documented — onboarding, architecture, decisions",
+    buildFocus: "what must stay documented: onboarding, architecture, decisions",
     moves: (L, G) => [
-      `Identify what ${L} keeps documented and current — onboarding, architecture, and decisions.`,
+      `Identify what ${L} keeps documented and current: onboarding, architecture, and decisions.`,
       `Have ${G} close its biggest documentation gaps first, with ${L} sharing their upkeep habits.`,
       `Make "docs updated with the change" a review expectation in ${G}, then track freshness.`,
     ],
@@ -97,7 +97,7 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "Code review standard", kind: "standard" },
     buildFocus: "what a review looks for and the standards it holds",
     moves: (L, G) => [
-      `Capture ${L}'s review norms — what a review looks for and the standards it holds.`,
+      `Capture ${L}'s review norms: what a review looks for and the standards it holds.`,
       `Have ${G} adopt those standards and rotate reviewers with ${L} to calibrate.`,
       `Make the quality bar explicit in ${G}'s reviews, then track adherence.`,
     ],
@@ -108,18 +108,18 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "Commit & collaboration guide", kind: "guide" },
     buildFocus: "a healthy change size, message quality, and review cadence",
     moves: (L, G) => [
-      `Capture ${L}'s commit and collaboration cadence — small changes, clear messages, steady flow.`,
+      `Capture ${L}'s commit and collaboration cadence: small changes, clear messages, steady flow.`,
       `Have ${G} adopt the same commit hygiene and PR sizing, coached by ${L}.`,
       `Make the cadence a team habit in ${G}, then track it.`,
     ],
   },
   D8: {
     types: ["culture", "skills"],
-    summary: "embed AI in the engineering process — planning, review, retros",
+    summary: "embed AI in the engineering process: planning, review, retros",
     artifact: { name: "AI-in-process playbook", kind: "playbook" },
     buildFocus: "where AI should assist across the process, not just coding",
     moves: (L, G) => [
-      `Document where ${L} uses AI across the process — planning, review, and retros, not just coding.`,
+      `Document where ${L} uses AI across the process: planning, review, and retros, not just coding.`,
       `Have ${G} fold AI into the same process points, learning ${L}'s prompts and checkpoints.`,
       `Make AI-in-process a standing practice in ${G}, then track uptake.`,
     ],
@@ -130,7 +130,7 @@ const DIM: Record<string, DimSpec> = {
     artifact: { name: "Security practices baseline", kind: "standard" },
     buildFocus: "what to scan, what to review, and what should never ship",
     moves: (L, G) => [
-      `Capture ${L}'s security habits — what they scan for, review, and treat as non-negotiable.`,
+      `Capture ${L}'s security habits: what they scan for, review, and treat as non-negotiable.`,
       `Have ${G} adopt those practices, starting with its highest-risk surfaces and guided by ${L}.`,
       `Make security checks a review norm in ${G}, then track coverage.`,
     ],
@@ -165,7 +165,7 @@ export function buildPlaybook(d: DimInsight): Playbook {
       summary: spec.summary,
       target,
       steps: [
-        `No internal leader on ${d.label} — even ${leader.name} only reaches ${leader.value}, so treat it as a fleet-wide build.`,
+        `No internal leader on ${d.label}: even ${leader.name} only reaches ${leader.value}, so treat it as a fleet-wide build.`,
         `Establish a baseline of ${spec.buildFocus}, starting with the highest-risk areas.`,
         `Pilot it on one stack, then adopt it as a review norm everywhere.`,
         `Set a fleet goal to lift ${d.label} above ${target}, with an owner and a cadence.`,

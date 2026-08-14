@@ -41,10 +41,10 @@ export function AiRoiQuadrantMap({
   const capTop = PAD_T - 20;
   const capBottom = H - PAD_B + 22;
   const quadCaptions = [
-    { x: PAD_L + 2, y: capTop, anchor: "start" as const, text: "idle — paying, little AI", hex: "#f97316" },
+    { x: PAD_L + 2, y: capTop, anchor: "start" as const, text: "idle (paying, little AI)", hex: "#f97316" },
     { x: W - PAD_R - 2, y: capTop, anchor: "end" as const, text: "invested & active", hex: "#22c55e" },
     { x: PAD_L + 2, y: capBottom, anchor: "start" as const, text: "starter", hex: "#64748b" },
-    { x: W - PAD_R - 2, y: capBottom, anchor: "end" as const, text: "lean — high AI, low cost", hex: "#7bbcff" },
+    { x: W - PAD_R - 2, y: capBottom, anchor: "end" as const, text: "lean (high AI, low cost)", hex: "#7bbcff" },
   ];
 
   return (
@@ -102,7 +102,7 @@ export function AiRoiQuadrantMap({
               onMouseEnter={() => setHover(r)}
               onMouseLeave={() => setHover(null)}
             >
-              <title>{noCostSource ? `${r.name} — AI reach ${r.aiInvolvedRate}% · ${VERDICT_META[r.verdict].label} (spend is a sample)` : `${r.name} — AI reach ${r.aiInvolvedRate}%, ${fmtMoney(r.monthlySpend)}/mo, ${r.seats} seats · ${VERDICT_META[r.verdict].label}`}</title>
+              <title>{noCostSource ? `${r.name}: AI reach ${r.aiInvolvedRate}% · ${VERDICT_META[r.verdict].label} (spend is a sample)` : `${r.name}: AI reach ${r.aiInvolvedRate}%, ${fmtMoney(r.monthlySpend)}/mo, ${r.seats} seats · ${VERDICT_META[r.verdict].label}`}</title>
             </circle>
           );
         })}

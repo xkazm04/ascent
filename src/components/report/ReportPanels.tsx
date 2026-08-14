@@ -77,12 +77,12 @@ export function ReportPanels(props: ReportPanelsProps) {
           <div>
             <h2 className="text-xl font-bold text-white">
               Gaps to explore
-              {nextLevel ? ` — your next rung: ${nextLevel.id} ${nextLevel.name}` : " — sustaining the summit"}
+              {nextLevel ? ` (your next rung: ${nextLevel.id} ${nextLevel.name})` : " (sustaining the summit)"}
             </h2>
             <p className="mt-1 text-base text-slate-400">
               {recs && recs.length > 0
-                ? "Inputs to explore at your own pace — these aren't orders. Track what you take on."
-                : "Where trust in AI could grow — open questions to explore, quick wins first."}
+                ? "Inputs to explore at your own pace. These aren't orders. Track what you take on."
+                : "Where trust in AI could grow: open questions to explore, quick wins first."}
             </p>
             <NextLevelPath report={report} />
             <div className="mt-4">

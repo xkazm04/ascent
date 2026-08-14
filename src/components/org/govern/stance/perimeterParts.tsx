@@ -37,7 +37,7 @@ export function CheckpointStrip({ stance, undeclared }: { stance: AiStance; unde
       key: "undeclared",
       title: "observed · undeclared",
       hex: undeclared.length ? "#ef4444" : "#16a34a",
-      copy: "Tools seen in PR attribution that the stance never permitted — declared vs observed, not enforced.",
+      copy: "Tools seen in PR attribution that the stance never permitted: declared vs observed, not enforced.",
       items: undeclared.map((u) => ({ label: u.name, note: `${u.repos.length} repo${u.repos.length === 1 ? "" : "s"}` })),
     },
   ];
@@ -197,8 +197,8 @@ export function UnassessedRepos({
     <div className="rounded-2xl border border-dashed border-divider bg-surface/20 p-5">
       <Kicker tone="muted">Tier not assessed</Kicker>
       <p className="mt-2 max-w-3xl text-sm text-slate-400">
-        These repos have no readiness passport on their latest scan, so no autonomy band can honestly be assigned —
-        re-scan to place them.
+        These repos have no readiness passport on their latest scan, so no autonomy band can honestly be assigned.
+        Re-scan to place them.
       </p>
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {repos.map((r) => (
@@ -217,7 +217,7 @@ export function SealedZones({ zones }: { zones: StanceZoneView[] }) {
       <Kicker>Sealed · no AI authorship declared</Kicker>
       <p className="mt-2 max-w-3xl text-base text-slate-300">
         Inside the perimeter these repos and paths are declared closed regardless of tier. The readout below compares
-        the declaration with OBSERVED git attribution — it reports contradictions, it does not enforce the seal.
+        the declaration with OBSERVED git attribution: it reports contradictions, it does not enforce the seal.
       </p>
       <ul className="mt-4 grid gap-px overflow-hidden rounded-xl border border-divider bg-divider sm:grid-cols-2">
         {zones.map((z, i) => (

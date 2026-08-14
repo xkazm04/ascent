@@ -12,7 +12,7 @@ const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
 const FEEDBACK_URL = "https://github.com/xkazm04/ascent/issues";
 
 export const metadata = {
-  title: "Terms of service — Ascent",
+  title: "Terms of service · Ascent",
   description:
     "The terms that govern using Ascent: accounts, scan permissions, plans and credits, AI-generated reports, and your data.",
 };

@@ -28,13 +28,13 @@ export type SweepPlan =
 export function appliesWhen(sweep: SweepPlan | undefined): string | null {
   if (!sweep) return null;
   if (sweep.status === "scheduled") {
-    return `Open PRs re-check within a minute — up to ${sweep.cap} across ${sweep.repos} watched ${
+    return `Open PRs re-check within a minute: up to ${sweep.cap} across ${sweep.repos} watched ${
       sweep.repos === 1 ? "repo" : "repos"
     }. Anything past that applies on the next push, or a "Re-run" on the check.`;
   }
   return sweep.reason === "no-watched-repos"
-    ? "No watched repos yet, so nothing was re-checked — the new bar applies the next time a repo is scanned or gated."
-    : "No GitHub App installation, so open PRs were not re-checked — the new bar applies on each PR's next push or CI run.";
+    ? "No watched repos yet, so nothing was re-checked. The new bar applies the next time a repo is scanned or gated."
+    : "No GitHub App installation, so open PRs were not re-checked. The new bar applies on each PR's next push or CI run.";
 }
 
 /** The policy's per-dimension floors minus D9, as form strings. D9 has its own dedicated control. */
@@ -158,13 +158,13 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
       const dropped = kind === "save" && policy ? droppedFields(policy, stored) : [];
       setMsg(
         kind === "reset" || stored == null
-          ? { kind: "note", text: "Reset to the archetype default — no custom bar is enforced." }
+          ? { kind: "note", text: "Reset to the archetype default: no custom bar is enforced." }
           : dropped.length > 0
             ? {
                 kind: "error",
-                text: `Saved, but NOT enforced: ${dropped.join(", ")} — 0 (or an out-of-range value) is not a valid bar, so the server cleared ${dropped.length > 1 ? "those fields" : "that field"}. The form now shows the stored policy.`,
+                text: `Saved, but NOT enforced: ${dropped.join(", ")}. 0 (or an out-of-range value) is not a valid bar, so the server cleared ${dropped.length > 1 ? "those fields" : "that field"}. The form now shows the stored policy.`,
               }
-            : { kind: "note", text: "Policy saved — the gate now enforces it." },
+            : { kind: "note", text: "Policy saved. The gate now enforces it." },
       );
       router.refresh();
     } catch (e) {

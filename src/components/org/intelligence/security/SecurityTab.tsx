@@ -45,7 +45,7 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
   ]);
 
   if (!sec) {
-    return <SectionEmpty>No scanned repositories yet — scan some of this org&apos;s repos to assess security.</SectionEmpty>;
+    return <SectionEmpty>No scanned repositories yet. Scan some of this org&apos;s repos to assess security.</SectionEmpty>;
   }
 
   const md = securityMarkdown(sec, supply);
@@ -69,7 +69,7 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title="Security"
-          description={`Security engineering evidenced from each repo + its GitHub state — NOT a guarantee the code is safe. Scored by a deterministic, Scorecard-style check battery (graded controls + current vuln exposure); the register grid shows which controls are covered, per repo. Click a score for the full per-check evidence.`}
+          description={`Security engineering evidenced from each repo + its GitHub state, not a guarantee the code is safe. Scored by a deterministic, Scorecard-style check battery (graded controls + current vuln exposure); the register grid shows which controls are covered, per repo. Click a score for the full per-check evidence.`}
         />
         <div className="flex flex-wrap items-center gap-2">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
@@ -121,7 +121,7 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
         {supplyDegraded && (
           <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-warn">
             Vulnerability advisories couldn&apos;t be fetched for this org, so the exposure columns below are
-            blank — that is <strong>not</strong> a clean bill of health. Re-check the GitHub App installation
+            blank. That is <strong>not</strong> a clean bill of health. Re-check the GitHub App installation
             and its security-advisory access, then reload.
           </p>
         )}

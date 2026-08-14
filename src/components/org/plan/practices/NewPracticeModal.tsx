@@ -105,8 +105,8 @@ export function NewPracticeModal({
         title={draft ? "Save as playbook" : "New practice"}
         context={
           draft
-            ? "Pre-filled from the mined practice — edit anything before it becomes one of your org's own standards."
-            : "Author a standard once — devs adopt it across the fleet."
+            ? "Pre-filled from the mined practice; edit anything before it becomes one of your org's own standards."
+            : "Author a standard once: devs adopt it across the fleet."
         }
       />
       <ModalBody className="space-y-3">

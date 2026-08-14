@@ -81,7 +81,7 @@ export function InitiativesPanelRow({
               onChange={(e) => onPatch(i.id, { goalId: e.target.value || null })}
               className="max-w-[12rem] truncate rounded-md border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
             >
-              <option value="">— none —</option>
+              <option value="">(none)</option>
               {goals.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.label}

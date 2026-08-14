@@ -54,7 +54,7 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
         <div>
           <h2 className="text-lg font-semibold text-white">Pull request signals</h2>
           <p className="mt-1 text-base text-slate-400">
-            How systematically the team ships — from the {stats.analyzed} most recent of {stats.totalCount} PRs.
+            How systematically the team ships, based on the {stats.analyzed} most recent of {stats.totalCount} PRs.
           </p>
         </div>
         {stats.aiInvolvedRate > 0 && (

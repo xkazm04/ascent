@@ -14,7 +14,7 @@ const SCOPE_LABEL: Record<SkillTokenScope, string> = {
   "skills:write": "Register / update skills",
   "telemetry:write": "Report usage",
   "memory:read": "Recall org memory",
-  "mcp:read": "Agent door (MCP) — read org standing",
+  "mcp:read": "Agent door (MCP): read org standing",
 };
 
 export function ApiTokensPanel({
@@ -81,12 +81,12 @@ export function ApiTokensPanel({
       <SectionHeader
         size="sm"
         title="API tokens"
-        description="Give a repo, the sync CLI, or CI machine access to this library — no browser session needed. A token is shown once; store it as ASCENT_TOKEN."
+        description="Give a repo, the sync CLI, or CI machine access to this library, no browser session needed. A token is shown once; store it as ASCENT_TOKEN."
       />
 
       {revealed && (
         <div className="mt-3 rounded border border-emerald-700/60 bg-emerald-950/40 p-3">
-          <p className="text-sm text-emerald-200">Copy this token now — it won&apos;t be shown again.</p>
+          <p className="text-sm text-emerald-200">Copy this token now; it won&apos;t be shown again.</p>
           <div className="mt-2 flex items-center gap-2">
             <code className="flex-1 overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-xs text-emerald-100">{revealed}</code>
             <button
@@ -109,7 +109,7 @@ export function ApiTokensPanel({
 
       <div className="mt-4">
         {tokens.length === 0 ? (
-          <p className="text-sm text-slate-500">No tokens yet — mint one below to connect a repo or CI.</p>
+          <p className="text-sm text-slate-500">No tokens yet. Mint one below to connect a repo or CI.</p>
         ) : (
           <ul className="divide-y divide-slate-800 rounded border border-slate-800">
             {tokens.map((t) => (

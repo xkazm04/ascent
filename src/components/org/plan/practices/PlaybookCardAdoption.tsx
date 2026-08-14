@@ -46,7 +46,7 @@ export function PlaybookAdoptionRow({
       // Surface the API rejection instead of silently looking idle again.
       else setTrackError((await res.json().catch(() => ({})))?.error ?? "Couldn't track this rollout.");
     } catch {
-      setTrackError("Couldn't track this rollout — try again.");
+      setTrackError("Couldn't track this rollout. Try again.");
     } finally {
       setTracking(false);
     }
@@ -68,7 +68,7 @@ export function PlaybookAdoptionRow({
         // from the same server snapshot (adoption), not the optimistic local `applied` chip set.
         <span
           className={`font-mono ${lift > 0 ? "text-emerald-300" : lift < 0 ? "text-orange-300" : "text-slate-400"}`}
-          title={`Average ${p.dimId} change in applied repos since they applied this playbook — measured in ${adoption?.measured ?? 0} of ${adoption?.repos ?? 0} adopting repos (only repos with a scan before and after adoption count)`}
+          title={`Average ${p.dimId} change in applied repos since they applied this playbook: measured in ${adoption?.measured ?? 0} of ${adoption?.repos ?? 0} adopting repos (only repos with a scan before and after adoption count)`}
         >
           {lift > 0 ? `▲ +${lift}` : lift < 0 ? `▼ ${lift}` : "± 0"} avg {p.dimId} since{" "}
           <span className="text-slate-500">

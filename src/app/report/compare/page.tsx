@@ -70,7 +70,7 @@ export default async function ComparePage({
       <Shell>
         <Notice
           title="Comparison needs a database"
-          body="Scan history is a Phase 2 feature — set DATABASE_URL (local Postgres or Aurora DSQL) to record scans and compare them."
+          body="Scan history is a Phase 2 feature: set DATABASE_URL (local Postgres or Aurora DSQL) to record scans and compare them."
           repo={`${parsed.owner}/${parsed.repo}`}
         />
       </Shell>
@@ -157,7 +157,7 @@ export default async function ComparePage({
             {unhonored.length === 1
               ? `The requested scan ${unhonored[0]} is no longer in the comparison window (or doesn't belong to this repo)`
               : `The requested scans ${unhonored.join(" and ")} are no longer in the comparison window (or don't belong to this repo)`}
-            {" — showing the default comparison instead. Pick the scans you want below."}
+            {". Showing the default comparison instead. Pick the scans you want below."}
           </p>
         )}
 

@@ -159,7 +159,7 @@ export async function POST(request: Request) {
         ? {}
         : {
             error: candidate
-              ? "Couldn't deliver to that webhook URL — check it's a live incoming webhook."
+              ? "Couldn't deliver to that webhook URL. Check it's a live incoming webhook."
               : "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL).",
           }),
     });

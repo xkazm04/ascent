@@ -58,7 +58,7 @@ export function StanceEditor({
                 <input value={z.repoGlobs} onChange={(e) => f.setZone(i, { repoGlobs: e.target.value })} className={`${FIELD} mt-1`} placeholder="acme/billing-*" />
               </label>
               <label className="block text-xs text-slate-500">
-                Path globs <span className="text-slate-600">(advisory — not checked yet)</span>
+                Path globs <span className="text-slate-600">(advisory, not checked yet)</span>
                 <input value={z.pathGlobs} onChange={(e) => f.setZone(i, { pathGlobs: e.target.value })} className={`${FIELD} mt-1`} placeholder="prisma/migrations/**" />
               </label>
               <label className="block text-xs text-slate-500">

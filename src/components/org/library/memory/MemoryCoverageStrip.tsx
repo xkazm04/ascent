@@ -56,7 +56,7 @@ export function MemoryCoverageStrip({ coverage }: { coverage: MemoryCoverage }) 
               className="rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-slate-400"
               title={
                 r.lastMemoryAt
-                  ? `Newest memory ${r.lastMemoryAt.slice(0, 10)} — older than ${windowDays} days`
+                  ? `Newest memory ${r.lastMemoryAt.slice(0, 10)}, older than ${windowDays} days`
                   : "No memory has ever been recorded for this repo"
               }
             >

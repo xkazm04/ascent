@@ -31,7 +31,7 @@ export async function StanceSection({ slug, canEdit }: { slug: string; canEdit: 
       <div>
         <Kicker>AI stance</Kicker>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          The org&apos;s published AI policy — versioned, acknowledged per repo, and read against observed git
+          The org&apos;s published AI policy, versioned, acknowledged per repo, and read against observed git
           attribution. Declared policy, distinct from the enforced maturity gate above.
         </p>
       </div>

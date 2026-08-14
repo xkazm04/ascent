@@ -119,7 +119,7 @@ export function PassportRowDetail({
         <BlockerList
           title="Automation blockers"
           items={d.autoBlockers}
-          allClear="No automation blockers — agents can work here."
+          allClear="No automation blockers. Agents can work here."
           org={org}
           fullName={fullName}
           decisions={decisions}

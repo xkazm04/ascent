@@ -32,7 +32,7 @@ export function LlmProviderSettings({
       <SectionHeader
         size="sm"
         title="Bring your own model (Bedrock)"
-        description="Run scans on your org's own Amazon Bedrock — inference stays in your AWS account and region, billed to your AWS account. Custom plan."
+        description="Run scans on your org's own Amazon Bedrock: inference stays in your AWS account and region, billed to your AWS account. Custom plan."
       />
 
       {!planAllowed ? (
@@ -99,7 +99,7 @@ export function LlmProviderSettings({
         {f.blockedBySwitch && (
           <p className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-sm text-orange-200">
             This org currently runs on <span className="font-mono">{initial?.provider}</span>. Switching to Bedrock
-            replaces it, so enter the AWS access key and secret above — saving without them would leave the previous
+            replaces it, so enter the AWS access key and secret above. Saving without them would leave the previous
             provider&apos;s credential in place and break every scan.
           </p>
         )}

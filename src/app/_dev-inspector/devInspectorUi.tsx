@@ -144,7 +144,7 @@ function CrumbRow({
       <span style={{ color: lib ? "#9ca3af" : "#f1f5f9", fontWeight: 600 }}>{file}</span>
       {skipped && (
         <span style={{ color: DIM, fontSize: 10, alignSelf: "center", whiteSpace: "nowrap" }}>
-          skipped — library
+          skipped (library)
         </span>
       )}
     </button>
@@ -266,8 +266,7 @@ export function NavHint() {
     <div data-devinspector style={{ ...PANEL, pointerEvents: "none" }}>
       <span style={{ color: ACCENT, fontWeight: 700 }}>⌖ keyboard mode</span>
       <span style={{ color: "#9ca3af" }}>
-        {" "}
-        — press <b style={{ color: "#f1f5f9" }}>i</b> to inspect ·{" "}
+        : press <b style={{ color: "#f1f5f9" }}>i</b> to inspect ·{" "}
         <b style={{ color: "#f1f5f9" }}>Esc</b> to cancel
       </span>
     </div>

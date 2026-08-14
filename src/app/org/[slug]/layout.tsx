@@ -47,7 +47,7 @@ export default async function OrgLayout({
   if (!isDbConfigured()) {
     return (
       <Frame>
-        <OrgEmpty title="Dashboard needs a database" body="Org rollups read stored scans — set DATABASE_URL (local Postgres or Aurora DSQL)." />
+        <OrgEmpty title="Dashboard needs a database" body="Org rollups read stored scans: set DATABASE_URL (local Postgres or Aurora DSQL)." />
       </Frame>
     );
   }

@@ -31,8 +31,8 @@ const KIND_EMOJI: Record<string, string> = {
 };
 
 const OUTCOME: Record<string, string> = {
-  "no-sink": "not sent — no sink",
-  cooldown: "suppressed — cooldown",
+  "no-sink": "not sent (no sink)",
+  cooldown: "suppressed (cooldown)",
   "dispatch-failed": "delivery failed",
 };
 

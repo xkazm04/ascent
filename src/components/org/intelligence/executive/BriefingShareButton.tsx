@@ -47,7 +47,7 @@ export function BriefingShareButton({
       // briefing-share #2: echo the REAL expiry the route returns (the single source of truth) instead of
       // a hardcoded "14 days" that silently lied once the TTL was halved to 7d — the link was dead on day 8.
       const exp = typeof d.expiresAt === "number" ? new Date(d.expiresAt) : null;
-      const expNote = exp ? ` — expires ${exp.toLocaleDateString()}` : "";
+      const expNote = exp ? `, expires ${exp.toLocaleDateString()}` : "";
       // Only claim "copied" when writeText actually RESOLVED. Clipboard writes routinely fail here:
       // Safari revokes transient user activation after the awaited fetch, permissions policy can deny,
       // and navigator.clipboard is undefined on non-secure origins. The old `?.…catch(() => {})`
@@ -69,7 +69,7 @@ export function BriefingShareButton({
       } else {
         setState("manual");
         setShareUrl(url);
-        setMsg(`Couldn't copy automatically — copy the link below${expNote}.`);
+        setMsg(`Couldn't copy automatically. Copy the link below${expNote}.`);
       }
     } catch (e) {
       setState("error");
@@ -97,7 +97,7 @@ export function BriefingShareButton({
         <input
           readOnly
           value={shareUrl}
-          aria-label="Read-only briefing link — copy manually"
+          aria-label="Read-only briefing link, copy manually"
           onFocus={(e) => e.currentTarget.select()}
           className="w-72 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200"
         />

@@ -73,7 +73,7 @@ export function PassportOwnerControls({
   return (
     <div className="mt-4 border-t border-slate-800 pt-4">
       <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Owner settings</div>
-      <p className="mt-1 text-sm text-slate-500">Fields a scan can&apos;t infer — these frame how to read the scores and (rollback) lift the production score.</p>
+      <p className="mt-1 text-sm text-slate-500">Fields a scan can&apos;t infer: these frame how to read the scores and (rollback) lift the production score.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           criticality

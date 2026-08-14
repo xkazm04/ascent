@@ -87,19 +87,19 @@ export interface OnboardingTrack {
 // pre-push-first so it never contradicts that model.
 const CONTROL: Record<DimensionId, ControlSpec> = {
   D1: {
-    autonomyUnlock: "Agents act correctly the first time — they read the repo's rules instead of guessing.",
+    autonomyUnlock: "Agents act correctly the first time: they read the repo's rules instead of guessing.",
     primaryLayer: "pre-push",
     deliverable: {
       path: "CLAUDE.md / AGENTS.md",
-      summary: "the agent's pre-push checklist host — commands, architecture map, never/always constraints",
+      summary: "the agent's pre-push checklist host: commands, architecture map, never/always constraints",
     },
     prePushChecklist: [
       "Build/test/lint/run commands are documented verbatim so an agent can copy them",
       "Architecture map (entry points, key modules, data flow) so an agent edits the right place",
-      "A 'verify after every change' rule is encoded — run tests + typecheck before proposing a diff",
+      "A 'verify after every change' rule is encoded: run tests + typecheck before proposing a diff",
       "Explicit never/always constraints (security, public API, conventions) are written down",
     ],
-    ciHardPasses: ["None — this is the checklist that feeds every other layer, not a CI gate."],
+    ciHardPasses: ["None. This is the checklist that feeds every other layer, not a CI gate."],
     definitionOfDone: [
       "Build/test/lint/run commands documented so an agent can copy them",
       "Architecture map + explicit never/always constraints written down",
@@ -118,7 +118,7 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
     },
     prePushChecklist: [
       "The full suite runs locally with one command before every push",
-      "Coverage delta is visible to the agent — a change that drops coverage is flagged, not silently shipped",
+      "Coverage delta is visible to the agent: a change that drops coverage is flagged, not silently shipped",
       "Every behavioral change ships with a test that would fail without it",
     ],
     ciHardPasses: [
@@ -166,7 +166,7 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
     },
     prePushChecklist: [
       "The agent runs a self-review pass against a written checklist before opening a PR (diff size, test coverage of the change, security-sensitive edits, public-API changes)",
-      "Dependency bumps are read by the agent (changelog / breaking changes) before push — never blind auto-merge",
+      "Dependency bumps are read by the agent (changelog / breaking changes) before push, never blind auto-merge",
     ],
     ciHardPasses: [
       "An optional AI-review backstop comments on the PR (suggests, never auto-merges)",
@@ -182,7 +182,7 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
     defaultEffort: "medium",
   },
   D5: {
-    autonomyUnlock: "Agents read why, not just what — they don't re-litigate or unknowingly undo a decision.",
+    autonomyUnlock: "Agents read why, not just what: they don't re-litigate or unknowingly undo a decision.",
     primaryLayer: "pre-push",
     deliverable: {
       path: "docs/adr/ (an ADR trail) + a /docs entry point",
@@ -192,7 +192,7 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
       "A change that alters architecture updates or adds an ADR in the same PR",
       "The /docs entry point is current enough for an agent to onboard from cold",
     ],
-    ciHardPasses: ["None — keep docs a pre-push norm, not a merge blocker."],
+    ciHardPasses: ["None. Keep docs a pre-push norm, not a merge blocker."],
     definitionOfDone: [
       "Architecture-changing PRs update or add an ADR (local norm)",
       "A /docs entry point an agent can onboard from cold",
@@ -245,7 +245,7 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
     defaultEffort: "low",
   },
   D8: {
-    autonomyUnlock: "Agent output is trustworthy and repeatable — verified by evals, not vibes.",
+    autonomyUnlock: "Agent output is trustworthy and repeatable: verified by evals, not vibes.",
     primaryLayer: "both",
     deliverable: {
       path: "an evals/ harness using your existing test runner (or promptfoo) + a pre-push eval job on changed prompts",
@@ -253,7 +253,7 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
     },
     prePushChecklist: [
       "Evals / golden tests run locally on any changed prompt, agent spec, or LLM-facing code before push",
-      "Recurring agent tasks follow a runbook the agent reads — not ad-hoc prompting",
+      "Recurring agent tasks follow a runbook the agent reads, not ad-hoc prompting",
       "A versioned prompt/agent library is the single source of truth the agent reuses",
     ],
     ciHardPasses: ["Evals run in CI when prompts/agents change (backstop for the local run)."],
@@ -267,19 +267,19 @@ const CONTROL: Record<DimensionId, ControlSpec> = {
     defaultEffort: "high",
   },
   D9: {
-    autonomyUnlock: "Agent-written code can't leak a secret or pull a vulnerable dep — caught before it ever leaves the machine.",
+    autonomyUnlock: "Agent-written code can't leak a secret or pull a vulnerable dep: caught before it ever leaves the machine.",
     primaryLayer: "both",
     deliverable: {
       path: "a gitleaks hook (pre-commit) + .github/workflows/codeql.yml (full-tree SAST)",
       summary: "secret scan blocks locally before push; SAST runs in CI as a clean-room hard gate",
     },
     prePushChecklist: [
-      "Secret scan (gitleaks) runs pre-commit/pre-push — a secret is blocked before it leaves the machine (CI catching it is already a leak)",
+      "Secret scan (gitleaks) runs pre-commit/pre-push: a secret is blocked before it leaves the machine (CI catching it is already a leak)",
       "Dependency audit (npm audit / cargo deny) runs pre-push before any new dependency is added",
       "New deps are justified (provenance, maintenance) in the PR",
     ],
     ciHardPasses: [
-      "SAST on the full tree (CodeQL/Semgrep) as a hard merge gate — needs a clean-room full build",
+      "SAST on the full tree (CodeQL/Semgrep) as a hard merge gate: needs a clean-room full build",
       "Scheduled SCA + SBOM generation",
       "Signed, attested release artifacts (cosign/SLSA)",
     ],

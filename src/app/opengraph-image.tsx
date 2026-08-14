@@ -8,7 +8,7 @@ import { LEVELS } from "@/lib/maturity/model";
 // unfurl blank — this is the fallback that keeps every link rich. Rendered with next/og's built-in
 // fonts (no external fetch) so it can't fail at build/request time.
 
-export const alt = `Ascent — ${SITE_TAGLINE}`;
+export const alt = `Ascent: ${SITE_TAGLINE}`;
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
 
@@ -23,7 +23,7 @@ export default function OpengraphImage() {
             {SITE_TAGLINE_TITLE}
           </div>
           <div style={{ fontSize: 30, lineHeight: 1.35, color: BRAND_MUTED }}>
-            {`Score any GitHub repo on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions — with evidence and a route to the next level.`}
+            {`Score any GitHub repo on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence and a route to the next level.`}
           </div>
         </div>
 

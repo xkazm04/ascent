@@ -19,7 +19,7 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
   if (!rows || rows.length === 0) {
     return (
       <SectionEmpty>
-        No security data yet — track a public repository on your overview and scan it, then its
+        No security data yet. Track a public repository on your overview and scan it, then its
         Security (D9) posture appears here.
       </SectionEmpty>
     );
@@ -30,7 +30,7 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
   // The same paste-ready CI enforcement the org security tab offers — arguably MORE useful solo: a
   // maintainer wires their own pipeline directly, no fleet policy needed. One line per tracked repo.
   const gateSnippet = [
-    `# Ascent security gate — non-zero exit when Security (D9) < ${DEFAULT_SECURITY_MIN} or the posture is "ungoverned".`,
+    `# Ascent security gate: non-zero exit when Security (D9) < ${DEFAULT_SECURITY_MIN} or the posture is "ungoverned".`,
     `# Add the line for your repo to CI; set ASCENT_URL to this Ascent instance.`,
     ...rows.map((r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`),
   ].join("\n");
@@ -40,7 +40,7 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="Security"
-        description="Security (D9) across your tracked repos, weakest first — from each repo's latest public scan. Decide each failing control below: accept the work, or dismiss with a reason. Your reasons calibrate your own rescans; they never change what other watchers see."
+        description="Security (D9) across your tracked repos, weakest first, from each repo's latest public scan. Decide each failing control below: accept the work, or dismiss with a reason. Your reasons calibrate your own rescans; they never change what other watchers see."
         right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
       />
 

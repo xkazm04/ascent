@@ -87,7 +87,7 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
       <SectionHeader
         size="sm"
         title="Transition programme"
-        description="The named, dated thing this org is actually doing — the frame the goals below hang off. Its baseline is frozen the moment it starts, so every later number is measured against a fixed origin."
+        description="The named, dated thing this org is actually doing: the frame the goals below hang off. Its baseline is frozen the moment it starts, so every later number is measured against a fixed origin."
       />
 
       {!editing && program && (
@@ -102,7 +102,7 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
           <p className="text-sm text-slate-400">
             {program.baseline
               ? `Baseline frozen ${program.baselineAt.slice(0, 10)} at ${program.baseline.overall ?? "—"} overall across ${program.baseline.scannedCount} scanned repos.`
-              : `Started ${program.baselineAt.slice(0, 10)} with nothing scanned yet — no baseline was recorded, so movement is reported only once there is an origin to measure from.`}
+              : `Started ${program.baselineAt.slice(0, 10)} with nothing scanned yet. No baseline was recorded, so movement is reported only once there is an origin to measure from.`}
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setEditing(true)} disabled={busy} className="focus-ring rounded-md border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:text-white disabled:opacity-50">
@@ -183,7 +183,7 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
               measurement taken since the start. */}
           <p className="text-sm text-slate-500">
             {program
-              ? "Re-targeting keeps the original baseline — movement stays measured from where you started."
+              ? "Re-targeting keeps the original baseline; movement stays measured from where you started."
               : "Starting freezes today's fleet standing as the baseline. It is never recomputed."}
           </p>
 

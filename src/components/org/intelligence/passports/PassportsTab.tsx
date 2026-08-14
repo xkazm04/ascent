@@ -95,7 +95,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
 
       {rows.length === 0 ? (
         <SectionEmpty>
-          No passports yet for this view. Passports are produced by scans — scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
+          No passports yet for this view. Passports are produced by scans, so scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
         <PassportsSwitcher rows={rows} autonomy={autonomy} org={slug} decisions={decisions} />

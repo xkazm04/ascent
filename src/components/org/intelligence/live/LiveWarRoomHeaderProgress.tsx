@@ -54,7 +54,7 @@ export function HeaderProgress({
       )}
       {skipped > 0 && (
         <p className="mt-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-base text-warn">
-          {skipped} {skipped === 1 ? "repo" : "repos"} skipped — out of scan credits.
+          {skipped} {skipped === 1 ? "repo" : "repos"} skipped, out of scan credits.
         </p>
       )}
     </>

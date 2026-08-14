@@ -29,7 +29,7 @@ export function RadarFallback({
   return (
     <div className="mx-auto w-full max-w-[340px]">
       <p className="text-sm text-slate-500">
-        {dimensions.length === 1 ? "One dimension" : "Two dimensions"} scored — a radar needs three or
+        {dimensions.length === 1 ? "One dimension" : "Two dimensions"} scored. A radar needs three or
         more axes to describe a shape, so {dimensions.length === 1 ? "it is" : "they are"} shown as bars.
       </p>
       <ul className="mt-3 space-y-3">
@@ -70,7 +70,7 @@ export function RadarFallback({
                   <div className="h-full rounded-full" style={{ width: `${d.score}%`, backgroundColor: scoreHex(d.score) }} />
                 )}
               </div>
-              {d.score === 0 && <div className="mt-0.5 text-sm text-slate-500">Zero — nothing detected for this dimension.</div>}
+              {d.score === 0 && <div className="mt-0.5 text-sm text-slate-500">Zero: nothing detected for this dimension.</div>}
             </li>
           );
         })}

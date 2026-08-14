@@ -29,7 +29,7 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
       <SectionHeader
         size="sm"
         title="App Readiness Passport"
-        description="The portfolio scorecard — how ready this app is for full LLM-automated development, and for production. Names the stack on purpose."
+        description="The portfolio scorecard: how ready this app is for full LLM-automated development, and for production. Names the stack on purpose."
         right={
           <a
             href={`/api/report/passport?repo=${encodeURIComponent(repo)}&download`}

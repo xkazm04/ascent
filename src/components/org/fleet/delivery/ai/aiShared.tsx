@@ -21,7 +21,7 @@ export function VerdictChip({ verdict, className = "" }: { verdict: Verdict; cla
 const FIDELITY_UI: Record<string, { label: string; hex: string; title: string }> = {
   measured: { label: "measured spend", hex: "#22c55e", title: "Spend attributed to the exact repo by the provider (Claude Code telemetry). Adoption & governance are always real (git)." },
   allocated: { label: "allocated spend", hex: "#f59e0b", title: "Provider reports above repo level; Ascent distributes it to repos by AI-attributed PR volume. Adoption & governance are real (git)." },
-  noCostSource: { label: "noCostSource spend", hex: "#64748b", title: "No provider connected — deterministic placeholder. Connect one under Govern → Integrations. Adoption & governance are real (git)." },
+  noCostSource: { label: "noCostSource spend", hex: "#64748b", title: "No provider connected: deterministic placeholder. Connect one under Govern → Integrations. Adoption & governance are real (git)." },
 };
 
 /** Badges where the spend numbers came from (model.fidelity): measured / allocated / noCostSource. */

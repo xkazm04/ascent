@@ -34,7 +34,7 @@ function Row({ r, fix }: { r: RepoGovernance; fix: boolean }) {
       <td className="px-3 py-1.5 text-center">{yes(r.protected)}</td>
       <td className="px-3 py-1.5 text-center font-mono text-sm">
         {r.requiresPullRequest ? (
-          <span className={r.requiredApprovals > 0 ? "text-lime-400" : "text-orange-300"} title={r.requiredApprovals > 0 ? undefined : "PR required, but 0 approvals — authors can self-merge"}>
+          <span className={r.requiredApprovals > 0 ? "text-lime-400" : "text-orange-300"} title={r.requiredApprovals > 0 ? undefined : "PR required, but 0 approvals, so authors can self-merge"}>
             {r.requiredApprovals > 0 ? `✓ ${r.requiredApprovals}` : "0"}
           </span>
         ) : (

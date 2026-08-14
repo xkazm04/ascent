@@ -72,9 +72,9 @@ export function SecurityRiskRegister({
         head={
           <tr>
             <Th k="name" label="Repo" sort={sort} />
-            <Th k="score" label="D9" align="center" title="Security (D9) score — deterministic; click for the full per-check evidence" sort={sort} />
-            <Th k="risk" label="Gate" title="Security gate verdict — 'Gate' sorts riskiest first" sort={sort} />
-            <Th k="gaps" label="Control coverage" title="Deterministic control checks (green ≥7 · amber 4–6 · red <4 · slate n/a) — posture, then the ┃ divider and current vuln exposure. Sorts by failing-control count." sort={sort} />
+            <Th k="score" label="D9" align="center" title="Security (D9) score: deterministic. Click for the full per-check evidence" sort={sort} />
+            <Th k="risk" label="Gate" title="Security gate verdict. 'Gate' sorts riskiest first" sort={sort} />
+            <Th k="gaps" label="Control coverage" title="Deterministic control checks (green ≥7 · amber 4–6 · red <4 · slate n/a): posture, then the ┃ divider and current vuln exposure. Sorts by failing-control count." sort={sort} />
             {advByRepo && (
               <Th
                 k="adv"
@@ -85,7 +85,7 @@ export function SecurityRiskRegister({
                   advisoriesDemo ? (
                     <span
                       className="ml-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 font-mono text-xs normal-case tracking-normal text-amber-300"
-                      title="SUPPLY_CHAIN_PROVIDER=mock — these counts are deterministic demo data, not this fleet's real advisories"
+                      title="SUPPLY_CHAIN_PROVIDER=mock: these counts are deterministic demo data, not this fleet's real advisories"
                     >
                       demo data
                     </span>
@@ -113,8 +113,8 @@ export function SecurityRiskRegister({
                   onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: "D9" })}
                   className="focus-ring mx-auto flex h-7 w-10 items-center justify-center rounded font-mono text-sm transition hover:ring-2 hover:ring-accent/60"
                   style={{ backgroundColor: cell.fill, color: cell.text }}
-                  title={`${r.name} · Security (D9): ${r.score} — click for per-check evidence and next steps`}
-                  aria-label={`${r.name} security score ${r.score} — open detail`}
+                  title={`${r.name} · Security (D9): ${r.score}, click for per-check evidence and next steps`}
+                  aria-label={`${r.name} security score ${r.score}, open detail`}
                 >
                   {r.score}
                 </button>
@@ -134,7 +134,7 @@ export function SecurityRiskRegister({
                     {exposure.map((c) => <CheckChip key={c.id} short={c.short} check={byId.get(c.id)} />)}
                   </div>
                 ) : (
-                  <span className="font-mono text-sm text-slate-600" title="No deterministic checks on this scan — re-scan to populate the control grid.">— re-scan for checks</span>
+                  <span className="font-mono text-sm text-slate-600" title="No deterministic checks on this scan. Re-scan to populate the control grid.">re-scan for checks</span>
                 )}
               </td>
               {advByRepo && (
@@ -143,13 +143,13 @@ export function SecurityRiskRegister({
                     advisoriesDemo ? (
                       // Demo counts don't exist on GitHub — a deep-link would land on a Dependabot page
                       // showing something entirely different and erode trust in the real numbers too.
-                      <span className="font-mono text-sm text-slate-400" title="Demo data — no matching advisories exist on GitHub">
+                      <span className="font-mono text-sm text-slate-400" title="Demo data, no matching advisories exist on GitHub">
                         {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
                         {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
                         {adv.total}
                       </span>
                     ) : (
-                      <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring font-mono text-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories — open on GitHub`}>
+                      <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring font-mono text-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories, open on GitHub`}>
                         {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
                         {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
                         {adv.total} ↗

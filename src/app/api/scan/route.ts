@@ -533,7 +533,7 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           error:
-            "A real scan is not served on GET (prefetchers/crawlers replay GETs, and a scan spends quota and money). POST /api/scan with { url } instead — or use GET with peek=1 (cache probe) or mock=1 (deterministic demo).",
+            "A real scan is not served on GET (prefetchers/crawlers replay GETs, and a scan spends quota and money). POST /api/scan with { url } instead, or use GET with peek=1 (cache probe) or mock=1 (deterministic demo).",
         },
         { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
       );

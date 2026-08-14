@@ -157,7 +157,7 @@ export function useAlertsControl(org: string) {
       setWebhookUrl("");
       setInitialWebhook("");
       setConfigured(false);
-      setNotice("Cleared — alerts fall back to the global sink (if any).");
+      setNotice("Cleared. Alerts fall back to the global sink (if any).");
     }
   }
   async function test() {
@@ -172,7 +172,7 @@ export function useAlertsControl(org: string) {
       setNotice(
         d.delivered
           ? dirty
-            ? "Test alert delivered ✓ — not saved yet. Click Save to apply."
+            ? "Test alert delivered ✓ (not saved yet). Click Save to apply."
             : "Test alert delivered ✓"
           : d.error ?? "No sink configured.",
       );

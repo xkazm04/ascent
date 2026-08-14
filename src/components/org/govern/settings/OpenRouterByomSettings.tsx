@@ -119,7 +119,7 @@ export function OpenRouterByomSettings({
       <SectionHeader
         size="sm"
         title="Bring your own model (OpenRouter)"
-        description="Run scans on any model via your org's OpenRouter key — billed to your OpenRouter account. Note: OpenRouter routes to third-party upstreams, so this is NOT in-boundary like Bedrock. Custom plan."
+        description="Run scans on any model via your org's OpenRouter key, billed to your OpenRouter account. Note: OpenRouter routes to third-party upstreams, so this is NOT in-boundary like Bedrock. Custom plan."
       />
 
       {!planAllowed ? (

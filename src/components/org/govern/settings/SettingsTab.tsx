@@ -29,7 +29,7 @@ export async function SettingsTab({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Settings" description="Organization configuration — owner only." />
+      <SectionHeader title="Settings" description="Organization configuration (owner only)." />
       <LlmProviderSettings
         slug={slug}
         initial={config}

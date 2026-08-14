@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   // first), an owner-role invite could silently seed a second org owner. Cap invites at admin.
   if (body.role === "owner") {
     return NextResponse.json(
-      { error: "Owner can't be granted by invite — promote an existing member to owner instead." },
+      { error: "Owner can't be granted by invite. Promote an existing member to owner instead." },
       { status: 400 },
     );
   }

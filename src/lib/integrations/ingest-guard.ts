@@ -97,7 +97,7 @@ export async function readCappedBody(req: Request, max = MAX_BODY): Promise<{ ok
 /** The shared 413 for an over-cap ingest body. */
 export function payloadTooLarge(): Response {
   return new Response(
-    JSON.stringify({ error: `Payload too large — ingest bodies are capped at ${MAX_BODY} bytes. Reduce the OTel export batch size.` }),
+    JSON.stringify({ error: `Payload too large: ingest bodies are capped at ${MAX_BODY} bytes. Reduce the OTel export batch size.` }),
     { status: 413, headers: { "content-type": "application/json; charset=utf-8" } },
   );
 }
@@ -144,7 +144,7 @@ export async function guardIngest(req: Request): Promise<{ deny: Response } | { 
   const current = await getIngestTokenEpoch(parsed.slug);
   if (current === null) {
     return {
-      deny: new Response(JSON.stringify({ error: "Can't verify token status right now — retry shortly." }), {
+      deny: new Response(JSON.stringify({ error: "Can't verify token status right now. Retry shortly." }), {
         status: 503,
         headers: { "content-type": "application/json; charset=utf-8", "retry-after": "30" },
       }),

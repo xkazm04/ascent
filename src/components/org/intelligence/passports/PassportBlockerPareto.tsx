@@ -46,7 +46,7 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
   const [draft, setDraft] = useState<IssueDraft | null>(null);
 
   return (
-    <PassportBlockerShell scopeLabel={scopeLabel} intro="Each mark is a blocked repo — click a row to file it as GitHub issues." empty={top.length === 0}>
+    <PassportBlockerShell scopeLabel={scopeLabel} intro="Each mark is a blocked repo. Click a row to file it as GitHub issues." empty={top.length === 0}>
       <div className="mt-3 space-y-1">
         {top.map((a) => {
           const tone = AXIS_TONE[a.axis];

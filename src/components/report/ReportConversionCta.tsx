@@ -67,7 +67,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
           <Kicker>{signedIn ? "Go fleet-wide" : "Make this more than a one-off"}</Kicker>
           <p className="mt-1.5 max-w-xl text-base leading-relaxed text-slate-300">
             {signedIn
-              ? "Scan your whole org in one shot to see this repo ranked against the rest — common gaps to fix once, and the repo-specific ones."
+              ? "Scan your whole org in one shot to see this repo ranked against the rest: common gaps to fix once, and the repo-specific ones."
               : "Scan your whole org in one shot, then sign in to save history and get alerted when a repo's score moves."}
           </p>
         </div>

@@ -33,10 +33,10 @@ function hash(s: string): number {
 
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
-    return NextResponse.json({ error: "forbidden — set ASCENT_SEED_SECRET and pass it via x-seed-secret or ?secret=" }, { status: 403 });
+    return NextResponse.json({ error: "forbidden: set ASCENT_SEED_SECRET and pass it via x-seed-secret or ?secret=" }, { status: 403 });
   }
   if (!isDbConfigured()) {
-    return NextResponse.json({ error: "persistence is disabled — set DATABASE_URL first" }, { status: 400 });
+    return NextResponse.json({ error: "persistence is disabled: set DATABASE_URL first" }, { status: 400 });
   }
 
   const prisma = getPrisma();
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     select: { id: true, repositories: { select: { fullName: true } } },
   });
   if (!org) {
-    return NextResponse.json({ error: `org "${slug}" not found — import it first (node scripts/seed-org.mjs vercel)` }, { status: 404 });
+    return NextResponse.json({ error: `org "${slug}" not found: import it first (node scripts/seed-org.mjs vercel)` }, { status: 404 });
   }
 
   // Current month bucket; getOrgUsageRollup's 35-day window captures it.

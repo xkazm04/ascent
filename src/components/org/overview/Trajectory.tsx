@@ -89,14 +89,14 @@ export function Trajectory({ forecast }: { forecast: Forecast }) {
         {forecast.lowData ? (
           <span
             className="font-mono text-sm text-slate-500"
-            title="Too few distinct scan days to gauge a trend — a straight line through ≤ 2 points always fits perfectly"
+            title="Too few distinct scan days to gauge a trend: a straight line through ≤ 2 points always fits perfectly"
           >
-            trend confidence — low data (n={forecast.points})
+            trend confidence · low data (n={forecast.points})
           </span>
         ) : (
           <span
             className="font-mono text-sm text-slate-500"
-            title="R² of the linear fit — how closely the trend follows a straight line"
+            title="R² of the linear fit: how closely the trend follows a straight line"
           >
             trend confidence {confidence}%{confidence < 50 ? " · noisy" : ""}
           </span>

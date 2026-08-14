@@ -49,7 +49,7 @@ export function SkillOutcomes({ outcomes }: { outcomes: SkillOutcome[] | undefin
         ))}
       </ul>
       <p className="mt-1.5 text-xs text-slate-600">
-        Movement in the same window as the adoption — correlation, not proof of cause.
+        Movement in the same window as the adoption: correlation, not proof of cause.
       </p>
     </div>
   );

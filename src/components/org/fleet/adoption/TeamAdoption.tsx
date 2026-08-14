@@ -24,7 +24,7 @@ export function TeamAdoption({
       <SectionHeader
         size="sm"
         title="Team adoption"
-        description="AI commit share per CODEOWNERS team — where AI habits live, and where they haven't spread yet."
+        description="AI commit share per CODEOWNERS team: where AI habits live, and where they haven't spread yet."
         right={
           <Link href={orgTabHref(slug, "teams")} className="shrink-0 font-mono text-xs uppercase tracking-widest text-slate-500 transition hover:text-accent">
             Teams →
@@ -33,7 +33,7 @@ export function TeamAdoption({
       />
       {teams.length === 0 ? (
         <InlineEmpty>
-          No CODEOWNERS team attribution yet — add CODEOWNERS files to the fleet&apos;s repos and re-scan so adoption can roll up by team.
+          No CODEOWNERS team attribution yet. Add CODEOWNERS files to the fleet&apos;s repos and re-scan so adoption can roll up by team.
         </InlineEmpty>
       ) : (
         <>
@@ -62,7 +62,7 @@ export function TeamAdoption({
               <span className="font-mono text-xs uppercase tracking-widest text-accent">Suggested pairing</span>
               <br />
               <span className="text-slate-200">{pairing.leader.name}</span> ({pairing.leader.aiCommitShare}%) could mentor{" "}
-              <span className="text-slate-200">{pairing.learner.name}</span> ({pairing.learner.aiCommitShare}%) — a {pairing.gap}-point gap in
+              <span className="text-slate-200">{pairing.learner.name}</span> ({pairing.learner.aiCommitShare}%), a {pairing.gap}-point gap in
               working AI patterns to spread team-to-team.
             </p>
           )}

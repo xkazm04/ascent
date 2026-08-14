@@ -93,7 +93,7 @@ export function LowBalanceNotice({
       aria-live="polite"
     >
       <p>
-        Running low — {balance} {balance === 1 ? "credit" : "credits"} left (your alert is set at{" "}
+        Running low: {balance} {balance === 1 ? "credit" : "credits"} left (your alert is set at{" "}
         {pref.threshold}). Private scans pause at 0.
       </p>
       {pack && (
@@ -160,7 +160,7 @@ export function AutoRechargeSection({
         {AUTO_RECHARGE_CHARGES_AUTOMATICALLY
           ? "Credits are topped up automatically at this balance."
           : // Say the quiet part out loud: no card is on file and nothing buys credits by itself.
-            "Ascent can't charge a saved card, so this warns you and offers a one-click top-up — it doesn't buy credits for you."}
+            "Ascent can't charge a saved card, so this warns you and offers a one-click top-up; it doesn't buy credits for you."}
       </p>
       <button
         type="button"

@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       content: fileContent,
       commitMessage: "chore: add App Readiness Passport (.ai/passport.json, via Ascent)",
       prTitle: "Add App Readiness Passport",
-      prBody: `Seeds \`.ai/passport.json\` — the portfolio readiness scorecard Ascent derived from this repo's latest scan (automation **${passport.automationReadiness.level}** · production **${passport.productionReadiness.band}**). Descriptive + tool-naming; sibling to the agent-facing \`.ai/manifest.yaml\`. Regenerate it from a fresh scan when the stack drifts.`,
+      prBody: `Seeds \`.ai/passport.json\`: the portfolio readiness scorecard Ascent derived from this repo's latest scan (automation **${passport.automationReadiness.level}** · production **${passport.productionReadiness.band}**). Descriptive + tool-naming; sibling to the agent-facing \`.ai/manifest.yaml\`. Regenerate it from a fresh scan when the stack drifts.`,
     });
     await recordOrgAudit("passport.pr_opened", org, { repo: `${parsed.owner}/${parsed.name}`, pr: pr.number, reused: pr.reused }, actorLogin ?? undefined);
     return NextResponse.json(pr);

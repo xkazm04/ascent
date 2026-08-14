@@ -177,7 +177,7 @@ export async function GET(request: Request) {
         ok: false,
         error: err instanceof Error ? err.message : "scan failed",
       }).catch(() => {});
-      const kept = inferenceBilled && charged ? " (credit kept — inference already ran)" : "";
+      const kept = inferenceBilled && charged ? " (credit kept, inference already ran)" : "";
       errors.push(`${r.fullName}: ${err instanceof Error ? err.message : "failed"}${kept}`);
     }
   });

@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
   const active = await getActiveOrgStance(org);
   if (!active) {
-    return NextResponse.json({ error: "No published stance — publish one before opening policy PRs." }, { status: 409 });
+    return NextResponse.json({ error: "No published stance. Publish one before opening policy PRs." }, { status: 409 });
   }
 
   try {

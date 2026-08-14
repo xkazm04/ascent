@@ -37,7 +37,7 @@ export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note:
   "seats-only": {
     label: "Seats only",
     hex: "#64748b",
-    note: "reports seats and engagement, not spend — no cost figure exists to report",
+    note: "reports seats and engagement, not spend, so no cost figure exists to report",
   },
 };
 
@@ -54,7 +54,7 @@ export const PROVIDERS: ProviderDef[] = [
       "Per-user sessions, lines, commits, PRs",
       "Admin Usage/Cost totals (optional, next)",
     ],
-    perRepo: "Measured — OTel resource attributes carry the repository, so spend lands on the exact repo.",
+    perRepo: "Measured: OTel resource attributes carry the repository, so spend lands on the exact repo.",
     accent: "#d97757",
   },
   {
@@ -67,10 +67,10 @@ export const PROVIDERS: ProviderDef[] = [
     capabilities: [
       "Total seats (org billing)",
       "Daily engaged users",
-      "No cost — GitHub does not expose per-seat price",
+      "No cost (GitHub does not expose per-seat price)",
     ],
     perRepo:
-      "Seats only — Copilot reports at org level and returns no spend, so Ascent records seats and engagement and reports cost as unavailable rather than estimating it.",
+      "Seats only. Copilot reports at org level and returns no spend, so Ascent records seats and engagement and reports cost as unavailable rather than estimating it.",
     accent: "#7bbcff",
   },
   {
@@ -85,7 +85,7 @@ export const PROVIDERS: ProviderDef[] = [
       "Codex CLI token usage",
       "Per-repo only if projects map 1:1 to repos",
     ],
-    perRepo: "Allocated — costs group by project, not repo; Ascent allocates by git evidence unless projects map to repos.",
+    perRepo: "Allocated. Costs group by project, not repo; Ascent allocates by git evidence unless projects map to repos.",
     accent: "#10b981",
   },
 ];

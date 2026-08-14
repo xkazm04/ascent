@@ -20,9 +20,9 @@ import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
 
 const WRITE_REJECTED = "GitHub rejected the write. Check the repo and base branch.";
 const NO_WRITE_SCOPE =
-  "The installation lacks contents/PR write access — update the GitHub App's permissions.";
+  "The installation lacks contents/PR write access. Update the GitHub App's permissions.";
 const CONFLICT_DEFAULT =
-  "That file already exists in the repo — Ascent won't overwrite it with a starter. Edit the existing file instead.";
+  "That file already exists in the repo. Ascent won't overwrite it with a starter; edit the existing file instead.";
 
 /**
  * Confirm `org` has the GitHub App installed and mint its short-lived installation token. Returns the

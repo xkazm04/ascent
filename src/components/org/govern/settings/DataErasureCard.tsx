@@ -68,7 +68,7 @@ export function DataErasureCard({ slug }: { slug: string }) {
       setResult(data);
       setTotals((t) => addPass(t, data));
     } catch {
-      setError("Network error — the request may or may not have completed. Re-run it to be sure; repeating is safe.");
+      setError("Network error. The request may or may not have completed. Re-run it to be sure; repeating is safe.");
     } finally {
       setBusy(false);
     }
@@ -83,7 +83,7 @@ export function DataErasureCard({ slug }: { slug: string }) {
       />
       <p className="mt-3 max-w-2xl text-sm text-slate-400">
         Scan results and the analysis derived from them are erased. The organization, its repositories, its members
-        and everything you configured — watch flags, schedules, segments, passport overrides — are kept. You will be
+        and everything you configured (watch flags, schedules, segments, passport overrides) are kept. You will be
         asked to type <span className="font-mono text-slate-300">{slug}</span> to confirm, and shown the full list
         before anything is deleted.
       </p>

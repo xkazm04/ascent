@@ -77,7 +77,7 @@ export function SnapshotScopeNotice({
       <p className="mt-2 max-w-3xl text-sm text-slate-400">
         These {subject} numbers are a <span className="text-slate-200">scan-time snapshot</span>, not a
         period aggregate. Contributor commit totals and pull-request stats are captured once per scan and
-        stored without per-day history, so no time range — including the one selected above — can re-cut
+        stored without per-day history, so no time range (including the one selected above) can re-cut
         them. Read every figure below as &ldquo;the fleet as of its most recent scans&rdquo;.{" "}
         <Link href={scopedHref} className="text-slate-300 underline decoration-slate-600 underline-offset-2 transition hover:text-accent">
           {scopedLabel}

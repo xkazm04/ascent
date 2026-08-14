@@ -281,7 +281,7 @@ describe("POST /api/org/gate-policy — open-PR re-check sweep", () => {
       expect.objectContaining({
         action: "cleared",
         policy: null,
-        status: "cleared — archetype default",
+        status: "cleared: archetype default",
         previousStatus: expect.stringContaining("min overall 60"),
       }),
       "owner-login",

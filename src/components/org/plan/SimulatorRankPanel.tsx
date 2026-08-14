@@ -42,7 +42,7 @@ export function RankPanel({
       {rankError && <p role="status" className="mt-2 font-mono text-sm text-orange-300">{rankError}</p>}
       {stale && (
         <p role="status" className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-mono text-sm text-amber-300">
-          Stale — {staleNote ?? "the inputs changed since these were ranked"}. Refresh to re-rank for the current target/scope.
+          Stale: {staleNote ?? "the inputs changed since these were ranked"}. Refresh to re-rank for the current target/scope.
         </p>
       )}
       {ranking &&

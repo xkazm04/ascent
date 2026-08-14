@@ -95,12 +95,12 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
           vanishing (the old Promise.all behavior blanked ALL FOUR panels on one rejection; the
           allSettled fix above isolates the failure, but a silently-omitted section would still read as
           "nothing here" — success theater by omission, not by false-positive copy). */}
-      {prFailed && <SectionEmpty>Pull request signals couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
-      {govFailed && <SectionEmpty>Branch governance couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
-      {activityFailed && <SectionEmpty>Commit activity couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
+      {prFailed && <SectionEmpty>Pull request signals couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
+      {govFailed && <SectionEmpty>Branch governance couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
+      {activityFailed && <SectionEmpty>Commit activity couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
       {usageFailed && pr && (
         <SectionEmpty>
-          AI usage/spend data couldn&apos;t load right now — the AI delivery figures below (if shown) may be
+          AI usage/spend data couldn&apos;t load right now. The AI delivery figures below (if shown) may be
           missing spend context. Try refreshing this page.
         </SectionEmpty>
       )}
@@ -117,7 +117,7 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
       {aiModel && withholdAllocatedRoi && (
         <SectionEmpty>
           AI spend for this org is connected only as a whole-org total (allocated), which has no per-repo
-          breakdown — splitting it across a filtered segment/stack would inflate the dollar figures. Clear
+          breakdown, so splitting it across a filtered segment/stack would inflate the dollar figures. Clear
           the filter to see AI delivery ROI, or connect per-repo telemetry for filterable spend.
         </SectionEmpty>
       )}
@@ -137,7 +137,7 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
               title="Commit activity"
               description={
                 <>
-                  Weekly commits across the fleet (real, from GitHub) — {activity.total.toLocaleString()} commits over {activity.weeks} week{activity.weeks === 1 ? "" : "s"}{" "}
+                  Weekly commits across the fleet (real, from GitHub): {activity.total.toLocaleString()} commits over {activity.weeks} week{activity.weeks === 1 ? "" : "s"}{" "}
                   <span className="font-mono text-sm text-slate-600">· {activity.repos} repo{activity.repos > 1 ? "s" : ""} reporting</span>
                 </>
               }

@@ -25,7 +25,7 @@ export function ReportDiscrepancies({ discrepancies }: { discrepancies: ScanRepo
     <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
       <h2 className="text-lg font-semibold text-white">Flagged for review</h2>
       <p className="mt-1 text-base text-slate-400">
-        The AI auditor believes these deterministic signals may be wrong — worth verifying,
+        The AI auditor believes these deterministic signals may be wrong: worth verifying,
         and a useful signal for improving the detectors.
       </p>
       <ul className="mt-3 space-y-2 text-base">

@@ -89,7 +89,7 @@ export function ClearanceCard({ repo }: { repo: RepoAutonomy }) {
               ariaLabel={`${repo.name} progress toward ${next.code}`}
             />
             <p className="mt-2 text-sm text-slate-200">
-              {repo.blocking[0]?.action ?? "All conditions met — raise the clearance."}
+              {repo.blocking[0]?.action ?? "All conditions met. Raise the clearance."}
             </p>
             {repo.blocking.length > 1 && (
               <p className="mt-1 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -99,7 +99,7 @@ export function ClearanceCard({ repo }: { repo: RepoAutonomy }) {
           </>
         ) : (
           <p className="text-sm" style={{ color: hex }}>
-            Top clearance held — this repo can run agents unattended.
+            Top clearance held. This repo can run agents unattended.
           </p>
         )}
         <p className="mt-3 font-mono text-xs uppercase tracking-[0.18em] text-slate-600">

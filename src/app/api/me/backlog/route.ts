@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       { status: body.status, targetDate: body.targetDate, note: body.note },
     );
     if (!row) {
-      return NextResponse.json({ error: "Your workspace isn't set up yet — visit /me first." }, { status: 404 });
+      return NextResponse.json({ error: "Your workspace isn't set up yet. Visit /me first." }, { status: 404 });
     }
     return NextResponse.json({ ok: true, ...row });
   } catch (err) {

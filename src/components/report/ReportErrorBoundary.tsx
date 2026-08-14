@@ -81,7 +81,7 @@ export class ReportErrorBoundary extends React.Component<Props, State> {
           <h1 className="mt-4 text-2xl font-bold text-white">This report couldn&apos;t be displayed</h1>
           <p className="mt-2 max-w-md text-slate-400">
             {onRetry
-              ? "Something in the report data didn't render. This is usually transient — try again."
+              ? "Something in the report data didn't render. This is usually transient; try again."
               : "Something in this saved report didn't render, and reloading would only show the same result. Run a fresh scan or try a different repo instead."}
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">

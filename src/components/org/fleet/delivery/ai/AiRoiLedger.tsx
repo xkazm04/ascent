@@ -46,7 +46,7 @@ function verdictLine(m: AiDeliveryModel["summary"]): string {
   const tail: string[] = [];
   if (m.idleSpend > 0) tail.push(`${fmtMoney(m.idleSpend)}/mo idle`);
   if (m.ungovernedSpend > 0) tail.push(`${fmtMoney(m.ungovernedSpend)}/mo ungoverned`);
-  return `${bits.join(" · ")}${tail.length ? ` — ${tail.join(", ")}.` : "."}`;
+  return `${bits.join(" · ")}${tail.length ? `: ${tail.join(", ")}.` : "."}`;
 }
 
 function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean }) {
@@ -54,7 +54,7 @@ function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean })
   // cells are empty rather than blurred-but-populated. Adoption (AI reach) and governance are always
   // real (git-derived) and render normally either way.
   const sample = (
-    <span className="text-slate-600" title="No provider reports cost — connect one for spend figures">
+    <span className="text-slate-600" title="No provider reports cost: connect one for spend figures">
       —
     </span>
   );
@@ -121,8 +121,8 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
             <>
               , <span className="font-mono text-slate-200">{s.governedAiShare}%</span> reviewed
             </>
-          )}{" "}
-          — both real, from git. Spend, idle, and ROI are a deterministic sample until you{" "}
+          )}
+          , both real, from git. Spend, idle, and ROI are a deterministic sample until you{" "}
           <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">
             connect a provider
           </Link>

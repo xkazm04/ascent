@@ -54,7 +54,7 @@ export async function BacklogTab({ slug, sp }: { slug: string; sp: SearchParams 
         {scopeBar}
         <SectionEmpty>
           {scoped
-            ? "No recommendations to track for this filter — pick another segment/stack or clear the filter."
+            ? "No recommendations to track for this filter. Pick another segment/stack or clear the filter."
             : "No recommendations to track yet. Scan some of this org's repositories and their recommendations will appear here as an assignable, due-dated backlog."}
         </SectionEmpty>
       </div>
@@ -68,7 +68,7 @@ export async function BacklogTab({ slug, sp }: { slug: string; sp: SearchParams 
         className="mb-4"
         descriptionClassName="max-w-3xl"
         title="Recommendation backlog"
-        description="Every open gap across the fleet, as a roadmap you can run — assign an owner, set a due date, and track each one from open to done. Grouped by owner and by due date; every change is recorded in the item's history."
+        description="Every open gap across the fleet, as a roadmap you can run: assign an owner, set a due date, and track each one from open to done. Grouped by owner and by due date; every change is recorded in the item's history."
       />
       <div className="space-y-8">
         <DebtLedger slug={slug} fleet={buildDebtFleet(backlog, rework)} />

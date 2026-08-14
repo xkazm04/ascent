@@ -116,7 +116,7 @@ export function MovementSince({ movement }: { movement: Movement | null }) {
         {movement.firstLook ? "Since you joined" : "Since you last looked"}
       </div>
       {movement.count === 0 ? (
-        <p className="mt-1.5 font-mono text-sm text-slate-500">Nothing moved — you&apos;re up to date.</p>
+        <p className="mt-1.5 font-mono text-sm text-slate-500">Nothing moved. You&apos;re up to date.</p>
       ) : (
         <ul className="mt-1.5 space-y-1">
           {movement.items.map((it, i) => (

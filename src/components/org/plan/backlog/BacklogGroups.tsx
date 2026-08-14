@@ -119,8 +119,8 @@ export function BacklogGroups({
           <>
             <p className="text-base text-slate-500">
               {showClosed
-                ? "No recommendations at all — nothing has been tracked for this scope yet."
-                : "Nothing active in the backlog — every recommendation is done or dismissed. 🎉"}
+                ? "No recommendations at all. Nothing has been tracked for this scope yet."
+                : "Nothing active in the backlog. Every recommendation is done or dismissed. 🎉"}
             </p>
             {/* Never a terminal dead end: name the route to the closed items even from the empty state. */}
             {!showClosed && closedCount > 0 && (

@@ -127,7 +127,7 @@ export function RepoDimensionModal({
                 <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Next steps</div>
                 {data.nextSteps.length === 0 ? (
                   <p className="mt-1 text-sm text-slate-500">
-                    No open recommendations for this dimension — it isn&apos;t a current gap.
+                    No open recommendations for this dimension. It isn&apos;t a current gap.
                   </p>
                 ) : (
                   <ul className="mt-2 space-y-2.5">

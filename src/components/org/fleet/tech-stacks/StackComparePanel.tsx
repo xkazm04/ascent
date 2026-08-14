@@ -101,7 +101,7 @@ export function StackComparePanel({ org, comparison }: { org: string; comparison
             ))}
           </>
         ) : (
-          <p className="text-sm text-slate-500">Neither side has a scanned repo yet — dimension detail appears after the first scans.</p>
+          <p className="text-sm text-slate-500">Neither side has a scanned repo yet. Dimension detail appears after the first scans.</p>
         )}
       </div>
 

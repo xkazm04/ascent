@@ -13,7 +13,7 @@ export default function OrgError(props: { error: Error & { digest?: string }; re
     <RouteError
       {...props}
       title="This dashboard failed to load"
-      description="An unexpected error occurred while loading this organization's data. This is often a transient database hiccup — retrying usually resolves it."
+      description="An unexpected error occurred while loading this organization's data. This is often a transient database hiccup. Retrying usually resolves it."
       homeLabel="Home"
       logLabel="[org] dashboard route error"
     />

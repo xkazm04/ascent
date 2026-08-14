@@ -67,7 +67,7 @@ describe("InitiativesPanel", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Status for Add tests" }), { target: { value: "done" } });
 
-    await waitFor(() => expect(screen.getByText(/changed concurrently — the list was reloaded/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/changed concurrently\. The list was reloaded/)).toBeInTheDocument());
     // The follow-up GET pulled the authoritative snapshot (what the concurrent editor persisted).
     expect(fetchMock.mock.calls[1][0]).toBe("/api/org/initiatives?org=acme");
     expect((screen.getByRole("combobox", { name: "Status for Add tests" }) as HTMLSelectElement).value).toBe("in_progress");

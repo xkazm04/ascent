@@ -38,7 +38,7 @@ export function SecurityFindings({
           <>
             Every failing control, one row each.{" "}
             <span className="text-slate-300">
-              Accept the work, or dismiss with a reason — the reason reaches connected agents and the next scan.
+              Accept the work, or dismiss with a reason: the reason reaches connected agents and the next scan.
             </span>{" "}
             <span className="font-mono text-sm text-slate-500">
               ({open.length} open · {settled.length} settled)

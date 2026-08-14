@@ -23,7 +23,7 @@ export function RepoCategoryRollupRow({ r, orgSlug }: { r: RepoTrajectory; orgSl
         {/* Provenance: a mock-engine score is the deterministic FLOOR, not a real graded scan — flag it. */}
         {isMockEngine(r.engine) && (
           <span
-            title="Deterministic mock score — a placeholder floor, not a live graded scan. Re-scan live to replace it."
+            title="Deterministic mock score: a placeholder floor, not a live graded scan. Re-scan live to replace it."
             className="shrink-0 rounded border border-slate-700 px-1 font-mono text-xs uppercase tracking-wider text-slate-500"
           >
             mock
@@ -47,7 +47,7 @@ export function RepoCategoryRollupRow({ r, orgSlug }: { r: RepoTrajectory; orgSl
           // transition, not a real code-change movement. Don't dress it in the confident up/down tone.
           <span
             className="w-12 text-right font-mono text-xs tabular-nums text-slate-500"
-            title="Spans a mock → live engine change — an engine transition, not a real code-change delta"
+            title="Spans a mock → live engine change: an engine transition, not a real code-change delta"
           >
             {fmtDelta(r.deltaWindow)}
           </span>

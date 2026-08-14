@@ -30,7 +30,7 @@ export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgre
         <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-5 text-center">
           <p className="text-base text-slate-300">No goals set yet.</p>
           <p className="mt-1 text-sm text-slate-500">
-            Define time-bound org targets — e.g. &ldquo;AI Adoption 60 by December&rdquo; or &ldquo;reach AI-Native by Q3&rdquo; — and track
+            Define time-bound org targets (e.g. &ldquo;AI Adoption 60 by December&rdquo; or &ldquo;reach AI-Native by Q3&rdquo;) and track
             pace, ETA, and which repos must move against them.
           </p>
           <Link

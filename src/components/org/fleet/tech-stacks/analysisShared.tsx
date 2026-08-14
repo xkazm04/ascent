@@ -73,26 +73,26 @@ export function noteFor(d: DimInsight) {
       return (
         <>
           <span className={strong}>{d.laggard.name}</span> is <span className={strong}>{d.spread} pts</span> behind{" "}
-          <span className={strong}>{d.leader.name}</span> — the practice hasn&apos;t transferred.
+          <span className={strong}>{d.leader.name}</span>; the practice hasn&apos;t transferred.
         </>
       );
     case "gap":
       return (
         <>
-          Fleet-wide gap — even <span className={strong}>{d.leader.name}</span>, the strongest, reaches only{" "}
+          Fleet-wide gap: even <span className={strong}>{d.leader.name}</span>, the strongest, reaches only{" "}
           <span className={strong}>{d.max}</span>.
         </>
       );
     case "strength":
       return (
         <>
-          Every stack scores <span className={strong}>≥ {d.min}</span> — a shared strength to hold.
+          Every stack scores <span className={strong}>≥ {d.min}</span>, a shared strength to hold.
         </>
       );
     default:
       return (
         <>
-          All stacks cluster near <span className={strong}>{d.mean}</span> — no outlier.
+          All stacks cluster near <span className={strong}>{d.mean}</span>, no outlier.
         </>
       );
   }

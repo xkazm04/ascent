@@ -91,7 +91,7 @@ export function PlanControl({ org, plan, enabled }: { org: string; plan: string;
       {open && (
         <div role="menu" aria-label="Plan tier" className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-3 shadow-2xl">
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Switch plan</div>
-          <p className="mt-1 text-xs text-slate-500">Demo override — paid upgrades normally go through checkout.</p>
+          <p className="mt-1 text-xs text-slate-500">Demo override: paid upgrades normally go through checkout.</p>
           <div className="mt-2 flex flex-col gap-1">
             {PLANS.map((p) => (
               <button

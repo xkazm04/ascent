@@ -85,8 +85,8 @@ export function MemoryRecallPanel({
     <Card>
       <SectionHeader
         size="sm"
-        title="Recall — what an agent would be handed"
-        description="Ask for the org's most valuable knowledge within a character budget. Ranking is confidence × per-kind decay × proven usefulness, and items are packed whole — never truncated mid-memory. Everything that did not make it is listed below with the reason. Packed memories have their recall count incremented, because they reached a reader."
+        title="Recall: what an agent would be handed"
+        description="Ask for the org's most valuable knowledge within a character budget. Ranking is confidence × per-kind decay × proven usefulness, and items are packed whole, never truncated mid-memory. Everything that did not make it is listed below with the reason. Packed memories have their recall count incremented, because they reached a reader."
       />
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -146,7 +146,7 @@ export function MemoryRecallPanel({
           {result.memories.length === 0 ? (
             <p className="mt-3 text-sm text-slate-500">
               Nothing was packed. {result.omittedCount > 0
-                ? "Everything eligible was larger than the budget — raise it below."
+                ? "Everything eligible was larger than the budget. Raise it below."
                 : "There is no recallable memory in this scope yet."}
             </p>
           ) : (
@@ -158,8 +158,8 @@ export function MemoryRecallPanel({
           )}
 
           <OmissionGroup
-            title="ranked but left out — budget"
-            hint="These are recallable and were scored; they simply did not fit. Packing is whole-item and greedy, so an oversized memory is skipped rather than ending the pass — a smaller, lower-ranked one can still land. Raise the budget to admit them."
+            title="ranked but left out: budget"
+            hint="These are recallable and were scored; they simply did not fit. Packing is whole-item and greedy, so an oversized memory is skipped rather than ending the pass; a smaller, lower-ranked one can still land. Raise the budget to admit them."
             count={result.omitted.length}
           >
             {result.omitted.map((m) => (

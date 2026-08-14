@@ -81,15 +81,15 @@ export function ExportCsvButton({ repo }: { repo: string }) {
       </button>
       {state === "expired" && (
         <span role="alert" className="font-mono text-sm text-amber-300">
-          Session expired —{" "}
+          Session expired.{" "}
           <button type="button" onClick={() => window.location.reload()} className="underline">
-            sign in again
+            Sign in again
           </button>
         </span>
       )}
       {state === "error" && (
         <span role="alert" className="font-mono text-sm text-rose-300">
-          Export failed — try again.
+          Export failed. Try again.
         </span>
       )}
     </span>

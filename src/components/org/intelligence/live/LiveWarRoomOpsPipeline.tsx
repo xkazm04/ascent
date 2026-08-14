@@ -122,7 +122,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
           <>
             <Kicker className="mb-2.5">Triage · {state.counts.triage} directions</Kicker>
             {state.triage.length === 0 ? (
-              <p className="text-base text-slate-500">Radar clear — no open directions to triage.</p>
+              <p className="text-base text-slate-500">Radar clear, no open directions to triage.</p>
             ) : (
               <div className="grid max-h-[24rem] grid-cols-1 gap-2.5 overflow-y-auto xl:grid-cols-2">
                 {state.triage.map((t) => (
@@ -142,7 +142,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
           <>
             <Kicker className="mb-2.5">In flight · {state.counts.inFlight} PRs</Kicker>
             {state.inFlight.length === 0 ? (
-              <p className="text-base text-slate-500">No PRs in flight — accept a direction to open one.</p>
+              <p className="text-base text-slate-500">No PRs in flight. Accept a direction to open one.</p>
             ) : (
               <div className="max-h-[24rem] space-y-2 overflow-y-auto">
                 {state.inFlight.map((p) => (

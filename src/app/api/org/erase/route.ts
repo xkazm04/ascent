@@ -111,7 +111,7 @@ export async function POST(request: Request) {
         resumable: !result.complete,
         error: result.complete
           ? "Data erased, but the data.erased audit entry could not be written."
-          : "Erasure stopped at a safe boundary before finishing — repeat this request to resume.",
+          : "Erasure stopped at a safe boundary before finishing. Repeat this request to resume.",
       },
       { status: 207 },
     );

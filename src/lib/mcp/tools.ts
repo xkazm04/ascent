@@ -71,8 +71,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     name: "get_practice_shape",
     title: "Practice shape",
     description:
-      "The reusable SHAPE of a practice this organization already does well — what the artifact " +
-      "covers and which repository exemplifies it — without copying that repository's proprietary code. " +
+      "The reusable SHAPE of a practice this organization already does well: what the artifact " +
+      "covers and which repository exemplifies it, without copying that repository's proprietary code. " +
       "Use to match the house style instead of inventing one.",
     scopes: ["mcp:read"],
     inputSchema: {
@@ -97,7 +97,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     name: "list_open_recommendations",
     title: "Open recommendations",
     description:
-      "The organization's open, tracked improvement recommendations — the gaps it has already decided " +
+      "The organization's open, tracked improvement recommendations: the gaps it has already decided " +
       "matter. Use to align an opportunistic change with work the org has actually prioritized.",
     scopes: ["mcp:read"],
     inputSchema: {
@@ -113,8 +113,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     name: "recall_org_memory",
     title: "Recall org memory",
     description:
-      "Search the organization's durable engineering memory — decisions, incidents and conventions it " +
-      "has chosen to remember. Use before proposing an approach someone here has already ruled on.",
+      "Search the organization's durable engineering memory (decisions, incidents and conventions it " +
+      "has chosen to remember). Use before proposing an approach someone here has already ruled on.",
     // Two scopes: the door AND the resource. An `mcp:read`-only token does not silently gain memory.
     scopes: ["mcp:read", "memory:read"],
     inputSchema: {

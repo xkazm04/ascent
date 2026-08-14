@@ -65,7 +65,7 @@ async function testOpenRouter(org: string, model: string, body: TestBody) {
   // accessor makes a cross-provider read impossible rather than silently null.
   const apiKey = typed || (await storedOpenRouterKey(org));
   if (!apiKey) {
-    return NextResponse.json({ error: "No API key to test — enter your OpenRouter key first." }, { status: 400 });
+    return NextResponse.json({ error: "No API key to test. Enter your OpenRouter key first." }, { status: 400 });
   }
   return testOpenRouterConnection({ model, apiKey });
 }
@@ -93,7 +93,7 @@ async function testBedrock(org: string, model: string, body: TestBody, storedReg
     credentials = secret?.provider === "bedrock" ? secret.credentials : null;
   }
   if (!credentials) {
-    return NextResponse.json({ error: "No credentials to test — enter your AWS keys first." }, { status: 400 });
+    return NextResponse.json({ error: "No credentials to test. Enter your AWS keys first." }, { status: 400 });
   }
   const region = body.region?.trim() || storedRegion || undefined;
   return testBedrockConnection({ model, region, credentials });

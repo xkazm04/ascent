@@ -43,7 +43,7 @@ export function ResilienceModule({ resilience }: { resilience: OrgResilience }) 
         title="Org resilience"
         description={
           <>
-            How exposed the fleet is to any one person stepping away — derived from commit concentration and bus
+            How exposed the fleet is to any one person stepping away, derived from commit concentration and bus
             factor across {repos} repo{repos === 1 ? "" : "s"}.{" "}
             <span className="text-slate-500">About repositories, not about people: no one is named here.</span>
           </>
@@ -111,7 +111,7 @@ export function ResilienceModule({ resilience }: { resilience: OrgResilience }) 
       </div>
 
       <p className="mt-3 font-mono text-sm text-slate-600">
-        Exposure blends concentration (60%) with the inverse bus factor (40%): either alone misleads — top share
+        Exposure blends concentration (60%) with the inverse bus factor (40%): either alone misleads. Top share
         calls a two-author 60/40 repo healthy, bus factor calls a 51/49 split as safe as twenty authors. Counts
         come from the recent-activity commit window captured at scan time.
       </p>

@@ -50,7 +50,7 @@ export function SkillsPanel({
       <SectionHeader
         size="sm"
         title="Skills Library"
-        description="Your org's reusable Claude/LLM skills — author once, the whole team discovers and reuses them. Copy a skill into Claude Code, or download it as a SKILL.md."
+        description="Your org's reusable Claude/LLM skills: author once, the whole team discovers and reuses them. Copy a skill into Claude Code, or download it as a SKILL.md."
       />
 
       <SkillsFilterBar

@@ -214,7 +214,7 @@ export function tooManyResponse(body: unknown, headers: Record<string, string> =
 /** A ready-made 429 JSON Response with a Retry-After header. */
 export function tooManyRequests(retryAfterSec: number): Response {
   return tooManyResponse(
-    { error: "Rate limit exceeded — please slow down and try again shortly." },
+    { error: "Rate limit exceeded. Please slow down and try again shortly." },
     { "retry-after": String(retryAfterSec) },
   );
 }

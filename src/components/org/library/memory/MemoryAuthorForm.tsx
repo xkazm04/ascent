@@ -72,7 +72,7 @@ export function MemoryAuthorForm({
       <textarea
         value={form.content}
         onChange={(e) => setForm({ content: e.target.value })}
-        placeholder="What should the org remember? e.g. “We chose Supabase GitHub OAuth over the custom flow — the custom one is dormant.”"
+        placeholder="What should the org remember? e.g. “We chose Supabase GitHub OAuth over the custom flow; the custom one is dormant.”"
         rows={4}
         aria-label="Memory content"
         className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"

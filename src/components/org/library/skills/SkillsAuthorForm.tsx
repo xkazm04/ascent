@@ -97,7 +97,7 @@ export function SkillsAuthorForm({
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder="Skill body (markdown / SKILL.md) — the reusable prompt or workflow"
+        placeholder="Skill body (markdown / SKILL.md): the reusable prompt or workflow"
         rows={6}
         className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
       />

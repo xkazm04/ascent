@@ -85,8 +85,8 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
           title="Repositories"
           description={
             posture
-              ? `${visible.length} of ${rollup.repoCount} repos in ${postureLabel(posture)} posture — recent commits, PRs & lines changed.`
-              : `${rollup.scannedCount}/${rollup.repoCount} scanned — recent commits, PRs & lines changed.`
+              ? `${visible.length} of ${rollup.repoCount} repos in ${postureLabel(posture)} posture: recent commits, PRs & lines changed.`
+              : `${rollup.scannedCount}/${rollup.repoCount} scanned: recent commits, PRs & lines changed.`
           }
           right={
             <div className="flex flex-wrap items-center gap-2">

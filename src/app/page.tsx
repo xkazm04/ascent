@@ -33,7 +33,7 @@ const FAQ_LD = {
       name: "How does Ascent score a repository?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "It reads structure, configs, CI, tests, docs, and recent commits via the GitHub API (no clone, nothing stored). Deterministic detectors extract evidence and an LLM adds nuance — guardbanded to that evidence so scores stay honest — producing a level, a radar across the dimensions, and prioritized next steps.",
+        text: "It reads structure, configs, CI, tests, docs, and recent commits via the GitHub API (no clone, nothing stored). Deterministic detectors extract evidence and an LLM adds nuance (guardbanded to that evidence so scores stay honest), producing a level, a radar across the dimensions, and prioritized next steps.",
       },
     },
     {
@@ -49,7 +49,7 @@ const FAQ_LD = {
       name: "Does Ascent store or clone my code?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "No. Ascent reads the repository through the GitHub API at scan time — it never clones the repo and doesn't store its source.",
+        text: "No. Ascent reads the repository through the GitHub API at scan time. It never clones the repo and doesn't store its source.",
       },
     },
     {
@@ -60,7 +60,7 @@ const FAQ_LD = {
         // DERIVED from the plan model, like the /pricing SEO copy — this sentence hardcoded
         // "Pro ($10/mo) and Team ($20/mo)" and sailed through both a repricing and a rename before
         // anyone noticed the landing page was quoting a price nobody could buy.
-        text: `Every plan includes a monthly private-scan allowance — ${PLAN_FEATURES.free.includedCredits} scans a month free; public scans are always free and unmetered. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements — hosting, scan volume, support, customization and SSO.`,
+        text: `Every plan includes a monthly private-scan allowance: ${PLAN_FEATURES.free.includedCredits} scans a month free; public scans are always free and unmetered. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements: hosting, scan volume, support, customization and SSO.`,
       },
     },
   ],

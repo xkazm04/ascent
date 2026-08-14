@@ -77,7 +77,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               </div>
               <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: BRAND_WHITE }}>{displaySlug}</div>
               <div style={{ display: "flex", fontSize: 26, color: BRAND_MUTED }}>
-                Adoption {summary.avgAdoption} · Rigor {summary.avgRigor} — {summary.scannedCount}/{summary.repoCount} repos scanned.
+                Adoption {summary.avgAdoption} · Rigor {summary.avgRigor} · {summary.scannedCount}/{summary.repoCount} repos scanned.
               </div>
             </div>
           </div>
@@ -109,7 +109,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
       <FallbackOgCard
         eyebrow="Fleet maturity"
         title={displaySlug}
-        tagline={`AI-native engineering maturity across the fleet — a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence.`}
+        tagline={`AI-native engineering maturity across the fleet, on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence.`}
       />
     ),
     { ...size },

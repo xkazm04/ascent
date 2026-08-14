@@ -26,7 +26,7 @@ export function DueChip({ item }: { item: BacklogItem }) {
         type="button"
         // The row's due <input> carries this stable key (the same one the panel uses for focus restore).
         onClick={() => document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(`${item.id}:due`)}"]`)?.focus()}
-        title="No due date set — click to set one"
+        title="No due date set. Click to set one"
         className="focus-ring shrink-0 rounded-md border border-dashed border-slate-700 px-2 py-0.5 font-mono text-sm text-slate-500 transition hover:border-slate-500 hover:text-slate-300"
       >
         no due date

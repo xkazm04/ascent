@@ -51,7 +51,7 @@ export function UsageDashboard({
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3">
           <p className="text-base text-warn">
             {notice.kind === "denied"
-              ? "Out of private-scan credits and this month's included allowance is spent — the next private scan will be refused (402) until you top up."
+              ? "Out of private-scan credits and this month's included allowance is spent. The next private scan will be refused (402) until you top up."
               : `Low balance: ${notice.balance} credit${notice.balance === 1 ? "" : "s"} left vs ${billable.toLocaleString()} private scans in the last ${usage.periodDays}d.`}
           </p>
           <a
@@ -85,7 +85,7 @@ export function UsageDashboard({
             value={credit.unlimited ? "Unlimited" : credit.balance}
             sub={
               credit.unlimited
-                ? "enterprise plan — included"
+                ? "enterprise plan: included"
                 : runwayDays != null
                   ? runwayDays > 365
                     ? "over a year at current burn"
@@ -133,7 +133,7 @@ export function UsageDashboard({
           </div>
           {billable !== recon.debited - recon.refunded && (
             <p className="mt-3 text-sm text-slate-500">
-              {billable} billable scans vs {Math.max(0, recon.debited - recon.refunded)} net credits debited — differences
+              {billable} billable scans vs {Math.max(0, recon.debited - recon.refunded)} net credits debited. Differences
               come from unlimited-plan scans (not debited), grants, or scans/ledger rows straddling the window edge.
             </p>
           )}
@@ -222,7 +222,7 @@ export function UsageDashboard({
           ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."
           : usage.costBasis === "builtin"
             ? " Cost is an approximate estimate from built-in per-model list prices; set LLM_INPUT/OUTPUT_COST_PER_MTOK to override with your rates."
-            : " No built-in rate matches this period's models — set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
+            : " No built-in rate matches this period's models: set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
         Per-org attribution activates with auth / the GitHub App.
       </p>
     </div>

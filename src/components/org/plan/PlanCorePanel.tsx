@@ -28,7 +28,7 @@ export async function PlanCorePanel({ slug }: { slug: string }) {
 
   const scannedRepos = (rollup?.repos ?? []).filter((r) => r.latest);
   if (!rollup || scannedRepos.length === 0) {
-    return <SectionEmpty>No scanned repositories yet — scan some of this org&apos;s repos to plan against them.</SectionEmpty>;
+    return <SectionEmpty>No scanned repositories yet. Scan some of this org&apos;s repos to plan against them.</SectionEmpty>;
   }
 
   const repoOptions = scannedRepos.map((r) => ({ fullName: r.fullName, name: r.name }));

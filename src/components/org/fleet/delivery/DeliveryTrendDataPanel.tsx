@@ -28,7 +28,7 @@ export async function DeliveryTrendDataPanel({
     trend = await getOrgDeliveryTrend(slug, period, segmentId, techGroupId);
   } catch (err) {
     console.error(`[delivery/${slug}] getOrgDeliveryTrend failed:`, err);
-    return <SectionEmpty>The delivery trend couldn&apos;t load right now — try refreshing this page.</SectionEmpty>;
+    return <SectionEmpty>The delivery trend couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>;
   }
   if (!trend) return null;
 

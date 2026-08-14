@@ -84,7 +84,7 @@ export function StancePublishCta({ slug, canEdit }: { slug: string; canEdit: boo
 
       <p className="mt-6 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
         {canEdit
-          ? "Draft the stance below, then publish v1 — repos adopt it as a committed AI_POLICY.md."
+          ? "Draft the stance below, then publish v1 so repos adopt it as a committed AI_POLICY.md."
           : "An org owner publishes the stance; once live, this section reads the fleet against it."}
       </p>
     </div>

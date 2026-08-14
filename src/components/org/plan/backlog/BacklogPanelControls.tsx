@@ -109,7 +109,7 @@ export function BacklogUndoBar({
         <span className="font-medium text-white">{undo.title}</span> marked{" "}
         <span className="font-mono text-slate-400">{STATUS_LABEL[undo.to]}</span>
         {/* Name the consequence: the row is gone from this list, which is the whole reason undo exists. */}
-        <span className="text-slate-500"> — removed from the active backlog.</span>
+        <span className="text-slate-500">. Removed from the active backlog.</span>
       </span>
       <button
         onClick={onUndo}

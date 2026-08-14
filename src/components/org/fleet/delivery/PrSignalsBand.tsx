@@ -78,7 +78,7 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
         <Cell
           label="Reverts"
           value={pr.avgRevertRate == null ? "—" : `${pr.avgRevertRate}%`}
-          sub={pr.avgRevertRate == null ? "not in these scans" : "of PRs — lower is better"}
+          sub={pr.avgRevertRate == null ? "not in these scans" : "of PRs (lower is better)"}
           color={pr.avgRevertRate == null ? undefined : revertHex(pr.avgRevertRate)}
           meter={pr.avgRevertRate ?? undefined}
         />

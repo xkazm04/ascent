@@ -156,7 +156,7 @@ export function QuotaStaleNotice({
   const scannedOn = scannedDate ? ` from ${scannedDate}` : "";
   return (
     <QuotaBannerShell tone="warn" cta={quotaCta(scope, signInNext, true)}>
-      Showing the last saved scan{scannedOn} — your free monthly limit is used; it resets{" "}
+      Showing the last saved scan{scannedOn}. Your free monthly limit is used; it resets{" "}
       {formatResetAt(resetAt)}.
     </QuotaBannerShell>
   );
@@ -183,7 +183,7 @@ export function QuotaBanner({
   return (
     <QuotaBannerShell tone="muted" cta={quotaCta(scope, signInNext, last)}>
       {last ? (
-        <>That was your last free public scan this month — the limit resets {formatResetAt(resetAt)}.</>
+        <>That was your last free public scan this month. The limit resets {formatResetAt(resetAt)}.</>
       ) : (
         <>
           <span className="font-medium text-slate-200">{remaining}</span> free public scan

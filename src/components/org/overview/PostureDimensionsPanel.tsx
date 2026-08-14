@@ -62,7 +62,7 @@ export function PostureDimensionsPanel({
               href={postureHref(slug, p, search)}
               className="h-full transition-all hover:opacity-80"
               style={{ width: `${(n / total) * 100}%`, backgroundColor: POSTURE_HEX[p] ?? "#64748b" }}
-              title={`${postureLabel(p)} — ${n} repo${n === 1 ? "" : "s"} (${pct(n)}%) — view them`}
+              title={`View the ${n} ${postureLabel(p)} repo${n === 1 ? "" : "s"} (${pct(n)}%)`}
               aria-label={`View the ${n} ${postureLabel(p)} repositories`}
             />
           );
@@ -136,7 +136,7 @@ export function PostureDimensionsPanel({
                 {practiceId ? (
                   <Link
                     href={`${orgTabHref(slug, "practices")}#practice-${practiceId}`}
-                    title={`See the ${short} practice — exemplar, gap repos, and how to lift this dimension`}
+                    title={`See the ${short} practice: exemplar, gap repos, and how to lift this dimension`}
                     className="focus-ring group flex flex-1 items-center gap-3 rounded-md transition hover:bg-slate-800/40"
                   >
                     {body}

@@ -330,10 +330,10 @@ const d2: Detector = (idx) => {
     const sampleFraction = n > 0 ? sampledTestBodies.length / n : 0;
     if (cases >= 4 && substantive === 0) {
       if (sampleFraction >= MIN_SAMPLE_FRACTION) {
-        s.add(-15, "Sampled tests assert nothing", `${sampledTestBodies.length} sampled test file(s), ~${cases} cases, 0 substantive assertions — counting files, not behavior`);
+        s.add(-15, "Sampled tests assert nothing", `${sampledTestBodies.length} sampled test file(s), ~${cases} cases, 0 substantive assertions (counting files, not behavior)`);
       } else {
         s.note(
-          `${sampledTestBodies.length} of ${n} test files sampled (~${Math.round(sampleFraction * 100)}%) show 0 substantive assertions — sample too small relative to the full suite to penalize`,
+          `${sampledTestBodies.length} of ${n} test files sampled (~${Math.round(sampleFraction * 100)}%) show 0 substantive assertions (sample too small relative to the full suite to penalize)`,
         );
       }
     } else if (substantive >= 4) {
@@ -675,7 +675,7 @@ const d7: Detector = (idx, snap, nowMs) => {
       const ageDays = (nowMs - pushedMs) / 86_400_000;
       if (ageDays <= 30) s.add(15, "Actively maintained", "pushed within 30 days");
     } else {
-      s.note("Last-push date unreadable", "recency bonus skipped — malformed pushedAt");
+      s.note("Last-push date unreadable", "recency bonus skipped (malformed pushedAt)");
     }
   }
 
@@ -835,7 +835,7 @@ export function analyzeSignals(
     try {
       return fn(idx, snap, nowMs);
     } catch (err) {
-      const msg = `Detector ${id} failed and was skipped (scored 0) — other dimensions are unaffected.`;
+      const msg = `Detector ${id} failed and was skipped (scored 0). Other dimensions are unaffected.`;
       warnings?.push(msg);
       console.error(`[analyze] ${msg}`, err);
       return {

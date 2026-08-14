@@ -49,7 +49,7 @@ export function MemoryPanel({
       <SectionHeader
         size="sm"
         title="Shared Org Memory"
-        description="What your organization knows — decisions, findings and procedures that outlive the session they were learned in. Write once; every member (and their agents) can recall it. New writes are checked against what's already stored, so a correction replaces the memory it fixes instead of sitting beside it."
+        description="What your organization knows: decisions, findings and procedures that outlive the session they were learned in. Write once; every member (and their agents) can recall it. New writes are checked against what's already stored, so a correction replaces the memory it fixes instead of sitting beside it."
       />
 
       <MemoryFilterBar
@@ -72,7 +72,7 @@ export function MemoryPanel({
               ? "Loading…"
               : m.filtered
                 ? "No memories match your filters."
-                : "Nothing remembered yet — record the org's first durable memory below."}
+                : "Nothing remembered yet. Record the org's first durable memory below."}
           </p>
         ) : (
           <MemoryList

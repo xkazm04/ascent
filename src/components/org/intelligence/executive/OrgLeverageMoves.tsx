@@ -27,7 +27,7 @@ export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string 
     <div>
       <SectionHeader
         title="The widest gap to explore across the fleet"
-        description="The gap the most repositories share — ranked by reach × impact × dimension weight, with the engine-true maturity each repo stands to gain if the gap closes. Somewhere to look next, not an order."
+        description="The gap the most repositories share: ranked by reach × impact × dimension weight, with the engine-true maturity each repo stands to gain if the gap closes. Somewhere to look next, not an order."
         right={<span className="font-mono text-sm uppercase tracking-widest text-slate-600">current state · not period-scoped</span>}
       />
       {top && (

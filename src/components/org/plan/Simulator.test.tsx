@@ -78,7 +78,7 @@ describe("Simulator (DOM)", () => {
       screen.getByRole("button", { name: /Suggest/ }).click();
     });
     await waitFor(() => expect(screen.getByTitle(/Load D2/)).toBeInTheDocument());
-    expect(screen.queryByText(/Stale —/)).toBeNull(); // fresh ranking carries no stale badge
+    expect(screen.queryByText(/Stale:/)).toBeNull(); // fresh ranking carries no stale badge
 
     // Editing the target makes the ranking describe a different scenario → it must say so visibly.
     const input = screen.getByLabelText("Target score") as HTMLInputElement;
@@ -87,7 +87,7 @@ describe("Simulator (DOM)", () => {
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "90");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(screen.getByText(/Stale — computed for all scanned repos at target 70/)).toBeInTheDocument();
+    expect(screen.getByText(/Stale: computed for all scanned repos at target 70/)).toBeInTheDocument();
     expect(screen.getByTitle(/Load D2/)).toBeInTheDocument(); // the list itself stays (dimmed), not wiped
   });
 

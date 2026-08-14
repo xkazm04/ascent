@@ -49,7 +49,7 @@ export const TIER_META: Record<AutonomyTier, TierMeta> = {
     id: 1,
     code: "T1",
     label: "Tests & docs",
-    grant: "Agent-authored tests, docs, comments — human merges.",
+    grant: "Agent-authored tests, docs, comments; human merges.",
     blurb: "A real test loop exists, so an agent's tests and docs can be checked before they land.",
     anchor: 52,
   },
@@ -141,7 +141,7 @@ function testsGate(pp: AppPassport): AutonomyGate {
       ? "Publish a one-command test entry point an agent can run unattended."
       : t.criticalPathCovered
         ? "Raise the suite from " + t.level + " toward comprehensive on the critical path."
-        : "Cover the critical path — an agent cannot self-check what is untested.",
+        : "Cover the critical path. An agent cannot self-check what is untested.",
     source: "scan",
     gatesTier: 1,
   };
@@ -164,7 +164,7 @@ function ciGate(pp: AppPassport, protectedBranch: boolean | undefined): Autonomy
     }${protectedBranch === true ? " · branch protected" : protectedBranch === false ? " · branch unprotected" : ""}`,
     action:
       ci.level === "none"
-        ? "Add CI that runs on every PR — the machine review agent output depends on."
+        ? "Add CI that runs on every PR: the machine review agent output depends on it."
         : protectedBranch !== true
           ? "Protect the default branch so an agent PR cannot bypass the checks."
           : "Promote checks to required status gates on the default branch.",
@@ -248,7 +248,7 @@ function contextGate(pp: AppPassport, conformance: number | null, key: string): 
     } · last touched ~${staleDays}d ago (mock)`,
     action:
       files === 0
-        ? "Write a human-curated AGENTS.md — LLM-generated context files measurably hurt."
+        ? "Write a human-curated AGENTS.md. LLM-generated context files measurably hurt."
         : stalePenalty > 12
           ? "Refresh the context file; it has drifted behind the repo's change rate."
           : "Deepen the context graph so an unattended run starts oriented.",

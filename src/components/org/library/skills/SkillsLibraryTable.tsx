@@ -43,7 +43,7 @@ export function SkillsLibraryTable({
   if (skills.length === 0) {
     return (
       <p className="text-base text-slate-500">
-        {loading ? "Loading…" : filtered ? "No skills match your filters." : "No skills yet — author your org's first reusable skill below."}
+        {loading ? "Loading…" : filtered ? "No skills match your filters." : "No skills yet. Author your org's first reusable skill below."}
       </p>
     );
   }

@@ -94,8 +94,8 @@ const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
 const priced = (id: PlanId) => `${PLAN_FEATURES[id].label} ${planPriceLabel(id).amount}/mo`;
 
 export const metadata = {
-  title: "Plans & credits — Ascent",
-  description: `Public scans are always free. Every plan includes a monthly private-scan allowance — ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
+  title: "Plans & credits · Ascent",
+  description: `Public scans are always free. Every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
 };
 
 export default async function PricingPage() {
@@ -213,7 +213,7 @@ export default async function PricingPage() {
         <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500">
           Every plan&apos;s monthly scan allowance <span className="text-slate-300">resets on the 1st of each month (UTC)</span>; Pro and
           Team are monthly subscriptions that bundle more of it. Need more than your plan includes? Buy prepaid scan
-          credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span> — so you pay
+          credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span>, so you pay
           only for the overflow you actually use. Cached re-scans of unchanged repos are always free. Manage your plan
           and credits from the org dashboard.
         </p>

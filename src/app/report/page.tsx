@@ -3,7 +3,7 @@ import { ReportShell } from "@/components/report/ReportShell";
 import { ReportClient } from "@/components/report/ReportClient";
 
 export const metadata = {
-  title: "Scan a repository — Ascent",
+  title: "Scan a repository · Ascent",
   description:
     "Run an AI-native maturity scan of any GitHub repository: a 5-level ladder across 9 dimensions, with evidence, a radar, and a roadmap to the next level.",
 };

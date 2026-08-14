@@ -11,7 +11,7 @@ export function DeliveryPrSection({ pr }: { pr: OrgPrSignals }) {
     <div>
       <SectionHeader
         title="Pull request signals"
-        description={`How systematically the fleet ships — ${pr.totalPrs} PRs across ${pr.repos} repos.`}
+        description={`How systematically the fleet ships: ${pr.totalPrs} PRs across ${pr.repos} repos.`}
         right={
           pr.tools.length > 0 ? (
             <span className="flex flex-wrap items-center gap-1.5 font-mono text-sm text-slate-500">
@@ -35,7 +35,7 @@ export function DeliveryPrSection({ pr }: { pr: OrgPrSignals }) {
           <SectionHeader
             size="sm"
             title="By repository"
-            description="Riskiest first — lowest review coverage, then slowest merges. Click a repo for its full report."
+            description="Riskiest first: lowest review coverage, then slowest merges. Click a repo for its full report."
           />
           <div className="mt-3">
             <PrRepoTable rows={pr.perRepo} />

@@ -227,7 +227,7 @@ export async function POST(request: Request) {
     {
       org,
       action: stored ? "set" : "cleared",
-      status: stored ? barBits(stored) || "no enforced condition" : "cleared — archetype default",
+      status: stored ? barBits(stored) || "no enforced condition" : "cleared: archetype default",
       policy: stored ?? null,
       previousPolicy: previous,
       previousStatus: previous ? barBits(previous) : "archetype default",

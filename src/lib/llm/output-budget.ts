@@ -25,7 +25,11 @@
 const OUTPUT_CAPS: { prefix: string; cap: number }[] = [
   { prefix: "gemini-3.7-flash", cap: 65_536 },
   { prefix: "gemini-3.5-flash", cap: 65_536 },
-  { prefix: "gemini-3-flash", cap: 8_192 },
+  // The retired preview default. Set to the Gemini 3 family limit rather than the legacy 8,192 of
+  // the 2.0 generation: I could not verify the preview's own published cap, and asserting the lower
+  // number would have manufactured a truncation warning on historical scans that may never have
+  // truncated. When a cap is unknown the honest move is the family default, not the scarier guess.
+  { prefix: "gemini-3-flash", cap: 65_536 },
   // Claude, via the CLI aliases and full ids alike.
   { prefix: "claude-opus-5", cap: 64_000 },
   { prefix: "claude-sonnet-5", cap: 64_000 },

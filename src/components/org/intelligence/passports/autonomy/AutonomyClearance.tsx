@@ -44,7 +44,7 @@ export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
       <AutonomyPreamble
         kicker="Autonomy clearance register"
         title="What can you safely hand an agent here?"
-        intro="Every scanned repo holds a clearance, issued on five observable conditions. The clearance says what may be delegated today — and the countersignature line says exactly what would raise it."
+        intro="Every scanned repo holds a clearance, issued on five observable conditions. The clearance says what may be delegated today, and the countersignature line says exactly what would raise it."
       />
 
       {/* Muster ledger — one tile per clearance, and the filter. */}

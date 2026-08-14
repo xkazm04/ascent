@@ -179,7 +179,7 @@ export async function GET(
           repo: `${ownerN}/${repoN}`,
           ref: ref ?? null,
           error:
-            "The organization's gate policy could not be read, so this gate would have fallen back to a weaker default bar. No verdict was produced — retry the gate.",
+            "The organization's gate policy could not be read, so this gate would have fallen back to a weaker default bar. No verdict was produced. Retry the gate.",
         },
         { status: 503 },
       );
@@ -244,7 +244,7 @@ export async function GET(
         ...(degraded
           ? {
               error:
-                "The AI grade could not be produced (the LLM provider was unavailable, so the scan fell back to the deterministic floor). This verdict is NOT authoritative — retry the gate.",
+                "The AI grade could not be produced (the LLM provider was unavailable, so the scan fell back to the deterministic floor). This verdict is NOT authoritative. Retry the gate.",
             }
           : {}),
       },

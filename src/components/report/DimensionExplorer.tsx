@@ -34,7 +34,7 @@ export function DimensionExplorer({
       <div>
         <h2 className="text-xl font-bold text-white">Dimension breakdown</h2>
         <p className="mt-1 text-base text-slate-400">
-          Nine weighted dimensions on a 0–100 scale. Pick one — on the radar or in the list — to read its
+          Nine weighted dimensions on a 0–100 scale. Pick one (on the radar or in the list) to read its
           evidence, gaps, and how the deterministic signal and the AI judgment blended into the score.
         </p>
       </div>

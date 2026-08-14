@@ -24,7 +24,7 @@ export function PracticeApplyBatchResults({
               Opened {opened} of {batchSummary.attempted} attempted
               {failed > 0 ? ` (${failed} failed)` : ""}
               {batchSummary.skipped > 0
-                ? ` — ${batchSummary.skipped} more over the per-batch cap of ${MAX_BATCH} (neediest repos first). Re-run to open the rest.`
+                ? `; ${batchSummary.skipped} more over the per-batch cap of ${MAX_BATCH} (neediest repos first). Re-run to open the rest.`
                 : ""}
             </p>
           );
@@ -37,14 +37,14 @@ export function PracticeApplyBatchResults({
             <li key={`${res.repo}-${i}`} className="font-mono text-sm">
               {res.ok ? (
                 <span className="text-emerald-300">
-                  ✓ {res.repo.split("/").pop()} —{" "}
+                  ✓ {res.repo.split("/").pop()}:{" "}
                   <a href={res.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
                     {res.reused ? "existing PR" : "PR opened"}
                   </a>
                 </span>
               ) : (
                 <span className="text-orange-300">
-                  ✗ {res.repo.split("/").pop()} — {res.error}
+                  ✗ {res.repo.split("/").pop()}: {res.error}
                 </span>
               )}
             </li>

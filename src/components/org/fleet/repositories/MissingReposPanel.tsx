@@ -74,7 +74,7 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
       </div>
       <p className="mt-2 text-sm text-slate-400">
         {rows.length === 1 ? "This watched repo was" : `These ${rows.length} watched repos were`} absent from the
-        last complete listing of <span className="font-mono">{org}</span> — renamed, transferred, made private, or
+        last complete listing of <span className="font-mono">{org}</span>: renamed, transferred, made private, or
         deleted. {rows.length === 1 ? "It keeps" : "They keep"} taking a scheduled-rescan slot and failing. Nothing
         is removed automatically; unwatch when you&apos;ve confirmed. Scan history is kept either way.
       </p>

@@ -30,7 +30,7 @@ export function DeliveryStrip({ delivery, slug }: { delivery: NonNullable<Adopti
         <div className="flex w-72 min-w-56 flex-col justify-center px-5 py-4">
           <Kicker tone="muted">Delivery · context</Kicker>
           <p className="mt-1 text-sm text-slate-500">
-            {d.prs} PRs across the fleet — shown beside adoption, not a causal claim.
+            {d.prs} PRs across the fleet, shown beside adoption, not a causal claim.
           </p>
           <Link href={orgTabHref(slug, "delivery")} className="mt-1 font-mono text-xs uppercase tracking-widest text-slate-500 transition hover:text-accent">
             Delivery detail →

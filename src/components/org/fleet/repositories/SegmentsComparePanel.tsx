@@ -36,7 +36,7 @@ export function SegmentsComparePanel({
     <div>
       <SectionHeader
         title="Compare segments"
-        description="Two slices side by side — e.g. platform is AI-Native while legacy is Experimental."
+        description="Two slices side by side: e.g. platform is AI-Native while legacy is Experimental."
         right={<SegmentComparePicker options={options} a={aId} b={bId} />}
       />
       {!comparison ? (
@@ -61,7 +61,7 @@ export function SegmentsComparePanel({
               {anyEmpty ? (
                 <p className="mt-4 text-base text-slate-500">
                   {[aEmpty ? comparison.a.name : null, bEmpty ? comparison.b.name : null].filter(Boolean).join(" and ")} has no
-                  scanned repos yet — scan the segment above to make this comparison meaningful.
+                  scanned repos yet. Scan the segment above to make this comparison meaningful.
                 </p>
               ) : (
                 <div className="mt-6 grid gap-6 lg:grid-cols-2">

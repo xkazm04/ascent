@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     // scope marker on a CSV once it leaves the app. The aggregate view stays available in-app.
     if (!insights.namingAllowed) {
       return NextResponse.json(
-        { error: `Per-contributor export is withheld below ${CHAMPION_MIN_POP} contributors — it would name identifiable individuals.` },
+        { error: `Per-contributor export is withheld below ${CHAMPION_MIN_POP} contributors: it would name identifiable individuals.` },
         { status: 403 },
       );
     }

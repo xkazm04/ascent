@@ -53,7 +53,7 @@ export async function runMemoryCheck(
 export function recommendationCopy(r: MemoryRecommendation, count: number): string {
   if (r === "duplicate") return "This looks like something you already know.";
   if (r === "supersede") return "This looks like a correction of an existing memory.";
-  return count > 0 ? "Nothing conflicting — related memories shown below." : "This looks new.";
+  return count > 0 ? "Nothing conflicting; related memories shown below." : "This looks new.";
 }
 
 /** Badge text for how a candidate relates to the proposed memory. */

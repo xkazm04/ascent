@@ -40,7 +40,7 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
     <div className="space-y-6">
       <SectionHeader
         title="Integrations"
-        description="Connect your AI coding providers to replace the simulated spend in AI delivery with real usage — one provider at a time."
+        description="Connect your AI coding providers to replace the simulated spend in AI delivery with real usage, one provider at a time."
       />
       <IntegrationsPanel slug={slug} ingestToken={ingestToken(slug, epoch)} ingestPath="/api/integrations/ingest" statuses={statuses} />
     </div>

@@ -67,7 +67,7 @@ function Row({ r }: { r: PrRepoRow }) {
           scan predates the field, not a clean 0. */}
       <td className="px-3 py-1.5 text-center font-mono text-sm tabular-nums text-slate-400">
         {r.revertRate == null ? (
-          <span className="text-slate-600" title="scan predates revert tracking — rescan to measure">—</span>
+          <span className="text-slate-600" title="scan predates revert tracking (rescan to measure)">—</span>
         ) : (
           `${r.revertRate}%`
         )}
@@ -92,7 +92,7 @@ function Head() {
       <th className="px-3 py-2 text-center" title="merged PRs whose commit messages carry an AI attribution trailer (Co-Authored-By / Assisted-By)">AI trailers</th>
       <th className="px-3 py-2 text-center" title="merged PRs reviewed by an AI/bot reviewer before the first human review">AI pre-review</th>
       <th className="px-3 py-2 text-center" title="AI-involved PRs with an approving review">AI reviewed</th>
-      <th className="px-3 py-2 text-center" title="PRs whose title starts with 'Revert' — shipped work that came back out">Reverts</th>
+      <th className="px-3 py-2 text-center" title="PRs whose title starts with 'Revert' (shipped work that came back out)">Reverts</th>
       <th className="px-3 py-2 text-right" title="median hours from opening to first review">1st review</th>
       <th className="px-3 py-2 text-right" title="median hours to merge">Merge time</th>
     </tr>

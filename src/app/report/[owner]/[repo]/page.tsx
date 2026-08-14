@@ -53,11 +53,11 @@ export async function generateMetadata({
   const report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
 
   const title = report
-    ? `${ref} — ${report.level.id} ${report.level.name} · Ascent`
-    : `${ref} — AI-native maturity · Ascent`;
+    ? `${ref}: ${report.level.id} ${report.level.name} · Ascent`
+    : `${ref}: AI-native maturity · Ascent`;
   const description = report
     ? `${ref} scores ${report.overallScore}/100 (${report.level.id} ${report.level.name}) on Ascent's AI-native maturity index${sha ? ` at ${sha.slice(0, 7)}` : ""}.`
-    : `See ${ref}'s AI-native engineering maturity on Ascent — a 5-level ladder with evidence and a route to the next level.`;
+    : `See ${ref}'s AI-native engineering maturity on Ascent, a 5-level ladder with evidence and a route to the next level.`;
 
   return {
     title,
@@ -237,7 +237,7 @@ function SkillHistorySection({ rows }: { rows: { headSha: string | null; trackId
       </h2>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {latest.trackIds.length === 0 ? (
-          <span className="text-sm text-slate-500">No open tracks — the skill targeted no gaps at last generation.</span>
+          <span className="text-sm text-slate-500">No open tracks. The skill targeted no gaps at last generation.</span>
         ) : (
           latest.trackIds.map((id) => (
             <span key={id} className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-0.5 font-mono text-sm text-slate-300">

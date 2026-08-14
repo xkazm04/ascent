@@ -159,7 +159,7 @@ export function useBacklogPanel({
         const refreshed = await refresh();
         return { patched: true, refreshed };
       } catch {
-        setError(id, "Network error — check your connection and retry.");
+        setError(id, "Network error. Check your connection and retry.");
         return { patched: false, refreshed: false };
       } finally {
         setSaving(id, false);

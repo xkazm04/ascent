@@ -12,7 +12,7 @@ import { PortfolioTable } from "./PortfolioTable";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Portfolio — Ascent",
+  title: "Portfolio · Ascent",
   description: "Compare AI-native engineering maturity, trajectory and posture across a portfolio of organizations.",
 };
 
@@ -39,8 +39,8 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
         <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Portfolio</div>
         <h1 className="mt-1 text-2xl font-bold text-white">Engineering maturity across the book</h1>
         <p className="mt-2 max-w-2xl text-base text-slate-400">
-          Compare AI-native engineering maturity, trajectory and posture across several organizations on one yardstick —
-          the fleet-of-fleets read for a portfolio or platform lead.
+          Compare AI-native engineering maturity, trajectory and posture across several organizations on one yardstick.
+          It's the fleet-of-fleets read for a portfolio or platform lead.
         </p>
 
         <form method="get" className="mt-6 flex flex-wrap items-end gap-3">
@@ -63,7 +63,7 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
 
         {hidden > 0 && (
           <p className="mt-3 text-sm text-warn">
-            {hidden} organization{hidden === 1 ? "" : "s"} hidden — no read access (or no such org).
+            {hidden} organization{hidden === 1 ? "" : "s"} hidden (no read access, or no such org).
           </p>
         )}
 

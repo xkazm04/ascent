@@ -23,10 +23,10 @@ const DEMO_HINT = "Keyless demo: scores are computed from deterministic signals,
 // customer's own account without proof.
 const bedrockHint = (model: string, byom?: boolean) =>
   byom
-    ? `Inference ran in YOUR org's own AWS account on Bedrock (${model}) — code never leaves your AWS boundary and is never used for training`
-    : `Inference ran on AWS Bedrock (${model}) in Ascent's AWS account — code stays within the AWS boundary and is never used for training. Connect your own Bedrock (BYOM) to keep it in your account`;
+    ? `Inference ran in YOUR org's own AWS account on Bedrock (${model}): code never leaves your AWS boundary and is never used for training`
+    : `Inference ran on AWS Bedrock (${model}) in Ascent's AWS account: code stays within the AWS boundary and is never used for training. Connect your own Bedrock (BYOM) to keep it in your account`;
 const CONFIDENCE_HINT =
-  "Evidence coverage: the share of the repository's signal-bearing files the scan could actually read — lower means the scores rest on thinner evidence";
+  "Evidence coverage: the share of the repository's signal-bearing files the scan could actually read. Lower means the scores rest on thinner evidence";
 // D29: the narrative score is intentionally stochastic (no temp-0 path) — say so where the score is
 // read, so run-to-run drift reads as disclosed behavior rather than a bug. The CI gate stays
 // deterministic; this chip only renders on LLM-scored briefings.
@@ -87,7 +87,7 @@ export function ReportHeader({
             title={ARCHETYPE_HINT[report.archetype]}
           >
             {ARCHETYPE_LABEL[report.archetype]}
-            <span className="sr-only"> — {ARCHETYPE_HINT[report.archetype]}</span>
+            <span className="sr-only">. {ARCHETYPE_HINT[report.archetype]}</span>
           </span>
           {report.aiUsage.detected && (
             <span className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-accent">
@@ -101,7 +101,7 @@ export function ReportHeader({
               title={DEMO_HINT}
             >
               Demo · deterministic rubric
-              <span className="sr-only"> — {DEMO_HINT}</span>
+              <span className="sr-only">. {DEMO_HINT}</span>
             </span>
           ) : report.engine.provider === "bedrock" ? (
             // Surface the enterprise-privacy inference path on screen: scoring ran on AWS Bedrock, so
@@ -112,7 +112,7 @@ export function ReportHeader({
               title={bedrockHint(report.engine.model, report.engine.byom)}
             >
               inference · AWS Bedrock{report.engine.byom ? " · your account" : ""} · {report.engine.model}
-              <span className="sr-only"> — {bedrockHint(report.engine.model, report.engine.byom)}</span>
+              <span className="sr-only">. {bedrockHint(report.engine.model, report.engine.byom)}</span>
             </span>
           ) : (
             <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
@@ -125,7 +125,7 @@ export function ReportHeader({
               title={AI_ESTIMATE_HINT}
             >
               AI estimate · may vary between runs
-              <span className="sr-only"> — {AI_ESTIMATE_HINT}</span>
+              <span className="sr-only">. {AI_ESTIMATE_HINT}</span>
             </span>
           )}
           {/* The report's own credibility signal must explain itself — it's the number most likely
@@ -135,7 +135,7 @@ export function ReportHeader({
             title={CONFIDENCE_HINT}
           >
             confidence {Math.round(report.confidence * 100)}%
-            <span className="sr-only"> — {CONFIDENCE_HINT}</span>
+            <span className="sr-only">. {CONFIDENCE_HINT}</span>
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">

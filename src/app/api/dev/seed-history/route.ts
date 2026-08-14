@@ -35,10 +35,10 @@ function clampInt(v: unknown, dflt: number, min: number, max: number): number {
 
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
-    return NextResponse.json({ error: "forbidden — set ASCENT_SEED_SECRET and pass it via x-seed-secret or ?secret=" }, { status: 403 });
+    return NextResponse.json({ error: "forbidden: set ASCENT_SEED_SECRET and pass it via x-seed-secret or ?secret=" }, { status: 403 });
   }
   if (!isDbConfigured()) {
-    return NextResponse.json({ error: "persistence is disabled — set DATABASE_URL first" }, { status: 400 });
+    return NextResponse.json({ error: "persistence is disabled: set DATABASE_URL first" }, { status: 400 });
   }
   const body = (await req.json().catch(() => ({}))) as { org?: string; scansPerRepo?: number; weeksBack?: number };
   const slug = (body.org ?? "vercel").toString().toLowerCase();
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug }, select: { id: true } });
-  if (!org) return NextResponse.json({ error: `org "${slug}" not found — import it first` }, { status: 404 });
+  if (!org) return NextResponse.json({ error: `org "${slug}" not found: import it first` }, { status: 404 });
 
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, watched: true },

@@ -139,9 +139,9 @@ export function RecommendationTracker({
         const kind: RowError["kind"] = res.status === 503 ? "config" : "transient";
         const message =
           kind === "config"
-            ? "Progress tracking isn’t available here — it needs a connected database, so this change can’t be saved."
+            ? "Progress tracking isn’t available here: it needs a connected database, so this change can’t be saved."
             : res.status === 409
-              ? "This recommendation changed elsewhere — showing the latest. Retry to reapply your change."
+              ? "This recommendation changed elsewhere. Showing the latest. Retry to reapply your change."
               : "Couldn’t save that change. Check your connection and retry.";
         rollback(); // revert ONLY this row
         // A 409 means a concurrent edit landed since this row loaded; pull the current server value and
@@ -151,7 +151,7 @@ export function RecommendationTracker({
         // swap the retryable message for a non-retryable "reload" one (#3).
         if (res.status === 409 && (await refreshRow(id)) === "missing") {
           const staleMessage =
-            "A newer scan has replaced this report — reload the page to pick up the latest recommendations.";
+            "A newer scan has replaced this report. Reload the page to pick up the latest recommendations.";
           setError(id, { status, kind: "stale", message: staleMessage, reason });
           announce(id, `Couldn’t update “${title}”: ${staleMessage}`);
           return;
@@ -181,7 +181,7 @@ export function RecommendationTracker({
         <div className="flex items-center justify-between text-base">
           {allDismissed ? (
             <span className="font-medium text-slate-400">
-              All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed — nothing left to track
+              All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed, nothing left to track
             </span>
           ) : (
             <>
@@ -255,7 +255,7 @@ export function RecommendationTracker({
                   // visual cue (the spinner is aria-hidden) — announce the swallow through this row's
                   // live region so the user knows to re-pick once the save settles (#4 07-16).
                   onBusyChange={() =>
-                    announce(item.id, "Still saving the previous change — pick the status again in a moment.")
+                    announce(item.id, "Still saving the previous change. Pick the status again in a moment.")
                   }
                   aria-label="Recommendation status"
                 />

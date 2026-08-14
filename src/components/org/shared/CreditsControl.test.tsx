@@ -57,7 +57,7 @@ describe("CreditsControl allowance reconciliation (credits-entitlements 2026-07-
 
     // After the open-fetch resolves, the frozen allowance is reconciled: paused, no "free scans left".
     await waitFor(() =>
-      expect(screen.getByText(/Out of credits — private scans are paused/)).toBeInTheDocument(),
+      expect(screen.getByText(/Out of credits\. Private scans are paused/)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/free scans? left this month/)).toBeNull();
   });
@@ -77,7 +77,7 @@ describe("CreditsControl allowance reconciliation (credits-entitlements 2026-07-
 
     fireEvent.click(screen.getByRole("button", { name: /paused/i }));
     await waitFor(() => expect(screen.getByText(/5 free scans left this month/)).toBeInTheDocument());
-    expect(screen.queryByText(/Out of credits — private scans are paused/)).toBeNull();
+    expect(screen.queryByText(/Out of credits\. Private scans are paused/)).toBeNull();
   });
 });
 

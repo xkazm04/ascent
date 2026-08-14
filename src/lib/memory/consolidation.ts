@@ -21,6 +21,7 @@
 
 import { parseJsonLoose } from "@/lib/llm/json";
 import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import type { ProviderName } from "@/lib/types";
 
 /** The subset of a stored memory this pass reasons over (structurally satisfied by db MemoryRow). */
@@ -190,6 +191,8 @@ Judge by MEANING, not word overlap. A short correction may share few words with 
 ${MEMORY_UNTRUSTED_BOUNDARY}
 
 ${quoted}
+
+${PROSE_STYLE_RULE}
 
 Respond with ONLY a JSON object, no prose, no markdown fence:
 {

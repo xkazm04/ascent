@@ -105,7 +105,7 @@ export function OrphanedTracking({
       </h3>
       <p className="mt-1 text-sm text-amber-200/80">
         The gap{orphans.length === 1 ? " was" : "s were"} reworded between scans and more than one item
-        in the same dimension changed, so pairing them would have been a guess. Nothing was lost — pick
+        in the same dimension changed, so pairing them would have been a guess. Nothing was lost. Pick
         the item below that is the same gap and the tracking moves across.
       </p>
 
@@ -121,7 +121,7 @@ export function OrphanedTracking({
               </p>
               {candidates.length === 0 ? (
                 <p className="mt-2 text-sm text-slate-400">
-                  This scan raised nothing in {o.dim} — the gap may simply be closed.
+                  This scan raised nothing in {o.dim}. The gap may simply be closed.
                 </p>
               ) : (
                 <div className="mt-2 flex flex-wrap items-center gap-2">

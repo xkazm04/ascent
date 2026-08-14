@@ -44,7 +44,7 @@ export class OrgTabErrorBoundary extends React.Component<Props, State> {
       <div className="rounded-2xl border border-slate-800 bg-surface/40 p-8 text-center">
         <h2 className="text-lg font-semibold text-white">This tab couldn&apos;t be displayed</h2>
         <p className="mx-auto mt-2 max-w-md text-slate-400">
-          Something in this view didn&apos;t render. The rest of the dashboard is fine — pick another
+          Something in this view didn&apos;t render. The rest of the dashboard is fine; pick another
           section from the rail, or reload to try again.
         </p>
       </div>

@@ -48,11 +48,11 @@ export function BillingReturnNotice({
         {pending ? (
           <>
             <strong>Payment received.</strong> Your credits or plan upgrade will appear here within a
-            minute — the balance updates as soon as the payment is confirmed.
+            minute. The balance updates as soon as the payment is confirmed.
           </>
         ) : (
           <>
-            <strong>Checkout couldn&apos;t be started</strong> — you were <strong>not charged</strong>.
+            <strong>Checkout couldn&apos;t be started.</strong> You were <strong>not charged</strong>.
             Please try again from the credits menu or the pricing page.
           </>
         )}

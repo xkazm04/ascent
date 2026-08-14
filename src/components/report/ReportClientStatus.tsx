@@ -215,7 +215,7 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
               strokeLinejoin="round"
             />
           </svg>
-          Model took too long — showing deterministic scores.
+          Model took too long. Showing deterministic scores.
         </p>
       )}
     </div>

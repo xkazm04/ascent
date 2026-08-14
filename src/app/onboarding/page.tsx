@@ -60,7 +60,7 @@ export default async function OnboardingPage() {
           <div className="animate-fade-up mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3">
             <div className="text-base text-slate-200">
               <span className="font-medium text-white">Welcome back.</span> You&apos;ve already scanned repos in{" "}
-              <span className="font-mono text-accent">{scannedOrg}</span> — pick up where you left off, or scan more below.
+              <span className="font-mono text-accent">{scannedOrg}</span>. Pick up where you left off, or scan more below.
             </div>
             <Link
               href={`/org/${encodeURIComponent(scannedOrg)}`}
@@ -75,7 +75,7 @@ export default async function OnboardingPage() {
           <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Get started</div>
           <h1 className="mt-1 text-3xl font-bold text-white">Scan your organization</h1>
           <p className="mt-2 text-slate-400">
-            Pick up to ten repositories. Ascent scans them in one shot and builds a cross-repo view —
+            Pick up to ten repositories. Ascent scans them in one shot and builds a cross-repo view,
             separating the <span className="text-slate-200">gaps common across your org</span> (fix once,
             reuse a practice) from the <span className="text-slate-200">repo-specific</span> ones.
           </p>

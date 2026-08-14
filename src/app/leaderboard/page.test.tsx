@@ -124,7 +124,7 @@ describe("/leaderboard — nothing private, nothing silently ranked", () => {
     render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
 
     expect(screen.getByText("demo")).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: /Preview scans — not ranked/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: /Preview scans \(not ranked\)/i })).toBeTruthy();
     // No board position anywhere — the unranked table draws an em dash instead.
     expect(screen.queryByText("01")).toBeNull();
     // …and the empty ranked state says WHY, rather than implying nothing was ever scanned.

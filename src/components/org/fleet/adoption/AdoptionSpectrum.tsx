@@ -45,7 +45,7 @@ export function AdoptionSpectrum({
           distribution[s.key] > 0 ? (
             <div
               key={s.key}
-              title={`${distribution[s.key]} contributors — ${s.label}`}
+              title={`${distribution[s.key]} contributors (${s.label})`}
               style={{ width: `${(distribution[s.key] / total) * 100}%`, backgroundColor: BAND[s.key] }}
             />
           ) : null,
@@ -68,7 +68,7 @@ export function AdoptionSpectrum({
           {distribution.none > 0 &&
             (showEnablementLink ? (
               <a href="#enablement" className="transition hover:text-accent">
-                → {distribution.none} contributor{distribution.none === 1 ? " has" : "s have"} no AI-attributed commits — see who to enable next
+                → {distribution.none} contributor{distribution.none === 1 ? " has" : "s have"} no AI-attributed commits: see who to enable next
               </a>
             ) : (
               <span>
@@ -77,7 +77,7 @@ export function AdoptionSpectrum({
             ))}
           {knowledgeLeader && (
             <Link href={orgTabHref(slug, "teams")} className="transition hover:text-accent">
-              → most AI-attributed team: <span className="text-slate-300">{knowledgeLeader.name}</span> · {knowledgeLeader.aiCommitShare}% — Teams
+              → most AI-attributed team: <span className="text-slate-300">{knowledgeLeader.name}</span> · {knowledgeLeader.aiCommitShare}% · Teams
             </Link>
           )}
         </div>

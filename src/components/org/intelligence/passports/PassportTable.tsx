@@ -113,7 +113,7 @@ export function PassportTable({
 
   return (
     <OrgTable
-      caption="Fleet passport portfolio: automation and production readiness per repo — expand a row for blockers and facts"
+      caption="Fleet passport portfolio: automation and production readiness per repo. Expand a row for blockers and facts"
       minWidth={760}
       head={
         <tr>

@@ -71,8 +71,8 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
       const res = await runReflectApply({ org: slug, proposal });
       setApplied((a) => [...a, key]);
       setNotice(
-        `Summary written. ${res.superseded} memor${res.superseded === 1 ? "y" : "ies"} now point to it — ` +
-          "they stay in the store, linked to the rollup that replaced them.",
+        `Summary written. ${res.superseded} memor${res.superseded === 1 ? "y" : "ies"} now point to it, ` +
+          "staying in the store, linked to the rollup that replaced them.",
       );
       // The rollup and its now-superseded members both change the server-rendered list above.
       startTransition(() => router.refresh());
@@ -89,7 +89,7 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
     <Card>
       <SectionHeader
         size="sm"
-        title="Reflect — roll up what repeats"
+        title="Reflect: roll up what repeats"
         description="Memory grows by accretion: six notes about one incident are six recall-budget entries that together say one thing. Reflect clusters what restates the same subject and asks the model for a single summary. Nothing is written until you apply a proposal, and applying supersedes the members rather than deleting them."
         right={
           canWrite ? (
@@ -103,7 +103,7 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
               title={
                 running
                   ? "Stop the running pass"
-                  : "One model pass over at most 4 candidate families. Proposes only — writes nothing."
+                  : "One model pass over at most 4 candidate families. Proposes only, writes nothing."
               }
             >
               {running ? "Reflecting… cancel" : "Propose consolidation"}

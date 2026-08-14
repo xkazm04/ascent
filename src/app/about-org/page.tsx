@@ -4,7 +4,7 @@ import { AboutOrgLanding } from "@/components/about-org/AboutOrgLanding";
 import { MODULE_COUNT, VIEW_COUNT } from "@/components/about-org/orgModules";
 import { publicBaseUrl } from "@/lib/site";
 
-const TITLE = "Ascent for organizations — the AI-native index for your whole engineering fleet";
+const TITLE = "Ascent for organizations, the AI-native index for your whole engineering fleet";
 const DESCRIPTION = `Score every repository in your GitHub organization and roll it into one governed operating picture: ${MODULE_COUNT} modules and ${VIEW_COUNT} views, from the executive briefing to the audit trail.`;
 
 export const metadata: Metadata = {
@@ -37,7 +37,7 @@ function faqLd() {
         name: "What does Ascent's organization edition add over a single repository report?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: `It aggregates. Ascent scores every repository in the org and rolls the results into ${MODULE_COUNT} modules across ${VIEW_COUNT} views — a fleet rollup and trajectory, per-team and per-stack breakdowns, contributor and delivery signals, a planning surface with a what-if simulator, a shared knowledge library, and governance with an audit trail.`,
+          text: `It aggregates. Ascent scores every repository in the org and rolls the results into ${MODULE_COUNT} modules across ${VIEW_COUNT} views: a fleet rollup and trajectory, per-team and per-stack breakdowns, contributor and delivery signals, a planning surface with a what-if simulator, a shared knowledge library, and governance with an audit trail.`,
         },
       },
       {
@@ -53,7 +53,7 @@ function faqLd() {
         name: "Does Ascent clone or store our source code?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "No. Ascent reads repositories through the GitHub API at scan time — it never clones a repository and does not store its source.",
+          text: "No. Ascent reads repositories through the GitHub API at scan time. It never clones a repository and does not store its source.",
         },
       },
       {
@@ -61,7 +61,7 @@ function faqLd() {
         name: "Is there an audit trail?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Yes. Every consequential action in the org — gate-policy changes, batch applies, role changes, completed scans — is recorded in a searchable, paginated audit trail, alongside governance rollups covering branch protection, required review and rulesets across the fleet.",
+          text: "Yes. Every consequential action in the org (gate-policy changes, batch applies, role changes, completed scans) is recorded in a searchable, paginated audit trail, alongside governance rollups covering branch protection, required review and rulesets across the fleet.",
         },
       },
     ],

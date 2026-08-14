@@ -92,12 +92,12 @@ const VERDICT_META: Record<Exclude<AuditVerdict, "no-secret">, { label: string; 
   ok: {
     label: "Verified",
     cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-    title: "Signature recomputed on read and matched — this row is unchanged since it was written.",
+    title: "Signature recomputed on read and matched. This row is unchanged since it was written.",
   },
   tampered: {
     label: "Tampered",
     cls: "border-red-500/50 bg-red-500/15 text-red-300",
-    title: "Signature MISMATCH — this row's content differs from what was signed when it was recorded. Treat it as unreliable evidence.",
+    title: "Signature MISMATCH: this row's content differs from what was signed when it was recorded. Treat it as unreliable evidence.",
   },
   unsigned: {
     label: "Unsigned",

@@ -39,7 +39,7 @@ export function LiveWarRoomTvHeader({
           this wall is "big enough for a room", and the hints live in the title for discoverability. */}
       <div
         className="flex flex-wrap gap-1 font-mono text-sm uppercase tracking-widest"
-        title="Stages auto-rotate — ← / → switch stages, Space pauses"
+        title="Stages auto-rotate: ← / → switch stages, Space pauses"
       >
         {stages.map((sId, i) => (
           <button

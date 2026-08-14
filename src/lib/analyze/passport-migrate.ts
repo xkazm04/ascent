@@ -25,10 +25,10 @@ import { deriveAutonomyForStored } from "./passport-autonomy";
 export const PASSPORT_VERSION = "0.3.0";
 
 const MIGRATION_NOTE_020 =
-  "Lifted from passport 0.1.0: automation artifacts memory/skills were booleans; present→adhoc, absent→none. These are migration floors, not a fresh assessment — re-scan to grade them.";
+  "Lifted from passport 0.1.0: automation artifacts memory/skills were booleans; present→adhoc, absent→none. These are migration floors, not a fresh assessment. Re-scan to grade them.";
 
 const MIGRATION_NOTE_030 =
-  "Lifted to passport 0.3.0: autonomy tier derived read-time from stored fields. Sandbox/hooks were not scanned for by this row's scan, so they read as unknown (never fabricated) — re-scan to detect them.";
+  "Lifted to passport 0.3.0: autonomy tier derived read-time from stored fields. Sandbox/hooks were not scanned for by this row's scan, so they read as unknown (never fabricated). Re-scan to detect them.";
 
 /** Semver-ish "is this stored passport older than `PASSPORT_VERSION`" test (majors/minors only; a missing
  *  or unparseable version is treated as the oldest shape, which is the conservative read). */

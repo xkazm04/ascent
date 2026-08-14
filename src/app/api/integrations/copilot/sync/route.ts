@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     // Stated on every successful sync, not buried in docs — an operator who connects a provider and
     // then sees no money on the ROI panel deserves to be told why by the thing they just connected.
     note:
-      "Copilot reports seats and engagement, not spend — GitHub does not expose per-seat price through the API. " +
+      "Copilot reports seats and engagement, not spend: GitHub does not expose per-seat price through the API. " +
       "Cost-based ROI needs a provider that reports it (Claude Code, via OTel).",
   });
 }

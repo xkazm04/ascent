@@ -15,7 +15,7 @@ export function GovernanceClosestToGreenCard({ slug, g }: { slug: string; g: Gov
       <SectionHeader
         size="sm"
         title="Cheapest path to green"
-        description="Failing repos closest to passing — fewest conditions and smallest gap first. Apply the linked practice to clear each dimension."
+        description="Failing repos closest to passing, fewest conditions and smallest gap first. Apply the linked practice to clear each dimension."
       />
       <div className="mt-3 space-y-3">
         {g.closestToGreen.map((r) => (

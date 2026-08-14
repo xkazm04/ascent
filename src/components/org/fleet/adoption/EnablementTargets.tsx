@@ -23,11 +23,11 @@ export function EnablementTargets({
         <span>
           Who to enable next <span className="font-mono text-sm text-slate-500">({targets.length})</span>
         </span>
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">names individuals — expand</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">names individuals, expand to see</span>
       </summary>
       <div className="border-t border-slate-800 px-4 py-4">
         <p className="max-w-2xl text-sm text-slate-400">
-          Contributors with the most recent commit volume and <span className="text-slate-300">no AI-attributed commits yet</span> — the
+          Contributors with the most recent commit volume and <span className="text-slate-300">no AI-attributed commits yet</span>: the
           highest-leverage people to offer tooling, pairing, or agent guidance to. Inputs to explore,{" "}
           <span className="text-slate-300">not a to-do list for anyone</span>.
         </p>
@@ -67,7 +67,7 @@ export function EnablementTargets({
         </OrgTable>
         {nonePool > targets.length && (
           <p className="mt-2 font-mono text-sm text-slate-600">
-            {nonePool} contributors show no AI-attributed commits in total — these {targets.length} carry the most recent volume.
+            {nonePool} contributors show no AI-attributed commits in total; these {targets.length} carry the most recent volume.
           </p>
         )}
       </div>

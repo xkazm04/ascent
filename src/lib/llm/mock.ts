@@ -56,7 +56,7 @@ function dimSummary(s: DimensionSignals): LlmDimensionScore {
       : `${def.name}: no supporting signals detected in the sampled repository.`;
   const gaps =
     s.signalScore >= 80
-      ? ["Already strong — focus on consistency and enforcement."]
+      ? ["Already strong. Focus on consistency and enforcement."]
       : [`Below target for an AI-native workflow. ${def.description}`];
   return { id: s.id, score: s.signalScore, summary, strengths, gaps };
 }
@@ -101,7 +101,7 @@ export class MockProvider implements LLMProvider {
 
     const result: LlmAssessment = {
       dimensions,
-      headline: `${input.repo.owner}/${input.repo.name} sits at ${level.id} — ${level.name}: ${level.tagline}.`,
+      headline: `${input.repo.owner}/${input.repo.name} sits at ${level.id} ${level.name}: ${level.tagline}.`,
       strengths: strengths.length ? strengths : ["Repository is being analyzed against the AI-native rubric."],
       risks: risks.length ? risks : ["No major gaps detected in the sampled signals."],
       roadmap: buildFallbackRoadmap(input.signals, overall, input.archetype),

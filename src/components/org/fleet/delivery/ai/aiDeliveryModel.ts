@@ -30,10 +30,10 @@ const SOURCE_NAME: Record<string, string> = { "claude-code": "Claude Code", copi
 
 export const VERDICT_META: Record<Verdict, { label: string; hex: string; blurb: string }> = {
   working: { label: "Working", hex: "#22c55e", blurb: "AI shows up in the work and that work is reviewed" },
-  ungoverned: { label: "Ungoverned", hex: "#ef4444", blurb: "Heavy AI involvement, little human review — the risk quadrant" },
-  idle: { label: "Idle spend", hex: "#f97316", blurb: "Seats paid for, little AI reaching merged PRs — reclaim candidates" },
+  ungoverned: { label: "Ungoverned", hex: "#ef4444", blurb: "Heavy AI involvement, little human review: the risk quadrant" },
+  idle: { label: "Idle spend", hex: "#f97316", blurb: "Seats paid for, little AI reaching merged PRs: reclaim candidates" },
   shadow: { label: "Shadow AI", hex: "#a855f7", blurb: "AI fingerprints in git with no assigned enterprise plan" },
-  starter: { label: "Starter", hex: "#64748b", blurb: "Low AI adoption and low spend — nothing to action yet" },
+  starter: { label: "Starter", hex: "#64748b", blurb: "Low AI adoption and low spend, nothing to action yet" },
 };
 
 // Classification thresholds (tunable). Adoption = aiInvolvedRate; governance = aiGovernedRate.

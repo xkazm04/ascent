@@ -29,6 +29,7 @@
 
 import { briefingMarkdown, briefingNextMove, type ExecBriefing } from "@/lib/org/briefing";
 import { withLlmTimeout } from "@/lib/llm/config";
+import { PROSE_STYLE_RULE, deEmDash } from "@/lib/llm/prose";
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -152,6 +153,8 @@ const SYSTEM_PROMPT = [
   "  how it moved, and what the single widest gap is.",
   "- No headings, no bullet points, no markdown, no tags of any kind. Plain sentences only.",
   "- Be direct and unhedged, but never overstate: if the data is thin, say so plainly.",
+  "",
+  PROSE_STYLE_RULE,
 ].join("\n");
 
 /**
@@ -194,7 +197,12 @@ async function requestNarrative(facts: string, signal?: AbortSignal): Promise<st
       .map((blk) => blk.text as string)
       .join("")
       .trim();
-    return text || null;
+    // This narrative never passes through validateAssessment/cap (that path is for the scan
+    // assessment), so the em-dash backstop has to be applied here or it is not applied at all.
+    // SANITIZE rather than reject: em dashes are the single most common model habit, so gating the
+    // narrative on them would fall back to the deterministic template almost every time and quietly
+    // delete the feature. The gates below still judge the cleaned text.
+    return text ? deEmDash(text) : null;
   } catch {
     return null;
   } finally {

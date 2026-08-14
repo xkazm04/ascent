@@ -74,11 +74,11 @@ export function PassportScatter({
             role="button"
             tabIndex={0}
             aria-pressed={active === q.id}
-            aria-label={`${COHORT_META[q.id].label} — filter portfolio to this cohort`}
+            aria-label={`${COHORT_META[q.id].label}: filter portfolio to this cohort`}
             onClick={() => onCohort?.(q.id)}
             onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onCohort?.(q.id))}
           >
-            <title>{`${COHORT_META[q.id].label} — click to filter`}</title>
+            <title>{`${COHORT_META[q.id].label}, click to filter`}</title>
           </rect>
         ))}
         {/* axes */}
@@ -112,7 +112,7 @@ export function PassportScatter({
             className={`transition-opacity duration-300 motion-reduce:transition-none${onPoint && !p.faded ? " cursor-pointer" : ""}`}
             onClick={onPoint && !p.faded ? () => onPoint(p.name) : undefined}
           >
-            <title>{`${p.name} — automation ${p.x}, production ${p.y} (${p.band})${onPoint && !p.faded ? " · click to open in table" : ""}`}</title>
+            <title>{`${p.name}: automation ${p.x}, production ${p.y} (${p.band})${onPoint && !p.faded ? " · click to open in table" : ""}`}</title>
           </circle>
         ))}
       </svg>

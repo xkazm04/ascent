@@ -68,7 +68,7 @@ export async function SegmentsSection({
       <div>
         <SectionHeader
           title="Segments"
-          description="Per-segment maturity across the fleet — each slice rolled up from its tagged repos' latest scans."
+          description="Per-segment maturity across the fleet, each slice rolled up from its tagged repos' latest scans."
         />
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {summaries.map((s) => {

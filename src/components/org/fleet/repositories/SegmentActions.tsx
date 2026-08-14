@@ -118,7 +118,7 @@ export function SegmentActions({
         title={
           repos.length === 0
             ? taggedCount > 0
-              ? `None of this segment's ${taggedCount} tagged repo(s) are watched — watch them on the Repositories tab to scan`
+              ? `None of this segment's ${taggedCount} tagged repo(s) are watched. Watch them on the Repositories tab to scan`
               : "No repos tagged into this segment yet"
             : "Scan the watched repos in this segment"
         }

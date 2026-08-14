@@ -60,7 +60,7 @@ export function SegmentChips({
           </button>
         </span>
       ))}
-      {segments.length === 0 && <span className="text-sm text-slate-500">No segments yet — create one to start tagging.</span>}
+      {segments.length === 0 && <span className="text-sm text-slate-500">No segments yet. Create one to start tagging.</span>}
     </div>
   );
 }

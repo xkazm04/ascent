@@ -39,7 +39,7 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
       out.push({
         severity: "fix",
         title: `Protect ${unprotected.length} default branch${unprotected.length > 1 ? "es" : ""}`,
-        evidence: `${nameFew(unprotected.map((r) => r.name))} — anyone with push access can commit straight to main.`,
+        evidence: `${nameFew(unprotected.map((r) => r.name))}: anyone with push access can commit straight to main.`,
         href: "#governance",
         action: "Review gaps",
       });
@@ -49,7 +49,7 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
       out.push({
         severity: "fix",
         title: `Require an approving review on ${zeroApproval.length} protected repo${zeroApproval.length > 1 ? "s" : ""}`,
-        evidence: `${nameFew(zeroApproval.map((r) => r.name))} — protection is on, but 0 approvals are required, so authors can self-merge unreviewed.`,
+        evidence: `${nameFew(zeroApproval.map((r) => r.name))}: protection is on, but 0 approvals are required, so authors can self-merge unreviewed.`,
         href: "#governance",
         action: "Review gaps",
       });
@@ -63,7 +63,7 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
         severity: "improve",
         title: "Lift human review coverage",
         evidence: `${pr.avgReviewedRate}% of human-merged PRs get an approving review (target ≥${REVIEW_TARGET}%)${
-          worst ? ` — weakest: ${worst.name} at ${worst.reviewedRate}%` : ""
+          worst ? `, weakest: ${worst.name} at ${worst.reviewedRate}%` : ""
         }.`,
         href: "#per-repo",
         action: "See repos",
@@ -86,7 +86,7 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
         severity: "improve",
         title: "Unblock the review queue",
         evidence: `A typical PR waits ${fmtHours(pr.typicalHoursToFirstReview)} for its first review${
-          aiPressure ? ` while ${pr.avgAiInvolvedRate}% of PRs are AI-involved — review capacity, not authoring, is the bottleneck to delegating more` : ""
+          aiPressure ? ` while ${pr.avgAiInvolvedRate}% of PRs are AI-involved; review capacity, not authoring, is the bottleneck to delegating more` : ""
         }.`,
         href: "#per-repo",
         action: "See repos",
@@ -100,7 +100,7 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
       out.push({
         severity: "improve",
         title: "Stabilize what ships",
-        evidence: `${pr.avgRevertRate}% of PRs are reverts — shipped work coming back out${
+        evidence: `${pr.avgRevertRate}% of PRs are reverts: shipped work coming back out${
           worst?.revertRate != null ? ` (worst: ${worst.name} at ${worst.revertRate}%)` : ""
         }.`,
         href: "#per-repo",
@@ -111,7 +111,7 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
       out.push({
         severity: "improve",
         title: "Shorten time-to-merge",
-        evidence: `A typical PR takes ${fmtHours(pr.typicalHoursToMerge)} to merge — the per-repo table below surfaces the slowest queues.`,
+        evidence: `A typical PR takes ${fmtHours(pr.typicalHoursToMerge)} to merge. The per-repo table below surfaces the slowest queues.`,
         href: "#per-repo",
         action: "See repos",
       });
@@ -135,7 +135,7 @@ export function DeliveryPriorities({ pr, gov }: { pr: OrgPrSignals | null; gov: 
       <Surface radius="xl" className="flex items-center gap-3 px-4 py-3">
         <span aria-hidden className="text-lime-400">✓</span>
         <p className="text-sm text-slate-400">
-          No delivery red flags — branch protection, review coverage, and merge flow all clear the bar.
+          No delivery red flags: branch protection, review coverage, and merge flow all clear the bar.
         </p>
       </Surface>
     );

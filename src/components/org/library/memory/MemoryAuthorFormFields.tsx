@@ -88,7 +88,7 @@ export function MemoryAuthorFormFields({
         <input
           value={form.source}
           onChange={(e) => setForm({ source: e.target.value })}
-          placeholder="Source / provenance (optional) — e.g. RFC-14, incident #92"
+          placeholder="Source / provenance (optional), e.g. RFC-14, incident #92"
           aria-label="Source"
           className={`min-w-[12rem] flex-1 ${fieldClass}`}
         />

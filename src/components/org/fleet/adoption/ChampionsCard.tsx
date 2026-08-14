@@ -22,7 +22,7 @@ export function ChampionsCard({
       <SectionHeader
         size="sm"
         title="AI champions"
-        description="Culture carriers — high AI adoption across real volume. A champion's approach is a pattern others can borrow."
+        description="Culture carriers: high AI adoption across real volume. A champion's approach is a pattern others can borrow."
         right={
           <Link href={orgTabHref(slug, "contributors")} className="shrink-0 font-mono text-xs uppercase tracking-widest text-slate-500 transition hover:text-accent">
             Contributors →
@@ -39,7 +39,7 @@ export function ChampionsCard({
         <div className="mt-3 space-y-1.5">
           {champions.map((c) => (
             <div key={c.login} className="flex items-center gap-3 text-sm">
-              <span className="w-36 shrink-0 truncate font-mono text-slate-200" title={`${c.login} — ${c.repos} repo${c.repos === 1 ? "" : "s"}`}>
+              <span className="w-36 shrink-0 truncate font-mono text-slate-200" title={`${c.login} (${c.repos} repo${c.repos === 1 ? "" : "s"})`}>
                 {c.login}
               </span>
               <Meter className="flex-1" value={c.aiShare} color={scoreHex(c.aiShare)} />

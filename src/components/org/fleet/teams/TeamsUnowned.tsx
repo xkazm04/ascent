@@ -34,13 +34,13 @@ export function TeamsUnowned({
         <span>
           Unowned repos <span className="font-mono text-sm text-slate-500">({open.length} to decide)</span>
         </span>
-        <span className="font-mono text-sm uppercase tracking-widest text-orange-400">no CODEOWNERS team — expand to fix</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-orange-400">no CODEOWNERS team, expand to fix</span>
       </summary>
       <div className="border-t border-slate-800 px-4 py-4">
         <p className="max-w-3xl text-sm text-slate-400">
           These scanned repos aren&apos;t attributed to any team, so their scores roll up to no one. Add a{" "}
           <span className="font-mono text-slate-300">.github/CODEOWNERS</span> naming an{" "}
-          <span className="font-mono text-slate-300">@{slug}/…</span> team, then re-scan — listed weakest first, where an
+          <span className="font-mono text-slate-300">@{slug}/…</span> team, then re-scan. Listed weakest first, where an
           owner would help most. Accept the work, or dismiss with a reason; either way it leaves the badge.
         </p>
 
@@ -56,7 +56,7 @@ export function TeamsUnowned({
                 <Link
                   href={`/report/${r.fullName}`}
                   className="focus-ring min-w-0 truncate rounded font-mono text-sm text-slate-300 transition hover:text-white"
-                  title={`${r.fullName} · overall ${r.overall} — open report`}
+                  title={`${r.fullName} · overall ${r.overall} · open report`}
                 >
                   {r.name}
                   <span className="ml-2 tabular-nums" style={{ color: scoreHex(r.overall) }}>

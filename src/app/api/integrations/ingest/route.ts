@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       accepted: true,
       persisted: false,
       org: gate.slug,
-      note: "Token valid, telemetry accepted. Send {records:[...]} here to persist, or point an OTel exporter at this endpoint — its /v1/metrics receiver attributes spend per repo.",
+      note: "Token valid, telemetry accepted. Send {records:[...]} here to persist, or point an OTel exporter at this endpoint: its /v1/metrics receiver attributes spend per repo.",
     },
     { status: 202 },
   );

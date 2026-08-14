@@ -46,7 +46,7 @@ export function FoundationPrButton({ repo }: { repo: string }) {
       }
       setState({ phase: "done", url: data.url, number: data.number, skipped: data.skipped ?? [] });
     } catch {
-      setState({ phase: "error", message: "Network error — try again" });
+      setState({ phase: "error", message: "Network error. Try again." });
     }
   };
 
@@ -60,7 +60,7 @@ export function FoundationPrButton({ repo }: { repo: string }) {
         title={
           state.skipped.length
             ? `Draft PR opened. Skipped pre-existing: ${state.skipped.join(", ")}`
-            : "Draft PR opened — review and merge to install the .ai/ foundation"
+            : "Draft PR opened: review and merge to install the .ai/ foundation"
         }
       >
         <span aria-hidden>⇡</span> Foundation PR #{state.number} →

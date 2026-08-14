@@ -29,7 +29,7 @@ export function Leaderboard({
         )}
       </div>
       {shown.length === 0 ? (
-        <p className="mt-4 text-base text-slate-500">No scans yet — launch the live scan to populate the board.</p>
+        <p className="mt-4 text-base text-slate-500">No scans yet. Launch the live scan to populate the board.</p>
       ) : (
         <ol className="relative mt-3 list-none" style={{ height: shown.length * ROW_H }}>
           {shown.map((r, i) => {

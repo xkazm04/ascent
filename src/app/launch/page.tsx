@@ -16,9 +16,9 @@ export const dynamic = "force-dynamic";
 // MAP-5: a branded social card (the co-located opengraph-image renders the constellation). The page
 // itself is per-viewer + session-gated, so the card is brand-level, not a specific fleet.
 export const metadata: Metadata = {
-  title: "Mission Control — your engineering fleet · Ascent",
+  title: "Mission Control for your engineering fleet · Ascent",
   description:
-    "Your engineering fleet, mapped as living constellations — each org a cluster, each repo a star that brightens with its AI-native maturity.",
+    "Your engineering fleet, mapped as living constellations. Each org a cluster, each repo a star that brightens with its AI-native maturity.",
   openGraph: { title: "Mission Control · Ascent", type: "website" },
   twitter: { card: "summary_large_image", title: "Mission Control · Ascent" },
 };

@@ -42,8 +42,8 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
         {filterBar && <div className="mb-4 flex justify-end">{filterBar}</div>}
         <SectionEmpty>
           {segmentId
-            ? "No team attribution for this segment — pick another segment, or add CODEOWNERS team owners to its repos and re-scan."
-            : "No team attribution yet. Teams are parsed from each repo's CODEOWNERS file at scan time — add a CODEOWNERS that assigns paths to @org/team owners, then re-scan and this view fills in."}
+            ? "No team attribution for this segment. Pick another segment, or add CODEOWNERS team owners to its repos and re-scan."
+            : "No team attribution yet. Teams are parsed from each repo's CODEOWNERS file at scan time. Add a CODEOWNERS that assigns paths to @org/team owners, then re-scan and this view fills in."}
         </SectionEmpty>
         {/* The fix-it list: exactly which scanned repos need a CODEOWNERS owner, with the snippet. */}
         {rollup && <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />}
@@ -62,7 +62,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-3xl text-base text-slate-400">
           The fleet rolled up by the teams that own it (from each repo&apos;s{" "}
-          <span className="font-mono text-slate-300">CODEOWNERS</span>) — where institutional AI knowledge sits and where a
+          <span className="font-mono text-slate-300">CODEOWNERS</span>), showing where institutional AI knowledge sits and where a
           pairing could spread it. Inputs to explore, not a ranking.
         </p>
         {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
@@ -95,7 +95,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
       <div id="teams-matrix" className="mt-8 scroll-mt-24">
         <SectionHeader
           title="Teams × dimensions"
-          description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid — click a header to sort, a team to open its repos and champions."
+          description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid. Click a header to sort, a team to open its repos and champions."
           right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />}
         />
         <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} deltaLabel={deltaLabel} />

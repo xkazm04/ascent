@@ -42,7 +42,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
     return (
       <Card>
         {header}
-        <InlineEmpty>No scanned repositories in this view yet — nothing to decompose.</InlineEmpty>
+        <InlineEmpty>No scanned repositories in this view yet. Nothing to decompose.</InlineEmpty>
       </Card>
     );
   }
@@ -55,7 +55,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
       <Card>
         {header}
         <InlineEmpty>
-          Only {analysis.scanned} scanned repo{analysis.scanned === 1 ? "" : "s"} — too few to tell a fleet-wide pattern from a single
+          Only {analysis.scanned} scanned repo{analysis.scanned === 1 ? "" : "s"}, too few to tell a fleet-wide pattern from a single
           repo being behind. Scan at least {analysis.minRepos} to get this reading.
         </InlineEmpty>
       </Card>
@@ -68,11 +68,11 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
   // The one-glance verdict. Deliberately a sentence, not a badge: the decision is comparative.
   const verdict =
     commonGaps.length === 0 && repoSpecific.length === 0
-      ? "Neither — no dimension is weak across the fleet, and no repo lags the org enough to single out."
+      ? "Neither: no dimension is weak across the fleet, and no repo lags the org enough to single out."
       : commonGaps.length > 0 && repoSpecific.length === 0
         ? `Org problem. ${commonGaps.length} dimension${commonGaps.length === 1 ? " is" : "s are"} weak across the fleet; no repo is the outlier.`
         : commonGaps.length === 0 && repoSpecific.length > 0
-          ? `Repo problem. The fleet handles these dimensions — ${outlierRepos} repo${outlierRepos === 1 ? "" : "s"} lag${outlierRepos === 1 ? "s" : ""} behind it.`
+          ? `Repo problem. The fleet handles these dimensions; ${outlierRepos} repo${outlierRepos === 1 ? "" : "s"} lag${outlierRepos === 1 ? "s" : ""} behind it.`
           : `Both. ${commonGaps.length} systemic gap${commonGaps.length === 1 ? "" : "s"} to fix once, and ${outlierRepos} repo${outlierRepos === 1 ? "" : "s"} trailing the org on dimensions it otherwise handles.`;
 
   return (
@@ -95,7 +95,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                   {g.practiceId ? (
                     <Link
                       href={`${orgTabHref(slug, "practices")}#practice-${g.practiceId}`}
-                      title={`See the ${dimShort(g.dimId)} practice — the reusable shape that lifts this dimension`}
+                      title={`See the ${dimShort(g.dimId)} practice (the reusable shape that lifts this dimension)`}
                       className="focus-ring rounded font-medium text-slate-200 transition hover:text-accent"
                     >
                       {g.dimId} · {g.label}
@@ -112,7 +112,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                   {g.exemplar && (
                     <Link
                       href={`/report/${g.exemplar.fullName}`}
-                      title={`${g.exemplar.fullName} already scores ${g.exemplar.score} on ${dimShort(g.dimId)} — copy from its report`}
+                      title={`${g.exemplar.fullName} already scores ${g.exemplar.score} on ${dimShort(g.dimId)}; copy from its report`}
                       className="focus-ring rounded font-mono text-xs tabular-nums text-slate-400 transition hover:text-accent"
                     >
                       copy {g.exemplar.name} ({g.exemplar.score}) →
@@ -137,7 +137,7 @@ export function GapDecompositionPanel({ slug, analysis }: { slug: string; analys
                 <li key={`${r.fullName}:${r.dimId}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
                   <Link
                     href={`/report/${r.fullName}`}
-                    title={`Open ${r.fullName} — ${dimShort(r.dimId)} is ${r.delta} below the org average`}
+                    title={`Open ${r.fullName}: ${dimShort(r.dimId)} is ${r.delta} below the org average`}
                     className="focus-ring rounded font-medium text-slate-200 transition hover:text-accent"
                   >
                     {r.name}

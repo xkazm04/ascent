@@ -73,7 +73,7 @@ export function WarRoomHeader({
           </div>
           <h2 className="mt-1 text-2xl font-bold text-white sm:text-3xl">Transformation war-room</h2>
           <p className="mt-1 max-w-xl text-base text-slate-400">
-            The whole org&apos;s scan, live — tiles climb, the leaderboard reshuffles, and every repo that crosses into
+            The whole org&apos;s scan, live: tiles climb, the leaderboard reshuffles, and every repo that crosses into
             AI-Native lights up the wall.
           </p>
         </div>
@@ -153,7 +153,7 @@ export function WarRoomHeader({
           {share.error && <p className="font-mono text-sm text-orange-300">{share.error}</p>}
           {share.manualUrl && (
             <div className="flex flex-col items-end gap-1">
-              <span className="font-mono text-sm text-amber-300">Couldn&apos;t auto-copy — copy this link:</span>
+              <span className="font-mono text-sm text-amber-300">Couldn&apos;t auto-copy, copy this link:</span>
               <input
                 type="text"
                 readOnly

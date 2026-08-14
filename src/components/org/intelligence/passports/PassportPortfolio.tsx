@@ -94,7 +94,7 @@ export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[
       <PhaseReplay dep={filter}>
         {visible.length === 0 ? (
           <p className="rounded-2xl border border-divider bg-surface/40 p-6 text-sm text-slate-500">
-            No repos in the {scopeLabel} cohort for the current scope — click the highlighted quadrant again (or the ✕ above) to clear it.
+            No repos in the {scopeLabel} cohort for the current scope. Click the highlighted quadrant again (or the ✕ above) to clear it.
           </p>
         ) : (
           <PassportTable rows={visible} focus={focus} org={org} decisions={decisions} />

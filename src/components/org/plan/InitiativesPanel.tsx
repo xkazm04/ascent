@@ -31,11 +31,11 @@ export function InitiativesPanel({
       <SectionHeader
         size="sm"
         title="Initiatives"
-        description="Bundle a fleet move into a tracked program — progress counts the scoped repos already at target."
+        description="Bundle a fleet move into a tracked program. Progress counts the scoped repos already at target."
       />
 
       <div className="mt-4 space-y-3">
-        {items.length === 0 && <p className="text-base text-slate-500">No initiatives yet — start one from a fleet move below.</p>}
+        {items.length === 0 && <p className="text-base text-slate-500">No initiatives yet. Start one from a fleet move below.</p>}
         {items.map((i) => (
           <InitiativesPanelRow key={i.id} slug={slug} i={i} goals={goals} onPatch={patch} />
         ))}
@@ -54,13 +54,13 @@ export function InitiativesPanel({
                       original count promised repos the initiative never scopes (goals-initiatives #3). */}
                   <div className="font-mono text-sm text-slate-500">
                     {s.dimId} · affects {s.repos.length} repo{s.repos.length === 1 ? "" : "s"}
-                    {s.repoCount > s.repos.length ? ` (of ${s.repoCount} — others aren't in the latest scan)` : ""}
+                    {s.repoCount > s.repos.length ? ` (of ${s.repoCount}, others aren't in the latest scan)` : ""}
                   </div>
                 </div>
                 <button
                   onClick={() => track(s)}
                   disabled={busy === s.title || s.repos.length === 0}
-                  title={s.repos.length === 0 ? "None of this recommendation's repos are in the latest scan — nothing to scope" : undefined}
+                  title={s.repos.length === 0 ? "None of this recommendation's repos are in the latest scan; nothing to scope" : undefined}
                   className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
                 >
                   {busy === s.title ? "…" : "Track"}

@@ -31,5 +31,5 @@ export const MIN_ACCENT_CONTRAST = 3;
 export function accentContrastWarning(hex: string): string | null {
   const ratio = accentContrastOnWhite(hex);
   if (Number.isNaN(ratio) || ratio >= MIN_ACCENT_CONTRAST) return null;
-  return `Low contrast — this accent is only ${ratio.toFixed(1)}:1 on the white briefing PDF (below 3:1), so it may be hard to read. It'll still be saved; a darker shade reads better.`;
+  return `Low contrast: this accent is only ${ratio.toFixed(1)}:1 on the white briefing PDF (below 3:1), so it may be hard to read. It'll still be saved; a darker shade reads better.`;
 }

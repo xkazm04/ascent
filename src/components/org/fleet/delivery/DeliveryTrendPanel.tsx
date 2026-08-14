@@ -155,7 +155,7 @@ export function DeliveryTrendPanel({
                 <div className="text-sm text-slate-500">
                   {act.scans} scan{act.scans === 1 ? "" : "s"} · {act.repos} repo{act.repos === 1 ? "" : "s"}
                 </div>
-                {act.mock && <div className="text-sm text-slate-500">demo scans only — no model graded this day</div>}
+                {act.mock && <div className="text-sm text-slate-500">demo scans only (no model graded this day)</div>}
               </div>
             </ChartTooltip>
           )}
@@ -164,7 +164,7 @@ export function DeliveryTrendPanel({
 
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 font-mono text-sm">
         {delta === null ? (
-          <span className="text-slate-500">one measured day — no change to read</span>
+          <span className="text-slate-500">one measured day: no change to read</span>
         ) : (
           <span style={{ color: deltaHex(toneValue) }}>
             {fmtDelta(delta)}
@@ -181,7 +181,7 @@ export function DeliveryTrendPanel({
         {present.map((p) => (
           <li key={p.i}>
             {label} {fmt(p.value)} on {dayLabel(p.date)} from {p.scans} scan{p.scans === 1 ? "" : "s"}
-            {p.mock ? " (demo scans only — deterministic rubric, no model)" : ""}
+            {p.mock ? " (demo scans only: deterministic rubric, no model)" : ""}
           </li>
         ))}
       </ul>

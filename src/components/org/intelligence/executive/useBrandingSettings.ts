@@ -40,20 +40,20 @@ export function useBrandingSettings(slug: string, initial: OrgBranding) {
       // logo / truncated name surfaces as a warning instead of a green "saved" that lies.
       const stored = (d.branding ?? {}) as Partial<OrgBranding>;
       const warnings: string[] = [];
-      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image URL under 500 characters.");
-      if (submitted.brandColor && !stored.brandColor) warnings.push("Accent colour ignored — must be a #rrggbb hex.");
+      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored: must be a public https image URL under 500 characters.");
+      if (submitted.brandColor && !stored.brandColor) warnings.push("Accent colour ignored: must be a #rrggbb hex.");
       if (submitted.brandName && stored.brandName !== submitted.brandName) warnings.push("Brand name shortened to 80 characters.");
       // org-branding #4: the server probed the saved logo with the SAME guarded fetch the PDF render
       // uses; a URL that is safe but doesn't return an image would otherwise fail invisibly at export.
-      if (stored.logoUrl && d.logoUnreachable) warnings.push("Logo URL saved, but it didn't return an image — the PDF will render without a logo until it does.");
+      if (stored.logoUrl && d.logoUnreachable) warnings.push("Logo URL saved, but it didn't return an image. The PDF will render without a logo until it does.");
       setPreview(stored.logoUrl ?? null);
       setPreviewBroken(false);
       if (warnings.length) {
         setState("warn");
-        setMsg(`Saved with changes — ${warnings.join(" ")}`);
+        setMsg(`Saved with changes: ${warnings.join(" ")}`);
       } else {
         setState("saved");
-        setMsg("Saved — the next briefing PDF and shared briefing links use your brand.");
+        setMsg("Saved. The next briefing PDF and shared briefing links use your brand.");
         setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 4000);
       }
     } catch (e) {

@@ -25,7 +25,7 @@ export function AiDeliveryModule({ model, slug }: { model: AiDeliveryModel; slug
     <div id="ai-delivery" className="scroll-mt-24">
       <SectionHeader
         title="AI delivery intelligence"
-        description="Where AI spend goes, what it produces, and whether that work gets reviewed — billing joined to git-attributed AI output."
+        description="Where AI spend goes, what it produces, and whether that work gets reviewed: billing joined to git-attributed AI output."
         right={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <FidelityBadge fidelity={model.fidelity} />

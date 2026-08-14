@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   if (!org) return page("That link isn't valid", p("This unsubscribe link is invalid or has expired. Clear the alert sink in your Ascent organization settings to stop these emails."), 400);
   return page(
     `Stop Ascent alerts for ${org}?`,
-    `${p(`This clears the alert sink for the "${org}" organization. Ascent will stop emailing this address — and, because the sink is one setting, it also stops any webhook pushes for this organization. An owner can set it again at any time.`)}
+    `${p(`This clears the alert sink for the "${org}" organization. Ascent will stop emailing this address. Because the sink is one setting, it also stops any webhook pushes for this organization. An owner can set it again at any time.`)}
 <form method="post" action="/api/email/unsubscribe">
   <input type="hidden" name="token" value="${escapeHtml(token ?? "")}">
   <button type="submit" style="background:#22d3ee;color:#06283d;font-weight:600;border:0;padding:11px 18px;border-radius:10px;font-size:15px;cursor:pointer">Stop these emails</button>
@@ -76,5 +76,5 @@ export async function POST(request: Request) {
   if (!isDbConfigured()) return page("Nothing to change", p("This deployment has no database, so no alert sink is stored."), 503);
   const cleared = await setOrgAlertWebhook(org, null).catch(() => undefined);
   if (cleared === undefined) return page("Organization not found", p(`No organization named "${org}" exists on this deployment.`), 404);
-  return page(`Unsubscribed — ${org}`, p("The alert sink has been cleared. Ascent will not email this address about this organization again."));
+  return page(`Unsubscribed from ${org}`, p("The alert sink has been cleared. Ascent will not email this address about this organization again."));
 }

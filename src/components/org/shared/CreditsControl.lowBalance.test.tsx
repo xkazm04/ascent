@@ -41,7 +41,7 @@ describe("CreditsControl low-balance warning (G1-07)", () => {
     fireEvent.click(screen.getByRole("button", { name: "4 credits" }));
     // Balance is still POSITIVE — this is the pre-emptive state, not the existing paused chip.
     await waitFor(() => expect(screen.getByText(/Running low/)).toBeInTheDocument());
-    expect(screen.queryByText(/Out of credits — private scans are paused/)).toBeNull();
+    expect(screen.queryByText(/Out of credits\. Private scans are paused/)).toBeNull();
   });
 
   it("stays silent above the threshold", async () => {

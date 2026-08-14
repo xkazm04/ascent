@@ -107,7 +107,7 @@ export async function POST(request: Request) {
         // Unreachable (the batch passes no fingerprint — its per-repo content is generated at apply
         // time, which the confirm copy states), but keep the union handled exhaustively.
         if (result.kind === "content-drift") {
-          return { repo: result.ctx.fullName, ok: false, error: "Content changed since preview — re-preview." };
+          return { repo: result.ctx.fullName, ok: false, error: "Content changed since preview. Re-preview." };
         }
         const { pr, ctx } = result;
         return { repo: ctx.fullName, ok: true, url: pr.url, reused: pr.reused };

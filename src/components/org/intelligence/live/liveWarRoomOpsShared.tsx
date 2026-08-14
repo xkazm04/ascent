@@ -121,7 +121,7 @@ export function FlightRowDetail({ item }: { item: OpsPrItem }) {
       <Link
         href={reportPermalink(item.repoFullName)}
         className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200 hover:text-accent"
-        title={`${item.repoFullName} — ${item.practiceLabel}`}
+        title={`${item.repoFullName}: ${item.practiceLabel}`}
       >
         {item.repoName}
       </Link>
@@ -133,7 +133,7 @@ export function FlightRowDetail({ item }: { item: OpsPrItem }) {
         target="_blank"
         rel="noreferrer"
         className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 font-mono text-sm text-accent transition hover:bg-accent/20"
-        title={`Draft PR seeding ${item.practiceLabel} — review and merge it on GitHub`}
+        title={`Draft PR seeding ${item.practiceLabel}, review and merge it on GitHub`}
       >
         PR #{item.prNumber} ↗
       </a>
@@ -151,7 +151,7 @@ export function LandedRowDetail({ item, onVerify }: { item: OpsPrItem; onVerify?
         target="_blank"
         rel="noreferrer"
         className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200 hover:text-accent"
-        title={`${item.repoFullName} — PR #${item.prNumber} (${item.practiceLabel}), ${item.state}${item.mergedAt ? " " + freshness(item.mergedAt) : ""}`}
+        title={`${item.repoFullName}: PR #${item.prNumber} (${item.practiceLabel}), ${item.state}${item.mergedAt ? " " + freshness(item.mergedAt) : ""}`}
       >
         {item.repoName}
         <span aria-hidden className={`ml-1.5 ${item.state === "merged" ? "text-emerald-400" : "text-slate-600"}`}>

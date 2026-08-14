@@ -35,7 +35,7 @@ export function GoalsPanel({
       <SectionHeader
         size="sm"
         title="Goals"
-        description="Time-bound targets the org steers toward — progress, pace and ETA track the fleet's latest scans."
+        description="Time-bound targets the org steers toward. Progress, pace and ETA track the fleet's latest scans."
       />
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
@@ -53,7 +53,7 @@ export function GoalsPanel({
       />
 
       <div className="mt-4 space-y-3">
-        {g.goals.length === 0 && <p className="text-base text-slate-500">No goals yet — set one below.</p>}
+        {g.goals.length === 0 && <p className="text-base text-slate-500">No goals yet. Set one below.</p>}
         {g.goals
           .filter((goal) => goal.status !== "achieved")
           .map((goal) => (

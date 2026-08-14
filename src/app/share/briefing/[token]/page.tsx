@@ -168,7 +168,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         </div>
         <SectionHeader
           descriptionClassName="max-w-3xl"
-          title={`${verified.org} — executive briefing`}
+          title={`${verified.org}: executive briefing`}
           description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}${asOf ? `, as of ${asOf} (window frozen when the link was created)` : ""}.`}
         />
 

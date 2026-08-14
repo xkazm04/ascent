@@ -48,7 +48,7 @@ export async function PersonalBacklog({ slug }: { slug: string }) {
   if (!backlog || backlog.total === 0) {
     return (
       <SectionEmpty>
-        No recommendations to track yet. Track a public repository on your overview and scan it — its
+        No recommendations to track yet. Track a public repository on your overview and scan it: its
         roadmap shows up here for you to work through.
       </SectionEmpty>
     );
@@ -60,7 +60,7 @@ export async function PersonalBacklog({ slug }: { slug: string }) {
         className="mb-4"
         descriptionClassName="max-w-3xl"
         title="Your backlog"
-        description="Every recommendation from your tracked repos' latest scans. Status and due dates are yours alone — they never change what the repo's other watchers or its org see, and they survive re-scans."
+        description="Every recommendation from your tracked repos' latest scans. Status and due dates are yours alone; they never change what the repo's other watchers or its org see, and they survive re-scans."
         right={
           <span className="flex flex-wrap items-center gap-2">
             {(["open", "in_progress", "done", "dismissed"] as RecStatus[]).map((s) => (

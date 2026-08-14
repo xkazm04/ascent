@@ -37,7 +37,7 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
     return (
       <div>
         {filterBar && <div className="mb-4 flex justify-end">{filterBar}</div>}
-        <SectionEmpty>No contributor data {segmentId || activeStack ? "for this filter" : "yet"} — scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
+        <SectionEmpty>No contributor data {segmentId || activeStack ? "for this filter" : "yet"}. Scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
       </div>
     );
   }
@@ -46,7 +46,7 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-3xl text-base text-slate-400">
-          Inputs to explore where trust in AI could grow across the team — who&apos;s leaning in, whose approach others could
+          Inputs to explore where trust in AI could grow across the team: who&apos;s leaning in, whose approach others could
           learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
         </p>
         {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
@@ -78,7 +78,7 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
         {insights.namingAllowed ? (
           <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
         ) : (
-          <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted — a very small sample" />
+          <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted (a very small sample)" />
         )}
         <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} href="#concentration" />
       </div>
@@ -100,14 +100,14 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
       <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-base text-slate-400">
         <span className="text-slate-300">How to read this:</span> these are inputs to explore, never directives. Someone active
         in a repo with thin agent guidance is well placed to seed it; a champion&apos;s approach is a pattern others can borrow.
-        The aim is to surface where trust could grow — people decide what to pick up.
+        The aim is to surface where trust could grow. People decide what to pick up.
       </p>
       {/* Staleness annotation (ambiguity-ui 2026-07-16 #5): the data layer drops repos whose
           snapshot recency trails the fleet's newest scan by ~6 months, so a long-unscanned repo
           can't crown a departed engineer champion — say so instead of silently excluding. */}
       {insights.staleRepos > 0 && (
         <p className="mt-4 font-mono text-sm text-slate-500">
-          {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded — last scanned too long ago for
+          {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded: last scanned too long ago for
           its activity snapshot to blend honestly with the rest. Rescan to include {insights.staleRepos === 1 ? "it" : "them"}.
         </p>
       )}

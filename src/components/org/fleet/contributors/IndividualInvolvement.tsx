@@ -30,7 +30,7 @@ export function IndividualInvolvement({
       <div id="individuals" className="mt-8 scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20 px-4 py-4">
         <div className="font-medium text-slate-200">Individual involvement</div>
         <p className="mt-2 max-w-2xl text-sm text-slate-400">
-          Withheld — with fewer than {CHAMPION_MIN_POP} contributors, a per-person table (and its CSV) names
+          Withheld: with fewer than {CHAMPION_MIN_POP} contributors, a per-person table (and its CSV) names
           one or two identifiable people rather than describing a team. The totals, AI share and
           concentration figures above and below cover the same activity in aggregate.
         </p>
@@ -44,12 +44,12 @@ export function IndividualInvolvement({
         <span>
           Individual involvement <span className="font-mono text-sm text-slate-500">({insights.contributors.length})</span>
         </span>
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">names individuals — expand</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">names individuals, expand</span>
       </summary>
       <div className="border-t border-slate-800 px-4 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <p className="max-w-2xl text-sm text-slate-400">
-            For capability and coverage planning — who could seed agent guidance, where key-person risk sits —{" "}
+            For capability and coverage planning (who could seed agent guidance, where key-person risk sits),{" "}
             <span className="text-slate-300">not performance evaluation</span>. Breadth (repos) × depth (commits) and each
             person&apos;s AI-commit share.
           </p>
@@ -58,7 +58,7 @@ export function IndividualInvolvement({
         <OrgTable
           className="mt-3"
           minWidth={720}
-          caption="Contributors by involvement — repos, commits, and AI-commit share"
+          caption="Contributors by involvement: repos, commits, and AI-commit share"
           head={
             <tr>
               <th className="px-4 py-2 text-left">Contributor</th>

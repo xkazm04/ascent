@@ -50,12 +50,12 @@ describe("MoversTicker accessibility (G6-21)", () => {
     const { container } = render(<MoversTicker ticker={[mover(1), mover(2)]} running />);
     const list = container.querySelector("ul")!;
     expect(list).not.toHaveAttribute("aria-live");
-    expect(list.getAttribute("aria-label")).toBe("Live movers, most recent first — 2 results");
+    expect(list.getAttribute("aria-label")).toBe("Live movers, most recent first: 2 results");
   });
 
   it("singularises the accessible name for a single result", () => {
     const { container } = render(<MoversTicker ticker={[mover(1)]} running />);
-    expect(container.querySelector("ul")!.getAttribute("aria-label")).toBe("Live movers, most recent first — 1 result");
+    expect(container.querySelector("ul")!.getAttribute("aria-label")).toBe("Live movers, most recent first: 1 result");
   });
 
   it("keeps the empty state silent too", () => {

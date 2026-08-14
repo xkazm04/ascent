@@ -345,8 +345,8 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   const autoBlockers: string[] = [];
   if (!artifacts.manifest) autoBlockers.push("No in-repo .ai/manifest.yaml (agent-facing capability contract).");
   if (artifacts.contextGraph === "none") autoBlockers.push("No machine-readable context graph (context-map.json / CONTEXT.md).");
-  if (artifacts.memory === "none") autoBlockers.push("No agent memory (.ai/memory) — decisions and gotchas aren't carried between sessions.");
-  if (artifacts.skills === "none") autoBlockers.push("No reusable agent skills library (.claude/skills) — repeated work is re-prompted each time.");
+  if (artifacts.memory === "none") autoBlockers.push("No agent memory (.ai/memory): decisions and gotchas aren't carried between sessions.");
+  if (artifacts.skills === "none") autoBlockers.push("No reusable agent skills library (.claude/skills), so repeated work is re-prompted each time.");
   if (!aiInWorkflow) autoBlockers.push("No evidence AI is actually used (no AI co-author trailers / agent PRs).");
   const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
   if (selfVerifyGaps.length) autoBlockers.push(`Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
@@ -362,7 +362,7 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   if (observability.level === "none") prodBlockers.push("Zero observability: no error tracking, structured logs, metrics, or tracing.");
   if (ci.level === "checks" || ci.level === "build" || ci.level === "none") prodBlockers.push("CI does not gate merges (no enforced required checks).");
   if (security.level === "none" || security.level === "policy") prodBlockers.push("No dependency/secret/SAST scanning wired in.");
-  if (tokenless) prodBlockers.push("Enforcement (branch protection) not observable on this scan — CI/security capped at their present rung.");
+  if (tokenless) prodBlockers.push("Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung.");
 
   const pp: AppPassport = {
     passport: "app-passport",

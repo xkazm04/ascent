@@ -89,7 +89,7 @@ export function BacklogFilters({
               aria-pressed={filter.statuses.includes(s)}
               title={
                 CLOSED_STATUSES.includes(s)
-                  ? `${STATUS_LABEL[s as RecStatus]} items are only loaded with “Show done & dismissed” — picking this turns it on`
+                  ? `${STATUS_LABEL[s as RecStatus]} items are only loaded with “Show done & dismissed”; picking this turns it on`
                   : `Show only ${STATUS_LABEL[s as RecStatus]} items`
               }
               className={`${CHIP} ${filter.statuses.includes(s) ? ON : OFF}`}

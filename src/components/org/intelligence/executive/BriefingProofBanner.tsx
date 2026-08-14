@@ -13,7 +13,7 @@ export function BriefingProofBanner({ proof, className = "" }: { proof: ExecBrie
   if (!line) return null;
   return (
     <div className={`rounded-xl border border-emerald-400/30 bg-emerald-400/[0.06] px-4 py-3 ${className}`}>
-      <span className="font-mono text-sm uppercase tracking-widest text-emerald-300">Proof — improvement shipped</span>{" "}
+      <span className="font-mono text-sm uppercase tracking-widest text-emerald-300">Proof: improvement shipped</span>{" "}
       <span className="text-base text-slate-200">{line}</span>{" "}
       <span className="font-mono text-xs text-slate-500">fleet-wide</span>
     </div>

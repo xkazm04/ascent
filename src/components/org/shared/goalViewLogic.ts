@@ -19,26 +19,26 @@ export const rate = (n: number) => `${n > 0 ? "+" : ""}${n}/wk`;
 
 /** One-line, leader-facing read of a goal's pace — the detail under the progress meter. */
 export function readout(g: GoalProgressView): string {
-  if (g.pace === "reached") return `Target met — holding at or above ${g.target}.`;
+  if (g.pace === "reached") return `Target met: holding at or above ${g.target}.`;
 
   const eta = g.etaDate ? `reaches ${g.target} ${humanizeDays(g.etaDays ?? 0)} (${g.etaDate})` : null;
 
   if (g.pace === "on-pace") {
-    return `On pace — ${eta}${g.targetDate ? `, ahead of ${g.targetDate}` : ""}.`;
+    return `On pace: ${eta}${g.targetDate ? `, ahead of ${g.targetDate}` : ""}.`;
   }
   if (g.pace === "behind") {
-    const need = g.requiredPerWeek != null ? ` — needs ${rate(g.requiredPerWeek)} (now ${rate(g.perWeek)})` : "";
-    if (eta) return `Behind — at ${rate(g.perWeek)}, ${eta}, past the ${g.targetDate} deadline${need}.`;
-    return `Behind — flat at ${g.current} on a ${rate(g.perWeek)} trend, target not reached at this pace${need}.`;
+    const need = g.requiredPerWeek != null ? `, needs ${rate(g.requiredPerWeek)} (now ${rate(g.perWeek)})` : "";
+    if (eta) return `Behind: at ${rate(g.perWeek)}, ${eta}, past the ${g.targetDate} deadline${need}.`;
+    return `Behind: flat at ${g.current} on a ${rate(g.perWeek)} trend, target not reached at this pace${need}.`;
   }
   // tracking: no deadline, or not enough trend to judge a pace yet.
-  if (eta) return `On track — ${eta}.`;
+  if (eta) return `On track: ${eta}.`;
   if (g.fitQuality === 0 && g.perWeek === 0) {
     return g.requiredPerWeek != null
-      ? `Not enough trend yet — needs ${rate(g.requiredPerWeek)} to reach ${g.target} by ${g.targetDate}.`
-      : `Not enough trend yet — scan over time to project an ETA.`;
+      ? `Not enough trend yet: needs ${rate(g.requiredPerWeek)} to reach ${g.target} by ${g.targetDate}.`
+      : `Not enough trend yet. Scan over time to project an ETA.`;
   }
-  return `Holding near ${g.current} on a ${rate(g.perWeek)} trend — no ETA to ${g.target} at this pace.`;
+  return `Holding near ${g.current} on a ${rate(g.perWeek)} trend, no ETA to ${g.target} at this pace.`;
 }
 
 export const INIT_STATUS_LABEL: Record<string, string> = {

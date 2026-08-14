@@ -65,7 +65,7 @@ export function RepoDimensionHeatmap({
       <SectionHeader
         size="sm"
         title="Dimension heatmap"
-        description={`Where each repo is strong or weak across all ${dims.length} dimensions — click a column to sort, a cell for its score, evaluation, and next steps.`}
+        description={`Where each repo is strong or weak across all ${dims.length} dimensions. Click a column to sort, a cell for its score, evaluation, and next steps.`}
       />
       <div className="mt-4 overflow-x-auto">
         <table className="min-w-[640px]">
@@ -84,7 +84,7 @@ export function RepoDimensionHeatmap({
                     <button
                       type="button"
                       onClick={() => cycleSort(d)}
-                      title={`Sort by ${d} — weakest first, again for strongest, again to reset`}
+                      title={`Sort by ${d}: weakest first, again for strongest, again to reset`}
                       className={`focus-ring rounded px-1 uppercase tracking-widest transition hover:text-accent ${active ? "text-accent" : ""}`}
                     >
                       {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT] ?? d}
@@ -120,8 +120,8 @@ export function RepoDimensionHeatmap({
                           onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: d })}
                           className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-sm transition hover:ring-2 hover:ring-accent/60"
                           style={{ backgroundColor: cell.fill, color: cell.text }}
-                          title={`${r.name} · ${d}: ${v} — click for detail`}
-                          aria-label={`${r.name} ${d} score ${v} — open detail`}
+                          title={`${r.name} · ${d}: ${v} (click for detail)`}
+                          aria-label={`${r.name} ${d} score ${v}, open detail`}
                         >
                           {v}
                         </button>

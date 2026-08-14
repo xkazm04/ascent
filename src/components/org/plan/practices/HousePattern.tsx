@@ -48,7 +48,7 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
       <SectionHeader
         size="sm"
         title="Your house pattern"
-        description="The practices this organization already shares — mined from the structure of your own strongest repositories, not from a generic template. Structure only: headings and layout travel between your repos, never an artifact's contents."
+        description="The practices this organization already shares, mined from the structure of your own strongest repositories, not from a generic template. Structure only: headings and layout travel between your repos, never an artifact's contents."
       />
 
       {reposWithShape === 0 && (
@@ -63,7 +63,7 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
           Nothing is shared across {reposWithShape} scanned{" "}
           {reposWithShape === 1 ? "repository" : "repositories"} yet. A pattern needs at least{" "}
           <strong className="font-medium text-slate-200">{MIN_AGREEMENT} repositories</strong> to structure an artifact
-          the same way — one strong repository&apos;s document is that team&apos;s document, not a house standard, and
+          the same way. One strong repository&apos;s document is that team&apos;s document, not a house standard, and
           promoting it here would say otherwise.
         </p>
       )}
@@ -80,8 +80,8 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
                 Shared by{" "}
                 <span className="text-slate-200">
                   {m.exemplars.length} {m.exemplars.length === 1 ? "repository" : "repositories"}
-                </span>{" "}
-                — {m.exemplars.join(", ")}. {m.gapRepos.length}{" "}
+                </span>
+                : {m.exemplars.join(", ")}. {m.gapRepos.length}{" "}
                 {m.gapRepos.length === 1 ? "repository lacks" : "repositories lack"} it.
               </p>
               <Lines title="Shared outline" lines={m.outline} />
@@ -103,7 +103,7 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
         heading or path counts only when at least {MIN_AGREEMENT} of your exemplar repositories carry it
         independently, so what you see is agreement rather than the highest-scoring repository&apos;s copy. The{" "}
         <strong className="font-medium text-slate-200">{"n×"}</strong> beside each line is how many agreed. Only
-        document skeletons and path layouts are read — never an artifact&apos;s body — and a mined pattern stays inside
+        document skeletons and path layouts are read (never an artifact&apos;s body), and a mined pattern stays inside
         this organization.
       </p>
     </Card>

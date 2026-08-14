@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Couldn't update the role, try again." }, { status: 503 });
   }
   if (outcome === "last_owner") {
-    return NextResponse.json({ error: "Can't demote the last owner — assign another owner first." }, { status: 409 });
+    return NextResponse.json({ error: "Can't demote the last owner. Assign another owner first." }, { status: 409 });
   }
   // resolveViewerLogin, not getSession: under the ACTIVE Supabase wall no ascent_session cookie exists,
   // so getSession() returns null and every privilege change was audited with a null actor — the one
@@ -88,7 +88,7 @@ export async function DELETE(request: Request) {
   const outcome = await removeMembership(org, login);
   if (outcome === "not_found") return NextResponse.json({ error: "No such member." }, { status: 404 });
   if (outcome === "last_owner") {
-    return NextResponse.json({ error: "Can't remove the last owner — assign another owner first." }, { status: 409 });
+    return NextResponse.json({ error: "Can't remove the last owner. Assign another owner first." }, { status: 409 });
   }
   const actor = await resolveViewerLogin();
   await recordOrgAudit("org.member.removed", org, { org, login: normalizeLogin(login) }, actor ?? undefined);

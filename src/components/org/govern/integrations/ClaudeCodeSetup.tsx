@@ -57,13 +57,13 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
           ok: true,
           text:
             data.note ??
-            "Token valid — the metrics endpoint accepted the request (202). Point Claude Code here and per-repo spend is attributed automatically.",
+            "Token valid. The metrics endpoint accepted the request (202). Point Claude Code here and per-repo spend is attributed automatically.",
         });
       } else {
         setResult({ ok: false, text: data.error ?? `Unexpected response (${res.status}).` });
       }
     } catch {
-      setResult({ ok: false, text: "Request failed — is the app reachable?" });
+      setResult({ ok: false, text: "Request failed. Is the app reachable?" });
     } finally {
       setBusy(false);
     }
@@ -76,7 +76,7 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
         <p className="mt-1 text-sm text-slate-400">
           Set these in the environment where your team runs Claude Code (shell profile, CI, or your OTel collector). The{" "}
           <code className="font-mono text-xs text-slate-300">git.repository</code> attribute is what attributes tokens to the exact repo.
-          Keep <code className="font-mono text-xs text-slate-300">OTEL_EXPORTER_OTLP_PROTOCOL=http/json</code> — Ascent decodes OTLP over
+          Keep <code className="font-mono text-xs text-slate-300">OTEL_EXPORTER_OTLP_PROTOCOL=http/json</code>: Ascent decodes OTLP over
           JSON only, and the exporter&apos;s default protobuf wire format is rejected (415).
         </p>
       </div>
@@ -106,7 +106,7 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
         </pre>
         {!revealed && (
           <p className="mt-1 text-xs text-slate-500">
-            The token is hidden here too — Copy still copies the working value. Use Reveal above to show it.
+            The token is hidden here too. Copy still copies the working value. Use Reveal above to show it.
           </p>
         )}
       </div>
@@ -129,7 +129,7 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
 
       <div className="space-y-2 border-t border-divider pt-3">
         <p className="text-xs text-slate-500">
-          Leaked the token? Regenerating issues a new one and stops the old one being accepted — for this organization only.
+          Leaked the token? Regenerating issues a new one and stops the old one being accepted (for this organization only).
         </p>
         <RegenerateTokenButton
           slug={slug}
@@ -142,7 +142,7 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
         />
         {rotated && (
           <p role="status" className="text-sm text-emerald-300">
-            New token issued — the endpoint snippet above already uses it. Copy it into every exporter; the previous token is now rejected.
+            New token issued. The endpoint snippet above already uses it. Copy it into every exporter; the previous token is now rejected.
           </p>
         )}
       </div>

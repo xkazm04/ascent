@@ -114,7 +114,7 @@ export function MoversTicker({
         // is also the least useful thing to hear — a per-repo score with no fleet context. The run's
         // single voice is the header's coalesced "N/M repos" count; the outcome is the headline
         // strip's settled summary. This list stays navigable on demand via its accessible name.
-        <ul className="mt-3 space-y-1.5" aria-label={`Live movers, most recent first — ${ticker.length} ${ticker.length === 1 ? "result" : "results"}`}>
+        <ul className="mt-3 space-y-1.5" aria-label={`Live movers, most recent first: ${ticker.length} ${ticker.length === 1 ? "result" : "results"}`}>
           {ticker.map((m) => (
             <li key={m.id} className="animate-pop-in flex items-center justify-between gap-3 rounded-md px-1 text-base">
               {/* Each mover jumps to its report — a fresh result begs "what changed?", the report answers. */}

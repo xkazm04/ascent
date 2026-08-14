@@ -46,7 +46,7 @@ export function AiRoiQuadrant({ model, slug }: { model: AiDeliveryModel; slug: s
     <div className="space-y-3">
       {noCostSource && (
         <p className="text-xs text-slate-500">
-          Spend (Y-axis) and seat sizes are a deterministic sample — only AI reach (X-axis) is real (git).{" "}
+          Spend (Y-axis) and seat sizes are a deterministic sample: only AI reach (X-axis) is real (git).{" "}
           <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">
             Connect a provider
           </Link>{" "}

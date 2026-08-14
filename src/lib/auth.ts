@@ -115,7 +115,7 @@ function hmac(data: string): string {
 function signSession(s: Session): string {
   // Symmetric with decodeSession's guard: never mint a cookie signed under an empty key. Only reachable
   // with the custom stack configured (isAuthConfigured requires AUTH_SECRET), so this is a backstop.
-  if (!hasAuthSecret()) throw new Error("AUTH_SECRET is not set — refusing to sign a session");
+  if (!hasAuthSecret()) throw new Error("AUTH_SECRET is not set; refusing to sign a session");
   const payload = Buffer.from(JSON.stringify(s)).toString("base64url");
   return `${payload}.${hmac(payload)}`;
 }

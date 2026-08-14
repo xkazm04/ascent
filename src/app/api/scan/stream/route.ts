@@ -329,7 +329,7 @@ export async function POST(request: Request) {
             status: emailSendingEnabled() ? "sending" : "unconfigured",
             ...(emailSendingEnabled()
               ? {}
-              : { message: "Email isn't configured on this deployment — we can't send the report link." }),
+              : { message: "Email isn't configured on this deployment, so we can't send the report link." }),
           });
         }
         send("result", report);

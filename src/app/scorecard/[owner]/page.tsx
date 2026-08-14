@@ -41,7 +41,7 @@ export async function generateMetadata({
   params: Promise<{ owner: string }>;
 }): Promise<Metadata> {
   const { owner } = await params;
-  const title = `${owner} — public AI-native scorecard | Ascent`;
+  const title = `${owner}'s public AI-native scorecard | Ascent`;
   const description = `How AI-native ${owner}'s public repositories are: an aggregate maturity score across nine dimensions, with every underlying report open to read.`;
   return {
     title,
@@ -98,7 +98,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
         {preview.length > 0 && (
           <section aria-labelledby="preview" className="mt-14">
             <h2 id="preview" className="text-xl font-bold tracking-tight text-white">
-              Preview scans — not counted
+              Preview scans (not counted)
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
               Scored by the deterministic preview rubric with no model in the loop. Listed for
@@ -113,8 +113,8 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
             Embed this scorecard
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
-            Drop the badge in a README or docs site. It renders the aggregate level and links back here
-            — and it renders a neutral <span className="font-mono text-slate-300">preview</span> state
+            Drop the badge in a README or docs site. It renders the aggregate level and links back here,
+            and it renders a neutral <span className="font-mono text-slate-300">preview</span> state
             rather than a number whenever no model has scored these repositories.
           </p>
           <pre className="mt-4 overflow-x-auto rounded-xl border border-divider bg-ink/60 p-4 font-mono text-xs text-slate-300">
@@ -122,7 +122,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
           </pre>
           {!base && (
             <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-amber-300/80">
-              No public URL is configured for this deployment — the snippet above is relative.
+              No public URL is configured for this deployment. The snippet above is relative.
             </p>
           )}
         </section>

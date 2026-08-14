@@ -33,7 +33,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             type="button"
             onClick={() => run({ staleOnlyDays: 14 })}
             aria-disabled={inert || undefined}
-            title="Rescan only repos not scanned in the last 14 days — saves token budget"
+            title="Rescan only repos not scanned in the last 14 days: saves token budget"
             aria-describedby={noWatched ? hintId : undefined}
             className={`rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition ${
               inert ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
@@ -60,18 +60,18 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             </div>
             <p className="mt-1 truncate font-mono text-sm text-slate-500">
               {p.total ? `Scanning ${p.done} of ${p.total}` : "Scanning"}
-              {p.current ? ` — ${p.current}` : "…"}
+              {p.current ? ` · ${p.current}` : "…"}
             </p>
           </div>
         )}
         {!p.running && p.failed > 0 && !p.error && (
           <p className="text-sm text-warn">
-            {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan — see the Repositories tab.
+            {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan. See the Repositories tab.
           </p>
         )}
         {!p.running && p.skipped > 0 && !p.error && (
           <p className="text-sm text-warn">
-            {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped — out of scan credits.
+            {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped (out of scan credits).
           </p>
         )}
         {/* Time-budget stop — distinct from the network-error state below. The run succeeded for the
@@ -81,7 +81,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
         {!p.running && p.truncated && !p.error && p.truncated.repos.length > 0 && (
           <div className="flex flex-col items-end gap-1">
             <p className="text-sm text-warn">
-              Time budget reached —{" "}
+              Time budget reached:{" "}
               <span className="font-mono tabular-nums">
                 {p.truncated.scanned} of {p.truncated.total}
               </span>{" "}

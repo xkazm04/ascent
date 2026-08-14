@@ -72,7 +72,7 @@ describe("buildContextRows", () => {
       potency: null,
       band: null,
       commitsSinceEdit: null,
-      verdict: "Not assessed by this scan — re-scan to measure context health",
+      verdict: "Not assessed by this scan; re-scan to measure context health",
     });
   });
 
@@ -126,7 +126,7 @@ describe("buildContextRows", () => {
       repoRow({ contextHealth: health({ present: false, files: [], score: 0, freshness: { score: null, ageDays: null, commitsSinceEdit: null, approximate: true } }) }),
     ]);
     expect(row).toMatchObject({ assessed: true, present: false, band: "absent" });
-    expect(row!.verdict).toMatch(/No agent context — 7 commits\/wk landing unguided/);
+    expect(row!.verdict).toMatch(/No agent context: 7 commits\/wk landing unguided/);
   });
 });
 

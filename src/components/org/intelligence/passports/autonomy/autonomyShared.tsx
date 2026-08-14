@@ -14,8 +14,8 @@ export function SourcePin({ source, className = "" }: { source: GateSource; clas
   const label = source === "derived" ? "proxy" : "mock";
   const title =
     source === "derived"
-      ? "Proxy signal — assembled from adjacent scan fields, not directly observed."
-      : "Not observed by the scan yet — placeholder value for this prototype.";
+      ? "Proxy signal, assembled from adjacent scan fields, not directly observed."
+      : "Not observed by the scan yet: a placeholder value for this prototype.";
   return (
     <span
       title={title}

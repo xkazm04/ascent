@@ -11,7 +11,7 @@ export function DeliveryGovernanceSection({ gov }: { gov: OrgGovernance }) {
     <div id="governance" className="scroll-mt-24">
       <SectionHeader
         title="Branch governance"
-        description={`Guardrails on the default branch — from branch protection & rulesets, across ${gov.repos} repos. Gaps first; the governed tail is folded.`}
+        description={`Guardrails on the default branch (from branch protection & rulesets), across ${gov.repos} repos. Gaps first; the governed tail is folded.`}
       />
       <div className={`mt-3 ${TILE_LEDGER} grid-cols-2 sm:grid-cols-4`}>
         <Tile label="Protect main" value={`${gov.protectedRate}%`} color={scoreHex(gov.protectedRate)} />

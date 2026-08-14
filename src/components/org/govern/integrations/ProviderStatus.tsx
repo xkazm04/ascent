@@ -21,7 +21,7 @@ export function ProviderStatus({ status, available }: { status: ProviderIngestSt
     return (
       <p className="mt-2 flex items-center gap-2 font-mono text-xs text-slate-500">
         <Dot hex="#475569" />
-        No telemetry received yet — finish the setup below, then run Claude Code once.
+        No telemetry received yet. Finish the setup below, then run Claude Code once.
       </p>
     );
   }
@@ -34,7 +34,7 @@ export function ProviderStatus({ status, available }: { status: ProviderIngestSt
           <Dot hex="#fb923c" />
         </span>
         <span>
-          Last received {when} — but nothing landed on a repository. Check that{" "}
+          Last received {when}, but nothing landed on a repository. Check that{" "}
           <code className="text-slate-300">OTEL_RESOURCE_ATTRIBUTES=git.repository</code> is set to a GitHub remote; the ingest response
           reports the skipped datapoints and why.
         </span>

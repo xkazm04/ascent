@@ -33,7 +33,7 @@ export function AuditLogTable({
     <>
       {tamperedCount > 0 && (
         <div role="alert" className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-base text-red-300">
-          <span className="font-mono text-sm uppercase tracking-widest">Integrity failure</span> —{" "}
+          <span className="font-mono text-sm uppercase tracking-widest">Integrity failure</span>:{" "}
           {tamperedCount} {tamperedCount === 1 ? "entry does" : "entries do"} not match the signature recorded
           when {tamperedCount === 1 ? "it was" : "they were"} written. {tamperedCount === 1 ? "That row" : "Those rows"}{" "}
           may have been altered directly in the database; do not file {tamperedCount === 1 ? "it" : "them"} as evidence.

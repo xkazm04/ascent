@@ -56,7 +56,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   if (!briefing) {
     return (
       <SectionEmpty>
-        No scanned repositories yet — scan some of this org&apos;s repos to generate an executive briefing.
+        No scanned repositories yet. Scan some of this org&apos;s repos to generate an executive briefing.
       </SectionEmpty>
     );
   }
@@ -97,7 +97,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title="Executive briefing"
-          description={`Board-ready standing for ${slug} — maturity, benchmark, trajectory, movement and goals over ${period.title.toLowerCase()}. Copy it as a markdown brief to drop into Claude Code for next actions.`}
+          description={`Board-ready standing for ${slug}: maturity, benchmark, trajectory, movement and goals over ${period.title.toLowerCase()}. Copy it as a markdown brief to drop into Claude Code for next actions.`}
         />
         <div className="flex flex-wrap items-center gap-2">
           {techGroups.length > 0 && <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />}
@@ -179,7 +179,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
 
       <BriefingGoalsCard
         goals={briefing.goals}
-        emptyText="No goals set — define maturity targets on the Plan tab to track progress here."
+        emptyText="No goals set. Define maturity targets on the Plan tab to track progress here."
         right={
           <Link href={orgTabHref(slug, "plan")} className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent">
             Manage goals →

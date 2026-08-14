@@ -52,8 +52,8 @@ function FieldNotes({ ledger, periodTitle }: { ledger: ImpactLedgerModel; period
   return (
     <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
       <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Field notes</span> Points are the{" "}
-      <strong className="font-medium text-slate-200">measured</strong> delta on each PR&apos;s targeted dimension — the first
-      scan after the merge against the repo&apos;s scan when the PR opened — summed over {periodTitle.toLowerCase()}. Only
+      <strong className="font-medium text-slate-200">measured</strong> delta on each PR&apos;s targeted dimension (the first
+      scan after the merge against the repo&apos;s scan when the PR opened), summed over {periodTitle.toLowerCase()}. Only
       re-scanned merges count.
       {ledger.awaitingRescan > 0 && (
         <>
@@ -72,7 +72,7 @@ function FieldNotes({ ledger, periodTitle }: { ledger: ImpactLedgerModel; period
           shown as &ldquo;—&rdquo; rather than as zero.
         </>
       )}{" "}
-      Per-repo overall movement is shown per row and never summed — one repo&apos;s overall delta added to another&apos;s has
+      Per-repo overall movement is shown per row and never summed: one repo&apos;s overall delta added to another&apos;s has
       no meaning.
     </p>
   );
@@ -109,7 +109,7 @@ export function ImpactLedger({
       <SectionHeader
         title="Impact ledger"
         descriptionClassName="max-w-3xl"
-        description={`What the improvement loop bought over ${periodTitle.toLowerCase()} — every accepted direction that merged, and the movement its post-merge rescan actually measured. Verified only: a merge without a rescan is listed, but buys nothing.`}
+        description={`What the improvement loop bought over ${periodTitle.toLowerCase()}: every accepted direction that merged, and the movement its post-merge rescan actually measured. Verified only: a merge without a rescan is listed, but buys nothing.`}
       />
 
       <div className={`${TILE_LEDGER} grid-cols-2 sm:grid-cols-3 lg:grid-cols-5`}>
@@ -168,7 +168,7 @@ export function ImpactLedger({
       >
         {ledger.rows.map((row) => {
           const unmeasured = row.verified
-            ? "Re-scanned, but the repo had no baseline scan when the PR opened — not measurable"
+            ? "Re-scanned, but the repo had no baseline scan when the PR opened, so it's not measurable"
             : "Merged; the post-merge rescan hasn't landed yet";
           return (
             <tr key={`${row.repoFullName}:${row.prNumber}`} className="align-top">

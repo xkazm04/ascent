@@ -92,7 +92,7 @@ export function reflectOutcomeCopy(r: ReflectResponse): { headline: string; deta
       headline: "No model engine is available, so nothing was proposed.",
       detail:
         "Reflection needs a model: a rollup is prose, and a deterministic one would be a concatenation " +
-        "masquerading as a synthesis — which would then supersede its sources. Configure LLM_PROVIDER " +
+        "masquerading as a synthesis, which would then supersede its sources. Configure LLM_PROVIDER " +
         "(and its key) to enable it. Nothing was changed.",
     };
   }
@@ -105,7 +105,7 @@ export function reflectOutcomeCopy(r: ReflectResponse): { headline: string; deta
   return {
     headline: `${r.clusterCount} similar famil${r.clusterCount === 1 ? "y" : "ies"} found, none worth rolling up.`,
     detail:
-      "The model read each family and judged that they do not restate one subject — an unnecessary " +
+      "The model read each family and judged that they do not restate one subject: an unnecessary " +
       "rollup destroys detail, so it proposed none. Nothing was changed.",
   };
 }

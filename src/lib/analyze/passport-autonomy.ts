@@ -28,10 +28,10 @@ const testRank = (level: string): number => Math.max(0, TEST_RANK.indexOf(level 
 const ciRank = (level: string): number => Math.max(0, CI_RANK.indexOf(level as (typeof CI_RANK)[number]));
 
 export const TOKENLESS_MISSING =
-  "Enforcement (branch protection) not observable on this scan (no token) — tiers above T1 require verified merge gates; re-scan with a token.";
+  "Enforcement (branch protection) not observable on this scan (no token). Tiers above T1 require verified merge gates; re-scan with a token.";
 
 const SANDBOX_HOOKS_UNKNOWN =
-  "Sandbox/hooks not assessed by this pre-0.3.0 scan — re-scan to detect devcontainer/Dockerfile/nix and hook configs.";
+  "Sandbox/hooks not assessed by this pre-0.3.0 scan. Re-scan to detect devcontainer/Dockerfile/nix and hook configs.";
 
 interface Predicate {
   met: boolean;
@@ -64,7 +64,7 @@ function tierPredicates(inputs: AutonomyBlock["inputs"]): Record<Exclude<Autonom
     T1: [
       {
         met: inputs.agentInstructions,
-        missing: "No agent instructions file — write a human-curated CLAUDE.md / AGENTS.md so an agent starts oriented.",
+        missing: "No agent instructions file. Write a human-curated CLAUDE.md / AGENTS.md so an agent starts oriented.",
       },
       {
         met: inputs.selfVerifyTest,
@@ -72,17 +72,17 @@ function tierPredicates(inputs: AutonomyBlock["inputs"]): Record<Exclude<Autonom
       },
       {
         met: testRank(inputs.testsLevel) >= testRank("partial"),
-        missing: `Test suite is ${inputs.testsLevel} — at least a partial suite is needed to check agent-authored tests, docs and refactors.`,
+        missing: `Test suite is ${inputs.testsLevel}, and at least a partial suite is needed to check agent-authored tests, docs and refactors.`,
       },
     ],
     T2: [
       {
         met: ciRank(inputs.ciLevel) >= ciRank("gated"),
-        missing: "CI does not gate merges — protect the default branch and require status checks so an agent PR cannot bypass them.",
+        missing: "CI does not gate merges. Protect the default branch and require status checks so an agent PR cannot bypass them.",
       },
       {
         met: testRank(inputs.testsLevel) >= testRank("substantial"),
-        missing: `Test suite is ${inputs.testsLevel} — substantial coverage is needed before delegating feature work.`,
+        missing: `Test suite is ${inputs.testsLevel}, and substantial coverage is needed before delegating feature work.`,
       },
       {
         met: inputs.hooks === true || inputs.sandbox === true,
@@ -98,11 +98,11 @@ function tierPredicates(inputs: AutonomyBlock["inputs"]): Record<Exclude<Autonom
       },
       {
         met: inputs.evals !== "none",
-        missing: "No eval / golden-test harness for AI output — unattended runs need a quality bar the machine can apply.",
+        missing: "No eval / golden-test harness for AI output. Unattended runs need a quality bar the machine can apply.",
       },
       {
         met: inputs.migrations === "versioned",
-        missing: `Migrations are ${inputs.migrations} — schema changes need a versioned migration trail before unattended runs.`,
+        missing: `Migrations are ${inputs.migrations}, and schema changes need a versioned migration trail before unattended runs.`,
       },
     ],
   };

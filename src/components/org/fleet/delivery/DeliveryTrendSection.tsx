@@ -34,7 +34,7 @@ export const DELIVERY_TREND_METRICS: MetricDef[] = [
   {
     key: "aiInvolvedRate",
     label: "AI involvement",
-    help: "Share of PRs authored by an AI agent or carrying an AI marker. Not a target — context.",
+    help: "Share of PRs authored by an AI agent or carrying an AI marker. Not a target, just context.",
     unit: "%",
   },
   {
@@ -46,7 +46,7 @@ export const DELIVERY_TREND_METRICS: MetricDef[] = [
   {
     key: "aiTrailerRate",
     label: "AI trailers",
-    help: "Share of merged PRs whose commit messages carry an AI attribution trailer — grounded attribution, not self-declared. Context, not a target.",
+    help: "Share of merged PRs whose commit messages carry an AI attribution trailer (grounded attribution, not self-declared). Context, not a target.",
     unit: "%",
   },
   {
@@ -70,27 +70,27 @@ export const DELIVERY_TREND_METRICS: MetricDef[] = [
   {
     key: "smallPrRate",
     label: "Small PRs",
-    help: "Share of PRs at ≤ 200 changed lines — the batch size a reviewer can actually hold.",
+    help: "Share of PRs at ≤ 200 changed lines: the batch size a reviewer can actually hold.",
     unit: "%",
   },
   {
     key: "revertRate",
     label: "Revert rate",
-    help: "Share of PRs whose title starts with “Revert” — shipped work that had to come back out.",
+    help: "Share of PRs whose title starts with “Revert”: shipped work that had to come back out.",
     unit: "%",
     higherIsBetter: false,
   },
   {
     key: "hoursToFirstReview",
     label: "Time to first review",
-    help: "Typical hours a PR waits for its first review — the review-capacity signal.",
+    help: "Typical hours a PR waits for its first review: the review-capacity signal.",
     unit: "h",
     higherIsBetter: false,
   },
   {
     key: "hoursToMerge",
     label: "Time to merge",
-    help: "Typical hours from a PR opening to it merging. Review latency — not deployment lead time.",
+    help: "Typical hours from a PR opening to it merging. Review latency, not deployment lead time.",
     unit: "h",
     higherIsBetter: false,
   },
@@ -156,7 +156,7 @@ export function DeliveryTrendSection({
     <Card>
       <SectionHeader
         title="Delivery over time"
-        description={`${periodTitle} — ${trend.scans} scan${trend.scans === 1 ? "" : "s"} across ${trend.repos} repo${
+        description={`${periodTitle}: ${trend.scans} scan${trend.scans === 1 ? "" : "s"} across ${trend.repos} repo${
           trend.repos === 1 ? "" : "s"
         }. Each point is one day, aggregated over the scans that ran that day.`}
         right={<TimeRangeSelector range={range} from={from} to={to} />}
@@ -190,14 +190,14 @@ export function DeliveryTrendSection({
 
       <div className="mt-4 space-y-2 font-mono text-sm text-slate-600">
         <p>
-          A day&apos;s point describes the repos scanned that day, not the whole fleet — hover any point for its
+          A day&apos;s point describes the repos scanned that day, not the whole fleet. Hover any point for its
           sample size. Days nobody measured a metric are gaps in the line, never zeroes.
         </p>
         {anyMock && (
-          <p>Hollow points are days whose scans all came from the demo engine — a deterministic rubric, no model.</p>
+          <p>Hollow points are days whose scans all came from the demo engine (a deterministic rubric, no model).</p>
         )}
         {trend.retentionClamped && trend.since && (
-          <p>History starts {trend.since.slice(0, 10)} — your plan&apos;s retention window, not the period you picked.</p>
+          <p>History starts {trend.since.slice(0, 10)}: your plan&apos;s retention window, not the period you picked.</p>
         )}
         {/* G7-10, answered honestly rather than by approximation. Time-to-merge is review latency, not
             DORA "lead time for changes" (commit → running in production); the other three DORA metrics

@@ -56,7 +56,7 @@ export default function GlobalError({
             Ascent hit an unexpected error
           </h1>
           <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.5, color: "#94a3b8" }}>
-            Something failed while loading the application shell. This is usually transient — try
+            Something failed while loading the application shell. This is usually transient. Try
             again, and if it persists, reload the page.
           </p>
           {error.digest && (

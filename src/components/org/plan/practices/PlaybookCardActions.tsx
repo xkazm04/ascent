@@ -37,7 +37,7 @@ export function PlaybookApplyControls({
   if (repoOptions.length === 0) {
     return (
       <p className="mt-2 font-mono text-sm text-slate-500">
-        No repos in scope — connect or select a repo to apply this playbook.
+        No repos in scope. Connect or select a repo to apply this playbook.
       </p>
     );
   }
@@ -88,7 +88,7 @@ export function PlaybookApplyControls({
       {remaining === 0 && (
         // The former dead end, now explained: state the good news AND the action that remains.
         <p className="font-mono text-sm text-slate-500">
-          All {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} have adopted this playbook — pick one to
+          All {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} have adopted this playbook; pick one to
           re-open a draft PR, or unmark it above.
         </p>
       )}

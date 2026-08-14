@@ -42,7 +42,7 @@ export function CheckVerdict({
             {/* Never imply we scanned the whole store — say exactly what was compared, and by what. */}
             compared {comparedCount} memor{comparedCount === 1 ? "y" : "ies"} ·{" "}
             {llmUnavailable ? (
-              <span title="No model engine was reachable — this is a deterministic word-overlap estimate, not a semantic judgment.">
+              <span title="No model engine was reachable: this is a deterministic word-overlap estimate, not a semantic judgment.">
                 word-overlap estimate (no model)
               </span>
             ) : (
@@ -125,7 +125,7 @@ export function CheckVerdict({
             <span className="text-sm text-slate-300">
               Keep both
               <span className="ml-1.5 font-mono text-xs text-slate-600">
-                — store this as a new, independent memory
+                (store this as a new, independent memory)
               </span>
             </span>
           </label>

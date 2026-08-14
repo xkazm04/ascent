@@ -63,7 +63,7 @@ export function AbuseLimitsPanel({ quotaEvents }: { quotaEvents: QuotaEventTotal
           <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Monthly-quota denials</div>
           <div className="mt-2 space-y-1.5 text-base">
             {quotaEvents.quotaDenies.length === 0 ? (
-              <p className="text-slate-500">None — no one&apos;s hit the monthly free-scan cap.</p>
+              <p className="text-slate-500">None. No one&apos;s hit the monthly free-scan cap.</p>
             ) : (
               quotaEvents.quotaDenies.map((d) => (
                 <div key={d.scope} className="flex items-center justify-between gap-3">

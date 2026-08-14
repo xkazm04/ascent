@@ -84,7 +84,7 @@ export async function openDraftPr(input: OpenPrInput): Promise<OpenPrResult> {
     throw new AppApiError(
       409,
       path,
-      `"${path}" already exists on ${base} — refusing to overwrite it with a starter artifact.`,
+      `"${path}" already exists on ${base}; refusing to overwrite it with a starter artifact.`,
     );
   }
 

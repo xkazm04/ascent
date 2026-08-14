@@ -26,7 +26,7 @@ export function RepoCategoryRollupGroup({ g, orgSlug }: { g: Group; orgSlug: str
         {avg == null ? (
           <span
             className="font-mono text-sm text-slate-600"
-            title={`No live-scored repositories in this group${mock > 0 ? ` — all ${mock} carry a deterministic mock score` : ""}`}
+            title={`No live-scored repositories in this group${mock > 0 ? ` (all ${mock} carry a deterministic mock score)` : ""}`}
           >
             — no score
           </span>
