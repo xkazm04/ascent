@@ -11,6 +11,8 @@
 // PRs that "merge" after a short delay, so the whole loop runs on a keyless local dev — the same
 // philosophy as the deterministic mock LLM provider.
 
+import { cache } from "react";
+
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getInstallationIdForOwner } from "@/lib/db/installations";
@@ -215,6 +217,22 @@ export async function listOpsState(orgSlug: string): Promise<OpsState | null> {
     mockPrs: mockPrsEnabled(),
   };
 }
+
+/**
+ * How many PRs the loop has open right now. One indexed count (`@@index([orgId, state])`) — cheap
+ * enough for the shell to run on EVERY org tab render, which is what the landing decision needs
+ * (src/lib/org/landing.ts). React-`cache()`d per request so the layout's call and the page's call
+ * collapse into one query, the repo's convention for shell+page shared reads.
+ *
+ * Deliberately NOT `listOpsState` — that pulls every watched repo's latest scan and its open
+ * recommendations to build the triage ranking, which would be an absurd tax to pay for one boolean.
+ */
+export const countInFlightPrs = cache(async (orgSlug: string): Promise<number> => {
+  if (!isDbConfigured()) return 0;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return 0;
+  return getPrisma().improvementPr.count({ where: { orgId: org.id, state: "open" } });
+});
 
 export type OpsAcceptResult =
   | { kind: "ok"; item: OpsPrItem; reused: boolean }

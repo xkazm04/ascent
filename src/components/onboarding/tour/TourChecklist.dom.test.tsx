@@ -90,7 +90,9 @@ describe("TourChecklist — entry intensity by stamp", () => {
     expect(screen.getByText("Set up your dashboard")).toBeTruthy();
     // ONE promoted task with its primary CTA, the rest as a thin rail.
     expect(screen.getByText(/^Next · Baseline$/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open the fleet" }).getAttribute("href")).toBe("/org/acme");
+    // W1b: Overview is an explicit ?tab= destination — the bare /org/acme is the landing decision,
+    // which for an org with PRs in flight is Live. A "read your baseline" CTA must name the tab.
+    expect(screen.getByRole("link", { name: "Open the fleet" }).getAttribute("href")).toBe("/org/acme?tab=overview");
     expect(screen.getByRole("button", { name: "Skip setup" })).toBeTruthy();
   });
 
@@ -102,7 +104,7 @@ describe("TourChecklist — entry intensity by stamp", () => {
     expect(screen.queryByRole("button", { name: "Skip setup" })).toBeNull();
     // The teach steps no task claimed stay reachable here.
     expect(screen.getByText("Learn the dashboard")).toBeTruthy();
-    expect(screen.getByText("Each module is a lens")).toBeTruthy();
+    expect(screen.getByText("The rail is the journey")).toBeTruthy();
   });
 
   it("never auto-opens for a non-member, on the demo org, or when everything is done", async () => {

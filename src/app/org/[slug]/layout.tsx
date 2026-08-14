@@ -6,8 +6,9 @@ import { OrgFirstScanEmpty } from "@/components/org/shell/OrgFirstScanEmpty";
 import { resolveOrgShellState } from "./orgShellGate";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
-import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
+import { countInFlightPrs, countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getNavCounts } from "@/lib/org/nav-counts";
+import { resolveLandingTab } from "@/lib/org/landing";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer, resolveViewerLogin } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
@@ -111,8 +112,9 @@ export default async function OrgLayout({
   let myRole: Awaited<ReturnType<typeof getMembershipRole>> | null;
   let usageThisMonth: number;
   let navCounts: Awaited<ReturnType<typeof getNavCounts>>;
+  let inFlightPrs: number;
   try {
-    [summary, credit, myRole, usageThisMonth, navCounts] = await Promise.all([
+    [summary, credit, myRole, usageThisMonth, navCounts, inFlightPrs] = await Promise.all([
       getOrgHeaderSummary(slug),
       slug === "public" ? Promise.resolve(null) : getCreditState(slug),
       // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
@@ -124,6 +126,10 @@ export default async function OrgLayout({
       // Rail badges (items awaiting a decision). Non-critical chrome, so a failure degrades to an
       // unbadged rail rather than 500-ing the shell — same posture as myRole/usageThisMonth above.
       getNavCounts(slug).catch(() => null),
+      // W1b: the rail must light the tab the PAGE actually rendered, and a bare /org/<slug> renders
+      // the LANDING tab (Live when the loop is running). React-`cache()`d, so this is the same single
+      // count the page runs — not a second query. Degrades to 0 (⇒ Overview) rather than 500-ing.
+      countInFlightPrs(slug).catch(() => 0),
     ]);
   } catch (err) {
     if (isDbUnavailableError(err)) {
@@ -199,7 +205,12 @@ export default async function OrgLayout({
       <main id="main" tabIndex={-1} className={`${ORG_SHELL} py-8 focus:outline-none`}>
         <div className="lg:grid lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-6">
           <aside data-tour="modules-nav" className="lg:sticky lg:top-20 lg:self-start">
-            <OrgTabNav slug={slug} counts={navCounts ?? undefined} kind={summary.kind} />
+            <OrgTabNav
+              slug={slug}
+              counts={navCounts ?? undefined}
+              kind={summary.kind}
+              landingTab={resolveLandingTab({ scannedCount: summary.scannedCount, inFlightPrs })}
+            />
           </aside>
           {/* W6b: a member's zero-repo fleet org gets the first-scan empty state in the content slot
               (every tab would be empty anyway); the moment the first import lands, repoCount > 0 and

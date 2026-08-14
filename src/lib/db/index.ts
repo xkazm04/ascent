@@ -317,6 +317,7 @@ export {
 } from "@/lib/db/integrations";
 export {
   listOpsState,
+  countInFlightPrs,
   acceptDirection,
   rejectDirection,
   refreshOps,

@@ -59,7 +59,7 @@ export interface AboutOrgModule {
   views: AboutOrgView[];
 }
 
-/** The six modules, in the rail's own order, each carrying its real views. */
+/** The modules, in the rail's own order, each carrying its real views. */
 export const ABOUT_ORG_MODULES: AboutOrgModule[] = ORG_NAV_GROUPS.map((group) => ({
   key: group.key,
   label: group.label,

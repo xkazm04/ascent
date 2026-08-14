@@ -141,6 +141,10 @@ pure UI state; only "Skip setup" writes.
   undone `first-scan` task spotlights `scan-scope` (the control that *makes* the baseline — the
   results grid doesn't exist yet) and switches to `results-view` once done; `loop` borrows
   "Choose what's in scope". The three teach steps no task claims stay reachable in the teaching rail.
+  **W1a (2026-08-14):** the `modules-nav` teach step ("The rail is the journey") now names the five
+  journey sections — Standing · Chosen · In flight · Bought · Admin — instead of the retired
+  data-type modules. Teach copy describes the shipping rail, so a regroup edits it in lockstep; see
+  [org-intelligence.md](../org-dashboard/org-intelligence.md#the-rail-is-grouped-by-the-journey-not-by-data-type-w1a-2026-08-14).
 - **A missing anchor degrades to plain navigation.** The engine polls on rAF for a bounded budget and
   marks the step skipped; in the drawer, auto-advance is OFF (`autoAdvanceOverSkipped: false`) — the
   member asked for *this* task, so the tab switch stands and only the ring is missing. Never a stuck

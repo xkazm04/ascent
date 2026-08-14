@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { OrgTabChunks } from "@/components/org/shell/OrgTabChunks";
-import { getOrgHeaderSummary } from "@/lib/db";
+import { countInFlightPrs, getOrgHeaderSummary } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
-import { DEFAULT_ORG_TAB, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath } from "@/lib/org/orgTabs";
+import { resolveLandingTab } from "@/lib/org/landing";
+import { isMigratedOrgTab, isOrgTabId, legacyOrgTabPath } from "@/lib/org/orgTabs";
 
 // Kept from the layout's contract: the tenant gate must never be cached.
 export const dynamic = "force-dynamic";
@@ -55,10 +56,18 @@ export default async function OrgDashboardPage({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Resolve + validate. An unknown ?tab= falls back to the default rather than 404-ing: a stale
+  // Resolve + validate. An unknown ?tab= falls back to the landing tab rather than 404-ing: a stale
   // bookmark should land on the dashboard, not on an error.
+  //
+  // W1b: a BARE /org/<slug> (no ?tab=) is the org's LANDING decision, not a synonym for Overview —
+  // an org with PRs in flight opens on its loop. Both reads are React-`cache()`d and the layout runs
+  // the same two, so this costs nothing extra; `resolveLandingTab` is pure and unit-tested. Rendering
+  // rather than redirecting keeps the bare URL shareable (it is the one in the digest email) and
+  // keeps it meaning "this org" for whoever opens it next, whose loop state may differ.
   const raw = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
-  const tab = isOrgTabId(raw) ? raw : DEFAULT_ORG_TAB;
+  const [summary, inFlightPrs] = await Promise.all([getOrgHeaderSummary(slug), countInFlightPrs(slug)]);
+  const landing = resolveLandingTab({ scannedCount: summary?.scannedCount ?? 0, inFlightPrs });
+  const tab = isOrgTabId(raw) ? raw : landing;
 
   // MIGRATION SEAM (delete with MIGRATED_ORG_TAB_IDS): a valid id whose panel isn't registered in
   // OrgTabChunks yet still has a working route of its own — send the deep link there rather than

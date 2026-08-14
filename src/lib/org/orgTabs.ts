@@ -55,7 +55,14 @@ export function isOrgTabId(value: string | null | undefined): value is OrgTabId 
   return typeof value === "string" && TAB_IDS.has(value as OrgTabId);
 }
 
-/** The fleet rollup is the dashboard's landing surface, and lives at the bare `/org/[slug]`. */
+/**
+ * The tab a workspace with no history opens on: read your baseline first.
+ *
+ * W1b (2026-08-14) — this is now a FALLBACK, not "the tab at the bare URL". A returning org whose
+ * loop is running lands on `live` instead (see `resolveLandingTab` in src/lib/org/landing.ts), so
+ * `/org/<slug>` means "take me to this org", not "the Overview tab". Overview has its own explicit
+ * `?tab=overview` URL — see the note on `buildUrl`.
+ */
 export const DEFAULT_ORG_TAB: OrgTabId = "overview";
 
 /** Key into `NavCounts` (src/lib/org/nav-counts.ts). Kept as a string here so this JSX-free module
@@ -80,68 +87,79 @@ export interface OrgNavGroup {
 }
 
 /**
- * The six module groups the rail renders (Overview · Fleet · Intelligence · Plan · Library · Govern),
- * moved here verbatim from OrgNav.tsx so the grouping is data a server component can read. The icons
- * stayed behind in the client nav (they are JSX, keyed by `group.key`).
+ * The five module groups the rail renders. The icons stayed behind in the client nav (they are JSX,
+ * keyed by `group.key`).
+ *
+ * W1a (2026-08-14) REGROUPED these from the original six data-type modules (Overview · Fleet ·
+ * Intelligence · Plan · Library · Govern) to the four questions a transformation owner is asked in a
+ * leadership meeting, plus an admin tail:
+ *
+ *   Standing  — where are we, honestly?
+ *   Chosen    — what did we decide our way of working is?
+ *   In flight — what is moving right now?
+ *   Bought    — what did the last period buy us?
+ *   Admin     — the boring rows, deliberately not hidden.
+ *
+ * The rationale is in docs/AI-SDLC-COMPANION-PLAN.md §Wave 1. A nav grouped by DATA TYPE reads as a
+ * filing cabinet and answers no question anyone is actually asked; grouped by the journey it reads as
+ * a story with a next move. NOTHING about the tab universe changed: `ORG_TAB_IDS`, `PERSONAL_TAB_IDS`,
+ * `MIGRATED_ORG_TAB_IDS`, every id, every href and every legacy redirect are untouched — this is a
+ * regrouping and a relabelling of the module layer only.
+ *
+ * "In flight" is deliberately the SMALLEST group and the one a returning org lands in (see
+ * `shouldLandOnLoop`): the loop is the product, and it used to sit third of four inside "Fleet".
  *
  * A flat tab list, if ever needed, should be derived from `ORG_NAV_GROUPS.flatMap(g => g.items)`
  * rather than maintained as a second parallel declaration.
  */
 export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
   {
-    key: "overview",
-    label: "Overview",
+    key: "standing",
+    label: "Standing",
     items: [
       { id: "overview", label: "Overview" },
-      { id: "executive", label: "Briefing" },
-    ],
-  },
-  {
-    key: "fleet",
-    label: "Fleet",
-    items: [
       // Segments is merged into Repositories as its "?tab=segments" view — no separate rail item.
       { id: "repositories", label: "Repositories" },
       { id: "tech-stacks", label: "Tech Stacks" },
       { id: "passports", label: "Passports", countKey: "passports" },
-      { id: "live", label: "Live" },
+      { id: "security", label: "Security", countKey: "security" },
+      { id: "adoption", label: "Adoption" },
     ],
   },
   {
-    key: "intelligence",
-    label: "Intelligence",
-    short: "Intel",
+    key: "chosen",
+    label: "Chosen",
     items: [
-      { id: "security", label: "Security", countKey: "security" },
-      { id: "adoption", label: "Adoption" },
+      { id: "plan", label: "Plan", countKey: "plan" },
+      { id: "practices", label: "Practices" },
+      { id: "skills", label: "Skills" },
+      { id: "memory", label: "Memory" },
+      { id: "governance", label: "Governance" },
+    ],
+  },
+  {
+    key: "inflight",
+    label: "In flight",
+    items: [
+      { id: "live", label: "Live" },
+      { id: "backlog", label: "Backlog", countKey: "backlog" },
+    ],
+  },
+  {
+    key: "bought",
+    label: "Bought",
+    items: [
+      { id: "executive", label: "Briefing" },
       { id: "delivery", label: "Delivery" },
       { id: "contributors", label: "Contributors", countKey: "contributors" },
       { id: "teams", label: "Teams", countKey: "teams" },
     ],
   },
   {
-    key: "plan",
-    label: "Plan",
-    items: [
-      { id: "practices", label: "Practices" },
-      { id: "plan", label: "Plan", countKey: "plan" },
-      { id: "backlog", label: "Backlog", countKey: "backlog" },
-    ],
-  },
-  {
-    key: "library",
-    label: "Library",
-    items: [
-      { id: "skills", label: "Skills" },
-      { id: "memory", label: "Memory" },
-    ],
-  },
-  {
-    key: "govern",
-    label: "Govern",
+    key: "admin",
+    label: "Admin",
     items: [
       { id: "members", label: "Members", countKey: "members" },
-      { id: "governance", label: "Governance" },
       { id: "integrations", label: "Integrations" },
       { id: "audit", label: "Audit" },
       { id: "settings", label: "Settings" },
@@ -263,8 +281,15 @@ export function buildUrl(slug: string, updates: Record<string, string | null>, s
     if (value === null || value === "") params.delete(key);
     else params.set(key, value);
   }
-  // The default tab is normalized away — it lives at the bare /org/[slug].
-  if (params.get("tab") === DEFAULT_ORG_TAB) params.delete("tab");
+  // W1b REMOVED the "normalize the default tab away" rule that used to live here. It rested on an
+  // assumption that stopped being true: that the bare `/org/<slug>` IS the Overview tab. The bare URL
+  // is now the org's LANDING decision (resolveLandingTab — a returning org whose loop is running opens
+  // on Live), so collapsing `?tab=overview` into it would make Overview unreachable from the rail:
+  // click Overview → bare URL → landing resolves to Live → Overview can never be opened.
+  //
+  // The two concepts are now distinct URLs, which is what they always were conceptually:
+  //   /org/<slug>                → "take me to this org"  (landing decides the tab)
+  //   /org/<slug>?tab=overview   → "the Overview tab"     (explicit, never redirected)
   const base = `/org/${encodeURIComponent(slug)}`;
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
@@ -285,15 +310,24 @@ export function buildOrgTabUrl(slug: string, id: OrgTabId, search: string): stri
  * the `?tab=` param on the shell route, and the path segment on a not-yet-migrated legacy route.
  * Pure so the rail's "you are here" and the server page agree without either re-deriving it.
  *
- * An unrecognized value in either position resolves to the default rather than erroring — a stale
+ * An unrecognized value in either position resolves to `fallback` rather than erroring — a stale
  * bookmark lands on the dashboard, never on a 404.
+ *
+ * `fallback` (W1b) is the org's resolved LANDING tab, threaded in by the shell so the rail lights the
+ * panel the page actually rendered. It defaults to `DEFAULT_ORG_TAB` for every caller that has no org
+ * context (and for a workspace with no loop running, that IS the landing tab). Passing it explicitly
+ * is what stops the rail from highlighting Overview while the content slot shows Live.
  */
-export function resolveActiveOrgTab(pathname: string | null | undefined, tabParam: string | null | undefined): OrgTabId {
+export function resolveActiveOrgTab(
+  pathname: string | null | undefined,
+  tabParam: string | null | undefined,
+  fallback: OrgTabId = DEFAULT_ORG_TAB,
+): OrgTabId {
   const parts = (pathname ?? "").split("/").filter(Boolean);
   // /org/<slug>/<segment>[/...] — a drill-in under a tab keeps that tab lit.
   const segment = parts[0] === "org" ? parts[2] : undefined;
-  if (segment) return isOrgTabId(segment) ? segment : DEFAULT_ORG_TAB;
-  return isOrgTabId(tabParam) ? tabParam : DEFAULT_ORG_TAB;
+  if (segment) return isOrgTabId(segment) ? segment : fallback;
+  return isOrgTabId(tabParam) ? tabParam : fallback;
 }
 
 // ---------------------------------------------------------------------------------------------

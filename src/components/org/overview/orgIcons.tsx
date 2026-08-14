@@ -81,11 +81,17 @@ export function StackRoleIcon({ role, size = 16, className }: { role: StackRole 
   );
 }
 
-// Section glyphs for the org rail's first level — one per module group (OrgNav). Sized 18 there, so
-// they read at a glance beside a 10px mono label.
+// Section glyphs for the org rail's first level — one per module group (OrgTabNav, and the /about-org
+// module map that derives from the same catalog). Sized 18 there, so they read at a glance beside a
+// 10px mono label.
+//
+// W1a: these five replaced the six data-type glyphs (Overview/Fleet/Intelligence/Plan/Library/Govern)
+// when the rail was regrouped around the transition journey. Each one is chosen to read as a VERB or
+// a MOMENT rather than a category — the point of the regroup.
 
-export function OverviewIcon({ size = 18, className }: IconProps) {
-  // Gauge — the fleet's headline read.
+export function StandingIcon({ size = 18, className }: IconProps) {
+  // Gauge — where we stand, read at a glance. (Kept from the old OverviewIcon: it was always the
+  // right glyph for "the headline read", which is exactly what Standing opens with.)
   return (
     <Svg size={size} className={className}>
       <path d="M3.4 18a9 9 0 1 1 17.2 0" />
@@ -94,49 +100,41 @@ export function OverviewIcon({ size = 18, className }: IconProps) {
   );
 }
 
-export function FleetIcon({ size = 18, className }: IconProps) {
-  // Layers — repositories as strata.
+export function ChosenIcon({ size = 18, className }: IconProps) {
+  // Planted flag — a decision taken and staked out: the plan, the practices, the declared stance.
   return (
     <Svg size={size} className={className}>
-      <path d="M12 3 3 7.5 12 12l9-4.5L12 3Z" />
-      <path d="m3 13.5 9 4.5 9-4.5" />
+      <path d="M5.5 21V3.5" />
+      <path d="M5.5 4.5h11l-2.3 4 2.3 4h-11" />
     </Svg>
   );
 }
 
-export function IntelligenceIcon({ size = 18, className }: IconProps) {
-  // Trending line — the analysis lenses.
+export function InFlightIcon({ size = 18, className }: IconProps) {
+  // Paper plane — work that has left the hangar: PRs open, gaps being worked. The literal glyph is
+  // the right one here; anything more abstract reads as another category.
   return (
     <Svg size={size} className={className}>
-      <path d="M3 16.5 9 10l4 3.5 7-8" />
-      <path d="M15.5 5.5H20V10" />
+      <path d="M20.5 3.5 10 14" />
+      <path d="M20.5 3.5 14 20.5l-4-6.5-6.5-4 17-6.5Z" />
     </Svg>
   );
 }
 
-export function PlanIcon({ size = 18, className }: IconProps) {
-  // Clipboard list — practices, plan, backlog.
+export function BoughtIcon({ size = 18, className }: IconProps) {
+  // Receipt — a statement of what the period actually delivered. Deliberately an accounting glyph:
+  // the Bought section reports VERIFIED movement only, never a projection.
   return (
     <Svg size={size} className={className}>
-      <path d="M9 4H7.5A1.5 1.5 0 0 0 6 5.5v14A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5v-14A1.5 1.5 0 0 0 16.5 4H15" />
-      <rect x="9" y="2.5" width="6" height="3" rx="1" />
-      <path d="M9.5 11h5" />
-      <path d="M9.5 15h3.5" />
+      <path d="M6 21V3.6a.6.6 0 0 1 .9-.5L9 4.3l2.1-1.2a.6.6 0 0 1 .6 0L14 4.3l2.1-1.2a.6.6 0 0 1 .9.5V21l-2.4-1.4-2.1 1.2a.6.6 0 0 1-.6 0L9.8 19.6 6 21Z" />
+      <path d="M9.5 8.5h5" />
+      <path d="M9.5 12.5h5" />
     </Svg>
   );
 }
 
-export function LibraryIcon({ size = 18, className }: IconProps) {
-  // Book — the skills library.
-  return (
-    <Svg size={size} className={className}>
-      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" />
-    </Svg>
-  );
-}
-
-export function GovernIcon({ size = 18, className }: IconProps) {
-  // Shield check — access, policy, audit.
+export function AdminIcon({ size = 18, className }: IconProps) {
+  // Shield check — access, integrations, audit, settings.
   return (
     <Svg size={size} className={className}>
       <path d="M12 3 5 6v5.5c0 4.2 2.9 7.9 7 8.7 4.1-.8 7-4.5 7-8.7V6l-7-3Z" />

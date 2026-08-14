@@ -14,11 +14,17 @@ test.describe("Org Overview — fleet standing", () => {
     // The org name is a header label (a span, not an <h1>) beside the fleet maturity chip.
     await expect(page.getByText("vercel", { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/L[1-5] · \d+/).first()).toBeVisible(); // maturity chip: level · index score
-    // The rail nav (SectionRailNav) exposes the active Overview group's pages as links.
+    // The rail nav (SectionRailNav) exposes the ACTIVE section's pages as links. W1a regrouped the
+    // rail around the transition journey, so Overview's section is "Standing" — Briefing moved to
+    // "Bought" and is reached from the rail button, not from this panel.
     const nav = page.getByRole("navigation", { name: "Organization sections" });
     await expect(nav).toBeVisible();
     await expect(nav.getByRole("link", { name: "Overview", exact: true })).toBeVisible();
-    await expect(nav.getByRole("link", { name: "Briefing", exact: true })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Repositories", exact: true })).toBeVisible();
+    // The five journey sections are the rail's first level.
+    for (const section of ["Standing", "Chosen", "In flight", "Bought", "Admin"]) {
+      await expect(nav.getByRole("button", { name: new RegExp(section, "i") }).first()).toBeVisible();
+    }
   });
 
   test("Fleet rollup groups repos and carries real movement", async ({ page }) => {

@@ -14,6 +14,7 @@ import {
   orgTabHref,
   orgTabLabel,
   PERSONAL_TAB_IDS,
+  resolveActiveOrgTab,
   TAB_SCOPED_PARAM_KEYS,
   type OrgTabId,
 } from "./orgTabs";
@@ -45,15 +46,28 @@ describe("org tab catalog", () => {
     }
   });
 
-  it("the six nav groups are the six module groups, in rail order", () => {
-    expect(ORG_NAV_GROUPS.map((g) => g.key)).toEqual([
-      "overview",
-      "fleet",
-      "intelligence",
-      "plan",
-      "library",
-      "govern",
-    ]);
+  // W1a: the rail is grouped by the TRANSITION JOURNEY, not by data type. The order is the order of
+  // the questions a transformation owner is asked, and it is load-bearing — reordering these is a
+  // product decision, not a cosmetic one. See docs/AI-SDLC-COMPANION-PLAN.md §Wave 1.
+  it("the nav groups are the journey sections, in rail order", () => {
+    expect(ORG_NAV_GROUPS.map((g) => g.key)).toEqual(["standing", "chosen", "inflight", "bought", "admin"]);
+    expect(ORG_NAV_GROUPS.map((g) => g.label)).toEqual(["Standing", "Chosen", "In flight", "Bought", "Admin"]);
+  });
+
+  // The loop is the product. It sat third-of-four inside a data-type group called "Fleet"; the
+  // regroup exists largely to put it at the top of the smallest, most-visited section.
+  it("puts Live first in the smallest group", () => {
+    const inflight = ORG_NAV_GROUPS.find((g) => g.key === "inflight");
+    expect(inflight?.items[0]?.id).toBe("live");
+    const sizes = ORG_NAV_GROUPS.map((g) => g.items.length);
+    expect(Math.min(...sizes)).toBe(inflight?.items.length);
+  });
+
+  // A personal workspace filters the SAME catalog (OrgTabNav drops empty groups). Pinned because a
+  // regroup that stranded every personal tab in one section would silently flatten that rail.
+  it("the personal subset still spans more than one journey section", () => {
+    const sections = ORG_NAV_GROUPS.filter((g) => g.items.some((t) => PERSONAL_TAB_IDS.has(t.id)));
+    expect(sections.length).toBeGreaterThan(1);
   });
 
   it("the default tab is a real id and is a rail item", () => {
@@ -100,9 +114,17 @@ describe("buildUrl", () => {
     expect(buildUrl("acme", { repo: "" }, "repo=a")).toBe("/org/acme");
   });
 
-  it("normalizes the default tab away", () => {
-    expect(buildUrl("acme", { tab: "overview" }, "")).toBe("/org/acme");
-    expect(buildUrl("acme", { tab: "overview" }, "range=90d")).toBe("/org/acme?range=90d");
+  // W1b REVERSED the old "normalizes the default tab away" behaviour. The bare /org/<slug> is the
+  // org's LANDING decision (which may be Live), so collapsing ?tab=overview into it would make
+  // Overview unreachable: rail click → bare URL → landing → Live, forever.
+  it("keeps ?tab=overview explicit rather than collapsing it to the bare URL", () => {
+    expect(buildUrl("acme", { tab: "overview" }, "")).toBe("/org/acme?tab=overview");
+    expect(buildUrl("acme", { tab: "overview" }, "range=90d")).toBe("/org/acme?range=90d&tab=overview");
+  });
+
+  it("still produces the bare URL when no tab is set at all", () => {
+    expect(buildUrl("acme", {}, "")).toBe("/org/acme");
+    expect(buildUrl("acme", { tab: null }, "tab=audit")).toBe("/org/acme");
   });
 
   it("encodes the slug", () => {
@@ -130,8 +152,37 @@ describe("buildOrgTabUrl", () => {
     expect(url).toContain("tab=security");
   });
 
-  it("switching back to the default drops the tab param", () => {
-    expect(buildOrgTabUrl("acme", "overview", "tab=audit&range=90d")).toBe("/org/acme?range=90d");
+  // W1b: switching to Overview is now an EXPLICIT destination, not a return to the bare URL.
+  it("switching back to Overview names it explicitly", () => {
+    // `tab` was already present, so URLSearchParams.set replaces it in place — hence tab-first here.
+    expect(buildOrgTabUrl("acme", "overview", "tab=audit&range=90d")).toBe("/org/acme?tab=overview&range=90d");
+  });
+});
+
+describe("resolveActiveOrgTab", () => {
+  it("reads the ?tab= param on the shell route", () => {
+    expect(resolveActiveOrgTab("/org/acme", "security")).toBe("security");
+  });
+
+  it("keeps a legacy drill-in route's tab lit", () => {
+    expect(resolveActiveOrgTab("/org/acme/audit", null)).toBe("audit");
+  });
+
+  it("falls back to the default when nothing valid is present", () => {
+    expect(resolveActiveOrgTab("/org/acme", null)).toBe(DEFAULT_ORG_TAB);
+    expect(resolveActiveOrgTab("/org/acme", "not-a-tab")).toBe(DEFAULT_ORG_TAB);
+  });
+
+  // W1b: the shell threads the org's resolved LANDING tab in as the fallback, so the rail lights the
+  // panel the page actually rendered. Without this the rail said "Overview" while the content slot
+  // showed Live — the exact drift resolveActiveOrgTab exists to prevent.
+  it("honors the landing tab as the fallback when the shell supplies one", () => {
+    expect(resolveActiveOrgTab("/org/acme", null, "live")).toBe("live");
+    expect(resolveActiveOrgTab("/org/acme", "not-a-tab", "live")).toBe("live");
+  });
+
+  it("an explicit ?tab= always beats the landing fallback", () => {
+    expect(resolveActiveOrgTab("/org/acme", "overview", "live")).toBe("overview");
   });
 });
 
@@ -180,8 +231,11 @@ describe("orgTabHref", () => {
     expect(orgTabHref("acme", "audit")).toBe("/org/acme?tab=audit");
   });
 
-  it("points the default tab at the bare org root", () => {
-    expect(orgTabHref("acme", "overview")).toBe("/org/acme");
+  // W1b: Overview is an explicit destination. The bare /org/acme is the LANDING url, and a link
+  // labelled "Overview" that lands you on Live is exactly the bug this prevents — including on a
+  // middle-click, where the rail's href (not its onSelect) is what the browser follows.
+  it("points Overview at its own explicit tab url, not the bare org root", () => {
+    expect(orgTabHref("acme", "overview")).toBe("/org/acme?tab=overview");
   });
 
   it("points an un-migrated tab at its legacy route", () => {

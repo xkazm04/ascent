@@ -17,16 +17,67 @@ its own doc: [plan.md](../org-planning/plan.md).
 `/org` (`src/app/org/page.tsx`) redirects to the active org's dashboard. Each
 `/org/[slug]/*` page renders inside `src/app/org/[slug]/layout.tsx`, which centralizes the
 DB/auth/empty guards and the org header, and shows the persistent nav rail
-(`src/components/org/shared/OrgNav.tsx`), a two-level `SectionRailNav`: an icon rail of six
-module groups (Overview · Fleet · Intelligence · Plan · Library · Govern) beside a panel
-holding only the selected group's pages. The active org is chosen via `OrgSwitcher`
-(`src/components/OrgSwitcher.tsx`), persisted through `POST /api/org/active` into the
-`ascent_active_org` cookie; `getActiveOrg()` reads it (falling back to the first
-installation or `public`).
+(`src/components/org/shell/OrgTabNav.tsx`), a two-level `SectionRailNav`: an icon rail of
+module groups beside a panel holding only the selected group's pages. The active org is
+chosen via `OrgSwitcher` (`src/components/OrgSwitcher.tsx`), persisted through
+`POST /api/org/active` into the `ascent_active_org` cookie; `getActiveOrg()` reads it
+(falling back to the first installation or `public`).
 
 The same nav definition renders a filtered subset for a PERSONAL workspace
 (`Organization.kind === "personal"`) — only Overview, Security, Backlog, Skills and Memory,
 since fleet aggregation/attribution surfaces need a real org's breadth.
+
+### The rail is grouped by the journey, not by data type (W1a, 2026-08-14)
+
+The five module groups in `ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`) are the four questions a
+transformation owner is asked in a leadership meeting, plus an admin tail:
+
+| Section | Answers | Tabs |
+| --- | --- | --- |
+| **Standing** | Where are we, honestly? | Overview · Repositories · Tech Stacks · Passports · Security · Adoption |
+| **Chosen** | What did we decide our way of working is? | Plan · Practices · Skills · Memory · Governance |
+| **In flight** | What is moving right now? | Live · Backlog |
+| **Bought** | What did the last period buy us? | Briefing · Delivery · Contributors · Teams |
+| **Admin** | The boring rows, deliberately not hidden. | Members · Integrations · Audit · Settings |
+
+This replaced the original six data-type modules (Overview · Fleet · Intelligence · Plan ·
+Library · Govern). Rationale in [`docs/AI-SDLC-COMPANION-PLAN.md`](../../AI-SDLC-COMPANION-PLAN.md)
+§Wave 1: a nav grouped by data type reads as a filing cabinet and answers no question anyone is
+actually asked. **Nothing about the tab universe changed** — every id, href and legacy redirect is
+untouched; this is a regrouping and relabelling of the module layer only. "In flight" is
+deliberately the smallest group, because the loop is the product and it used to sit third-of-four
+inside "Fleet".
+
+`/about-org`'s public module map (`src/components/about-org/orgModules.ts`) derives from the same
+constant, so it re-grouped itself; only the per-group icons needed remapping.
+
+### Landing: what a bare `/org/<slug>` opens on (W1b, 2026-08-14)
+
+The bare org URL is a **landing decision**, not a synonym for the Overview tab
+(`resolveLandingTab`, `src/lib/org/landing.ts` — pure, unit-tested):
+
+- no completed scan yet → **Overview**. Nothing is in flight, and the baseline is the job.
+- a loop running (≥1 `ImprovementPr` in state `open`) → **Live**. Work is open on the org's behalf.
+- scanned, nothing open → **Overview**. The fleet read is the right resting state.
+
+The backlog deliberately does *not* count: an item sitting in the backlog is a decision not yet
+taken, and landing someone on a to-do list every visit is nagging, not companionship. Only a PR the
+org already said yes to earns the landing slot.
+
+Two consequences worth knowing:
+
+1. **`?tab=overview` is now explicit and is no longer normalized away.** `buildUrl` used to collapse
+   it into the bare URL; with a conditional landing that would make Overview permanently unreachable
+   (rail click → bare URL → landing → Live). `/org/<slug>` means "take me to this org";
+   `/org/<slug>?tab=overview` means "the Overview tab".
+2. **The shell threads the resolved landing tab into the rail** (`OrgTabNav`'s `landingTab` prop →
+   `resolveActiveOrgTab`'s third argument), so the rail lights the panel the page actually rendered
+   instead of always assuming Overview.
+
+The decision reads one extra indexed count (`countInFlightPrs`, `@@index([orgId, state])`),
+React-`cache()`d so the layout's call and the page's call collapse into one query. It renders rather
+than redirects, so the bare URL stays shareable — it is the URL in the weekly digest email, and the
+next person to open it may have different loop state.
 
 **Getting there (2026-08-03).** The personal workspace's front door is `/me`
 (`src/app/me/page.tsx`), which resolves the signed-in login and redirects to `/org/{login}` — an
@@ -71,27 +122,27 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Overview | Overview | `org/[slug]` (`?tab=overview`) | `src/components/org/overview/` | The **Fix first** band (up to 3 triage-ordered next moves — worst regresser, busiest unresolved findings queue, behind-pace goal — own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
-| Overview | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
-| Fleet | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4 — see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
-| Fleet | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
-| Fleet | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
-| Fleet | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
-| Intelligence | Security | `org/[slug]/security` | `src/app/org/[slug]/security/` | Security posture across the fleet. |
-| Intelligence | Adoption | `org/[slug]/adoption` | `src/app/org/[slug]/adoption/` | Adoption signals. |
-| Intelligence | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: nine small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted — `revertRate`, `medianHoursToFirstReview`, `smallPrRate` — into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate` — share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate) — and `aiPreReviewedRate` — share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared) — refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline — data only so far, no dedicated panel yet; the metric's home surface is the Backlog tab's Debt Ledger. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all` — one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. |
-| Intelligence | Contributors | `org/[slug]/contributors` | `src/app/org/[slug]/contributors/page.tsx` | AI champions, involvement table (withheld below 3 contributors), an **Org resilience** module (fleet key-person exposure — repo-level only, names nobody), and the per-repo concentration / bus-factor table. |
-| Intelligence | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. |
-| Plan | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library — see [../practices.md](./practices.md). |
-| Plan | Plan | `org/[slug]/plan` | `src/app/org/[slug]/plan/page.tsx` | Goals, simulator, initiatives, detector backlog — see [plan.md](../org-planning/plan.md). |
-| Plan | Backlog | `org/[slug]/backlog` | `src/app/org/[slug]/backlog/page.tsx` | The recommendation backlog — every open gap across the fleet with an owner + due date, grouped by owner and by due-date bucket; inline status/owner/due-date edits and a per-item activity history. Closing an item (Done/Dismissed) stays one click but is **reversible**: an Undo bar offers the prior status straight back, and a "Show done & dismissed" toggle re-reads the closed rows so an older mistake can still be restored. Undated items show an explicit "no due date" control that focuses the row's due field. **Search, filter & bulk (2026-07-28, G7-12):** a full-text box (title / repo / dimension / impact / effort / owner / rationale, whitespace-separated terms AND-ed), status chips and an owner picker narrow the list CLIENT-side — the headline counts never move, and a "N of M shown" readout says what was hidden. Picking a Done/Dismissed chip turns "show done & dismissed" ON rather than filtering a payload that never carried closed rows. Row checkboxes drive a sticky bulk bar that sets a status on up to **100** selected rows per action (bounded, confirmed, 4-wide fan-out, ONE backlog re-read for the whole run); the selection is pruned to what the filter shows, so a bulk action can never reach a hidden row. **CSV export (G7-13):** "Export CSV ↓" downloads `GET /api/org/backlog?format=csv` for the CURRENT scope (segment / tech group / includeClosed, all encoded in the filename), one row per item via the canonical `csvTable`. **Debt Ledger (W5, 2026-08-12):** the tab now opens with a per-repo **debt summary** above the working panel — see [plan.md](../org-planning/plan.md#debt-ledger-backlog-tab); the panel's stat strip dropped its Overdue/Due-soon tiles (they moved into the ledger masthead) and keeps the workflow counts (Active / Unassigned / In progress / Done). |
-| Library | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
-| Library | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
-| Govern | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
-| Govern | Governance | `org/[slug]/governance` | `src/app/org/[slug]/governance/` | Governance rollups. |
-| Govern | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers — Claude Code (measured, OTel push) today; Copilot / OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
-| Govern | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
-| Govern | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. |
+| Standing | Overview | `org/[slug]?tab=overview` | `src/components/org/overview/` | The **Fix first** band (up to 3 triage-ordered next moves — worst regresser, busiest unresolved findings queue, behind-pace goal — own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
+| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4 — see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below) — there is no separate rail item or route for Segments anymore. |
+| Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
+| Standing | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
+| Standing | Security | `org/[slug]/security` | `src/app/org/[slug]/security/` | Security posture across the fleet. |
+| Standing | Adoption | `org/[slug]/adoption` | `src/app/org/[slug]/adoption/` | Adoption signals. |
+| Chosen | Plan | `org/[slug]/plan` | `src/app/org/[slug]/plan/page.tsx` | Goals, simulator, initiatives, detector backlog — see [plan.md](../org-planning/plan.md). |
+| Chosen | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library — see [../practices.md](./practices.md). |
+| Chosen | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
+| Chosen | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
+| Chosen | Governance | `org/[slug]/governance` | `src/app/org/[slug]/governance/` | Governance rollups. |
+| In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
+| In flight | Backlog | `org/[slug]/backlog` | `src/app/org/[slug]/backlog/page.tsx` | The recommendation backlog — every open gap across the fleet with an owner + due date, grouped by owner and by due-date bucket; inline status/owner/due-date edits and a per-item activity history. Closing an item (Done/Dismissed) stays one click but is **reversible**: an Undo bar offers the prior status straight back, and a "Show done & dismissed" toggle re-reads the closed rows so an older mistake can still be restored. Undated items show an explicit "no due date" control that focuses the row's due field. **Search, filter & bulk (2026-07-28, G7-12):** a full-text box (title / repo / dimension / impact / effort / owner / rationale, whitespace-separated terms AND-ed), status chips and an owner picker narrow the list CLIENT-side — the headline counts never move, and a "N of M shown" readout says what was hidden. Picking a Done/Dismissed chip turns "show done & dismissed" ON rather than filtering a payload that never carried closed rows. Row checkboxes drive a sticky bulk bar that sets a status on up to **100** selected rows per action (bounded, confirmed, 4-wide fan-out, ONE backlog re-read for the whole run); the selection is pruned to what the filter shows, so a bulk action can never reach a hidden row. **CSV export (G7-13):** "Export CSV ↓" downloads `GET /api/org/backlog?format=csv` for the CURRENT scope (segment / tech group / includeClosed, all encoded in the filename), one row per item via the canonical `csvTable`. **Debt Ledger (W5, 2026-08-12):** the tab now opens with a per-repo **debt summary** above the working panel — see [plan.md](../org-planning/plan.md#debt-ledger-backlog-tab); the panel's stat strip dropped its Overdue/Due-soon tiles (they moved into the ledger masthead) and keeps the workflow counts (Active / Unassigned / In progress / Done). |
+| Bought | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
+| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: nine small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted — `revertRate`, `medianHoursToFirstReview`, `smallPrRate` — into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate` — share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate) — and `aiPreReviewedRate` — share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared) — refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline — data only so far, no dedicated panel yet; the metric's home surface is the Backlog tab's Debt Ledger. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all` — one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. |
+| Bought | Contributors | `org/[slug]/contributors` | `src/app/org/[slug]/contributors/page.tsx` | AI champions, involvement table (withheld below 3 contributors), an **Org resilience** module (fleet key-person exposure — repo-level only, names nobody), and the per-repo concentration / bus-factor table. |
+| Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. |
+| Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
+| Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers — Claude Code (measured, OTel push) today; Copilot / OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
+| Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
+| Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. |
 
 ### Segments (a Repositories tab, not a standalone page)
 
@@ -556,7 +607,7 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
 | `src/lib/org/briefing.ts` | `buildExecBriefing` (the one assembly behind page/PDF/markdown/share), `briefingMarkdown`, and the single ranked next move (`briefingNextMove` / `nextMoveLine`). |
 | `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
-| `src/components/org/shared/OrgNav.tsx` | Persistent nav rail (two-level `SectionRailNav`). |
+| `src/components/org/shell/OrgTabNav.tsx` | Persistent nav rail (two-level `SectionRailNav`), grouped by the transition journey. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
 | `src/components/org/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview — **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
 | `src/components/org/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |

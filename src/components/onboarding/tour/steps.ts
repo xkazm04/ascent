@@ -58,8 +58,8 @@ export const ORG_TOUR_STEPS: TourStep[] = [
     tab: "overview",
     anchor: "modules-nav",
     kicker: "Modules · 1",
-    title: "Each module is a lens",
-    body: "The rail groups the deep-dives: Fleet, Intelligence (Security, Adoption, Delivery), Plan, and Govern. Pick a group to reveal its modules — same fleet, one facet at a time.",
+    title: "The rail is the journey",
+    body: "Four questions, in the order you get asked them: Standing (where are we), Chosen (what we decided), In flight (what's moving now), Bought (what it delivered) — plus Admin. Pick a section to reveal its modules.",
   },
   {
     id: "modules-briefing",

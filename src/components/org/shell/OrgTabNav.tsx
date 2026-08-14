@@ -7,6 +7,7 @@ import { SectionRailNav, type RailSection } from "@/components/ui";
 import type { NavCounts } from "@/lib/org/nav-counts";
 import {
   buildOrgTabUrl,
+  DEFAULT_ORG_TAB,
   isMigratedOrgTab,
   ORG_NAV_GROUPS,
   orgTabHref,
@@ -15,12 +16,12 @@ import {
   resolveActiveOrgTab,
   type OrgTabId,
 } from "@/lib/org/orgTabs";
-import { FleetIcon, GovernIcon, IntelligenceIcon, LibraryIcon, OverviewIcon, PlanIcon } from "../overview/orgIcons";
+import { AdminIcon, BoughtIcon, ChosenIcon, InFlightIcon, StandingIcon } from "../overview/orgIcons";
 
 /**
  * The org dashboard's section nav — the two-level rail (SectionRailNav): an icon rail of module
- * groups (Overview · Fleet · Intelligence · Plan · Library · Govern) beside a panel holding only the
- * selected group's tabs. Presentation is unchanged from the pre-refactor OrgNav; what moved is the
+ * groups (Standing · Chosen · In flight · Bought · Admin) beside a panel holding only the selected
+ * group's tabs. Presentation is unchanged from the pre-refactor OrgNav; what moved is the
  * catalog (now src/lib/org/orgTabs.ts, so a server component can read it) and the navigation model:
  * a migrated tab is a `?tab=` push on the shell route instead of a full page navigation.
  *
@@ -33,28 +34,31 @@ import { FleetIcon, GovernIcon, IntelligenceIcon, LibraryIcon, OverviewIcon, Pla
  */
 
 const ICONS: Record<string, React.ReactNode> = {
-  overview: <OverviewIcon size={24} />,
-  fleet: <FleetIcon size={24} />,
-  intelligence: <IntelligenceIcon size={24} />,
-  plan: <PlanIcon size={24} />,
-  library: <LibraryIcon size={24} />,
-  govern: <GovernIcon size={24} />,
+  standing: <StandingIcon size={24} />,
+  chosen: <ChosenIcon size={24} />,
+  inflight: <InFlightIcon size={24} />,
+  bought: <BoughtIcon size={24} />,
+  admin: <AdminIcon size={24} />,
 };
 
 export function OrgTabNav({
   slug,
   counts,
   kind = "org",
+  landingTab = DEFAULT_ORG_TAB,
 }: {
   slug: string;
   counts?: NavCounts;
   kind?: "org" | "personal";
+  /** W1b — the tab a bare `/org/<slug>` renders (resolveLandingTab), threaded from the shell so the
+   *  rail lights the panel the page actually showed instead of always assuming Overview. */
+  landingTab?: OrgTabId;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const search = params.toString();
-  const active = resolveActiveOrgTab(pathname, params.get("tab"));
+  const active = resolveActiveOrgTab(pathname, params.get("tab"), landingTab);
 
   // a11y — on a tab switch, move focus to the <main> landmark (reusing the skip-link target) and
   // announce the newly active tab through a polite live region, so an AT user isn't left with a
