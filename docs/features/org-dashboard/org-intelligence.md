@@ -468,7 +468,7 @@ meant a calendar month.
 **Per-org zones (policy note 6).** `Organization.timezone` holds one org's IANA zone ("this
 org's Monday"). Resolution order is **column → `ASCENT_ORG_TZ` → UTC**, owned by
 `resolveOrgTimeZone(stored)`; never read the column at a call site, or the validation and the
-fallback order drift per surface — the exact defect class this policy exists to prevent. The
+fallback order drift per surface, the exact defect class this policy exists to prevent. The
 storage accessors are `getOrgTimeZone(slug)` / `getOrgTimeZoneSetting(slug)` /
 `setOrgTimeZone(slug, tz)` in `src/lib/db/org-settings.ts` (`getOrgTimeZoneSetting` returns the
 raw column, so a settings UI can distinguish "inherited" from "explicitly UTC"). An invalid zone
@@ -483,7 +483,7 @@ via the deployment default until they are threaded the same way.
 
 **Not yet routed through the policy** (each still uses its own frame; safe under the UTC
 default, would diverge the moment `ASCENT_ORG_TZ` is set):
-`src/lib/db/org-rollup.ts`'s `localDayKey` (server-local — the trend day-key axis),
+`src/lib/db/org-rollup.ts`'s `localDayKey` (server-local, the trend day-key axis),
 `src/lib/db/usage.ts`'s `dayKey` (UTC), and the client-side `daysUntil` in
 `src/components/org/live/LiveWarRoomHeader.tsx` (genuinely viewer-local, and therefore able
 to disagree with the server's bucket by a day).
@@ -498,17 +498,17 @@ markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token
 same builder against the token's window.
 
 **One ranked source for "what to do next" (G5-02).** The briefing carries
-`recommendations: OrgRec[]` — the top-5 `getOrgRecommendations` rows, fetched once inside
+`recommendations: OrgRec[]`, the top-5 `getOrgRecommendations` rows, fetched once inside
 `buildExecBriefing` under the same segment/stack scope as everything else. Read it through
 `briefingNextMove(b)`, and render the sentence with `nextMoveLine(rec)`. Previously the page
 queried this itself while the export path kept an older `risks[0] ?? b.security` heuristic: on a
 small, high-scoring fleet with an empty `risks` list the PDF and the markdown printed the security
-dimension as "the fleet's weakest dimension" **even when it was the fleet's strongest** — a board
+dimension as "the fleet's weakest dimension" **even when it was the fleet's strongest**, a board
 document naming a strength as the weakness. There is deliberately **no dimension fallback** now: an
 empty list means the section is omitted, never replaced by a second notion of "weakest".
 
 **Window resolution matches the page (G5-10).** The PDF route resolves its window with
-`resolveOrgWindow` (`src/lib/org/period.ts`) — the same cookie-aware precedence every org tab uses:
+`resolveOrgWindow` (`src/lib/org/period.ts`), the same cookie-aware precedence every org tab uses:
 explicit `?range=` › the remembered-period cookie › the default. It previously called the
 cookie-blind `resolveWindow`, so a bookmarked or shared PDF URL with no `?range=` silently exported
 the 90d default while the page beside it showed the org's remembered period. Boundary arithmetic is
@@ -524,7 +524,7 @@ The Briefing tab opens the rail's fourth question ("what did the last period buy
 **Impact ledger** (`src/components/org/intelligence/executive/ImpactLedger.tsx` over
 `src/lib/db/org-impact.ts`). It aggregates the improvement loop's own bookends: each row is a starter
 PR the org accepted on the Live wall, merged, and then re-scanned, and the number beside it is
-`ImprovementPr.impactDim` — the measured delta on the dimension that PR was aimed at, first
+`ImprovementPr.impactDim`: the measured delta on the dimension that PR was aimed at, first
 post-merge scan against the repo's scan when the PR opened.
 
 **It reads `ImprovementPr` directly rather than riding on `ExecBriefing`.** That is deliberate: the
@@ -537,7 +537,7 @@ than failing the tab.
 
 1. **Verified only.** A merged PR whose post-merge rescan hasn't landed contributes nothing; it is
    counted and named as "awaiting rescan". A projection is not a purchase.
-2. **Null, never zero.** With nothing verified the headline is an em dash and a reason — "we
+2. **Null, never zero.** With nothing verified the headline is an em dash and a reason: "we
    delivered 0 points" and "we haven't measured yet" are different statements.
 3. **Sign-aware, never netted away.** `regressions` counts verified rows whose dimension moved DOWN
    on their own tile, so a negative row cannot hide inside a positive total (UAT `DANA-L1-010`).
@@ -551,15 +551,15 @@ many practices travelled, mean lift across them); the ledger is the per-PR *stat
 ### LLM narrative (`src/lib/org/briefing-narrative.ts`, G5-03)
 
 The board PDF may open with a short LLM-written narrative. Because a briefing PDF is the surface most
-likely to leave the building unedited, this is not a general "summarize it" call — three guarantees
+likely to leave the building unedited, this is not a general "summarize it" call: three guarantees
 are enforced in code:
 
-1. **Grounded by construction.** The only input the model sees is `narrativeFacts(b)` — the
+1. **Grounded by construction.** The only input the model sees is `narrativeFacts(b)`: the
    briefing's own markdown (minus the trailing `## Ask`, which is an instruction, not a fact).
-2. **No new numbers.** Every numeric token in the returned prose must already be in the briefing —
+2. **No new numbers.** Every numeric token in the returned prose must already be in the briefing:
    `isGrounded(text, allowedNumbers(b))`, where `allowedNumbers` unions the numbers in the briefing
-   object with the ones the markdown prints. One invented figure — including one the model *derived*,
-   like a coverage percentage — discards the whole narrative. The model chooses emphasis and wording;
+   object with the ones the markdown prints. One invented figure (including one the model *derived*,
+   like a coverage percentage) discards the whole narrative. The model chooses emphasis and wording;
    never a quantity.
 3. **Degrades to deterministic copy.** Unconfigured, disabled, non-2xx, refusal, timeout, malformed,
    markdown-structured, tag-leaking, or ungrounded ⇒ `deterministicNarrative(b)`, assembled from the
@@ -571,7 +571,7 @@ are enforced in code:
 Messages API, matching `src/lib/llm/openai.ts`'s "no SDK dependency added" convention and reusing the
 scan providers' `withLlmTimeout`.
 
-`ExecBriefing.narrative` is **not** populated by `buildExecBriefing` — a deliverable opts in via
+`ExecBriefing.narrative` is **not** populated by `buildExecBriefing`; a deliverable opts in via
 `attachBriefingNarrative(b)`. Only the PDF route does, deliberately: the "Copy for LLM" markdown is
 consumed by another model, which gains nothing from prose we generated for it.
 
