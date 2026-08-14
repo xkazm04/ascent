@@ -33,25 +33,25 @@ const SEEDS: TemplateSeed[] = [
 
 When reviewing a pull request, work through these in order and comment inline:
 
-1. **Correctness** — does the change do what the description claims? Trace the happy path and at least one edge case.
-2. **Tests** — is the new behavior covered? A bug fix must add a regression test that fails without the change.
-3. **Security** — any untrusted input reaching a query/command/filesystem path? Authz checked on every new mutation?
-4. **Error handling** — failures surfaced (not swallowed); no partial writes left on a thrown path.
-5. **Clarity** — names, comments at the right altitude, no dead code. Matches the surrounding style.
+1. **Correctness**: does the change do what the description claims? Trace the happy path and at least one edge case.
+2. **Tests**: is the new behavior covered? A bug fix must add a regression test that fails without the change.
+3. **Security**: any untrusted input reaching a query/command/filesystem path? Authz checked on every new mutation?
+4. **Error handling**: failures surfaced (not swallowed); no partial writes left on a thrown path.
+5. **Clarity**: names, comments at the right altitude, no dead code. Matches the surrounding style.
 
 End with a one-line verdict: approve / approve-with-nits / request-changes, and the single most important thing to fix.`,
   },
   {
     title: "Generate Tests for a Module",
     category: "testing",
-    description: "Produce focused unit tests for a target file — risk-first, no success theater.",
+    description: "Produce focused unit tests for a target file, risk-first, no success theater.",
     tags: ["tests", "coverage"],
     content: `# Generate Tests for a Module
 
 Given a target source file, write tests that pin its real behavior:
 
 - Identify the **public surface** (exports) and the **risk** in each (branches, error paths, boundaries).
-- Cover the **untested layer above the pure helpers** — the orchestration / IO / auth-gate where bugs hide.
+- Cover the **untested layer above the pure helpers**: the orchestration / IO / auth-gate where bugs hide.
 - For each test: arrange a minimal fixture, act, assert on observable behavior (not implementation detail).
 - Include the **failure modes**: invalid input → rejected, missing dependency → handled, race → serialized.
 - NO success-theater assertions (\`expect(true).toBe(true)\`, asserting a mock was called with no outcome check).
@@ -67,11 +67,11 @@ Output the test file in the project's existing test framework + style; do not ch
 
 Review the changed files for exploitable issues, highest-severity first:
 
-- **Injection** — SQL/NoSQL/command/path built from untrusted input without parameterization or validation.
-- **Broken authz** — a new mutation or read that doesn't check the caller owns the resource (IDOR / cross-tenant).
-- **Secrets** — credentials/keys logged, returned to the client, or committed; tokens with no expiry.
-- **SSRF / open redirect** — server-side fetch of a user-supplied URL; redirect to a user-controlled target.
-- **Unsafe rendering** — user content via \`dangerouslySetInnerHTML\` / unescaped templates.
+- **Injection**: SQL/NoSQL/command/path built from untrusted input without parameterization or validation.
+- **Broken authz**: a new mutation or read that doesn't check the caller owns the resource (IDOR / cross-tenant).
+- **Secrets**: credentials/keys logged, returned to the client, or committed; tokens with no expiry.
+- **SSRF / open redirect**: server-side fetch of a user-supplied URL; redirect to a user-controlled target.
+- **Unsafe rendering**: user content via \`dangerouslySetInnerHTML\` / unescaped templates.
 
 For each finding: file:line, the exploit, and the minimal fix. Default to "needs a fix" when uncertain.`,
   },
@@ -87,7 +87,7 @@ Audit and improve the project's CI workflow:
 1. **Pin** action versions to a SHA (not a moving tag) and least-privilege the \`permissions:\` block.
 2. **Gate** the merge: typecheck + tests + build must pass; no \`continue-on-error\` on the quality steps.
 3. **Cache** dependencies + build artifacts so the pipeline stays fast as it grows.
-4. **Fail closed** — a flaky/skipped check must not report green; surface skipped suites explicitly.
+4. **Fail closed**: a flaky/skipped check must not report green; surface skipped suites explicitly.
 5. Add a **maturity/coverage gate** step so quality can't silently regress.
 
 Output the updated workflow YAML with a one-line rationale per change.`,
@@ -104,23 +104,23 @@ From the route/handler files, produce reference docs that match the code (not as
 - One entry per endpoint: method, path, auth requirement, request shape, response shape, error codes.
 - A **realistic example** request + response for each (use representative, non-secret values).
 - Note the **gating** (which role / plan / token is required) read straight from the handler's guard.
-- Flag any endpoint whose validation/authz you couldn't find — don't invent it.
+- Flag any endpoint whose validation/authz you couldn't find. Don't invent it.
 
 Output as Markdown grouped by resource. Keep it terse and copy-pasteable.`,
   },
   {
     title: "Bootstrap the AI-Native Standard",
     category: "ai-native",
-    description: "Scaffold an .ai/ foundation — manifest, memory, CONTEXT graph — for a repo.",
+    description: "Scaffold an .ai/ foundation (manifest, memory, CONTEXT graph) for a repo.",
     tags: ["ai-native", "agents"],
     content: `# Bootstrap the AI-Native Standard
 
 Set up the vendor-neutral \`.ai/\` foundation so agents work from durable context:
 
-1. **AGENTS.md / CLAUDE.md** at the root — how to build, test, run, and the project's conventions.
-2. **.ai/manifest** — the machine-readable index of the standard's pieces.
-3. **Structured memory** — a place for decisions/learnings that survives across sessions.
-4. **CONTEXT graph** — the map of subsystems and where each lives (file paths).
+1. **AGENTS.md / CLAUDE.md** at the root: how to build, test, run, and the project's conventions.
+2. **.ai/manifest**: the machine-readable index of the standard's pieces.
+3. **Structured memory**: a place for decisions/learnings that survives across sessions.
+4. **CONTEXT graph**: the map of subsystems and where each lives (file paths).
 5. A **doctor** conformance check the repo can run to verify the standard is intact.
 
 Tailor each file to this repo's actual stack and layout; don't emit placeholders.`,

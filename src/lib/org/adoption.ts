@@ -180,7 +180,7 @@ export function adoptionMarkdown(a: AdoptionOverview): string {
   }
   if (a.delivery) {
     out.push("");
-    out.push("## Delivery (context — not a causal claim)");
+    out.push("## Delivery (context, not a causal claim)");
     const d = a.delivery;
     out.push(
       `- ${d.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h typical PR merge time · ` : ""}${d.reviewedRate != null ? `${d.reviewedRate}% reviewed · ` : ""}${d.mergeRate}% merged · ${d.aiInvolvedRate}% AI-involved PRs (${d.prs} PRs)${d.aiGovernedRate != null ? ` · ${d.aiGovernedRate}% of AI PRs human-reviewed` : ""}`,

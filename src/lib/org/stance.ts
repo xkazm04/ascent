@@ -281,4 +281,4 @@ export function evaluateStanceCompliance(
  * AI_POLICY.md artifact can't drift into claiming enforcement.
  */
 export const PATH_ZONE_ADVISORY_LABEL =
-  "Advisory — path-level activity is not observable from scan data yet, so this clause is declared, not checked.";
+  "Advisory: path-level activity is not observable from scan data yet, so this clause is declared, not checked.";

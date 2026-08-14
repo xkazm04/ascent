@@ -88,7 +88,7 @@ describe("securityMarkdown — degraded supply chain is stated, never implied cl
 
   it("emits an explicit UNKNOWN section when the advisory fetch failed", () => {
     const md = securityMarkdown(fixture, degraded as never);
-    expect(md).toContain("## Supply chain — UNKNOWN");
+    expect(md).toContain("## Supply chain: UNKNOWN");
     expect(md).toContain("not** evidence of a clean supply chain");
     // and must NOT render the normal advisory summary
     expect(md).not.toContain("Open advisories:");
@@ -111,7 +111,7 @@ describe("securityMarkdown", () => {
 
   it("renders the risk register table with gate verdict and enabled branch rules per repo", () => {
     expect(md).toContain("## Risk register (worst first)");
-    expect(md).toContain("| legacy-api | 22/100 | FAIL — Security 22 < 50 | none |");
+    expect(md).toContain("| legacy-api | 22/100 | FAIL: Security 22 < 50 | none |");
     expect(md).toContain("| web | 51/100 | pass | protected, review |");
     // No supply passed → no advisories column in the header.
     expect(md).toContain("| repo | security (D9) | gate | branch rules |");

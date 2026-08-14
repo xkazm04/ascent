@@ -54,7 +54,7 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
   const region = (env.DSQL_REGION || env.AWS_REGION || env.AWS_DEFAULT_REGION || "").trim();
   if (!region) {
     throw new Error(
-      "DSQL_ENDPOINT is set but no region — set DSQL_REGION (or AWS_REGION / AWS_DEFAULT_REGION).",
+      "DSQL_ENDPOINT is set but no region: set DSQL_REGION (or AWS_REGION / AWS_DEFAULT_REGION).",
     );
   }
   const ttlSeconds = positiveIntOr(env.DSQL_TOKEN_TTL_SECONDS, 900);
@@ -583,7 +583,7 @@ export function isDbConfigured(): boolean {
 export function getPrisma(): PrismaClient {
   const cfg = readDsqlConfig();
   if (!cfg && !process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is not set — persistence is disabled.");
+    throw new Error("DATABASE_URL is not set, so persistence is disabled.");
   }
 
   if (g.__ascentPrisma) {

@@ -331,7 +331,7 @@ export async function acceptDirection(orgSlug: string, recommendationId: string,
     },
   });
 
-  await updateRecommendation(rec.id, { status: "in_progress" }, { actor, note: `accepted on the live wall — PR #${pr.number}` });
+  await updateRecommendation(rec.id, { status: "in_progress" }, { actor, note: `accepted on the live wall (PR #${pr.number})` });
   return { kind: "ok", item: toPrItem(row), reused: pr.reused };
 }
 

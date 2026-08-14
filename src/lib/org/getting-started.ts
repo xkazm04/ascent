@@ -86,7 +86,7 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
     { label: "published AI stance", on: facts.loopStance },
   ];
   const loopOn = loopBits.filter((b) => b.on).length;
-  const loopDetail = `${loopOn} of ${loopBits.length} instrumented — ${loopBits
+  const loopDetail = `${loopOn} of ${loopBits.length} instrumented: ${loopBits
     .map((b) => (b.on ? `${b.label} ✓` : b.label))
     .join(" · ")}`;
 

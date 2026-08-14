@@ -161,7 +161,7 @@ export function parseSkillFrontmatter(content: string): ParsedSkillFrontmatter {
       body: lines.slice(start + 1).join("\n"),
       raw,
       errors: [
-        "The frontmatter block is never closed — add a `---` line after the last field.",
+        "The frontmatter block is never closed. Add a `---` line after the last field.",
         ...errors,
       ],
     };
@@ -188,10 +188,10 @@ function validateFields(raw: Record<string, string>): string[] {
   const errors: string[] = [];
   const name = (raw.name ?? "").trim();
   if (!name) {
-    errors.push("Frontmatter is missing required field `name` — a kebab-case slug, e.g. `pr-review-checklist`.");
+    errors.push("Frontmatter is missing required field `name`: a kebab-case slug, e.g. `pr-review-checklist`.");
   } else if (!SLUG_RE.test(name)) {
     errors.push(
-      `Frontmatter \`name\` must be a kebab-case slug (lowercase letters, digits, single hyphens) — got "${name}". Try \`${slugifySkillName(name) || "my-skill"}\`.`,
+      `Frontmatter \`name\` must be a kebab-case slug (lowercase letters, digits, single hyphens). Got "${name}". Try \`${slugifySkillName(name) || "my-skill"}\`.`,
     );
   } else if (name.length > MAX_NAME) {
     errors.push(`Frontmatter \`name\` must be ${MAX_NAME} characters or fewer.`);
@@ -200,7 +200,7 @@ function validateFields(raw: Record<string, string>): string[] {
   const description = (raw.description ?? "").trim();
   if (!description) {
     errors.push(
-      "Frontmatter is missing required field `description` — one sentence telling an agent when to use this skill.",
+      "Frontmatter is missing required field `description`: one sentence telling an agent when to use this skill.",
     );
   } else if (/\n/.test(description)) {
     errors.push("Frontmatter `description` must be a single paragraph on one line (quote it if it contains `:`).");
@@ -211,9 +211,9 @@ function validateFields(raw: Record<string, string>): string[] {
   if (raw.category !== undefined) {
     const cat = raw.category.trim();
     if (!cat) {
-      errors.push(`Frontmatter \`category\` is empty — use one of: ${VALID_CATEGORIES}, or drop the field.`);
+      errors.push(`Frontmatter \`category\` is empty. Use one of: ${VALID_CATEGORIES}, or drop the field.`);
     } else if (!normalizeFrontmatterCategory(cat)) {
-      errors.push(`Frontmatter \`category\` must be one of: ${VALID_CATEGORIES} — got "${cat}".`);
+      errors.push(`Frontmatter \`category\` must be one of: ${VALID_CATEGORIES}. Got "${cat}".`);
     }
   }
   return errors;
@@ -309,10 +309,10 @@ export function reconcileSkillWrite(content: string, fields: SkillWriteFields): 
     // Injecting: the two required fields must come from somewhere, so demand them explicitly rather
     // than fabricating a description the agent would then trust.
     const errors: string[] = [];
-    if (!name) errors.push("Provide a `name` (or a frontmatter block declaring one) — it becomes the skill's slug.");
+    if (!name) errors.push("Provide a `name` (or a frontmatter block declaring one). It becomes the skill's slug.");
     if (!description) {
       errors.push(
-        "Provide a `description` (or a frontmatter block declaring one) — it is how an agent decides when to use this skill.",
+        "Provide a `description` (or a frontmatter block declaring one). It is how an agent decides when to use this skill.",
       );
     }
     if (errors.length) return { ok: false, errors };

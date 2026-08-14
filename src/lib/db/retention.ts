@@ -424,7 +424,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       }
       if (belowFloor.length) {
         errors.push(
-          `${org.slug}: retention policy is below the safety floor (${belowFloor.join(", ")}) — refusing to purge ` +
+          `${org.slug}: retention policy is below the safety floor (${belowFloor.join(", ")}); refusing to purge ` +
             `this org. Preview with ?dryRun=1; set RETENTION_FORCE=1 to apply an intentionally aggressive policy.`,
         );
         continue;

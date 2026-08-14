@@ -46,14 +46,14 @@ export function buildStanceArtifact(
     .map((z) => {
       const lines: string[] = [];
       for (const g of z.repoGlobs) lines.push(`- Repo scope: \`${safeText(g)}\``);
-      for (const g of z.pathGlobs) lines.push(`- Path scope: \`${safeText(g)}\` — ${PATH_ZONE_ADVISORY_LABEL}`);
+      for (const g of z.pathGlobs) lines.push(`- Path scope: \`${safeText(g)}\` (${PATH_ZONE_ADVISORY_LABEL})`);
       if (z.reason) lines.push(`  - Why: ${safeText(z.reason)}`);
       return lines.join("\n");
     })
     .join("\n");
 
   const tiers = stance.reviewTiers
-    .map((t) => `- **${TIER_NAMES[t.tier]}** — ${safeText(t.review)}`)
+    .map((t) => `- **${TIER_NAMES[t.tier]}**: ${safeText(t.review)}`)
     .join("\n");
 
   const provenance: string[] = [];
@@ -66,12 +66,12 @@ export function buildStanceArtifact(
     provenance.push("- Every AI-attributed pull request has an approving HUMAN review before merge.");
   }
 
-  const body = `# AI policy — ${org}
+  const body = `# AI policy: ${org}
 
 > Org stance **v${meta.version}**${meta.publishedAt ? `, effective ${safeText(meta.publishedAt)}` : ""}. This file is the
 > committed copy of the organization's published AI stance; the org dashboard reads adoption and
 > observed attribution against it. Compliance readouts compare what is DECLARED here with what git
-> attribution shows — nothing in this file is enforced by tooling on its own.
+> attribution shows; nothing in this file is enforced by tooling on its own.
 
 ## 1. Permitted tools
 
@@ -119,7 +119,7 @@ ${provenance.join("\n") || "- _No provenance requirements declared._"}
 
 It states the permitted tools/models, the no-AI zones, the review tier requirements, and the
 provenance a change must carry. Merging it also counts as this repo's written adoption of the
-stance — acknowledge the version on the governance dashboard to complete the loop.
+stance. Acknowledge the version on the governance dashboard to complete the loop.
 
 ${attribution}`,
   };

@@ -52,7 +52,7 @@ export function outcomeStatusLabel(status: OutcomeStatus): string {
   return status === "measured"
     ? "Scored before and after adoption"
     : status === "no-before-scan"
-      ? "No scan before adoption — nothing to compare against"
+      ? "No scan before adoption, nothing to compare against"
       : "No scan since adoption yet";
 }
 

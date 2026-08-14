@@ -251,7 +251,7 @@ export async function createGoal(
   const current = currentFor(input.metric, snap);
   if (snap.repos.length > 0 && Math.round(input.target) <= current) {
     throw Object.assign(
-      new Error(`The fleet is already at ${current} on this metric — pick a target above it.`),
+      new Error(`The fleet is already at ${current} on this metric; pick a target above it.`),
       { code: "GOAL_ALREADY_MET" },
     );
   }
@@ -407,7 +407,7 @@ export async function updateGoal(
   if ("targetDate" in write) where.targetDate = "targetDate" in expected ? parseTargetDate(expected.targetDate) : current.targetDate;
   const res = await prisma.goal.updateMany({ where, data: write });
   if (res.count === 0) {
-    throw Object.assign(new Error("Goal changed concurrently — refresh and retry."), { code: "GOAL_CONFLICT" });
+    throw Object.assign(new Error("Goal changed concurrently; refresh and retry."), { code: "GOAL_CONFLICT" });
   }
   return true;
 }
@@ -609,7 +609,7 @@ export async function updateInitiative(
   if ("goalId" in write) where.goalId = "goalId" in expected ? (expected.goalId || null) : current.goalId;
   const res = await prisma.initiative.updateMany({ where, data: write });
   if (res.count === 0) {
-    throw Object.assign(new Error("Initiative changed concurrently — refresh and retry."), { code: "INIT_CONFLICT" });
+    throw Object.assign(new Error("Initiative changed concurrently; refresh and retry."), { code: "INIT_CONFLICT" });
   }
   return true;
 }

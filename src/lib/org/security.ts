@@ -195,7 +195,7 @@ export const FAILING_DISPLAY_CAP = 8;
 export function buildGateSnippet(o: SecurityOverview): string {
   const failing = o.register.filter((r) => r.gateReason);
   return [
-    `# Ascent security gate — non-zero exit when Security (D9) < ${o.securityGate.minSecurity} or the posture is "ungoverned".`,
+    `# Ascent security gate: non-zero exit when Security (D9) < ${o.securityGate.minSecurity} or the posture is "ungoverned".`,
     `# Add one line per repo to CI; set ASCENT_URL to this Ascent instance.`,
     ...(failing.length > 0 ? failing : o.register.slice(0, 2)).map((r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`),
   ].join("\n");
@@ -205,7 +205,7 @@ export function buildGateSnippet(o: SecurityOverview): string {
  *  `supply` (optional) appends the Dependabot supply-chain signal when scanning is enabled. */
 export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | null): string {
   const out: string[] = [];
-  out.push(`# Ascent — security posture: ${o.org}`);
+  out.push(`# Ascent security posture: ${o.org}`);
   out.push(`Generated ${o.generatedOn} · period: ${o.periodTitle}`);
   out.push("");
   out.push("## Security standing");
@@ -231,7 +231,7 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
           .filter(Boolean)
           .join(", ") || "none"
       : "unreadable";
-    const gate = r.gateReason ? `FAIL — ${r.gateReason}` : "pass";
+    const gate = r.gateReason ? `FAIL: ${r.gateReason}` : "pass";
     const a = advByRepo?.get(r.fullName);
     const adv = advByRepo ? (a ? (a.total > 0 ? `${a.critical} critical / ${a.high} high / ${a.total} total` : "0") : "—") : null;
     out.push(`| ${r.name} | ${r.score}/100 | ${gate} | ${rules} |${adv != null ? ` ${adv} |` : ""}`);
@@ -253,13 +253,13 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
     // brief that reads as a clean supply chain and invite it to recommend nothing — the most dangerous
     // false signal a security brief can carry. State the gap instead.
     out.push("");
-    out.push("## Supply chain — UNKNOWN");
+    out.push("## Supply chain: UNKNOWN");
     out.push(
       "- Advisory data could NOT be fetched for this org (GitHub advisory access failed). Absence of advisories below is **not** evidence of a clean supply chain. Do not treat this section as a pass.",
     );
   } else if (supply && supply.scanned > 0) {
     out.push("");
-    out.push(`## Supply chain (Dependabot${supply.demo ? " — demo data" : ""})`);
+    out.push(`## Supply chain (Dependabot${supply.demo ? ", demo data" : ""})`);
     out.push(`- Open advisories: ${supply.totals.critical} critical · ${supply.totals.high} high · ${supply.totals.medium} medium · ${supply.totals.low} low`);
     for (const r of supply.repos.filter((x) => x.total > 0).slice(0, 6)) {
       out.push(`- ${r.name}: ${r.critical} critical, ${r.high} high (${r.total} total)`);

@@ -101,7 +101,7 @@ describe("parseSkillFrontmatter — rejections", () => {
     expect(err).toContain("ci-cd");
     expect(err).toContain("ai-native");
     expect(err).toContain("other");
-    expect(err).toContain('got "devops"');
+    expect(err).toContain('Got "devops"');
   });
 
   it("rejects an empty description", () => {

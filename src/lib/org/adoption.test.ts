@@ -55,7 +55,7 @@ describe("adoptionMarkdown", () => {
   });
 
   it("includes delivery context (clearly non-causal) and champions", () => {
-    expect(md).toContain("## Delivery (context — not a causal claim)");
+    expect(md).toContain("## Delivery (context, not a causal claim)");
     expect(md).toContain("18.5h typical PR merge time · 72% reviewed · 88% merged · 40% AI-involved PRs (320 PRs)");
     expect(md).toContain("62% of AI PRs human-reviewed");
     expect(md).toContain("alice: 80% AI (96/120 commits across 3 repos)");

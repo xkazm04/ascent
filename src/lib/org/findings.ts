@@ -82,7 +82,7 @@ export function securityFindings(rows: SecurityFindingInput[]): Finding[] {
         module: "security",
         itemKey: `${row.fullName}::${c.id}`,
         repo: row.fullName,
-        title: `${c.name} — ${row.fullName}`,
+        title: `${c.name} (${row.fullName})`,
         detail: c.detail || c.risk,
       });
     }

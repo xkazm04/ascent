@@ -137,7 +137,7 @@ export async function updateRecommendation(
       if ("targetDate" in data) where.targetDate = current.targetDate;
       const res = await tx.recommendation.updateMany({ where, data });
       if (res.count === 0) {
-        throw Object.assign(new Error("Recommendation changed concurrently — refresh and retry."), {
+        throw Object.assign(new Error("Recommendation changed concurrently; refresh and retry."), {
           code: "REC_CONFLICT",
         });
       }

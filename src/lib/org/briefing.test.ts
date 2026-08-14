@@ -242,7 +242,7 @@ describe("briefingMarkdown", () => {
     // OrgLeverageMoves list renders — and the trailing Ask asks the LLM to ELABORATE it into steps,
     // not to GENERATE the recommendation.
     expect(md).toContain("## Recommended next move");
-    expect(md).toContain("Add a dependency-scanning workflow — the widest shared gap across the fleet");
+    expect(md).toContain("Add a dependency-scanning workflow: the widest shared gap across the fleet");
     // UAT DANA-L1-012 — the rec's repo count is scoped against the scanned set.
     expect(md).toContain("shared by 6 of the 8 scanned repositories");
     expect(md).toContain("+7 maturity points on each affected repository, advancing 2 of them to the next level");
@@ -616,7 +616,7 @@ describe("buildExecBriefing — recommendations (the single ranked next-move sou
       "Adopt a coverage gate",
     ]);
     // …and that is exactly what the markdown names, so screen and export cannot diverge.
-    expect(briefingMarkdown(b)).toContain("Add a dependency-scanning workflow — the widest shared gap");
+    expect(briefingMarkdown(b)).toContain("Add a dependency-scanning workflow: the widest shared gap");
   });
 
   it("degrades to an EMPTY list (never a dimension fallback) when the recommendations read rejects", async () => {
@@ -763,7 +763,7 @@ describe("briefingMarkdown — null / empty branches", () => {
 
   it("still renders the fixed scaffold (standing + headers + trailing Ask)", () => {
     // The non-conditional skeleton is always present even with zero data.
-    expect(md).toContain("# Ascent — AI-native engineering maturity briefing: acme");
+    expect(md).toContain("# Ascent AI-native engineering maturity briefing: acme");
     expect(md).toContain("## Standing");
     expect(md).toContain("Overall maturity: **0/100** (L1 Ad-hoc)");
     expect(md).toContain("- AI Adoption: 0/100 · Engineering Rigor: 0/100");
@@ -992,7 +992,7 @@ describe("briefingProofLine", () => {
 describe("briefingMarkdown — proof section", () => {
   it("prints the fleet-wide proof section before the recommended next move", () => {
     const md = briefingMarkdown({ ...fixture, proof: { open: 1, merged: 4, lift: 7, liftPractices: 2 } });
-    expect(md).toContain("## Proof — improvement shipped and measured");
+    expect(md).toContain("## Proof: improvement shipped and measured");
     expect(md).toContain("- Fleet-wide: 4 improvement PRs merged from the Practice Library");
     expect(md.indexOf("## Proof")).toBeLessThan(md.indexOf("## Recommended next move"));
   });

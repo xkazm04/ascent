@@ -159,7 +159,7 @@ export function practiceLibraryMarkdown(s: PracticeLibrarySummary): string {
       `- Fleet adoption: ${s.adoption.pct}% of scored repo·practice pairs already embody the practice (${s.adoption.strong}/${s.adoption.measured})`,
     );
   } else {
-    out.push("- Fleet adoption: not measurable yet — no scored repositories behind the mined practices");
+    out.push("- Fleet adoption: not measurable yet (no scored repositories behind the mined practices)");
   }
   out.push(
     `- ${s.couldAdopt.repos} repo${s.couldAdopt.repos === 1 ? "" : "s"} could adopt at least one practice, across ${s.couldAdopt.practices} practice${s.couldAdopt.practices === 1 ? "" : "s"}`,
@@ -204,7 +204,7 @@ export function practiceLibraryMarkdown(s: PracticeLibrarySummary): string {
   out.push("");
   out.push("## Ask");
   out.push(
-    "These are inputs to explore, not a work queue. Reading this library: which gaps look systemic (many repos, one dimension) versus local to a repo or team; where an exemplar makes a practice cheap to copy and where there is none to copy from; whether any authored standard has stalled at low adoption and what that suggests about the standard itself; and what the measured lift so far does — and does not — tell us about whether the next rollout is worth the interruption. Surface the questions worth taking to the teams before proposing any change.",
+    "These are inputs to explore, not a work queue. Reading this library: which gaps look systemic (many repos, one dimension) versus local to a repo or team; where an exemplar makes a practice cheap to copy and where there is none to copy from; whether any authored standard has stalled at low adoption and what that suggests about the standard itself; and what the measured lift so far does and does not tell us about whether the next rollout is worth the interruption. Surface the questions worth taking to the teams before proposing any change.",
   );
   return out.join("\n");
 }

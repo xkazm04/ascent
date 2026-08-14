@@ -22,9 +22,9 @@ export const MEMORY_KIND_LABEL: Record<MemoryKind, string> = {
 
 /** One-line "when do I pick this?" help, shown beside the author form's kind picker. */
 export const MEMORY_KIND_HINT: Record<MemoryKind, string> = {
-  episodic: "What happened — an event, an incident, a decision made on a date.",
+  episodic: "What happened: an event, an incident, a decision made on a date.",
   semantic: "A durable fact about the org, its systems or its conventions.",
-  procedural: "What worked — a workflow, a tool sequence, a runbook step.",
+  procedural: "What worked: a workflow, a tool sequence, a runbook step.",
   summary: "A rollup that consolidates several other memories.",
 };
 
@@ -89,9 +89,9 @@ export function normalizeMemoryVisibility(v: string | null | undefined): MemoryV
  * clamp below is the write-path guard for any other value (an API caller, a future agent).
  */
 export const CONFIDENCE_BANDS = [
-  { id: "high", value: 1.0, label: "High — verified / decided" },
-  { id: "medium", value: 0.6, label: "Medium — probable, unverified" },
-  { id: "low", value: 0.3, label: "Low — a hunch, needs checking" },
+  { id: "high", value: 1.0, label: "High: verified / decided" },
+  { id: "medium", value: 0.6, label: "Medium: probable, unverified" },
+  { id: "low", value: 0.3, label: "Low: a hunch, needs checking" },
 ] as const;
 
 /** Clamp any input to the valid 0..1 trust range, defaulting a non-finite value to 1.0 (the schema default). */

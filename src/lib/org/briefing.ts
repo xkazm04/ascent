@@ -454,7 +454,7 @@ export function nextMoveLine(rec: OrgRec, scannedRepos?: number): string {
     rec.projectedPoints != null
       ? ` Closing it is worth about +${rec.projectedPoints} maturity points on each affected repository${rec.liftsRepos > 0 ? `, advancing ${rec.liftsRepos} of them to the next level` : ""}.`
       : "";
-  return `${rec.title} — the widest shared gap across the fleet (${rec.dimId} ${dimLabel}, ${rec.impact} impact, shared by ${repos}).${gain}`;
+  return `${rec.title}: the widest shared gap across the fleet (${rec.dimId} ${dimLabel}, ${rec.impact} impact, shared by ${repos}).${gain}`;
 }
 
 /**
@@ -468,7 +468,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
   const moveLine = (arrow: string, m: BriefingMove) =>
     `- ${arrow} ${m.name}: ${m.dOverall >= 0 ? "+" : ""}${m.dOverall}${m.levelFrom !== m.levelTo ? ` (${m.levelFrom}→${m.levelTo})` : ""}`;
 
-  out.push(`# Ascent — AI-native engineering maturity briefing: ${b.org}`);
+  out.push(`# Ascent AI-native engineering maturity briefing: ${b.org}`);
   out.push(`Generated ${b.generatedOn} · period: ${b.periodTitle}`);
   out.push("");
   out.push("## Standing");
@@ -493,7 +493,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
     );
   if (b.engineMix.length) {
     const caveat = engineMixCaveat(b.engineMix);
-    out.push(`- Scored by: ${engineMixLabel(b.engineMix)}${caveat ? ` — ⚠ ${caveat}` : ""}`);
+    out.push(`- Scored by: ${engineMixLabel(b.engineMix)}${caveat ? ` (⚠ ${caveat})` : ""}`);
   }
   if (b.priorPeriod) {
     const p = b.priorPeriod;
@@ -532,7 +532,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
   const proofLine = briefingProofLine(b.proof ?? null);
   if (proofLine) {
     out.push("");
-    out.push("## Proof — improvement shipped and measured");
+    out.push("## Proof: improvement shipped and measured");
     out.push(`- Fleet-wide: ${proofLine}`);
   }
   // Name the recommended next move from the SAME ranked list the on-screen page renders (G5-02).
@@ -558,7 +558,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
   out.push("## Ask");
   out.push(
     move
-      ? `Elaborate the recommended move above ("${move.title}", ${move.dimId}) into concrete, repo-level steps: for each affected repository, the specific change to make and the practice that addresses it — then any second-order move across the next-widest gaps listed above.`
+      ? `Elaborate the recommended move above ("${move.title}", ${move.dimId}) into concrete, repo-level steps: for each affected repository, the specific change to make and the practice that addresses it, then any second-order move across the next-widest gaps listed above.`
       : "Given this AI-native engineering maturity briefing, propose the highest-leverage actions to raise overall maturity next quarter, focused on the weakest dimensions above. For each action give: the concrete change, which repositories it applies to, and which dimension it should move.",
   );
   return out.join("\n");

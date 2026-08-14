@@ -161,7 +161,7 @@ const DECISION_MEMORY_KIND = "episodic";
 function memoryContent(input: DecideInput, decidedBy: string | null): string {
   const who = decidedBy ? ` by ${decidedBy}` : "";
   const why = input.rationale?.trim() ? ` Rationale: ${input.rationale.trim()}` : "";
-  return `Decision (${input.module}): ${input.status}${who} — ${input.title || input.itemKey}.${why}`;
+  return `Decision (${input.module}): ${input.status}${who}: ${input.title || input.itemKey}.${why}`;
 }
 
 /**
