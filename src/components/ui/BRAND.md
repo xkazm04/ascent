@@ -39,11 +39,12 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 - **`SectionHeading`** — `kicker` + `title` + `intro` + `right`. `size="page"` (editorial top, text-2xl/3xl) | `"lg"` (dashboard section) | `"sm"` (in-card).
 - **`HairlineGrid`** — a `gap-px` grid over `bg-divider`; children set `bg-ink` so gaps read as hairlines. The editorial cluster (levels, pricing, ledgers).
 - **`Dateline`** — masthead metadata row + hairline under-rule. The "publication" header.
+- **`Field`** + **`TextInput`/`TextArea`/`SelectInput`/`CheckCard`** — the form kit: one control skin on the real tokens (`border-divider`, `bg-surface`, `focus-ring`, `accent`), one label treatment (`Kicker tone="muted"`), and a selectable-card control for multi-choice. Replaces the ~50 hand-rolled `border-slate-700 bg-slate-900 …` inputs and the per-modal `FIELD_LABEL` constant. Labels associate implicitly (control wrapped by its `<label>`); `as="fieldset"` for a control group. `CONTROL_CLASS` is the bare skin for a one-off.
 - **`Modal`** + **`ModalHeader`/`ModalBody`/`ModalFooter`** — the app-level dialog: portals into the root layout's `<ModalRoot />` (ink-veil backdrop over the whole app, never a section-level overlay), surface-strong panel with hairline-ruled sections, focus trap + Escape + scroll lock built in, `locked` pins it open while an operation runs. Don't hand-roll `fixed inset-0` overlays.
 - **`deltaHex` / `fmtDelta` / `signedDelta`** — period-over-period delta color + arrowed text (lime up · orange down · slate flat).
 
 ## Conventions
 
-- New UI uses the primitives; don't re-hardcode `border-slate-800 bg-slate-900/40` or mono-label strings — use `Surface` / `Kicker`.
+- New UI uses the primitives; don't re-hardcode `border-slate-800 bg-slate-900/40` or mono-label strings — use `Surface` / `Kicker`. **Form controls come from `Field` & co. — never a hand-written `border-slate-700 bg-slate-900` input.**
 - Level/score color comes from `LEVEL_HEX` / `scoreHex` (`@/lib/ui`); never pick a hex by hand.
 - Charts are dependency-free SVG **or** Recharts styled to these tokens (divider grid, mono axes, ramp fills) — see the landing's `TrajectoryChart` and the report charts.

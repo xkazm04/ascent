@@ -9,7 +9,7 @@
 // installation and stamped + audit-logged with the signed-in user (see the route).
 
 import { useEffect, useState } from "react";
-import { Modal, ModalHeader, ModalBody, ModalFooter } from "@/components/ui";
+import { Field, Kicker, Modal, ModalHeader, ModalBody, ModalFooter, TextArea, TextInput } from "@/components/ui";
 
 export interface IssueTarget {
   name: string;
@@ -28,8 +28,6 @@ export interface IssueDraft {
 }
 
 type TargetStatus = { state: "idle" | "creating" | "done" | "error"; url?: string; number?: number; error?: string };
-
-const FIELD_LABEL = "font-mono text-xs uppercase tracking-widest text-slate-500";
 
 export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null; onClose: () => void }) {
   const [title, setTitle] = useState("");
@@ -97,30 +95,26 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
     <Modal open={draft !== null} onClose={onClose} locked={running} ariaLabel={`File GitHub issues: ${draft?.title ?? ""}`}>
       <ModalHeader kicker="Actions · GitHub" title="File as GitHub issues" context={draft?.context} />
       <ModalBody>
-        <label className="block">
-          <span className={FIELD_LABEL}>Title</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            disabled={running || done}
-            className="focus-ring mt-1 w-full rounded-lg border border-slate-700 bg-surface/40 px-3 py-2 text-base text-white disabled:opacity-60"
-          />
-        </label>
-        <label className="mt-3 block">
-          <span className={FIELD_LABEL}>Body (markdown)</span>
-          <textarea
+        {/* On the shared brand form kit (@/components/ui) rather than this file's own FIELD_LABEL
+            constant and hand-written input classes — those were the copy that the kit was extracted
+            from, and leaving them here would have left the "standard" with exactly one user. */}
+        <Field label="Title">
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} disabled={running || done} />
+        </Field>
+        <Field label="Body (markdown)" className="mt-3">
+          <TextArea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             disabled={running || done}
             rows={6}
-            className="focus-ring mt-1 w-full resize-y rounded-lg border border-slate-700 bg-surface/40 px-3 py-2 font-mono text-sm text-slate-200 disabled:opacity-60"
+            className="font-mono text-sm text-slate-200"
           />
-        </label>
+        </Field>
 
         <div className="mt-4">
-          <span className={FIELD_LABEL}>
+          <Kicker as="span" tone="muted">
             Repositories · {picked.length}/{targets.length}
-          </span>
+          </Kicker>
           <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto pr-1">
             {targets.map((t) => {
               const st = status[t.fullName];

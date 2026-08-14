@@ -103,6 +103,36 @@ tallest module (no layout shift under a scroll-snap reader), avoids a bare
 `bg-divider` block where a module's view count doesn't fill the last grid row, and
 ships all 21 views in the server HTML for crawlers.
 
+## Form controls (`src/components/ui/Field.tsx`)
+
+**This standard did not exist before 2026-08-14.** A survey found ~50 hand-rolled
+inputs on `border-slate-700 bg-slate-900 …` — the exact literal
+[BRAND.md](../../../src/components/ui/BRAND.md) tells you not to write — in four
+padding variants, plus a `FIELD_LABEL` mono-label constant copy-pasted per modal.
+Every dialog therefore looked slightly different from every other one, and none of
+them looked like `/` or `/about`, which do use the brand tokens.
+
+| Export | What it is |
+| --- | --- |
+| `Field` | A labelled row: `Kicker tone="muted"` eyebrow, the control, then a hint **or** an error line (`error` replaces `hint` rather than stacking, so the row doesn't resize as validation toggles). `as="fieldset"` renders a real `<fieldset>`/`<legend>` for a control group. |
+| `TextInput` / `TextArea` / `SelectInput` | Thin wrappers over the shared skin. |
+| `CheckCard` | A checkbox drawn as a **selectable bordered tile** with a title + supporting line, tinting to the accent when picked. The native input stays in the DOM (`sr-only`) and drives the visual box through `peer`, so keyboard operation, form semantics and AT announcement are unchanged and the focus ring lands on the drawn box. |
+| `CONTROL_CLASS` | The skin itself, for a one-off control the wrappers don't fit — so it lands on the same tokens instead of inventing a fifth variant. |
+
+Labels associate **implicitly** (the control is wrapped by its `<label>`), matching
+what the existing modals already did: no id plumbing at the call site and no chance
+of a mismatched `htmlFor`.
+
+`Kicker` gained an `as` prop (`div` | `span` | `legend`) for this — a Kicker used as
+a form label sits inside a `<label>` (phrasing content only, so a `div` there is
+invalid HTML) or as a fieldset's `<legend>`. Purely structural; the type treatment
+is identical.
+
+Adopted by `PlanEnquiryFields` (the `/pricing` Custom-plan dialog) and
+`CreateIssueModal` — the file the kit was extracted from, migrated in the same
+change so the standard didn't ship with exactly one user. The remaining hand-rolled
+inputs are unmigrated; move them as you touch them.
+
 ## What a doc here should still cover
 
 - The primitive inventory in `src/components/ui/` and when to reach for each.

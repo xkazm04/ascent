@@ -14,6 +14,7 @@ export type { SideNavItem, SideNavGroup } from "./SideNav";
 export { SectionRailNav } from "./SectionRailNav";
 export type { RailSection } from "./SectionRailNav";
 export { NavBadge } from "./navItem";
+export { Field, TextInput, TextArea, SelectInput, CheckCard, CONTROL_CLASS } from "./Field";
 export { Modal, ModalHeader, ModalBody, ModalFooter } from "./Modal";
 export type { ModalSize } from "./Modal";
 export { ModalRoot, MODAL_ROOT_ID } from "./ModalRoot";
