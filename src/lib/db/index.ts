@@ -76,9 +76,11 @@ export {
   weeklyActiveScanningOrgs,
   avgLlmCostPerScan,
   scanPipelineErrorRate,
+  scanOutputBudget,
   type RatioMetric,
   type ScanCostMetric,
   type ScanErrorRateMetric,
+  type OutputBudgetMetric,
 } from "@/lib/db/kpi-metrics";
 export { recordSkillGeneration, getSkillHistory, diffTrackSets, type SkillGenerationRow } from "@/lib/db/skill-history";
 export { getOrgBranding, setOrgBranding, type OrgBranding } from "@/lib/db/branding";

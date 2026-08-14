@@ -5,7 +5,7 @@
 //       exist unauthenticated because an env var was forgotten);
 //   (2) wrong or missing bearer → 401, still no metric computed; the secret is accepted ONLY in the
 //       Authorization header — never as a query param (query strings leak into access/proxy logs);
-//   (3) correct bearer → 200 carrying ALL EIGHT KPI keys in the uniform {value, numerator,
+//   (3) correct bearer → 200 carrying ALL KPI keys in the uniform {value, numerator,
 //       denominator} shape, with null-metric ("not measurable") kept distinct from 0, plus the
 //       priceDrift reconciliation field.
 // @/lib/db and @/lib/price-drift are mocked so the suite drives exact metric values and asserts
@@ -30,6 +30,16 @@ vi.mock("@/lib/db", () => ({
   weeklyActiveScanningOrgs: vi.fn(async () => 7),
   avgLlmCostPerScan: vi.fn(async () => ({ value: 0.21, pricedScans: 12, unpricedScans: 1 })),
   scanPipelineErrorRate: vi.fn(async () => ({ value: 2.5, numerator: 1, denominator: 40, rejected: 3, degraded: 2 })),
+  // The god-scan trend. Not a ratio metric: it is a percentile shape, so it passes through as-is
+  // rather than through fromRatio.
+  scanOutputBudget: vi.fn(async () => ({
+    scans: 12,
+    medianOutputTokens: 9000,
+    p95OutputTokens: 11908,
+    p95PctOfCap: 19,
+    worst: { model: "claude-opus-5", outputTokens: 11908, pctOfCap: 19 },
+    level: "ok",
+  })),
 }));
 
 vi.mock("@/lib/price-drift", () => ({
@@ -61,6 +71,10 @@ const KPI_KEYS = [
   "avgLlmCostPerScan",
   "scanPipelineErrorRate",
 ] as const;
+
+// KPI_KEYS above is specifically the RATIO-shaped family ({ value, numerator, denominator }).
+// `scanOutputBudget` is a percentile shape and is asserted separately below rather than forced into
+// a contract it does not have, which would have meant either a fake numerator or a weakened pin.
 
 function req(headers: Record<string, string> = {}, url = "https://ascent.test/api/kpi"): Request {
   return new Request(url, { headers });
@@ -121,7 +135,7 @@ describe("GET /api/kpi — authorized response contract", () => {
     process.env.ASCENT_OPS_SECRET = SECRET;
   });
 
-  it("200s with ALL EIGHT KPI keys in the uniform value/numerator/denominator shape", async () => {
+  it("200s with ALL KPI keys in the uniform value/numerator/denominator shape", async () => {
     const res = await GET(req({ authorization: `Bearer ${SECRET}` }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, { value: number | null; numerator: number | null; denominator: number | null }>;
@@ -141,6 +155,21 @@ describe("GET /api/kpi — authorized response contract", () => {
     expect(body.avgLlmCostPerScan).toMatchObject({ value: 0.21, denominator: 12, unpricedScans: 1 });
     // The pipeline KPI keeps its side-counters.
     expect(body.scanPipelineErrorRate).toMatchObject({ value: 2.5, rejected: 3, degraded: 2 });
+  });
+
+  // The god-scan trend rides the same operator pull. It carries its own shape (percentiles + the
+  // worst single scan), and the level is what an operator acts on: "at-risk" means split the
+  // single-call assessment, not buy a bigger model.
+  it("carries the god-scan output-budget trend in its own percentile shape", async () => {
+    const res = await GET(req({ authorization: `Bearer ${SECRET}` }));
+    const body = (await res.json()) as Record<string, Record<string, unknown>>;
+    expect(body.scanOutputBudget).toMatchObject({
+      scans: 12,
+      p95OutputTokens: 11908,
+      p95PctOfCap: 19,
+      level: "ok",
+    });
+    expect(body.scanOutputBudget.worst).toMatchObject({ model: "claude-opus-5" });
   });
 
   it("renders a null metric as value:null — 'not measurable' stays distinct from 0", async () => {

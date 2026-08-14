@@ -12,6 +12,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { estimateLlmCostFromTable, type ModelTokenUsage } from "@/lib/db/usage";
+import { APPROACHING, AT_RISK, classifyOutputBudget, type BudgetLevel } from "@/lib/llm/output-budget";
 
 /** A ratio KPI: the value plus the counts it came from, so a reader can audit the cohort. */
 export interface RatioMetric {
@@ -289,5 +290,62 @@ export async function scanPipelineErrorRate(): Promise<ScanErrorRateMetric | nul
     denominator: attempted,
     rejected,
     degraded: sum("scan_degraded"),
+  };
+}
+
+/**
+ * THE GOD-SCAN TREND: how close the single-call assessment is running to the model's output ceiling,
+ * fleet-wide, over a window.
+ *
+ * `classifyOutputBudget` warns on ONE scan. This is the other half: the question that actually
+ * triggers a design change is not "was this scan near the limit" but "are our scans TRENDING toward
+ * it", and that only shows up across many scans. When p95 crosses the approaching band the answer is
+ * not a bigger model, it is to split the assessment into per-dimension calls.
+ *
+ * p95, not the mean: the mean is dominated by small repos and stays reassuring long after the largest
+ * repos have started truncating. The scans that hit the ceiling are exactly the tail.
+ *
+ * Null when no scan in the window reported usage (a mock-only or keyless deployment). Null is "not
+ * measured", never "comfortably small".
+ */
+export interface OutputBudgetMetric {
+  scans: number;
+  medianOutputTokens: number;
+  p95OutputTokens: number;
+  /** p95 as a share of each scan's own model ceiling, so mixed-engine fleets stay comparable. */
+  p95PctOfCap: number;
+  worst: { model: string; outputTokens: number; pctOfCap: number } | null;
+  level: BudgetLevel;
+}
+
+export async function scanOutputBudget(windowDays = 30): Promise<OutputBudgetMetric | null> {
+  if (!isDbConfigured()) return null;
+  const since = new Date(Date.now() - windowDays * 86_400_000);
+  const rows = await getPrisma().scan.findMany({
+    where: { scannedAt: { gte: since }, outputTokens: { gt: 0 } },
+    select: { engineModel: true, outputTokens: true },
+  });
+  if (rows.length === 0) return null;
+
+  const graded = rows
+    .map((r) => {
+      const b = classifyOutputBudget(r.outputTokens, r.engineModel);
+      return b ? { model: r.engineModel, outputTokens: b.outputTokens, pctOfCap: b.usedPct } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
+  if (graded.length === 0) return null;
+
+  const byTokens = [...graded].sort((a, b) => a.outputTokens - b.outputTokens);
+  const byPct = [...graded].sort((a, b) => a.pctOfCap - b.pctOfCap);
+  const at = <T,>(xs: T[], q: number): T => xs[Math.min(xs.length - 1, Math.floor(xs.length * q))]!;
+
+  const p95Pct = at(byPct, 0.95).pctOfCap;
+  return {
+    scans: graded.length,
+    medianOutputTokens: at(byTokens, 0.5).outputTokens,
+    p95OutputTokens: at(byTokens, 0.95).outputTokens,
+    p95PctOfCap: p95Pct,
+    worst: byPct[byPct.length - 1] ?? null,
+    level: p95Pct >= AT_RISK * 100 ? "at-risk" : p95Pct >= APPROACHING * 100 ? "approaching" : "ok",
   };
 }

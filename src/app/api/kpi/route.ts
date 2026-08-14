@@ -26,6 +26,7 @@ import {
   reScanRate,
   roadmapEngagementRate,
   scanPipelineErrorRate,
+  scanOutputBudget,
   weeklyActiveScanningOrgs,
 } from "@/lib/db";
 import type { RatioMetric } from "@/lib/db/kpi-metrics";
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
   const denied = requireOpsAuth(request);
   if (denied) return denied;
 
-  const [activation, rescan, conversion, fleetDepth, roadmap, weeklyActive, scanCost, errorRate, priceDrift] =
+  const [activation, rescan, conversion, fleetDepth, roadmap, weeklyActive, scanCost, errorRate, outputBudget, priceDrift] =
     await Promise.all([
       firstScanActivationRate(),
       reScanRate(),
@@ -81,6 +82,8 @@ export async function GET(request: Request) {
       weeklyActiveScanningOrgs(),
       avgLlmCostPerScan(),
       scanPipelineErrorRate(),
+      // The god-scan trend: is the single-call assessment growing toward the model's output ceiling?
+      scanOutputBudget(),
       // priceDrift rides the operator KPI pull rather than the weekly digest cron: the digest fans
       // out per-TENANT fleet intelligence to customer-facing Slack sinks, and a display-vs-Polar
       // price mismatch is operator-internal billing diagnostics — pushed into tenant channels it
@@ -103,6 +106,7 @@ export async function GET(request: Request) {
     avgLlmCostPerScan: scanCost
       ? { value: scanCost.value, numerator: null, denominator: scanCost.pricedScans, unpricedScans: scanCost.unpricedScans }
       : { ...NOT_MEASURABLE, unpricedScans: null },
+    scanOutputBudget: outputBudget,
     scanPipelineErrorRate: errorRate
       ? {
           value: errorRate.value,
