@@ -6,7 +6,7 @@ layers on the **optional** Prisma persistence layer in `prisma/schema.prisma` + 
 When `DATABASE_URL` is unset, `isDbConfigured()` returns false and DB-backed features degrade
 to empty/notice states rather than erroring.
 
-The schema now defines **44 models**. It is **DSQL-safe by design** so the same migrations run
+The schema now defines **48 models**. It is **DSQL-safe by design** so the same migrations run
 on local Postgres and Amazon Aurora DSQL (see the header comment in `prisma/schema.prisma`):
 
 - `relationMode = "prisma"` — **no foreign-key constraints** emitted (DSQL has none);
@@ -135,6 +135,7 @@ that proves the *download* wasn't edited; the per-row `_sig` proves the *rows* w
 | `QuotaEvent` | Public-funnel abuse observability — a running tally bumped when a quota denial or rate-limit trip fires. | `kind` (quota_deny\|rate_limit), `scope`, `count`; `@@unique([kind, scope])` |
 | `BadgeImpression` | Best-effort reach tally for the public README badge, one row per (repo, embedding host) — deliberately approximate (badges are CDN-cached). | `repoFullName` (lowercased), `refererHost` (lowercased, or "direct"), `count`; `@@unique([repoFullName, refererHost])` |
 | `SkillGeneration` | A record of each onboarding-skill (SKILL.md) generation — which tracks targeted a repo's skill, at which commit, when. | `repoFullName`, `headSha?`, JSON `trackIds` |
+| `PlanEnquiry` | A Custom-plan enquiry from the `/pricing` form. The tier has no checkout, so **this row is the lead** and the operator mail is only a notification about it — persisted first so a mail-provider outage can't lose a prospect. Standalone (a prospect has no `Organization` yet). | `plan` (default `enterprise`), `name`, `email`, `company`, `fleetSize`, `areasJson` (JSON string[] of hosting/scans/support/customization/sso), `message`, `viewerLogin?`/`orgSlug?` (server-resolved), `emailStatus` (pending\|sent\|skipped\|failed) |
 
 ## Dedup & carry-forward (`src/lib/db/scans-persist.ts`)
 
@@ -221,7 +222,7 @@ in that precedence) for an honest "served live from …" UI indicator.
 
 | File | Role |
 | --- | --- |
-| `prisma/schema.prisma` | The 40-model schema (DSQL-safe). |
+| `prisma/schema.prisma` | The 48-model schema (DSQL-safe). |
 | `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`. |
 | `src/lib/db/mode.ts` | Reports the live backend (`dsql`\|`postgres`\|`pglite`\|`disabled`). |
 | `src/lib/db/index.ts` | Barrel re-export of the data layer. |

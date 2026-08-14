@@ -2,23 +2,26 @@
 // credit/entitlement layer also reads). The destination for the quota/credit "upgrade" CTAs (QUOTA-1).
 // The metering model shown here mirrors the engine (src/lib/db/credits.ts + decideScanCharge):
 // public scans are always free and unmetered; PRIVATE (org) scans are free while under the plan's
-// monthly allowance, then run on prepaid credits, 1 per scan. Enterprise is "Custom". Credits are
-// bought from the org dashboard (CreditsControl → Polar).
+// monthly allowance, then run on prepaid credits, 1 per scan. Credits are bought from the org
+// dashboard (CreditsControl → Polar). The bespoke tier (stored `enterprise`, shown as "Custom") has no
+// checkout — its CTA opens PlanEnquiryCta, which mails the requirement to the operator.
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, type PlanId } from "@/lib/plans";
+import { HairlineGrid, Kicker } from "@/components/ui";
+import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, planScanLine, type PlanId } from "@/lib/plans";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
+import { PlanEnquiryCta } from "@/components/pricing/PlanEnquiryCta";
+import { DEMO_ORG_SLUG, demoOrgHref } from "@/lib/site";
 import { planProducts, polarEnabled } from "@/lib/polar";
 import { getSession } from "@/lib/auth";
 import { getViewer } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 
 // Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
-// `href={id === "free" ? "/" : "/connect"}` ternary sent Pro/Team AND Enterprise to /connect (the
+// `href={id === "free" ? "/" : "/connect"}` ternary sent Pro/Team AND the bespoke tier to /connect (the
 // repo-watch page): "Contact us" dead-ended with no way to reach anyone, and "Get started" landed on a
-// screen that is neither a checkout nor a plan upgrade. Free → run a scan; Enterprise → a real contact
-// mailto when one is configured, else the About page (labeled honestly as "Learn more").
+// screen that is neither a checkout nor a plan upgrade. Free → run a scan.
 //
 // Pro/Team (G1-01): when Polar is configured with a POLAR_PLAN_PRODUCTS mapping for the tier AND we can
 // resolve the signed-in viewer's org (the checkout route requires ?org=, see /api/billing/checkout), the
@@ -27,19 +30,26 @@ import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 // /onboarding funnel (a real, working destination, never a dead button) — /onboarding is where an org
 // gets created in the first place, and the org dashboard's own CreditsControl offers the same checkout
 // once the org exists.
-const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
+//
+// The CUSTOM tier (billing: "custom") has no href at all: `ctaFor` returns null and the card renders
+// PlanEnquiryCta, a dialog that captures the requirement and mails it to the operator. It used to be a
+// `mailto:` when ASCENT_CONTACT_EMAIL was set and "Learn more" → /about when it wasn't — so on a deploy
+// without that env, the page's highest-intent click landed on a marketing page.
 const CTA_CLASS =
   "focus-ring mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
 
 /** Pure — testable without rendering the page. `org`/`planProductId` are already resolved by the
- *  caller (null/undefined when unavailable), so this only decides the CTA shape from that outcome. */
-export function ctaFor(id: PlanId, org: string | null, planProductId: string | undefined): { href: string; label: string } {
+ *  caller (null/undefined when unavailable), so this only decides the CTA shape from that outcome.
+ *  `null` means "this tier has no destination" — the card renders the enquiry dialog instead. */
+export function ctaFor(
+  id: PlanId,
+  org: string | null,
+  planProductId: string | undefined,
+): { href: string; label: string } | null {
   if (id === "free") return { href: "/", label: "Scan a repo free" };
-  if (id === "enterprise") {
-    return CONTACT_EMAIL
-      ? { href: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Ascent Enterprise enquiry")}`, label: "Contact us" }
-      : { href: "/about", label: "Learn more" };
-  }
+  // Keyed off the BILLING MODEL, not the literal id: a bespoke tier is one that can't be bought from a
+  // page, whatever it ends up being called.
+  if (PLAN_FEATURES[id].billing === "custom") return null;
   if (org && planProductId) {
     return {
       href: `/api/billing/checkout?org=${encodeURIComponent(org)}&pack=${encodeURIComponent(planProductId)}`,
@@ -94,53 +104,88 @@ export default async function PricingPage() {
     <>
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-6xl px-5 py-12">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-white sm:text-4xl">Plans &amp; credits</h1>
-          <p className="mx-auto mt-3 max-w-2xl text-lg text-slate-400">
-            The deterministic <span className="text-slate-200">AI-native Scorecard</span> gate and public scans are{" "}
-            <span className="text-slate-200">always free</span>. Every scan produces the full AI-graded{" "}
-            <span className="text-slate-200">readiness briefing</span>, and every plan adds a{" "}
-            <span className="text-slate-200">monthly private-scan allowance</span> — {FREE_ALLOWANCE} free a month, then
-            a subscription for more. Private scans beyond your allowance run on prepaid credits you can{" "}
-            <span className="text-slate-200">top up anytime</span>. Pick the tier that fits your fleet.
+        {/* The masthead is deliberately SHORT and spans the full card grid rather than sitting in a
+            narrow column of dense prose. The old version restated the entire metering model — free
+            gate, briefing, allowance, credits, top-ups — above a table that explains all of it below,
+            and a visitor had to read a paragraph before finding anything to click. One sentence and
+            the two real first moves (scan something, or look at a populated dashboard) do the job. */}
+        <header className="text-center">
+          <Kicker>Plans &amp; credits</Kicker>
+          <h1 className="deck-h2 mt-3 text-3xl font-bold text-white sm:text-4xl">Pick the tier that fits your fleet</h1>
+          <p className="deck-lede mt-4 text-lg leading-relaxed text-slate-300">
+            Public scans are always free; every plan adds a monthly private-scan allowance. Start with a scan, or see a
+            whole fleet already scored.
           </p>
-        </div>
+          <div className="mt-7 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/"
+              className="focus-ring rounded-xl bg-accent px-5 py-2.5 font-semibold text-on-accent transition hover:bg-accent-soft"
+            >
+              Scan a repo free
+            </Link>
+            <Link
+              href={demoOrgHref()}
+              className="focus-ring rounded-xl border border-divider px-5 py-2.5 font-medium text-slate-200 transition hover:border-accent hover:text-white"
+            >
+              Explore the live demo →
+            </Link>
+          </div>
+          {/* The demo's REFERENCE: naming the org (and showing its path) is what makes "live demo" a
+              claim a visitor can check, rather than a word that could equally mean a canned tour. */}
+          <p className="mt-3 font-mono text-xs text-slate-500">
+            a real scanned organization · /org/{DEMO_ORG_SLUG}
+          </p>
+        </header>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* The brand's editorial cluster (BRAND.md names pricing as a HairlineGrid case): ONE framed
+            ledger with 1px rules between tiers, not four floating cards. Cells set their own bg so the
+            gap reads as a rule. */}
+        <HairlineGrid className="tick-corners mt-12 sm:grid-cols-2 lg:grid-cols-4">
           {PLAN_ORDER.map((id) => {
             const p = PLAN_FEATURES[id];
+            const price = planPriceLabel(id);
+            // Team keeps a quiet accent emphasis, but the "Most popular" pill is gone: it was an
+            // unbacked popularity claim (nothing here counts subscriptions). Inside a HairlineGrid the
+            // emphasis is a lit cell + an accent eyebrow, not a border — a per-cell border would fight
+            // the hairline rules the grid is made of.
             const highlight = id === "team";
             const cta = ctaFor(id, org, productByPlan[id]);
             return (
-              <div
-                key={id}
-                className={`flex flex-col rounded-2xl border bg-slate-900/40 p-5 ${
-                  highlight ? "border-accent/50 ring-1 ring-accent/20" : "border-slate-800"
-                }`}
-              >
-                {highlight && (
-                  <span className="mb-2 inline-flex w-fit rounded-full bg-accent/20 px-2 py-0.5 text-xs font-semibold text-accent">
-                    Most popular
-                  </span>
-                )}
-                <h2 className="text-lg font-semibold text-white">{p.label}</h2>
-                <p className="mt-2">
-                  <span className="text-3xl font-bold text-white">{planPriceLabel(id).amount}</span>{" "}
-                  <span className="text-sm text-slate-400">{planPriceLabel(id).cadence}</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-400">{p.blurb}</p>
-                <p className="mt-3 font-mono text-sm text-accent">
-                  {p.unlimited ? "Unlimited scans" : `${p.includedCredits} private scans / mo included`}
-                </p>
-                <ul className="mt-3 flex-1 space-y-1.5 text-sm text-slate-300">
+              <div key={id} className={`flex flex-col p-6 ${highlight ? "bg-surface/60" : "bg-ink"}`}>
+                <Kicker as="span" tone={highlight ? "accent" : "muted"}>
+                  {p.label}
+                </Kicker>
+                {/* Numbers are typeset (BRAND.md §4): mono + tabular-nums, so $10 / $20 / Flexible all
+                    sit on the same baseline across the four cells. The cadence gets its OWN line rather
+                    than trailing the amount inline — inline, "scoped with you" wrapped under "Flexible"
+                    while "/ month" didn't, making the Custom cell one line taller than its neighbours
+                    and pushing every rule below it out of alignment. */}
+                <p className="mt-3 font-mono text-3xl font-bold leading-none tabular-nums text-white">{price.amount}</p>
+                <p className="mt-2 text-sm text-slate-500">{price.cadence}</p>
+                {/* Three lines of room whatever the blurb's length, so the hairline rule beneath sits
+                    at the SAME height in all four cells — an inner rule that stair-steps across a row
+                    reads as a rendering fault, not as four different sentences. */}
+                <p className="mt-3 min-h-[4.25rem] text-sm leading-relaxed text-slate-400">{p.blurb}</p>
+                {/* The scan volume, stated ONCE per cell, under its own rule. The bullets below
+                    deliberately don't repeat it — the same sentence in two typefaces read as two
+                    different facts. */}
+                <div className="mt-5 border-t border-divider pt-4">
+                  <Kicker as="span" tone="muted">
+                    Included
+                  </Kicker>
+                  <p className="mt-1.5 font-mono text-sm text-accent">{planScanLine(id)}</p>
+                </div>
+                <ul className="mt-4 flex-1 space-y-2 text-sm leading-relaxed text-slate-300">
                   {p.features.map((f) => (
-                    <li key={f} className="flex gap-2">
-                      <span aria-hidden="true" className="select-none text-accent">✓</span>
+                    <li key={f} className="flex gap-2.5">
+                      <span aria-hidden="true" className="mt-px select-none text-accent">✓</span>
                       <span>{f}</span>
                     </li>
                   ))}
                 </ul>
-                {cta.href.startsWith("mailto:") || cta.href.startsWith("/api/billing/checkout") ? (
+                {cta === null ? (
+                  <PlanEnquiryCta className={CTA_CLASS} />
+                ) : cta.href.startsWith("/api/billing/checkout") ? (
                   // Plain <a>, not next/link: the checkout route mints a real, billable Polar session on
                   // GET, so it must never be Link-prefetched — same reasoning as PacksSection's checkout
                   // links in CreditsControl. The route itself also rejects a Sec-Purpose/Purpose-flagged
@@ -156,7 +201,7 @@ export default async function PricingPage() {
               </div>
             );
           })}
-        </div>
+        </HairlineGrid>
 
         {/* Full operation × credit × plan breakdown — the "what actually draws on credits" comparison
             beneath the price cards. */}

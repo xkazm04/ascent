@@ -3,7 +3,7 @@
 //   • cents→USD comparison against the plan's advertised whole-dollar price, reading ONLY a
 //     non-archived fixed USD price off the product's wide price union (free/custom/metered/seat
 //     legs and archived or foreign-currency fixed prices never masquerade as the live price);
-//   • custom-priced tiers (Enterprise, monthlyPrice null) are exempt — "Custom" can't drift;
+//   • custom-priced tiers (the Custom tier, monthlyPrice null) are exempt — "Flexible" can't drift;
 //   • unset Polar env → null ("not configured"), distinct from {checked, no mismatches};
 //   • one product's fetch failure lands in `errors` (NOT `mismatches` — a network blip is not a
 //     price change) and never aborts the remaining products.
@@ -99,7 +99,7 @@ describe("comparePlanPrice — lockstep vs drift", () => {
     });
   });
 
-  it("Enterprise (monthlyPrice null → 'Custom') is exempt — no number exists to drift", () => {
+  it("the Custom tier (monthlyPrice null → 'Flexible') is exempt — no number exists to drift", () => {
     expect(comparePlanPrice("enterprise", "prod_ent", { prices: [fixedUsd(99900)] })).toBeNull();
   });
 });

@@ -8,12 +8,31 @@ downgrades a plan on a full refund. The accounting layer stays provider-agnostic
 
 ## Plan tiers (`PLAN_FEATURES` in `src/lib/plans.ts`)
 
-| Plan | Monthly price | Included scans/mo | Seats | Retention | Extra gates |
-| --- | --- | --- | --- | --- | --- |
-| `free` | $0 | 5 | 1 | 30 days | — |
-| `pro` | $10 | 100 | 3 | 180 days | — |
-| `team` | $20 | 500 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes |
-| `enterprise` | Custom | Unlimited (`unlimited: true`) | Unlimited | Unlimited | Everything in Team, plus BYOM (bring-your-own-model) |
+| Plan id | Shown as | Monthly price | Included scans/mo | Seats | Retention | Extra gates |
+| --- | --- | --- | --- | --- | --- | --- |
+| `free` | Free | $0 | 5 | 1 | 30 days | — |
+| `pro` | Pro | $10 | 100 | 3 | 180 days | — |
+| `team` | Team | $20 | 500 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes |
+| `enterprise` | **Custom** | **Flexible** | Unmetered (`unlimited: true`) | Unlimited | Unlimited | Everything in Team, plus BYOM (bring-your-own-model) |
+
+### Tier id vs tier label
+
+`enterprise` is the **stored** id — written to `Organization.plan`, named in `POLAR_PLAN_PRODUCTS`,
+compared by the webhook's `PLAN_ORDER` rank. Its **customer-facing name is "Custom"**
+(`PLAN_FEATURES.enterprise.label`), which is display-only. Renaming the id would mean migrating every
+persisted org row plus a coordinated env edit on every deployment for no user-visible gain, so the tier
+reads "Custom" everywhere a human looks and stays `enterprise` everywhere a machine looks.
+
+Every surface that shows the name derives it from the model rather than re-typing it —
+`PlanControl` (the org plan switcher), the "Credits · Unlimited" chips (via the exported
+`UNLIMITED_PLAN_LABEL`), the `/pricing` cards and the credit matrix column. `src/lib/plans.test.ts`
+pins both halves so a future rename can't quietly become a data migration.
+
+**The Custom tier is described by what is ADJUSTABLE, not by a list of unlimited things.** Its bullets
+are the five dimensions a Custom contract scopes — hosting, scan volume, support, app customization,
+SSO — which is also the checklist on the enquiry form. The previous copy ("Unlimited scans / Unlimited
+members / Priority support") read as shipped entitlements when seats were never enforced and support
+had no defined tier.
 
 Notes, all read directly from the model:
 
@@ -35,6 +54,12 @@ Notes, all read directly from the model:
   clamped to it; nothing is ever deleted.
 - `PLAN_ORDER = ["free", "pro", "team", "enterprise"]` is the cheapest→richest display/upgrade order, also
   used by the webhook's downgrade-guard rank comparison (see Refunds below).
+- `planScanLine(plan)` is the **one** statement of a tier's monthly scan volume — the mono line above each
+  price card's bullets. The bullets deliberately never restate it (`PlanFeature.features` says so, and a
+  test enforces it): the same sentence in two typefaces read as two different facts.
+- `planPriceLabel("enterprise")` is `{ amount: "Flexible", cadence: "scoped with you" }`. It used to be
+  `"Custom" / "contact us"` — once the tier is *named* Custom, repeating the word as its price says nothing.
+  `src/lib/price-drift.ts` still exempts the tier: `monthlyPrice` is null, so no number exists to drift.
 
 ## The hybrid charge model
 
@@ -93,7 +118,69 @@ link: custom-OAuth session, then the Supabase/dev viewer, then their highest-rol
 those being false — an anonymous visitor, a viewer with no org yet, or a deployment with no plan-product
 catalog — degrades the CTA to the pre-existing "Get started" → `/onboarding` link (a real destination,
 never a dead button); the org dashboard's `CreditsControl` offers the same checkout once the org exists.
-The Free and Enterprise CTAs are unchanged (a scan link and a contact mailto/About page, respectively).
+The Free CTA is a scan link. The **Custom** tier's CTA is not a link at all — see below.
+
+`ctaFor()` decides "this tier has no destination" from `PLAN_FEATURES[id].billing === "custom"`, not from
+the literal `enterprise` id, and returns `null`; the card then renders `PlanEnquiryCta`. A Polar product
+mapped to the tier does **not** turn it into a checkout link — a negotiated price is an operator's manual
+fulfilment path, not something a visitor may buy from the page.
+
+### The page itself (redesigned 2026-08-14)
+
+The masthead is **one sentence plus the two real first moves** — "Scan a repo free" and "Explore the live
+demo →" (the demo org is named beneath, with its `/org/<slug>` path, so "live demo" is a claim a visitor
+can check). It replaced a paragraph that restated the entire metering model — free gate, briefing,
+allowance, credits, top-ups — directly above the `CreditMatrixLedger` that explains all of it properly,
+so a visitor had to read prose before finding anything to click. It spans the full card grid rather than
+sitting in a narrow `max-w-2xl` column.
+
+The four tiers render as a **`HairlineGrid`**, which [BRAND.md](../../../src/components/ui/BRAND.md)
+names as the editorial-cluster treatment for exactly this ("levels, pricing, ledgers"): one framed ledger
+with 1px rules between cells, not four floating `border-slate-800 bg-slate-900/40` cards. Prices are
+`font-mono tabular-nums` per the brand's "numbers are typeset" principle, so `$10` / `$20` / `Flexible`
+share a baseline across the cells.
+
+Two details exist purely to keep the row **aligned**, and both are load-bearing — an inner rule that
+stair-steps across four cells reads as a rendering fault: the cadence (`/ month`, `scoped with you`) gets
+its own line rather than trailing the amount inline (inline, only `scoped with you` wrapped, making the
+Custom cell a line taller), and the blurb has a three-line `min-h`. `planScanLine()` is kept short for the
+same reason — `"… / mo included"` wrapped in every column, so the card supplies **Included** as a `Kicker`
+label above it instead.
+
+The "Most popular" pill on the Team card is gone: nothing in Ascent counts subscriptions, so it was an
+unbacked popularity claim. Inside the hairline grid the emphasis is a **lit cell + accent eyebrow**
+rather than a border — a per-cell border would fight the rules the grid is made of.
+
+## Custom-plan enquiries (`POST /api/plan-enquiry`)
+
+The Custom tier has no checkout, so `/pricing`'s highest-intent click opens a dialog
+(`src/components/pricing/PlanEnquiryCta.tsx` + `PlanEnquiryFields.tsx`) that captures the requirement.
+It replaces a CTA that was a `mailto:` when `ASCENT_CONTACT_EMAIL` happened to be set and "Learn more" →
+`/about` when it wasn't — i.e. on a deployment without that env, a dead end.
+
+- **One validator, both ends.** `normalizePlanEnquiry` (`src/lib/plan-enquiry.ts`) is pure and
+  client-safe, and the modal and the route both run it — so the button can't enable a submission the
+  server rejects, and the error strings are written once. Required: a name, a replyable email, and a
+  ≥10-char message. Optional fields degrade rather than fail: an unknown fleet size becomes `""`, an
+  over-long company/message is truncated, unknown `areas` ids are dropped. Anything else in the body is
+  ignored, so a client can't smuggle `viewerLogin` or `emailStatus` into the row.
+- **The five areas** (`ENQUIRY_AREAS`: hosting · scans · support · customization · sso) are the same five
+  the price card advertises — the card and the form read one list, rendered as `CheckCard` tiles.
+- **The dialog is on the brand form kit** (`Field` / `TextInput` / `SelectInput` / `TextArea` /
+  `CheckCard` from `@/components/ui`), which this change introduced — see
+  [design-system/README.md](../design-system/README.md#form-controls-srccomponentsuifieldtsx). It sets
+  no border or background of its own.
+- **Guards**, outermost first: `requireSameOrigin` (this is a browser form, never an API), then
+  `CONTACT_RATE_LIMIT` via `rateLimitRequestShared` (3/min/IP, 30/min global — an unauthenticated endpoint
+  that sends mail is a spam cannon aimed at one inbox), then an off-screen honeypot field (`website`),
+  which is answered with the same `{ ok: true }` shape a real submission gets so a spammer learns nothing.
+- **Store, then notify.** The `PlanEnquiry` row *is* the lead; the mail is a notification about it. A
+  persist failure is logged and the send still runs; `emailStatus` (`sent` | `skipped` | `failed`) is
+  stamped on the row afterwards. Only the case where **both** failed returns an error (503) — otherwise
+  telling the submitter "we got it" would be a lie. `viewerLogin`/`orgSlug` are resolved server-side.
+- **The mail** (`src/lib/email/plan-enquiry.ts`) goes to `ASCENT_SALES_EMAIL` with the **prospect as
+  `replyTo`**, so the operator answers by hitting Reply. It's the first operator-inbound message in the
+  email module, so its required footer says exactly that instead of pretending there's a list to leave.
 
 ## Checkout flow (`GET /api/billing/checkout?org=<slug>&pack=<productId>`)
 
@@ -255,7 +342,14 @@ POLAR_CREDIT_PACKS=prod_abc=100,prod_def=500,prod_ghi=2000
 POLAR_PLAN_PRODUCTS=prod_pro=pro,prod_team=team,prod_ent=enterprise
 ASCENT_ALLOW_CREDIT_GRANTS=  # enables POST /api/org/credits/grant (owner-gated manual top-up); IGNORED under NODE_ENV=production
 ASCENT_ALLOW_PLAN_CHANGES=   # enables POST /api/org/plan to set a paid/unlimited tier directly (bypassing checkout)
+ASCENT_SALES_EMAIL=          # where Custom-plan enquiries are mailed; defaults to the operator address in src/lib/email/plan-enquiry.ts
+RATE_LIMIT_CONTACT_PER_IP=3  # enquiry-form budget per IP per minute
+RATE_LIMIT_CONTACT_GLOBAL=30 # …and the per-instance ceiling
 ```
+
+Enquiry mail rides the shared email transport, so it needs a provider — `RESEND_API_KEY` (simplest) or
+`SES_FROM_EMAIL`. With neither, the enquiry is still **stored** and the response reports
+`emailed: false`. See [alerts.md](../fleet/alerts.md#email-transport) for the provider selection.
 
 `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK` (see [usage.md](usage.md)) turn recorded token usage
 into a $ estimate on `/usage` — useful for calibrating pack/plan prices against real inference cost.
@@ -272,8 +366,29 @@ into a $ estimate on `/usage` — useful for calibrating pack/plan prices agains
 - **Stale out-of-order tier resurrection** — the `order.paid` stale-paid fence only catches an event whose
   *own* payload shows the subscription already lapsed; a redelivery carrying a stale but still-"active"
   snapshot would still apply. The revoke/refund handlers are the authoritative correction for this case.
-- **Seat enforcement** — `seats` is defined per plan but this doc did not verify seat-limit enforcement at
-  the membership-write path; treat as unconfirmed.
+- **What `/pricing` advertises but nothing enforces** (audited 2026-08-14 against every `planAllows*`
+  predicate and every plan comparison in the codebase). The **metered** half of the pricing page is real —
+  allowance, credits, unlimited tier, retention — and so are four capability gates
+  (`planAllowsWhiteLabel`, `planAllowsSkillsLibrary`, `planAllowsMemory`, `planAllowsByom`, plus the
+  undocumented `planAllowsPdfExport` at Pro+). These are the claims with **no code gate behind them**:
+
+  | Claim on `/pricing` | Reality |
+  | --- | --- |
+  | Seats — "1 / 3 / 10 members", Custom "yours to set" | `PlanFeature.seats` is read by **nothing**. No membership-write path, invite route, or `authz` check consults it. Previously logged here as "unconfirmed"; now confirmed unenforced. |
+  | Org fleet dashboard — Pro and up | No plan check anywhere under `/org/**`. A Free org gets the whole dashboard. |
+  | Scheduled autoscans + alerts — Pro and up | `org-watch.ts`, the rescan cron and `alerts.ts` have no plan gate. A Free org can schedule autoscans; only the *scans* they trigger are metered, not the capability. |
+  | Segments + comparisons — Team | `src/lib/db/segments.ts` has no plan check. |
+  | Playbooks + planning — Team | No plan check. |
+  | Buy extra scan credits — matrix says Pro and up | Checkout and `CreditsControl` have no tier gate; a Free org can buy credits. (Arguably the right behaviour — the *matrix* is what's wrong.) |
+
+  Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
+  all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does
+  not** — login is GitHub OAuth via Supabase) and the old Custom-tier bullet "Priority support" (no support
+  tiering exists anywhere). The SSO row now reads "Scoped", which is what the enquiry form is for.
+
+  Closing the rest is a product decision, not a bug fix: either enforce the gates (each needs a predicate
+  in `plans.ts` plus a call site, and seats additionally needs a count-vs-limit check on the invite/accept
+  path) or restate the bullets as what they are — capabilities included at every tier.
 - **Email receipts** — Polar sends its own; Ascent doesn't send a separate one.
 - **No off-session charging (blocks true auto-recharge)** — the low-balance feature above stops at a
   *warning + one-click top-up* because this integration has no stored payment method and no Polar

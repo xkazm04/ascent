@@ -1,3 +1,4 @@
+import { UNLIMITED_PLAN_LABEL } from "@/lib/plans";
 import type { CreditInfo } from "./InstallationRepos.CreditCostStrip";
 
 /**
@@ -25,10 +26,10 @@ export function BalanceChip({ credit }: { credit: CreditInfo | null }) {
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 font-mono text-sm text-emerald-300"
-        title="Enterprise plan — private scans are unlimited"
+        title={`${UNLIMITED_PLAN_LABEL} plan — private scans are unlimited`}
       >
         Credits · Unlimited
-        <span className="sr-only">— Enterprise plan, private scans are unlimited</span>
+        <span className="sr-only">— {UNLIMITED_PLAN_LABEL} plan, private scans are unlimited</span>
       </span>
     );
   }

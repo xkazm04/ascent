@@ -12,15 +12,18 @@ export interface MatrixPlan {
   label: string;
   /** Monthly included scan allowance (display) — free scans before overflow draws on credits. */
   allowance: string;
-  /** The "most popular" column, tinted like the /pricing highlight. */
+  /** The emphasized column, tinted like the /pricing card's accent ring. */
   featured?: boolean;
 }
 
+// `enterprise` is the STORED tier id; "Custom" is its customer-facing name (see the TIER ID vs TIER
+// LABEL note in src/lib/plans.ts). The label here must track PLAN_FEATURES.enterprise.label, or the
+// matrix contradicts the cards directly above it.
 export const MATRIX_PLANS: MatrixPlan[] = [
   { id: "free", label: "Free", allowance: "5" },
   { id: "pro", label: "Pro", allowance: "100" },
   { id: "team", label: "Team", allowance: "500", featured: true },
-  { id: "enterprise", label: "Enterprise", allowance: "∞" },
+  { id: "enterprise", label: "Custom", allowance: "Yours" },
 ];
 
 /**
@@ -76,7 +79,7 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
         label: "Repository scan",
         detail: "Any public or private repo — the full report, radar and roadmap. Free within your monthly allowance, then 1 credit each.",
         tag: "credit",
-        cells: { free: "5 / mo", pro: "100 / mo", team: "500 / mo", enterprise: "Unlimited" },
+        cells: { free: "5 / mo", pro: "100 / mo", team: "500 / mo", enterprise: "Your volume" },
       },
       {
         label: "Re-scan an unchanged commit",
@@ -112,9 +115,17 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       { label: "Playbooks + planning", detail: "Turn gaps into tracked initiatives and goals.", tag: "plan", cells: from("team") },
       { label: "White-label briefings", detail: "Board-ready PDF briefings under your own brand.", tag: "plan", cells: from("team") },
       { label: "Skills library", detail: "Author and roll out your own agent-skill catalog.", tag: "plan", cells: from("team") },
+      // BYOM ships today and is genuinely gated at this tier (planAllowsByom), so it stays a ✓.
       { label: "Private inference · AWS Bedrock", detail: "Run scoring in your own AWS account (bring-your-own-model).", tag: "plan", cells: from("enterprise") },
-      { label: "SSO · RBAC · audit logs", detail: "SAML sign-in, roles, and a full audit trail.", tag: "plan", cells: from("enterprise") },
-      { label: "Members / seats", detail: "How many teammates can share the org.", tag: "plan", cells: { free: "1", pro: "3", team: "10", enterprise: "Unlimited" } },
+      // Roles and the audit trail ship today; SAML/OIDC sign-in does NOT — the login is GitHub OAuth via
+      // Supabase (src/lib/auth.ts). A ✓ here claimed a shipped capability. Under the Custom tier's
+      // "adjustable, scoped with you" framing the honest cell is "Scoped", which is what the enquiry
+      // form is for; the RBAC + audit half is stated separately below because it really is available.
+      { label: "Roles · audit log", detail: "Owner/admin/member roles and a full audit trail.", tag: "plan", cells: from("pro") },
+      { label: "SSO · SAML/OIDC", detail: "Directory sign-in and provisioning — scoped as part of a Custom plan.", tag: "plan", cells: { free: false, pro: false, team: false, enterprise: "Scoped" } },
+      { label: "Hosting", detail: "Where Ascent and its inference run.", tag: "plan", cells: { free: "Shared cloud", pro: "Shared cloud", team: "Shared cloud", enterprise: "Your VPC / on-prem" } },
+      { label: "Support", detail: "How fast you can expect an answer.", tag: "plan", cells: { free: "Community", pro: "Email", team: "Email", enterprise: "SLA you pick" } },
+      { label: "Members / seats", detail: "How many teammates can share the org.", tag: "plan", cells: { free: "1", pro: "3", team: "10", enterprise: "Yours to set" } },
     ],
   },
 ];

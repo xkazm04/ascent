@@ -11,6 +11,13 @@
 // src/lib/price-drift.ts fetches the live Polar prices and reports any mismatch on the operator KPI
 // route (GET /api/kpi → `priceDrift`) — a detector, not a fixer; the mirror edit here is still manual.
 
+// TIER ID vs TIER LABEL. `enterprise` is the STORED id — it is written to `Organization.plan`, appears
+// in the POLAR_PLAN_PRODUCTS env mapping, and is compared by the webhook's downgrade-guard rank. The
+// customer-facing NAME of that tier is `label` ("Custom"), which is display-only and safe to change.
+// Renaming the id would be a data migration across every persisted org row plus a coordinated env edit
+// on every deployment, for zero user-visible gain — so the tier reads "Custom" everywhere a human looks
+// and stays `enterprise` everywhere a machine looks.
+
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
 /** How a plan is billed: free (no charge), a fixed monthly subscription, or a bespoke contract. */
@@ -37,6 +44,9 @@ export interface PlanFeature {
   /** Scan-history retention in days; null = unlimited/inherit the deployment default. */
   retentionDays: number | null;
   blurb: string;
+  /** Bullets BESIDE the headline scan volume — never restating it. The monthly scan number is rendered
+   *  once per card, in its own typography, from `planScanLine()`; repeating it here as a bullet was the
+   *  same sentence twice in one card. Keep this list to what the volume line does NOT already say. */
   features: string[];
 }
 
@@ -50,8 +60,8 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     billing: "free",
     seats: 1,
     retentionDays: 30,
-    blurb: "5 private scans a month — public scans are always free — with the full report and badge.",
-    features: ["5 private scans / month included", "Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
+    blurb: "Private scans every month — public scans are always free — with the full report and badge.",
+    features: ["Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
   },
   pro: {
     id: "pro",
@@ -63,7 +73,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 3,
     retentionDays: 180,
     blurb: "A monthly subscription with the org fleet dashboard for a small team.",
-    features: ["100 private scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
+    features: ["Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
   },
   team: {
     id: "team",
@@ -75,32 +85,66 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: ["500 private scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
+    features: ["Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
   },
+  // Stored id `enterprise` (see the TIER ID vs TIER LABEL note atop this file); shown as "Custom".
+  // Its bullets describe the DIMENSIONS that get scoped in the conversation, not a list of unlimited
+  // things already switched on — the previous "Unlimited scans / Unlimited members / Priority support"
+  // read as shipped entitlements when seats were never enforced and support has no defined tier.
   enterprise: {
     id: "enterprise",
-    label: "Enterprise",
+    label: "Custom",
     includedCredits: null,
     unlimited: true,
     monthlyPrice: null,
     billing: "custom",
     seats: null,
     retentionDays: null,
-    blurb: "Unlimited scans, SSO-ready access, and custom retention.",
-    features: ["Unlimited scans", "Unlimited members", "Custom retention", "Priority support"],
+    blurb: "Every line adjustable — hosting, scans, support, customization and sign-on.",
+    features: [
+      "Hosting — shared cloud, your VPC, or on-prem",
+      "Scans — volume set to your fleet, not a tier",
+      "Support — response times and an SLA you pick",
+      "App customization — branding, dimensions, workflows",
+      "SSO — SAML/OIDC sign-in and directory sync",
+    ],
   },
 };
 
 /** Display / upgrade order, cheapest → richest. */
 export const PLAN_ORDER: PlanId[] = ["free", "pro", "team", "enterprise"];
 
+/** Customer-facing name of the tier whose private scans are never metered — what the "Credits ·
+ *  Unlimited" chips name when they explain themselves. Derived from the model (not re-typed per chip)
+ *  so a tier RENAME reaches every surface at once; see the TIER ID vs TIER LABEL note atop this file. */
+export const UNLIMITED_PLAN_LABEL: string =
+  PLAN_FEATURES[PLAN_ORDER.find((p) => PLAN_FEATURES[p].unlimited) ?? "enterprise"].label;
+
 /** Display price for a plan card: the headline amount + a cadence sub-label. Derived from the model's
  *  `monthlyPrice`/`billing` so the /pricing figures can't drift from the data the gate reads. */
 export function planPriceLabel(plan: PlanId): { amount: string; cadence: string } {
   const p = PLAN_FEATURES[plan];
-  if (p.billing === "custom" || p.monthlyPrice == null) return { amount: "Custom", cadence: "contact us" };
+  // The bespoke tier's headline is "Flexible", not "Custom" — the tier is already NAMED Custom, so
+  // repeating the word as its price said nothing. "Flexible" is the price's actual property.
+  if (p.billing === "custom" || p.monthlyPrice == null) return { amount: "Flexible", cadence: "scoped with you" };
   if (p.monthlyPrice === 0) return { amount: "$0", cadence: "free forever" };
   return { amount: `$${p.monthlyPrice}`, cadence: "/ month" };
+}
+
+/**
+ * The headline scan-volume line on a plan card — the ONE place the monthly number is stated, in its own
+ * typography above the feature bullets (which no longer restate it, see PlanFeature.features). Derived
+ * from the same model the gate reads, so the figure can't drift from the allowance actually enforced.
+ * The bespoke tier is described by how its volume is DECIDED rather than by "unlimited": it is unmetered
+ * (`unlimited: true`) but sold as a negotiated volume, and "unlimited" oversold that.
+ */
+export function planScanLine(plan: PlanId): string {
+  const p = PLAN_FEATURES[plan];
+  if (p.billing === "custom") return "Scan volume you define";
+  // Kept SHORT on purpose: this renders as mono type inside a narrow price column, and the longer
+  // "… / mo included" wrapped to two lines in every cell, which pushed each card's hairline rule to a
+  // different height and broke the row's alignment. "Included" is carried by the label above it.
+  return p.includedCredits == null ? "Unlimited scans" : `${p.includedCredits} private scans / mo`;
 }
 
 export function isPlanId(v: string): v is PlanId {

@@ -386,3 +386,10 @@ export {
   type PersonalBacklogRepo,
   type PersonalBacklogItem,
 } from "@/lib/db/personal-backlog";
+export {
+  createPlanEnquiry,
+  recordPlanEnquiryEmail,
+  type PlanEnquiryRecord,
+  type StoredPlanEnquiry,
+  type EnquiryEmailStatus,
+} from "@/lib/db/plan-enquiry";

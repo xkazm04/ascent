@@ -279,6 +279,18 @@ export const GATE_RATE_LIMIT: RateLimitConfig = {
   windowMs: 60_000,
 };
 
+// The Custom-plan enquiry form (POST /api/plan-enquiry) is unauthenticated, writes a DB row, and sends
+// mail through the operator's provider on every accepted call — so an unthrottled loop is both a spam
+// cannon aimed at one inbox and a way to burn a metered send quota (Resend's free tier is a few thousand
+// a month). A human submits this once, maybe twice after a typo, so the per-IP budget is deliberately
+// tiny; the global ceiling bounds a distributed flood the per-IP cap can't see. Env-overridable.
+export const CONTACT_RATE_LIMIT: RateLimitConfig = {
+  name: "contact",
+  perIp: envInt("RATE_LIMIT_CONTACT_PER_IP", 3),
+  global: envInt("RATE_LIMIT_CONTACT_GLOBAL", 30),
+  windowMs: 60_000,
+};
+
 // The public README badge is hammered by crawlers/READMEs; the limit gates only the EXPENSIVE
 // cache-miss scan (a cheap static badge is still returned). Generous per-IP for a busy README, with a
 // per-instance global ceiling. Matches the badge route's previous bespoke 60/min/IP. Env-overridable.

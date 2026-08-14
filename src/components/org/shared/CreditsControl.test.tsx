@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CreditsControl } from "@/components/org/shared/CreditsControl";
+import { UNLIMITED_PLAN_LABEL } from "@/lib/plans";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -136,7 +137,9 @@ describe("CreditsControl a11y reach (credits-entitlements 2026-07-16 #5)", () =>
 
   it("gives the unlimited chip a screen-reader-reachable explanation (title tooltips never reach AT/touch)", () => {
     render(<CreditsControl org="acme" initialBalance={0} unlimited={true} grantsEnabled={false} />);
-    expect(screen.getByText(/Enterprise plan, private scans are unlimited/)).toBeInTheDocument();
+    // The tier NAME comes from the plan model (UNLIMITED_PLAN_LABEL) so a rename can't leave this
+    // chip calling it something /pricing no longer does; the assertion tracks the model, not a literal.
+    expect(screen.getByText(new RegExp(`${UNLIMITED_PLAN_LABEL} plan, private scans are unlimited`))).toBeInTheDocument();
   });
 
   it("announces a failed top-up via a live region (matching the ledger states' aria-live pattern)", async () => {

@@ -65,7 +65,7 @@ export function productMonthlyUsd(product: PolarProductLike): number | null {
 
 /**
  * Compare one plan's advertised price against the live Polar product. Null = in lockstep (or the
- * plan is custom-priced — Enterprise renders "Custom", so no number exists to drift). Pure given
+ * plan is custom-priced — the Custom tier renders "Flexible", so no number exists to drift). Pure given
  * the fetched product, so the comparison semantics are unit-testable without a client.
  */
 export function comparePlanPrice(plan: PlanId, productId: string, product: PolarProductLike): PriceMismatch | null {

@@ -53,7 +53,7 @@ const FAQ_LD = {
       name: "Is Ascent free?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Every plan includes a monthly scan allowance — 5 scans a month free, for public or private repos. Pro ($10/mo) and Team ($20/mo) are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. Enterprise is implemented to requirements.",
+        text: "Every plan includes a monthly scan allowance — 5 scans a month free, for public or private repos. Pro ($10/mo) and Team ($20/mo) are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The Custom plan is scoped to your requirements — hosting, scan volume, support, customization and SSO.",
       },
     },
   ],

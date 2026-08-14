@@ -1,21 +1,20 @@
 "use client";
 
 // Org dashboard plan-tier chip + switcher. Shows the current plan and, on a deployment where manual
-// plan changes are enabled (ASCENT_ALLOW_PLAN_CHANGES), lets an owner move between Free/Pro/Team/
-// Enterprise — the no-Polar demo path for the monetization loop (the real paid upgrade flows through
-// billing checkout). Switching tier changes the monthly scan allowance the entitlement gate enforces,
-// so the effect is visible on the next private scan + on /usage. Where changes are disabled it renders
-// a read-only tier chip. POSTs /api/org/plan, then refreshes so the new tier paints everywhere.
+// plan changes are enabled (ASCENT_ALLOW_PLAN_CHANGES), lets an owner move between the tiers — the
+// no-Polar demo path for the monetization loop (the real paid upgrade flows through billing checkout).
+// Switching tier changes the monthly scan allowance the entitlement gate enforces, so the effect is
+// visible on the next private scan + on /usage. Where changes are disabled it renders a read-only tier
+// chip. POSTs /api/org/plan, then refreshes so the new tier paints everywhere.
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PLAN_FEATURES, PLAN_ORDER } from "@/lib/plans";
 
-const PLANS: { id: string; label: string }[] = [
-  { id: "free", label: "Free" },
-  { id: "pro", label: "Pro" },
-  { id: "team", label: "Team" },
-  { id: "enterprise", label: "Enterprise" },
-];
+// Derived from the plan model rather than re-typed, so a tier RENAME (the bespoke tier is stored as
+// `enterprise` and shown as "Custom") lands here too instead of leaving the org dashboard calling it
+// something /pricing no longer does.
+const PLANS: { id: string; label: string }[] = PLAN_ORDER.map((id) => ({ id, label: PLAN_FEATURES[id].label }));
 
 export function PlanControl({ org, plan, enabled }: { org: string; plan: string; enabled: boolean }) {
   const router = useRouter();

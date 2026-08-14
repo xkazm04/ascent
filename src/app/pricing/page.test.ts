@@ -4,10 +4,14 @@
 // - Polar configured + a resolvable org + a plan-product mapping → a real checkout link.
 // - Any of those missing (Polar unconfigured, no plan-product mapping, no org yet) → the old, working
 //   /onboarding fallback, never a dead button.
-// Free/Enterprise CTAs are unchanged; pinned here too so the refactor didn't disturb them.
+// The Free CTA is unchanged; pinned here too so the refactor didn't disturb it. The bespoke tier
+// (stored `enterprise`, shown as "Custom") now returns NULL — it has no destination at all, because its
+// CTA opens the enquiry dialog instead of navigating. That replaced a `mailto:` that only existed when
+// ASCENT_CONTACT_EMAIL was set and a "Learn more" → /about link when it wasn't.
 
 import { describe, it, expect } from "vitest";
 import { ctaFor } from "./page";
+import { PLAN_FEATURES } from "@/lib/plans";
 
 describe("pricing CTA — plan-tier checkout reachability (G1-01)", () => {
   it("free always scans, regardless of org/product state", () => {
@@ -15,8 +19,21 @@ describe("pricing CTA — plan-tier checkout reachability (G1-01)", () => {
     expect(ctaFor("free", "acme", "prod_pro")).toEqual({ href: "/", label: "Scan a repo free" });
   });
 
-  it("enterprise falls back to Learn more when no contact email is configured", () => {
-    expect(ctaFor("enterprise", "acme", "prod_ent")).toEqual({ href: "/about", label: "Learn more" });
+  it("the bespoke tier has no href — its CTA opens the enquiry dialog", () => {
+    expect(ctaFor("enterprise", "acme", "prod_ent")).toBeNull();
+    // Even with a plan-product mapping AND a resolvable org, it must NOT become a checkout link: the
+    // price is negotiated, so a Polar product mapped to this tier is an operator's manual fulfilment
+    // path, not something a visitor may buy from the page.
+    expect(ctaFor("enterprise", null, undefined)).toBeNull();
+  });
+
+  it("decides 'no destination' from the BILLING MODEL, not the literal tier id", () => {
+    // Guards the rename: the tier is stored as `enterprise` and shown as "Custom", and a future
+    // relabel must not silently restore a checkout link on a tier that can't be bought.
+    for (const p of Object.values(PLAN_FEATURES)) {
+      if (p.billing === "custom") expect(ctaFor(p.id, "acme", "prod_x")).toBeNull();
+      else expect(ctaFor(p.id, "acme", "prod_x")).not.toBeNull();
+    }
   });
 
   it("pro/team become a real checkout link when Polar is configured and the org is known", () => {

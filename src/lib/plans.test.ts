@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { retentionCutoff, planFeatures, planAllowsWhiteLabel, planAllowsPdfExport, planPriceLabel, scanAllowance, decideScanCharge, PLAN_FEATURES } from "./plans";
+import {
+  retentionCutoff,
+  planFeatures,
+  planAllowsWhiteLabel,
+  planAllowsPdfExport,
+  planPriceLabel,
+  planScanLine,
+  scanAllowance,
+  decideScanCharge,
+  PLAN_FEATURES,
+  PLAN_ORDER,
+  UNLIMITED_PLAN_LABEL,
+} from "./plans";
 
 const NOW = Date.UTC(2026, 5, 20); // fixed clock so the cutoff math is deterministic
 const DAY = 86_400_000;
@@ -58,14 +70,16 @@ describe("scanAllowance — monthly metered-scan allowance per tier", () => {
 });
 
 describe("planPriceLabel — subscription display prices", () => {
-  it("Free is $0, Pro $10/mo, Team $20/mo, Enterprise Custom", () => {
+  it("Free is $0, Pro $10/mo, Team $20/mo, the bespoke tier Flexible", () => {
     expect(planPriceLabel("free")).toEqual({ amount: "$0", cadence: "free forever" });
     expect(planPriceLabel("pro")).toEqual({ amount: "$10", cadence: "/ month" });
     expect(planPriceLabel("team")).toEqual({ amount: "$20", cadence: "/ month" });
-    expect(planPriceLabel("enterprise")).toEqual({ amount: "Custom", cadence: "contact us" });
+    // "Custom" is the tier's NAME now, so it can't also be its price — the headline says what the
+    // price actually is (flexible), not the word already printed above it.
+    expect(planPriceLabel("enterprise")).toEqual({ amount: "Flexible", cadence: "scoped with you" });
   });
 
-  it("Pro and Team are subscriptions; Free is free; Enterprise is custom", () => {
+  it("Pro and Team are subscriptions; Free is free; the bespoke tier is custom-billed", () => {
     expect(PLAN_FEATURES.pro.billing).toBe("subscription");
     expect(PLAN_FEATURES.team.billing).toBe("subscription");
     expect(PLAN_FEATURES.free.billing).toBe("free");
@@ -108,5 +122,49 @@ describe("marketing copy matches the metering engine (checkout-plans-polar 07-16
   it("the Free tier pitches the real model: private scans metered, public scans always free", () => {
     expect(PLAN_FEATURES.free.blurb).toMatch(/private scans/i);
     expect(PLAN_FEATURES.free.blurb).toMatch(/public scans are always free/i);
+  });
+});
+
+// The bespoke tier is stored as `enterprise` and NAMED "Custom" — a display-only rename (the id is
+// persisted on Organization.plan and mapped by POLAR_PLAN_PRODUCTS, so it can't move). These pin the
+// two halves apart so a future rename can't quietly become a data migration.
+describe("tier identity — stored id vs customer-facing label", () => {
+  it("keeps `enterprise` as the stored id while the label reads Custom", () => {
+    expect(PLAN_FEATURES.enterprise.id).toBe("enterprise");
+    expect(PLAN_FEATURES.enterprise.label).toBe("Custom");
+    expect(UNLIMITED_PLAN_LABEL).toBe("Custom");
+  });
+
+  it("describes the bespoke tier by what is ADJUSTABLE, not by a list of unlimited things", () => {
+    const bullets = PLAN_FEATURES.enterprise.features.join(" ").toLowerCase();
+    for (const area of ["hosting", "scans", "support", "customization", "sso"]) {
+      expect(bullets).toContain(area);
+    }
+    expect(bullets).not.toContain("unlimited");
+  });
+});
+
+// The card states the monthly scan volume ONCE, in its own typography, from planScanLine — so no plan's
+// bullet list may restate it. This is the assertion that keeps the duplication from creeping back.
+describe("planScanLine — the single statement of scan volume", () => {
+  it("reads the allowance from the model for metered tiers", () => {
+    // Short by design — it renders as mono type in a narrow price column, and the longer
+    // "… / mo included" wrapped in every cell, stair-stepping each card's hairline rule. The card
+    // supplies "Included" as the label above it.
+    expect(planScanLine("free")).toBe("5 private scans / mo");
+    expect(planScanLine("pro")).toBe("100 private scans / mo");
+    expect(planScanLine("team")).toBe("500 private scans / mo");
+  });
+
+  it("describes the bespoke tier's volume as negotiated, not unlimited", () => {
+    expect(planScanLine("enterprise")).toBe("Scan volume you define");
+  });
+
+  it("no plan's feature bullets restate the scan volume", () => {
+    for (const id of PLAN_ORDER) {
+      for (const bullet of PLAN_FEATURES[id].features) {
+        expect(bullet).not.toMatch(/private scans \/ mo|scans \/ month included/i);
+      }
+    }
   });
 });

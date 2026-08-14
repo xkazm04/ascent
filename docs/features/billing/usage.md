@@ -60,8 +60,8 @@ day key isn't on the axis), so the billing page disagreed with itself.
 ## Rate limits & the spend ceiling (`src/lib/rate-limit.ts`)
 
 Every public, unauthenticated endpoint that can cost money (`/api/scan`, `/api/scan/stream`,
-`/api/org/import`, `/api/gate/*`, `/api/badge/*`, `/api/quota`) is charged against a sliding
-window with **two halves**:
+`/api/org/import`, `/api/gate/*`, `/api/badge/*`, `/api/quota`, `/api/plan-enquiry`) is charged
+against a sliding window with **two halves**:
 
 - **Per-IP burst** — always in-process. A burst is seconds long and normally pinned to one
   instance, so a per-instance cap is a real cap and the check stays synchronous.
@@ -74,7 +74,12 @@ window with **two halves**:
 | `ASCENT_RATE_LIMIT_STORE` | `memory` | `memory` (per-instance, no infrastructure) or `upstash` (fleet-wide global ceiling). |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | Required for `upstash`. Spoken over `fetch` against the REST `/pipeline` endpoint — **no npm client dependency**. If either is missing the store falls back to `memory` rather than failing requests. |
 | `ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN` | unset (fail **closed**) | When the shared store is unreachable, `1` degrades to the in-memory ceiling (availability) instead of returning 429 (safety). |
-| `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,BADGE}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
+| `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,BADGE,CONTACT}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
+
+`CONTACT_RATE_LIMIT` (3/min/IP, 30/min global) is the tightest budget here and the only one guarding a
+non-inference cost: `POST /api/plan-enquiry` (the `/pricing` Custom-plan form) writes a row and sends
+mail through the operator's provider on every accepted call, so an unthrottled loop is both a spam cannon
+aimed at one inbox and a way to burn a metered send quota. A human submits it once.
 
 **Unreachable store → fail closed, by design.** Turning the shared store on is a statement that
 the fleet needs *one* hard ceiling; degrading silently would restore the exact

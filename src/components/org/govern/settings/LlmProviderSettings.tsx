@@ -32,12 +32,12 @@ export function LlmProviderSettings({
       <SectionHeader
         size="sm"
         title="Bring your own model (Bedrock)"
-        description="Run scans on your org's own Amazon Bedrock — inference stays in your AWS account and region, billed to your AWS account. Enterprise plan."
+        description="Run scans on your org's own Amazon Bedrock — inference stays in your AWS account and region, billed to your AWS account. Custom plan."
       />
 
       {!planAllowed ? (
         <p className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm text-slate-300">
-          Connecting your own model is an <span className="text-accent">Enterprise</span> feature. Talk to us to enable BYOM for your org.
+          Connecting your own model is a <span className="text-accent">Custom</span> plan feature. Talk to us to enable BYOM for your org.
         </p>
       ) : !encryptionConfigured ? (
         <p className="mt-4 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-sm text-orange-200">

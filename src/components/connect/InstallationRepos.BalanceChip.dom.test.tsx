@@ -22,7 +22,7 @@ describe("connect balance chip", () => {
     expect(container.textContent).not.toMatch(/NaN|credits/);
   });
 
-  it("renders the unlimited variant instead of a number for an Enterprise org", () => {
+  it("renders the unlimited variant instead of a number for an org on the unlimited tier", () => {
     render(<BalanceChip credit={{ balance: 0, unlimited: true, allowanceRemaining: 0 }} />);
     expect(screen.getByText(/Credits · Unlimited/)).toBeInTheDocument();
     // A 0 balance must never be shown as "0 credits" for an unlimited org.
