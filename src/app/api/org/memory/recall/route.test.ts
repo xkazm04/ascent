@@ -20,11 +20,12 @@ vi.mock("next/server", () => ({
   },
 }));
 
-const { mockIsDbConfigured, mockLifecycleWorkingSet, mockBump, mockRequireOrgRead, mockResolveViewerLogin } =
+const { mockIsDbConfigured, mockLifecycleWorkingSet, mockBump, mockAuthorizeOrgApi, mockResolveViewerLogin } =
   vi.hoisted(() => ({
     mockIsDbConfigured: vi.fn(),
     mockLifecycleWorkingSet: vi.fn(),
     mockBump: vi.fn(),
+    mockAuthorizeOrgApi: vi.fn(),
     mockRequireOrgRead: vi.fn(),
     mockResolveViewerLogin: vi.fn(),
   }));
@@ -34,7 +35,12 @@ vi.mock("@/lib/db", () => ({
   lifecycleWorkingSet: mockLifecycleWorkingSet,
   bumpMemoryAccessCounts: mockBump,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: mockRequireOrgRead }));
+// The auth seam (token OR session). isDenied is a pure type guard — kept real via the actual module;
+// only authorizeOrgApi is replaced, mirroring the skills route tests.
+vi.mock("@/lib/api-token-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-token-auth")>();
+  return { ...actual, authorizeOrgApi: mockAuthorizeOrgApi };
+});
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
 
 import { POST } from "./route";
@@ -65,7 +71,7 @@ const post = (body: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockIsDbConfigured.mockReturnValue(true);
-  mockRequireOrgRead.mockResolvedValue(null);
+  mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "session" } });
   mockResolveViewerLogin.mockResolvedValue("kazimi66");
   mockBump.mockResolvedValue(1);
 });
@@ -128,10 +134,29 @@ describe("POST /api/org/memory/recall — what was packed, and what wasn't", () 
   });
 
   it("stays read-gated: a denial short-circuits before any read or counter bump", async () => {
-    mockRequireOrgRead.mockResolvedValue(new Response("nope", { status: 403 }));
+    mockAuthorizeOrgApi.mockResolvedValue({ denied: new Response("nope", { status: 403 }) });
     const res = await post({ org: "acme" });
     expect(res.status).toBe(403);
     expect(mockLifecycleWorkingSet).not.toHaveBeenCalled();
     expect(mockBump).not.toHaveBeenCalled();
+  });
+
+  it("asks the seam for the memory:read scope in read mode", async () => {
+    mockLifecycleWorkingSet.mockResolvedValue([]);
+    await post({ org: "acme" });
+    expect(mockAuthorizeOrgApi).toHaveBeenCalledWith(expect.anything(), "acme", { scope: "memory:read", mode: "read" });
+  });
+
+  it("a token principal reads as an anonymous member: null viewer, shared memories only", async () => {
+    mockAuthorizeOrgApi.mockResolvedValue({
+      principal: { via: "token", login: "token:ci", tokenId: "t1", scopes: ["memory:read"] },
+    });
+    mockLifecycleWorkingSet.mockResolvedValue([row({ id: "a", content: "shared truth" })]);
+    const body = await (await post({ org: "acme" })).json();
+    // The privacy filter (lifecycleWorkingSet's third arg) gets NULL — never the token's audit label,
+    // which is not a GitHub login and must not accidentally match an author.
+    expect(mockLifecycleWorkingSet).toHaveBeenCalledWith("acme", expect.anything(), null);
+    expect(mockResolveViewerLogin).not.toHaveBeenCalled();
+    expect(body.memories.map((m: { id: string }) => m.id)).toEqual(["a"]);
   });
 });

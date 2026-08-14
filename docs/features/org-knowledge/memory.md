@@ -255,8 +255,14 @@ reader:
 
 `GET`/`POST /api/org/memory/recall` is the surface an agent or integration
 uses to pull relevant memories into context. Any org member (session) can
-call it; it fetches the org's active, visible memories (namespace/kind
-filters allowed, unknown kind values silently dropped) and scores each one:
+call it, and — since 2026-08-14 — so can a **machine caller holding an org
+API token with the `memory:read` scope** (`Authorization: Bearer askl_…`,
+the same `authorizeOrgApi` seam the Skills routes use; minted on the Skills
+tab's API-tokens panel). A token principal carries no GitHub identity, so it
+reads as an anonymous member: **shared memories only**, never anyone's
+private scratch. The route fetches the org's active, visible memories
+(namespace/kind filters allowed, unknown kind values silently dropped) and
+scores each one:
 
 ```
 score = confidence × 0.5^(ageDays / halfLife(kind)) × (1 + 0.25·ln(1 + accessCount))

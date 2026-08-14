@@ -116,7 +116,7 @@ that proves the *download* wasn't edited; the per-row `_sig` proves the *rows* w
 | `OrgSkillAdoption` | Records a repo adopting a skill — the explicit reuse signal (mirrors `PlaybookApplication`). | `skillId`, `repoFullName`, `adoptedBy?`; `@@unique([skillId, repoFullName])` |
 | `OrgSkillDownload` | One rolling download/use tally row per skill — the denormalized hot sort key for "most used". | `count`, `lastSeen`; `@@unique([skillId])` |
 | `OrgSkillEvent` | Append-only per-use event (download\|sync\|invoke) for slicing use rate by repo/type/source. | `type`, `repo?`, `source?` (cli\|hook\|ci\|web) |
-| `OrgApiToken` | Org-scoped API token for machine access to the Skills Library. Only the SHA-256 hash is stored — the raw value is shown once at creation. | `name`, `tokenHash`, `tokenPrefix`, `scopes` (comma-joined), `revokedAt?` (soft-revoke) |
+| `OrgApiToken` | Org-scoped API token for machine access to the Skills Library and org-memory recall. Only the SHA-256 hash is stored — the raw value is shown once at creation. Scopes: `skills:read` \| `skills:write` \| `telemetry:write` \| `memory:read`. | `name`, `tokenHash`, `tokenPrefix`, `scopes` (comma-joined), `revokedAt?` (soft-revoke) |
 
 ### LLM configuration & AI usage
 

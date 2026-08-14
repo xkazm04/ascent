@@ -14,7 +14,10 @@
 //
 // READ-gated (any member of the org), not write-gated — recall is reading the store, and the same call
 // that gates the per-row counter (/api/org/memory/:id/recall) gates this. The accessCount bump it
-// performs is a decoration of that read, not an authoring act.
+// performs is a decoration of that read, not an authoring act. MACHINE-REACHABLE: an org API token
+// with the `memory:read` scope (Authorization: Bearer askl_…) opens the same door without a cookie
+// session — the header comment's "AGENT surface" claim, finally true. Token callers have no GitHub
+// identity, so they see only SHARED memories (the private-scratch filter gets a null viewer).
 //
 // THIN ADAPTER over src/lib/memory/recall.ts: resolve caller → fetch the bounded working set → call the
 // pure core with an injected `now` → bump the counters of what was actually RETURNED. All judgment (the
@@ -22,7 +25,7 @@
 
 import { NextResponse } from "next/server";
 import { bumpMemoryAccessCounts, isDbConfigured, lifecycleWorkingSet } from "@/lib/db";
-import { requireOrgRead } from "@/lib/authz";
+import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isMemoryKind } from "@/lib/org/memory-kinds";
 import { isRecallable, normalizeCharBudget, recallMemories } from "@/lib/memory/recall";
@@ -48,13 +51,16 @@ const cleanKinds = (raw: unknown): string[] => {
   return [...new Set(list.map((k) => String(k).trim()).filter(isMemoryKind))];
 };
 
-async function handle(params: RecallParams) {
-  const denied = await requireOrgRead(params.org);
-  if (denied) return denied;
+async function handle(request: Request, params: RecallParams) {
+  // Token (memory:read) or session (requireOrgRead) — the seam falls through to the session gate
+  // when no askl_ bearer is present, so browser behavior is unchanged.
+  const auth = await authorizeOrgApi(request, params.org, { scope: "memory:read", mode: "read" });
+  if (isDenied(auth)) return auth.denied;
 
   // Only memories this caller may actually SEE enter the pass — recall must never leak another author's
-  // private scratch into an agent's context.
-  const viewer = await resolveViewerLogin();
+  // private scratch into an agent's context. A token principal carries no GitHub login (its `login` is
+  // an audit label), so it reads as an anonymous member: shared memories only.
+  const viewer = auth.principal.via === "token" ? null : await resolveViewerLogin();
   const working = await lifecycleWorkingSet(
     params.org,
     { namespace: params.namespace, kinds: params.kinds.length ? params.kinds : undefined },
@@ -118,7 +124,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const org = url.searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
-  return handle({
+  return handle(request, {
     org,
     namespace: url.searchParams.get("namespace") ?? undefined,
     kinds: cleanKinds(url.searchParams.get("kinds")),
@@ -135,7 +141,7 @@ export async function POST(request: Request) {
     charBudget?: number;
   };
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
-  return handle({
+  return handle(request, {
     org: body.org,
     namespace: body.namespace,
     kinds: cleanKinds(body.kinds),

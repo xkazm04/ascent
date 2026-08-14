@@ -11,8 +11,10 @@ import { getOrgId } from "@/lib/db/org-rollup";
 const TOKEN_PREFIX = "askl_";
 
 /** Capabilities a token may carry. Reads are open to any member anyway, but a token is a long-lived
- *  bearer credential, so it is scoped down to exactly what the holder needs. */
-export const SKILL_TOKEN_SCOPES = ["skills:read", "skills:write", "telemetry:write"] as const;
+ *  bearer credential, so it is scoped down to exactly what the holder needs. `memory:read` is the
+ *  control-plane door the recall route's own header always promised — an agent pulling the org's
+ *  budget-packed memory into its context without a cookie session. */
+export const SKILL_TOKEN_SCOPES = ["skills:read", "skills:write", "telemetry:write", "memory:read"] as const;
 export type SkillTokenScope = (typeof SKILL_TOKEN_SCOPES)[number];
 
 export function isSkillTokenScope(v: string): v is SkillTokenScope {

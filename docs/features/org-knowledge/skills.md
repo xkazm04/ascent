@@ -220,7 +220,8 @@ Minted via `POST /api/org/tokens` (session-only, member-gated — no token can
 mint another token). The raw value (`askl_` + 24 random bytes, base64url) is
 returned exactly once; only its SHA-256 hash and a 12-character display
 prefix are stored. Scopes: `skills:read`, `skills:write`,
-`telemetry:write` — an empty/invalid scope list defaults to
+`telemetry:write`, `memory:read` (org-memory recall — see
+[memory.md](./memory.md)) — an empty/invalid scope list defaults to
 `["skills:read"]` (never a zero-scope token). `DELETE
 /api/org/tokens/:id` soft-revokes it (`revokedAt` set; the row survives for
 audit). `GET /api/org/tokens` lists summaries only — never the raw value or
