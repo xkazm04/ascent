@@ -11,6 +11,8 @@ import { buildArtifact, type ArtifactSpec } from "@/lib/practice-artifact";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
 import { recordAudit, recordPracticePr } from "@/lib/db";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
+import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
+import { minePracticeShapes, minedStarter } from "@/lib/org/practice-mining";
 
 /**
  * The shared "open a draft PR seeding one generated artifact, then audit-log it" step — the inner
@@ -55,6 +57,30 @@ export type ApplyPracticeResult =
   | { kind: "content-drift"; ctx: RepoContextMeta; artifact: ArtifactSpec };
 
 /**
+ * The org's mined pattern for one practice, or null when it has none.
+ *
+ * Null is the ordinary case for a young org and is NOT a failure: `buildArtifact` then emits the
+ * generic starter and the PR body says so explicitly. A read failure also degrades to null — a
+ * generic starter that says it is generic is always safe, whereas failing the apply would block a
+ * write over a decoration.
+ */
+async function resolveHousePattern(
+  orgSlug: string,
+  practiceId: string,
+): Promise<{ lines: string[]; exemplars: string[] } | null> {
+  try {
+    const shapes = await getOrgPracticeShapes(orgSlug);
+    if (!shapes || shapes.length === 0) return null;
+    const mined = minePracticeShapes(shapes).find((m) => m.practiceId === practiceId);
+    if (!mined) return null;
+    const lines = minedStarter(mined);
+    return lines ? { lines, exemplars: mined.exemplars } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Open a draft PR seeding `practiceId`'s starter into `ref`, then audit-log it. Returns the PR +
  * resolved repo context + artifact on success, or a typed `unknown-practice` result (no PR opened)
  * when the practice id isn't recognized. Throws on GitHub/write failures so the caller can map them
@@ -71,10 +97,15 @@ export async function applyPracticeToRepo(
   practiceId: string,
   base: string | undefined,
   audit: { orgId?: string; actorId?: string; batch?: boolean },
-  opts?: { expectedFingerprint?: string },
+  opts?: { expectedFingerprint?: string; orgSlug?: string },
 ): Promise<ApplyPracticeResult> {
   const ctx = await fetchRepoContext(ref, token);
-  const artifact = buildArtifact(practiceId, ctx);
+  // W6 — the org's OWN mined pattern for this practice, when it has one. Resolved here so BOTH the
+  // single apply and the batch fan-out get it from one place, and so the preview (which calls
+  // buildArtifact through the same context) sees the same body the PR will commit — otherwise the
+  // fingerprint drift-guard below would reject every apply as content-drift.
+  const house = opts?.orgSlug ? await resolveHousePattern(opts.orgSlug, practiceId) : null;
+  const artifact = buildArtifact(practiceId, { ...ctx, house });
   if (!artifact) return { kind: "unknown-practice", ctx };
   if (opts?.expectedFingerprint && artifactFingerprint(artifact.body) !== opts.expectedFingerprint) {
     return { kind: "content-drift", ctx, artifact };
@@ -87,6 +118,10 @@ export async function applyPracticeToRepo(
     meta: {
       repo: ctx.fullName,
       practiceId,
+      // Which shape actually shipped. The audit trail is where "is the mining paying off?" gets
+      // answered, and it cannot be reconstructed from the PR later.
+      shape: house ? "house" : "generic",
+      ...(house ? { houseExemplars: house.exemplars.length } : {}),
       ...(audit.batch ? { batch: true } : {}),
     },
   });

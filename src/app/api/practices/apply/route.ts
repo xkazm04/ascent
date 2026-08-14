@@ -70,7 +70,12 @@ export async function POST(request: Request) {
       body.practiceId,
       body.base,
       { orgId, actorId: actorLogin ?? undefined },
-      { expectedFingerprint: typeof body.previewFingerprint === "string" ? body.previewFingerprint : undefined },
+      {
+        expectedFingerprint: typeof body.previewFingerprint === "string" ? body.previewFingerprint : undefined,
+        // W6 — lets the artifact carry the org's OWN mined pattern when it has one. Same slug
+        // resolution as getOrgId above, so the two can't disagree about which org this is.
+        orgSlug: parsed.owner,
+      },
     );
     if (result.kind === "unknown-practice") {
       return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });

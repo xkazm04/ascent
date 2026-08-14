@@ -9,6 +9,7 @@
 import { detectAiUsage } from "@/lib/analyze";
 import { buildPassport } from "@/lib/analyze/passport";
 import { deriveContextHealth } from "@/lib/analyze/context-health";
+import { outputBudgetWarning, type OutputBudget } from "@/lib/llm/output-budget";
 import { extractPracticeShape } from "@/lib/analyze/practice-shape";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 import type { AiChangeRecord } from "@/lib/analyze/pulls";
@@ -167,6 +168,16 @@ export interface ScanWarningsInput {
    * a reader must not compare it with default-branch scores, and it is deliberately not persisted.
    */
   scopeCaveat?: string | null;
+  /**
+   * The GOD-SCAN INDICATOR (2026-08-14): this scan's output-token usage against the scoring model's
+   * ceiling. Null when the provider reported no usage (mock, or any provider that doesn't surface
+   * it) — which is "not measured", never "comfortably small".
+   *
+   * It is a reliability caveat rather than a cost note because the failure at that ceiling is a
+   * TRUNCATED response, and truncation drops dimensions silently instead of erroring. See
+   * src/lib/llm/output-budget.ts.
+   */
+  outputBudget?: OutputBudget | null;
 }
 
 /**
@@ -176,6 +187,10 @@ export interface ScanWarningsInput {
  */
 export function buildScanWarnings(input: ScanWarningsInput): string[] {
   const warnings: string[] = [...input.detectorWarnings];
+  // Emitted FIRST among the reliability caveats: if the assessment was truncated, every other
+  // caveat below is describing a report that is also missing dimensions.
+  const budget = outputBudgetWarning(input.outputBudget ?? null);
+  if (budget) warnings.push(budget);
   if (!input.hasToken) {
     warnings.push(
       "Pull-request signals were skipped — they need a GitHub token (GraphQL has no anonymous access).",

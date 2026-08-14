@@ -42,6 +42,18 @@ export function isValidRepoName(s: string): boolean {
 
 /** Typed GitHub-listing failure so callers can map a rate-limit / auth / not-found to the RIGHT HTTP
  *  status instead of collapsing every throw to 404 (which hid rate limits + auth outages as "no such org"). */
+/**
+ * Is this 403 a RATE LIMIT rather than a permissions denial?
+ *
+ * A present Retry-After on a 403 is GitHub's SECONDARY (abuse) limit — `x-ratelimit-remaining` stays
+ * > 0 there, so keying only on remaining===0 misreports it as an auth failure. Extracted so the
+ * error mapping and the anonymous-retry guard below cannot drift: retrying a genuine rate-limit 403
+ * without a token would hammer GitHub instead of backing off.
+ */
+function isRateLimited(res: Response): boolean {
+  return res.headers.get("x-ratelimit-remaining") === "0" || Boolean(Number(res.headers.get("retry-after")));
+}
+
 export class GitHubListError extends Error {
   constructor(
     message: string,
@@ -111,7 +123,22 @@ export async function listOrgRepos(org: string, count: number, token?: string, s
       // /api/org/repos · /api/org/import (github-repo-data-access #1). The canonical TitleCase header
       // keys are equivalent on the wire to the lowercase set this listing previously sent; Authorization
       // is added only when a token is present; the caller's `signal` aborts the page fetch too.
-      const res = await ghFetch(url, { token, userAgent: "ascent-org-listing", signal });
+      let res = await ghFetch(url, { token, userAgent: "ascent-org-listing", signal });
+      // SSO / ORG-RESTRICTED TOKEN FALLBACK. A fine-grained PAT — or a classic one under an org's SAML
+      // enforcement — is authorized only for the orgs it was granted. Listing a DIFFERENT public org
+      // with it returns 403, while the very same request ANONYMOUSLY returns 200, because the repos
+      // are public. Before this, a user whose token was scoped to their own org could not scan any
+      // public org at all: the listing failed with "GitHub denied listing" and the whole import
+      // aborted, on data that needs no credential.
+      //
+      // Retry once WITHOUT the token, and only for a 403 that is NOT a rate limit (a genuine
+      // secondary-limit 403 carries Retry-After or remaining=0 and must still back off, not hammer
+      // GitHub again anonymously). Public listing then succeeds under the anonymous quota; a 403 that
+      // survives the retry is a real denial and falls through to the error below.
+      if (res.status === 403 && token && !isRateLimited(res)) {
+        const anon = await ghFetch(url, { userAgent: "ascent-org-listing", signal });
+        if (anon.ok) res = anon;
+      }
       if (res.status === 404 && !probed) break; // not an org → try the /users/ base
       // Don't mask a rate limit / auth failure as "not found": surface a typed error so the route can
       // return 429/502 with a Retry-After instead of a misleading 404 for a real account.
@@ -121,10 +148,7 @@ export async function listOrgRepos(org: string, count: number, token?: string, s
         // stays > 0, so keying only on remaining===0 misreported it as an AUTH/permissions denial ("GitHub
         // denied listing"). Treat a present Retry-After as rate-limited too so callers back off rather than
         // being told to fix permissions. (github-repo-data-access #2)
-        const rateLimited =
-          res.status === 429 ||
-          res.headers.get("x-ratelimit-remaining") === "0" ||
-          retryAfter !== undefined;
+        const rateLimited = res.status === 429 || isRateLimited(res);
         throw new GitHubListError(
           rateLimited ? `GitHub rate limit hit while listing "${org}".` : `GitHub denied listing "${org}" (403).`,
           rateLimited ? "RATE_LIMITED" : "AUTH",

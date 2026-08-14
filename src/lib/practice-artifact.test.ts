@@ -307,3 +307,52 @@ describe("buildArtifact — repo-metadata is escaped before it lands in the comm
     expect(a.body).toContain('branches: ["main"]');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// W6 — the artifact carries the org's OWN mined pattern when one exists, and the PR body SAYS which
+// shape it shipped. "Your own pattern, from 3 repositories" and "a generic starter" are very
+// different claims to put in front of an engineer, and a PR that blurred them would spend exactly
+// the credibility the mining exists to earn.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+describe("house pattern + provenance", () => {
+  const ctx = { fullName: "acme/web", name: "web", primaryLanguage: "TypeScript" };
+  const house = { lines: ["Commands", "Architecture map"], exemplars: ["acme/api", "acme/core"] };
+
+  it("appends the org's shared pattern as its own attributed section", () => {
+    const a = buildArtifact("agent-guidance", { ...ctx, house })!;
+    expect(a.body).toContain("## Your organization's shared pattern");
+    expect(a.body).toContain("acme/api, acme/core");
+    expect(a.body).toContain("- Commands");
+    // The reader must be able to tell that only structure was read.
+    expect(a.body).toMatch(/only the heading structure/i);
+  });
+
+  it("states the provenance as the org's own when a pattern shipped", () => {
+    const a = buildArtifact("agent-guidance", { ...ctx, house })!;
+    expect(a.prBody).toMatch(/your organization's own/i);
+    expect(a.prBody).toContain("2 repositories");
+    expect(a.prBody).toMatch(/no file contents travelled/i);
+  });
+
+  // The honest half. A generic starter must SAY it is generic, and say what would change that.
+  it("states the provenance as generic when no pattern was mined", () => {
+    const a = buildArtifact("agent-guidance", ctx)!;
+    expect(a.prBody).toMatch(/a generic starter/i);
+    expect(a.prBody).toMatch(/at least two of them/i);
+    expect(a.body).not.toContain("## Your organization's shared pattern");
+  });
+
+  it("treats an empty mined pattern as no pattern rather than an empty section", () => {
+    const a = buildArtifact("agent-guidance", { ...ctx, house: { lines: [], exemplars: ["acme/api"] } })!;
+    expect(a.body).not.toContain("## Your organization's shared pattern");
+    expect(a.prBody).toMatch(/a generic starter/i);
+  });
+
+  // Mined lines come from the org's own files, which are still untrusted text landing in a committed
+  // artifact — the same escaping every other repo-supplied field goes through.
+  it("escapes mined lines before they reach the committed file", () => {
+    const nasty = { lines: ["<script>alert(1)</script>"], exemplars: ["acme/api", "acme/core"] };
+    const a = buildArtifact("agent-guidance", { ...ctx, house: nasty })!;
+    expect(a.body).not.toContain("<script>");
+  });
+});

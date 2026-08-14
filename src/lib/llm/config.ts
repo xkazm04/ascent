@@ -175,9 +175,17 @@ export interface ModelPrice {
  * prices the same as "anthropic.claude-sonnet-4-6".
  */
 export const MODEL_PRICES: ModelPrice[] = [
-  // Gemini (GEMINI_MODEL): the preview default + the GA successor the header doc points at.
+  // Gemini (GEMINI_MODEL). NOTE the dash/dot split: "gemini-3-flash…" (the retired preview) and
+  // "gemini-3.7-flash" share no prefix, so a new point release needs its OWN row — without one
+  // priceForModel returns null, and a single unpriced model nulls the whole org's /usage estimate.
   { prefix: "gemini-3-flash", inPerMTok: 0.5, outPerMTok: 3 },
   { prefix: "gemini-3.5-flash", inPerMTok: 1.5, outPerMTok: 9 },
+  // gemini-3.7-flash (default since 2026-08-14) at its INTRODUCTORY rate, which is what an org is
+  // actually billed today. It reverts to 1.5 / 7.5 on 2027-01-01 — a 2x step. Carrying the standard
+  // rate now would overstate every cost and therefore every ROI figure derived from it, so the
+  // introductory rate is correct and the reversion is enforced by a DATED TEST in config.test.ts
+  // that starts failing on the reversion date rather than by a comment nobody re-reads.
+  { prefix: "gemini-3.7-flash", inPerMTok: 0.75, outPerMTok: 3.75 },
   // Claude via Bedrock (BEDROCK_MODEL_ID), geo prefix stripped. Family prefixes (…-4) cover the
   // 4.x point releases, which share a list price per tier.
   { prefix: "anthropic.claude-sonnet-4", inPerMTok: 3, outPerMTok: 15 },
@@ -189,6 +197,11 @@ export const MODEL_PRICES: ModelPrice[] = [
   { prefix: "sonnet", inPerMTok: 3, outPerMTok: 15, exact: true },
   { prefix: "haiku", inPerMTok: 1, outPerMTok: 5, exact: true },
   { prefix: "opus", inPerMTok: 5, outPerMTok: 25, exact: true },
+  // A FULL claude-cli model id (CLAUDE_MODEL="claude-opus-5") rather than the bare alias. The alias
+  // rows above are `exact`, so a full id matches none of them and would price as "no estimate" —
+  // which nulls the org's whole cost panel. Prefix-matched (not exact) so point releases follow.
+  { prefix: "claude-opus-5", inPerMTok: 5, outPerMTok: 25 },
+  { prefix: "claude-sonnet-5", inPerMTok: 3, outPerMTok: 15 },
   // OpenAI (OPENAI_MODEL default gpt-4o-mini; bare gpt-4o for the obvious upgrade).
   { prefix: "gpt-4o-mini", inPerMTok: 0.15, outPerMTok: 0.6 },
   { prefix: "gpt-4o", inPerMTok: 2.5, outPerMTok: 10 },

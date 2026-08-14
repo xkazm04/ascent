@@ -319,3 +319,57 @@ describe("withLlmTimeout (shared provider cancellation wiring)", () => {
     expect(signal.aborted).toBe(false); // never aborted, the call already finished
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Gemini 3.7 Flash pricing is PROMOTIONAL and dated. Google's introductory rate (0.75 / 3.75) runs
+// through 2026-12-31 and DOUBLES to 1.5 / 7.5 on 2027-01-01.
+//
+// The table has no date dimension — adding one for a single temporary promo would put a clock inside
+// a pure lookup. So the reversion is enforced HERE: this test fails the moment the promo ends,
+// turning a comment nobody re-reads into a build failure someone must act on. When it fires, update
+// the MODEL_PRICES row to 1.5 / 7.5 and update the expectations below.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+describe("gemini-3.7-flash promotional pricing", () => {
+  const PROMO_ENDS = Date.parse("2027-01-01T00:00:00Z");
+
+  it("carries the introductory rate the org is actually billed today", () => {
+    const p = priceForModel("gemini-3.7-flash");
+    expect(p).toMatchObject({ inPerMTok: 0.75, outPerMTok: 3.75 });
+  });
+
+  it("FAILS ON 2027-01-01 so the reversion to 1.5 / 7.5 cannot be forgotten", () => {
+    if (Date.now() >= PROMO_ENDS) {
+      throw new Error(
+        "Gemini 3.7 Flash's introductory pricing ended on 2027-01-01. Update the MODEL_PRICES row to " +
+          "inPerMTok: 1.5, outPerMTok: 7.5 and update this test's expectations.",
+      );
+    }
+    expect(Date.now()).toBeLessThan(PROMO_ENDS);
+  });
+
+  // The dash/dot split is a real trap: "gemini-3.7-flash" shares no prefix with "gemini-3-flash",
+  // and an unpriced model nulls the whole org's /usage cost estimate for the period.
+  it("does not accidentally match the retired preview row", () => {
+    expect(priceForModel("gemini-3.7-flash")?.prefix).toBe("gemini-3.7-flash");
+    expect(priceForModel("gemini-3-flash-preview")?.prefix).toBe("gemini-3-flash");
+  });
+});
+
+describe("full claude-cli model ids price correctly", () => {
+  // The bare-alias rows are `exact`, so a full id ("claude-opus-5") matches none of them. Without a
+  // dedicated row it would price as "no estimate" and null the org's cost panel.
+  it("prices a full Opus 5 id at the Opus tier", () => {
+    expect(priceForModel("claude-opus-5")).toMatchObject({ inPerMTok: 5, outPerMTok: 25 });
+  });
+
+  it("still prices the bare aliases", () => {
+    expect(priceForModel("opus")).toMatchObject({ inPerMTok: 5, outPerMTok: 25 });
+    expect(priceForModel("sonnet")).toMatchObject({ inPerMTok: 3, outPerMTok: 15 });
+  });
+
+  // The guard the exact-match rule exists for: an unrelated model that merely starts with "opus"
+  // must not be billed at first-party Claude rates.
+  it("does not bill an unrelated 'opus…' model at Claude rates", () => {
+    expect(priceForModel("opus-7b")).toBeNull();
+  });
+});

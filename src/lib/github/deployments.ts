@@ -90,8 +90,21 @@ async function ghJson<T>(path: string, token: string): Promise<T | null> {
   }
 }
 
-/** How many deployments one scan will page. Bounded: this rides along a scan, it is not the scan. */
-export const DEPLOYMENT_PAGE_SIZE = 100;
+/**
+ * How many deployments one scan will page. Bounded: this rides along a scan, it is not the scan.
+ *
+ * 20, NOT 100 — measured, not guessed. Each deployment costs its own status call, so a page of 100
+ * is 101 rapid sequential requests PER REPO. On a 12-repo fleet import that is ~1,200 calls fired as
+ * fast as the loop can issue them, which trips GitHub's SECONDARY (abuse) rate limit: a 403 with a
+ * Retry-After while the core quota still reads 4,999/5,000. Observed on the first live fleet seed
+ * after W4 shipped — the primary quota was untouched and repo listing still failed.
+ *
+ * 20 is ample for the metrics this feeds: change-failure rate and time-to-next-success are computed
+ * over the scan's window, and a repo deploying more than 20 times between scans is deploying often
+ * enough that 20 is a representative sample of its recent behaviour. The cost of the cap is stated
+ * where it matters — the outcome panel publishes attribution coverage — rather than hidden.
+ */
+export const DEPLOYMENT_PAGE_SIZE = 20;
 
 /**
  * Fetch a repo's recent deployments with their latest status.

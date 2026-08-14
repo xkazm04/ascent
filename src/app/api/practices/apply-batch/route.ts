@@ -90,11 +90,17 @@ export async function POST(request: Request) {
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.
     const results = await mapPool<typeof batch[number], BatchResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
       try {
-        const result = await applyPracticeToRepo(token, ref, body.practiceId!, body.base, {
-          orgId,
-          actorId: actorLogin ?? undefined,
-          batch: true,
-        });
+        const result = await applyPracticeToRepo(
+          token,
+          ref,
+          body.practiceId!,
+          body.base,
+          { orgId, actorId: actorLogin ?? undefined, batch: true },
+          // W6 — every PR in the fan-out carries the org's own pattern when there is one. Resolved
+          // per repo rather than hoisted: the read is request-cached, and hoisting it would put an
+          // org-wide fetch in front of a fan-out that may apply to a single repo.
+          { orgSlug: owner.toLowerCase() },
+        );
         if (result.kind === "unknown-practice") {
           return { repo: result.ctx.fullName, ok: false, error: `Unknown practice "${body.practiceId}".` };
         }

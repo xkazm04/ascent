@@ -1,7 +1,17 @@
 // Gemini provider (MVP / public repos). Uses @google/genai structured output
 // (responseJsonSchema) so the model is constrained to the assessment contract,
-// with defensive parsing as a safety net. Model is env-configurable (default
-// gemini-3-flash-preview; switch to the GA gemini-3.5-flash by setting GEMINI_MODEL).
+// with defensive parsing as a safety net. Model is env-configurable via GEMINI_MODEL.
+//
+// 2026-08-14: the default moved off `gemini-3-flash-preview` to the GA **gemini-3.7-flash**.
+// The preview default was the open engine-credibility item in `tiger/` (P2-6): the PUBLIC tier — the
+// one that produces the scores in the shared corpus and on the public leaderboard — was running an
+// unbenchmarked preview model, so every externally-visible number rested on an engine nobody had
+// certified. A GA model is the precondition for claiming any of those numbers externally; it does
+// NOT by itself close P2-6, which needs the benchmark run.
+//
+// NOTE for the operator: this is a scoring-engine change. Cached scores are keyed on the model
+// (see makeCacheKey / cache.ts), so existing entries do not silently re-serve under the new engine —
+// an unchanged repo re-scores rather than reporting the preview model's number as current.
 
 import { GoogleGenAI } from "@google/genai";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
@@ -11,7 +21,7 @@ import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
 import { llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
 
 export class GeminiProvider implements LLMProvider {
   readonly name = "gemini" as const;

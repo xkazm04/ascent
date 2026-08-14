@@ -134,3 +134,69 @@ describe("listOrgRepos — typed error mapping", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// SSO / ORG-RESTRICTED TOKEN FALLBACK.
+//
+// A fine-grained PAT — or a classic one under an org's SAML enforcement — is authorized only for the
+// orgs it was granted. Listing a DIFFERENT public org with it returns 403, while the identical
+// request ANONYMOUSLY returns 200, because the repos are public. Before the fallback, a user whose
+// token was scoped to their own org could not scan any public org at all: the import aborted with
+// "GitHub denied listing", on data that needs no credential. Observed live on 2026-08-14 seeding
+// `vercel` with two different working tokens, both 403, anonymous 200.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+describe("listOrgRepos — SSO-restricted token falls back to anonymous", () => {
+  it("retries without the token on a non-rate-limit 403 and succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(res({}, { status: 403, headers: { "x-ratelimit-remaining": "4999" } }))
+      .mockResolvedValueOnce(res([ghRepo("a1"), ghRepo("a2")]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await listOrgRepos("acme", 5, "ghp_restricted");
+    expect(out.repos.map((r) => r.name)).toEqual(["a1", "a2"]);
+
+    // The retry must carry NO Authorization header — that is the entire point.
+    const [, firstInit] = fetchMock.mock.calls[0];
+    const [, retryInit] = fetchMock.mock.calls[1];
+    expect(JSON.stringify(firstInit)).toContain("Authorization");
+    expect(JSON.stringify(retryInit)).not.toContain("Authorization");
+  });
+
+  // A genuine secondary-limit 403 must BACK OFF, not hammer GitHub again anonymously. Retry-After is
+  // present while x-ratelimit-remaining stays > 0, which is exactly why remaining alone is not the test.
+  it("does NOT retry a secondary-rate-limit 403 (Retry-After present)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(res({}, { status: 403, headers: { "retry-after": "60", "x-ratelimit-remaining": "4999" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listOrgRepos("acme", 5, "ghp_x")).rejects.toMatchObject({ code: "RATE_LIMITED", retryAfterSec: 60 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT retry an exhausted-quota 403 (remaining = 0)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(res({}, { status: 403, headers: { "x-ratelimit-remaining": "0" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listOrgRepos("acme", 5, "ghp_x")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a 403 that survives the anonymous retry as a real denial", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(res({}, { status: 403, headers: { "x-ratelimit-remaining": "4999" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listOrgRepos("acme", 5, "ghp_x")).rejects.toMatchObject({ code: "AUTH" });
+  });
+
+  it("never fires an anonymous retry when there was no token to begin with", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(res({}, { status: 403, headers: { "x-ratelimit-remaining": "4999" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listOrgRepos("acme", 5)).rejects.toMatchObject({ code: "AUTH" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

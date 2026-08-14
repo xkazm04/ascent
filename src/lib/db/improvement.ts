@@ -290,6 +290,9 @@ export async function acceptDirection(orgSlug: string, recommendationId: string,
       practice.id,
       undefined,
       { orgId: org.id, actorId: actor ?? undefined },
+      // W6 — a direction accepted on the war-room wall ships the org's own pattern too, not a
+      // generic starter, whenever one has been mined.
+      { orgSlug },
     );
     if (result.kind === "unknown-practice") return { kind: "no-practice" };
     // No fingerprint is passed on this path (there is no preview step here), so content-drift is

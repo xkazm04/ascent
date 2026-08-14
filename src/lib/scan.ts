@@ -31,6 +31,7 @@ import { ingestRepository } from "@/lib/scan-ingest";
 import { buildScanScoreInput } from "@/lib/scan-score-input";
 import { runAssessmentPhase } from "@/lib/scan-assess";
 import { buildScanWarnings, captureScanEvalLog, composeScanReport } from "@/lib/scan-compose";
+import { classifyOutputBudget } from "@/lib/llm/output-budget";
 import { recordScanDegraded, recordScanFailure, recordScanStarted } from "@/lib/scan-outcome";
 
 // The LLM failure classifiers live with the resilience loop that consumes them; re-exported here so
@@ -317,6 +318,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     snapshotCoverage: snapshot.coverage,
     stackFit,
     prPartial,
+    // The god-scan indicator: how much of the model's output ceiling this single assessment call
+    // used. Measured from the usage the winning provider reported, against that provider's model.
+    outputBudget: classifyOutputBudget(report.usage?.outputTokens, report.engine?.model),
     // A ref/sub-path scan reports on a different SUBJECT than "this repository" — say so on the report
     // itself, not only in the route that suppressed its persistence. Supplied by the caller rather than
     // derived here: only the ROUTE knows the default branch's head sha, so only it can tell a genuinely
