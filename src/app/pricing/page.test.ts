@@ -1,4 +1,4 @@
-// G1-01: Pro/Team "Get started" used to link to /onboarding unconditionally — a visitor who wants to
+// G1-01: the paid tiers' "Get started" used to link to /onboarding unconditionally — a visitor who wants to
 // buy a subscription tier had no in-app path to pay, even though the backend fully supports Polar
 // plan-tier checkout (planForProduct / setOrgPlan / planProducts()). Pins the CTA decision:
 // - Polar configured + a resolvable org + a plan-product mapping → a real checkout link.

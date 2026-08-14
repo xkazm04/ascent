@@ -11,22 +11,26 @@ downgrades a plan on a full refund. The accounting layer stays provider-agnostic
 | Plan id | Shown as | Monthly price | Included scans/mo | Seats | Retention | Extra gates |
 | --- | --- | --- | --- | --- | --- | --- |
 | `free` | Free | $0 | 5 | 1 | 30 days | — |
-| `pro` | Pro | $10 | 100 | 3 | 180 days | — |
-| `team` | Team | $20 | 500 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes |
+| `pro` | **Starter** | $5 | 50 | 3 | 180 days | — |
+| `team` | Team | $10 | 150 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes |
 | `enterprise` | **Custom** | **Flexible** | Unmetered (`unlimited: true`) | Unlimited | Unlimited | Everything in Team, plus BYOM (bring-your-own-model) |
 
 ### Tier id vs tier label
 
-`enterprise` is the **stored** id — written to `Organization.plan`, named in `POLAR_PLAN_PRODUCTS`,
-compared by the webhook's `PLAN_ORDER` rank. Its **customer-facing name is "Custom"**
-(`PLAN_FEATURES.enterprise.label`), which is display-only. Renaming the id would mean migrating every
-persisted org row plus a coordinated env edit on every deployment for no user-visible gain, so the tier
-reads "Custom" everywhere a human looks and stays `enterprise` everywhere a machine looks.
+**Two tiers are shown under a different name than they are stored under**: `pro` reads "Starter" and
+`enterprise` reads "Custom". The ids are written to `Organization.plan`, named in `POLAR_PLAN_PRODUCTS`,
+and ranked by the webhook's `PLAN_ORDER` comparison. Renaming one would mean migrating every persisted
+org row plus a coordinated env edit on every deployment for no user-visible gain — so a tier reads its
+`label` everywhere a human looks and keeps its `id` everywhere a machine looks.
 
-Every surface that shows the name derives it from the model rather than re-typing it —
+Every surface that shows a tier's name or price derives it from the model rather than re-typing it —
 `PlanControl` (the org plan switcher), the "Credits · Unlimited" chips (via the exported
-`UNLIMITED_PLAN_LABEL`), the `/pricing` cards and the credit matrix column. `src/lib/plans.test.ts`
-pins both halves so a future rename can't quietly become a data migration.
+`UNLIMITED_PLAN_LABEL`), the `/pricing` cards, the credit matrix (`MATRIX_PLANS` is now *built from*
+`PLAN_FEATURES`, not a second copy of it), the `/pricing` SEO description and the landing FAQ.
+`src/lib/plans.test.ts` pins the id↔label split so a rename can't quietly become a data migration, and
+`price-drift.test.ts` derives its fixtures from `monthlyPrice` so a repricing can't break the drift
+tests. The 2026-08-14 repricing found the last two prose copies — the landing FAQ and the `/pricing`
+metadata both still quoted `Pro ($10/mo)` and `Team ($20/mo)`.
 
 **The Custom tier is described by what is ADJUSTABLE, not by a list of unlimited things.** Its bullets
 are the five dimensions a Custom contract scopes — hosting, scan volume, support, app customization,
@@ -42,15 +46,15 @@ Notes, all read directly from the model:
   `POLAR_PLAN_PRODUCTS`-mapped product and reports mismatches on the operator KPI route
   (`GET /api/kpi` → `priceDrift`, gated by `ASCENT_OPS_SECRET`; null when Polar is unconfigured).
 - `includedCredits` is the monthly **metered-scan allowance** (private/org scans only — anonymous public
-  scans are never metered and don't touch this). `null` means unlimited (Enterprise).
+  scans are never metered and don't touch this). `null` means unmetered (the Custom tier).
 - Feature gates are individual predicates, each defaulting unknown/blank plans to `free`:
-  - `planAllowsWhiteLabel(plan)` — Team and Enterprise.
-  - `planAllowsSkillsLibrary(plan)` — Team and Enterprise (authoring the Org Skills Library; reads stay
+  - `planAllowsWhiteLabel(plan)` — Team and Custom.
+  - `planAllowsSkillsLibrary(plan)` — Team and Custom (authoring the Org Skills Library; reads stay
     open to all members).
-  - `planAllowsMemory(plan)` — Team and Enterprise (writing to Shared Org Memory; reads stay open).
-  - `planAllowsByom(plan)` — Enterprise only (connect the org's own LLM/Bedrock).
+  - `planAllowsMemory(plan)` — Team and Custom (writing to Shared Org Memory; reads stay open).
+  - `planAllowsByom(plan)` — Custom only (connect the org's own LLM/Bedrock).
 - `retentionCutoff(plan, nowMs)` gives the earliest scan date a plan's retention window includes (`null`
-  for Enterprise/custom). It's a **non-destructive read floor** — history/trend/trajectory reads are
+  for the Custom tier). It's a **non-destructive read floor** — history/trend/trajectory reads are
   clamped to it; nothing is ever deleted.
 - `PLAN_ORDER = ["free", "pro", "team", "enterprise"]` is the cheapest→richest display/upgrade order, also
   used by the webhook's downgrade-guard rank comparison (see Refunds below).
@@ -71,7 +75,7 @@ Each **metered** scan (a real-inference scan against a private/org repo, gated b
 export type ScanCharge = "unlimited" | "allowance" | "credit" | "denied";
 ```
 
-1. **`unlimited`** — the org is on the Enterprise plan (`isUnlimitedPlan`); never charged.
+1. **`unlimited`** — the org is on the Custom tier (`isUnlimitedPlan`); never charged.
 2. **`allowance`** — the org's month-to-date metered scan count (`countMeteredScansThisMonth`, a UTC
    calendar-month window reset at 00:00 UTC on the 1st) is still under the plan's `includedCredits`; free,
    no credit debit.
@@ -89,7 +93,7 @@ entitlement **before** paid inference and debits/records **after**, so a cache/d
 degrade-to-mock run is never charged.
 
 - **Public scans** — always free and unmetered, forever; never touch allowance or credits.
-- **Enterprise** — `unlimited: true`; never debited regardless of usage.
+- **Custom** — `unlimited: true`; never debited regardless of usage.
 
 ## Credit packs vs. plan products (Polar catalogs)
 
@@ -110,7 +114,7 @@ whichever mapping matches.
 
 ## Reaching checkout in-app (`/pricing`, G1-01)
 
-The Pro/Team price cards on `/pricing` (`src/app/pricing/page.tsx`) render a real "Subscribe" checkout
+The Starter/Team price cards on `/pricing` (`src/app/pricing/page.tsx`) render a real "Subscribe" checkout
 link — `/api/billing/checkout?org=<slug>&pack=<planProductId>` — sourced from `planProducts()`, when ALL
 of the following hold: Polar is configured (`polarEnabled()`), the tier has a `POLAR_PLAN_PRODUCTS`
 mapping, and the signed-in viewer's primary org can be resolved (same precedence as the header's org-entry
@@ -375,11 +379,11 @@ into a $ estimate on `/usage` — useful for calibrating pack/plan prices agains
   | Claim on `/pricing` | Reality |
   | --- | --- |
   | Seats — "1 / 3 / 10 members", Custom "yours to set" | `PlanFeature.seats` is read by **nothing**. No membership-write path, invite route, or `authz` check consults it. Previously logged here as "unconfirmed"; now confirmed unenforced. |
-  | Org fleet dashboard — Pro and up | No plan check anywhere under `/org/**`. A Free org gets the whole dashboard. |
-  | Scheduled autoscans + alerts — Pro and up | `org-watch.ts`, the rescan cron and `alerts.ts` have no plan gate. A Free org can schedule autoscans; only the *scans* they trigger are metered, not the capability. |
+  | Org fleet dashboard — Starter and up | No plan check anywhere under `/org/**`. A Free org gets the whole dashboard. |
+  | Scheduled autoscans + alerts — Starter and up | `org-watch.ts`, the rescan cron and `alerts.ts` have no plan gate. A Free org can schedule autoscans; only the *scans* they trigger are metered, not the capability. |
   | Segments + comparisons — Team | `src/lib/db/segments.ts` has no plan check. |
   | Playbooks + planning — Team | No plan check. |
-  | Buy extra scan credits — matrix says Pro and up | Checkout and `CreditsControl` have no tier gate; a Free org can buy credits. (Arguably the right behaviour — the *matrix* is what's wrong.) |
+  | Buy extra scan credits — matrix says Starter and up | Checkout and `CreditsControl` have no tier gate; a Free org can buy credits. (Arguably the right behaviour — the *matrix* is what's wrong.) |
 
   Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
   all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does

@@ -447,7 +447,7 @@ read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate b
 | --- | --- | --- |
 | `/api/report/llm` | `text/markdown` — the LLM briefing (headline, dimension table, gaps, roadmap, "Ask"). | **No.** |
 | `/api/report/share-card` | `image/png` (attachment) — the 1200×630 score card. | **No.** |
-| `/api/report/pdf` | `application/pdf` (attachment). | **Yes** — Pro and up. |
+| `/api/report/pdf` | `application/pdf` (attachment). | **Yes** — the lowest paid tier (`pro`, shown as Starter) and up. |
 
 Neither new route is plan-gated, and the asymmetry with the PDF is deliberate:
 
@@ -503,7 +503,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()` — the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard` — the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
-| `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, Pro and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
+| `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, rationale — sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, and a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document. |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
 | `src/components/report/ReportView.tsx` | The full report render (all sections + trackers/panels). |

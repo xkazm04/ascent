@@ -117,7 +117,7 @@ describe("GET /api/report/pdf", () => {
 
   // ── Plan entitlement gate (g1-02: PDF export is a paid, Pro+ feature) ────────────────────────────
 
-  it("403 when a real (non-public) org is below the Pro plan", async () => {
+  it("403 when a real (non-public) org is below the lowest paid plan", async () => {
     mockReadableOrg.mockResolvedValue("acme");
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false, orgExists: true });
     const res = await get("acme/private-repo");
@@ -128,7 +128,7 @@ describe("GET /api/report/pdf", () => {
     expect(mockRender).not.toHaveBeenCalled();
   });
 
-  it("200 when a real org is on the Pro plan or above", async () => {
+  it("200 when a real org is on the lowest paid plan or above", async () => {
     mockReadableOrg.mockResolvedValue("acme");
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "team", unlimited: false, orgExists: true });
     const res = await get("acme/private-repo");

@@ -19,11 +19,11 @@ import { getViewer } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 
 // Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
-// `href={id === "free" ? "/" : "/connect"}` ternary sent Pro/Team AND the bespoke tier to /connect (the
+// `href={id === "free" ? "/" : "/connect"}` ternary sent the paid tiers AND the bespoke one to /connect (the
 // repo-watch page): "Contact us" dead-ended with no way to reach anyone, and "Get started" landed on a
 // screen that is neither a checkout nor a plan upgrade. Free → run a scan.
 //
-// Pro/Team (G1-01): when Polar is configured with a POLAR_PLAN_PRODUCTS mapping for the tier AND we can
+// Starter/Team (G1-01): when Polar is configured with a POLAR_PLAN_PRODUCTS mapping for the tier AND we can
 // resolve the signed-in viewer's org (the checkout route requires ?org=, see /api/billing/checkout), the
 // CTA becomes a REAL "Subscribe" checkout link. Anonymous visitors, viewers without an org yet, or a
 // deployment with Polar unconfigured/no plan-product mapping all degrade to the previous "Get started" →
@@ -72,7 +72,7 @@ async function resolvePrimaryOrgSlug(): Promise<string | null> {
 }
 
 /** planId → Polar product id, from POLAR_PLAN_PRODUCTS — empty when Polar isn't configured, so the
- *  Pro/Team CTA cleanly falls back to /onboarding instead of a dead checkout link. */
+ *  paid-tier CTA cleanly falls back to /onboarding instead of a dead checkout link. */
 function planProductMap(): Partial<Record<PlanId, string>> {
   if (!polarEnabled()) return {};
   const map: Partial<Record<PlanId, string>> = {};
@@ -82,19 +82,20 @@ function planProductMap(): Partial<Record<PlanId, string>> {
 
 export const dynamic = "force-dynamic";
 
-// The prices + free allowance in the marketing/SEO copy are DERIVED from the plan model (plans.ts,
-// CRED-1) — the SAME source the price cards read — so this string can't drift from plans.ts (it
-// previously hardcoded "5 free … Pro $10/mo, Team $20/mo"). It CAN still drift from Polar: plans.ts
-// `monthlyPrice` is a display-only duplicate of the Polar product price, so a price change in the
-// Polar dashboard must be mirrored in plans.ts (see the PRICE CONTRACT note there) or this page
-// advertises a number checkout won't charge.
+// The prices, NAMES and free allowance in the marketing/SEO copy are DERIVED from the plan model
+// (plans.ts, CRED-1) — the SAME source the price cards read — so this string can't drift from plans.ts
+// (it previously hardcoded "5 free … Pro $10/mo, Team $20/mo", which survived a repricing AND a rename
+// intact). It CAN still drift from Polar: plans.ts `monthlyPrice` is a display-only duplicate of the
+// Polar product price, so a price change in the Polar dashboard must be mirrored in plans.ts (see the
+// PRICE CONTRACT note there) or this page advertises a number checkout won't charge.
 const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
-const PRO_PRICE = planPriceLabel("pro").amount; // e.g. "$10"
-const TEAM_PRICE = planPriceLabel("team").amount; // e.g. "$20"
+
+/** "Starter $5/mo" — name and price both from the model, for the SEO/FAQ sentences. */
+const priced = (id: PlanId) => `${PLAN_FEATURES[id].label} ${planPriceLabel(id).amount}/mo`;
 
 export const metadata = {
   title: "Plans & credits — Ascent",
-  description: `Public scans are always free. Every plan includes a monthly private-scan allowance — ${FREE_ALLOWANCE} free a month, Pro ${PRO_PRICE}/mo, Team ${TEAM_PRICE}/mo. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
+  description: `Public scans are always free. Every plan includes a monthly private-scan allowance — ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
 };
 
 export default async function PricingPage() {
@@ -155,8 +156,8 @@ export default async function PricingPage() {
                 <Kicker as="span" tone={highlight ? "accent" : "muted"}>
                   {p.label}
                 </Kicker>
-                {/* Numbers are typeset (BRAND.md §4): mono + tabular-nums, so $10 / $20 / Flexible all
-                    sit on the same baseline across the four cells. The cadence gets its OWN line rather
+                {/* Numbers are typeset (BRAND.md §4): mono + tabular-nums, so every tier's amount sits
+                    on the same baseline across the four cells. The cadence gets its OWN line rather
                     than trailing the amount inline — inline, "scoped with you" wrapped under "Flexible"
                     while "/ month" didn't, making the Custom cell one line taller than its neighbours
                     and pushing every rule below it out of alignment. */}

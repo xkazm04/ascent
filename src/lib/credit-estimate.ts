@@ -48,11 +48,11 @@ export function isUnderAMonth(
 /**
  * Estimated prepaid credits/month the given watch+schedule states will draw, AFTER the plan's
  * remaining free monthly allowance. A metered scan is FREE until the org exceeds its monthly allowance
- * (source of truth: PLAN_FEATURES[..].includedCredits / scanAllowance() in src/lib/plans.ts —
- * currently Free 5, Pro 100, Team 500; do NOT trust prose copies of these numbers), so the raw run
- * count overstates the credit spend by that free band —
- * e.g. a Pro org watching 3 daily repos schedules ≈90 runs that all fall inside its 100 free scans, a
- * real draw of 0, not 90. Pass `allowanceRemaining` (the org's INCLUDED free scans still left this
+ * (source of truth: PLAN_FEATURES[..].includedCredits / scanAllowance() in src/lib/plans.ts — do NOT
+ * trust prose copies of these numbers, including this one: they were Free 5 / Pro 100 / Team 500 until
+ * the 2026-08-14 repricing), so the raw run count overstates the credit spend by that free band —
+ * e.g. an org watching 3 daily repos schedules ≈90 runs, most of which fall inside its included free
+ * scans, so the real draw is far below 90. Pass `allowanceRemaining` (the org's INCLUDED free scans still left this
  * month, from checkScanEntitlement) to subtract it; the default 0 yields the raw run count — a true
  * upper bound only when the allowance is unknown.
  */

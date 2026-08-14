@@ -22,6 +22,7 @@ vi.mock("@/lib/polar", () => ({
 }));
 
 import { checkPriceDrift, comparePlanPrice, productMonthlyUsd, type PriceSource } from "./price-drift";
+import { PLAN_FEATURES } from "./plans";
 
 /** A stub client whose product map is driven per-test. */
 function stubClient(products: Record<string, { prices?: unknown[] }>, failFor: string[] = []): PriceSource {
@@ -76,17 +77,25 @@ describe("productMonthlyUsd — extracting the live price from the price union",
   });
 });
 
+// Cents Polar would have to charge for a tier to be in lockstep with what plans.ts advertises. Derived
+// so a REPRICING never breaks these tests: they are about the drift SEMANTICS, not about any particular
+// dollar figure — and hardcoding the advertised side made every one of them a second place to edit on a
+// price change (which is exactly what the 2026-08-14 repricing hit).
+const advertised = (plan: "pro" | "team") => PLAN_FEATURES[plan].monthlyPrice!;
+const lockstepCents = (plan: "pro" | "team") => advertised(plan) * 100;
+
 describe("comparePlanPrice — lockstep vs drift", () => {
-  it("in lockstep → null (pro advertises $10; Polar charges 1000 cents)", () => {
-    expect(comparePlanPrice("pro", "prod_pro", { prices: [fixedUsd(1000)] })).toBeNull();
+  it("in lockstep → null (Polar charges exactly what plans.ts advertises)", () => {
+    expect(comparePlanPrice("pro", "prod_pro", { prices: [fixedUsd(lockstepCents("pro"))] })).toBeNull();
   });
 
-  it("drifted → reports both sides (team advertises $20; Polar now charges $25)", () => {
-    expect(comparePlanPrice("team", "prod_team", { prices: [fixedUsd(2500)] })).toEqual({
+  it("drifted → reports both sides (Polar charges $5 more than advertised)", () => {
+    const polarUsd = advertised("team") + 5;
+    expect(comparePlanPrice("team", "prod_team", { prices: [fixedUsd(polarUsd * 100)] })).toEqual({
       plan: "team",
       productId: "prod_team",
-      displayUsd: 20,
-      polarUsd: 25,
+      displayUsd: advertised("team"),
+      polarUsd,
     });
   });
 
@@ -94,7 +103,7 @@ describe("comparePlanPrice — lockstep vs drift", () => {
     expect(comparePlanPrice("pro", "prod_pro", { prices: [{ amountType: "free" }] })).toEqual({
       plan: "pro",
       productId: "prod_pro",
-      displayUsd: 10,
+      displayUsd: advertised("pro"),
       polarUsd: null,
     });
   });
@@ -120,8 +129,8 @@ describe("checkPriceDrift — the operational sweep", () => {
       { productId: "prod_team", plan: "team" },
     ]);
     const client = stubClient({
-      prod_pro: { prices: [fixedUsd(1000)] },
-      prod_team: { prices: [fixedUsd(2000)] },
+      prod_pro: { prices: [fixedUsd(lockstepCents("pro"))] },
+      prod_team: { prices: [fixedUsd(lockstepCents("team"))] },
     });
     await expect(checkPriceDrift(client)).resolves.toEqual({ checked: 2, mismatches: [], errors: [] });
   });
@@ -131,13 +140,16 @@ describe("checkPriceDrift — the operational sweep", () => {
       { productId: "prod_pro", plan: "pro" },
       { productId: "prod_team", plan: "team" },
     ]);
+    const driftedUsd = advertised("team") + 19;
     const client = stubClient({
-      prod_pro: { prices: [fixedUsd(1000)] }, // lockstep
-      prod_team: { prices: [fixedUsd(2900)] }, // drifted: $29 vs advertised $20
+      prod_pro: { prices: [fixedUsd(lockstepCents("pro"))] }, // lockstep
+      prod_team: { prices: [fixedUsd(driftedUsd * 100)] }, // drifted
     });
     const report = await checkPriceDrift(client);
     expect(report!.checked).toBe(2);
-    expect(report!.mismatches).toEqual([{ plan: "team", productId: "prod_team", displayUsd: 20, polarUsd: 29 }]);
+    expect(report!.mismatches).toEqual([
+      { plan: "team", productId: "prod_team", displayUsd: advertised("team"), polarUsd: driftedUsd },
+    ]);
     expect(report!.errors).toEqual([]);
   });
 
@@ -146,7 +158,7 @@ describe("checkPriceDrift — the operational sweep", () => {
       { productId: "prod_pro", plan: "pro" },
       { productId: "prod_team", plan: "team" },
     ]);
-    const client = stubClient({ prod_team: { prices: [fixedUsd(2000)] } }, ["prod_pro"]);
+    const client = stubClient({ prod_team: { prices: [fixedUsd(lockstepCents("team"))] } }, ["prod_pro"]);
     const report = await checkPriceDrift(client);
     expect(report!.checked).toBe(1); // team fetched + compared despite pro failing
     expect(report!.mismatches).toEqual([]);

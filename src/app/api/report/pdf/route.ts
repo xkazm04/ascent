@@ -1,6 +1,6 @@
 // GET /api/report/pdf?repo=owner/name[@sha]  -> application/pdf
 //
-// Server-renders a persisted maturity report as a PDF — the "PDF export" sold on Pro and up
+// Server-renders a persisted maturity report as a PDF — the "PDF export" sold on Starter and up
 // (planAllowsPdfExport; g1-02). Read-gated by the owning org (public reports are open; private reports
 // require org read access), then entitlement-gated by plan for real (non-public) orgs.
 // 404 when the repo has no saved scan: export reflects an existing report, it never triggers a scan.
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(orgSlug);
   if (denied) return denied;
 
-  // PDF export is a paid entitlement (Pro and up) — see planAllowsPdfExport. PUBLIC_ORG is exempt: a
+  // PDF export is a paid entitlement (Starter/`pro` and up) — see planAllowsPdfExport. PUBLIC_ORG is exempt: a
   // public repo's report has always been free/unmetered (entitlement.ts mirrors the same exclusion for
   // scan credits), so only a REAL org's plan is checked here.
   if (orgSlug !== PUBLIC_ORG) {

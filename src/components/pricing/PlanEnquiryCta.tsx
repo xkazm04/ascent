@@ -2,7 +2,7 @@
 
 // The Custom tier's CTA on /pricing: a button that opens the enquiry dialog, not a link.
 //
-// Pro and Team have a Polar product, so their CTA is a real checkout href. The Custom tier's price is
+// Starter and Team have a Polar product, so their CTA is a real checkout href. The Custom tier's price is
 // "Flexible" precisely because it's scoped in a conversation — so its CTA has to START one. Previously
 // it was a `mailto:` when ASCENT_CONTACT_EMAIL was set and "Learn more" → /about when it wasn't; on a
 // deployment without that env, the highest-intent click on the pricing page went to a marketing page.

@@ -21,12 +21,12 @@ describe("retentionCutoff (non-destructive read floor)", () => {
     expect(retentionCutoff("free", NOW)).toEqual(new Date(NOW - 30 * DAY));
   });
 
-  it("clamps Pro to 180 and Team to 365 days back", () => {
+  it("clamps Starter to 180 and Team to 365 days back", () => {
     expect(retentionCutoff("pro", NOW)).toEqual(new Date(NOW - 180 * DAY));
     expect(retentionCutoff("team", NOW)).toEqual(new Date(NOW - 365 * DAY));
   });
 
-  it("returns null (unlimited, no floor) for Enterprise", () => {
+  it("returns null (unlimited, no floor) for the bespoke tier", () => {
     expect(PLAN_FEATURES.enterprise.retentionDays).toBeNull();
     expect(retentionCutoff("enterprise", NOW)).toBeNull();
   });
@@ -38,7 +38,7 @@ describe("retentionCutoff (non-destructive read floor)", () => {
 });
 
 describe("planAllowsWhiteLabel — Team and up", () => {
-  it("allows Team and Enterprise, denies Free/Pro/unknown", () => {
+  it("allows Team and the bespoke tier, denies Free/Starter/unknown", () => {
     expect(planAllowsWhiteLabel("team")).toBe(true);
     expect(planAllowsWhiteLabel("enterprise")).toBe(true);
     expect(planAllowsWhiteLabel("pro")).toBe(false);
@@ -48,8 +48,8 @@ describe("planAllowsWhiteLabel — Team and up", () => {
   });
 });
 
-describe("planAllowsPdfExport — Pro and up (g1-02)", () => {
-  it("allows Pro, Team, and Enterprise, denies Free/unknown", () => {
+describe("planAllowsPdfExport — the lowest paid tier and up (g1-02)", () => {
+  it("allows `pro`/Starter, Team, and the bespoke tier, denies Free/unknown", () => {
     expect(planAllowsPdfExport("pro")).toBe(true);
     expect(planAllowsPdfExport("team")).toBe(true);
     expect(planAllowsPdfExport("enterprise")).toBe(true);
@@ -60,26 +60,26 @@ describe("planAllowsPdfExport — Pro and up (g1-02)", () => {
 });
 
 describe("scanAllowance — monthly metered-scan allowance per tier", () => {
-  it("is 5 / 100 / 500, and null (unlimited) for Enterprise", () => {
+  it("is 5 / 50 / 150, and null (unlimited) for the bespoke tier", () => {
     expect(scanAllowance("free")).toBe(5);
-    expect(scanAllowance("pro")).toBe(100);
-    expect(scanAllowance("team")).toBe(500);
+    expect(scanAllowance("pro")).toBe(50);
+    expect(scanAllowance("team")).toBe(150);
     expect(scanAllowance("enterprise")).toBeNull();
     expect(scanAllowance(null)).toBe(5); // unknown → free
   });
 });
 
 describe("planPriceLabel — subscription display prices", () => {
-  it("Free is $0, Pro $10/mo, Team $20/mo, the bespoke tier Flexible", () => {
+  it("Free is $0, Starter $5/mo, Team $10/mo, the bespoke tier Flexible", () => {
     expect(planPriceLabel("free")).toEqual({ amount: "$0", cadence: "free forever" });
-    expect(planPriceLabel("pro")).toEqual({ amount: "$10", cadence: "/ month" });
-    expect(planPriceLabel("team")).toEqual({ amount: "$20", cadence: "/ month" });
+    expect(planPriceLabel("pro")).toEqual({ amount: "$5", cadence: "/ month" });
+    expect(planPriceLabel("team")).toEqual({ amount: "$10", cadence: "/ month" });
     // "Custom" is the tier's NAME now, so it can't also be its price — the headline says what the
     // price actually is (flexible), not the word already printed above it.
     expect(planPriceLabel("enterprise")).toEqual({ amount: "Flexible", cadence: "scoped with you" });
   });
 
-  it("Pro and Team are subscriptions; Free is free; the bespoke tier is custom-billed", () => {
+  it("Starter and Team are subscriptions; Free is free; the bespoke tier is custom-billed", () => {
     expect(PLAN_FEATURES.pro.billing).toBe("subscription");
     expect(PLAN_FEATURES.team.billing).toBe("subscription");
     expect(PLAN_FEATURES.free.billing).toBe("free");
@@ -129,10 +129,19 @@ describe("marketing copy matches the metering engine (checkout-plans-polar 07-16
 // persisted on Organization.plan and mapped by POLAR_PLAN_PRODUCTS, so it can't move). These pin the
 // two halves apart so a future rename can't quietly become a data migration.
 describe("tier identity — stored id vs customer-facing label", () => {
-  it("keeps `enterprise` as the stored id while the label reads Custom", () => {
+  it("keeps the stored ids while the labels read Starter / Custom", () => {
+    expect(PLAN_FEATURES.pro.id).toBe("pro");
+    expect(PLAN_FEATURES.pro.label).toBe("Starter");
     expect(PLAN_FEATURES.enterprise.id).toBe("enterprise");
     expect(PLAN_FEATURES.enterprise.label).toBe("Custom");
     expect(UNLIMITED_PLAN_LABEL).toBe("Custom");
+  });
+
+  // The ids are persisted on Organization.plan and mapped by POLAR_PLAN_PRODUCTS; a rename that moved
+  // one would silently orphan every existing row and every configured Polar product.
+  it("never lets a relabel move an id — PLAN_ORDER is the stored set", () => {
+    expect(PLAN_ORDER).toEqual(["free", "pro", "team", "enterprise"]);
+    for (const id of PLAN_ORDER) expect(PLAN_FEATURES[id].id).toBe(id);
   });
 
   it("describes the bespoke tier by what is ADJUSTABLE, not by a list of unlimited things", () => {
@@ -152,8 +161,8 @@ describe("planScanLine — the single statement of scan volume", () => {
     // "… / mo included" wrapped in every cell, stair-stepping each card's hairline rule. The card
     // supplies "Included" as the label above it.
     expect(planScanLine("free")).toBe("5 private scans / mo");
-    expect(planScanLine("pro")).toBe("100 private scans / mo");
-    expect(planScanLine("team")).toBe("500 private scans / mo");
+    expect(planScanLine("pro")).toBe("50 private scans / mo");
+    expect(planScanLine("team")).toBe("150 private scans / mo");
   });
 
   it("describes the bespoke tier's volume as negotiated, not unlimited", () => {

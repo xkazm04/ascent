@@ -34,7 +34,7 @@ export interface PlanFeature {
   /** True when scans never consume a credit (the `enterprise` behaviour, data-driven). */
   unlimited: boolean;
   /** Fixed monthly subscription price in whole USD; 0 for Free, null for the custom (Enterprise) tier.
-   *  Pro/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits.
+   *  Starter/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits.
    *  DISPLAY-ONLY: the real charge is the Polar product's price (POLAR_PLAN_PRODUCTS) — keep this in
    *  lockstep with the Polar dashboard (see the PRICE CONTRACT note atop this file). */
   monthlyPrice: number | null;
@@ -63,12 +63,15 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     blurb: "Private scans every month — public scans are always free — with the full report and badge.",
     features: ["Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
   },
+  // Stored id `pro`, shown as "Starter" — the same display-only rename as `enterprise`/"Custom" (see
+  // the TIER ID vs TIER LABEL note atop this file). The id is on Organization.plan and in the
+  // POLAR_PLAN_PRODUCTS mapping, so it cannot move; only the name a buyer reads does.
   pro: {
     id: "pro",
-    label: "Pro",
-    includedCredits: 100,
+    label: "Starter",
+    includedCredits: 50,
     unlimited: false,
-    monthlyPrice: 10,
+    monthlyPrice: 5,
     billing: "subscription",
     seats: 3,
     retentionDays: 180,
@@ -78,9 +81,9 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
   team: {
     id: "team",
     label: "Team",
-    includedCredits: 500,
+    includedCredits: 150,
     unlimited: false,
-    monthlyPrice: 20,
+    monthlyPrice: 10,
     billing: "subscription",
     seats: 10,
     retentionDays: 365,
@@ -234,7 +237,7 @@ export function planAllowsByom(plan: string | null | undefined): boolean {
   return id === "enterprise";
 }
 
-/** Plans that may export a saved report as a PDF — Pro and up. The PRD's legacy "Private" tier (paid,
+/** Plans that may export a saved report as a PDF — Starter (`pro`) and up. The PRD's legacy "Private" tier (paid,
  *  usage-based private-repo scanning) is what originally bundled PDF export; today's nearest equivalent
  *  is the lowest PAID plan (Pro), since Free is a real usage tier now (5 private scans/month) and
  *  gating any lower would mean no plan at all could ever unlock it. Least-breaking reading of an

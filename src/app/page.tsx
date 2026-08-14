@@ -5,6 +5,10 @@ import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
 import { authGateEnabled } from "@/lib/access";
+import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
+
+/** "Starter ($5/mo)" — the tier's customer-facing NAME and price, both read from the plan model. */
+const paidTier = (id: PlanId) => `${PLAN_FEATURES[id].label} (${planPriceLabel(id).amount}/mo)`;
 
 // Rendered per-request (the gallery reflects persisted scans; SiteHeader already reads the
 // session cookie, so this route is dynamic regardless).
@@ -53,7 +57,10 @@ const FAQ_LD = {
       name: "Is Ascent free?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Every plan includes a monthly scan allowance — 5 scans a month free, for public or private repos. Pro ($10/mo) and Team ($20/mo) are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The Custom plan is scoped to your requirements — hosting, scan volume, support, customization and SSO.",
+        // DERIVED from the plan model, like the /pricing SEO copy — this sentence hardcoded
+        // "Pro ($10/mo) and Team ($20/mo)" and sailed through both a repricing and a rename before
+        // anyone noticed the landing page was quoting a price nobody could buy.
+        text: `Every plan includes a monthly private-scan allowance — ${PLAN_FEATURES.free.includedCredits} scans a month free; public scans are always free and unmetered. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements — hosting, scan volume, support, customization and SSO.`,
       },
     },
   ],

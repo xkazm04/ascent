@@ -5,7 +5,9 @@
 // beyond the monthly allowance (see src/lib/entitlement.ts, src/lib/db/credits.ts, src/lib/plans.ts).
 // Public scans, cached re-scans, and every capability below are never metered.
 
-export type PlanId = "free" | "pro" | "team" | "enterprise";
+import { PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
+
+export type { PlanId };
 
 export interface MatrixPlan {
   id: PlanId;
@@ -16,15 +18,22 @@ export interface MatrixPlan {
   featured?: boolean;
 }
 
-// `enterprise` is the STORED tier id; "Custom" is its customer-facing name (see the TIER ID vs TIER
-// LABEL note in src/lib/plans.ts). The label here must track PLAN_FEATURES.enterprise.label, or the
-// matrix contradicts the cards directly above it.
-export const MATRIX_PLANS: MatrixPlan[] = [
-  { id: "free", label: "Free", allowance: "5" },
-  { id: "pro", label: "Pro", allowance: "100" },
-  { id: "team", label: "Team", allowance: "500", featured: true },
-  { id: "enterprise", label: "Custom", allowance: "Yours" },
-];
+// DERIVED from PLAN_FEATURES, not re-typed. This file used to carry its own copy of the tier list, the
+// labels and the allowances — so a repricing had to be made in two places, and the matrix silently
+// contradicting the price cards it sits directly beneath was one forgotten edit away. (It also declared
+// its own `PlanId` union, which would have drifted from the real one on any tier change.) The stored
+// ids stay the keys; only the NAMES a buyer reads come from `label` — `pro` shows as "Starter",
+// `enterprise` as "Custom" (see the TIER ID vs TIER LABEL note in src/lib/plans.ts).
+export const MATRIX_PLANS: MatrixPlan[] = PLAN_ORDER.map((id) => {
+  const p = PLAN_FEATURES[id];
+  return {
+    id,
+    label: p.label,
+    // The bespoke tier has no number to print — its volume is the thing being negotiated.
+    allowance: p.includedCredits == null ? "Yours" : String(p.includedCredits),
+    ...(id === "team" ? { featured: true } : {}),
+  };
+});
 
 /**
  * How an operation relates to credits — the three-way distinction the whole matrix exists to make
@@ -58,7 +67,17 @@ export interface MatrixGroup {
   rows: MatrixRow[];
 }
 
-const ORDER: PlanId[] = ["free", "pro", "team", "enterprise"];
+const ORDER: PlanId[] = PLAN_ORDER;
+
+/** Per-tier "N / mo" cells for the scan row, read from the plan model so they can't drift from the
+ *  allowance the entitlement gate actually enforces. */
+const allowanceCells = (): Record<PlanId, Cell> =>
+  Object.fromEntries(
+    PLAN_ORDER.map((id) => {
+      const n = PLAN_FEATURES[id].includedCredits;
+      return [id, n == null ? "Your volume" : `${n} / mo`];
+    }),
+  ) as Record<PlanId, Cell>;
 
 /** Same value in every column (a universally-available or universally-free row). */
 const all = (v: Cell): Record<PlanId, Cell> => ({ free: v, pro: v, team: v, enterprise: v });
@@ -79,7 +98,8 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
         label: "Repository scan",
         detail: "Any public or private repo — the full report, radar and roadmap. Free within your monthly allowance, then 1 credit each.",
         tag: "credit",
-        cells: { free: "5 / mo", pro: "100 / mo", team: "500 / mo", enterprise: "Your volume" },
+        // Same derivation as MATRIX_PLANS — the one row in this table that restates a plan number.
+        cells: allowanceCells(),
       },
       {
         label: "Re-scan an unchanged commit",

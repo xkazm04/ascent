@@ -1,6 +1,6 @@
 // POST /api/plan-enquiry — the Custom tier's substitute for a checkout.
 //
-// Pro and Team have a Polar product to buy; the Custom tier (stored id `enterprise`, see src/lib/plans.ts)
+// Starter and Team have a Polar product to buy; the Custom tier (stored id `enterprise`, see src/lib/plans.ts)
 // has a conversation instead, and this is where it starts. Before this route the card's CTA was a
 // `mailto:` when ASCENT_CONTACT_EMAIL happened to be set and a link to /about when it wasn't — so on this
 // deployment the most valuable lead on the pricing page had nowhere at all to go.
