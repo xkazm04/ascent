@@ -376,7 +376,7 @@ and pinned by tests in `pack.test.ts`:
 - **Never** claim EU AI Act conformity. The pack disclaims it *explicitly* rather than staying
   silent, and states the deferral dates (Annex III 2 Dec 2027, Annex I 2 Aug 2028).
 
-The per-item verdict is deterministic and four-valued — `operated` · `not-operated` ·
+The per-item verdict is deterministic and four-valued: `operated` · `not-operated` ·
 `reviewed-not-approved` · `not-applicable`. "Reviewed but not approved" is kept distinct from "nobody
 looked" because an examiner will ask which, and conflating them misstates the control environment in
 both directions.
@@ -386,8 +386,8 @@ which reads the same signal.
 
 ## Canonical time-zone policy (`src/lib/org/timezone.ts`)
 
-Every calendar-day decision the org dashboard makes — window preset starts, custom-range
-parsing, trend day-keys, due-date bucketing — resolves in **one** reference frame. Before
+Every calendar-day decision the org dashboard makes (window preset starts, custom-range
+parsing, trend day-keys, due-date bucketing) resolves in **one** reference frame. Before
 this existed each of those picked its own: presets and the custom-range parser used the
 **server's local** zone, `daysUntil` compared a UTC-truncated target against a
 locally-truncated `now`, and the usage chart keyed days in UTC. The same scan could fall
@@ -397,7 +397,7 @@ inside the window on one surface and outside it on another, and a backlog item c
 **The policy**
 
 1. There is exactly one canonical zone per deployment, returned by `orgTimeZone()`.
-2. It defaults to **UTC**. Server-local was never a decision — it is whatever the host
+2. It defaults to **UTC**. Server-local was never a decision: it is whatever the host
    happened to be set to (UTC on Vercel, CET on a European dev laptop), so identical data
    produced different day buckets in dev and prod and would move if the host's `TZ` changed.
    UTC is stable, reproducible, matches how date-only columns are already persisted
@@ -408,7 +408,7 @@ inside the window on one surface and outside it on another, and a backlog item c
    is the canonical upper bound; `ResolvedWindow.end` survives only as its last
    representable instant (`endExclusive − 1ms`) for call sites whose Prisma filter still
    says `lte`. New code should use `endExclusive` with `lt`.
-   **`OrgWindow` — the shape the db layer queries with — now carries `endExclusive` too**, and
+   **`OrgWindow` (the shape the db layer queries with) now carries `endExclusive` too**, and
    `upperBound()` (`src/lib/db/org-shared.ts`) turns a window into `lt: endExclusive`, falling
    back to `lte: end` only for callers that have nothing else. Every fleet aggregate
    (`getOrgRollup`, `getOrgMovers`, `getOrgTeamRollup`, `getOrgRepoHistories`,
@@ -418,17 +418,17 @@ inside the window on one surface and outside it on another, and a backlog item c
    boundary instant was counted on *both* sides.
 5. A **date literal** (a `yyyy-mm-dd` a human picked, or a date-only DB column such as
    `Recommendation.targetDate`) is *not* an instant. It is read back with
-   `dayKeyOfDateColumn` (UTC getters — the frame it was written in) and only then compared
+   `dayKeyOfDateColumn` (UTC getters, the frame it was written in) and only then compared
    against `now`'s day in the canonical zone. Never re-truncate a date-only column in a
    westward zone; you get the previous day.
 6. Day arithmetic is **calendar** arithmetic (`addDaysInZone`), never `n × 86_400_000`. A
    DST day is 23 or 25 hours, and the old `startOfDay(now − 90 × DAY)` could snap the 90d
    baseline to an adjacent calendar day depending on the render hour.
 
-**Primitives** — `orgTimeZone()`, `resolveOrgTimeZone()`, `knownTimeZone()`, `partsInZone`, `zonedMidnight`, `startOfDayInZone`,
+**Primitives**: `orgTimeZone()`, `resolveOrgTimeZone()`, `knownTimeZone()`, `partsInZone`, `zonedMidnight`, `startOfDayInZone`,
 `addDaysInZone`, `startOfQuarterInZone`, `dayKeyInZone`, `dayKeyOfDateColumn`,
 `parseDayKey`, `daysBetweenDayKeys`. Pure and isomorphic (no `next/headers`, no I/O), so
-`src/lib/window.ts` — which the client `TimeRangeSelector` also imports — can depend on it.
+`src/lib/window.ts` (which the client `TimeRangeSelector` also imports) can depend on it.
 
 ### Which tabs the period actually governs (2026-08-03)
 
@@ -438,9 +438,9 @@ honour it, and that is now **disclosed on the tab instead of being silently true
 
 | Tab | Period-scoped? |
 | --- | --- |
-| Overview · Delivery · Briefing · Security · Teams | **Yes** — all resolve `resolveOrgWindow(sp)` and pass the window into their queries. |
-| Repositories · Tech Stacks · Passports | **No, by design** — latest-snapshot catalogs. They present no aggregate a range could re-cut. |
-| **Adoption · Contributors** | **No — and they say so.** |
+| Overview · Delivery · Briefing · Security · Teams | **Yes**: all resolve `resolveOrgWindow(sp)` and pass the window into their queries. |
+| Repositories · Tech Stacks · Passports | **No, by design**: latest-snapshot catalogs. They present no aggregate a range could re-cut. |
+| **Adoption · Contributors** | **No, and they say so.** |
 
 **Why they can't be scoped, and why threading a window would be a fake fix.**
 `RepoContributor` (`prisma/schema.prisma`) is uniquely keyed `(repoId, login)` and upserted each
@@ -448,13 +448,13 @@ scan: it holds *cumulative* `commits` / `aiCommits` totals plus one `lastActiveA
 commit history. `Scan.prStats` is likewise a pre-computed JSON aggregate read off each repo's
 **latest** scan (`getOrgPrSignals`). Neither can answer "commits in the last 30 days" at any cost.
 Adding a `window` parameter to `getContributorInsights` / `buildAdoptionOverview` would produce a
-signature that accepts a range and ignores it — worse than today, because the lie would then be in
+signature that accepts a range and ignores it, worse than today, because the lie would then be in
 the code as well as on screen.
 
 **The contract is disclosure.** `SnapshotScopeNotice`
 (`src/components/org/shared/SnapshotScopeNotice.tsx`) renders **above the tiles** on both panels:
 it names the range the user has selected, draws it as a visibly **inert** chip (struck through,
-`aria-disabled` — the period is acknowledged, never implied to be in force), states that the figures
+`aria-disabled`, the period is acknowledged, never implied to be in force), states that the figures
 are a scan-time snapshot, and links to a tab that *does* honour the period. The old footnotes that
 buried this under the numbers were trimmed to the mechanics they uniquely explain. Pinned by
 `SnapshotScopeNotice.test.tsx`.
@@ -462,7 +462,7 @@ buried this under the numbers were trimmed to the mechanics they uniquely explai
 **Bucket labels state their maths.** The backlog's due buckets are *rolling* days, not
 calendar periods: labels are interpolated from `DUE_SOON_DAYS` (7) and `DUE_MONTH_DAYS` (31)
 in `src/components/org/shared/backlogShared.ts`, so "Due within 31 days" can never drift
-from the cutoff that produced it. The `this_month` enum key is historical — it has never
+from the cutoff that produced it. The `this_month` enum key is historical: it has never
 meant a calendar month.
 
 **Per-org zones (policy note 6).** `Organization.timezone` holds one org's IANA zone ("this
