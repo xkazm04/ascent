@@ -166,6 +166,74 @@ straight at the CI-gates practice and its exemplars.
 | `src/components/org/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
 | `src/components/org/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
 
+## Your house pattern — mined from the org's own repos (W6, 2026-08-14)
+
+[`VISION-TRANSITION.md`](../../VISION-TRANSITION.md) §Pillar 2 promised that the org's strongest
+repos would have their institutional knowledge **templatized and offered to the repos that lack
+it** — "mine those exemplars, templatize their *shape* (not their code), and systematically offer it
+to the teams/repos that lack them". What shipped was nine hand-written starters, one per dimension,
+**identical for every customer**. An org that applied all nine had exhausted the product, and the
+starters described a generic good practice rather than *this org's* practice.
+
+This is the missing half. The **House pattern** panel sits above the catalog on the Practices tab
+and describes what the organization actually shares.
+
+### What "shape" means, and why it is leak-safe
+
+Two kinds of structure are extracted at scan time
+(`src/lib/analyze/practice-shape.ts` → `Scan.practiceShape`), and **neither carries an artifact's
+body**:
+
+| | |
+| --- | --- |
+| **Outline** | The markdown heading skeleton (H1–H3) of a guidance file, PR template, ADR or CONTRIBUTING. |
+| **Layout** | The directory/file layout of a harness or workflow set — path segments only. |
+
+The leak boundary the vision draws is **proprietary code**, and the travel is repo→repo *inside one
+organization*: an org's own headings moving to its own other repo is precisely the intended reuse.
+What must never travel is the body — where the code, the credentials and the customer names live —
+so **the body is not extracted at all** rather than extracted-and-filtered.
+
+The one place body content could leak into an outline is a `#` inside a fenced code block (a shell
+comment, a CSS id). `outlineOf` tracks fences explicitly and skips them; a test pins that a deploy
+script inside a fence never reaches the shape.
+
+Mined shapes are **strictly org-internal**. `getOrgPracticeShapes` is org-scoped, there is no
+cross-org variant, and nothing derived from it appears on a public report or in the shared corpus.
+
+### The house pattern is AGREEMENT, not the best repo's copy
+
+The tempting implementation is "take the highest-scoring repo's outline and hand it to everyone".
+That is one team's document promoted to a standard nobody agreed to — and the first reader who
+recognises it as *their* file reads the whole feature as surveillance rather than reuse.
+
+So a line enters the pattern only when at least **`MIN_AGREEMENT` (2)** exemplar repos carry it
+**independently**, counted by *distinct repo* so one verbose repo cannot manufacture a pattern from
+its own three ADRs. Layout agreement compares trailing path segments, not full paths, because
+`evals/golden/` and `packages/api/evals/golden/` are the same practice in two places.
+
+Normalization stops at case and punctuation **on purpose**: `Build & Test` and `Build and Test` read
+as one section to a human, but equating them needs a synonym table — and that is where a "your own
+pattern" claim quietly becomes the vendor's interpretation of it.
+
+**Every mined line carries its evidence** — the `n×` count of how many repos agreed — and every
+practice names which repos those were. A suggestion an engineer cannot trace back to their own
+codebase is one they are entitled to ignore.
+
+### Three honest silences, all rendered
+
+1. **Fewer than 2 exemplars** → no pattern, and the panel says one strong repository's document is
+   that team's document, not a house standard.
+2. **Exemplars that share nothing** → no pattern, rather than promoting the best repo's copy.
+3. **A pattern with no gap repos** → said plainly as a good state, not dressed up as a task.
+
+`minedStarter()` returns `null` when nothing was mined — the signal to fall back to the static
+starter. A caller **must say which it used**: "your own pattern, from 3 repos" and "a generic
+starter" are very different claims to put in front of an engineer.
+
+Shapes appear as repos are re-scanned; there is no backfill, and thin coverage reads as thin
+coverage rather than as "your org shares nothing".
+
 ## Known gaps
 
 - **Adoption is tracked at the PR, not the repo** — `recordPracticePr()` persists each

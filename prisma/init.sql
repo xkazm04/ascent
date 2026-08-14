@@ -214,6 +214,15 @@ CREATE TABLE "AiChange" (
 
     CONSTRAINT "AiChange_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column (same rule as Membership's and Repository's above): pglite-boot rewrites
+-- CREATE TABLE -> IF NOT EXISTS, so an EXISTING local .pglite DB never receives a column added to the
+-- block above. Here that omission was not merely a missing column — `AiChange_orgId_mergeCommitSha_idx`
+-- below is declared OVER one of them, and an index over a missing column throws 42703, which aborts
+-- the whole bootstrap and leaves the adapter uninstalled (the boot then reports NO-DB and every read
+-- comes back empty). Any new column on an existing table needs its ALTER here.
+ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "revertedByPr" INTEGER;
+ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "revertedAt" TIMESTAMP(3);
+ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "mergeCommitSha" TEXT;
 
 -- CreateTable
 CREATE TABLE "Scan" (
@@ -236,6 +245,7 @@ CREATE TABLE "Scan" (
     "risks" TEXT NOT NULL DEFAULT '[]',
     "discrepancies" TEXT NOT NULL DEFAULT '[]',
     "prStats" TEXT,
+    "practiceShape" TEXT,
     "governance" TEXT,
     "commitActivity" TEXT,
     "techStackJson" TEXT,

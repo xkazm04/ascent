@@ -1,0 +1,12 @@
+-- The repo's PRACTICE SHAPE (W6): heading outlines and path layouts of its guidance, PR template,
+-- ADRs and harness. STRUCTURE ONLY — no artifact body is ever extracted, which is what makes an
+-- org's own pattern safe to move between its own repos.
+--
+-- This is the half of docs/VISION-TRANSITION.md §Pillar 2 that never shipped: mine the exemplars,
+-- templatize their shape, offer it to the repos that lack it. Without it the practice catalog is
+-- nine generic starters identical for every customer, and an org that applied all nine had
+-- exhausted the product.
+--
+-- No backfill: shapes appear as repos are re-scanned. The miner reports how many exemplars it had,
+-- so thin coverage reads as thin coverage rather than as "your org has no shared practice".
+ALTER TABLE "Scan" ADD COLUMN "practiceShape" TEXT;

@@ -165,6 +165,8 @@ export interface CommitInfo {
  * whom" — the population an auditor samples. Shapes the AiChange table without importing Prisma, so
  * the analyzer and the persistence layer agree on one definition.
  */
+import type { RepoPracticeShape } from "@/lib/analyze/practice-shape";
+
 /** One deployment as the scan observed it (W4). Mirrors src/lib/github/deployments.ts's record. */
 export interface DeploymentSnapshot {
   externalId: string;
@@ -815,6 +817,10 @@ export interface ScanReport {
    *  tokenless scan, where PRs aren't observable; undefined on reconstructed snapshots that never ran
    *  ingestion, so persistence leaves any stored population untouched rather than wiping it. */
   aiChanges?: AiChangeRecord[];
+  /** W6 — the repo's PRACTICE SHAPE: heading outlines + path layouts of its guidance, PR template,
+   *  ADRs and harness. Structure only, never a body. Display/reuse-only — never scored, never on a
+   *  public surface (see src/lib/analyze/practice-shape.ts). */
+  practiceShape?: RepoPracticeShape;
   /** W4 — deployments observed for this repo, with their latest status. Empty on an anonymous scan or
    *  a repo that doesn't use GitHub Deployments; undefined on a reconstructed snapshot, so
    *  persistence leaves stored rows untouched rather than wiping them (same contract as aiChanges). */

@@ -9,6 +9,7 @@
 import { detectAiUsage } from "@/lib/analyze";
 import { buildPassport } from "@/lib/analyze/passport";
 import { deriveContextHealth } from "@/lib/analyze/context-health";
+import { extractPracticeShape } from "@/lib/analyze/practice-shape";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 import type { AiChangeRecord } from "@/lib/analyze/pulls";
 import type { DeploymentSnapshot } from "@/lib/types";
@@ -99,6 +100,10 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
     commitActivity: report.commitActivity ?? null,
     now,
   });
+  // W6 — the repo's practice SHAPE, from the same snapshot. Display/reuse-only like contextHealth
+  // above: never scored, never in the prompt. Structure only (heading outlines, path layouts); no
+  // artifact body is read, which is what makes an org's own pattern safe to move between its repos.
+  report.practiceShape = extractPracticeShape(snapshot.tree, snapshot.files);
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...input.usage, latencyMs: input.llmLatencyMs };

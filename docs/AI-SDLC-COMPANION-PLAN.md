@@ -393,7 +393,32 @@ authorize it; that is a later decision, not a v1 default.
 
 ---
 
-## Wave 6 — A living practice library
+## Wave 6 — A living practice library ✅ SHIPPED 2026-08-14
+
+> **Status:** shipped. Shape extraction at scan time (`Scan.practiceShape`), the org-scoped miner,
+> and the **House pattern** panel above the catalog on the Practices tab. 35 new tests; suite green
+> at 6603. Docs: [practices.md](features/org-dashboard/practices.md#your-house-pattern--mined-from-the-orgs-own-repos-w6-2026-08-14).
+>
+> **The design decision that matters most: the house pattern is AGREEMENT, not the best repo's copy.**
+> The obvious implementation — take the highest-scoring repo's outline and hand it to everyone — is
+> one team's document promoted to a standard nobody agreed to, and the first reader who recognises
+> it as *their* file reads the whole feature as surveillance rather than reuse. A line enters the
+> pattern only when ≥2 exemplars carry it independently, counted by distinct repo.
+>
+> **Leak safety is structural, not filtered.** Only heading skeletons and path layouts are read; an
+> artifact's body is never extracted at all. The one leak vector — a `#` inside a fenced code block,
+> which is a shell comment rather than a heading — is handled explicitly and pinned by a test that a
+> deploy script inside a fence cannot reach the shape.
+>
+> **Deviations:**
+> - **Normalization stops at case and punctuation.** `Build & Test` and `Build and Test` read as one
+>   section to a human, but equating them needs a synonym table — and that is where a "your own
+>   pattern" claim quietly becomes the vendor's interpretation of it.
+> - **No auto-generated PR yet.** `minedStarter()` returns the mined lines in the same `string[]`
+>   shape the static `starter` uses, so the artifact builder can consume either without branching —
+>   but wiring it into apply-batch would ship a PR whose provenance line ("your own pattern" vs "a
+>   generic starter") has not been designed. The mining is the hard half; the plumbing is deliberate
+>   follow-on work.
 
 `VISION-TRANSITION.md:48` promised mining the org's own exemplars and templatizing their *shape*; the
 implementation collapsed to 9 static entries, one per dimension (`src/lib/practices.ts`), which is

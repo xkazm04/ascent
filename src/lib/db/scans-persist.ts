@@ -346,6 +346,10 @@ export async function persistScanReport(
             // Repository.contextHealthJson above. Display-only (never scored). Null on a
             // reconstructed snapshot, which must read as "not assessed", never as absent context.
             contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
+            // W6 — practice shape. Per-scan like contextHealth; the org miner reads each repo's
+            // LATEST. Null on a reconstructed snapshot, which reads as "not extracted", never as
+            // "this repo has no structure".
+            practiceShape: report.practiceShape ? JSON.stringify(report.practiceShape) : null,
             // Reliability caveats (degrade-to-mock / low-coverage / no-token / stack-fit) — persisted so a
             // reloaded scan keeps its disclosure instead of reading as a confident full scan (P1-5).
             warningsJson: report.warnings?.length ? JSON.stringify(report.warnings) : null,

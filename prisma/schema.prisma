@@ -537,6 +537,11 @@ model Scan {
   // detector backlog (getOrgDiscrepancies) can aggregate them across the fleet. JSON Discrepancy[].
   discrepancies  String   @default("[]")
   prStats        String? // JSON PrStats (pull-request process signals); null if no token
+  // W6 — the repo's PRACTICE SHAPE: the heading outlines and path layouts of its guidance, PR
+  // template, ADRs and harness. STRUCTURE ONLY, never a body (see analyze/practice-shape.ts). It is
+  // what lets the org mine its OWN house pattern instead of shipping the same nine generic starters
+  // to every customer. Display/reuse-only — never scored, never on a public surface.
+  practiceShape  String?
   governance     String? // JSON Governance (branch protection / rulesets); null if no token
   commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
   // Per-scan detected tech stack (Feature 3a) — JSON TechStack. Keeps history honest when a repo

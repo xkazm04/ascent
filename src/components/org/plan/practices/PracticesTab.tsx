@@ -12,6 +12,9 @@
 import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { buildPracticeLibrarySummary, practiceLibraryMarkdown } from "@/lib/org/practice-library";
+import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
+import { minePracticeShapes } from "@/lib/org/practice-mining";
+import { HousePattern } from "./HousePattern";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { BAND } from "@/components/org/fleet/adoption/AdoptionSpectrum";
@@ -33,12 +36,17 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   // clear it (docs/harness/biz-bug-scan-2026-06-29). The selector now renders, same as every sibling
   // tab. No segment selector here: getOrgPractices' segment scope isn't wired on this surface yet.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [playbooks, adoption, rollup, practices] = await Promise.all([
+  const [playbooks, adoption, rollup, practices, shapes] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
     getOrgRollup(slug),
     getOrgPractices(slug, null, techGroupId),
+    // W6 — the org's OWN structure, for the house-pattern panel. Degrades to null (panel omitted)
+    // rather than failing the tab: a missing panel is honest, an empty one would assert the org
+    // shares nothing.
+    getOrgPracticeShapes(slug).catch(() => null),
   ]);
+  const mined = shapes ? minePracticeShapes(shapes) : null;
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
   const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
 
@@ -52,6 +60,10 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
         <ScopeFilterBar segments={[]} segmentId={null} techGroups={techGroups} activeStack={activeStack} />
         <CopyForLlm text={md} label="Copy practice library brief for LLM" />
       </div>
+
+      {/* W6 — above the generic catalog on purpose: an org's own shared structure is a better answer
+          than a template, so it should be the first thing read on this tab. */}
+      {mined && <HousePattern mined={mined} reposWithShape={shapes?.length ?? 0} />}
 
       <div className={TILE_GRID}>
         <Tile
