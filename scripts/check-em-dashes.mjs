@@ -32,9 +32,14 @@ const QUIET = process.argv.includes("--quiet");
 // all point-in-time artifacts like `docs/archive`), `.claude/` is agent tooling and loop state, `e2e/`
 // and `scripts/` are test and tooling code, and CHANGELOG is history. What a USER of the app reads is
 // `src/`, `docs/`, and a handful of repo-root documents — that is the scope, so name it directly.
+// prose.ts and its test are the machinery that REMOVES em dashes, so they necessarily contain the
+// character (the constant, the rules, and every fixture). Scanning them reports the cure as the disease.
+const SELF = /^src\/lib\/llm\/prose(\.test)?\.ts$/;
+
 const IN_SCOPE = (f) =>
   (f.startsWith("src/") || f.startsWith("docs/") || !f.includes("/")) &&
   !/^docs\/(archive|harness)\//.test(f) &&
+  !SELF.test(f) &&
   f !== "CHANGELOG.md";
 
 /** Blank out block and line comments so their em dashes are not reported. Crude on purpose: it only
