@@ -51,6 +51,45 @@ inside "Fleet".
 `/about-org`'s public module map (`src/components/about-org/orgModules.ts`) derives from the same
 constant, so it re-grouped itself; only the per-group icons needed remapping.
 
+### The transition programme (W1c, 2026-08-14)
+
+The org's **named, dated commitment** — one row per org (`TransitionProgram`, `orgId` unique),
+managed from the **Programme** panel at the top of the Plan tab, and read as a one-line strip under
+the org header on **every** tab (`src/components/org/shell/ProgramStrip.tsx`):
+
+> *Week 7 · Agent-ready by Q1 · L3 → L4 · 4 of 11 repos at target · +10 since baseline · 2 PRs in
+> flight · +17 pts bought · next review in 5 days*
+
+Onboarding's checklist ended at "invite a teammate", which is exactly where the job starts.
+Everything after it was stateless — the dashboard could say where the fleet stood but never *where
+are we in something*. The programme is that thread, and it is the checklist's new sixth step
+(`program`, member-gated, org-only), so it is discovered through the onboarding companion rather
+than through a banner.
+
+**The frozen baseline is the point.** `baselineJson` is captured server-side, once, at creation, and
+never rewritten — Port's AI-SDLC rule is *baseline before you turn anything on*, and a baseline
+recomputed from today's data moves with the thing it is meant to measure. The client cannot supply
+it (a caller who could set the origin could move it), and **re-targeting deliberately does not
+re-baseline**: renaming a programme or shifting its date must not erase every measurement since the
+start. An org that starts a programme before its first scan stores a **null** baseline — an honest
+absent origin, not a zeroed one that would make the first scan read as pure progress.
+
+**What the strip refuses to say.** Each segment is independently conditional, and absence is the
+honest rendering of every unknown: movement appears only when both ends exist; *"N pts bought"*
+appears only when the [Impact ledger](#impact-ledger--what-the-loop-bought-w1d-2026-08-14) has
+**verified** points behind it (this is why W1c was sequenced after W1d); "next review" disappears
+once the programme is paused or achieved; the target countdown is omitted entirely for an
+open-ended programme. A strip that padded those with zeroes would be a gimmick.
+
+**Cost.** `getOrgProgramStatus` is React-`cache()`d and composed from reads the shell already makes
+— `getOrgHeaderSummary` (which gained a `levelCounts` tally folded into its existing pass, so
+"N of M repos at target" costs no extra query), `countInFlightPrs`, and one indexed ledger read. It
+does not reintroduce the rollup tax "Shell cost discipline" removed. `getOrgProgramStatus` failing
+degrades the strip away, never the dashboard.
+
+**API:** `GET|POST|PATCH|DELETE /api/org/program` — reads are `requireOrgRead`, writes
+`requireOrgAccess`.
+
 ### Landing: what a bare `/org/<slug>` opens on (W1b, 2026-08-14)
 
 The bare org URL is a **landing decision**, not a synonym for the Overview tab

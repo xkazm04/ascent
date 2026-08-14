@@ -22,10 +22,10 @@ import {
 } from "@/lib/db/org-onboarding";
 import type { OrgTabId } from "@/lib/org/orgTabs";
 
-export type GettingStartedStepId = "first-scan" | "gap-engaged" | "registry" | "loop" | "team";
+export type GettingStartedStepId = "first-scan" | "gap-engaged" | "registry" | "loop" | "team" | "program";
 
 /** The onboarding narrative's phases, in order. Each step belongs to exactly one. */
-export type GettingStartedPhase = "baseline" | "resolve" | "registry" | "loop" | "team";
+export type GettingStartedPhase = "baseline" | "resolve" | "registry" | "loop" | "team" | "program";
 
 /**
  * The `data-tour` anchor each step spotlights. `first-scan` reuses the anchor that already exists in
@@ -38,6 +38,7 @@ export const GETTING_STARTED_ANCHORS: Record<GettingStartedStepId, string> = {
   registry: "skills-registry",
   loop: "watch-schedule",
   team: "invite-member",
+  program: "transition-program",
 };
 
 export interface GettingStartedStep {
@@ -143,6 +144,20 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       tab: "members",
       anchor: GETTING_STARTED_ANCHORS.team,
       detail: teamDetail,
+    },
+    {
+      // W1c — the LAST step, and the only one that isn't really about setup: name the transition
+      // you are actually running. This checklist used to end at "invite a teammate", which is
+      // exactly where the job starts; the programme is the state that outlives it, and completing
+      // this step is what makes the shell's strip appear on every tab from then on.
+      id: "program",
+      phase: "program",
+      done: facts.hasProgram,
+      // Available to any member on a real org — a personal workspace has no fleet to run a
+      // programme over, and the Plan tab is not in its subset.
+      available: !personal && can(role, "member"),
+      tab: "plan",
+      anchor: GETTING_STARTED_ANCHORS.program,
     },
   ];
 

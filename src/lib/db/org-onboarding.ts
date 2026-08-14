@@ -124,6 +124,8 @@ export interface GettingStartedFacts {
   memberCount: number;
   /** ≥1 pending, unexpired invite (same predicate as listPendingInvites). */
   hasPendingInvite: boolean;
+  /** W1c: the org has named a transition programme — the state that outlives this checklist. */
+  hasProgram: boolean;
 }
 
 /** All-false facts for an org row that doesn't exist yet — a checklist with nothing done, which is
@@ -138,6 +140,7 @@ export const EMPTY_GETTING_STARTED_FACTS: GettingStartedFacts = {
   loopStance: false,
   memberCount: 0,
   hasPendingInvite: false,
+  hasProgram: false,
 };
 
 /**
@@ -155,7 +158,7 @@ export async function getGettingStartedFacts(orgSlug: string): Promise<GettingSt
   const orgId = org.id;
   const personal = org.kind === "personal";
 
-  const [scan, watched, engagedRec, overlay, improvementPr, skill, memory, scheduled, stance, memberCount, invite] =
+  const [scan, watched, engagedRec, overlay, improvementPr, skill, memory, scheduled, stance, memberCount, invite, program] =
     await Promise.all([
       prisma.scan.findFirst({ where: { repo: { orgId } }, select: { id: true } }),
       prisma.repository.findFirst({ where: { orgId, watched: true }, select: { id: true } }),
@@ -181,6 +184,7 @@ export async function getGettingStartedFacts(orgSlug: string): Promise<GettingSt
         where: { orgId, status: "pending", expiresAt: { gt: new Date() } },
         select: { id: true },
       }),
+      prisma.transitionProgram.findUnique({ where: { orgId }, select: { id: true } }),
     ]);
 
   return {
@@ -193,5 +197,6 @@ export async function getGettingStartedFacts(orgSlug: string): Promise<GettingSt
     loopStance: stance != null,
     memberCount,
     hasPendingInvite: invite != null,
+    hasProgram: program != null,
   };
 }

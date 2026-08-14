@@ -108,6 +108,7 @@ model Organization {
   orgDecisions OrgDecision[]
   recOverlays  RecommendationOverlay[]
   sandboxScenarios SandboxScenario[]
+  program      TransitionProgram?
   techGroups   TechStackGroup[]
   llmConfig    OrgLlmConfig?
 }
@@ -720,6 +721,44 @@ model Goal {
   org Organization @relation(fields: [orgId], references: [id])
 
   @@index([orgId])
+}
+
+// The org's named, dated TRANSITION PROGRAMME (W1c) — the state that outlives onboarding.
+//
+// Onboarding's five-step checklist (src/lib/org/getting-started.ts) ends at "invite a teammate",
+// which is exactly where the actual job starts. Everything after it was, until now, stateless: the
+// dashboard could say where the fleet stood but never "where are we IN something", so a returning
+// member had no thread to pick up. A programme is that thread — one per org, named by the people
+// doing it ("Agent-ready by Q1"), with a target rung, a date, and a review cadence.
+//
+// `baselineJson` is the point of the table. Port's AI-SDLC rule is "baseline before you turn
+// anything on", and a baseline recomputed from today's data is not a baseline — it moves with the
+// thing it is supposed to measure. So the fleet snapshot is FROZEN at creation (ProgramBaseline in
+// src/lib/db/org-program.ts) and never rewritten; progress is always today's live rollup read
+// against that fixed origin. A programme created before the org's first scan honestly stores a null
+// baseline rather than a zeroed one.
+//
+// One row per org (`orgId` unique) — a programme is the org's current commitment, not a backlog of
+// them. Re-targeting edits the row; the audit log carries the history.
+model TransitionProgram {
+  id     String @id @default(uuid())
+  orgId  String @unique
+  name   String
+  // The maturity rung being climbed to, as a LevelId ("L1".."L5") — the vocabulary a programme is
+  // actually discussed in, unlike Goal.target which is a 0-100 score. Validated against LEVELS.
+  targetLevel String @default("L4")
+  targetDate  DateTime? // null = open-ended; the strip then omits the pace read rather than faking one
+  cadence     String    @default("weekly") // weekly | biweekly | monthly — how often the org reviews
+  // Frozen at creation and NEVER rewritten. Null when the org had no scanned repo yet: an honest
+  // absent origin, not a zeroed one that would make the first scan look like pure progress.
+  baselineAt   DateTime
+  baselineJson String?
+  status       String   @default("active") // active | paused | achieved
+  startedBy    String? // GitHub login who started it
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
 }
 
 // A tracked, scoped program of work — typically created from a fleet recommendation: "bring

@@ -29,6 +29,7 @@ export const PHASE_LABEL: Record<GettingStartedPhase, string> = {
   registry: "Registry",
   loop: "Loop",
   team: "Team",
+  program: "Programme",
 };
 
 interface TaskCopy {
@@ -85,6 +86,12 @@ export const TASK_COPY: Record<GettingStartedStepId, TaskCopy> = {
     body: "Maturity is an org property. Invite the people who will act on it — one more member is enough to make this a shared read.",
     cta: "Open members",
     unavailable: "Invites are owner-only.",
+  },
+  program: {
+    title: "Name what you're doing",
+    body: "Setup ends here; the work doesn't. Name the transition you're actually running, pick the rung you're climbing to, and today's standing is frozen as the baseline every later number is measured against.",
+    cta: "Open the plan",
+    unavailable: "A programme runs over a fleet — org workspaces only.",
   },
 };
 

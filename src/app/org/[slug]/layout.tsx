@@ -3,6 +3,8 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { OrgTabNav } from "@/components/org/shell/OrgTabNav";
 import { OrgShellActions } from "@/components/org/shell/OrgShellActions";
 import { OrgFirstScanEmpty } from "@/components/org/shell/OrgFirstScanEmpty";
+import { ProgramStrip } from "@/components/org/shell/ProgramStrip";
+import { getOrgProgramStatus } from "@/lib/db/org-program";
 import { resolveOrgShellState } from "./orgShellGate";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
@@ -184,6 +186,13 @@ export default async function OrgLayout({
 
   const level = levelForScore(summary.avgOverall);
 
+  // W1c — the transition programme's one-line strip. Resolved AFTER the empty-state gates so a
+  // walled/first-scan org never pays for it, and null-safe: no programme (the common case today, and
+  // every org before someone starts one) renders nothing at all. Its inputs are the already-cached
+  // header summary + in-flight count plus one indexed ledger read, so it doesn't reintroduce the
+  // rollup tax the shell removed. A failure degrades the strip away, never the dashboard.
+  const programStatus = await getOrgProgramStatus(slug).catch(() => null);
+
   // The header's right cluster (alerts · credits · scan), including every env/plan decision behind
   // it — see OrgShellActions.
   const actions = (
@@ -199,6 +208,7 @@ export default async function OrgLayout({
   return (
     <>
       <OrgHeader slug={slug} levelId={level.id} score={summary.avgOverall} role={myRole} actions={actions} />
+      <ProgramStrip slug={slug} status={programStatus} />
       {/* tabIndex={-1} makes <main> a programmatic focus target: it is already the skip-link
           destination, and OrgTabNav moves focus here on a real tab switch so an AT user isn't left
           with a silently swapped page. Without it, .focus() is a no-op on a non-interactive element. */}

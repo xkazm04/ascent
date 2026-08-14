@@ -145,6 +145,13 @@ pure UI state; only "Skip setup" writes.
   journey sections — Standing · Chosen · In flight · Bought · Admin — instead of the retired
   data-type modules. Teach copy describes the shipping rail, so a regroup edits it in lockstep; see
   [org-intelligence.md](../org-dashboard/org-intelligence.md#the-rail-is-grouped-by-the-journey-not-by-data-type-w1a-2026-08-14).
+- **A sixth step: name the programme (W1c, 2026-08-14).** The checklist used to end at "invite a
+  teammate" — exactly where the actual job starts. The `program` step (phase `program`, tab `plan`,
+  anchor `transition-program`) is done when the org has a `TransitionProgram` row, and completing it
+  is what makes the shell's programme strip appear on every tab from then on. Member-gated and
+  org-only: a personal workspace has no fleet to run a programme over and no Plan tab in its subset.
+  Model + frozen-baseline contract:
+  [org-intelligence.md](../org-dashboard/org-intelligence.md#the-transition-programme-w1c-2026-08-14).
 - **A missing anchor degrades to plain navigation.** The engine polls on rAF for a bounded budget and
   marks the step skipped; in the drawer, auto-advance is OFF (`autoAdvanceOverSkipped: false`) — the
   member asked for *this* task, so the tab switch stands and only the ring is missing. Never a stuck

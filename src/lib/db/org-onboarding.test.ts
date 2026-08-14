@@ -45,6 +45,8 @@ function fakePrisma(over: Record<string, Record<string, unknown>> = {}) {
     orgMemory: { findFirst: vi.fn(async () => null), ...(over.orgMemory ?? {}) },
     orgAiStance: { findFirst: vi.fn(async () => null), ...(over.orgAiStance ?? {}) },
     invite: { findFirst: vi.fn(async () => null), ...(over.invite ?? {}) },
+    // W1c — the programme step's fact. Unique by orgId, so findUnique rather than findFirst.
+    transitionProgram: { findUnique: vi.fn(async () => null), ...(over.transitionProgram ?? {}) },
   };
   mockGetPrisma.mockReturnValue(p);
   return p;
@@ -147,6 +149,7 @@ describe("getGettingStartedFacts — step predicates", () => {
       loopStance: false,
       memberCount: 1,
       hasPendingInvite: false,
+      hasProgram: false,
     });
   });
 

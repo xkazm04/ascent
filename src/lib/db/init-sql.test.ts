@@ -221,14 +221,19 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
       }
     }
 
-    // Sanity: the 6 known inline @unique attributes must be discovered, so a parser regression that
-    // matches nothing can't make this assertion vacuously pass.
+    // Sanity: the 7 known inline @unique attributes must be discovered, so a parser regression that
+    // matches nothing can't make this assertion vacuously pass. Adding one here is deliberate — a
+    // single-field @unique is a schema invariant, and the point of pinning the list is that it
+    // cannot grow without someone confirming the matching CREATE UNIQUE INDEX reached init.sql.
     expect(inlineUniques.map((u) => `${u.model}.${u.field}`).sort()).toEqual(
       [
         "CreditLedger.externalId",
         "Invite.token",
         "Organization.slug",
         "Subscription.orgId",
+        // W1c: one transition programme per org — the constraint that makes "the org's current
+        // commitment" a fact of the schema rather than a convention the read layer hopes for.
+        "TransitionProgram.orgId",
         "User.email",
         "User.githubLogin",
       ].sort(),

@@ -4,6 +4,7 @@
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
+import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
@@ -649,6 +650,13 @@ export interface OrgHeaderSummary {
   avgRigor: number;
   /** Scanned repos per posture id — mirrors `getOrgRollup.postureCounts`. */
   postureCounts: Record<string, number>;
+  /**
+   * Scanned repos per maturity level id ("L1".."L5"), from each repo's latest overall score (W1c).
+   * Folded in the SAME pass as postureCounts over rows this query already fetched, so it costs no
+   * extra query — which is what lets the shell's programme strip answer "N of M repos at target"
+   * without buying the full getOrgRollup (see "Shell cost discipline" in the org-intelligence doc).
+   */
+  levelCounts: Record<string, number>;
   /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
   kind: "org" | "personal";
 }
@@ -679,7 +687,12 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
   // repoCount and nothing else).
   const scanned = repos.map((r) => r.scans[0]).filter((s): s is NonNullable<typeof s> => s != null);
   const postureCounts: Record<string, number> = {};
-  for (const s of scanned) postureCounts[s.posture] = (postureCounts[s.posture] ?? 0) + 1;
+  const levelCounts: Record<string, number> = {};
+  for (const s of scanned) {
+    postureCounts[s.posture] = (postureCounts[s.posture] ?? 0) + 1;
+    const lvl = levelForScore(s.overallScore).id;
+    levelCounts[lvl] = (levelCounts[lvl] ?? 0) + 1;
+  }
   return {
     repoCount: repos.length,
     scannedCount: scanned.length,
@@ -688,6 +701,7 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
     avgAdoption: roundedMean(scanned.map((s) => s.adoptionScore)),
     avgRigor: roundedMean(scanned.map((s) => s.rigorScore)),
     postureCounts,
+    levelCounts,
     kind: org.kind === "personal" ? "personal" : "org",
   };
 });

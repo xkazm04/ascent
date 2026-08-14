@@ -15,6 +15,7 @@ const baseFacts: GettingStartedFacts = {
   loopStance: false,
   memberCount: 1,
   hasPendingInvite: false,
+  hasProgram: false,
 };
 
 const facts = (over: Partial<GettingStartedFacts> = {}): GettingStartedFacts => ({ ...baseFacts, ...over });
@@ -95,6 +96,9 @@ describe("availability honesty — viewer role", () => {
       "first-scan",
       "gap-engaged",
       "registry",
+      // W1c: naming the programme is member-level — it is a commitment the people doing the work
+      // make, not an admin setting.
+      "program",
     ]);
   });
 
@@ -118,6 +122,7 @@ describe("allDone rollup", () => {
     loopSchedule: true,
     loopAlerts: true,
     memberCount: 3,
+    hasProgram: true,
   });
 
   it("true when every AVAILABLE step is done", () => {
@@ -145,7 +150,7 @@ describe("allDone rollup", () => {
 describe("navigation targets", () => {
   it("phases mirror the onboarding narrative in order", () => {
     const m = buildGettingStartedModel(facts(), null);
-    expect(m.steps.map((s) => s.phase)).toEqual(["baseline", "resolve", "registry", "loop", "team"]);
+    expect(m.steps.map((s) => s.phase)).toEqual(["baseline", "resolve", "registry", "loop", "team", "program"]);
   });
 
   it("each step points at its org tab and shared anchor constant", () => {
@@ -156,6 +161,7 @@ describe("navigation targets", () => {
       ["registry", "skills", GETTING_STARTED_ANCHORS.registry],
       ["loop", "repositories", GETTING_STARTED_ANCHORS.loop],
       ["team", "members", GETTING_STARTED_ANCHORS.team],
+      ["program", "plan", GETTING_STARTED_ANCHORS.program],
     ]);
     // first-scan reuses the data-tour anchor that ALREADY exists in the DOM.
     expect(GETTING_STARTED_ANCHORS["first-scan"]).toBe("results-view");

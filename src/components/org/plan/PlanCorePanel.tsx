@@ -6,20 +6,24 @@
 
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { GoalsPanel } from "@/components/org/plan/GoalsPanel";
+import { ProgramPanel } from "@/components/org/plan/ProgramPanel";
 import { Simulator } from "@/components/org/plan/Simulator";
 import { InitiativesPanel } from "@/components/org/plan/InitiativesPanel";
 import { computeGoalSuggestions, computeInitiativeSeeds, computeInitiativesByGoal, dimOptionsFrom, metricOptionsFrom } from "@/components/org/plan/planCoreData";
 import { getOrgRecommendations, getOrgRollup, listGoals, listInitiatives, metricLabel } from "@/lib/db";
+import { getOrgProgram } from "@/lib/db/org-program";
 
 export async function PlanCorePanel({ slug }: { slug: string }) {
   // One parallel batch — Goals, the Simulator's dimension options, and Initiatives' seeded moves all
   // derive from the same rollup + recommendations, so they share this single read rather than each
-  // panel re-querying it.
-  const [goals, initiatives, rollup, recs] = await Promise.all([
+  // panel re-querying it. The programme rides along (one indexed unique lookup, request-cached with
+  // the shell's own read of it).
+  const [goals, initiatives, rollup, recs, program] = await Promise.all([
     listGoals(slug),
     listInitiatives(slug),
     getOrgRollup(slug),
     getOrgRecommendations(slug),
+    getOrgProgram(slug),
   ]);
 
   const scannedRepos = (rollup?.repos ?? []).filter((r) => r.latest);
@@ -38,6 +42,10 @@ export async function PlanCorePanel({ slug }: { slug: string }) {
 
   return (
     <>
+      {/* Above Goals on purpose: a goal is a number the fleet steers toward, the programme is the
+          named, dated thing the org is doing — the frame those goals hang off. */}
+      <ProgramPanel slug={slug} initial={program} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <GoalsPanel slug={slug} initial={goals ?? []} metricOptions={metricOptions} initiativesByGoal={initiativesByGoal} suggestions={goalSuggestions} />
         <Simulator slug={slug} dims={dimOptions} repos={repoOptions} />

@@ -1063,6 +1063,27 @@ CREATE UNIQUE INDEX "OrgArtifactAck_orgId_artifact_repoFullName_key" ON "OrgArti
 -- CreateIndex
 CREATE INDEX "OrgArtifactAck_orgId_artifact_version_idx" ON "OrgArtifactAck"("orgId", "artifact", "version");
 
+-- CreateTable
+CREATE TABLE "TransitionProgram" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "targetLevel" TEXT NOT NULL DEFAULT 'L4',
+    "targetDate" TIMESTAMP(3),
+    "cadence" TEXT NOT NULL DEFAULT 'weekly',
+    "baselineAt" TIMESTAMP(3) NOT NULL,
+    "baselineJson" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "startedBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TransitionProgram_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TransitionProgram_orgId_key" ON "TransitionProgram"("orgId");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes
