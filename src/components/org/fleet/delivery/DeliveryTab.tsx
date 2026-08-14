@@ -15,6 +15,7 @@ import { resolveOrgWindow } from "@/lib/org/period";
 import { DeliveryTrendDataPanel } from "./DeliveryTrendDataPanel";
 import { DeliveryCorePanel } from "./DeliveryCorePanel";
 import { UnitEconomicsPanel } from "./ai/UnitEconomicsPanel";
+import { DeliveryOutcomesPanel } from "./ai/DeliveryOutcomesPanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -44,6 +45,13 @@ export async function DeliveryTab({ slug, sp }: { slug: string; sp: SearchParams
           so folding it in would make the whole tab wait on a query none of the other panels need. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
         <UnitEconomicsPanel slug={slug} period={period} />
+      </Suspense>
+
+      {/* W4 — delivery outcomes (DORA + the AI-vs-human failure split). Its own boundary for the same
+          reason as unit economics: a windowed read over Deployment + the merge-sha index, independent
+          of everything the core panel fetches. */}
+      <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
+        <DeliveryOutcomesPanel slug={slug} period={period} />
       </Suspense>
     </div>
   );

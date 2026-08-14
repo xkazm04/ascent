@@ -313,6 +313,7 @@ model Repository {
   contributors RepoContributor[]
   teams        RepoTeam[]
   aiChanges    AiChange[]
+  deployments  Deployment[]
   segments     RepoSegment[]
   techGroups   TechStackGroupMember[]
 
@@ -421,6 +422,16 @@ model AiChange {
   // A LOWER BOUND — null means "no revert matched in the window", never "was never reverted".
   revertedByPr  Int?
   revertedAt    DateTime?
+  // W4: the PR's merge-commit SHA, lower-cased. Already on the wire — the revert linkage has paged
+  // `mergeCommit.oid` since W5 and discarded it — so persisting it costs no extra API call.
+  //
+  // It exists to make deployment attribution an EQUALITY rather than a guess: a GitHub deployment
+  // names the sha it shipped, so `Deployment.sha == AiChange.mergeCommitSha` identifies exactly which
+  // change a deployment carried. The alternative — "the PR that merged closest before the deploy" —
+  // is a time-window heuristic, and it would sit underneath the most quotable number this product
+  // can produce ("AI-authored changes fail at X%"). A wrong attribution there is not a rounding
+  // error, it is the whole claim. Null on pre-W4 rows and on unmerged PRs.
+  mergeCommitSha String?
   createdAt     DateTime // the PR's own creation time, not the row's
   recordedAt    DateTime  @default(now())
 
@@ -431,6 +442,45 @@ model AiChange {
   @@unique([repoId, prNumber])
   @@index([orgId, createdAt])
   @@index([orgId, approved])
+  // W4: the deployment→change join reads by sha within an org.
+  @@index([orgId, mergeCommitSha])
+}
+
+// One deployment, as GitHub's Deployments API reported it (W4) — the event that anchors "failure" to
+// something outside git.
+//
+// WHY THIS IS THE OUTCOME SOURCE. Ascent could already say a change was reverted (a git fact), but
+// not whether it BROKE anything. DORA's change-failure rate needs a deployment to have happened and
+// to have succeeded or not, and GitHub's Deployments API reports exactly that — for free, through
+// the installation token the scan already holds. No new vendor, no new auth surface.
+//
+// WHAT IT IS AND IS NOT. `state` is the deployment's own latest status, so "failure" means THE
+// DEPLOYMENT FAILED — not "this change caused an incident". Those are different claims and only the
+// first is observable here; every surface that renders this must say so. MTTR is likewise derived as
+// "time to the next successful deployment in the same environment", which is a proxy for restore
+// time and is labelled as one.
+model Deployment {
+  id           String   @id @default(uuid())
+  repoId       String
+  orgId        String // denormalized so the org-wide read is one query
+  // GitHub's own deployment id, so re-ingesting a window updates rather than appends.
+  externalId   String
+  environment  String // "production" | "staging" | … as the repo names them
+  sha          String // lower-cased; the join key to AiChange.mergeCommitSha
+  ref          String?
+  // Latest status from the deployment's status list: success | failure | error | inactive |
+  // in_progress | queued | pending. A deployment with NO status is stored with "pending" rather than
+  // being dropped — it happened, we just do not know how it ended.
+  state        String
+  createdAt    DateTime // the deployment's own creation time
+  statusAt     DateTime? // when the latest status was recorded — the clock MTTR is measured on
+  recordedAt   DateTime @default(now())
+
+  repo Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, externalId])
+  @@index([orgId, createdAt])
+  @@index([orgId, sha])
 }
 
 // A team that owns part of a repo, parsed from its CODEOWNERS file at scan time. The unit behind

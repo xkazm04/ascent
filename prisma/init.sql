@@ -208,6 +208,7 @@ CREATE TABLE "AiChange" (
     "reviewCount" INTEGER NOT NULL DEFAULT 0,
     "revertedByPr" INTEGER,
     "revertedAt" TIMESTAMP(3),
+    "mergeCommitSha" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL,
     "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -1135,6 +1136,35 @@ CREATE TABLE "PlanEnquiry" (
 
 -- CreateIndex
 CREATE INDEX "PlanEnquiry_createdAt_idx" ON "PlanEnquiry"("createdAt");
+
+-- CreateTable
+CREATE TABLE "Deployment" (
+    "id" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "externalId" TEXT NOT NULL,
+    "environment" TEXT NOT NULL,
+    "sha" TEXT NOT NULL,
+    "ref" TEXT,
+    "state" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL,
+    "statusAt" TIMESTAMP(3),
+    "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Deployment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Deployment_repoId_externalId_key" ON "Deployment"("repoId", "externalId");
+
+-- CreateIndex
+CREATE INDEX "Deployment_orgId_createdAt_idx" ON "Deployment"("orgId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "Deployment_orgId_sha_idx" ON "Deployment"("orgId", "sha");
+
+-- CreateIndex
+CREATE INDEX "AiChange_orgId_mergeCommitSha_idx" ON "AiChange"("orgId", "mergeCommitSha");
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the

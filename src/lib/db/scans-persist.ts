@@ -466,6 +466,10 @@ export async function persistScanReport(
               approvedAt: c.approvedAt ? new Date(c.approvedAt) : null,
               reviewCount: c.reviewCount,
               createdAt: new Date(c.createdAt),
+              // W4 — the deployment→change join key. Written on both create and update: an older row
+              // whose scan predated this column fills in on the next scan, which is what lets
+              // attribution COVERAGE climb without a backfill migration.
+              mergeCommitSha: c.mergeCommitSha,
             };
             // W5 revert stamp — EVIDENCE-PRESERVING on re-scan: the PR window slides, so a later scan
             // can see this PR while its revert has aged out of the window. A null stamp on the update
@@ -479,6 +483,30 @@ export async function persistScanReport(
               where: { repoId_prNumber: { repoId: repo.id, prNumber: c.prNumber } },
               create: { repoId: repo.id, prNumber: c.prNumber, ...row, ...(reverted ?? { revertedByPr: null, revertedAt: null }) },
               update: { ...row, ...(reverted ?? {}) },
+            });
+          }
+        }
+
+        // W4 — deployments observed by this scan. Same `?.length` guard as aiChanges above: a
+        // reconstructed snapshot that never ran ingestion leaves stored rows untouched rather than
+        // wiping a repo's deployment history. Keyed on GitHub's own deployment id, so a re-scan of
+        // an overlapping window UPDATES a deployment whose status has since moved (pending →
+        // success/failure) instead of appending a second row that would double-count every rate.
+        if (report.deployments?.length) {
+          for (const d of report.deployments) {
+            const row = {
+              orgId: repo.orgId,
+              environment: d.environment,
+              sha: d.sha,
+              ref: d.ref,
+              state: d.state,
+              createdAt: new Date(d.createdAt),
+              statusAt: d.statusAt ? new Date(d.statusAt) : null,
+            };
+            await tx.deployment.upsert({
+              where: { repoId_externalId: { repoId: repo.id, externalId: d.externalId } },
+              create: { repoId: repo.id, externalId: d.externalId, ...row },
+              update: row,
             });
           }
         }

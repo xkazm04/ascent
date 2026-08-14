@@ -11,6 +11,7 @@ import { buildPassport } from "@/lib/analyze/passport";
 import { deriveContextHealth } from "@/lib/analyze/context-health";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 import type { AiChangeRecord } from "@/lib/analyze/pulls";
+import type { DeploymentSnapshot } from "@/lib/types";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { captureAssessment } from "@/lib/llm/eval-log";
@@ -43,6 +44,7 @@ export interface ComposePhaseInput {
   governance: Governance | null;
   /** AI-attributed PRs as evidence rows, from the same GraphQL page prStats was derived from. */
   aiChanges: AiChangeRecord[];
+  deployments: DeploymentSnapshot[];
   /** Still-in-flight display-only commit activity, awaited here. */
   activityPromise: Promise<number[] | null>;
   /** Still-in-flight per-guidance-file freshness lookups (W4 Context Health), awaited here. */
@@ -74,6 +76,7 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
   // asked "show me every AI-assisted change in the period and who approved it" — the question a rate
   // structurally cannot answer. Empty on a tokenless scan, where PRs are not observable at all.
   report.aiChanges = input.aiChanges;
+  report.deployments = input.deployments;
   report.commitActivity = await input.activityPromise;
   // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
   // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.

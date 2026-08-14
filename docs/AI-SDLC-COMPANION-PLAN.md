@@ -301,7 +301,30 @@ number.
 
 ---
 
-## Wave 4 — The outcome join
+## Wave 4 — The outcome join ✅ SHIPPED 2026-08-14
+
+> **Status:** shipped. `Deployment` ingested from the GitHub Deployments API during a scan,
+> `AiChange.mergeCommitSha` + the `PrStats.mergedShas` index for exact attribution, the
+> `delivery-outcomes` model, and the **Delivery outcomes** panel. 26 new tests; suite green at 6527.
+> Docs: [org-intelligence.md](features/org-dashboard/org-intelligence.md#delivery-outcomes--the-ai-vs-human-failure-split-w4-2026-08-14).
+>
+> **The modelling problem this wave hit, and how it was solved.** The plan assumed the authorship
+> split could be built from `AiChange`. It cannot: that table stores *only* AI-attributed PRs by
+> construction, so a deployment failing to match an AI sha is indistinguishable between "a human
+> wrote it" and "we could not attribute it" — which makes an AI-vs-human comparison impossible to
+> state honestly. The fix is `PrStats.mergedShas`, a `{s, a}` index of **every** merged PR with its
+> AI flag, riding inside the existing `Scan.prStats` blob. It needs no new column and no extra API
+> call: `mergeCommit.oid` has been on the wire since W5's revert linkage and was being discarded.
+>
+> **Other deviations:**
+> - **Lead time was not built.** Commit→deploy needs a per-sha commit-time lookup (another API call
+>   per deployment) and adds a fourth DORA metric without adding a decision. Deployment frequency,
+>   change-failure rate and time-to-restore all fell out of data already fetched; lead time did not.
+> - **MTTR is named "time to next success"**, because that is what it measures. Nothing here observes
+>   a service, so "mean time to restore" would be a claim the source cannot support.
+> - **No generic webhook / Vercel / Datadog / Sentry.** The GitHub Deployments API alone answered
+>   every metric this wave promised, through a credential that already exists. A second source is
+>   worth adding when a customer's deployments genuinely live elsewhere — not before.
 
 One external source, chosen for the largest single unlock: **deploys and incidents**.
 

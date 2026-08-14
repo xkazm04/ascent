@@ -11,6 +11,7 @@ import { fetchGuidanceFreshness, type ParsedRepo, type ProgressFn, type RepoSour
 import { fetchPrStats, type AiChangeRecord } from "@/lib/analyze/pulls";
 import { pickGuidanceFiles } from "@/lib/analyze/context-health";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
+import { fetchDeployments, type DeploymentRecord } from "@/lib/github/deployments";
 import { fetchSecurityPosture } from "@/lib/github/security-posture";
 import { fetchSecurityExposure } from "@/lib/security/exposure";
 import { DIMENSIONS } from "@/lib/maturity/model";
@@ -42,6 +43,9 @@ export interface IngestPhaseResult {
   /** The PR page came back truncated — the scan must not be cached/persisted as authoritative. */
   prPartial: boolean;
   governance: Governance | null;
+  /** W4 — recent deployments with their latest status. Empty on an anonymous scan, or on a repo that
+   *  doesn't use GitHub Deployments; emptiness means "not observable here", never "never deployed". */
+  deployments: DeploymentRecord[];
   securityPosture: SecurityPosture | null;
   securityExposure: SecurityExposure | null;
   /** Display-only; still in flight. Awaited at compose time so it overlaps the LLM call. */
@@ -107,6 +111,13 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   const activityPromise: Promise<number[] | null> = token
     ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
+  // W4 — deployments, the outcome anchor. Token-gated and BEST-EFFORT: a repo that doesn't use
+  // GitHub Deployments returns an empty list, and no read scope returns null → no rows, which the
+  // outcome views render as "not measured" rather than as a zero failure rate. It never blocks or
+  // fails a scan; deployments are an enrichment, not a score input.
+  const deploymentsPromise: Promise<DeploymentRecord[]> = token
+    ? fetchDeployments(parsed.owner, parsed.repo, token).catch(() => [])
+    : Promise.resolve([]);
   // Context Health (W4): last-modified per detected guidance file. Deliberately NOT token-gated —
   // the /commits?path= endpoint answers anonymously within rate limits — and pinned to the commit
   // actually scored (else the read ref) so the freshness matches the snapshot. Bounded to ≤3 calls;
@@ -138,6 +149,9 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     // extracted from the same fetched nodes. Empty on an anonymous scan — GraphQL needs a token — and
     // that emptiness means "not observable here", never "this repo has no AI changes".
     aiChanges: prResult?.aiChanges ?? [],
+    // W4 — awaited alongside the rest rather than deferred: it is bounded (one list page + one
+    // status call each) and the persister needs it in the same transaction as the scan row.
+    deployments: await deploymentsPromise,
     governance,
     securityPosture,
     securityExposure,

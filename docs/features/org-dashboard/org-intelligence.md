@@ -632,6 +632,49 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
   owner's manual copy/paste path is never lost. The audit entry records the outcome.
 
+### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
+
+Ascent could already say a change was **reverted** (a git fact). It could not say whether anything
+**broke**. `Deployment` — ingested from the GitHub Deployments API during a scan, through the
+installation token the scan already holds — is the outcome anchor. No new vendor, no new secret.
+
+Surfaced as **Delivery outcomes** on the Delivery tab: deployment frequency, change-failure rate,
+time-to-next-success, and the split this wave exists for — *do AI-attributed changes fail more than
+human-authored ones?*
+
+**Attribution is an equality, not a guess.** A deployment names the sha it shipped;
+`AiChange.mergeCommitSha` and the **merge-sha index** carry the shas of merged PRs. The link is
+`deployment.sha === merge sha`. The tempting alternative — *"the PR that merged closest before this
+deploy"* — is a time-window heuristic, and under the most quotable number this product can produce a
+wrong attribution is not a rounding error, it is the whole claim.
+
+**The merge-sha index is why the human bucket exists at all.** `AiChange` stores *only*
+AI-attributed PRs by construction (the [evidence pack](#change-management-evidence-pack-w2-2026-08-14)
+depends on that), so a deployment failing to match an AI sha would be indistinguishable between "a
+human wrote it" and "we could not attribute it". `PrStats.mergedShas` — one `{s, a}` entry per merged
+PR, riding inside the existing `Scan.prStats` blob, built from `mergeCommit.oid` that W5's revert
+linkage has paged and discarded since it shipped — carries every merged PR with its AI flag. No new
+column, no extra API call.
+
+**Four limits, all rendered on the panel rather than documented away:**
+
+1. **"Failure" means the deployment failed** — not "caused an incident". Only the first is
+   observable here, and *change failure rate* is a term of art a reader hears as the second.
+   "Time to next success" is likewise a proxy for restore time, labelled as one.
+2. **Attribution coverage is printed.** A split over 12 of 51 deployments means something very
+   different from one over 49. Unattributed deployments (merge trains, tag deploys, pre-W4 scans) are
+   excluded from the split and **counted**, never defaulted into a bucket.
+3. **The human bucket is contaminated in AI's favour.** Unmarked AI assistance is invisible to the
+   detector and lands there — so a measured "AI fails more" is *conservative*, and an "AI fails less"
+   should be read with that in mind.
+4. **No rate under `MIN_DEPLOYMENTS` (5).** One bad deploy out of one is not a 100% failure rate, and
+   the gap is withheld entirely unless **both** buckets clear the floor — one side unknown makes the
+   difference unknowable, which is not the same as zero.
+
+A deployment with no status is stored as `pending`, never assumed successful (which would understate
+failure) or failed (which would invent one). Deployment ingest is best-effort and never blocks or
+fails a scan: no token or no deployments yields no rows, and the panel says "not measured".
+
 ### Unit economics — what a unit of AI work costs (W3a, 2026-08-14)
 
 `AiUsageRecord` answers *"what did this repo's AI cost on Tuesday"*. It structurally cannot answer

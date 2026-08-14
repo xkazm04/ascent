@@ -337,7 +337,32 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     // a number means "at least this share was rolled back in the window".
     reworkRate: merged >= 5 ? pct(revertedMerged, merged) : null,
     aiReworkRate: merged >= 5 && aiInvolvedMerged >= 5 ? pct(aiRevertedMerged, aiInvolvedMerged) : null,
+    mergedShas: mergeShaIndex(nodes),
   };
+}
+
+/**
+ * W4 — the merge-sha index: one entry per MERGED PR with a merge commit, flagging AI attribution.
+ *
+ * Every input is already in hand (`mergeCommit.oid` has been paged since W5's revert linkage;
+ * `readAiInvolvement` is the same detector the rates use), so this costs no extra API call and
+ * cannot disagree with the AiChange rows written from the same nodes.
+ *
+ * A squash- or rebase-merged PR still has a merge commit oid, so it indexes normally. What does NOT
+ * appear: PRs merged outside the scanned window, and deploys of a tag or a hand-built merge train —
+ * those surface downstream as attribution coverage, never as a silently smaller denominator.
+ */
+export function mergeShaIndex(nodes: PrNode[]): { s: string; a: 0 | 1 }[] {
+  const out: { s: string; a: 0 | 1 }[] = [];
+  const seen = new Set<string>();
+  for (const pr of nodes) {
+    if (pr.state !== "MERGED" && !pr.mergedAt) continue;
+    const sha = pr.mergeCommit?.oid?.toLowerCase();
+    if (!sha || seen.has(sha)) continue;
+    seen.add(sha);
+    out.push({ s: sha, a: readAiInvolvement(pr).signal !== null ? 1 : 0 });
+  }
+  return out;
 }
 
 /**
@@ -563,6 +588,9 @@ export function extractAiChanges(nodes: PrNode[]): AiChangeRecord[] {
       // "never reverted". Stamped as a pair or not at all.
       revertedByPr: reverts.get(pr.number)?.byPr ?? null,
       revertedAt: reverts.get(pr.number)?.at ?? null,
+      // W4 — free: `mergeCommit.oid` has been paged since W5's revert linkage and thrown away.
+      // Lower-cased to match how deployment SHAs are normalized on the other side of the join.
+      mergeCommitSha: pr.mergeCommit?.oid ? pr.mergeCommit.oid.toLowerCase() : null,
     });
   }
   return out;

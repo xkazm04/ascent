@@ -165,6 +165,19 @@ export interface CommitInfo {
  * whom" — the population an auditor samples. Shapes the AiChange table without importing Prisma, so
  * the analyzer and the persistence layer agree on one definition.
  */
+/** One deployment as the scan observed it (W4). Mirrors src/lib/github/deployments.ts's record. */
+export interface DeploymentSnapshot {
+  externalId: string;
+  environment: string;
+  /** Lower-cased — the join key to a merged PR's merge-commit sha. */
+  sha: string;
+  ref: string | null;
+  /** GitHub's latest deployment status; "pending" when none was reported (never assumed success). */
+  state: string;
+  createdAt: string;
+  statusAt: string | null;
+}
+
 export interface AiChangeRecord {
   prNumber: number;
   title: string;
@@ -189,6 +202,10 @@ export interface AiChangeRecord {
   /** When that revert merged (ISO), or null. Separate from `revertedByPr` only in being the revert's
    * own timestamp — the pair is stamped (or absent) together. */
   revertedAt: string | null;
+  /** W4 — the PR's merge-commit SHA (lower-cased), or null when unmerged. Already on the wire for the
+   * revert linkage; persisted so a GitHub deployment can be attributed to the change it shipped by
+   * SHA EQUALITY rather than by "whichever PR merged closest before the deploy". */
+  mergeCommitSha: string | null;
 }
 
 /** A contributor's recent activity, incl. how much of it is AI-attributed. */
@@ -574,6 +591,23 @@ export interface PrStats {
    * rolled back more?". Same lower-bound semantics; null unless BOTH floors hold (≥5 merged AND
    * ≥5 AI-involved merged PRs). */
   aiReworkRate: number | null;
+  /**
+   * W4 — the MERGE-SHA INDEX: one entry per MERGED pull request in the scanned window, flagging
+   * whether the AI detector matched it. `s` is the lower-cased merge-commit SHA, `a` is 1 for
+   * AI-attributed.
+   *
+   * It exists so a GitHub deployment (which names the sha it shipped) can be attributed to the
+   * change it carried by SHA EQUALITY, and — crucially — so the HUMAN-authored bucket can be built
+   * at all. `AiChange` stores only AI-attributed PRs by construction (the evidence pack depends on
+   * that), so without this index a deployment that failed to match an AI sha was indistinguishable
+   * between "a human wrote it" and "we could not attribute it" — which makes an AI-vs-human failure
+   * comparison impossible to state honestly.
+   *
+   * Deliberately terse keys: this rides inside the existing `Scan.prStats` blob rather than taking a
+   * new column, so its size is a real cost (~45 bytes per merged PR). Absent on pre-W4 scans, which
+   * the outcome model reports as attribution coverage rather than silently narrowing a denominator.
+   */
+  mergedShas?: { s: string; a: 0 | 1 }[];
 }
 
 /** Default-branch governance — from the branch `protected` flag + the (read-only) rulesets API.
@@ -781,6 +815,10 @@ export interface ScanReport {
    *  tokenless scan, where PRs aren't observable; undefined on reconstructed snapshots that never ran
    *  ingestion, so persistence leaves any stored population untouched rather than wiping it. */
   aiChanges?: AiChangeRecord[];
+  /** W4 — deployments observed for this repo, with their latest status. Empty on an anonymous scan or
+   *  a repo that doesn't use GitHub Deployments; undefined on a reconstructed snapshot, so
+   *  persistence leaves stored rows untouched rather than wiping them (same contract as aiChanges). */
+  deployments?: DeploymentSnapshot[];
   /** Default-branch governance (branch protection / rulesets). Null when no token. */
   governance?: Governance | null;
   /** Commit volume for the last ~12 weeks (oldest→newest), from /stats/commit_activity. */
