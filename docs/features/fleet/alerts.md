@@ -151,6 +151,35 @@ silent rather than training the inbox filter.
   `scan-alerts.ts` path). This keeps the digest's "beyond measurement jitter" semantics
   comparable across orgs rather than something each org tunes.
 
+## Email transport (`src/lib/email`)
+
+Every message Ascent sends — scan completions, org invites, `mailto:` alert sinks, Custom-plan
+enquiries — leaves through **one** selection point, `getEmailSender()`, so "email is off on this deploy"
+is a single unambiguous fact (`emailSendingEnabled()`).
+
+| `EMAIL_PROVIDER` | Sender |
+| --- | --- |
+| `auto` (default) | SES when `SES_FROM_EMAIL` is set, else Resend when `RESEND_API_KEY` is set, else the logging no-op |
+| `ses` | `SesEmailSender` (lazy-imports the AWS SDK; credentials from the standard chain) |
+| `resend` | `ResendEmailSender` (one `fetch` POST to `api.resend.com` — no npm dependency) |
+| `noop` | Never sends, reports `{ ok: true, skipped: true }` |
+
+SES wins over Resend under `auto` **deliberately**: adding a second provider must not silently re-route a
+deployment that already had one. Choose the other order explicitly with `EMAIL_PROVIDER=resend`.
+
+Selecting a provider whose credential is missing is a **broken deploy** — `ok: false`, logged — never the
+`skipped` no-op, which means "no provider is wired here, nothing was attempted".
+
+**Resend sender identity.** Resend refuses any `from` on an unverified domain. `RESEND_FROM_EMAIL`
+defaults to Resend's shared sandbox identity (`Ascent <onboarding@resend.dev>`), which needs no
+verification but **only delivers to the Resend account owner's own address**. That fits a single operator
+inbox (the Custom-plan enquiry) and nothing else; verify a domain and set `RESEND_FROM_EMAIL` before
+pointing user-facing mail at it.
+
+`EmailMessage.replyTo` (honored by both real senders — SES `ReplyToAddresses`, Resend `reply_to`) exists
+for mail that carries someone *else's* message: a Custom-plan enquiry lands in the operator's inbox and
+Reply must reach the prospect. Pass it via `dispatchBuiltEmail(to, built, { replyTo })`.
+
 ## Scan-completion email (a separate path)
 
 The per-scan "email me when it's done" opt-in is **not** the alert layer — it goes through
@@ -236,8 +265,10 @@ titles and outcomes, never the sink URL).
 | Var | Default | Effect |
 | --- | --- | --- |
 | `ALERT_WEBHOOK_URL` | unset | Global fallback sink. May be an `https://` webhook **or** a `mailto:` address. |
-| `SES_FROM_EMAIL` | unset | Verified SES sender. **Unset ⇒ no email is ever sent** (the no-op sender reports `skipped`). |
-| `EMAIL_PROVIDER` | `auto` | `auto` \| `ses` \| `noop`. `noop` forces "never send" even with SES configured. |
+| `SES_FROM_EMAIL` | unset | Verified SES sender; its presence selects SES under `auto`. |
+| `RESEND_API_KEY` | unset | Resend API key; selects Resend under `auto` when SES is unconfigured. |
+| `RESEND_FROM_EMAIL` | `Ascent <onboarding@resend.dev>` | Resend `from`. The default is Resend's shared sandbox identity — needs no domain verification but delivers **only to the Resend account owner**. |
+| `EMAIL_PROVIDER` | `auto` | `auto` \| `ses` \| `resend` \| `noop`. With **neither** SES nor Resend configured, no email is ever sent (the no-op sender reports `skipped`). |
 | `EMAIL_UNSUBSCRIBE_SECRET` | unset | HMAC key for one-click unsubscribe links. Unset ⇒ no link is minted and `/api/email/unsubscribe` 503s. |
 | `EMAIL_INVITES` | on | Set to `off` to refuse invite mail on a deploy that has SES wired for other mail. |
 | `SPEND_ANOMALY_RATIO` | `2` | Multiple of the trailing average that trips the spend alert. Blank/invalid → 2, never 0. |

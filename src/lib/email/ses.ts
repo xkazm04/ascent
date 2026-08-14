@@ -36,6 +36,7 @@ export class SesEmailSender implements EmailSender {
         new SendEmailCommand({
           Source: from,
           Destination: { ToAddresses: [msg.to] },
+          ...(msg.replyTo ? { ReplyToAddresses: [msg.replyTo] } : {}),
           Message: {
             Subject: { Data: msg.subject, Charset: "UTF-8" },
             Body: {

@@ -5,22 +5,35 @@
 import type { ScanReport } from "@/lib/types";
 import type { EmailSender } from "./types";
 import { NoopEmailSender } from "./noop";
+import { ResendEmailSender } from "./resend";
 import { SesEmailSender } from "./ses";
 
 export type { EmailMessage, EmailResult, EmailSender } from "./types";
 
-/** A real provider is wired iff a verified SES sender address is present. (AWS region/creds come from
- *  the default chain like Bedrock.) Absent → the factory returns the no-op sender. */
+/** A real provider is wired iff SES has a verified sender address (AWS region/creds come from the
+ *  default chain like Bedrock) or a Resend API key is present. Neither → the factory returns the no-op. */
 export function emailConfigured(): boolean {
-  return Boolean(process.env.SES_FROM_EMAIL);
+  return Boolean(process.env.SES_FROM_EMAIL || process.env.RESEND_API_KEY);
 }
 
-/** Select the sender from EMAIL_PROVIDER (auto|ses|noop). `auto` (default) uses SES when configured,
- *  else the logging no-op — so dev and an un-provisioned prod both run the full path harmlessly. */
+/**
+ * Select the sender from EMAIL_PROVIDER (auto|ses|resend|noop). `auto` (default) prefers SES when a
+ * verified sender is configured, then Resend, else the logging no-op — so dev and an un-provisioned prod
+ * both run the full path harmlessly.
+ *
+ * SES-before-Resend under `auto` is deliberate: a deploy that already had SES_FROM_EMAIL set keeps sending
+ * through SES byte-for-byte after Resend was added. An operator who wants the other order says so with
+ * EMAIL_PROVIDER=resend rather than relying on which env var the factory happens to read first.
+ */
 export function getEmailSender(): EmailSender {
   const choice = (process.env.EMAIL_PROVIDER ?? "auto").toLowerCase();
   if (choice === "noop") return new NoopEmailSender();
-  if (choice === "ses" || (choice === "auto" && emailConfigured())) return new SesEmailSender();
+  if (choice === "ses") return new SesEmailSender();
+  if (choice === "resend") return new ResendEmailSender();
+  if (choice === "auto") {
+    if (process.env.SES_FROM_EMAIL) return new SesEmailSender();
+    if (process.env.RESEND_API_KEY) return new ResendEmailSender();
+  }
   return new NoopEmailSender();
 }
 
@@ -114,12 +127,16 @@ export interface EmailDispatchResult {
 export async function dispatchBuiltEmail(
   to: string,
   built: { subject: string; html: string; text: string },
+  opts: { replyTo?: string } = {},
 ): Promise<EmailDispatchResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("email send timed out")), EMAIL_TIMEOUT_MS);
   try {
     const sender = getEmailSender();
-    const res = await sender.send({ to, subject: built.subject, html: built.html, text: built.text }, { signal: controller.signal });
+    const res = await sender.send(
+      { to, subject: built.subject, html: built.html, text: built.text, replyTo: opts.replyTo },
+      { signal: controller.signal },
+    );
     if (!res.ok) console.error("[email] send failed", { sender: sender.name, to });
     else if (res.skipped) console.warn("[email] no provider configured — nothing was sent", { sender: sender.name });
     return { ok: res.ok, skipped: res.ok && res.skipped === true };

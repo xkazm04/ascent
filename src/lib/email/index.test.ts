@@ -52,6 +52,7 @@ describe("getEmailSender / emailConfigured", () => {
   beforeEach(() => {
     delete process.env.EMAIL_PROVIDER;
     delete process.env.SES_FROM_EMAIL;
+    delete process.env.RESEND_API_KEY;
   });
   afterEach(() => {
     process.env = { ...saved };
@@ -65,6 +66,29 @@ describe("getEmailSender / emailConfigured", () => {
   it("uses SES when SES_FROM_EMAIL is present (auto)", () => {
     process.env.SES_FROM_EMAIL = "Ascent <no-reply@nuda.dev>";
     expect(emailConfigured()).toBe(true);
+    expect(getEmailSender().name).toBe("ses");
+  });
+
+  it("uses Resend when only RESEND_API_KEY is present (auto)", () => {
+    process.env.RESEND_API_KEY = "re_test";
+    expect(emailConfigured()).toBe(true);
+    expect(getEmailSender().name).toBe("resend");
+  });
+
+  // Adding a second provider must not silently re-route a deployment that already had one. SES wins
+  // under `auto` so an existing SES deploy keeps sending through SES after Resend was introduced.
+  it("prefers SES over Resend under auto when BOTH are configured", () => {
+    process.env.SES_FROM_EMAIL = "Ascent <no-reply@nuda.dev>";
+    process.env.RESEND_API_KEY = "re_test";
+    expect(getEmailSender().name).toBe("ses");
+  });
+
+  it("honors an explicit provider choice over what env happens to be set", () => {
+    process.env.SES_FROM_EMAIL = "Ascent <no-reply@nuda.dev>";
+    process.env.RESEND_API_KEY = "re_test";
+    process.env.EMAIL_PROVIDER = "resend";
+    expect(getEmailSender().name).toBe("resend");
+    process.env.EMAIL_PROVIDER = "ses";
     expect(getEmailSender().name).toBe("ses");
   });
 

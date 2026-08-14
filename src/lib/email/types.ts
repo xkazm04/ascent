@@ -7,6 +7,10 @@ export interface EmailMessage {
   subject: string;
   html: string;
   text: string;
+  /** Address a reply should go to instead of the (usually no-reply) sender. Set by mail that carries
+   *  someone else's message — a Custom-plan enquiry lands in the operator's inbox and "Reply" must
+   *  reach the prospect, not the SES/Resend sender identity. Senders that can't express it ignore it. */
+  replyTo?: string;
 }
 
 export interface EmailResult {
