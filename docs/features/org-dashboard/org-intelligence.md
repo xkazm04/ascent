@@ -1,9 +1,9 @@
 # Organization intelligence
 
 Organization intelligence is Ascent's multi-repo, persistence-backed layer (Phase 2). It
-rolls scan results across a whole org into fleet-wide views — maturity rollups, trends and
+rolls scan results across a whole org into fleet-wide views: maturity rollups, trends and
 a forecast, movers, gap analysis, a repo leaderboard/heatmap, contributor and delivery
-signals — and adds a management layer (goals, initiatives, a what-if simulator) plus an
+signals. It also adds a management layer (goals, initiatives, a what-if simulator) plus an
 audit trail. It answers the leadership question the per-repo report can't: *"is our whole
 org becoming AI-native, where are the gaps, and what's the highest-leverage move?"*
 
@@ -24,7 +24,7 @@ chosen via `OrgSwitcher` (`src/components/OrgSwitcher.tsx`), persisted through
 (falling back to the first installation or `public`).
 
 The same nav definition renders a filtered subset for a PERSONAL workspace
-(`Organization.kind === "personal"`) — only Overview, Security, Backlog, Skills and Memory,
+(`Organization.kind === "personal"`): only Overview, Security, Backlog, Skills and Memory,
 since fleet aggregation/attribution surfaces need a real org's breadth.
 
 ### The rail is grouped by the journey, not by data type (W1a, 2026-08-14)
@@ -43,7 +43,7 @@ transformation owner is asked in a leadership meeting, plus an admin tail:
 This replaced the original six data-type modules (Overview · Fleet · Intelligence · Plan ·
 Library · Govern). Rationale in [`docs/AI-SDLC-COMPANION-PLAN.md`](../../AI-SDLC-COMPANION-PLAN.md)
 §Wave 1: a nav grouped by data type reads as a filing cabinet and answers no question anyone is
-actually asked. **Nothing about the tab universe changed** — every id, href and legacy redirect is
+actually asked. **Nothing about the tab universe changed**: every id, href and legacy redirect is
 untouched; this is a regrouping and relabelling of the module layer only. "In flight" is
 deliberately the smallest group, because the loop is the product and it used to sit third-of-four
 inside "Fleet".
@@ -53,7 +53,7 @@ constant, so it re-grouped itself; only the per-group icons needed remapping.
 
 ### The transition programme (W1c, 2026-08-14)
 
-The org's **named, dated commitment** — one row per org (`TransitionProgram`, `orgId` unique),
+The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),
 managed from the **Programme** panel at the top of the Plan tab, and read as a one-line strip under
 the org header on **every** tab (`src/components/org/shell/ProgramStrip.tsx`):
 
@@ -61,17 +61,17 @@ the org header on **every** tab (`src/components/org/shell/ProgramStrip.tsx`):
 > flight · +17 pts bought · next review in 5 days*
 
 Onboarding's checklist ended at "invite a teammate", which is exactly where the job starts.
-Everything after it was stateless — the dashboard could say where the fleet stood but never *where
+Everything after it was stateless: the dashboard could say where the fleet stood but never *where
 are we in something*. The programme is that thread, and it is the checklist's new sixth step
 (`program`, member-gated, org-only), so it is discovered through the onboarding companion rather
 than through a banner.
 
 **The frozen baseline is the point.** `baselineJson` is captured server-side, once, at creation, and
-never rewritten — Port's AI-SDLC rule is *baseline before you turn anything on*, and a baseline
+never rewritten. Port's AI-SDLC rule is *baseline before you turn anything on*, and a baseline
 recomputed from today's data moves with the thing it is meant to measure. The client cannot supply
 it (a caller who could set the origin could move it), and **re-targeting deliberately does not
 re-baseline**: renaming a programme or shifting its date must not erase every measurement since the
-start. An org that starts a programme before its first scan stores a **null** baseline — an honest
+start. An org that starts a programme before its first scan stores a **null** baseline: an honest
 absent origin, not a zeroed one that would make the first scan read as pure progress.
 
 **What the strip refuses to say.** Each segment is independently conditional, and absence is the
@@ -81,13 +81,13 @@ appears only when the [Impact ledger](#impact-ledger--what-the-loop-bought-w1d-2
 once the programme is paused or achieved; the target countdown is omitted entirely for an
 open-ended programme. A strip that padded those with zeroes would be a gimmick.
 
-**Cost.** `getOrgProgramStatus` is React-`cache()`d and composed from reads the shell already makes
-— `getOrgHeaderSummary` (which gained a `levelCounts` tally folded into its existing pass, so
+**Cost.** `getOrgProgramStatus` is React-`cache()`d and composed from reads the shell already makes:
+`getOrgHeaderSummary` (which gained a `levelCounts` tally folded into its existing pass, so
 "N of M repos at target" costs no extra query), `countInFlightPrs`, and one indexed ledger read. It
 does not reintroduce the rollup tax "Shell cost discipline" removed. `getOrgProgramStatus` failing
 degrades the strip away, never the dashboard.
 
-**API:** `GET|POST|PATCH|DELETE /api/org/program` — reads are `requireOrgRead`, writes
+**API:** `GET|POST|PATCH|DELETE /api/org/program`: reads are `requireOrgRead`, writes
 `requireOrgAccess`.
 
 ### Landing: what a bare `/org/<slug>` opens on (W1b, 2026-08-14)
