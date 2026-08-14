@@ -37,7 +37,7 @@ const BLURBS: Record<OrgTabId, string> = {
   plan: "Goals, initiatives and a what-if simulator that recomputes the whole fleet under a hypothetical fix.",
   backlog: "Every open gap across the fleet with an owner and a due date — searchable, bulk-editable, exportable.",
   skills: "A versioned SKILL.md library your org authors, adopts against repos, and syncs with CLI and CI.",
-  memory: "Durable org knowledge — decisions, incidents and conventions — recalled by value, corrected by supersede.",
+  memory: "Durable org knowledge — decisions, incidents and conventions — recalled by value, corrected by supersede. Your agents can read it too, over scoped API tokens.",
   members: "Who is in the org and what they can do.",
   governance: "Branch protection, review gates and rulesets, audited across every repository.",
   integrations: "Connect your AI coding providers so measured usage lands beside the git-side signals.",

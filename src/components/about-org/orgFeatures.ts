@@ -36,13 +36,14 @@ export const ABOUT_ORG_FEATURES: AboutOrgFeatureData[] = [
     id: "knowledge",
     kicker: "Library · memory & skills",
     title: "Institutional memory that outlives the org chart",
-    body: "Shared Org Memory is a durable store of what happened, what is true, and what worked — recalled by value under a budget rather than by recency, and corrected by superseding rather than editing in place, so the history of a decision survives the decision changing. Beside it, the Skills library holds the versioned SKILL.md entries your org authors, adopts against repos, and syncs from CLI and CI.",
+    body: "Shared Org Memory is a durable store of what happened, what is true, and what worked — recalled by value under a budget rather than by recency, and corrected by superseding rather than editing in place, so the history of a decision survives the decision changing. Beside it, the Skills library holds the versioned SKILL.md entries your org authors, adopts against repos, and syncs from CLI and CI. Both are readable by your own agents over scoped org API tokens, so what the org learned rides along in every agent's context — not just every browser tab.",
     points: [
-      "Value-ranked recall returns what is worth returning, not merely what was written last",
+      "Value-ranked recall returns what is worth returning, not merely what was written last — budget-packed to drop straight into a context window",
       "Supersede-not-overwrite keeps the record of why the previous answer was the previous answer",
       "Skill dormancy flags the library entries nobody has used inside the window, so the shelf stays honest",
+      "Scoped API tokens (skills read/write, usage telemetry, memory recall) open the library to CLIs, CI jobs and agents — shared knowledge only, never anyone's private scratch",
     ],
-    value: "The reasoning behind last quarter's decision is still in the room when the person who made it isn't.",
+    value: "The reasoning behind last quarter's decision is still in the room when the person who made it isn't — and in your agents' context too.",
   },
   {
     id: "governance",
