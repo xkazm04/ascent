@@ -24,6 +24,7 @@ import {
   BriefingTiles,
 } from "./briefingCards";
 import { BriefingProofBanner } from "./BriefingProofBanner";
+import { ImpactLedger } from "./ImpactLedger";
 import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { ExecutiveTrajectoryCard } from "./ExecutiveTrajectoryCard";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -34,6 +35,7 @@ import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { OrgLeverageMoves } from "./OrgLeverageMoves";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
+import { getOrgImpactLedger } from "@/lib/db/org-impact";
 import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
@@ -75,6 +77,13 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   // This tab lives inside the Ascent dashboard shell (OrgHeader, nav, credits) where the operator is
   // the audience, so it intentionally keeps Ascent chrome; `getOrgBranding` is loaded here only to
   // prefill the settings form below.
+  // W1d — the Impact Ledger: what the improvement loop actually bought over the SAME period the rest
+  // of this briefing is scoped to. Its own read (ImprovementPr rows), deliberately not folded into
+  // buildExecBriefing: the briefing is the narrative artifact that also renders on the public share
+  // page and in the board PDF, and this ledger is an authenticated in-app panel. Degrades to null
+  // (panel omitted) rather than failing the tab — it is evidence, not chrome the page needs.
+  const impact = await getOrgImpactLedger(slug, { start: period.start, end: period.end }).catch(() => null);
+
   const isOwner = await hasOrgRole(slug, "owner");
   const canShare = briefingShareEnabled() && isOwner;
   const [branding, credit] = isOwner
@@ -132,6 +141,12 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
       {/* The rollout PROOF — previously page-local to Practices; the VP defending the AI budget
           reads this page, so the "it worked" numbers live here too (same line as PDF/markdown). */}
       <BriefingProofBanner proof={briefing.proof} />
+
+      {/* W1d — the Impact Ledger. Distinct from the proof banner above it: that one is a one-line
+          BREADTH read of practice rollout (how many practices travelled, mean lift); this is the
+          per-PR STATEMENT OF ACCOUNT — every merged direction, its measured dimension delta, and an
+          explicit count of what hasn't been re-scanned yet and therefore bought nothing. */}
+      {impact && <ImpactLedger slug={slug} ledger={impact} periodTitle={period.title} />}
 
       {/* GB: fleet signals as ONE wrap-row strip instead of three stacked <p> lines. */}
       <ExecutiveSignalsStrip briefing={briefing} />

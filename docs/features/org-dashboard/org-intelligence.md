@@ -423,6 +423,36 @@ inherited unchanged from the canonical time-zone policy above.
 anchor: the render is CPU-bound (`maxDuration = 60`) and every error branch returns JSON, which a
 plain anchor would display as the whole page. Same treatment as the Security tab's export.
 
+### Impact ledger — what the loop bought (W1d, 2026-08-14)
+
+The Briefing tab opens the rail's fourth question ("what did the last period buy us?") with the
+**Impact ledger** (`src/components/org/intelligence/executive/ImpactLedger.tsx` over
+`src/lib/db/org-impact.ts`). It aggregates the improvement loop's own bookends: each row is a starter
+PR the org accepted on the Live wall, merged, and then re-scanned, and the number beside it is
+`ImprovementPr.impactDim` — the measured delta on the dimension that PR was aimed at, first
+post-merge scan against the repo's scan when the PR opened.
+
+**It reads `ImprovementPr` directly rather than riding on `ExecBriefing`.** That is deliberate: the
+three surfaces above all render from the briefing object, and this is an authenticated in-app panel
+that must not reach the public share page or the board PDF. It is scoped to the same
+`resolveOrgWindow` period as the rest of the tab, and a read failure degrades the panel away rather
+than failing the tab.
+
+**Four honesty rules, pinned in `org-impact.test.ts` (model) and `ImpactLedger.dom.test.tsx` (render):**
+
+1. **Verified only.** A merged PR whose post-merge rescan hasn't landed contributes nothing; it is
+   counted and named as "awaiting rescan". A projection is not a purchase.
+2. **Null, never zero.** With nothing verified the headline is an em dash and a reason — "we
+   delivered 0 points" and "we haven't measured yet" are different statements.
+3. **Sign-aware, never netted away.** `regressions` counts verified rows whose dimension moved DOWN
+   on their own tile, so a negative row cannot hide inside a positive total (UAT `DANA-L1-010`).
+4. **No cross-repo overall sum.** `impactOverall` is one repo's overall delta; adding those across
+   repos produces a number with no referent. It is shown per row only, and the field notes say so.
+
+Distinct from the **rollout proof banner** directly above it (`briefing.proof`, from
+`buildPracticeLibrarySummary().rollout`): that is a one-line *breadth* read of practice rollout (how
+many practices travelled, mean lift across them); the ledger is the per-PR *statement of account*.
+
 ### LLM narrative (`src/lib/org/briefing-narrative.ts`, G5-03)
 
 The board PDF may open with a short LLM-written narrative. Because a briefing PDF is the surface most

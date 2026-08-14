@@ -147,16 +147,27 @@ That line is the companion. It is derived entirely from `fleetSnapshot` (`src/li
 ### 1d. Close the "Bought" question with data that already exists
 
 The **Bought** section opens with a ledger built from `ImprovementPr` rows: PRs merged, dimensions
-moved, points gained, verified vs awaiting-rescan. `impactDim` / `impactOverall` are already computed
-and stored (`src/lib/db/improvement.ts:58-60`) and are currently rendered only inside the war room.
+moved, points gained, verified vs awaiting-rescan. `impactDim` / `impactOverall` were already
+computed and stored (`src/lib/db/improvement.ts:58-60`) and were rendered only inside the war room.
 
-**Honesty rule (binds this whole wave):** the ledger reports **verified** impact only. A merged PR
-with no post-merge rescan renders "awaiting rescan", never a projected number. This is the same
-null-discipline the Debt Ledger already enforces (`docs/features/org-planning/plan.md` §Debt Ledger).
+Shipped as the **Impact ledger** at the top of the Briefing tab (the first tab in Bought — adding a
+new tab would have violated this document's own "no more analytics tabs" rule), scoped to the same
+`resolveOrgWindow` period as the rest of the briefing. It reads `ImprovementPr` directly rather than
+riding on `ExecBriefing`, so it cannot leak onto the public share page or into the board PDF; a read
+failure degrades the panel away rather than failing the tab (which also keeps UAT method commitment
+**M1** untouched — the briefing *PDF* is unchanged).
 
-**Files:** `src/components/org/plan/backlog/debt/` (sibling component) · `src/lib/db/improvement.ts`
-(org-level rollup).
-**Size:** S/M.
+**Four honesty rules bind it**, pinned at both the model and the render layer:
+
+1. **Verified only** — a merge without a rescan is named, not counted. A projection is not a purchase.
+2. **Null, never zero** — nothing verified renders an em dash and a reason.
+3. **Sign-aware** — regressions get their own tile and keep their sign (UAT `DANA-L1-010`).
+4. **No cross-repo overall sum** — `impactOverall` is per row only; the field notes say why.
+
+**Files:** `src/lib/db/org-impact.ts` (new, + 12 model tests) ·
+`src/components/org/intelligence/executive/ImpactLedger.tsx` (new, + 8 render tests) ·
+`ExecutiveTab.tsx` + its test.
+**Size:** S/M. **Status: SHIPPED 2026-08-14.**
 
 **Wave 1 done when:** a returning org lands on its loop; every tab carries the programme line; the
 rail reads as a story; and the "Bought" panel shows only verified movement. Re-run Dana's UAT journey
