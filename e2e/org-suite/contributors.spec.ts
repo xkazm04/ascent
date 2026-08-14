@@ -17,8 +17,10 @@ test.describe("Org Contributors — inputs, not directives", () => {
     await expect(page.getByText(/exemplars whose approach/)).toBeVisible();
   });
 
-  test("involvement + bus-factor surface real people and key-person risk", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Involvement" })).toBeVisible();
+  // The old "Involvement" panel is now "Org resilience" (ResilienceModule) — a rename of the same
+  // surface, so the key-person-risk assertion follows it rather than being dropped.
+  test("resilience + bus-factor surface real people and key-person risk", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "Org resilience" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Concentration/ })).toBeVisible();
     const rows = page.locator("table tbody tr");
     expect(await rows.count()).toBeGreaterThanOrEqual(5);

@@ -289,9 +289,11 @@ describe("runImportScan — abort & stall", () => {
     const { cb } = makeCallbacks();
     const promise = runImportScan(request, controller, cb);
 
-    // Flush microtasks up to the pending read(), then trip the stall watchdog (> STALL_MS=120_000,
-    // raised from 45s so a slow real-LLM per-repo gap no longer false-aborts a legitimate scan).
-    await vi.advanceTimersByTimeAsync(121_000);
+    // Flush microtasks up to the pending read(), then trip the stall watchdog (> STALL_MS=360_000,
+    // raised from 120s after a live run proved the old window fired mid-assessment: a measured
+    // claude-opus-5 scan takes ~177s between `repo` events, so the client aborted and reported a stall
+    // while the server completed the scan and spent the allowance. See the constant's comment.
+    await vi.advanceTimersByTimeAsync(361_000);
     const result = await promise;
 
     expect(controller.signal.aborted).toBe(true);

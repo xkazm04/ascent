@@ -2,11 +2,21 @@ import type { LevelId } from "@/lib/types";
 import { readSSE } from "@/lib/sse";
 
 // Abort an import if no SSE event arrives within this window — turns a server stall into a
-// recoverable error instead of an indefinite "Scanning…" hang. Sized for a REAL LLM scan: a single
-// large repo can take well over a minute between per-repo `repo` events, so a tighter window
-// false-aborts a perfectly healthy scan as "stalled". Kept generous (the watchdog only guards against
-// a truly dead stream) until the server emits periodic heartbeat frames the watchdog can track.
-const STALL_MS = 120_000;
+// recoverable error instead of an indefinite "Scanning…" hang. Sized for a REAL LLM scan: nothing is
+// emitted between one repo's `repo` event and the next, so this window must exceed the time a SINGLE
+// assessment takes, or the watchdog kills healthy scans.
+//
+// 120_000 was too small, and the failure it produced was the worst kind: a measured claude-opus-5
+// assessment of vercel/sandbox takes ~177s, so the watchdog fired mid-scan, the client reported "The
+// scan stalled (no response)" and dropped back to repo selection — while the server ran to completion,
+// wrote the scans, and consumed the org's allowance. The user is told it failed, is invited to retry,
+// and is charged for the run that actually succeeded. Caught by the org e2e suite once it was pointed
+// at a live provider instead of the mock engine, which is precisely what a mock engine cannot show.
+//
+// 360_000 is ~2x the measured worst single assessment: still bounded, so a genuinely dead stream is
+// still recoverable rather than an indefinite hang, but no longer racing the model. The real fix is
+// server-side heartbeat frames the watchdog can track, which would let this drop back to seconds.
+const STALL_MS = 360_000;
 
 /** Watch schedule the onboarding import commits every scanned repo to (sent with watch:true).
  *  Exported so the select step can DISCLOSE the recurring-cost commitment before the user scans —

@@ -14,7 +14,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | --- | --- |
 | **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param (used by the connect page's discovered-org chips) starts the public path immediately. |
 | **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
-| **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **120s stall timeout** (`STALL_MS`, sized for a real LLM scan of one large repo). |
+| **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **360s stall timeout** (`STALL_MS`, sized above one real LLM assessment — see below). |
 | **done** | A **short dashboard handoff** (W6b: the old in-wizard activation checklist is gone; activation continues on the dashboard) + the invite panel (App path) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
 
 **Real vs. preview scans.** `resolveScanMode` (`scanMode.ts`) settles this before any POST, and it
@@ -240,8 +240,30 @@ cluster, each repo a star:
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
 
+## The stall watchdog and why it is 360s
+
+Nothing is emitted between one repo's `repo` event and the next, so `STALL_MS` must exceed the time a
+**single** assessment takes or the watchdog kills healthy scans.
+
+It was 120s, and that was under the real number. A measured `claude-opus-5` assessment of
+`vercel/sandbox` takes ~177s, so on a live provider the watchdog fired mid-scan: the client aborted,
+showed *"The scan stalled (no response). Please try again."*, and dropped back to repo selection —
+while the server ran to completion, wrote the scans, and **consumed the org's allowance**. The user was
+told it failed, invited to retry, and charged for the run that had actually succeeded.
+
+A client-side abort does not stop the server, which is why the two halves disagreed so completely. The
+bug was invisible to a mock engine (mock scans return in milliseconds) and surfaced only once the org
+e2e suite was pointed at a live provider.
+
+360s is ~2× the measured worst single assessment: still bounded, so a genuinely dead stream stays
+recoverable rather than hanging forever. The real fix is server-side heartbeat frames the watchdog can
+track, which would let this drop back to seconds.
+
 ## Known gaps
 
+- **No SSE heartbeat.** The stall watchdog can only measure the gap between *meaningful* events, so its
+  window is set by the slowest single assessment rather than by liveness. A dead stream is therefore
+  detected in 360s, not in seconds, and a model slower than ~6 minutes per repo would still false-abort.
 - **The public funnel is allowance-bounded** (no longer preview-only, G7-17): it runs real scans, but
   only as many as the caller's remaining free monthly public-scan allowance covers; past that it
   refuses rather than downgrading. Private repos still require the App and the

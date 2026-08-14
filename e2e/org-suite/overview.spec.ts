@@ -42,10 +42,15 @@ test.describe("Org Overview — fleet standing", () => {
     await expect(page.getByRole("link", { name: /vercel\/\S/ }).first()).toBeVisible();
   });
 
-  test("Dimension heatmap exposes per-dimension standing", async ({ page }) => {
+  // The repo × dimension heatmap lives HERE, not on the Repositories tab — the assertion below is
+  // the one repositories.spec.ts used to carry, relocated with the panel rather than deleted.
+  test("Dimension heatmap exposes per-dimension strengths and weaknesses", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "Dimension heatmap" })).toBeVisible();
-    // Each of the 9 dimensions is a sortable column header button.
-    await expect(page.getByRole("button", { name: "D1", exact: true }).first()).toBeVisible();
+    // Every dimension is a sortable column header button, labelled with its SHORT name
+    // (DIMENSION_SHORT) — never the raw "D1" id, which appears nowhere in the rendered table.
+    for (const short of ["AI Tooling", "Testing", "AI Process"]) {
+      await expect(page.getByRole("button", { name: short, exact: true }).first()).toBeVisible();
+    }
   });
 });
 
