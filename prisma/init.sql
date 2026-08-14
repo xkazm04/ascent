@@ -325,6 +325,23 @@ CREATE TABLE "AuditLog" (
 );
 
 -- CreateTable
+CREATE TABLE "AlertEvent" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "severity" TEXT NOT NULL,
+    "repoFullName" TEXT,
+    "title" TEXT NOT NULL,
+    "body" TEXT NOT NULL DEFAULT '',
+    "delivered" BOOLEAN NOT NULL DEFAULT false,
+    "sinkKind" TEXT,
+    "suppressedReason" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AlertEvent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Subscription" (
     "id" TEXT NOT NULL,
     "orgId" TEXT NOT NULL,
@@ -575,6 +592,9 @@ CREATE INDEX "AuditLog_at_idx" ON "AuditLog"("at");
 
 -- CreateIndex
 CREATE INDEX "AuditLog_orgId_at_idx" ON "AuditLog"("orgId", "at");
+
+-- CreateIndex
+CREATE INDEX "AlertEvent_orgId_createdAt_idx" ON "AlertEvent"("orgId", "createdAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Subscription_orgId_key" ON "Subscription"("orgId");
