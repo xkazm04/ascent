@@ -44,7 +44,20 @@ import type {
 // cap on token-permissions now matches a `contents: write` grant anywhere in a permissions block
 // rather than only as its first key. Both move D9, which the engine takes VERBATIM, so cached
 // scores must re-derive. (Detector point tables count — see the note above.)
-export const SCORING_RUBRIC_VERSION = "r4";
+// r5 (2026-08-14): the assessment SYSTEM prompt gained PROSE_STYLE_RULE (src/lib/llm/prose.ts,
+// interpolated at src/lib/scoring/prompt.ts:166) in the em-dash sweep. The rubric surface hash was
+// re-pinned in that commit WITHOUT a bump, on the reasoning that only punctuation moved in three
+// DIMENSIONS `description` strings and three posture `blurb` strings — all display-only (the prompt
+// interpolates `d.criteria`, never `d.description`). That reasoning was right about those six strings
+// and did not account for the prompt injection, which is a different thing entirely: a new instruction
+// block in the system prompt is a changed model input, and this list already treats that as a bump
+// event (see r3, where the untrusted-repo-data boundary was added to the same prompt).
+//
+// The instruction constrains PUNCTUATION in the model's prose, so no scoring semantics moved and the
+// re-derived numbers should land in the same place. The bump is not a claim that scores were wrong.
+// It is that a cached score carries the prompt that produced it, and this prompt is not that prompt —
+// which is exactly the invariant `rubricVersion` exists to keep honest.
+export const SCORING_RUBRIC_VERSION = "r5";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
