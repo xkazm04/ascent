@@ -81,7 +81,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
           full header + column labels around a bare zero-row list, which read as a broken table. */}
       {board.length === 0 && (
         <p className="py-10 text-center text-sm text-slate-500">
-          No public scans yet — scan a repository below to be the first on the register.
+          No public scans yet. Scan a repository below to be the first on the register.
         </p>
       )}
 

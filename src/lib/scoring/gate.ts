@@ -65,7 +65,7 @@ export function isIncompleteReport(report: Pick<ScanReport, "incomplete" | "dime
 }
 
 const INCOMPLETE_MESSAGE =
-  "This scan is INCOMPLETE — no dimension could be scored (every detector failed or returned no data), " +
+  "This scan is INCOMPLETE: no dimension could be scored (every detector failed or returned no data), " +
   "so its 0 / L1 result is not a measurement. The gate fails closed rather than certify or condemn a " +
   "repository on an ingestion failure; re-scan or check repository access.";
 
@@ -279,7 +279,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
     if (!Number.isFinite(g.level) || g.level <= 0) {
       failures.push({
         code: "level",
-        message: `The maturity level is unscored — failing the required ${pol.minLevel} (fail-closed).`,
+        message: `The maturity level is unscored: failing the required ${pol.minLevel} (fail-closed).`,
       });
     } else if (g.level < levelNum(pol.minLevel)) {
       failures.push({ code: "level", message: `${g.levelLabel} is below the required ${pol.minLevel}.` });
@@ -290,7 +290,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
       code: "overall",
       message: Number.isFinite(g.overall)
         ? `Overall score ${g.overall} is below the required ${pol.minOverall}.`
-        : `Overall score is unscored — failing the required ${pol.minOverall} (fail-closed).`,
+        : `Overall score is unscored: failing the required ${pol.minOverall} (fail-closed).`,
     });
   }
   if (typeof pol.minDimension === "number") {
@@ -300,7 +300,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
         code: "dimension",
         message: Number.isFinite(d.score)
           ? `${d.id} ${d.name} scored ${d.score}, below the required ${min}.`
-          : `${d.id} ${d.name} is unscored — failing the ${min} floor (fail-closed).`,
+          : `${d.id} ${d.name} is unscored: failing the ${min} floor (fail-closed).`,
       });
     }
   }
@@ -316,7 +316,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
           code: "dimension",
           message: Number.isFinite(d.score)
             ? `${d.id} ${d.name} scored ${d.score}, below the required ${floor}.`
-            : `${d.id} ${d.name} is unscored — failing the ${floor} floor (fail-closed).`,
+            : `${d.id} ${d.name} is unscored: failing the ${floor} floor (fail-closed).`,
         });
       }
     }
@@ -369,7 +369,7 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
       posture: { id: report.posture.id, label: report.posture.label },
       dims: report.dimensions.map((d) => ({ id: d.id, name: d.name, score: d.score })),
       governanceEnforce: !!(report.governance?.readable && !report.governance.protected),
-      governanceMessage: `Default branch "${report.governance?.defaultBranch}" has no branch-protection rules — the gate requires a protected default branch.`,
+      governanceMessage: `Default branch "${report.governance?.defaultBranch}" has no branch-protection rules: the gate requires a protected default branch.`,
       // W2: null on a token-less scan (no prStats at all) AND under the engine's own ≥5 AI-PR floor,
       // which is exactly the "not measurable" the provenance rule skips on.
       aiGovernedRate: report.prStats?.aiGovernedRate ?? null,
@@ -418,7 +418,7 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
       // Parity with evaluateGate: enforce only when the snapshot carries readable governance. Rollups
       // that don't yet carry per-repo protection leave it unset → skipped (no false-fail on the fleet view).
       governanceEnforce: !!(snap.govReadable && snap.protected === false),
-      governanceMessage: "Default branch has no branch-protection rules — the gate requires a protected default branch.",
+      governanceMessage: "Default branch has no branch-protection rules: the gate requires a protected default branch.",
       // Parity with evaluateGate: a rollup that doesn't carry the rate leaves it undefined → skipped,
       // so the fleet view never invents a provenance failure the CI gate wouldn't also raise.
       aiGovernedRate: snap.aiGovernedRate ?? null,

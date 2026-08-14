@@ -55,7 +55,7 @@ export function ScanCostDisclosure({
   if (!sourceInstallId) {
     return (
       <p className="mt-3 max-w-xl text-sm text-slate-500">
-        Free live scan — real scoring on public repositories, drawn from your free monthly scan
+        Free live scan: real scoring on public repositories, drawn from your free monthly scan
         allowance. No prepaid credits are used. Install the GitHub App to scan private repos too.
       </p>
     );
@@ -83,7 +83,7 @@ export function ScanCostDisclosure({
           className="focus-ring mt-0.5 h-4 w-4 accent-accent"
         />
         <span>
-          Fast preview first — instant estimated scores now (free), then the full live scan starts on
+          Fast preview first: instant estimated scores now (free), then the full live scan starts on
           your dashboard and replaces them.{" "}
           {previewFirst ? (
             <span className="text-slate-500">
@@ -103,8 +103,8 @@ export function ScanCostDisclosure({
           className="focus-ring mt-0.5 h-4 w-4 accent-accent"
         />
         <span>
-          Also autoscan {repoPhrase} {IMPORT_WATCH_SCHEDULE} — a recurring credit draw you can change or
-          turn off anytime on Connect.
+          Also autoscan {repoPhrase} {IMPORT_WATCH_SCHEDULE} (a recurring credit draw you can change or
+          turn off anytime on Connect).
         </span>
       </label>
       <p className="text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
@@ -116,7 +116,7 @@ export function ScanCostDisclosure({
             {monthlyCredits === 1 ? "" : "s"}/month
           </>
         ) : (
-          <>One-time scan — no recurring autoscan is set up</>
+          <>One-time scan: no recurring autoscan is set up</>
         )}
         <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} immediateCredits={immediate} />.
       </p>

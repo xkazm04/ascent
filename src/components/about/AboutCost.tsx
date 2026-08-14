@@ -31,7 +31,7 @@ export function AboutCost() {
             size="page"
             kicker="The cost of guessing"
             title="AI adoption without a map is expensive"
-            intro="Most orgs can't see where their AI maturity actually is — so they spend in the wrong places, miss the risks, and find out too late."
+            intro="Most orgs can't see where their AI maturity actually is, so they spend in the wrong places, miss the risks, and find out too late."
           />
         </Reveal>
         <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 2xl:mt-14 2xl:gap-5">

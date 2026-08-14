@@ -58,7 +58,7 @@ export function RepoLeaderboardRow({
             {r.fullName}
           </Link>
         ) : (
-          <span title={`${r.fullName} — not scanned yet`} className="font-mono text-sm text-slate-400">
+          <span title={`${r.fullName} (not scanned yet)`} className="font-mono text-sm text-slate-400">
             {r.fullName}
           </span>
         )}

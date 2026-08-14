@@ -119,8 +119,8 @@ function OneSidedBadge({ kind }: { kind: "added" | "removed" | "neither" }) {
   // direction the data doesn't have. Sky = informational-new (the report header's demo chip hue),
   // amber = attention/gap (the "New gaps" list hue). Both ship glyph + label, never color alone.
   const spec = {
-    added: { cls: "border-sky-500/40 bg-sky-500/10 text-sky-300", glyph: "+", text: "New in this scan — no baseline to compare" },
-    removed: { cls: "border-amber-500/40 bg-amber-500/10 text-amber-300", glyph: "−", text: "No longer scored — nothing to compare" },
+    added: { cls: "border-sky-500/40 bg-sky-500/10 text-sky-300", glyph: "+", text: "New in this scan, no baseline to compare" },
+    removed: { cls: "border-amber-500/40 bg-amber-500/10 text-amber-300", glyph: "−", text: "No longer scored, nothing to compare" },
     neither: { cls: "border-slate-600 bg-slate-800/60 text-slate-400", glyph: "·", text: "Not scored in either scan" },
   }[kind];
   return (

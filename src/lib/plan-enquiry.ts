@@ -93,7 +93,7 @@ export function normalizePlanEnquiry(raw: unknown): EnquiryValidation {
 
   const message = str(o.message);
   if (message.length < ENQUIRY_LIMITS.message.min) {
-    return { ok: false, field: "message", error: "Describe what you need — a sentence is enough." };
+    return { ok: false, field: "message", error: "Describe what you need: a sentence is enough." };
   }
 
   const rawAreas = Array.isArray(o.areas) ? o.areas : [];

@@ -341,7 +341,7 @@ describe("scanRepository — LLM usage metering + degradation honesty (#2/#3)", 
     );
     // ...nor the keyless caveat: an EXPLICIT demo (opts.mock) is framed as a demo by the UI, not flagged.
     expect(report.warnings ?? []).not.toContain(
-      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric, no AI nuance).",
     );
   });
 
@@ -359,7 +359,7 @@ describe("scanRepository — LLM usage metering + degradation honesty (#2/#3)", 
     // ...but the floor must be disclosed loudly, not just via a quiet engine chip, so a public-badge or
     // audit reader knows the AI layer never ran.
     expect(report.warnings ?? []).toContain(
-      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric, no AI nuance).",
     );
   });
 });

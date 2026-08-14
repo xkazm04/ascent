@@ -240,7 +240,7 @@ function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
             : cmd.ciSetup
               ? ciSetupStep(cmd.ciSetup)
               : "      # TODO: add the language setup step for this repo\n";
-  return `# Continuous integration — gate every PR on lint + tests so AI-generated changes are safe to merge.
+  return `# Continuous integration: gate every PR on lint + tests so AI-generated changes are safe to merge.
 name: CI
 on:
   pull_request:
@@ -278,7 +278,7 @@ export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpe
   switch (p.id) {
     case "agent-guidance":
       path = "AGENTS.md";
-      body = `# ${name} — agent guidance
+      body = `# ${name}: agent guidance
 
 > Machine-readable context so any AI contribution lands consistent and on-spec. Replace the
 > ${"`<...>`"} / TODO placeholders with this repo's specifics.
@@ -301,13 +301,13 @@ ${TODO}
 - Verify after every change: run the tests and the linter/typecheck above before proposing a diff.
 - Keep changes small and focused; match the surrounding code's conventions.
 
-## Constraints — never break these
+## Constraints (never break these)
 ${TODO}
 - Public API / contracts that must stay stable: \`<...>\`
 - Security & secrets rules: \`<...>\`
 
 ## Tooling in use
-${TODO} (MCP servers, hooks, subagents, slash commands — list any the team relies on.)
+${TODO} (MCP servers, hooks, subagents, slash commands: list any the team relies on.)
 
 ## Example of a good change
 ${TODO}
@@ -316,7 +316,7 @@ ${TODO}
 
     case "test-discipline":
       path = "docs/TESTING.md";
-      body = `# Testing guide — ${name}
+      body = `# Testing guide: ${name}
 
 The guardrail that makes AI-generated changes safe to merge.
 
@@ -327,7 +327,7 @@ The guardrail that makes AI-generated changes safe to merge.
 ${shape(p)}
 
 ## Notes
-${TODO} — name the critical paths that must always have coverage, and the framework(s) in use.
+${TODO}: name the critical paths that must always have coverage, and the framework(s) in use.
 `;
       break;
 
@@ -338,7 +338,7 @@ ${TODO} — name the critical paths that must always have coverage, and the fram
 
     case "agent-in-loop":
       path = ".github/workflows/ai-review.yml";
-      body = `# AI review in the loop — an agent takes the first pass on each PR; a human confirms before merge.
+      body = `# AI review in the loop. An agent takes the first pass on each PR; a human confirms before merge.
 # This is a leak-free SCAFFOLD: wire it to your chosen review action and provide its token as a secret.
 name: AI review
 on:
@@ -349,7 +349,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # TODO: replace with your AI review step (e.g. an LLM PR-review action). Keep a human
-      # confirmation checkpoint — this comments/suggests, it does not auto-merge.
+      # confirmation checkpoint: this comments/suggests, it does not auto-merge.
       - name: AI first-pass review
         run: echo "TODO: invoke the AI review action here"
 # Checklist for a real agent-in-the-loop:
@@ -396,13 +396,13 @@ ${TODO}
 
     case "legible-history":
       path = "docs/COMMIT_CONVENTIONS.md";
-      body = `# Commit conventions — ${name}
+      body = `# Commit conventions: ${name}
 
 A legible, attributable history lets you see where AI helped and how it fared, and gives
 automation reliable signals.
 
 ## Format
-\`<type>(<scope>): <summary>\` — types: feat, fix, chore, docs, refactor, test, ci.
+\`<type>(<scope>): <summary>\`. Types: feat, fix, chore, docs, refactor, test, ci.
 
 ## Expectations
 ${shape(p)}
@@ -415,7 +415,7 @@ stays honest about how the work was produced.
 
     case "ai-harness":
       path = "docs/AI_HARNESS.md";
-      body = `# AI process & harness — ${name}
+      body = `# AI process & harness: ${name}
 
 Turns ad-hoc prompting into a repeatable, trustworthy part of how the team ships.
 
@@ -429,24 +429,24 @@ ${TODO}
 - Runbooks for recurring agent tasks: \`<...>\`
 
 ## Review gate for AI changes
-${TODO} — describe the Definition-of-Done an AI-generated change must meet before merge.
+${TODO}: describe the Definition-of-Done an AI-generated change must meet before merge.
 `;
       break;
 
     case "supply-chain-security":
       path = "SECURITY.md";
-      body = `# Security policy — ${name}
+      body = `# Security policy: ${name}
 
 The shift-left guardrail against the vulnerable or secret-leaking code AI can confidently produce.
 
 ## Reporting a vulnerability
-${TODO} — how to report privately, and the expected response time.
+${TODO}: how to report privately, and the expected response time.
 
 ## Automated guardrails we run
 ${shape(p)}
 
 ## Notes
-${TODO} — link the CI workflows that enforce the above (SAST, dependency/secret scanning, signing).
+${TODO}: link the CI workflows that enforce the above (SAST, dependency/secret scanning, signing).
 `;
       break;
 
@@ -461,8 +461,8 @@ ${TODO} — link the CI workflows that enforce the above (SAST, dependency/secre
   // configured (local dev / preview) so the PR never ships a broken/relative href.
   const base = publicBaseUrl();
   const attribution = base
-    ? `Generated by [Ascent](${base}${reportPermalink(ctx.fullName)}) — your AI-native maturity companion.`
-    : `Generated by Ascent — your AI-native maturity companion.`;
+    ? `Generated by [Ascent](${base}${reportPermalink(ctx.fullName)}), your AI-native maturity companion.`
+    : `Generated by Ascent, your AI-native maturity companion.`;
   // The org's own pattern, appended as its own clearly-attributed section rather than merged into
   // the generic checklist above — a reader must be able to see which lines came from their own
   // repositories and which came from us.
@@ -475,12 +475,12 @@ ${house.exemplars.length} of your repositories already structure this the same w
 
 ${house.lines.map((l) => `- ${safeText(l)}`).join("\n")}
 
-_Ascent read only the heading structure of those files — never their contents._`;
+_Ascent read only the heading structure of those files, never their contents._`;
   }
 
   const provenance = house
-    ? `**Where this came from:** the shape above is your organization's own, mined from ${house.exemplars.length} repositories that already do this (${house.exemplars.map(safeText).join(", ")}). Only their heading structure was read — no file contents travelled between repositories.`
-    : `**Where this came from:** a generic starter. Ascent found no shared pattern across your own repositories for this practice yet — once at least two of them structure it the same way, this PR will carry your shape instead.`;
+    ? `**Where this came from:** the shape above is your organization's own, mined from ${house.exemplars.length} repositories that already do this (${house.exemplars.map(safeText).join(", ")}). Only their heading structure was read: no file contents travelled between repositories.`
+    : `**Where this came from:** a generic starter. Ascent found no shared pattern across your own repositories for this practice yet; once at least two of them structure it the same way, this PR will carry your shape instead.`;
 
   return {
     practiceId: p.id,
@@ -493,7 +493,7 @@ _Ascent read only the heading structure of those files — never their contents.
 
 > _${p.what}_
 
-It's a **leak-free starter** — the *shape* of what good looks like, with TODO placeholders for the
+It's a **leak-free starter**: the *shape* of what good looks like, with TODO placeholders for the
 repo-specific details. Fill those in (or let an agent draft them against ${"`" + path + "`"}), then
 mark ready for review.
 

@@ -28,7 +28,7 @@ Context-map group: **Reporting & Visualization** (`feature`).
   AI-Native Passports, and Portfolio & Leaderboard.
 - Passport design rationale lives at
   [`../../archive/2026-concepts/2026-06-22-app-passport-scan-integration.md`](../../archive/2026-concepts/2026-06-22-app-passport-scan-integration.md)
-  (archived — the feature shipped; `src/lib/analyze/passport.ts` cites it).
+  (archived: the feature shipped; `src/lib/analyze/passport.ts` cites it).
 - `report.md`'s "no PDF export of a single report" gap is worth re-reading against
   `/api/report/pdf`, which exists; the distinction the doc draws may be narrower
   than it reads.

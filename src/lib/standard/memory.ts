@@ -7,11 +7,11 @@ import type { ScanReport } from "@/lib/types";
 import type { GeneratedFile } from "./types";
 import { SPEC_PATH } from "./spec";
 
-const README = `# \`.ai/memory\` — the codebase's durable memory
+const README = `# \`.ai/memory\`: the codebase's durable memory
 
 Structured, **append-only** memory that agents read *before* acting and write *after* learning. It
-exists so hard-won knowledge — why a decision was made, a non-obvious gotcha, an approach that was
-tried and **failed** — survives past a single session and isn't rediscovered the hard way.
+exists so hard-won knowledge (why a decision was made, a non-obvious gotcha, an approach that was
+tried and **failed**) survives past a single session and isn't rediscovered the hard way.
 
 This is not prose drift in a guidance file. It is one fact per file, each with frontmatter so it can
 be indexed, filtered, and superseded. The format is referenced from \`.ai/manifest.yaml\`
@@ -30,10 +30,10 @@ Name files \`NNNN-short-slug.md\` (zero-padded, monotonic). Frontmatter schema:
     refs: []                # related memory ids or module ids
     ---
 
-    One paragraph: what was learned, and — for a decision — **why**. For a failed-approach, say what
+    One paragraph: what was learned, and (for a decision) **why**. For a failed-approach, say what
     was tried and the symptom that ruled it out, so no one (human or agent) burns the same hours.
 
-\`kind\` and \`scope\` are an **open vocabulary** — add values when you need them; readers ignore ones
+\`kind\` and \`scope\` are an **open vocabulary**. Add values when you need them; readers ignore ones
 they don't recognize.
 
 ## The norms that make it work
@@ -44,7 +44,7 @@ they don't recognize.
 - **Never rewrite history.** Superseding beats editing: add a new file and set \`supersedes\`.
 - **Vendor-neutral.** Any coding agent can read and write this; it names no tool.
 
-The first entry below records adopting this standard — it doubles as a worked example of the format.
+The first entry below records adopting this standard: it doubles as a worked example of the format.
 `;
 
 export function buildMemorySeed(report: ScanReport): GeneratedFile[] {
@@ -60,7 +60,7 @@ refs: []
 
 Adopted the \`.ai/\` AI-native standard (manifest + structured memory + a co-located CONTEXT graph +
 an executable \`doctor\`) on ${date}, seeded from an Ascent scan. **Why:** make the repo legible,
-verifiable, and self-maintaining for agents, and shift maturity controls left of CI — the agent
+verifiable, and self-maintaining for agents, and shift maturity controls left of CI: the agent
 self-certifies pre-push, CI is the thin backstop. See \`.ai/manifest.yaml\` and \`${SPEC_PATH}\`.
 `;
 
@@ -69,7 +69,7 @@ self-certifies pre-push, CI is the thin backstop. See \`.ai/manifest.yaml\` and 
     {
       path: ".ai/memory/0001-adopt-ai-standard.md",
       body: seed,
-      purpose: "Seed memory entry — records adopting the standard and demonstrates the format.",
+      purpose: "Seed memory entry: records adopting the standard and demonstrates the format.",
       lang: "markdown",
     },
   ];

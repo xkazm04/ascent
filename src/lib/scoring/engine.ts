@@ -121,8 +121,8 @@ export function assembleReport(
   const warnings: string[] = [];
   if (widenBudget.capped) {
     const msg =
-      `The AI assessment flagged ${widenBudget.flaggedCount} dimensions as detector discrepancies — more than the ` +
-      `${MAX_FLAGGED_DIMENSIONS} allowed per scan — so no dimension's guardband was widened and the Security (D9) ` +
+      `The AI assessment flagged ${widenBudget.flaggedCount} dimensions as detector discrepancies (more than the ` +
+      `${MAX_FLAGGED_DIMENSIONS} allowed per scan), so no dimension's guardband was widened and the Security (D9) ` +
       `visibility exception was not applied. A self-audit that suspects most detectors is treated as unreliable, ` +
       `not as licence to move further from the evidence; the scores below stay pinned to the deterministic signals.`;
     warnings.push(msg);
@@ -186,7 +186,7 @@ export function assembleReport(
         `that this repository's security runs through channels a file scan cannot see (e.g. GitHub ` +
         `default-setup code scanning, or an org-level security policy), so its deterministic 0 reflects a ` +
         `visibility blind spot, not a measured absence. D9 is renormalized out (n/a) rather than counted ` +
-        `as 0 — the security score is not fully validated for this repo.`;
+        `as 0; the security score is not fully validated for this repo.`;
       warnings.push(msg);
       console.warn(`[engine] ${msg}`);
       return [];
@@ -233,7 +233,7 @@ export function assembleReport(
   const signalIds = new Set(signals.map((s) => s.id));
   for (const id of llmById.keys()) {
     if (!signalIds.has(id)) {
-      const msg = `LLM scored dimension "${id}" that was not in the deterministic signal set — ignored.`;
+      const msg = `LLM scored dimension "${id}" that was not in the deterministic signal set. Ignored.`;
       warnings.push(msg);
       console.warn(`[engine] ${msg}`);
     }
@@ -252,7 +252,7 @@ export function assembleReport(
     const assessed = scorable - llmMissing.length;
     warnings.push(
       `AI assessed ${assessed} of ${scorable} dimensions; ${llmMissing.join(", ")} reflect ` +
-        `detected signals only (no AI nuance) — the overall is not fully AI-validated.`,
+        `detected signals only (no AI nuance); the overall is not fully AI-validated.`,
     );
   }
 
@@ -265,7 +265,7 @@ export function assembleReport(
   const incomplete = dimensions.length === 0;
   if (incomplete) {
     warnings.push(
-      "No dimensions could be scored — every signal detector failed or returned no data. This is an " +
+      "No dimensions could be scored: every signal detector failed or returned no data. This is an " +
         "INCOMPLETE scan, not a genuine L1 (Manual) result; re-scan or check repository access.",
     );
   }
@@ -301,7 +301,7 @@ export function assembleReport(
   if (dimensions.length > 0 && (!adoptionMeasured || !rigorMeasured)) {
     const axisName = !adoptionMeasured ? "Adoption" : "Rigor";
     warnings.push(
-      `The ${axisName} axis could not be measured — no dimension on it was scored, so its axis score is a ` +
+      `The ${axisName} axis could not be measured: no dimension on it was scored, so its axis score is a ` +
         `placeholder 0, not a real reading. The posture quadrant is not reliable on that axis.`,
     );
   }
@@ -326,7 +326,7 @@ export function assembleReport(
     dimensions,
     headline:
       assessment.headline ||
-      `${snap.meta.owner}/${snap.meta.name} is at ${level.id} — ${level.name}.`,
+      `${snap.meta.owner}/${snap.meta.name} is at ${level.id}: ${level.name}.`,
     strengths: assessment.strengths,
     risks: assessment.risks,
     roadmap,

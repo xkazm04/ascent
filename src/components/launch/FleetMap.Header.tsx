@@ -26,7 +26,7 @@ export function FleetHeader({ userName, stats, hydrating }: { userName: string; 
         )}
       </h1>
       <p className="mt-2 max-w-2xl text-slate-400">
-        Your engineering fleet, mapped as living constellations — each org a cluster, each repo a star that
+        Your engineering fleet, mapped as living constellations: each org a cluster, each repo a star that
         brightens with its maturity. Scores stream in below as Ascent reads your installations.
       </p>
 

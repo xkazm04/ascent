@@ -2,7 +2,7 @@
 
 The maturity gate turns a scan into a **CI pass/fail**. A repo adds the published GitHub
 Action to a workflow; on each PR the action scores the PR head against an archetype-aware
-policy and exits non-zero if the repo falls short — so a team can *block merges* on
+policy and exits non-zero if the repo falls short, so a team can *block merges* on
 AI-native maturity. The same scoring also drives a GitHub **Check Run** and a sticky PR
 **comment** when Ascent runs as a [GitHub App](../github/github-app.md).
 
@@ -11,7 +11,7 @@ AI-native maturity. The same scoring also drives a GitHub **Check Run** and a st
 The strongest reason to turn the gate on is **D9 (Supply Chain & Security)**: it is the one
 **fully deterministic** dimension in the whole rubric. Its score is the security check
 battery's risk-weighted mean, and `src/lib/scoring/engine.ts` takes that signal score
-**verbatim** — D9 is excluded from the LLM guardband blend every other dimension goes
+**verbatim**: D9 is excluded from the LLM guardband blend every other dimension goes
 through, so the model can only *narrate* the number, never move it.
 
 The practical consequence: a `min-security` / `?min_security=N` floor is a bar **no model
@@ -38,12 +38,12 @@ branch on the status alone.
 | `min_level` | Minimum maturity level, e.g. `L3`. |
 | `min_overall` | Minimum overall score (1–100). |
 | `min_dimension` | Minimum score for **any single** dimension. |
-| `min_security` | Minimum **Security (D9)** score — the deterministic security floor. Also forbids the "ungoverned" posture. |
+| `min_security` | Minimum **Security (D9)** score: the deterministic security floor. Also forbids the "ungoverned" posture. |
 | `security=1` | The security floor at its default value (`DEFAULT_SECURITY_MIN`), same posture rule. |
 | `no_ungoverned=1` | Forbid the "ungoverned" posture (heavy AI, light guardrails). |
 | `require_protection=1` | Fail if the default branch has no branch-protection rules (when readable). |
 
-A `≤0`, `>100` or unparseable threshold is **dropped**, not clamped — it is "not set" by
+A `≤0`, `>100` or unparseable threshold is **dropped**, not clamped: it is "not set" by
 contract, so a bad value can never install an always-pass (`≤0`) or unreachable (`>100`)
 floor. An in-range fractional value is truncated (`40.7` → `40`).
 
@@ -60,22 +60,22 @@ LLM/mock cache → resolve the policy → `evaluateGate(report, policy)` → ret
 This endpoint is **unauthenticated by design** (CI calls it with plain `curl`), so a query
 param must never be able to relax a bar an org configured:
 
-- The org's **persisted** gate policy (`getOrgGatePolicy` — the same bar the App-mode Check
+- The org's **persisted** gate policy (`getOrgGatePolicy`, the same bar the App-mode Check
   Run and the governance fleet view enforce) is the baseline whenever it exists.
 - Explicit params then merge **on top as a tighten-only overlay** (`tightenGatePolicy`):
   strictest field wins. `explicitPolicyFromParams` deliberately contributes *only* the
-  fields the query names — padding the rest with archetype defaults would drag a
+  fields the query names; padding the rest with archetype defaults would drag a
   deliberately-relaxed org bar back toward the default.
 - With **no** persisted policy (DB-less / unknown org), params override the archetype default
   per field via `policyFromParams(searchParams, report.archetype)`.
 
 Without this, any single param (`?min_dimension=1`) replaced the whole persisted policy and
-handed an anonymous caller — or a PR author editing the workflow URL — a green verdict the
+handed an anonymous caller, or a PR author editing the workflow URL, a green verdict the
 org never configured.
 
 A **failed read** is not "no policy configured". `getOrgGatePolicy` returns `null` *without
 throwing* for every legitimate unset case (no DB, unknown org, unset or unparseable column),
-so a rejection means only that the bar is **unknown** — and gating on the archetype default
+so a rejection means only that the bar is **unknown**, and gating on the archetype default
 there would silently relax an org's configured merge bar for the length of a DB blip. Both
 consumers now fail closed: the endpoint returns **`503`** with no verdict at all, and
 `runPrGate` lets the error reach its outer catch, which posts the neutral "could not run"
@@ -84,7 +84,7 @@ check and releases the delivery for GitHub to redeliver.
 ### Incomplete scans fail closed (one honest failure)
 
 A scan where **every** detector failed produces no dimensions, so the renormalized roll-up floors at
-`0 / L1` — numerically identical to a genuinely manual repo. `evaluateGate` short-circuits on it
+`0 / L1`, numerically identical to a genuinely manual repo. `evaluateGate` short-circuits on it
 (`isIncompleteReport`: the report's `incomplete` flag, or an empty `dimensions` array on a legacy /
 reconstructed report) and returns a single failure with code **`incomplete`** instead of running the
 criteria. Two reasons: the gate must not certify a repository it could not read, and it must not emit
@@ -97,19 +97,19 @@ statement is that nothing was measured. Fail-closed, like every other criterion 
 
 ### Degraded scans fail closed (`503`)
 
-`evaluateGate` reads *only* scores — never the engine or the warnings — so a scan that fell
+`evaluateGate` reads *only* scores, never the engine or the warnings, so a scan that fell
 back to the deterministic `MockProvider` can still compute `pass: true`. When the caller
 asked for the real AI grade (`?mock=0`) and the LLM was unavailable, that verdict is a floor
 score wearing a green badge.
 
 So: when `report.engine.provider === "mock"` **and** the request did not ask for mock, the
-response is **`503` with `degraded: true`** — `curl --fail` trips and CI cannot merge on a
+response is **`503` with `degraded: true`**: `curl --fail` trips and CI cannot merge on a
 fabricated floor. The full verdict is still returned (plus `engine` / `confidence` /
 `warnings`) so a consumer that reads the body knows why and can retry. The **default** path
 (`?mock` omitted → mock) is the *documented* deterministic rubric, not a degradation, and
 keeps the exact 200/422 contract.
 
-A degraded report is also **never written to the scan cache** — the same `degradedToMock`
+A degraded report is also **never written to the scan cache**: the same `degradedToMock`
 guard `scan-finalize.ts` applies to every other cache write. Without it the floor score
 landed under the `::llm` key, so every retry for that commit was a cache *hit* that re-served
 the floor and 503'd again without re-scanning: the gate stayed wedged for the full 15-minute
@@ -119,13 +119,13 @@ the gate" actually true.
 ### Private repositories
 
 The public endpoint cannot gate a private repo, on purpose. Every ingest passes
-`noAmbientToken`, so a scan never runs against the operator's ambient `GITHUB_TOKEN` —
+`noAmbientToken`, so a scan never runs against the operator's ambient `GITHUB_TOKEN`;
 otherwise any anonymous caller could enumerate private repos' full verdicts through the
 operator's credentials. Token-less ingestion of a private repo 404s, and the route says so.
 
 **Private repositories are gated through the GitHub App check run** (`/api/app/webhook`),
 which scores with the installation's own token and writes the verdict back as a Check Run.
-That is the authenticated path — the public `/api/gate/...` endpoint is for public repos.
+That is the authenticated path; the public `/api/gate/...` endpoint is for public repos.
 
 ## GitHub Action (`action.yml` + `scripts/maturity-gate.mjs`)
 
@@ -137,7 +137,7 @@ That is the authenticated path — the public `/api/gate/...` endpoint is for pu
 | `repo` | `owner/repo` (defaults to the workflow's repo). |
 | `ref` | Ref to score; on a `pull_request` set to `github.event.pull_request.head.sha`. |
 | `min-level` / `min-overall` / `min-dimension` | Policy thresholds. |
-| `min-security` | Minimum **Security (D9)** score — the deterministic security floor. |
+| `min-security` | Minimum **Security (D9)** score: the deterministic security floor. |
 | `no-ungoverned` | Reject the ungoverned posture. |
 | `require-protection` | Fail if the default branch has no branch-protection rules (when readable). |
 | `live` | Use the live LLM (`true`) instead of mock. |
@@ -146,13 +146,13 @@ Outputs (written on **every** exit path, so `status` always says what happened):
 
 | Output | Notes |
 | --- | --- |
-| `status` | `pass` \| `fail` \| `degraded` \| `not-found` \| `rate-limited` \| `error` — the value worth branching on. |
+| `status` | `pass` \| `fail` \| `degraded` \| `not-found` \| `rate-limited` \| `error`: the value worth branching on. |
 | `pass` | `'true'` only when the repo cleared the bar; a degraded or errored run is never `'true'`. |
 | `degraded` | `'true'` when the AI grade could not be produced, so the verdict is not authoritative. |
 | `level` / `overall` / `posture` | The scored ref's reading; empty when nothing was scored. |
 
 A failing gate fails the step, so read the outputs under `continue-on-error: true` (or
-`if: always()`) when the workflow wants to handle the verdict itself — post its own comment,
+`if: always()`) when the workflow wants to handle the verdict itself: post its own comment,
 set a label, record the score. Without these the exit code was the only signal that escaped.
 
 It runs Node 20 and invokes `scripts/maturity-gate.mjs`, which builds the query string
@@ -161,14 +161,14 @@ outputs above to `$GITHUB_OUTPUT`, and exits:
 
 | Exit | Meaning |
 | --- | --- |
-| **0** | `pass: true` (`200`) — prints a green summary. |
+| **0** | `pass: true` (`200`): prints a green summary. |
 | **1** | The repo is **below the bar** (`422`); lists the `failures`. |
 | **2** | The gate **could not run**: a network error, a 5xx, a `404`, a `429` throttle, missing args, **a `degraded` (`503`) verdict**, or any status that isn't `200`/`422`. |
 
 Only `200` and `422` carry a verdict; every other status exits **2, not 1**, because "the
 grade could not be produced" and "the repo is below the bar" mean opposite things to whoever
 reads the job log, and only the second is the repo's fault. A `429` is the easiest one to get
-wrong — it is the *operator's* rate limit, and the repo was never scored — so it reports the
+wrong: it is the *operator's* rate limit, and the repo was never scored, so it reports the
 throttle (with `Retry-After` when present) instead of a failure line full of `?` placeholders. `.github/workflows/maturity.yml` is the repo's own example using the
 action (and `npm run gate` runs the script locally).
 
@@ -178,7 +178,7 @@ action (and `npm run gate` runs the script locally).
 merged PRs that carried an approving human review. `100` means *every AI-attributed change must be
 approved before it merges*. The research behind
 [`docs/AI-SDLC-STANDARDS-LANDSCAPE.md`](../../AI-SDLC-STANDARDS-LANDSCAPE.md) §3.4 found this policy
-**described everywhere and productized nowhere** — it is the sharpest unclaimed slice in the market,
+**described everywhere and productized nowhere**: it is the sharpest unclaimed slice in the market,
 and it is deliberately built on `PrStats.aiGovernedRate`, the **same** deterministic signal the
 [evidence pack](../org-dashboard/org-intelligence.md#change-management-evidence-pack-w2-2026-08-14)
 reports. A gate and an audit artifact that disagreed about whether AI work is governed would
@@ -194,26 +194,26 @@ discredit both.
 A failure reads: *"62% of AI-attributed merged PRs carried an approving human review, below the
 required 100% (20 AI-attributed PRs sampled)."* Its `GateFailure.code` is `provenance`.
 
-### It is the ONE criterion that does not fail closed — deliberately
+### It is the ONE criterion that does not fail closed, deliberately
 
 Every other rule in this gate fails closed, because an unscored value means the measurement
 **broke**. Here `aiGovernedRate` is null when the measurement was never **due**: no token (so no
-`prStats` at all — including the whole unauthenticated `/api/gate` path), or fewer than five
+`prStats` at all, including the whole unauthenticated `/api/gate` path), or fewer than five
 AI-attributed PRs in the window. Failing those would block repositories for having *little* AI
 activity, inverting the intent of a policy that exists to govern repositories with a lot of it.
 
 So a null rate **skips** the criterion, exactly as `requireProtectedBranch` skips when governance was
 unreadable. The practical consequence worth knowing: the anonymous gate endpoint can never enforce
-this bar. It lands where the data lives — the App-mode Check Run and the fleet governance view.
+this bar. It lands where the data lives: the App-mode Check Run and the fleet governance view.
 
 `OrgRepoRow.latest` now carries `aiGovernedRate`/`aiPrSample` (parsed from the same persisted
 `prStats` blob the activity columns already read, so no extra query), and `buildGovernanceOverview`
 threads them into `evaluateGateLite`. Without that, an org setting the bar would see repos marked
-passing on the dashboard that CI blocks — the exact drift the shared evaluator exists to prevent.
+passing on the dashboard that CI blocks: the exact drift the shared evaluator exists to prevent.
 
 ## Verdict telemetry
 
-Every produced verdict — from both the API endpoint and the App Check Run — emits one queryable
+Every produced verdict, from both the API endpoint and the App Check Run, emits one queryable
 line, `[gate:verdict] {…}` (`src/lib/scoring/gate-telemetry.ts`), carrying `surface`, `repo`,
 `ref`, `pass`, **`blocked`**, `degraded`, `authoritative`, the deduped failing `codes`,
 `policySource` (`org` / `params` / `archetype`), and the scored reading.
@@ -221,7 +221,7 @@ line, `[gate:verdict] {…}` (`src/lib/scoring/gate-telemetry.ts`), carrying `su
 `blocked` is the measurement, and it is deliberately *not* `!pass`: a degraded grade and a
 fork-PR default-branch fallback both fail for reasons that are not "this repo is below the
 bar", so counting them would overstate the gate's bite. The governance fleet view cannot
-answer any of this — it re-evaluates *stored scans* on page load, which is a snapshot of the
+answer any of this: it re-evaluates *stored scans* on page load, which is a snapshot of the
 fleet rather than a record of gate traffic, and it never sees ref-scoped PR verdicts.
 
 A log line rather than a table on purpose: gate calls are CI-frequency, and the useful
@@ -236,7 +236,7 @@ using the installation token (see [github-app.md](../github/github-app.md)).
 | Function | File | Role |
 | --- | --- | --- |
 | `runPrGate()` | `src/lib/github/pr-gate.ts` | The single check-writing path: score the PR head, diff it against the base, post the Check Run + sticky comment. Shared by the webhook (PR events, the "Re-run" button) and the org gate-policy sweep. |
-| `buildGateComment()` | `src/lib/scoring/gate-comment.ts` | **Pure** builder → `{ conclusion, title, summary, commentBody }`. Includes verdict, level, overall, posture, archetype lens, adoption/rigor, an optional baseline delta phrase ("overall +5 · L2 → L3"), failures, a per-failing-dimension table, top-3 roadmap prompts, the scoring path, and the applied policy. The comment body carries a hidden `<!-- ascent-maturity-gate -->` marker, a **link to the full report** (`reportUrl` — comment only, since the Check Run already has the same destination as `details_url`), and, when a D9 floor is enforced, a note that the floor is deterministic. |
+| `buildGateComment()` | `src/lib/scoring/gate-comment.ts` | **Pure** builder → `{ conclusion, title, summary, commentBody }`. Includes verdict, level, overall, posture, archetype lens, adoption/rigor, an optional baseline delta phrase ("overall +5 · L2 → L3"), failures, a per-failing-dimension table, top-3 roadmap prompts, the scoring path, and the applied policy. The comment body carries a hidden `<!-- ascent-maturity-gate -->` marker, a **link to the full report** (`reportUrl`, comment only, since the Check Run already has the same destination as `details_url`), and, when a D9 floor is enforced, a note that the floor is deterministic. |
 | `createCheckRun()` | `src/lib/github/checks.ts` | Creates a GitHub **Check Run** on the head SHA (the status that can block merge) with `conclusion` success/failure/neutral, title, markdown summary, a deep link to the report, and a "Re-run" action. |
 | `upsertStickyComment()` | `src/lib/github/checks.ts` | Finds the marker by scanning **forward to the end of the thread** and **updates in place** (or creates one), so re-runs don't stack duplicates. |
 
@@ -245,7 +245,7 @@ must never assert something it didn't measure:
 
 - **Fork PRs** whose head commit isn't reachable via the base repo's tree API: the gate falls
   back to scoring the **default branch**, and says so in the title, the summary, and a
-  blockquote. Such a verdict structurally cannot reflect the PR's own changes — treat it as
+  blockquote. Such a verdict structurally cannot reflect the PR's own changes; treat it as
   non-authoritative.
 - **A hard failure**: rather than leave a required check silently absent (blocking merge
   forever with no explanation), the gate posts "Maturity gate could not run" with a Re-run
@@ -254,7 +254,7 @@ must never assert something it didn't measure:
 ### Per-dimension floors
 
 `GatePolicy.minDimensionFor` holds a floor for any of **D1–D9**, and the gate enforces every
-one (the stricter of it and the global `minDimension` — see `effectiveFloor`). The owner's
+one (the stricter of it and the global `minDimension`, see `effectiveFloor`). The owner's
 form exposes them all: **D9 keeps its own dedicated control** (it is the deterministic
 dimension, the only floor the gate URL / CI input surface as `min_security` / `min-security`,
 and enabling it also forbids the ungoverned posture), and every other dimension is added as a
@@ -270,21 +270,21 @@ them and a param could not weaken them anyway.
 
 Every save writes an `org.gate_policy` audit row carrying **the bar itself**, not just that it
 moved: `policy` / `previousPolicy` (the sanitized objects) plus `status` / `previousStatus`,
-the human rendering from `describeGatePolicy` — the same canonical enumeration the dashboard,
+the human rendering from `describeGatePolicy`, the same canonical enumeration the dashboard,
 gate URL, CI snippet and PR footer use, so the trail can't advertise a bar different from the
 one enforced. `status` is the field the audit viewer already renders for non-scan rows, so the
 change shows up in the table as e.g. `min L3 · no D9 < 30`. Without those fields the log could
-not answer the question it exists for — *who lowered the security floor from 70 to 30, and when*.
+not answer the question it exists for: *who lowered the security floor from 70 to 30, and when*.
 
 ### When a policy change takes effect
 
 Saving an org gate policy (`POST /api/org/gate-policy`) schedules a **bounded, best-effort
-sweep** that re-runs `runPrGate` on the org's open PRs — up to 25 watched repos / 20 PRs,
+sweep** that re-runs `runPrGate` on the org's open PRs, up to 25 watched repos / 20 PRs,
 deferred via `after()`, every failure logged and isolated. **Drafts are skipped and cost no
 budget**: GitHub won't merge one, and `ready_for_review` is in the webhook's `PR_ACTIONS`, so
 a draft is re-gated against the current bar the moment it becomes mergeable.
 
-Repos are swept **4 at a time, PRs within a repo strictly serially** — GitHub asks callers not
+Repos are swept **4 at a time, PRs within a repo strictly serially**: GitHub asks callers not
 to issue concurrent mutating requests against the *same* repository, and every gated PR writes
 a Check Run plus a comment. A **240s deadline** (inside `maxDuration = 300`) stops the sweep on
 its own terms rather than being killed mid-flight, and the completion log names what was left
@@ -302,22 +302,22 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | --- | --- |
 | `src/app/api/gate/[owner]/[repo]/route.ts` | Gate endpoint: score → resolve policy → 200/422/503. |
 | `src/lib/scoring/gate.ts` | `evaluateGate()`, `explicitPolicyFromParams()`, `policyFromParams()`, `tightenGatePolicy()`, `describeGatePolicy()`, `sanitizeGatePolicy()`. |
-| `src/lib/scoring/gate-comment.ts` | `buildGateComment()` — check title/summary + PR comment markdown. |
-| `src/lib/github/pr-gate.ts` | `runPrGate()` — the shared Check Run + sticky comment writer. |
+| `src/lib/scoring/gate-comment.ts` | `buildGateComment()`: check title/summary + PR comment markdown. |
+| `src/lib/github/pr-gate.ts` | `runPrGate()`: the shared Check Run + sticky comment writer. |
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
 | `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs. |
 | `src/components/org/govern/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/components/org/govern/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
-| `src/lib/db/org-rollup.ts` | `parseProvenanceLite` — the fleet gate's `aiGovernedRate` input. |
+| `src/lib/db/org-rollup.ts` | `parseProvenanceLite`: the fleet gate's `aiGovernedRate` input. |
 | `scripts/maturity-gate.mjs` | CLI: call the gate API, exit 0/1/2 (`npm run gate`). |
 | `.github/workflows/maturity.yml` | Example workflow gating this repo. |
 
 ## Known gaps
 
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
-  LLM-scored verdict (slower, needs a key — and a provider outage then surfaces as a `503`
+  LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
   rather than a silent floor score).
 - The policy-change sweep is a **courtesy**, not a guarantee: PRs past the 25-repo / 20-PR
   cap pick the new bar up on their next push or a manual "Re-run".

@@ -71,9 +71,9 @@ export function ScoringTab({
               <h2 className="text-lg font-semibold text-white">Maturity over time</h2>
               <p className="text-base text-slate-400">
                 {histError
-                  ? "Couldn't load history — showing this scan only."
+                  ? "Couldn't load history, showing this scan only."
                   : trendPoints.length === 1
-                    ? "Baseline established — re-scan later to track progress."
+                    ? "Baseline established. Re-scan later to track progress."
                     : `${trendPoints.length} scans tracked.`}
               </p>
             </div>

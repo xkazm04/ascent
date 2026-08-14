@@ -96,10 +96,10 @@ export function formatDuration(ms: number): string {
 export function expectationCopy(elapsedMs: number, estimateMs: number = scanEstimateMs()): string {
   const longMs = (estimateMs * 5) / 3; // ≈p90 band (claude-cli: 360s → 600s)
   if (elapsedMs >= longMs) {
-    return "This is taking longer than usual — large repositories can take several minutes. Still working…";
+    return "This is taking longer than usual. Large repositories can take several minutes. Still working…";
   }
   if (elapsedMs >= estimateMs) {
-    return "Almost there — wrapping up the assessment.";
+    return "Almost there: wrapping up the assessment.";
   }
-  return "A live AI scan reads the repo and scores 9 dimensions — this usually takes a few minutes. You can leave this tab open.";
+  return "A live AI scan reads the repo and scores 9 dimensions. This usually takes a few minutes. You can leave this tab open.";
 }

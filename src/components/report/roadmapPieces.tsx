@@ -61,7 +61,7 @@ export function ExemplarPointer({ dim }: { dim: DimensionId }) {
     <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3">
       <Kicker tone="accent">What good looks like</Kicker>
       <p className="mt-1.5 text-base leading-relaxed text-slate-300">
-        <span className="font-semibold text-white">{practice.label}</span> — {practice.what}
+        <span className="font-semibold text-white">{practice.label}</span>: {practice.what}
       </p>
     </div>
   );
@@ -96,8 +96,8 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
       </div>
       <p className="mt-2 text-sm text-slate-400">
         {next
-          ? `Next rung — ${next.id} ${next.name}: ${next.tagline}. The gaps below are inputs to explore on the way.`
-          : "Top of the ladder — the work now is sustaining trust and sharing what works."}
+          ? `The next rung is ${next.id} ${next.name}: ${next.tagline}. The gaps below are inputs to explore on the way.`
+          : "At the top of the ladder, the work now is sustaining trust and sharing what works."}
       </p>
     </Surface>
   );
@@ -127,7 +127,7 @@ export function NextLevelPath({ report }: { report: ScanReport }) {
       <Kicker tone="accent">Fastest path</Kicker>
       <p className="mt-1 text-slate-300">
         Closing <span className="font-semibold text-white">{names}</span> projects to{" "}
-        <span className="font-semibold text-white">~{path.projected.overallScore}/100</span> — enough to reach{" "}
+        <span className="font-semibold text-white">~{path.projected.overallScore}/100</span>, enough to reach{" "}
         <span className="font-semibold" style={{ color: scoreHex(path.target.score) }}>
           {path.target.level} {path.target.name}
         </span>

@@ -313,7 +313,7 @@ The Overview page composes several server queries, all scoped to the org:
 | `getOrgBenchmark(slug)` | The org's average-overall percentile vs every other org's **public** repos (the corpus). **Tenancy (2026-07-28):** the cross-tenant corpus query is filtered to `isPrivate: false`: other tenants' private repo scores must never feed a percentile handed back to a different org. This org's own side is unfiltered (an org is entitled to its own private repos). **Corpus eligibility (2026-07-28):** both sides of the comparison are filtered to non-`mock` engines at the *current* `SCORING_RUBRIC_VERSION`: a percentile is a claim that two numbers came out of the same instrument, and demo/keyless `mock` scans plus retired-rubric rows were previously ranked as peers. `corpusBasis` is returned with every result so a percentile always travels with the population it was computed on. |
 | `getOrgGapAnalysis(slug, segmentId?)` | Common org gaps (weak in ≥ 50% of repos) vs repo-specific outliers, each linked to a [practice](./practices.md). Optional `segmentId` scopes to a segment. |
 | `getOrgPractices(slug)` | Per-dimension exemplars (score ≥ 70) and gap repos (< 40) for the Practice Library. |
-| `getContributorInsights(slug, segmentId?)` | Champions, involvement, concentration/bus-factor, plus the aggregate AI-share `distribution`. Optional `segmentId` scopes to a segment. **Privacy floor (2026-07-28):** below `CHAMPION_MIN_POP` (3) humans it returns `namingAllowed: false` and emits NO per-individual data at all — `champions: []`, `contributors: []`, and `concentration[].topLogin` redacted to `—`; every aggregate (totals, shares, distribution, bus factor) is unaffected. The floor lives in the producer, not in the pages, so the CSV export, the adoption brief and any future consumer inherit it. |
+| `getContributorInsights(slug, segmentId?)` | Champions, involvement, concentration/bus-factor, plus the aggregate AI-share `distribution`. Optional `segmentId` scopes to a segment. **Privacy floor (2026-07-28):** below `CHAMPION_MIN_POP` (3) humans it returns `namingAllowed: false` and emits NO per-individual data at all: `champions: []`, `contributors: []`, and `concentration[].topLogin` redacted to `—`; every aggregate (totals, shares, distribution, bus factor) is unaffected. The floor lives in the producer, not in the pages, so the CSV export, the adoption brief and any future consumer inherit it. |
 | `compareSegments(slug, aId, bId?)` (`src/lib/db/segments.ts`) | Two segments side by side (B may be null = whole fleet): headline metric deltas + per-dimension Δ. Reuses `getOrgRollup`'s scoped averages; the pure diff is `buildSegmentComparison` (unit-tested). `listSegments` / `createSegment` / `setRepoSegment` / `getRepoSegmentMap` manage the `Segment` / `RepoSegment` tags. |
 | `getOrgTeamRollup(slug)` | Per-team rollup keyed by CODEOWNERS attribution (`RepoTeam`, captured at scan time): each team's Adoption×Rigor, per-dimension averages (strongest/weakest), merged human AI-commit knowledge + champions, and since-last-scan movers, across the repos it owns. Team `champions` are subject to the same producer-level `CHAMPION_MIN_POP` floor (empty below 3 team contributors), and the knowledge leader is elected only from teams that clear it. Plus the org's AI-knowledge leader and the single highest-leverage strong→weak cross-team pairing. Pure aggregation lives in `rollupTeams` (unit-tested). |
 | `getOrgGovernance` / `getOrgActivity` / `getOrgPrSignals(slug)` | Delivery-tab aggregates (point-in-time: each repo's latest scan). |
@@ -584,7 +584,7 @@ consumed by another model, which gains nothing from prose we generated for it.
 | `/api/org/watch` | `POST` | Toggle a repo's `watched` flag (`setRepoWatch`). |
 | `/api/org/schedule` | `POST` | Set a repo's autoscan period off/daily/weekly/monthly (`setRepoSchedule`, computes `nextScanAt`). Drives the rescan [cron](../fleet/rescan.md). |
 | `/api/org/repos` | `GET` | List an org's public repos (onboarding picker). |
-| `/api/org/export` | `GET` | `kind=contributors\|delivery\|passports\|teams` as JSON or CSV (`format=csv`), gated by `requireOrgRead` and scoped by `segment`/`stack`. `kind=contributors` returns **403** below the 3-contributor naming floor rather than a header-only CSV — a CSV carries no scope marker once it leaves the app. |
+| `/api/org/export` | `GET` | `kind=contributors\|delivery\|passports\|teams` as JSON or CSV (`format=csv`), gated by `requireOrgRead` and scoped by `segment`/`stack`. `kind=contributors` returns **403** below the 3-contributor naming floor rather than a header-only CSV: a CSV carries no scope marker once it leaves the app. |
 | `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). |
 | `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). |
 | `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). |
@@ -593,7 +593,7 @@ consumed by another model, which gains nothing from prose we generated for it.
 
 | Route | Method | Role |
 | --- | --- | --- |
-| `/api/audit` | `GET` | `?org=&action=&cursor=&limit=` → `{ entries, nextCursor }`. Keyset pagination, filterable by action, org-scoped. Each entry carries `integrity` — the per-row HMAC verdict (`ok` \| `tampered` \| `unsigned` \| `no-secret`) recomputed on read, so tamper-evidence is actually *checked* rather than only written. `format=csv` carries it as a column. |
+| `/api/audit` | `GET` | `?org=&action=&cursor=&limit=` → `{ entries, nextCursor }`. Keyset pagination, filterable by action, org-scoped. Each entry carries `integrity`, the per-row HMAC verdict (`ok` \| `tampered` \| `unsigned` \| `no-secret`) recomputed on read, so tamper-evidence is actually *checked* rather than only written. `format=csv` carries it as a column. |
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
 `practice.pr_opened`, `scan.regression`, `retention.purged`.
@@ -604,29 +604,29 @@ Recorded actions include `scan.created`, `recommendation.status_changed`,
 Org membership and role enforcement are wired end to end, backed by the `User` /
 `Membership` models and enforced through `src/lib/authz.ts`:
 
-- **Roles** — `owner` / `admin` / `member` / `viewer` (`OrgRole`, `src/lib/db/members.ts`),
+- **Roles**: `owner` / `admin` / `member` / `viewer` (`OrgRole`, `src/lib/db/members.ts`),
   checked with `roleAtLeast`. `requireOrgRole(org, min)` gates owner/admin-only mutations
   (billing, member admin, destructive deletes); `requireOrgAccess`/`requireOrgRead` gate
   "any member" writes and reads respectively. Under the Supabase login wall
   (`authGateEnabled()`), the shared `viewerOrgRole` resolver seeds an owner only for an
-  identity-verified viewer — their own personal namespace, or a GitHub-confirmed org admin
-  via the App installation — never for the first stranger to touch an ownerless org.
-- **Invites** — `GET`/`POST`/`DELETE /api/org/invites` (owner-only, `src/app/api/org/invites/route.ts`)
+  identity-verified viewer: their own personal namespace, or a GitHub-confirmed org admin
+  via the App installation, never for the first stranger to touch an ownerless org.
+- **Invites**: `GET`/`POST`/`DELETE /api/org/invites` (owner-only, `src/app/api/org/invites/route.ts`)
   list, create, and revoke single-use invite tokens (role capped at `admin`; `owner` can
   only be conferred by promoting an existing member, not minted as a link). Acceptance is a
-  same-origin, signed-in-only `POST /api/org/invites/accept` (`src/app/api/org/invites/accept/route.ts`)
-  — deliberately not a GET-on-render, since a GET would let link-prefetch/unfurlers burn the
+  same-origin, signed-in-only `POST /api/org/invites/accept` (`src/app/api/org/invites/accept/route.ts`),
+  deliberately not a GET-on-render, since a GET would let link-prefetch/unfurlers burn the
   invite. `src/app/invite/[token]/page.tsx` is the UI that collects the token and fires the
   accept POST. Both create and accept are recorded to the audit log
   (`org.member.invited`, `org.member.invite_accepted`).
-- **The invite is now delivered** (G7-02) — creating an invite with an `email` sends **one**
+- **The invite is now delivered** (G7-02): creating an invite with an `email` sends **one**
   transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
   *Trigger*: an owner's `POST /api/org/invites` with `email` set. *Recipient*: only that address.
   *Opt-out*: `notify: false` in the same request; deployment-wide, `EMAIL_INVITES=off`, and the whole
   path is inert with no email provider (`SES_FROM_EMAIL` unset). There is no list and no repeat send,
-  so there is nothing to unsubscribe from — the mail says exactly that.
+  so there is nothing to unsubscribe from; the mail says exactly that.
   The address is **not verified** (an owner typed it), so the mail discloses only the org slug, the
-  role, the inviting login, the link and the expiry — no scores, repos, or member list — and accepting
+  role, the inviting login, the link and the expiry (no scores, repos, or member list), and accepting
   still requires the accepter's Supabase-**confirmed** email to match the pin (`acceptInvite`), so a
   misdirected message cannot hand a stranger the role. The response reports `emailed`:
   `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
@@ -635,40 +635,40 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 ### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
 
 Ascent could already say a change was **reverted** (a git fact). It could not say whether anything
-**broke**. `Deployment` — ingested from the GitHub Deployments API during a scan, through the
-installation token the scan already holds — is the outcome anchor. No new vendor, no new secret.
+**broke**. `Deployment`, ingested from the GitHub Deployments API during a scan through the
+installation token the scan already holds, is the outcome anchor. No new vendor, no new secret.
 
 Surfaced as **Delivery outcomes** on the Delivery tab: deployment frequency, change-failure rate,
-time-to-next-success, and the split this wave exists for — *do AI-attributed changes fail more than
+time-to-next-success, and the split this wave exists for: *do AI-attributed changes fail more than
 human-authored ones?*
 
 **Attribution is an equality, not a guess.** A deployment names the sha it shipped;
 `AiChange.mergeCommitSha` and the **merge-sha index** carry the shas of merged PRs. The link is
-`deployment.sha === merge sha`. The tempting alternative — *"the PR that merged closest before this
-deploy"* — is a time-window heuristic, and under the most quotable number this product can produce a
+`deployment.sha === merge sha`. The tempting alternative (*"the PR that merged closest before this
+deploy"*) is a time-window heuristic, and under the most quotable number this product can produce a
 wrong attribution is not a rounding error, it is the whole claim.
 
 **The merge-sha index is why the human bucket exists at all.** `AiChange` stores *only*
 AI-attributed PRs by construction (the [evidence pack](#change-management-evidence-pack-w2-2026-08-14)
 depends on that), so a deployment failing to match an AI sha would be indistinguishable between "a
-human wrote it" and "we could not attribute it". `PrStats.mergedShas` — one `{s, a}` entry per merged
-PR, riding inside the existing `Scan.prStats` blob, built from `mergeCommit.oid` that W5's revert
-linkage has paged and discarded since it shipped — carries every merged PR with its AI flag. No new
+human wrote it" and "we could not attribute it". `PrStats.mergedShas`, one `{s, a}` entry per merged
+PR riding inside the existing `Scan.prStats` blob and built from `mergeCommit.oid` that W5's revert
+linkage has paged and discarded since it shipped, carries every merged PR with its AI flag. No new
 column, no extra API call.
 
 **Four limits, all rendered on the panel rather than documented away:**
 
-1. **"Failure" means the deployment failed** — not "caused an incident". Only the first is
+1. **"Failure" means the deployment failed**, not "caused an incident". Only the first is
    observable here, and *change failure rate* is a term of art a reader hears as the second.
    "Time to next success" is likewise a proxy for restore time, labelled as one.
 2. **Attribution coverage is printed.** A split over 12 of 51 deployments means something very
    different from one over 49. Unattributed deployments (merge trains, tag deploys, pre-W4 scans) are
    excluded from the split and **counted**, never defaulted into a bucket.
 3. **The human bucket is contaminated in AI's favour.** Unmarked AI assistance is invisible to the
-   detector and lands there — so a measured "AI fails more" is *conservative*, and an "AI fails less"
+   detector and lands there, so a measured "AI fails more" is *conservative*, and an "AI fails less"
    should be read with that in mind.
 4. **No rate under `MIN_DEPLOYMENTS` (5).** One bad deploy out of one is not a 100% failure rate, and
-   the gap is withheld entirely unless **both** buckets clear the floor — one side unknown makes the
+   the gap is withheld entirely unless **both** buckets clear the floor: one side unknown makes the
    difference unknowable, which is not the same as zero.
 
 A deployment with no status is stored as `pending`, never assumed successful (which would understate
@@ -678,7 +678,7 @@ fails a scan: no token or no deployments yields no rows, and the panel says "not
 ### Unit economics — what a unit of AI work costs (W3a, 2026-08-14)
 
 `AiUsageRecord` answers *"what did this repo's AI cost on Tuesday"*. It structurally cannot answer
-*"what does a unit of work cost"*, because a day bucket has no notion of an **attempt** — and that is
+*"what does a unit of work cost"*, because a day bucket has no notion of an **attempt**, and that is
 the metric Port's AI-SDLC research says orgs get wrong by measuring adoption instead of outcomes.
 Agents bill per attempt, so a 30% no-output rate makes the real cost per completed unit ~1.43× the
 naive per-session figure.
@@ -696,17 +696,17 @@ panel on Delivery, in its own Suspense boundary (it is a windowed read; the rest
    knows their own team. Naming those sessions "abandoned" would be an over-claim about the most
    common kind of session there is.
 2. **No per-PR cost is claimed.** The telemetry carries no pull-request id, so a session→`AiChange`
-   link would be a repo-plus-time-window guess — a heuristic wearing a precise number's clothes.
+   link would be a repo-plus-time-window guess: a heuristic wearing a precise number's clothes.
    The join is made at **repo × period**, where both sides are counted: agent spend in a repo over a
    period ÷ AI-attributed merged PRs in that same repo and period. It is labelled an allocation and
    its denominator is printed beside it.
 3. **No division by zero reads as free.** A repo that merged no AI-attributed change in the window
-   has *no denominator* — an em dash. The fleet ratio excludes those repos and **says how many it
+   has *no denominator*: an em dash. The fleet ratio excludes those repos and **says how many it
    excluded**, because dropping them silently would understate spend while including them would send
    the figure toward infinity.
 
-The denominator is counted from `AiChange` — the same population the
-[evidence pack](#change-management-evidence-pack-w2-2026-08-14) reports — so the ROI arithmetic and
+The denominator is counted from `AiChange`, the same population the
+[evidence pack](#change-management-evidence-pack-w2-2026-08-14) reports, so the ROI arithmetic and
 the audit artifact can never disagree about how many AI changes shipped.
 
 An exporter that predates the `session.id` attribute yields zero attempts and keeps working exactly
@@ -723,56 +723,56 @@ per-repo **fidelity** it can reach:
 | --- | --- | --- |
 | `measured` | Claude Code (available) | Spend attributed to the exact repo, via the OTel `git.repository` resource attribute. |
 | `allocated` | OpenAI · Codex (planned) | Reported above repo level; distributed by git-attributed AI volume. |
-| `seats-only` | GitHub Copilot (available, **W3b**) | Seats and daily engagement, **no spend** — GitHub exposes no per-seat price through any API. |
+| `seats-only` | GitHub Copilot (available, **W3b**) | Seats and daily engagement, **no spend**: GitHub exposes no per-seat price through any API. |
 
 **`seats-only` is not a lesser `allocated`; it is a different fact.** The Copilot connector stores
 real org-level records whose `costCents` is legitimately 0, which is why `OrgUsageRollup`
 distinguishes `hasAllocated` from **`hasAllocatedCost`**. Without that split, the ROI model's
 allocated branch would divide a zero total across every repository and render the whole fleet as
-"$0 spend / shadow AI" — connected-looking, confident, and entirely wrong. `POST
+"$0 spend / shadow AI": connected-looking, confident, and entirely wrong. `POST
 /api/integrations/copilot/sync` (owner-only, via the org's App installation) says so in its own
 success response rather than leaving the operator to wonder why no money appeared.
 
 **The `simulated` tier is gone (W3c).** It filled the spend columns from an FNV hash of the
-repository name — plausible dollars, seat counts and plan assignments no provider ever reported.
+repository name: plausible dollars, seat counts and plan assignments no provider ever reported.
 The UI blurred them, but the *model* still produced them, so every derived total (annual spend, idle
-spend, ungoverned spend, cost per AI PR) was arithmetic over fabricated input — precisely what
+spend, ungoverned spend, cost per AI PR) was arithmetic over fabricated input, precisely what
 [`VALUE-CASE.md`](../../VALUE-CASE.md) D32 forbids. The tier is now `none`: the spend layer is
 absent, money cells render empty with a connect prompt, and the two spend-derived verdicts
 (`shadow`, `idle`) are withheld. A test pins that spend cannot vary with a repository's name.
 
 **The ingest surface** (`src/app/api/integrations/ingest`, plus `/v1/metrics` and `/v1/logs`)
 is the app's only internet-facing, body-accepting endpoint authenticated by nothing but a
-bearer token, so it carries the same guards as the rest of the public funnel — all three
+bearer token, so it carries the same guards as the rest of the public funnel: all three
 routes share one front door, `guardIngest` in `src/lib/integrations/ingest-guard.ts`:
 
 | Guard | Behavior |
 | --- | --- |
-| Rate limit | `INGEST_RATE_LIMIT` layered on the shared limiter (`src/lib/rate-limit.ts`) — per-IP burst 3,000/min + a 20,000/min per-instance global, both env-overridable (`RATE_LIMIT_INGEST_PER_IP` / `_GLOBAL`). Derived from Claude Code's real push cadence: metrics flush every 60s and logs every 5s **per developer machine**, so a 200-seat org behind one egress IP legitimately produces ~2,600 req/min. Charged **before** token verification, so a flood is refused without spending crypto. |
+| Rate limit | `INGEST_RATE_LIMIT` layered on the shared limiter (`src/lib/rate-limit.ts`): per-IP burst 3,000/min + a 20,000/min per-instance global, both env-overridable (`RATE_LIMIT_INGEST_PER_IP` / `_GLOBAL`). Derived from Claude Code's real push cadence: metrics flush every 60s and logs every 5s **per developer machine**, so a 200-seat org behind one egress IP legitimately produces ~2,600 req/min. Charged **before** token verification, so a flood is refused without spending crypto. |
 | Body cap | `MAX_BODY` = 1 MB, checked against a declared `content-length` first and then by streamed byte count, so an oversized push is refused (**413**) after one chunk rather than buffered. Applies to the accept-and-discard paths too (the protobuf drain, `/v1/logs`). |
 | Token | `parseIngestToken` re-derives the HMAC from the slug **and minted epoch** in the token; constant-time compare, then the epoch is checked against the org's stored one. Runs **before** any body/wire-format handling, so a bad-token protobuf push gets 401, never 415. |
 
 ### Token rotation (`Organization.ingestTokenEpoch`)
 
-The token is designed to be copied — into a shell profile, a CI secret, a Slack thread by mistake.
+The token is designed to be copied: into a shell profile, a CI secret, a Slack thread by mistake.
 It carries the per-org **revocation epoch** it was minted at, the same version-bump shape
 `SessionRevocation` uses for the session cookie's `sv`:
 
 | Epoch | Token |
 | --- | --- |
-| 0 (never rotated) | `asc_otel.<slug>.<mac>`, `mac = HMAC(secret, "otel:<slug>")` — byte-for-byte the pre-rotation format, so **no org re-onboards** |
+| 0 (never rotated) | `asc_otel.<slug>.<mac>`, `mac = HMAC(secret, "otel:<slug>")`, byte-for-byte the pre-rotation format, so **no org re-onboards** |
 | N | `asc_otel.<slug>.e<N>.<mac>`, `mac = HMAC(secret, "otel:<slug>:e<N>")` |
 
 The epoch is inside the signed material, so an old mac can't be relabelled with a higher epoch.
 **Regenerate token** on the Integrations page (owner-only, behind an inline confirm that states the
-consequence — every exporter still using the old token starts getting 401s on its next push, with no
+consequence: every exporter still using the old token starts getting 401s on its next push, with no
 queue or recovery) POSTs `/api/integrations/token { org, rotate: true }`, which bumps the epoch, audits
 the act (`integrations.token.rotate`) and returns the new token. The panel re-renders the masked field,
 the env snippet and the Test button from that response, so the owner copies a working configuration
-**without a reload** — which matters because the response is the only place the new token exists.
+**without a reload**, which matters because the response is the only place the new token exists.
 
-**The mask is real, not decorative.** One `Reveal` control governs *both* rendered surfaces — the token
-field and the `ENVIRONMENT` block — because the snippet used to interpolate the full token
+**The mask is real, not decorative.** One `Reveal` control governs *both* rendered surfaces, the token
+field and the `ENVIRONMENT` block, because the snippet used to interpolate the full token
 (`…HEADERS=Authorization=Bearer asc_otel.<slug>.<mac>`) three lines below a field showing bullets, so
 screenshotting or screen-sharing the page leaked the credential the owner believed was hidden. Masking
 stops at the display: **Copy always puts the working token on the clipboard**, on the field and on the
@@ -794,16 +794,16 @@ reported** rather than silently skipped:
 
 | Reason | What it means |
 | --- | --- |
-| `unknown-metric` | The datapoint's metric is outside the three-name allowlist (`claude_code.token.usage` / `.cost.usage` / `.session.count`). Its **value** is dropped — widening the allowlist is a non-goal; reporting the drop is the point. |
+| `unknown-metric` | The datapoint's metric is outside the three-name allowlist (`claude_code.token.usage` / `.cost.usage` / `.session.count`). Its **value** is dropped. Widening the allowlist is a non-goal; reporting the drop is the point. |
 | `no-repo-attr` | The resource carries no `git.repository`, so the spend can't be attributed to a repository. |
-| `unsupported-host` | The remote resolves to a host whose repo identity Ascent doesn't model — GitLab, Bitbucket, self-hosted. `resolveGitRepo` **names the host** so the report is actionable. A non-GitHub remote is explicitly reported as unsupported; it never silently vanishes. |
+| `unsupported-host` | The remote resolves to a host whose repo identity Ascent doesn't model: GitLab, Bitbucket, self-hosted. `resolveGitRepo` **names the host** so the report is actionable. A non-GitHub remote is explicitly reported as unsupported; it never silently vanishes. |
 
 `parseOtlpMetrics` returns `{ records, received, skipped, unsupportedHosts }`, and the **202 body
 carries `received` / `stored` / `skipped`-by-reason** plus a plain-language `note` when anything was
 dropped (omitted entirely when nothing was).
 
-Per provider, the Integrations card shows **last received** time and what landed — distinct repos
-attributed and cost over the trailing 35 days — read from `AiUsageRecord.updatedAt`
+Per provider, the Integrations card shows **last received** time and what landed (distinct repos
+attributed and cost over the trailing 35 days), read from `AiUsageRecord.updatedAt`
 (`getProviderIngestStatus`), so there is **no schema behind it and no second write path to drift**.
 Three explicit states: never received; received but **nothing attributed to a repo** (the
 previously-invisible failure, called out in orange with the `git.repository` fix); receiving.
@@ -813,7 +813,7 @@ previously-invisible failure, called out in orange with the `git.repository` fix
 `/v1/metrics` **refuses OTLP/protobuf with 415** naming the
 `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` fix. This is deliberate: Ascent decodes OTLP/JSON only,
 and a 202 on a payload it cannot parse would read to the collector as "delivered" while nothing
-ever persists. `/v1/logs` authenticates and 202-accepts without parsing — the token/cost signal
+ever persists. `/v1/logs` authenticates and 202-accepts without parsing; the token/cost signal
 lives in metrics; folding log events into usage is a later step.
 
 ## Key files
@@ -823,37 +823,37 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
 | `src/components/org/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter · Repositories-tab tag manager · A-vs-B comparison picker. |
-| `src/components/org/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on — see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
-| `src/components/org/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome — class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
+| `src/components/org/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
+| `src/components/org/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
-| `src/lib/org/timezone.ts` | **The canonical org time-zone policy** — one reference frame (UTC by default, `ASCENT_ORG_TZ`-overridable) for every calendar-day boundary: zoned midnights, calendar-day arithmetic, day keys, date-literal parsing. See [above](#canonical-time-zone-policy-srcliborgtimezonets). |
+| `src/lib/org/timezone.ts` | **The canonical org time-zone policy**: one reference frame (UTC by default, `ASCENT_ORG_TZ`-overridable) for every calendar-day boundary: zoned midnights, calendar-day arithmetic, day keys, date-literal parsing. See [above](#canonical-time-zone-policy-srcliborgtimezonets). |
 | `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, `end` compat bound, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
 | `src/lib/org/briefing.ts` | `buildExecBriefing` (the one assembly behind page/PDF/markdown/share), `briefingMarkdown`, and the single ranked next move (`briefingNextMove` / `nextMoveLine`). |
 | `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
 | `src/components/org/shell/OrgTabNav.tsx` | Persistent nav rail (two-level `SectionRailNav`), grouped by the transition journey. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
-| `src/components/org/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview — **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
+| `src/components/org/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview, **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
 | `src/components/org/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/components/org/AuditLogViewer.tsx` | Audit trail viewer. |
-| `src/components/org/backlog/BacklogPanel.tsx` | Backlog tab client panel — grouping toggle, inline status/owner/due-date edits, per-item activity history, undo bar, search/filter row and the bulk-action bar. |
-| `src/components/org/backlog/backlogFilter.ts` | Pure search/filter model (`matchesBacklogFilter`, `filterBacklog`, `filterWantsClosed` — the rule that composes a closed-status chip with the `includeClosed` fetch). |
-| `src/components/org/backlog/useBacklogBulk.ts` | Bulk status runner — `MAX_BULK` (100) per action, `BULK_CONCURRENCY` lanes, one refresh at the end. |
+| `src/components/org/backlog/BacklogPanel.tsx` | Backlog tab client panel: grouping toggle, inline status/owner/due-date edits, per-item activity history, undo bar, search/filter row and the bulk-action bar. |
+| `src/components/org/backlog/backlogFilter.ts` | Pure search/filter model (`matchesBacklogFilter`, `filterBacklog`, `filterWantsClosed`, the rule that composes a closed-status chip with the `includeClosed` fetch). |
+| `src/components/org/backlog/useBacklogBulk.ts` | Bulk status runner: `MAX_BULK` (100) per action, `BULK_CONCURRENCY` lanes, one refresh at the end. |
 | `src/components/org/backlog/BacklogGroups.tsx` | The grouped Cards + rows + the three empty states (filter-empty is distinct from backlog-empty). |
 | `src/components/org/ui.tsx` | Shared org-UI primitives. |
-| `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate — see [plan.md](../org-planning/plan.md)). |
+| `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate; see [plan.md](../org-planning/plan.md)). |
 | `src/app/api/recommendations/[id]` | `PATCH` (status / `assigneeLogin` / `targetDate`, recording a `RecommendationEvent` attributed to the signed-in user) · `[id]/events` `GET` → the item's activity timeline. |
 | `src/app/api/audit/route.ts` | Audit query endpoint. |
 
 ## Mock scores never enter an average (2026-08-03)
 
-A scan run without a model produces a **deterministic mock** score (`engine: "mock"`) — a
+A scan run without a model produces a **deterministic mock** score (`engine: "mock"`), a
 placeholder floor, not a grade. Anywhere the Overview presents a figure as a *measurement*, mock
 rows are excluded from it:
 
 | Figure | Rule |
 | --- | --- |
-| Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none — the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
+| Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none: the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
 | Fleet + per-group `avg move` (`avgRealMove`) | Excludes single-scan repos and **engine-transition** deltas, so a mock→live re-scan cannot fake improvement. Pre-existing; the score average now matches its precedent. |
 | Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |
 
@@ -863,34 +863,34 @@ Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. 
 ## AI stance (Governance tab, W3)
 
 The Governance tab carries a second section under the gate cards: the org's **published AI
-stance** — the versioned "what may AI do here" policy artifact (permitted tools/models, no-AI
+stance**, the versioned "what may AI do here" policy artifact (permitted tools/models, no-AI
 zones, review requirements per autonomy tier, provenance requirements). The gate is the *enforced*
 bar; the stance is the *declared* policy, and every readout is **declared vs OBSERVED attribution**
-from existing scan data — never "enforced", and the copy must never claim it is.
+from existing scan data, never "enforced", and the copy must never claim it is.
 
-- **Model** — `OrgAiStance` versioned rows (draft → published → superseded; see
+- **Model**: `OrgAiStance` versioned rows (draft → published → superseded; see
   [data-model.md](../data/data-model.md)) with `stanceJson` typed as `AiStance` in `src/lib/types.ts`
   and guarded by `sanitizeStance` (`src/lib/org/stance.ts`, the sibling of `sanitizeGatePolicy`).
   Acknowledgements live on `OrgArtifactAck` (repo ⇄ artifact version, `artifact = "ai-stance"`),
-  upserted per repo — `current` / `stale` / `unacked` is derived against the ACTIVE version.
-- **Compliance** — pure `evaluateStanceCompliance` (`src/lib/org/stance.ts`) over per-repo facts
+  upserted per repo; `current` / `stale` / `unacked` is derived against the ACTIVE version.
+- **Compliance**: pure `evaluateStanceCompliance` (`src/lib/org/stance.ts`) over per-repo facts
   read by `getStanceRepoFacts` (`src/lib/db/org-stance.ts`): observed tool taxonomy + `aiInvolvedRate`
   + W2 `aiTrailerRate` from the latest scan's `prStats`, unapproved MERGED `AiChange` rows, and the
   repo's ack. The fleet assembly (`buildStanceOverview`, `src/lib/org/stance-overview.ts`) **stamps
   the stance version it evaluated**. Repo-scoped no-AI zones are checkable (glob vs fullName);
   **path-scoped zones are advisory-only** (commit file paths aren't ingested) and every surface
   labels them with the shared `PATH_ZONE_ADVISORY_LABEL`.
-- **UI** — `src/components/org/govern/stance/`: `StanceSection` (server) renders the **Perimeter**
+- **UI** (`src/components/org/govern/stance/`): `StanceSection` (server) renders the **Perimeter**
   (`StancePerimeter` + `perimeterParts`): checkpoint strip (declared tools/models vs
   observed-undeclared), four tier bands T0→T3 fed by each repo's **real autonomy tier from the
   shared `passport-autonomy` resolver** (repos with no passport are shown as "tier not assessed",
   never defaulted), and the sealed-zones panel. No published stance → the publish-CTA empty state.
   Owners get `StanceEditor` (sibling of `GatePolicyEditor`: save draft / publish vN), an
   ack button per non-current repo, and an "Open AI_POLICY.md PR" control.
-- **API** — `/api/org/ai-stance` (member GET; owner POST draft/publish, audit-logged as
+- **API**: `/api/org/ai-stance` (member GET; owner POST draft/publish, audit-logged as
   `org.ai_stance` with version + summary), `/api/org/ai-stance/ack` (admin; `org.ai_stance_ack`),
-  `/api/org/ai-stance/apply` (admin; opens a draft PR committing `AI_POLICY.md` — rendered by
-  `src/lib/org/stance-artifact.ts` — through the shared practices apply machinery; the filename
+  `/api/org/ai-stance/apply` (admin; opens a draft PR committing `AI_POLICY.md`, rendered by
+  `src/lib/org/stance-artifact.ts`, through the shared practices apply machinery; the filename
   deliberately matches the D1 detector's `ai[-_]policy` reward, so adoption lifts D1).
 
 ## Known gaps
@@ -899,29 +899,29 @@ from existing scan data — never "enforced", and the copy must never claim it i
   first** band is back on the Overview (`OverviewFixFirstPanel` → pure `deriveFixFirst` in
   `src/components/org/overview/fixFirst.ts`), revived from the 2026-08-03 deletion with a cheaper
   input set: worst regresser (`getOrgMovers`), the busiest unresolved derived-findings queue
-  (`getOrgFindings` — already `unstable_cache`d for the rail badges, decisions subtracted fresh),
+  (`getOrgFindings`, already `unstable_cache`d for the rail badges, decisions subtracted fresh),
   and the first behind-pace active goal (`listGoals`). It streams in its own `<Suspense>` boundary
   so the fleet panel is never held, drops `getOrgGapAnalysis` (the expensive read that motivated
   the deletion), and renders nothing when there is nothing actionable.
 
-- **No per-contributor drill-down page, deliberately** — and no per-person time-series to build one
+- **No per-contributor drill-down page, deliberately**, and no per-person time-series to build one
   from: `RepoContributor` is uniquely keyed `(repoId, login)` and upserted each scan, so it is a
   *current* snapshot with no history. Two reasons this stays unbuilt rather than "not yet": (1) the
-  data doesn't exist — a "this person's trajectory" page could only be faked; (2) the only per-person
+  data doesn't exist: a "this person's trajectory" page could only be faked; (2) the only per-person
   history that *does* exist (`AiChange.authorLogin`) is documented in the schema as internal-only and
   pseudonymized in customer-facing packs, so building a profile page on it would invert an existing
   privacy decision. Team-level drill-down already exists (the expandable `TeamsMatrixDetail` row).
-- **No DORA panel, deliberately** — of DORA's four metrics, Ascent ingests neither a deployment feed
+- **No DORA panel, deliberately**: of DORA's four metrics, Ascent ingests neither a deployment feed
   nor an incident feed, so **deployment frequency** and **time to restore** are not derivable at all;
   **lead time for changes** (commit → running in production) is only partially observable as PR
   open→merge latency, which the Delivery trend ships under its true name ("time to merge"); and
   **change failure rate** has only `prStats.revertRate` (a VCS revert, not a production failure)
   behind it. Labelling any of these "DORA" would invite a leader to benchmark a proxy against
   published industry figures. Unblocking it needs GitHub Deployments/Releases ingestion plus an
-  incident source — a data-ingestion project, not a dashboard one.
-- **No regression notifications in the UI** — movers show on the dashboard; push/email
+  incident source: a data-ingestion project, not a dashboard one.
+- **No regression notifications in the UI**: movers show on the dashboard; push/email
   alerts go through the webhook sink (see [../alerts.md](../fleet/alerts.md)).
-- **Org trend is overall-only** — per-dimension org trends over time aren't surfaced yet.
-- **Team attribution is CODEOWNERS-only** — `getOrgTeamRollup` keys off each repo's CODEOWNERS
+- **Org trend is overall-only**: per-dimension org trends over time aren't surfaced yet.
+- **Team attribution is CODEOWNERS-only**: `getOrgTeamRollup` keys off each repo's CODEOWNERS
   (`@org/team` owners, parsed at scan time). Repos with no CODEOWNERS team show as "unowned"; the
   GitHub Teams API (GraphQL) as a fallback attribution source is still on the roadmap.

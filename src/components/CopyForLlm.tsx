@@ -100,15 +100,15 @@ export function CopyForLlm({
           ? "Copied to clipboard."
           : failed
             ? nothingToCopy
-              ? "Nothing to copy — this brief is empty."
-              : "Copy failed. The text is shown below — select it and copy manually."
+              ? "Nothing to copy. This brief is empty."
+              : "Copy failed. The text is shown below: select it and copy manually."
             : ""}
       </span>
       {fallbackOpen && (
         <div className="mt-2 w-full max-w-xl rounded-lg border border-slate-700 bg-slate-950/80 p-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-slate-400">
-              Automatic copy is blocked here — the text is selected below, press <kbd className="rounded border border-slate-700 px-1 font-mono">Ctrl</kbd>+<kbd className="rounded border border-slate-700 px-1 font-mono">C</kbd> (⌘C on Mac).
+              Automatic copy is blocked here. The text is selected below: press <kbd className="rounded border border-slate-700 px-1 font-mono">Ctrl</kbd>+<kbd className="rounded border border-slate-700 px-1 font-mono">C</kbd> (⌘C on Mac).
             </p>
             <button
               type="button"

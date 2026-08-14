@@ -20,7 +20,7 @@ export function ScorecardSummary({ card }: { card: PublicOrgScorecard }) {
         <p className="text-lg font-semibold text-white">No published score yet</p>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-slate-400">
           All {card.repoCount} scanned public {card.repoCount === 1 ? "repository" : "repositories"} for{" "}
-          {card.owner} were scored by the deterministic preview rubric — no model contributed a
+          {card.owner} were scored by the deterministic preview rubric. No model contributed a
           judgement. Ascent will not publish a maturity number a model never produced, so this scorecard
           stays blank until a real scan lands.
         </p>
@@ -93,7 +93,7 @@ export function ScorecardSummary({ card }: { card: PublicOrgScorecard }) {
             only and excluded from every number above)
           </>
         )}
-        . Private repositories are never included — this page is a lens over the public scan corpus, not
+        . Private repositories are never included: this page is a lens over the public scan corpus, not
         over any organisation&apos;s Ascent workspace.
       </p>
     </div>

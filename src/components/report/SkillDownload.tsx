@@ -71,7 +71,7 @@ export function SkillDownload({
         <ModalBody className="max-h-[60vh] overflow-y-auto">
           <p className="text-sm text-slate-400">
             By default Ascent picks the dimensions this repo is weak on. Select your own set to scope a
-            session — including a <span className="text-slate-200">refinement</span> on a dimension that
+            session, including a <span className="text-slate-200">refinement</span> on a dimension that
             is already strong.
           </p>
           <ul className="mt-4 divide-y divide-divider border-y border-divider">
@@ -109,7 +109,7 @@ export function SkillDownload({
         </ModalBody>
         <ModalFooter>
           <Kicker tone="muted">
-            {picked.length === 0 ? "Nothing selected — Ascent picks" : `${picked.length} selected`}
+            {picked.length === 0 ? "Nothing selected: Ascent picks" : `${picked.length} selected`}
           </Kicker>
           <div className="flex items-center gap-2">
             <button

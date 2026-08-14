@@ -160,7 +160,7 @@ export function SeededOrgBanner({ org }: { org: string }) {
       </h2>
       <p className="mt-1 text-base text-slate-400">
         Your most active organization is already on your watchlist. Open its dashboard to scan the
-        fleet and see the cross-repo rollup — or start a fresh scan below.
+        fleet and see the cross-repo rollup, or start a fresh scan below.
       </p>
       <a
         href={`/org/${encodeURIComponent(org)}`}
@@ -199,7 +199,7 @@ export function SuggestedOrgs({
       <h2 className="mt-1 font-semibold text-white">Scan one of your organizations</h2>
       <p className="mt-1 text-base text-slate-400">
         Discovered from your GitHub account. Scanning lists each org&apos;s{" "}
-        <span className="text-slate-200">public repositories</span> — install the GitHub App to
+        <span className="text-slate-200">public repositories</span>. Install the GitHub App to
         include private ones.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">

@@ -150,7 +150,7 @@ export function draftPrConfirm(repo: string, seeds: string): ConfirmSpec {
   return {
     kicker: "Open draft PR",
     title: `Open a draft PR in ${repo}?`,
-    body: `This writes a new branch and commit into ${repo} and opens a real draft pull request seeding ${seeds}. It's visible to the repo's owners — recoverable (you can close the PR), but not a local-only change.`,
+    body: `This writes a new branch and commit into ${repo} and opens a real draft pull request seeding ${seeds}. It's visible to the repo's owners: recoverable (you can close the PR), but not a local-only change.`,
     confirmLabel: "Open draft PR",
     tone: "default",
   };
@@ -164,12 +164,12 @@ export function batchPrConfirm(selectedCount: number, cap: number, org: string):
   const n = Math.min(selectedCount, cap);
   const over =
     selectedCount > cap
-      ? ` Only the first ${cap} of ${selectedCount} selected open this run — the rest exceed the per-batch cap; re-run to open them.`
+      ? ` Only the first ${cap} of ${selectedCount} selected open this run. The rest exceed the per-batch cap; re-run to open them.`
       : "";
   return {
     kicker: "Fleet rollout",
     title: `Open ${n} draft ${plural(n, "PR")} across ${n} ${org} ${plural(n, "repo", "repos")}?`,
-    body: `This opens a real draft pull request in ${n} ${plural(n, "repository", "repositories")} under ${org}, each writing its own branch and commit. Each repo's starter content is generated for that repo at apply time — it is not individually previewed.${over} Every repo's owners see it — recoverable per PR, but ${n} at once.`,
+    body: `This opens a real draft pull request in ${n} ${plural(n, "repository", "repositories")} under ${org}, each writing its own branch and commit. Each repo's starter content is generated for that repo at apply time; it is not individually previewed.${over} Every repo's owners see it: recoverable per PR, but ${n} at once.`,
     confirmLabel: `Open ${n} ${plural(n, "PR")}`,
     tone: "default",
   };
@@ -183,7 +183,7 @@ export function retestConfirm(repo: string): ConfirmSpec {
   return {
     kicker: "Re-test",
     title: `Re-scan ${repo}?`,
-    body: `This spends one slot from your weekly scan quota to re-score ${repo} against its latest commit. It's free if nothing changed since the last scan, but a moved repo runs — and bills — a full re-score.`,
+    body: `This spends one slot from your weekly scan quota to re-score ${repo} against its latest commit. It's free if nothing changed since the last scan, but a moved repo runs (and bills) a full re-score.`,
     confirmLabel: "Re-scan now",
     tone: "default",
   };
@@ -196,7 +196,7 @@ export function goalDeleteConfirm(label: string): ConfirmSpec {
   return {
     kicker: "Delete goal",
     title: `Delete the "${label}" goal?`,
-    body: `This permanently deletes the goal and its achievement history — the milestones it recorded and the date it was met. This can't be undone.`,
+    body: `This permanently deletes the goal and its achievement history: the milestones it recorded and the date it was met. This can't be undone.`,
     confirmLabel: "Delete goal",
     tone: "danger",
   };

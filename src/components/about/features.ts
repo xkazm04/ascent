@@ -18,13 +18,13 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     id: "xray",
     kicker: "See the whole fleet",
     title: "Every repo's AI-readiness, on one index",
-    body: "Ascent scores each repository 0–100 across nine dimensions, then rolls your whole org into one picture — by segment, by team, by posture. Know exactly where you stand before you spend a dollar moving.",
+    body: "Ascent scores each repository 0–100 across nine dimensions, then rolls your whole org into one picture: by segment, by team, by posture. Know exactly where you stand before you spend a dollar moving.",
     points: [
       "Nine scored dimensions distilled to one comparable index",
-      "Slice the fleet by segment — platform, mobile, legacy — and compare side by side",
+      "Slice the fleet by segment (platform, mobile, legacy) and compare side by side",
       "A posture map that separates “fast & ungoverned” from “solid but manual”",
     ],
-    value: "Stop guessing which teams are ready to accelerate — and which are quietly compounding risk.",
+    value: "Stop guessing which teams are ready to accelerate and which are quietly compounding risk.",
   },
   {
     id: "roi",
@@ -34,7 +34,7 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     // beside them substantiates (live promotions / avg gain / scope); the richer /org-only
     // capabilities (leverage ranking, goal ETAs) live in `body`, explicitly attributed to the full
     // simulator inside /org so the demo never undercuts the claim next to it.
-    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix — raise testing, CI/CD, and conventions across these repos — and shows how many repos level up. The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and projects which goals each move unlocks, and when.",
+    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix (raise testing, CI/CD, and conventions across these repos) and shows how many repos level up. The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and projects which goals each move unlocks, and when.",
     points: [
       "Drag a target and watch promotions, average gain, and scope recompute live",
       "In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves",
@@ -46,11 +46,11 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     id: "adoption",
     kicker: "Spread what works",
     title: "Turn your AI champions into a force multiplier",
-    body: "Ascent attributes AI-assisted work per contributor and surfaces your champions — the people already shipping at a high AI share — right next to the teams sitting at zero. Pair them, and adoption spreads by example, not by mandate.",
+    body: "Ascent attributes AI-assisted work per contributor and surfaces your champions (the people already shipping at a high AI share) right next to the teams sitting at zero. Pair them, and adoption spreads by example, not by mandate.",
     points: [
       "Per-contributor AI attribution and an adoption distribution",
       "Find the champions who can lead peer enablement",
-      "Read adoption against real delivery signals — merge rate, PR review",
+      "Read adoption against real delivery signals: merge rate, PR review",
     ],
     value: "Replace expensive top-down training with the champions you already employ.",
   },
@@ -58,12 +58,12 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     id: "risk",
     kicker: "Catch it early",
     title: "Spot ungoverned AI risk before it costs you",
-    body: "A security gate bands every repo by its security score, flags “ungoverned” repos — high AI velocity, weak review gates — and aggregates supply-chain alerts across the fleet. Period-over-period detection raises the alarm the moment a repo regresses.",
+    body: "A security gate bands every repo by its security score, flags “ungoverned” repos (high AI velocity, weak review gates) and aggregates supply-chain alerts across the fleet. Period-over-period detection raises the alarm the moment a repo regresses.",
     points: [
       "Security gate and supply-chain alerts in a single view",
       "A regression alarm on any repo that slips a level",
       "Governance evidence ready for audits and security reviews",
     ],
-    value: "Avoid the failed audit, the breach, and the 2 a.m. incident — before they happen.",
+    value: "Avoid the failed audit, the breach, and the 2 a.m. incident before they happen.",
   },
 ];

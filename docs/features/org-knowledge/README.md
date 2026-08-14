@@ -1,6 +1,6 @@
 # Org Knowledge & Skills
 
-Shared org memory and the skills library — the parts of ascent that accumulate
+Shared org memory and the skills library: the parts of ascent that accumulate
 across sessions rather than being recomputed per scan.
 
 Context-map group: **Org Knowledge & Skills** (`feature`).
@@ -21,7 +21,7 @@ Context-map group: **Org Knowledge & Skills** (`feature`).
 Backing models: `OrgMemory`, `OrgSkill`, `OrgSkillAdoption`, `OrgSkillDownload`,
 `OrgSkillEvent`, `OrgApiToken`, `SkillGeneration`.
 
-Both surfaces are tier-gated — `planAllowsMemory` and `planAllowsSkillsLibrary` in
+Both surfaces are tier-gated, via `planAllowsMemory` and `planAllowsSkillsLibrary` in
 `src/lib/plans.ts` (Team and above; see [`../billing/billing.md`](../billing/billing.md)).
 
 ## Known gaps
@@ -30,8 +30,8 @@ Carried up from the per-doc "Known gaps"; each was verified as *unresolved* rath
 than assumed:
 
 - **Reflect may not be reachable from the UI.** The `/api/org/memory/reflect`
-  endpoint is implemented, but no wiring to it was found in the memory components —
-  it may currently be API-only.
+  endpoint is implemented, but no wiring to it was found in the memory components,
+  so it may currently be API-only.
 - **Decay has no scheduled trigger.** Auto-archive runs only as a side effect of a
   reflect call with `decay: true`; no cron drives it.
 - `OrgSkillEvent.source` documents a `cli|hook|ci|web` convention that is not

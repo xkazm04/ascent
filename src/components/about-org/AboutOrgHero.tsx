@@ -15,7 +15,7 @@ import { OrgIndexInstrument } from "./OrgIndexInstrument";
 import { MODULE_COUNT, VIEW_COUNT } from "./orgModules";
 
 const INTRO =
-  "Ascent scores every repository in your GitHub organization, then rolls them into one governed operating picture — from the executive briefing at the top to the audit trail at the bottom, with the evidence behind every number.";
+  "Ascent scores every repository in your GitHub organization, then rolls them into one governed operating picture: the executive briefing at the top, the audit trail at the bottom, with the evidence behind every number.";
 
 /** Masthead ledger cell whose figure counts up on reveal (the /about hero's StatNum, kept local since
  *  the two decks are free to diverge and this one is a three-cell ledger of derived counts). */

@@ -213,7 +213,7 @@ export function OrgHeader({
           <span
             className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 font-mono text-sm tabular-nums"
             style={{ color: scoreHex(score) }}
-            title="Fleet maturity — level · index score"
+            title="Fleet maturity: level · index score"
           >
             {levelId} · {score}
           </span>

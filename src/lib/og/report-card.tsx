@@ -103,7 +103,7 @@ export function ReportShareCard({ report, sha }: { report: ScanReport; sha?: str
           </div>
           <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{ref}</div>
           <div style={{ display: "flex", fontSize: 26, color: "#94a3b8" }}>
-            Adoption {report.adoptionScore} · Rigor {report.rigorScore} —{" "}
+            Adoption {report.adoptionScore} · Rigor {report.rigorScore} ·{" "}
             {isMock ? "scored from deterministic signals, no model analysis." : "across 9 dimensions, with evidence."}
           </div>
         </div>

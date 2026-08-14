@@ -215,7 +215,7 @@ describe("buildGateComment — default-branch fallback (scoredHead: false)", () 
 
   it("scoredHead: true (and the default) keep the exact confident per-PR framing", () => {
     expect(buildGateComment(report(), passGate, null, { scoredHead: true }).conclusion).toBe("success");
-    expect(buildGateComment(report(), passGate).title).toMatch(/^Passed — /);
+    expect(buildGateComment(report(), passGate).title).toMatch(/^Passed: /);
   });
 });
 

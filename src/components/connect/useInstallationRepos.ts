@@ -149,7 +149,7 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
           else ids.add(segId);
           return { ...m, [r.fullName]: [...ids] };
         });
-        setRowError(r.fullName, "Couldn't update segment — not saved. Try again.");
+        setRowError(r.fullName, "Couldn't update segment. Not saved. Try again.");
       }
     } catch {
       setSegMembership((m) => {
@@ -158,7 +158,7 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
         else ids.add(segId);
         return { ...m, [r.fullName]: [...ids] };
       });
-      setRowError(r.fullName, "Network error — segment not saved. Try again.");
+      setRowError(r.fullName, "Network error. Segment not saved. Try again.");
     }
   }
 
@@ -227,12 +227,12 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
       if (watchSeq.current[r.fullName] !== seq) return; // superseded by a newer toggle — it owns the row
       if (!res.ok) {
         patchRollback(r.fullName, { watched: prevWatched });
-        setRowError(r.fullName, `Couldn't ${watched ? "watch" : "unwatch"} — not saved. Try again.`);
+        setRowError(r.fullName, `Couldn't ${watched ? "watch" : "unwatch"}. Not saved. Try again.`);
       }
     } catch {
       if (watchSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
       patchRollback(r.fullName, { watched: prevWatched });
-      setRowError(r.fullName, "Network error — change not saved. Try again.");
+      setRowError(r.fullName, "Network error. Change not saved. Try again.");
     } finally {
       setWatchPending((p) => {
         const next = { ...p };
@@ -259,12 +259,12 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
       if (scheduleSeq.current[r.fullName] !== seq) return; // superseded by a newer schedule change
       if (!res.ok) {
         patchRollback(r.fullName, { scanSchedule: prevSchedule });
-        setRowError(r.fullName, "Couldn't change the schedule — not saved. Try again.");
+        setRowError(r.fullName, "Couldn't change the schedule. Not saved. Try again.");
       }
     } catch {
       if (scheduleSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
       patchRollback(r.fullName, { scanSchedule: prevSchedule });
-      setRowError(r.fullName, "Network error — schedule not saved. Try again.");
+      setRowError(r.fullName, "Network error. Schedule not saved. Try again.");
     }
   }
 
@@ -326,16 +326,16 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
       // the row's optimistic watch is gone AND the row explains why, instead of silently reverting.
       revertFullNames.forEach((fn) => {
         patch(fn, { watched: false });
-        setRowError(fn, "Couldn't watch — not saved. Try again.");
+        setRowError(fn, "Couldn't watch. Not saved. Try again.");
       });
       setBulkMsg(message);
       if (!res.ok) return;
     } catch {
       targets.forEach((r) => {
         patch(r.fullName, { watched: false });
-        setRowError(r.fullName, "Network error — change not saved. Try again.");
+        setRowError(r.fullName, "Network error. Change not saved. Try again.");
       });
-      setBulkMsg({ kind: "error", text: "Network error — bulk watch not saved." });
+      setBulkMsg({ kind: "error", text: "Network error. Bulk watch not saved." });
     } finally {
       setBulkBusy(false);
     }
@@ -375,14 +375,14 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
       if (unconfirmed.length > 0) {
         setBulkMsg({
           kind: "error",
-          text: `Set ${schedule} for ${n} of ${watchedRepos.length} repo${watchedRepos.length === 1 ? "" : "s"} — ${unconfirmed.length} weren't watched on the server and were reverted. Refresh, then retry.`,
+          text: `Set ${schedule} for ${n} of ${watchedRepos.length} repo${watchedRepos.length === 1 ? "" : "s"}. ${unconfirmed.length} weren't watched on the server and were reverted. Refresh, then retry.`,
         });
       } else {
         setBulkMsg({ kind: "note", text: `Set ${schedule} cadence for ${n} watched repo${n === 1 ? "" : "s"}.` });
       }
     } catch {
       prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
-      setBulkMsg({ kind: "error", text: "Network error — schedule not saved." });
+      setBulkMsg({ kind: "error", text: "Network error. Schedule not saved." });
     } finally {
       setBulkBusy(false);
     }

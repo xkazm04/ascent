@@ -52,7 +52,7 @@ export function CreditCostStrip({
           </>
         ))}
       {underAMonth && (
-        <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
+        <span className="text-warn"> (covers under a month; autoscans pause at zero)</span>
       )}
       {/* The estimate's basis + refund semantics, VISIBLE fine print. It previously lived only in a
           `title` tooltip on this non-interactive <p> — which never fires for keyboard users, doesn't

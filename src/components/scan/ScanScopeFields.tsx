@@ -21,7 +21,7 @@ export const EMPTY_SCOPE: ScanScopeValue = { ref: "", subPath: "" };
 export function validateScope(scope: ScanScopeValue): string | null {
   const ref = scope.ref.trim();
   if (ref && !isValidGitRef(ref)) {
-    return "Branch/tag must be a valid git ref — letters, digits, . _ - and /, e.g. release/2.1.";
+    return "Branch/tag must be a valid git ref: letters, digits, . _ - and /, e.g. release/2.1.";
   }
   const subPath = scope.subPath.trim();
   if (subPath && !normalizeSubPath(subPath)) {

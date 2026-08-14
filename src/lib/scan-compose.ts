@@ -193,7 +193,7 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
   if (budget) warnings.push(budget);
   if (!input.hasToken) {
     warnings.push(
-      "Pull-request signals were skipped — they need a GitHub token (GraphQL has no anonymous access).",
+      "Pull-request signals were skipped: they need a GitHub token (GraphQL has no anonymous access).",
     );
   }
   if (input.llmFailed) {
@@ -207,12 +207,12 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
     // scan disclosed only by a quiet engine chip. Say it plainly so a public-badge or audit reader
     // knows the AI layer never ran, instead of inferring it. [Tiger P1-5 / MEI-B1]
     warnings.push(
-      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric, no AI nuance).",
     );
   }
   if (input.snapshotTruncated) {
     warnings.push(
-      "This repository is very large — its file tree was truncated, so some signals may be missed.",
+      "This repository is very large: its file tree was truncated, so some signals may be missed.",
     );
   } else if (input.snapshotCoverage < 0.5) {
     warnings.push(

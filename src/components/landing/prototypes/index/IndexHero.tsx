@@ -49,7 +49,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
       <div className="deck-container pt-16">
         <Dateline
           left="The AI-native maturity index"
-          right={`Vol. 01 — ${LEVELS.length} levels · ${DIMENSIONS.length} dimensions`}
+          right={`Vol. 01, ${LEVELS.length} levels · ${DIMENSIONS.length} dimensions`}
         />
 
         {/* Vertical rhythm here is gated on viewport HEIGHT, not width. The masthead is a
@@ -71,7 +71,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
             {/* The measure grows a step with the type, so the lede keeps ~60 characters a line at the
                 top of the ramp instead of narrowing to a ragged column. */}
             <p className="deck-lede mt-6 max-w-xl text-lg leading-relaxed text-slate-300 2xl:max-w-2xl [@media(min-height:68rem)]:mt-8">
-              Ascent reads a GitHub repository and rates how AI-native the engineering is — a single 0–100
+              Ascent reads a GitHub repository and rates how AI-native the engineering is: a single 0–100
               score on a {LEVELS.length}-level ladder across {DIMENSIONS.length} weighted dimensions, with the
               evidence behind every number.
             </p>

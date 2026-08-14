@@ -26,7 +26,7 @@ const STEPS: LoopStep[] = [
   {
     n: "01",
     title: "Connect",
-    detail: "Install the GitHub App on the org. Ascent reads through the API — it never clones your code.",
+    detail: "Install the GitHub App on the org. Ascent reads through the API; it never clones your code.",
     module: "Govern",
     tab: "settings",
   },
@@ -68,7 +68,7 @@ export function AboutOrgLoop() {
           size="page"
           kicker="How it runs"
           title="A loop, not a report"
-          intro="The next scan measures whether the last decision worked — which is the only way an index becomes a management instrument instead of a quarterly slide."
+          intro="The next scan measures whether the last decision worked. That is the only way an index becomes a management instrument instead of a quarterly slide."
         />
       </Reveal>
 
@@ -99,7 +99,7 @@ export function AboutOrgLoop() {
         <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-l-2 border-accent/50 pl-4">
           <Kicker>↺ back to 02</Kicker>
           <p className="deck-body text-base text-slate-300">
-            The next scheduled scan re-scores what you changed — and the trajectory either bends or it
+            The next scheduled scan re-scores what you changed, and the trajectory either bends or it
             doesn&apos;t.
           </p>
         </div>

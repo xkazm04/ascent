@@ -47,7 +47,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
       <Kicker>Personal workspace</Kicker>
       <p className="mt-2 text-base text-slate-300">
         <span className="font-mono text-white">{org}</span> is your personal workspace, not a fleet.
-        Personal workspaces don&apos;t run their own org scans — they <em>track</em> public
+        Personal workspaces don&apos;t run their own org scans: they <em>track</em> public
         repositories and read the scores from the shared public history, so one repo keeps one
         continuous series no matter how many people watch it.
       </p>
@@ -61,7 +61,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
             <>
               {" "}
               <span className="font-mono tabular-nums text-slate-200">{privateCount}</span> private{" "}
-              {privateCount === 1 ? "repository is" : "repositories are"} left out — personal
+              {privateCount === 1 ? "repository is" : "repositories are"} left out. Personal
               workspaces track public repositories only.
             </>
           )}
@@ -81,7 +81,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
             <ul className="mt-1 space-y-0.5 text-sm text-amber-300">
               {refused.map((r) => (
                 <li key={r.repo}>
-                  <span className="font-mono">{r.repo}</span> — {r.reason}
+                  <span className="font-mono">{r.repo}</span>: {r.reason}
                 </li>
               ))}
             </ul>

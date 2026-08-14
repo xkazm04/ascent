@@ -347,7 +347,7 @@ export async function runAssessmentPhase(input: AssessPhaseInput): Promise<Asses
         console.error("[scan] LLM provider failed after retry/failover, using mock:", lastErr);
         emit({
           stage: "score",
-          message: "Model unavailable — showing deterministic scores.",
+          message: "Model unavailable, showing deterministic scores.",
           pct: 90,
           fallback: true,
         });

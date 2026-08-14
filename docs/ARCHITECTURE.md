@@ -1,4 +1,4 @@
-# Ascent — Architecture
+# Ascent: Architecture
 
 ## 1. Principles
 
@@ -12,7 +12,7 @@
 - **Serverless-friendly.** No git clone; we read repos over the GitHub REST API so
   everything runs in a stateless function.
 
-## 2. MVP (Phase 1 — no DB)
+## 2. MVP (Phase 1, no DB)
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
 
 **Request flow**
 
-1. `POST /api/scan { url, token? }` — validate + parse the GitHub URL.
+1. `POST /api/scan { url, token? }`: validate + parse the GitHub URL.
 2. **Ingest** (`GitHubPublicSource`): fetch repo metadata, the recursive git **tree**
    (one call), then selectively fetch a **budgeted sample** of file contents (README,
    config files, CI workflows, a sample of test/source files) + recent commit messages.
@@ -46,7 +46,7 @@ flowchart LR
    and dodge rate limits.
 
 **Mock mode:** when `GEMINI_API_KEY` is absent (or `?mock=1`), a deterministic
-`MockProvider` produces a realistic report from the signals alone — the app is fully
+`MockProvider` produces a realistic report from the signals alone: the app is fully
 demoable with zero secrets, and CI/build never needs a key.
 
 ### Key modules
@@ -72,7 +72,7 @@ src/
     types.ts                     # shared report types
 ```
 
-## 3. Phase 2 (DB + Enterprise) — Aurora DSQL & Bedrock
+## 3. Phase 2 (DB + Enterprise): Aurora DSQL & Bedrock
 
 ```mermaid
 flowchart TB
@@ -105,13 +105,13 @@ flowchart TB
   must hold up under enterprise load (matches the hackathon's "ship fast, scale later"
   thesis).
 - **Active-active multi-region, strong consistency** → audit/history data stays correct
-  and available globally — important for an enterprise audit product.
+  and available globally (important for an enterprise audit product).
 - **PostgreSQL-compatible** → rich relational queries for the history/progress/audit
   features (joins across orgs, repos, scans, dimensions, trends over time).
 - **Pairs cleanly with Vercel** via a standard Postgres driver with IAM-based auth and
-  short-lived tokens — connects in minutes.
+  short-lived tokens, connecting in minutes.
 
-### Data model (relational — Aurora DSQL)
+### Data model (relational, Aurora DSQL)
 
 ```mermaid
 erDiagram
@@ -154,7 +154,7 @@ the service is in scope for SOC, ISO, GDPR, HIPAA, and FedRAMP High. Available m
 include **Claude (Anthropic), Amazon Nova, Meta Llama, Mistral**, and others.
 
 > **Important constraint we discovered:** Google's **proprietary Gemini models are NOT
-> available on Bedrock** — only Google's *open* **Gemma** models are. So the MVP's
+> available on Bedrock**: only Google's *open* **Gemma** models are. So the MVP's
 > Gemini path (public Google API) is great for scanning *public* repos, but it is **not**
 > the enterprise private-repo path. For enterprise data security we route inference
 > through **Bedrock-hosted models** (e.g., Claude on Bedrock or Amazon Nova) so a
@@ -168,10 +168,10 @@ This is exactly why `LLMProvider` is an interface, selected at runtime by the
 | Path | `LLM_PROVIDER` | Provider | Why |
 |---|---|---|---|
 | Local dev & testing | `gemini` | `GeminiProvider` (`gemini-3-flash-preview`) | Fast, cheap, generous free tier |
-| Enterprise / private repos (Phase 2) | `bedrock` | `BedrockProvider` — **Claude Sonnet 4.6** (`us.anthropic.claude-sonnet-4-6`) | In-account, no training on data, VPC, KMS, compliance, data residency |
+| Enterprise / private repos (Phase 2) | `bedrock` | `BedrockProvider`: **Claude Sonnet 4.6** (`us.anthropic.claude-sonnet-4-6`) | In-account, no training on data, VPC, KMS, compliance, data residency |
 | Keyless demo / CI | `mock` / `auto` | `MockProvider` | Deterministic, no secrets |
 
-`auto` (the default) picks Gemini when a key is present, else mock — it never silently
+`auto` (the default) picks Gemini when a key is present, else mock: it never silently
 selects Bedrock, which is opt-in. The Bedrock model/region are overridable via
 `BEDROCK_MODEL_ID` / `BEDROCK_REGION` (e.g. `global.…` for max throughput,
 `eu.anthropic.claude-sonnet-4-6` for EU residency). The AWS SDK is loaded lazily, so the
@@ -188,8 +188,8 @@ use both:
    (`docker-compose.yml`) and treat DSQL as the staging/prod target. The app talks to a
    standard `DATABASE_URL`, identical in shape for both.
 2. **A real Aurora DSQL free-tier cluster for integration/staging.** DSQL has a
-   **perpetual free tier** — the first **100,000 DPUs + 1 GB storage per month** are
-   free, with **no 12-month limit** — which comfortably covers dev/personal use. (And
+   **perpetual free tier**: the first **100,000 DPUs + 1 GB storage per month** are
+   free, with **no 12-month limit**, which comfortably covers dev/personal use. (And
    the hackathon grants $80k in AWS credits on top.) There's also a cloud **DSQL
    Playground** for interactive exploration.
 
@@ -197,10 +197,10 @@ use both:
 same schema/migrations run on both local Postgres and DSQL:
 
 - **UUID primary keys**, not `SERIAL`/sequences (DSQL has no sequences).
-- **Optimistic concurrency control** (retry on serialization conflicts) — DSQL is
+- **Optimistic concurrency control** (retry on serialization conflicts): DSQL is
   distributed and uses OCC, not row locks.
 - **Asynchronous secondary indexes** (`CREATE INDEX ASYNC`), created out-of-band.
-- Foreign keys / some extensions are limited — enforce relationships in app logic where
+- Foreign keys / some extensions are limited: enforce relationships in app logic where
   needed.
 
 Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Prisma
@@ -216,7 +216,7 @@ Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Pri
   short-lived IAM auth tokens; secrets in Vercel env / AWS Secrets Manager. Because the
   token's TTL is ~15 min, a client cached from one static `DATABASE_URL` would stop opening
   connections minutes after deploy. `src/lib/db/client.ts` avoids that: when `DSQL_ENDPOINT`
-  is set it acts as a connection factory — it mints the IAM token (`@aws-sdk/dsql-signer`,
+  is set it acts as a connection factory: it mints the IAM token (`@aws-sdk/dsql-signer`,
   lazily imported so local/static builds never pull in the AWS SDK), **proactively refreshes**
   the cached client from a fresh token before the TTL elapses, and **reactively reconnects** on
   an auth-expiry error (`withDb()` retries once; `GET /api/health` → `dbHealthCheck()` pings and
@@ -226,8 +226,8 @@ Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Pri
     batch) can lose with a retryable serialization error. `withRetry()` (also in `client.ts`) runs a
     write and retries an `isSerializationConflictError` (SQLSTATE 40001/40P01, Prisma P2034, DSQL
     OC###) with exponential backoff + full jitter; `persistScanReport` wraps every write in it. The
-    shared `public` org — which every anonymous scan would otherwise re-upsert, creating a single
-    hot row — is now seeded once (`prisma/init.sql`) and resolved through a cached `ensureOrgId`, so
+    shared `public` org (which every anonymous scan would otherwise re-upsert, creating a single
+    hot row) is now seeded once (`prisma/init.sql`) and resolved through a cached `ensureOrgId`, so
     it is no longer a contention point. Local Postgres almost never hits these, so the protection is
     invisible in dev and essential in prod.
 - **Inference:** Gemini API (MVP); Bedrock via AWS SDK with an IAM role (enterprise).
@@ -241,5 +241,5 @@ Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Pri
 - Optional GitHub token / App tokens kept server-side only; never sent to the client
   (env vars without `NEXT_PUBLIC_`).
 - Enterprise: inference in-account via Bedrock, full audit log, **configurable data
-  retention** (per-org scan/audit windows enforced by a daily purge cron — see
+  retention** (per-org scan/audit windows enforced by a daily purge cron; see
   ENTERPRISE.md §5), VPC/PrivateLink, KMS-managed keys.

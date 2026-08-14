@@ -15,7 +15,7 @@ import { PUBLIC_STAR_COUNT, publicStars } from "./publicStars";
 export function PublicConstellation({
   count = PUBLIC_STAR_COUNT,
   className = "",
-  label = "An illustrative constellation — each star a repository, brighter with higher AI-native maturity",
+  label = "An illustrative constellation: each star a repository, brighter with higher AI-native maturity",
 }: {
   /** How many decorative stars to place (clamped by publicStars to PUBLIC_STAR_MAX). */
   count?: number;

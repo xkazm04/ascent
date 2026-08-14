@@ -9,11 +9,11 @@ import type { LevelId } from "@/lib/types";
 // One-line, plain-language read of each maturity level for the onboarding legend (ONB-4) — the
 // scores otherwise land with no interpretation. Keyed by level id; names come from the rubric.
 const LEVEL_BLURB: Record<LevelId, string> = {
-  L1: "Manual — AI used ad hoc, little shared tooling or guardrails.",
-  L2: "Assisted — AI tooling adopted, basic tests/CI starting to form.",
-  L3: "Augmented — shared AI guidance, CI gates, and tests are the norm.",
-  L4: "Integrated — AI is in the loop with strong process + quality enforcement.",
-  L5: "Autonomous — repeatable AI harness, evals, and trustworthy automation.",
+  L1: "Manual: AI used ad hoc, little shared tooling or guardrails.",
+  L2: "Assisted: AI tooling adopted, basic tests/CI starting to form.",
+  L3: "Augmented: shared AI guidance, CI gates, and tests are the norm.",
+  L4: "Integrated: AI is in the loop with strong process + quality enforcement.",
+  L5: "Autonomous: repeatable AI harness, evals, and trustworthy automation.",
 };
 
 /** The scanning + done phases: live region, progress bar, streamed rows, and (on done) a short
@@ -100,7 +100,7 @@ export function ScanStep({
       <p className="mt-1 text-slate-400">
         {phase === "done"
           ? errorCount > 0
-            ? `Here's how your repositories scored — ${errorCount} couldn't be scanned.`
+            ? `Here's how your repositories scored (${errorCount} couldn't be scanned).`
             : "Here's how your repositories scored."
           : `Scanning ${scanTotal} repositories…`}
       </p>
@@ -152,7 +152,7 @@ export function ScanStep({
             // Preview-then-upgrade: the live scan is queued, not missing — the default recovery copy
             // ("install the App / top up") would misdiagnose a fully set-up, paying org.
             <>
-              These are <strong>preview</strong> scores — instant estimates, nothing charged. Your{" "}
+              These are <strong>preview</strong> scores: instant estimates, nothing charged. Your{" "}
               <strong>live scan is queued</strong>: open the dashboard and it starts automatically,
               replacing these previews in place while you look around.
             </>
@@ -161,14 +161,14 @@ export function ScanStep({
             // default "install the App" recovery copy would misdiagnose. Explain the real cause + the
             // real recovery: nothing was charged; scan again once the balance is readable.
             <>
-              These are <strong>preview</strong> scores — we couldn&apos;t verify your credit balance
+              These are <strong>preview</strong> scores: we couldn&apos;t verify your credit balance
               (a temporary error), so this scan ran as a free preview and <strong>no credits were
               used</strong>. Your setup is fine: use &quot;Scan another&quot; or rescan from the
               dashboard to retry with live numbers.
             </>
           ) : (
             <>
-              These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
+              These are <strong>preview</strong> scores: a fast, illustrative estimate. For live numbers,
               install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
             </>
           )}
@@ -178,7 +178,7 @@ export function ScanStep({
       {phase === "done" && creditSkipped > 0 && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
           {creditSkipped} {creditSkipped === 1 ? "repository was" : "repositories were"}{" "}
-          <strong>skipped — out of credits</strong>. Top up your prepaid balance, then scan the rest from the dashboard.
+          <strong>skipped (out of credits)</strong>. Top up your prepaid balance, then scan the rest from the dashboard.
         </p>
       )}
 
@@ -206,8 +206,8 @@ export function ScanStep({
               scan lands. The old in-wizard activation checklist duplicated that surface and is gone. */}
           <p className="mt-6 max-w-xl text-slate-400">
             {upgradePlanned
-              ? "Your dashboard is live — the preview above is being upgraded to a full live scan the moment you open it. You can browse every tab while it runs."
-              : "Your dashboard is live — alerts, rescan schedules, and the rest of the setup continue there."}
+              ? "Your dashboard is live: the preview above is being upgraded to a full live scan the moment you open it. You can browse every tab while it runs."
+              : "Your dashboard is live: alerts, rescan schedules, and the rest of the setup continue there."}
           </p>
 
           {/* Invite teammates at peak motivation (App path only) — grants viewer access to the
@@ -219,7 +219,7 @@ export function ScanStep({
               onClick={onViewDashboard}
               className="rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
             >
-              {upgradePlanned ? "Open dashboard — live scan starts there" : "View dashboard"}
+              {upgradePlanned ? "Open dashboard (live scan starts there)" : "View dashboard"}
             </button>
             <button
               onClick={onScanAnother}

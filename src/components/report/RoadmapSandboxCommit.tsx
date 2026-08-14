@@ -65,7 +65,7 @@ export function SandboxCommitBar({
   // Why the button is off, spelled out on hover — the "disabled state with an explanatory title" the
   // static-fallback (no persisted recs) case needs.
   const disabledTitle = !recs
-    ? "Committing needs a connected database and your own organization's scan — model here, commit from a tracked report."
+    ? "Committing needs a connected database and your own organization's scan (model here, commit from a tracked report)."
     : appliedItems.size === 0
       ? "Try a recommendation above first, then commit the ones you want to track."
       : n === 0
@@ -74,7 +74,7 @@ export function SandboxCommitBar({
 
   async function commit() {
     if (n === 0 || state.kind === "saving" || state.kind === "blocked") return;
-    const note = `Committed from sandbox simulation — projected +${Math.max(0, Math.round(projectedDelta))} pts overall.`;
+    const note = `Committed from sandbox simulation, projected +${Math.max(0, Math.round(projectedDelta))} pts overall.`;
     let saved = 0;
     setState({ kind: "saving", done: 0, total: n });
     // Sequential PATCHes through the existing per-row path (no batch API). On the first 403/503, every
@@ -91,8 +91,8 @@ export function SandboxCommitBar({
             kind: "blocked",
             message:
               res.status === 403
-                ? "Committing is available for your own organization's scans — this is a read-only public report."
-                : "Progress tracking isn't available here — it needs a connected database.",
+                ? "Committing is available for your own organization's scans; this is a read-only public report."
+                : "Progress tracking isn't available here: it needs a connected database.",
           });
           return;
         }
@@ -111,14 +111,14 @@ export function SandboxCommitBar({
         <Kicker tone="accent">Commit plan</Kicker>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-slate-400">
           Persist the recommendations you tried as <span className="text-slate-200">in progress</span> on the
-          tracker — your modeled path, saved instead of lost on close.
+          tracker: your modeled path, saved instead of lost on close.
         </p>
         {/* Polite live region so the commit outcome is announced without stealing focus. */}
         <div role="status" aria-live="polite">
           {state.kind === "done" && (
             <p className="mt-1 text-sm text-emerald-300">
               {state.saved > 0
-                ? `${state.saved} recommendation${state.saved > 1 ? "s" : ""} marked in progress — reload the roadmap to see the tracker update.`
+                ? `${state.saved} recommendation${state.saved > 1 ? "s" : ""} marked in progress. Reload the roadmap to see the tracker update.`
                 : "Nothing new to commit."}
             </p>
           )}

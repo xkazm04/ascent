@@ -26,10 +26,10 @@ export function BalanceChip({ credit }: { credit: CreditInfo | null }) {
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 font-mono text-sm text-emerald-300"
-        title={`${UNLIMITED_PLAN_LABEL} plan — private scans are unlimited`}
+        title={`${UNLIMITED_PLAN_LABEL} plan: private scans are unlimited`}
       >
         Credits · Unlimited
-        <span className="sr-only">— {UNLIMITED_PLAN_LABEL} plan, private scans are unlimited</span>
+        <span className="sr-only">({UNLIMITED_PLAN_LABEL} plan, private scans are unlimited)</span>
       </span>
     );
   }
@@ -45,13 +45,13 @@ export function BalanceChip({ credit }: { credit: CreditInfo | null }) {
       className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-sm ${
         paused ? "border-amber-500/50 bg-amber-500/10 text-amber-300" : "border-slate-700 text-slate-300"
       }`}
-      title="Prepaid private-scan credits — each autoscan run draws one beyond your free monthly allowance"
+      title="Prepaid private-scan credits: each autoscan run draws one beyond your free monthly allowance"
     >
       <span className="font-semibold">{credit.balance}</span> credits
       {paused ? (
         <>
           <span aria-hidden>⚠</span> paused
-          <span className="sr-only">— out of credits, private scanning paused</span>
+          <span className="sr-only">(out of credits, private scanning paused)</span>
         </>
       ) : (
         <span className="sr-only">

@@ -228,7 +228,7 @@ describe("serialization", () => {
     const csv = packSampleCsv(build([change({ title: "Fix ACME-1234 for BigCorp" })]));
     expect(csv).not.toContain("BigCorp");
     expect(csv).toContain("title_omitted");
-    expect(csv).toContain("(omitted — identify via repository + pr_number)");
+    expect(csv).toContain("(omitted, identify via repository + pr_number)");
   });
 
   it("carries the control environment onto each row", () => {

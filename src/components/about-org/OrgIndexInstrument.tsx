@@ -77,7 +77,7 @@ export function OrgIndexInstrument({ size = 260, className = "" }: { size?: numb
       height={size}
       className={className}
       role="img"
-      aria-label={`An illustrative organization of ${TICKS} repositories, each drawn as a tick sized and coloured by its maturity, with a fleet index of ${index} — level ${level.id}, ${level.name}.`}
+      aria-label={`An illustrative organization of ${TICKS} repositories, each drawn as a tick sized and coloured by its maturity, with a fleet index of ${index} at level ${level.id}, ${level.name}.`}
     >
       {/* the quiet baseline the ticks stand on */}
       <circle cx={C} cy={C} r={R_INNER} fill="none" stroke="#101a2e" strokeWidth={1.5} />

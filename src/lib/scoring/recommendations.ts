@@ -19,18 +19,18 @@ interface RecTemplate {
 // development, and questions to explore — never an order. Phrasing stays invitational.
 const CATALOG: Record<DimensionId, RecTemplate> = {
   D1: {
-    title: "Agent guidance is thin — agents have little to go on here",
+    title: "Agent guidance is thin: agents have little to go on here",
     impact: "high",
     effort: "low",
     rationale:
       "Substantive, machine-readable guidance (build/test commands, an architecture map, the rules a change must never break) is what lets an AI contribution land consistently and on-spec. A token stub barely moves trust.",
     explore: [
-      "What would an AI agent need to know to make a safe change here — commands, architecture, the constraints it must never break?",
+      "What would an AI agent need to know to make a safe change here: commands, architecture, the constraints it must never break?",
       "Where do new contributors (human or AI) get stuck today for lack of written context?",
     ],
   },
   D2: {
-    title: "Few tests vouch for behavior — little catches a bad change",
+    title: "Few tests vouch for behavior: little catches a bad change",
     impact: "high",
     effort: "medium",
     rationale:
@@ -41,29 +41,29 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
     ],
   },
   D3: {
-    title: "Little gates what reaches main — trust rests on who reviewed",
+    title: "Little gates what reaches main: trust rests on who reviewed",
     impact: "high",
     effort: "low",
     rationale:
-      "A CI gate turns guardrails into enforcement, so trust doesn't depend on a particular reviewer — neither humans nor agents can merge a regression past it.",
+      "A CI gate turns guardrails into enforcement, so trust doesn't depend on a particular reviewer: neither humans nor agents can merge a regression past it.",
     explore: [
       "What stops an untrusted change from reaching main today?",
       "Could every PR's checks run automatically, so trust isn't a function of who looked?",
     ],
   },
   D4: {
-    title: "AI isn't in the loop yet — it's at most at the keyboard",
+    title: "AI isn't in the loop yet: it's at most at the keyboard",
     impact: "high",
     effort: "medium",
     rationale:
       "AI review, auto-fix, and evals for generated output are the jump from 'AI at the keyboard' to a pipeline that can trust an agent's first pass.",
     explore: [
-      "Where could an agent take the first pass — review, triage, codegen — with a human just confirming?",
+      "Where could an agent take the first pass (review, triage, codegen) with a human just confirming?",
       "What would you need in place to trust an agent's output without reading every line?",
     ],
   },
   D5: {
-    title: "Sparse docs/ADRs — context lives in people's heads",
+    title: "Sparse docs/ADRs: context lives in people's heads",
     impact: "medium",
     effort: "low",
     rationale:
@@ -96,13 +96,13 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
     ],
   },
   D8: {
-    title: "AI use is ad hoc — no shared process or harness",
+    title: "AI use is ad hoc: no shared process or harness",
     impact: "high",
     effort: "medium",
     rationale:
       "Evals for generated output, versioned prompts/agents, runbooks, and a review gate turn ad-hoc prompting into a repeatable, trustworthy part of how the team ships.",
     explore: [
-      "How do you know an AI-generated change is good before it ships — is there an eval or golden test?",
+      "How do you know an AI-generated change is good before it ships? Is there an eval or golden test?",
       "Which prompts/agents have worked, and where do they live so the team can reuse them?",
     ],
   },
@@ -114,7 +114,7 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "AI confidently produces plausible code that can carry vulnerabilities, leaked secrets, or risky dependencies. Automated SAST, dependency/secret scanning, and signed, attested artifacts are the shift-left guardrail that lets you trust an agent's output reaching production.",
     explore: [
       "If an agent pulled in a vulnerable dependency or committed a secret, what would catch it before release?",
-      "Can you prove what's in a build and that it wasn't tampered with — SBOM, signing, provenance?",
+      "Can you prove what's in a build and that it wasn't tampered with: SBOM, signing, provenance?",
     ],
   },
 };

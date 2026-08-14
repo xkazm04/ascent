@@ -51,7 +51,7 @@ export function InvitePanel({ inviteOrg, onInvited }: { inviteOrg: string; onInv
       <h2 className="text-base font-semibold text-white">Invite your team</h2>
       <p className="mt-1 text-sm text-slate-400">
         Add teammates as viewers on <span className="font-mono text-slate-300">{inviteOrg}</span> so they can see the
-        dashboard. They&apos;ll need a GitHub login — no App install required.
+        dashboard. They&apos;ll need a GitHub login (no App install required).
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm text-slate-600">@</span>

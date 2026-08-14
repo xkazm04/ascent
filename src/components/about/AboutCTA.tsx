@@ -38,7 +38,7 @@ export function AboutCTA() {
               >
                 <h2 className="deck-h2 text-2xl font-bold text-white sm:text-3xl">{"See your organization's index"}</h2>
                 <p className="deck-lede mx-auto mt-3 max-w-xl text-base text-slate-300 2xl:max-w-2xl">
-                  Connect your GitHub org and Ascent scores the fleet in minutes — or explore the live demo first.
+                  Connect your GitHub org and Ascent scores the fleet in minutes, or explore the live demo first.
                 </p>
                 <AboutCtaButtons size="lg" className="mt-7 justify-center" />
               </GlowBackdrop>

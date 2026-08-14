@@ -482,7 +482,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
               );
             }
             setPhase("done");
-            setAnnounce(`Scan complete — ${total} ${total === 1 ? "repository" : "repositories"}.`);
+            setAnnounce(`Scan complete. ${total} ${total === 1 ? "repository" : "repositories"}.`);
           },
           // An SSE `error` event can arrive and the stream still end "cleanly" (runImportScan resolves
           // ok:true), so the outcome handler below never runs — without advancing the phase here the

@@ -80,7 +80,7 @@ export function summarizeBulkWatch(input: {
   if (!responseOk) {
     return {
       revertFullNames: [...targetFullNames],
-      message: { kind: "error", text: error ?? "Bulk watch failed — not saved." },
+      message: { kind: "error", text: error ?? "Bulk watch failed. Not saved." },
     };
   }
   const ok = targetFullNames.length - failed.length;
@@ -90,7 +90,7 @@ export function summarizeBulkWatch(input: {
       revertFullNames: [...failed],
       message: {
         kind: "error",
-        text: `Couldn't watch any of the ${failed.length} repo${failed.length === 1 ? "" : "s"} — none were saved.`,
+        text: `Couldn't watch any of the ${failed.length} repo${failed.length === 1 ? "" : "s"}: none were saved.`,
       },
     };
   }

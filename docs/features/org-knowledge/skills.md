@@ -1,7 +1,7 @@
 # Org Skills Library
 
 A curated, versioned library of `SKILL.md` entries an org's members author,
-adopt against repos, and sync with CLI/CI tooling — plus the org API tokens
+adopt against repos, and sync with CLI/CI tooling, plus the org API tokens
 that let non-browser callers (CLIs, agents, CI jobs) read and write it
 without a cookie session.
 
@@ -12,8 +12,8 @@ without a cookie session.
 data, per-skill dormancy/usage data (degrades to `{}` on failure), per-skill
 outcome data (degrades to `{}` on failure), the org's repo list (for the
 adopt-picker), plan/credit state, and membership/admin role. It renders
-`SkillsPanel` with `canAuthor = isMember && planAllowed`, then — only for
-members — `ApiTokensPanel`.
+`SkillsPanel` with `canAuthor = isMember && planAllowed`, then, only for
+members, `ApiTokensPanel`.
 
 `SkillsPanel` (`src/components/org/skills/SkillsPanel.tsx`, client) debounces
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
@@ -23,7 +23,7 @@ Adoptions / Uses), and expands a `SkillCard` beneath a clicked row.
 ## SKILL.md frontmatter contract
 
 `src/lib/org/skill-frontmatter.ts` parses a `---`-fenced block at the top of
-the document using a small flat-scalar line parser — deliberately not a full
+the document using a small flat-scalar line parser, deliberately not a full
 YAML parser, since the content is user-authored.
 
 ```
@@ -47,20 +47,20 @@ Categories (`src/lib/org/skill-categories.ts`): `ci-cd`, `testing`,
 
 Three ways this contract is applied:
 
-- **Validate** (`parseSkillFrontmatter`) — read-only check, used for
+- **Validate** (`parseSkillFrontmatter`): read-only check, used for
   diagnostics.
-- **Backfill** (`ensureFrontmatter`) — injects a block if one is missing, or
+- **Backfill** (`ensureFrontmatter`): injects a block if one is missing, or
   repairs an invalid one from supplied defaults. This is applied at
   **download time**, not write time: a legacy skill row stored without a
   block still downloads as a conformant `SKILL.md`, but the fix is never
   written back to storage.
 - **Reconcile on write** (`reconcileSkillWrite`, shared by create/edit/push/
-  promote) — the rule is: if the document declares a block and it's invalid,
+  promote): the rule is: if the document declares a block and it's invalid,
   reject the write with the specific errors (never silently "fixed"); if a
   valid block is present, it wins over the request's separate `name`/
   `description`/`category`/`tags` fields (those DB columns are synced *from*
   the frontmatter); if no block is present at all, one is injected from the
-  request, but `name` and `description` must be explicitly supplied — never
+  request, but `name` and `description` must be explicitly supplied, never
   fabricated.
 
 ## Primary user flows
@@ -72,7 +72,7 @@ The author form (`SkillsPanel.AuthorForm.tsx`) offers a template picker
 then posts `{ org, name, category, content, description?, tags? }` to `POST
 /api/org/skills`. If `!canAuthor`, the form renders only an upsell line when
 the plan doesn't allow it ("Authoring the Skills Library is a Team-plan
-feature. Members can browse, copy and download existing skills.") — nothing
+feature. Members can browse, copy and download existing skills."); nothing
 renders if the plan allows it but the viewer just isn't a member.
 
 ### Promote a repo's generated onboarding skill into the library
@@ -82,7 +82,7 @@ turns a repo's already-generated onboarding skill (from a saved scan report)
 into a library entry:
 
 - It runs through the **same entitlement chain as a normal create**
-  (plan/personal-cap check) — promotion is treated as a create, not a way
+  (plan/personal-cap check); promotion is treated as a create, not a way
   around those limits.
 - The source repo is read-gated **by session**, even if the caller
   authenticated with a machine token that can write the destination org's
@@ -103,7 +103,7 @@ into a library entry:
 ### Adopt a skill against a repo
 
 `POST /api/org/skills/:id/adopt` with `{ repo }` (session-gated, member-
-level — there is no token-bearer path for adopt/unadopt at all) upserts an
+level; there is no token-bearer path for adopt/unadopt at all) upserts an
 `OrgSkillAdoption` row (unique per skill+repo, so re-adopting just updates
 `adoptedBy`/`adoptedAt`). `DELETE` on the same route removes it
 unconditionally (no existence check). The `SkillCard` renders adopted repos
@@ -117,7 +117,7 @@ the org, both optimistic with rollback on failure.
 `POST /api/org/skills/:id/download` (records a use without serving content),
 and a normal `GET` fire-and-forgets the same record unless the caller passes
 `?count=0` (used by the sync CLI, so a background sync never inflates the
-"most used" tally). Recording a use writes **three rows in one transaction** —
+"most used" tally). Recording a use writes **three rows in one transaction**:
 an `OrgSkillEvent` of type `download` (source `web`), the rolling
 `OrgSkillDownload` tally, and the denormalized `OrgSkill.downloadCount`. That
 single write is why the card's "N uses" counter and the dormancy badge beside
@@ -135,7 +135,7 @@ Two routes exist specifically for a non-interactive client:
 
 - `GET /api/org/skills/manifest` returns `{ skills: [{ id, name, category,
   version, contentHash, updatedAt }] }` for every non-archived skill,
-  ordered by name, with no content bodies — a client diffs this against a
+  ordered by name, with no content bodies; a client diffs this against a
   local lockfile and only calls `/:id/download` for entries whose version or
   content hash changed.
 - `POST /api/org/skills/push` registers or updates a skill by name, with an
@@ -146,7 +146,7 @@ Two routes exist specifically for a non-interactive client:
   content hash is unchanged, it reports `unchanged` without bumping the
   version; otherwise it increments `version` by 1. Unlike every other
   skills-write route, push gates directly on `planAllowsSkillsLibrary`
-  rather than the personal-workspace-inclusive `workspaceAllowsSkills` — the
+  rather than the personal-workspace-inclusive `workspaceAllowsSkills`; the
   CLI/CI push path does not extend the personal-workspace free tier.
 
 ### Usage telemetry
@@ -160,12 +160,12 @@ outside the caller's org are silently dropped (tenant boundary). Only
 `download` events bump the rolling use counters; `sync` events are logged but
 never count toward "most used," since a background CLI sync would otherwise
 make every adopted skill look permanently active. The whole handler is
-best-effort — telemetry failures never fail the caller's real work.
+best-effort: telemetry failures never fail the caller's real work.
 
 A third type, `invoke`, was **retired on 2026-07-29**. It ranked highest in
-the dormancy verdict but had no producer anywhere — not the app, not the
+the dormancy verdict but had no producer anywhere: not the app, not the
 distributed CLI (`scripts/ascent-skills.mjs` emits `sync` only), not the
-hooks — so `active` was unreachable for every skill in production. It is gone
+hooks, so `active` was unreachable for every skill in production. It is gone
 from the type union, its validator, this route and every reader;
 `prisma/migrations/20260729150000_retire_skill_invoke_event` folds any legacy
 row into `download` so historical activity keeps counting. The CLI's wire
@@ -176,12 +176,12 @@ contract is unaffected (it never sent `invoke`).
 `src/lib/org/skill-usage.ts` classifies each skill as `new`, `active`, or
 `dormant`:
 
-1. A real use (`download` — a copy or download from the web UI or a CLI, but
+1. A real use (`download`, a copy or download from the web UI or a CLI, but
    never a `sync`) within the last 30 days (`DORMANCY_WINDOW_DAYS`) →
    **active**.
 2. Otherwise, if the skill has never been used and is younger than 30 days
    (measured from creation, or from its most recent adoption if that's
-   later — re-adopting an old skill into a new repo restarts its chance to
+   later, since re-adopting an old skill into a new repo restarts its chance to
    prove itself) → **new**, so a brand-new skill isn't punished for having
    no uses yet.
 3. Otherwise → **dormant**.
@@ -198,16 +198,16 @@ path that exists today (a web copy/download, or a CLI-reported `download`).
 strictly before the adoption timestamp with the latest scan at-or-after it,
 and reports the overall-score delta and the largest-moving dimension delta
 between them. If either side of the pair is missing, the status is
-`no-before-scan` or `no-after-scan` rather than a fabricated delta — the code
+`no-before-scan` or `no-after-scan` rather than a fabricated delta: the code
 explicitly treats inventing one as turning the library into "a lie
 generator." `SkillOutcomes` renders this with an explicit disclaimer that the
 movement is correlational, not causal ("Movement in the same window as the
-adoption — correlation, not proof of cause").
+adoption: correlation, not proof of cause").
 
 `skill-outcomes-load.ts` issues one `getRepositoryHistory` read (newest 100
 scans) per **distinct** adopted repo, run through `mapPool` at
-`HISTORY_CONCURRENCY = 6` lanes. Every adopted repo is still read — the bound
-is on how many reads are in flight, not on how many repos are visited — so no
+`HISTORY_CONCURRENCY = 6` lanes. Every adopted repo is still read: the bound
+is on how many reads are in flight, not on how many repos are visited, so no
 repo is ever dropped from the outcome numbers and nothing needs to be
 disclosed as truncated. Before 2026-07-29 this was an uncapped `Promise.all`,
 so a widely-adopted skill in a large org meant hundreds of concurrent DB
@@ -216,20 +216,20 @@ skill spread.
 
 ## Org API tokens
 
-Minted via `POST /api/org/tokens` (session-only, member-gated — no token can
+Minted via `POST /api/org/tokens` (session-only, member-gated; no token can
 mint another token). The raw value (`askl_` + 24 random bytes, base64url) is
 returned exactly once; only its SHA-256 hash and a 12-character display
 prefix are stored. Scopes: `skills:read`, `skills:write`,
-`telemetry:write`, `memory:read` (org-memory recall — see
-[memory.md](./memory.md)) — an empty/invalid scope list defaults to
+`telemetry:write`, `memory:read` (org-memory recall, see
+[memory.md](./memory.md)); an empty/invalid scope list defaults to
 `["skills:read"]` (never a zero-scope token). `DELETE
 /api/org/tokens/:id` soft-revokes it (`revokedAt` set; the row survives for
-audit). `GET /api/org/tokens` lists summaries only — never the raw value or
+audit). `GET /api/org/tokens` lists summaries only, never the raw value or
 hash.
 
 Authorization (`src/lib/api-token-auth.ts`): a request with `Authorization:
 Bearer askl_...` is verified against the stored hash; an invalid or revoked
-token is a **hard denial** (401/403) — it never silently falls back to
+token is a **hard denial** (401/403): it never silently falls back to
 session auth. A request with no bearer token (or one not starting with
 `askl_`) falls back to the normal session gates (`requireOrgRead` for reads,
 `requireOrgAccess` for writes), so the token path is additive, not a
@@ -271,7 +271,7 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `SkillGeneration` | A standalone log of per-repo onboarding-`SKILL.md` generations. | `repoFullName`, `headSha`, `trackIds`, `generatedAt`. No relation fields to `OrgSkill` or an org. |
 
 `OrgSkillEvent.source` is documented in the schema comment as one of `cli |
-hook | ci | web`, but it is not enum-validated in code — it's clipped to 200
+hook | ci | web`, but it is not enum-validated in code: it's clipped to 200
 characters as free text, not enforced as a closed set.
 
 ## Tier gating
@@ -287,14 +287,14 @@ regardless of plan, capped at 10 non-archived skills
 capped at 10. Archive one to author another."). A Team+ org has no such cap.
 
 The **push** route is the one exception: it gates directly on
-`planAllowsSkillsLibrary`, not `workspaceAllowsSkills` — a personal workspace
+`planAllowsSkillsLibrary`, not `workspaceAllowsSkills`: a personal workspace
 cannot use the CLI/CI push path even though it can author through the UI.
 
 ## The agent door — MCP server (W5, 2026-08-14)
 
 `POST /api/mcp` is an MCP server implementing revision **2026-07-28**. It exists because ascent
 already ships the org's standard as *files in a PR* (the `.ai/` foundation, practice starters,
-pushed skills) — which reaches an agent at setup time, not at the moment it is deciding how to write
+pushed skills), which reaches an agent at setup time, not at the moment it is deciding how to write
 the next change. That moment is where Port's *"make the governed route the fastest route"* either
 happens or does not.
 
@@ -307,12 +307,12 @@ results may not vary per-connection.
 
 For a Next.js app on serverless that is decisive: **a single `force-dynamic` POST handler is a
 conformant server.** No session store, no sticky routing, no long-lived connection fighting a
-function timeout — the three things that used to make hosting MCP real infrastructure work in this
+function timeout: the three things that used to make hosting MCP real infrastructure work in this
 deployment shape. An SDK would import transport and session machinery this revision deleted.
 
 What the revision *adds* is header/body validation, and it is implemented rather than skipped:
 `Mcp-Method` and `Mcp-Name` mirror body fields so intermediaries can route without parsing, and a
-mismatch **must** be rejected with `-32020` — otherwise a load balancer and this server could act on
+mismatch **must** be rejected with `-32020`, otherwise a load balancer and this server could act on
 different requests. `validateHeaders` (`src/lib/mcp/protocol.ts`) enforces it, including the
 `=?base64?…?=` sentinel decode before comparison.
 
@@ -334,9 +334,9 @@ Also implemented per the revision: `server/discover` (mandatory), `resultType` o
 `mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
 token holding it alone sees only the org-standing tools, and `memory:read` unlocks recall *on top*.
 So granting an agent the door does not silently grant it the org's memory, and an existing memory
-token does not silently become an agent door. `tools/list` filters to what the token holds — which
+token does not silently become an agent door. `tools/list` filters to what the token holds, which
 the revision explicitly permits, since credentials are per-request input rather than connection
-state — so an agent is never shown a tool it would then be refused.
+state, so an agent is never shown a tool it would then be refused.
 
 An out-of-scope tool is answered with the **same** `Unknown tool` error as a nonexistent one, so the
 door does not become an oracle for which tools an org has that this token cannot reach.
@@ -353,22 +353,22 @@ door does not become an oracle for which tools an org has that this token cannot
 - **No `subscriptions/listen`.** The catalog is a compile-time constant, so `listChanged: false` is
   the truthful capability declaration rather than advertising a channel that never fires.
 
-Every handler is a **projection of a shipped read** — the gate tool runs the same `evaluateGateLite`
+Every handler is a **projection of a shipped read**: the gate tool runs the same `evaluateGateLite`
 against the same persisted policy the CI gate and dashboard use, so an agent is never told it would
 clear a bar CI then blocks. Absence is always answered explicitly ("this repo has never been
-scanned", "no stance published — absence is not permission") rather than as an empty object a model
+scanned", "no stance published, absence is not permission") rather than as an empty object a model
 would read as *nothing to worry about*.
 
 ## Known gaps
 
 - `OrgSkillEvent.source` is documented as `cli | hook | ci | web` but is
-  never validated against that set in code — any string up to 200 characters
+  never validated against that set in code; any string up to 200 characters
   is accepted. Whether real CLI/CI clients consistently send one of those
   four values could not be confirmed, since the sync client's own source
   code was not part of the files examined.
 - The relationship between the `SkillGeneration` Prisma model and the
   onboarding-skill generation log referenced in a comment in
-  `src/lib/db/org-skills.ts` (as `src/lib/db/skill-history.ts`) is unclear —
+  `src/lib/db/org-skills.ts` (as `src/lib/db/skill-history.ts`) is unclear;
   it was not established from the files read whether these are the same
   store viewed two ways or two separate logs.
 
@@ -393,7 +393,7 @@ would read as *nothing to worry about*.
 | `src/lib/org/skill-templates.ts` | Author-form starter templates. |
 | `src/lib/db/org-skills.ts` | CRUD, `toRow()` read-time frontmatter resolution. |
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |
-| `src/lib/api-token-auth.ts` | `authorizeOrgApi()` — token-or-session gate for skills routes. |
+| `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
 | `src/components/org/skills/SkillsPanel.tsx` | Client orchestrator. |
 | `src/components/org/skills/SkillCard.tsx` | Per-skill detail, adopt/copy/download/archive actions. |
 | `src/components/org/skills/SkillDormancyBadge.tsx` | Dormancy status chip. |

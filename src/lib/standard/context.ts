@@ -19,14 +19,14 @@ What this module is responsible for, in one or two sentences.
 
 ## Public contract
 The surface other code/agents depend on (exports, routes, events, schema). Changing these is a
-breaking change — call it out.
+breaking change: call it out.
 
-## Invariants — never break
+## Invariants: never break
 - <e.g. "all DB access goes through repo.ts; never raw SQL here">
 - <e.g. "no secrets read directly; use the vault capability">
 
 ## Key files
-- \`<file>\` — <what it does>
+- \`<file>\`: <what it does>
 
 ## Data flow
 How data enters, moves through, and leaves this module.

@@ -11,8 +11,8 @@ import { Dateline } from "./Dateline";
 
 describe("Dateline right-hand metadata on a narrow viewport", () => {
   it("renders the right metadata with no `hidden` class so it reflows rather than disappearing", () => {
-    render(<Dateline left="The index" right="Vol. 01 — 5 levels" />);
-    const right = screen.getByText("Vol. 01 — 5 levels");
+    render(<Dateline left="The index" right="Vol. 01, 5 levels" />);
+    const right = screen.getByText("Vol. 01, 5 levels");
     expect(right).toBeInTheDocument();
     // The regression was a literal `hidden` utility on the right Kicker — it must be gone.
     expect(right.className).not.toMatch(/\bhidden\b/);

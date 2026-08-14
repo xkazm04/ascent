@@ -63,7 +63,7 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
       setPhase("sent");
     } catch {
       setPhase("editing");
-      setError({ message: "Network error — check your connection and try again.", field: null });
+      setError({ message: "Network error. Check your connection and try again.", field: null });
     }
   }
 
@@ -77,14 +77,14 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
       <Modal open={open} onClose={close} locked={sending} ariaLabel="Enquire about the Custom plan" size="lg">
         <ModalHeader
           kicker="Plans · Custom"
-          title={phase === "sent" ? "Thanks — we've got it" : "Scope your Custom plan"}
+          title={phase === "sent" ? "Thanks, we've got it" : "Scope your Custom plan"}
           context={phase === "sent" ? undefined : "Flexible · scoped with you"}
         />
         <ModalBody className="relative">
           {phase === "sent" ? <SentPanel email={draft.email} /> : (
             <>
               <p className="mb-5 text-sm leading-relaxed text-slate-400">
-                Custom isn&apos;t a bigger tier — it&apos;s the same product with the parts that normally don&apos;t
+                Custom isn&apos;t a bigger tier: it&apos;s the same product with the parts that normally don&apos;t
                 bend made adjustable. Tell us which ones matter and we&apos;ll come back with a shape and a price.
               </p>
               <PlanEnquiryFields draft={draft} patch={patch} disabled={sending} invalidField={error?.field ?? null} />
@@ -99,7 +99,7 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
           ) : (
             <span className="text-xs text-slate-500">
               {phase === "sent"
-                ? "No mailing list — this was a one-off message to us."
+                ? "No mailing list: this was a one-off message to us."
                 : "Goes straight to us. We only use it to answer you."}
             </span>
           )}
@@ -146,7 +146,7 @@ function SentPanel({ email }: { email: string }) {
             We&apos;ll reply to <span className="font-mono text-white">{email}</span>.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
-            You&apos;ll get a shape for the pieces you flagged — where inference runs, the scan volume that fits your
+            You&apos;ll get a shape for the pieces you flagged: where inference runs, the scan volume that fits your
             fleet, the support level, and what needs customizing.
           </p>
         </div>

@@ -63,7 +63,7 @@ describe("CopyForLlm cannot claim success on an empty payload (G5-27)", () => {
     await waitFor(() => expect(screen.getByRole("button")).toHaveTextContent("Nothing to copy"));
     expect(screen.getByRole("button")).not.toHaveTextContent("Copied");
     // The truthful announcement, and no false "Copied to clipboard." for a screen-reader user.
-    expect(screen.getByRole("status")).toHaveTextContent("Nothing to copy — this brief is empty.");
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing to copy. This brief is empty.");
     // Nothing was even attempted — no empty write reached the platform clipboard, so a previously
     // copied payload is left intact rather than being wiped by an empty write.
     expect(writeText).not.toHaveBeenCalled();

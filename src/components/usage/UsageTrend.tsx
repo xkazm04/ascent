@@ -159,7 +159,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           {/* Text alternative for the bar strip: every day the hover tooltips carry, reachable by AT. */}
           <table className="sr-only">
             <caption>
-              Computed scans per {bucketed ? "week (weekly totals; per-day figures via the CSV export)" : "day"} —
+              Computed scans per {bucketed ? "week (weekly totals; per-day figures via the CSV export)" : "day"}:
               billable (private) and free (public)
             </caption>
             <thead>

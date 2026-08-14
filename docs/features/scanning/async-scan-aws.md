@@ -1,4 +1,4 @@
-# Concept — Async scan processing on AWS (near-zero cost)
+# Concept: Async scan processing on AWS (near-zero cost)
 
 **Status:** concept / backup. Not implemented. Today scans run **synchronously** inside the Vercel
 request with Gemini Flash (see below). Adopt this when that stops being true.
@@ -10,14 +10,14 @@ to mock at >11 min). Production moved to **Gemini Flash** specifically so a scan
 function (`maxDuration = 300`), keeping the simple synchronous path. Two things break that bet:
 
 1. **A scan exceeds the request budget.** If a Flash scan trends past ~250s (large repos, slow upstream,
-   or reverting to a slower model), Vercel kills the function and the user gets a failure — exactly the
+   or reverting to a slower model), Vercel kills the function and the user gets a failure: exactly the
    timeout class we just fixed, returning.
 2. **Guaranteed "survive the tab close".** Today persistence + the cache peek make a **refresh** instant,
    and the opt-in completion email fires *if the scan finishes while the request is alive*. A user who
-   **closes** the tab mid-scan on Vercel gets neither the report nor the email — there is no post-response
+   **closes** the tab mid-scan on Vercel gets neither the report nor the email; there is no post-response
    execution on serverless. Guaranteeing delivery requires running the scan **off** the request.
 
-If neither happens, **don't build this** — the synchronous path is simpler and already correct.
+If neither happens, **don't build this**: the synchronous path is simpler and already correct.
 
 ## Adoption trigger
 
@@ -47,19 +47,19 @@ If neither happens, **don't build this** — the synchronous path is simpler and
   scan, write a job to **SQS** (or a `ScanJob` row / DynamoDB item) keyed by `owner/repo@headSha` and
   return `202 {jobId}`. The client shows the existing ~6-min estimation timer and polls the report
   permalink (the cache peek already returns the persisted report the moment it lands).
-- **Worker (Lambda):** SQS event-source-mapping invokes a Lambda that imports the *same* pipeline —
-  `scanRepository()` → `classifyScanResult()` → `cacheAndPersistScan()` (`src/lib/scan-finalize.ts`) —
+- **Worker (Lambda):** SQS event-source-mapping invokes a Lambda that imports the *same* pipeline:
+  `scanRepository()` → `classifyScanResult()` → `cacheAndPersistScan()` (`src/lib/scan-finalize.ts`),
   then `dispatchScanCompletionEmail()` (`src/lib/email`). A 6-min Flash scan is well under Lambda's
   **15-min** hard cap. Persisting to the existing DB means the permalink/cache path needs **zero**
-  changes — the report shows up for a polling client and survives a closed tab.
-- **Email:** reuse `src/lib/email` (SES) exactly as the synchronous path does — only the call site moves
+  changes: the report shows up for a polling client and survives a closed tab.
+- **Email:** reuse `src/lib/email` (SES) exactly as the synchronous path does; only the call site moves
   into the worker.
 
 ### Idempotency & in-flight de-dup
 
 The existing `@@unique([repoId, headSha])` constraint already makes a double-scored commit a no-op
 (`persistScanReport` → `deduped: true`). For the queue, set the SQS message **dedup key** (or a
-`ScanJob` unique key) to `owner/repo@headSha` so two enqueues of the same commit collapse to one job —
+`ScanJob` unique key) to `owner/repo@headSha` so two enqueues of the same commit collapse to one job,
 giving the true cross-instance "attach to the in-flight scan" that the synchronous path can only
 approximate per-instance via `coalesceScan` (`src/lib/cache.ts`).
 
@@ -92,14 +92,14 @@ At the volume of an early public-scan funnel this is effectively **$0/month** be
 ## What stays unchanged
 
 `scanRepository`, `cacheAndPersistScan`, `getScanReportByCommit`, `reportPermalink`, and `src/lib/email`
-are all reused verbatim — this concept only relocates *where* the scan runs and *who* triggers the
+are all reused verbatim; this concept only relocates *where* the scan runs and *who* triggers the
 email. The report-retrieval (permalink/cache peek) and the client's estimation timer already behave
 correctly against a result that arrives out-of-band.
 
 ## Sources (AWS limits & pricing, 2026)
 
-- AWS Lambda 15-min timeout & pricing — <https://aws.amazon.com/lambda/pricing/>
-- Lambda vs Fargate for long-running tasks — <https://docs.aws.amazon.com/decision-guides/latest/fargate-or-lambda/fargate-or-lambda.html>
-- Amazon SQS pricing (1M requests/mo free) — <https://aws.amazon.com/sqs/pricing/>
-- Amazon DynamoDB pricing (always-free 25 WCU/RCU, 25 GB) — <https://aws.amazon.com/dynamodb/pricing/on-demand/>
-- Step Functions for long-running / waiting workflows — <https://www.serverless.com/guides/aws-step-functions>
+- AWS Lambda 15-min timeout & pricing: <https://aws.amazon.com/lambda/pricing/>
+- Lambda vs Fargate for long-running tasks: <https://docs.aws.amazon.com/decision-guides/latest/fargate-or-lambda/fargate-or-lambda.html>
+- Amazon SQS pricing (1M requests/mo free): <https://aws.amazon.com/sqs/pricing/>
+- Amazon DynamoDB pricing (always-free 25 WCU/RCU, 25 GB): <https://aws.amazon.com/dynamodb/pricing/on-demand/>
+- Step Functions for long-running / waiting workflows: <https://www.serverless.com/guides/aws-step-functions>

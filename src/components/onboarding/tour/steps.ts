@@ -35,7 +35,7 @@ export const ORG_TOUR_STEPS: TourStep[] = [
     anchor: "modules-nav",
     kicker: "Scope · 2",
     title: "Choose what’s in scope",
-    body: "The Repositories tab is your fleet. Watching a repo adds it to the scan scope — the rollup you’ll read next is built only from watched repos.",
+    body: "The Repositories tab is your fleet. Watching a repo adds it to the scan scope: the rollup you’ll read next is built only from watched repos.",
   },
   {
     id: "results-view",
@@ -51,7 +51,7 @@ export const ORG_TOUR_STEPS: TourStep[] = [
     anchor: "results-controls",
     kicker: "Results · 2",
     title: "Scope what you read",
-    body: "Different from scan scope — these narrow the VIEW. Pick a time window, a segment, or a tech stack and every number, delta, and trajectory re-scopes to match.",
+    body: "Different from scan scope, these narrow the VIEW. Pick a time window, a segment, or a tech stack and every number, delta, and trajectory re-scopes to match.",
   },
   {
     id: "modules-nav",
@@ -59,7 +59,7 @@ export const ORG_TOUR_STEPS: TourStep[] = [
     anchor: "modules-nav",
     kicker: "Modules · 1",
     title: "The rail is the journey",
-    body: "Four questions, in the order you get asked them: Standing (where are we), Chosen (what we decided), In flight (what's moving now), Bought (what it delivered) — plus Admin. Pick a section to reveal its modules.",
+    body: "Four questions, in the order you get asked them: Standing (where are we), Chosen (what we decided), In flight (what's moving now), Bought (what it delivered), plus Admin. Pick a section to reveal its modules.",
   },
   {
     id: "modules-briefing",
@@ -67,7 +67,7 @@ export const ORG_TOUR_STEPS: TourStep[] = [
     anchor: "modules-nav",
     kicker: "Modules · 2",
     title: "Open a module",
-    body: "This is the Briefing module — a narrated read of the fleet. That’s the tour: set scope, read the headline, then open any module from this rail to go deep.",
+    body: "This is the Briefing module (a narrated read of the fleet). That’s the tour: set scope, read the headline, then open any module from this rail to go deep.",
   },
 ];
 

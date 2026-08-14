@@ -27,7 +27,7 @@ export function settleInitialFetch(
 ): Constellation {
   if (!ok) return { id: inst.id, login: inst.login, status: "error", message: data?.error ?? `Failed (${status})` };
   if (data === null || !Array.isArray(data.repos)) {
-    return { id: inst.id, login: inst.login, status: "error", message: "Couldn't read repositories — retrying shortly." };
+    return { id: inst.id, login: inst.login, status: "error", message: "Couldn't read repositories. Retrying shortly." };
   }
   return { id: inst.id, login: inst.login, status: "done", repos: mapRepos(data.repos) };
 }

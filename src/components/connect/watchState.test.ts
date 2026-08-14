@@ -270,7 +270,7 @@ describe("summarizeBulkWatch", () => {
     expect(partial.message.text).toBe("Now watching 1 repo · 1 failed.");
 
     const allFailedOne = summarizeBulkWatch({ targetFullNames: ["a"], failed: ["a"], responseOk: true });
-    expect(allFailedOne.message.text).toBe("Couldn't watch any of the 1 repo — none were saved.");
+    expect(allFailedOne.message.text).toBe("Couldn't watch any of the 1 repo: none were saved.");
   });
 
   it("INVARIANT: the claimed success count is never > 0 when every row failed", () => {

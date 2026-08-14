@@ -44,7 +44,7 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
           <Kicker tone="accent">Why this score</Kicker>
           <h2 className="mt-1 text-lg font-semibold text-white">Score waterfall</h2>
           <p className="mt-1 text-base text-slate-400">
-            Every point attributed — each dimension contributes its{" "}
+            Every point attributed: each dimension contributes its{" "}
             <span className="text-slate-300">weight × score</span>, and the parts sum to your headline.
           </p>
         </div>
@@ -85,8 +85,8 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
 
       {aggregated && (
         <p className="mt-2 text-sm text-slate-500">
-          The grey sliver aggregates {aggregated.count} dimensions contributing under {fmtPts(MICRO_POINTS)} pts each —
-          each is itemized in full below.
+          The grey sliver aggregates {aggregated.count} dimensions contributing under {fmtPts(MICRO_POINTS)} pts each.
+          Each is itemized in full below.
         </p>
       )}
 
@@ -108,7 +108,7 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
               <span className="w-12 shrink-0 text-right font-mono tabular-nums text-slate-200">+{fmtPts(c.points)}</span>
               <span
                 className={`w-12 shrink-0 text-right font-mono text-sm tabular-nums ${liftColor}`}
-                title="Lift vs your weighted-mean score — ▲ pulls the overall up, ▼ drags it down"
+                title="Lift vs your weighted-mean score: ▲ pulls the overall up, ▼ drags it down"
               >
                 {lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}
               </span>

@@ -33,7 +33,7 @@ export function mixesEngines(engines: readonly (string | undefined | null)[]): b
 
 /** The footnote shown whenever a plotted series contains a mock point. */
 export const MOCK_POINT_NOTE =
-  "Hollow points are demo scans — scored by the deterministic rubric with no model, so their values are not comparable to model-scored points.";
+  "Hollow points are demo scans, scored by the deterministic rubric with no model, so their values are not comparable to model-scored points.";
 
 /** Suffix appended to a mock point's screen-reader label, so the caveat isn't pointer-only. */
-export const MOCK_SR_SUFFIX = " (demo scan — deterministic rubric, no model)";
+export const MOCK_SR_SUFFIX = " (demo scan: deterministic rubric, no model)";

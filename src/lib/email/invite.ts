@@ -56,9 +56,9 @@ export function buildInviteEmail(input: InviteEmailInput): { subject: string; ht
 
   const lead = `${by} invited you to join the "${org}" organization on Ascent as a ${role}.`;
   const what = "Ascent scores how AI-native a codebase is and tracks that maturity across a fleet of repositories.";
-  const noLink = "Ask the person who invited you for the invitation link — this deployment has no public URL configured, so one couldn't be included.";
+  const noLink = "Ask the person who invited you for the invitation link: this deployment has no public URL configured, so one couldn't be included.";
   const safeToIgnore =
-    "If you weren't expecting this, you can ignore this message — nothing has been created for you and no further email will be sent to this address.";
+    "If you weren't expecting this, you can ignore this message: nothing has been created for you and no further email will be sent to this address.";
 
   const text = [
     lead,

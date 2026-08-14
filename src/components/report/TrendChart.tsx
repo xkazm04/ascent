@@ -266,7 +266,7 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
                 <td>
                   {lvl.id} {lvl.name}
                 </td>
-                <td>{isMockEngine(p.engine) ? "demo scan — deterministic rubric, no model" : (p.engine ?? "—")}</td>
+                <td>{isMockEngine(p.engine) ? "demo scan: deterministic rubric, no model" : (p.engine ?? "—")}</td>
                 <td>
                   {p.href ? <a href={p.href}>Open this scan&apos;s report</a> : "—"}
                   {p.commitUrl && (

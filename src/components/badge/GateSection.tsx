@@ -50,11 +50,11 @@ export function GateSection({
 
   return (
     <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-lg font-semibold text-white">The AI-native Scorecard gate — free, no account needed</h2>
+      <h2 className="text-lg font-semibold text-white">The AI-native Scorecard gate (free, no account needed)</h2>
       <p className="mt-2 max-w-2xl text-sm text-slate-400">
         The same maturity read behind the badge is available as a free, unauthenticated gate your
         pipeline can call on every PR: 200 = pass, 422 = fail, so <code className="font-mono">curl --fail</code>{" "}
-        exits non-zero and blocks the merge. By default it scores with the deterministic rubric — no
+        exits non-zero and blocks the merge. By default it scores with the deterministic rubric: no
         LLM, fully reproducible, the same inputs always produce the same verdict.
       </p>
       {/* The strongest reason to turn this on, and it was stated on no gate surface: the Security (D9)
@@ -62,7 +62,7 @@ export function GateSection({
           dimension the language model can only narrate, never move. */}
       <p className="mt-2 max-w-2xl text-sm text-slate-400">
         The Security floor in these snippets is stronger still: Security (D9) is the one{" "}
-        <strong className="font-medium text-slate-300">fully deterministic</strong> dimension — its
+        <strong className="font-medium text-slate-300">fully deterministic</strong> dimension: its
         score comes straight from the security check battery, and no model can talk a repo past it.
       </p>
       <div className="mt-4 space-y-3">
@@ -73,7 +73,7 @@ export function GateSection({
           </div>
           <pre className="mt-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono text-xs text-slate-300">
             {curl}
-            {"\n"}<span className="text-slate-500"># 200 = pass · 422 = fail{repo ? "" : " — enter a repository above to fill in the repo"}</span>
+            {"\n"}<span className="text-slate-500"># 200 = pass · 422 = fail{repo ? "" : " (enter a repository above to fill in the repo)"}</span>
           </pre>
         </div>
         <div>

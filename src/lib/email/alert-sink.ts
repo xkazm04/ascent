@@ -56,7 +56,7 @@ export function buildAlertEmail(input: {
       ? `To stop these emails, clear the alert sink in Ascent (${settingsUrl}).`
       : `To stop these emails, clear the alert sink in your Ascent organization settings.`;
 
-  const text = [message.text, "", "—", why, stop].join("\n");
+  const text = [message.text, "", "---", why, stop].join("\n");
   const html = emailShell({
     heading: subject,
     // The alert body is rendered verbatim (escaped, pre-wrapped) rather than re-templated per builder:

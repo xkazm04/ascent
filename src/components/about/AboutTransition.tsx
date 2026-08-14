@@ -15,7 +15,7 @@ export function AboutTransition() {
           size="page"
           kicker="The transition"
           title="From manual keystrokes to autonomous, governed delivery"
-          intro="Ascent maps every team onto a five-level ladder — and tracks the measurable path between, with goals and forecast ETAs so the climb stays on pace."
+          intro="Ascent maps every team onto a five-level ladder and tracks the measurable path between, with goals and forecast ETAs so the climb stays on pace."
         />
       </Reveal>
       <div className="mt-8">

@@ -74,7 +74,7 @@ export function LeaderboardTable({
                 className={`text-center font-mono text-sm tabular-nums ${
                   ranked && rank <= 3 ? "font-bold text-accent" : "text-slate-600"
                 }`}
-                title={ranked ? undefined : "Not ranked — this score came from the deterministic preview rubric."}
+                title={ranked ? undefined : "Not ranked. This score came from the deterministic preview rubric."}
               >
                 {ranked ? String(rank).padStart(2, "0") : "—"}
               </span>
@@ -108,7 +108,7 @@ export function LeaderboardTable({
                   {!c.verified && (
                     <span
                       className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300/90"
-                      title="Scored by the deterministic preview rubric — no model contributed. Not ranked."
+                      title="Scored by the deterministic preview rubric. No model contributed. Not ranked."
                     >
                       demo
                     </span>

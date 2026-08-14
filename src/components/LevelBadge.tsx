@@ -17,7 +17,7 @@ export function LevelBadge({ id, name, className = "" }: { id: LevelId; name: st
       className={`inline-flex w-fit items-center gap-2 rounded-full border ${lc.border} ${lc.bg} px-3 py-1 text-base font-semibold ${lc.text} ${className}`}
     >
       <span aria-hidden>{glyph}</span>
-      {id} — {name}
+      {id} · {name}
     </span>
   );
 }

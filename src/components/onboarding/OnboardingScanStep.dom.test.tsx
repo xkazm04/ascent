@@ -45,7 +45,7 @@ describe("OnboardingScanStep preview banner cause (first-run-onboarding-wizard 2
     expect(banner.textContent).toMatch(/preview/i);
     expect(banner.textContent).not.toMatch(/install the GitHub App/i);
     // The primary CTA carries the handoff — the live scan starts on the dashboard.
-    expect(screen.getByRole("button", { name: /open dashboard — live scan starts there/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open dashboard \(live scan starts there\)/i })).toBeInTheDocument();
   });
 });
 

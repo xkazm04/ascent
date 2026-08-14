@@ -19,11 +19,11 @@ const full = { ...enquiry, areas: [...enquiry.areas] };
 
 describe("buildPlanEnquiryEmail", () => {
   it("leads the subject with the company so an inbox sorts by who is asking", () => {
-    expect(buildPlanEnquiryEmail(full).subject).toBe("Custom plan enquiry — Acme");
+    expect(buildPlanEnquiryEmail(full).subject).toBe("Custom plan enquiry: Acme");
   });
 
   it("falls back to the person's name when no company was given", () => {
-    expect(buildPlanEnquiryEmail({ ...full, company: "" }).subject).toBe("Custom plan enquiry — Dana Reyes");
+    expect(buildPlanEnquiryEmail({ ...full, company: "" }).subject).toBe("Custom plan enquiry: Dana Reyes");
   });
 
   it("carries every collected fact in the text part", () => {

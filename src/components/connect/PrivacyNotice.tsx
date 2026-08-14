@@ -15,12 +15,12 @@ function effectiveProvider(): ProviderName {
 // Only Bedrock carries the documented no-training / in-boundary guarantee (see docs/features/scanning/llm-providers.md).
 const WHERE: Record<ProviderName, string> = {
   bedrock:
-    "Claude on AWS Bedrock — your code stays within the AWS boundary and is never used for model training.",
-  "claude-cli": "a local Claude CLI under your own subscription — your code stays on this machine.",
+    "Claude on AWS Bedrock: your code stays within the AWS boundary and is never used for model training.",
+  "claude-cli": "a local Claude CLI under your own subscription: your code stays on this machine.",
   gemini: "the Google Gemini API to produce the score.",
   openai: "your configured OpenAI-compatible endpoint to produce the score.",
   openrouter: "the OpenRouter API, which routes the request to your selected model's upstream provider.",
-  mock: "nowhere — scoring is fully local and deterministic; no code leaves this deployment.",
+  mock: "nowhere: scoring is fully local and deterministic; no code leaves this deployment.",
 };
 
 /**
@@ -39,18 +39,18 @@ export function ConnectPrivacyNotice() {
       <p className="mt-2">
         During a private scan, a budgeted sample of your repository&apos;s file contents (≤{MAX_FILES} files,
         plus CI workflow files) is sent to{" "}
-        {WHERE[provider]} Ascent persists only the derived scores and evidence — never your source.
+        {WHERE[provider]} Ascent persists only the derived scores and evidence, never your source.
       </p>
       {isBedrock && (
         <p className="mt-2 text-emerald-300">
-          ✓ This deployment routes inference through AWS Bedrock — the enterprise-privacy path.
+          ✓ This deployment routes inference through AWS Bedrock, the enterprise-privacy path.
         </p>
       )}
       {!isBedrock && !isMock && (
         <p className="mt-2 text-slate-400">
           Need a no-training, in-your-cloud guarantee for sensitive code? Route inference through{" "}
           <span className="font-mono text-slate-300">AWS Bedrock</span> (
-          <span className="font-mono text-slate-300">LLM_PROVIDER=bedrock</span>) — code stays within your
+          <span className="font-mono text-slate-300">LLM_PROVIDER=bedrock</span>). Code stays within your
           AWS boundary and is never used for model training.
         </p>
       )}

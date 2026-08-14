@@ -121,8 +121,8 @@ export function FleetMap({
           ...m,
           [login]:
             inapplicable > 0
-              ? `Scan finished, but no scores updated — ${inapplicable} repo${inapplicable === 1 ? "" : "s"} skipped or errored${firstReason ? ` (${firstReason})` : ""}.`
-              : "No watched repos to scan — open the org and watch some repos first.",
+              ? `Scan finished, but no scores updated: ${inapplicable} repo${inapplicable === 1 ? "" : "s"} skipped or errored${firstReason ? ` (${firstReason})` : ""}.`
+              : "No watched repos to scan. Open the org and watch some repos first.",
         }));
       }
       // Mark this org just-scanned so the live refresh defers it past the propagation window.
@@ -132,7 +132,7 @@ export function FleetMap({
       // An aborted scan (Cancel / unmount / navigation) is expected — stay silent. Any other failure
       // (a genuine network error) is surfaced so the user knows the scan didn't run.
       if ((e as { name?: string } | null)?.name !== "AbortError") {
-        setScanError((m) => ({ ...m, [login]: "Network error — scan didn't run. Try again." }));
+        setScanError((m) => ({ ...m, [login]: "Network error: scan didn't run. Try again." }));
       }
     } finally {
       if (scanCtrl.current === ctrl) scanCtrl.current = null;

@@ -45,11 +45,11 @@ export function WhatChanged({
 
         {sameScan ? (
           <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 text-base text-slate-400">
-            Same scan selected on both sides — pick two different scans to see a diff.
+            Same scan selected on both sides. Pick two different scans to see a diff.
           </p>
         ) : diff.unchanged ? (
           <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 text-base text-slate-400">
-            No measurable change between these two scans — same level, posture, scores, and open gaps.
+            No measurable change between these two scans: same level, posture, scores, and open gaps.
           </p>
         ) : (
           <div className="mt-4 flex flex-wrap gap-2 text-sm">

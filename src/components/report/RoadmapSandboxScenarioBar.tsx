@@ -36,10 +36,10 @@ function ScenarioOutcome({ scenario }: { scenario: SandboxScenarioRecord }) {
       </span>
       <span className="text-slate-500">
         {gap === 0
-          ? `— exactly as modeled (scanned ${dateLabel(actual.scannedAt)}).`
+          ? `, exactly as modeled (scanned ${dateLabel(actual.scannedAt)}).`
           : gap > 0
-            ? `— ${gap} pt${gap === 1 ? "" : "s"} ahead of the model (scanned ${dateLabel(actual.scannedAt)}).`
-            : `— ${behind} pt${behind === 1 ? "" : "s"} short so far (scanned ${dateLabel(actual.scannedAt)}).`}
+            ? `, ${gap} pt${gap === 1 ? "" : "s"} ahead of the model (scanned ${dateLabel(actual.scannedAt)}).`
+            : `, ${behind} pt${behind === 1 ? "" : "s"} short so far (scanned ${dateLabel(actual.scannedAt)}).`}
       </span>
     </p>
   );
@@ -65,7 +65,7 @@ export function ScenarioBar({
   if (state === "unavailable") return null;
 
   const disabledTitle = !anyChanged
-    ? "Move a slider (or try a recommendation) first — there's no model to save yet."
+    ? "Move a slider (or try a recommendation) first; there's no model to save yet."
     : undefined;
 
   return (
@@ -74,18 +74,18 @@ export function ScenarioBar({
         <Kicker tone="accent">Saved plan</Kicker>
         <p className="mt-1 max-w-prose text-sm leading-relaxed text-slate-400">
           {scenario
-            ? `Saved ${dateLabel(scenario.updatedAt)} against the ${dateLabel(scenario.baseline.scannedAt)} scan — sliders, the gaps you picked, and the projected score.`
-            : "Keep this what-if: the slider positions, the gaps you picked, and the projected score — restored next time you open the sandbox."}
+            ? `Saved ${dateLabel(scenario.updatedAt)} against the ${dateLabel(scenario.baseline.scannedAt)} scan: sliders, the gaps you picked, and the projected score.`
+            : "Keep this what-if: the slider positions, the gaps you picked, and the projected score. Restored next time you open the sandbox."}
         </p>
         <div role="status" aria-live="polite">
           {restored && state !== "saving" && state !== "saved" && (
-            <p className="mt-1 text-sm text-emerald-300">Your saved plan is loaded — drag to keep exploring.</p>
+            <p className="mt-1 text-sm text-emerald-300">Your saved plan is loaded. Drag to keep exploring.</p>
           )}
           {state === "saved" && <p className="mt-1 text-sm text-emerald-300">Plan saved.</p>}
           {state === "error" && (
             <p className="mt-1 flex items-center gap-1.5 text-sm text-amber-200/90">
               <span aria-hidden>ⓘ</span>
-              Couldn&apos;t save the plan just now — try again.
+              Couldn&apos;t save the plan just now. Try again.
             </p>
           )}
         </div>

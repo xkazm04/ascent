@@ -47,7 +47,7 @@ function itemRow(i: SampledItem): unknown[] {
   return [
     i.repoFullName,
     i.prNumber,
-    "(omitted — identify via repository + pr_number)",
+    "(omitted, identify via repository + pr_number)",
     i.author,
     i.authorIsBot,
     i.aiSignal,
@@ -86,7 +86,7 @@ export function packManifestMarkdown(pack: ConformancePack, hashes: { sample: st
   const p = pack.population;
   const lines: string[] = [];
 
-  lines.push(`# AI change-management evidence pack — ${pack.org}`);
+  lines.push(`# AI change-management evidence pack: ${pack.org}`);
   lines.push("");
   lines.push(`**Period:** ${pack.period.label} (${pack.period.from} → ${pack.period.to})`);
   if (pack.observed.from && pack.observed.to) {
@@ -96,7 +96,7 @@ export function packManifestMarkdown(pack: ConformancePack, hashes: { sample: st
   lines.push(`**Identities:** ${pack.provenance.identityMode}`);
   lines.push("");
 
-  lines.push("## What this is — and is not");
+  lines.push("## What this is (and is not)");
   lines.push("");
   lines.push(pack.attestation.purpose);
   lines.push("");
@@ -115,10 +115,10 @@ export function packManifestMarkdown(pack: ConformancePack, hashes: { sample: st
   lines.push("| Measure | Value |");
   lines.push("| --- | --- |");
   lines.push(`| AI-attributed changes in period | ${p.total} |`);
-  lines.push(`| — of which merged | ${p.merged} |`);
+  lines.push(`| Of which merged | ${p.merged} |`);
   lines.push(`| Merged WITH an approving human review | ${p.governed} (${pct(p.governed, p.merged)} of merged) |`);
-  lines.push(`| Merged WITHOUT one — findings | ${p.ungoverned} (${pct(p.ungoverned, p.merged)} of merged) |`);
-  lines.push(`| — of those, reviewed but not approved | ${p.reviewedNotApproved} |`);
+  lines.push(`| Merged WITHOUT one: findings | ${p.ungoverned} (${pct(p.ungoverned, p.merged)} of merged) |`);
+  lines.push(`| Of those, reviewed but not approved | ${p.reviewedNotApproved} |`);
   lines.push(`| Authored by an AI agent | ${p.agentAuthored} |`);
   lines.push(`| Marked as AI-assisted by a human author | ${p.markedByHuman} |`);
   lines.push(`| Repositories contributing rows | ${p.repos} |`);

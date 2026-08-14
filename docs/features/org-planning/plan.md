@@ -9,7 +9,7 @@ auditor's suspected detector misses) for calibration. All three persist via
 
 ## Goals
 
-A goal is a fleet-level target. Its progress is **live** — recomputed from the latest scan
+A goal is a fleet-level target. Its progress is **live**: recomputed from the latest scan
 per repo, never stored as a snapshot.
 
 - **Model:** `Goal { id, orgId, label, metric, target (0–100), status, createdAt }`, where
@@ -45,14 +45,14 @@ fleet recommendation** (e.g. "Add AGENTS.md to these 8 repos").
   `src/components/org/plan/CreateInitiativeButton.tsx` files the already-constructed payload
   from four read surfaces straight into `POST /api/org/initiatives` (idempotent server-side
   on `(org, title, dimId)`):
-  - **Delivery** — each ROI concern cohort (`AiRoiQuadrantActions`) tracks its repo set
+  - **Delivery**: each ROI concern cohort (`AiRoiQuadrantActions`) tracks its repo set
     against the dimension its remedy moves (ungoverned→D6, idle→D1, shadow→D8).
-  - **Tech Stacks** — a transformation playbook (`PlaybookDetail`) tracks its `dimId` +
+  - **Tech Stacks**: a transformation playbook (`PlaybookDetail`) tracks its `dimId` +
     `target` as a fleet-scoped initiative.
-  - **Adoption** — an enablement target (`EnablementTargets`) tracks a D1 enablement
-    initiative naming the login in the title (no assignee — the person to enable is not the
+  - **Adoption**: an enablement target (`EnablementTargets`) tracks a D1 enablement
+    initiative naming the login in the title (no assignee: the person to enable is not the
     initiative's owner).
-  - **Simulator** — saved scenarios carry their immutable `fixes` + concrete repo set, so a
+  - **Simulator**: saved scenarios carry their immutable `fixes` + concrete repo set, so a
     single-leg save can be committed as an initiative after the live form has moved on
     (multi-leg saves stay compare-only; per-leg looping was rejected as non-atomic).
 
@@ -61,7 +61,7 @@ An optional `practiceId` links an initiative to a [Practice Library](../org-dash
 ## Simulator (what-if)
 
 The simulator answers "if we raise dimension D to target T across these repos, what happens
-to the fleet?" — deterministically, with **no writes**.
+to the fleet?" (deterministically, with **no writes**).
 
 - **Core** (`src/lib/scoring/orgsim.ts`): `simulateFleet(repos, fix, scope)`:
   1. `recomputeRepo(dims, archetype)` reproduces the live engine's archetype-weighted
@@ -73,50 +73,50 @@ to the fleet?" — deterministically, with **no writes**.
 - **API** (`src/app/api/org/simulate/route.ts`): `POST { org, dimId, target, repos? }` →
   `{ projection }`, via `simulateOrgFix` in `plan.ts` (which builds the latest-scan
   `FleetSnapshot` and calls `simulateFleet`).
-- **UI:** `src/components/org/plan/Simulator.tsx` — pick a dimension + target + scope (all
-  scanned repos or a checkbox subset), Simulate, and see affected repos, promotions,
+- **UI:** `src/components/org/plan/Simulator.tsx` lets you pick a dimension + target + scope
+  (all scanned repos or a checkbox subset), Simulate, and see affected repos, promotions,
   before/after with deltas, and the biggest movers. The result is read-only and never
   persisted.
 
 ## Debt Ledger (Backlog tab)
 
 The Backlog tab (`src/components/org/plan/backlog/BacklogTab.tsx`) opens with the **Debt
-Ledger** (W5, 2026-08-12) — AI-era quality debt as a statement of account, rendered ABOVE
+Ledger** (W5, 2026-08-12): AI-era quality debt as a statement of account, rendered ABOVE
 the working backlog panel (which keeps grouping, inline edits, search/filter, bulk actions
-and CSV export — the ledger summarizes, the panel manages). The prototype's variant
+and CSV export; the ledger summarizes, the panel manages). The prototype's variant
 switcher and mock data (`DebtSwitcher.tsx`, `debtMockData.ts`) are retired; every number is
 real:
 
-- **Principal / Overdue / Due-soon** — the backlog itself (`getOrgBacklog`): score points
+- **Principal / Overdue / Due-soon.** The backlog itself (`getOrgBacklog`): score points
   locked up in past-due recommendations (projected points, impact-based fallback for
   legacy scans), per repo and fleet-wide. The panel's old Overdue/Due-soon tiles moved up
   here.
-- **Interest** — `reworkRate` (share of merged PRs later reverted; W5 revert linkage) from
+- **Interest**: `reworkRate` (share of merged PRs later reverted; W5 revert linkage) from
   each repo's latest scan via `src/lib/db/org-rework.ts` (`getOrgRework`, mirroring
   `org-signals.ts`: latest-scan blobs, analyzed-PR-weighted fleet aggregates). A per-repo
   **AI interest** column shows `aiReworkRate` (the same over AI-involved merges).
-- **Write-offs** — `revertRate` (revert-titled PRs, W1a). **Exposure** — the
+- **Write-offs**: `revertRate` (revert-titled PRs, W1a). **Exposure**: the
   trailer-grounded `aiTrailerRate` (W2) where measured, falling back to the marker-based
   `aiInvolvedRate` and labeled as the fallback.
-- **Pressure** (row sort + verdict tone) — a 0–100 composite over the MEASURED terms only
+- **Pressure** (row sort + verdict tone): a 0–100 composite over the MEASURED terms only
   (overdue principal 45% · rework 35% · write-offs 20%, weights renormalizing when a rate
   is null), documented in `debtModel.ts`.
 
 **Null discipline:** a repo whose latest scan predates rework tracking, has no PR data, or
 is under the ≥5-sample floors renders an honest "—" with the reason in the tooltip and the
-ledger's field notes ("scan predates rework tracking — re-scan to measure") — never a zero.
+ledger's field notes ("scan predates rework tracking; re-scan to measure"), never a zero.
 The rework rates are **lower bounds** (window-scoped matcher; renamed reverts escape),
 stated in the field notes.
 
-**Deferred:** *AI churn share* (rework landing on AI-authored lines) has no real signal yet
-— it needs per-PR file paths (tier B churn ingest, pairs with stance path-zone enforcement).
+**Deferred:** *AI churn share* (rework landing on AI-authored lines) has no real signal yet:
+it needs per-PR file paths (tier B churn ingest, pairs with stance path-zone enforcement).
 The prototype's mock column was removed rather than faked; it returns with its signal.
 
 ## Detector backlog
 
 `getOrgDiscrepancies(slug)` aggregates the LLM auditor's flagged signals (where it thinks a
 detector under/over-counted), grouped by dimension with examples. The Plan page renders
-this as a calibration backlog — the human-in-the-loop signal for improving the
+this as a calibration backlog: the human-in-the-loop signal for improving the
 deterministic detectors.
 
 ## Key files
@@ -135,17 +135,17 @@ deterministic detectors.
 
 ## Known gaps
 
-- **Simulator legs are independent** — a scenario is one or more `{ dimId, target }`
+- **Simulator legs are independent.** A scenario is one or more `{ dimId, target }`
   legs (`rankFleetInvestments` ranks them; `Simulator.RankPanel.tsx` and
   `Simulator.SavedScenarios.tsx` drive the UI), but each leg is projected on its own:
   the model doesn't express a dependency between legs, so it can't capture "fixing D3
   makes D6 cheaper".
 - (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row now
-  carries `series` — the same per-day metric trend the pace/ETA projection is fitted on
+  carries `series`: the same per-day metric trend the pace/ETA projection is fitted on
   (`metricSeries`), display-clamped to the plan's retention floor and capped at 90 daily
-  points — and the shared `GoalCard` draws it as a trajectory line toward the dashed
+  points; the shared `GoalCard` draws it as a trajectory line toward the dashed
   target (`src/components/org/shared/GoalTrend.tsx`), on both the Plan tab and the
   overview goals panel. The `pct` meter's documented blind spot (standing, not travel) is
   now covered by the line above it.
-- **Detector backlog is read-only** — no drill-in or auto-filing to a detector-improvement
+- **Detector backlog is read-only.** No drill-in or auto-filing to a detector-improvement
   process.

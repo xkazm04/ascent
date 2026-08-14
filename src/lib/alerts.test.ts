@@ -290,7 +290,7 @@ describe("creditsAlertThreshold", () => {
 describe("buildLowCreditsMessage", () => {
   it("low-water crossing names the org, balance, threshold and manage link", () => {
     const msg = buildLowCreditsMessage({ org: "acme", balance: 5, threshold: 5, url: "https://x/org/acme" });
-    expect(msg.text).toContain("acme is low on scan credits — 5 left");
+    expect(msg.text).toContain("acme is low on scan credits (5 left)");
     expect(msg.text).toContain("low-water mark (5)");
     expect(msg.text).toContain("https://x/org/acme");
     expect(Array.isArray(msg.blocks)).toBe(true);

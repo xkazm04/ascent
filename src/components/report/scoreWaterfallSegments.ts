@@ -78,7 +78,7 @@ export function waterfallSegments(ranked: readonly WaterfallContribution[]): Wat
       points: sum,
       score: null,
       title:
-        `${micro.length} dimensions under ${fmtPts(MICRO_POINTS)} pts each — ` +
+        `${micro.length} dimensions under ${fmtPts(MICRO_POINTS)} pts each: ` +
         `${micro.map((c) => `${c.dimension} +${fmtPts(c.points)}`).join(", ")} = +${fmtPts(sum)} pts`,
       count: micro.length,
     });

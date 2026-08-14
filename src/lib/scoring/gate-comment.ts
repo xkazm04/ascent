@@ -86,8 +86,8 @@ export function buildGateComment(
   const conclusion: GateComment["conclusion"] = scoredHead ? (pass ? "success" : "failure") : "neutral";
   const verdict = pass ? "Passed" : "Failed";
   const title = scoredHead
-    ? `${verdict} — ${level.id} ${level.name} (${overallScore}/100)`
-    : `Default branch ${verdict.toLowerCase()} — PR head not scored (${level.id} ${overallScore}/100)`;
+    ? `${verdict}: ${level.id} ${level.name} (${overallScore}/100)`
+    : `Default branch ${verdict.toLowerCase()}: PR head not scored (${level.id} ${overallScore}/100)`;
 
   const delta = deltaPhrase(baseline);
   const lines: string[] = [];
@@ -97,20 +97,20 @@ export function buildGateComment(
   // required-check lists pin it by exact name.
   lines.push(
     scoredHead
-      ? `### ${pass ? "✅" : "❌"} Ascent AI-native Scorecard — ${verdict}`
-      : `### ⚠️ Ascent AI-native Scorecard — Default-branch verdict (PR head not scored)`,
+      ? `### ${pass ? "✅" : "❌"} Ascent AI-native Scorecard: ${verdict}`
+      : `### ⚠️ Ascent AI-native Scorecard: Default-branch verdict (PR head not scored)`,
   );
   if (!scoredHead) {
     lines.push("");
     lines.push(
       "> ⚠️ **The PR head was unreachable (typical for fork PRs), so this scored the DEFAULT BRANCH " +
-        "instead.** This verdict does not reflect the PR's own changes — treat it as non-authoritative " +
+        "instead.** This verdict does not reflect the PR's own changes; treat it as non-authoritative " +
         "for merge decisions.",
     );
   }
   lines.push("");
   lines.push(
-    `**${level.id} · ${level.name}** — ${overallScore}/100 · posture **${posture.label}** · ${ARCHETYPE_LABEL[archetype]} lens`,
+    `**${level.id} · ${level.name}** · ${overallScore}/100 · posture **${posture.label}** · ${ARCHETYPE_LABEL[archetype]} lens`,
   );
   lines.push("");
   lines.push(`Adoption **${report.adoptionScore}** · Rigor **${report.rigorScore}**${delta ? ` · _${delta} ${baselineSuffix}_` : ""}`);
@@ -153,7 +153,7 @@ export function buildGateComment(
     lines.push(pass ? "**Where this repo could grow next**" : "**Gaps to explore to clear the gate**");
     for (const r of explore) {
       const q = r.explore?.[0];
-      lines.push(`- **${r.title}**${q ? ` — _${q}_` : ""}`);
+      lines.push(`- **${r.title}**${q ? `: _${q}_` : ""}`);
     }
   }
 
@@ -164,8 +164,8 @@ export function buildGateComment(
   lines.push("");
   lines.push(
     scoredByMock
-      ? "> **Scored by the deterministic rubric** (no LLM) — fully reproducible: same inputs, same verdict. For the AI-graded readiness briefing, configure an LLM provider."
-      : `<sub>Scored by Ascent — ${mdInline(report.engine.provider)} · ${mdInline(report.engine.model)} · AI estimate, may vary between runs</sub>`,
+      ? "> **Scored by the deterministic rubric** (no LLM), fully reproducible: same inputs, same verdict. For the AI-graded readiness briefing, configure an LLM provider."
+      : `<sub>Scored by Ascent · ${mdInline(report.engine.provider)} · ${mdInline(report.engine.model)} · AI estimate, may vary between runs</sub>`,
   );
 
   const summary = lines.join("\n");
@@ -199,7 +199,7 @@ export function buildGateComment(
     ...(reportUrl ? [`[**See the full report →**](<${reportUrl}>)`, ""] : []),
     ...(securedByD9
       ? [
-          "<sub>The Security (D9) floor is fully deterministic — its score comes straight from the security " +
+          "<sub>The Security (D9) floor is fully deterministic; its score comes straight from the security " +
             "check battery, and the language model can only narrate it, never move the number. Same tree, " +
             "same verdict.</sub>",
           "",

@@ -65,7 +65,7 @@ describe("TrendChart mock-vs-model point provenance", () => {
   it("carries provenance into the screen-reader table, so the caveat is not pointer-only", () => {
     render(<TrendChart points={MIXED} />);
     expect(screen.getByRole("columnheader", { name: /scored by/i })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: /demo scan — deterministic rubric, no model/i })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: /demo scan: deterministic rubric, no model/i })).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "claude-cli" })).toHaveLength(2);
   });
 

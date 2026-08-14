@@ -60,7 +60,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     billing: "free",
     seats: 1,
     retentionDays: 30,
-    blurb: "Private scans every month — public scans are always free — with the full report and badge.",
+    blurb: "Private scans every month, and public scans are always free, with the full report and badge.",
     features: ["Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
   },
   // Stored id `pro`, shown as "Starter" — the same display-only rename as `enterprise`/"Custom" (see
@@ -103,13 +103,13 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     billing: "custom",
     seats: null,
     retentionDays: null,
-    blurb: "Every line adjustable — hosting, scans, support, customization and sign-on.",
+    blurb: "Every line adjustable: hosting, scans, support, customization and sign-on.",
     features: [
-      "Hosting — shared cloud, your VPC, or on-prem",
-      "Scans — volume set to your fleet, not a tier",
-      "Support — response times and an SLA you pick",
-      "App customization — branding, dimensions, workflows",
-      "SSO — SAML/OIDC sign-in and directory sync",
+      "Hosting: shared cloud, your VPC, or on-prem",
+      "Scans: volume set to your fleet, not a tier",
+      "Support: response times and an SLA you pick",
+      "App customization: branding, dimensions, workflows",
+      "SSO: SAML/OIDC sign-in and directory sync",
     ],
   },
 };

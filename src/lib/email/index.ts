@@ -66,7 +66,7 @@ export function buildScanCompletionEmail(opts: {
   const { repoFullName, url, report } = opts;
   const level = `${report.level.id} ${report.level.name}`;
   const score = report.overallScore;
-  const subject = `Your Ascent scan is ready — ${repoFullName} (${level})`;
+  const subject = `Your Ascent scan is ready: ${repoFullName} (${level})`;
 
   const text = [
     `Your AI-native maturity scan of ${repoFullName} is ready.`,

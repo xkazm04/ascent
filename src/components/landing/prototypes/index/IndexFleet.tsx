@@ -15,7 +15,7 @@ import { PublicConstellation } from "@/components/launch/PublicConstellation";
 const FLEET_NOTES: Array<{ term: string; detail: string }> = [
   { term: "One cluster per org", detail: "Every installation you connect becomes its own constellation." },
   { term: "One star per repo", detail: "Brightness and size track the repository's AI-native maturity." },
-  { term: "Live as it scans", detail: "Stars light up in place as scores stream in — nothing to refresh." },
+  { term: "Live as it scans", detail: "Stars light up in place as scores stream in. Nothing to refresh." },
 ];
 
 export function IndexFleet() {
@@ -30,7 +30,7 @@ export function IndexFleet() {
           <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
             Sign in and Ascent charts every organization you connect as a living star-map: a cluster per org, a
             star per repository, each one brightening as its maturity climbs. It is the whole estate in one
-            frame — where the light is, and where it is not.
+            frame: where the light is, and where it is not.
           </p>
 
           <dl className="mt-6 grid gap-px overflow-hidden rounded-xl bg-divider sm:grid-cols-3">

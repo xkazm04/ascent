@@ -26,7 +26,7 @@ interface OrgQuestion {
 
 const QUESTIONS: OrgQuestion[] = [
   {
-    ask: "Which repositories are ready to accelerate — and which are quietly compounding risk?",
+    ask: "Which repositories are ready to accelerate, and which are quietly compounding risk?",
     module: "Fleet",
     tab: "repositories",
     view: "Repositories",
@@ -65,7 +65,7 @@ export function AboutOrgQuestions() {
           size="page"
           kicker="Why the org edition exists"
           title="Five questions a repository score cannot answer"
-          intro="A per-repo report tells you how one codebase is doing. None of these questions are about one codebase — they are about the population, the trend, and the evidence. Each has a view that answers it; open any of them in the live demo."
+          intro="A per-repo report tells you how one codebase is doing. None of these questions are about one codebase: they are about the population, the trend, and the evidence. Each has a view that answers it; open any of them in the live demo."
         />
       </Reveal>
 

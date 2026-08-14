@@ -219,7 +219,7 @@ export function TourChecklist({ slug }: { slug: string }) {
 
               {loaded && items.length === 0 && (
                 <p className="text-sm leading-relaxed text-slate-400">
-                  Nothing to guide here yet — this workspace has no setup steps to derive.
+                  Nothing to guide here yet: this workspace has no setup steps to derive.
                 </p>
               )}
             </div>
@@ -233,7 +233,7 @@ export function TourChecklist({ slug }: { slug: string }) {
                         only the ring is missing. Never a stuck "seeking" state. */}
                     {t.isSkipped(active.tour.id) && (
                       <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                        That control isn&apos;t on screen for this organization yet — you&apos;re on the right
+                        That control isn&apos;t on screen for this organization yet. You&apos;re on the right
                         tab; it appears once there&apos;s something for it to act on.
                       </p>
                     )}

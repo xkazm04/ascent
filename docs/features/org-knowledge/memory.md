@@ -15,20 +15,20 @@ the org is a personal workspace, and a coverage summary (`getMemoryCoverage`,
 degrades to `null` on failure rather than breaking the page).
 
 Above the memory list, `MemoryCoverageStrip` (`src/app/org/[slug]/memory/
-MemoryCoverageStrip.tsx`) renders three tiles — "Memory coverage" (percentage
+MemoryCoverageStrip.tsx`) renders three tiles: "Memory coverage" (percentage
 of the org's tracked repos with a fresh memory), "Repos with fresh memory"
-(`fresh/total`), and "Going quiet" (count of repos with no recent memory) —
+(`fresh/total`), and "Going quiet" (count of repos with no recent memory),
 plus up to 5 stale-repo chips. It only renders when the org has at least one
 tracked repo. A repo counts as "fresh" if it has at least one active memory
 whose `namespace` matches the repo's full name and whose `updatedAt` is within
 30 days (`FRESH_WINDOW_DAYS`, `src/lib/memory/coverage.ts`). The denominator is
-every tracked repo, not just repos that already have memory — so the strip
+every tracked repo, not just repos that already have memory, so the strip
 cannot show a flattering 100% just because nothing has been recorded yet.
 
 Below the strip, `MemoryPanel` (`src/components/org/MemoryPanel.tsx`, client)
 is the orchestrator: filter bar, list, and author form. Under it sit the two
-lifecycle surfaces: **MemoryRecallPanel** (value-ranked recall — a read, any
-member) and **MemoryReflectPanel** (propose/apply consolidation — gated as a
+lifecycle surfaces: **MemoryRecallPanel** (value-ranked recall, a read, any
+member) and **MemoryReflectPanel** (propose/apply consolidation, gated as a
 write).
 
 ## Memory kinds
@@ -37,26 +37,26 @@ Defined in `src/lib/org/memory-kinds.ts`:
 
 | Kind | Meaning |
 | --- | --- |
-| `episodic` | What happened — an event, an incident, a decision made on a date. |
+| `episodic` | What happened: an event, an incident, a decision made on a date. |
 | `semantic` | A durable fact about the org, its systems, or its conventions. |
-| `procedural` | What worked — a workflow, a tool sequence, a runbook step. |
+| `procedural` | What worked: a workflow, a tool sequence, a runbook step. |
 | `summary` | A rollup that consolidates several other memories. |
 
 The default kind is `semantic`; an unrecognized kind is coerced back to it.
-`summary` is produced only by the reflect/apply flow (below) — nothing else in
+`summary` is produced only by the reflect/apply flow (below); nothing else in
 the codebase creates one, and a `summary` row can never itself become a
 cluster member of a future reflection.
 
 Each memory also carries:
 
-- **Visibility** — `shared` (any org member can read it) or `private`
+- **Visibility**: `shared` (any org member can read it) or `private`
   (author-only; used for agent/personal scratch notes). Schema default is
   `shared`; the memory page passes `defaultVisibility="private"` for personal
   workspaces.
-- **Confidence** — a 0–1 float. The author form offers three bands: High
+- **Confidence**: a 0–1 float. The author form offers three bands: High
   (1.0, "verified/decided"), Medium (0.6, "probable, unverified"), Low (0.3,
   "a hunch, needs checking").
-- **Source** — free text provenance (e.g. "RFC-14, incident #92"), or the
+- **Source**: free text provenance (e.g. "RFC-14, incident #92"), or the
   constant `"scan-pipeline"` for memories auto-fed by scans (rendered as an
   "auto · scan" badge in the UI).
 
@@ -79,16 +79,16 @@ that the memory was used.
 
 The author form (`MemoryPanel.AuthorForm.tsx`) is a two-step flow:
 
-1. **Check for duplicates** (optional) — `POST /api/org/memory/check` runs a
+1. **Check for duplicates** (optional): `POST /api/org/memory/check` runs a
    write-intelligence pass (see below) and renders a verdict banner
    (`MemoryPanel.CheckVerdict.tsx`): `novel` (save as-is), `supersede`
    (something existing looks like an earlier/rougher version of this), or
    `duplicate` (already known). If the verdict is `supersede`, the top match
    is pre-selected as the supersede target; the UI never auto-arms supersede
    for a merely-related match. A "Keep both" option is always available.
-2. **Save** — `POST /api/org/memory` with content, kind, namespace,
+2. **Save**: `POST /api/org/memory` with content, kind, namespace,
    visibility, confidence, source, tags, and (if chosen) `supersedeId`. Save
-   is never blocked on the check step — a slow or unavailable model must not
+   is never blocked on the check step: a slow or unavailable model must not
    prevent a write.
 
 If `supersedeId` is present, the write is a correction, not a plain insert:
@@ -109,7 +109,7 @@ and rolls back on failure.
 `src/lib/memory/consolidation.ts` backs `POST /api/org/memory/check`. It runs
 in two layers, always attempted in order:
 
-1. **Deterministic prefilter** — content is tokenized (lowercased, punctuation
+1. **Deterministic prefilter**: content is tokenized (lowercased, punctuation
    stripped, stopwords and single-character tokens dropped) and scored
    against up to 100 same-namespace candidates the viewer can see, using the
    **overlap coefficient** `|A∩B| / min(|A|,|B|)` (deliberately not Jaccard,
@@ -118,14 +118,14 @@ in two layers, always attempted in order:
    shortlist is also the whole answer when no LLM is reachable: a heuristic
    verdict maps a top overlap ≥0.75 to `duplicate`, ≥0.35 to `supersede`,
    else `novel`.
-2. **LLM judgment** — the shortlist is sent to whichever provider
+2. **LLM judgment**: the shortlist is sent to whichever provider
    `LLM_PROVIDER` selects (see "Which model runs these passes" below), which
    returns a recommendation plus per-candidate `{ similarity, relation,
    reason }` (relation ∈ `duplicate | refines | contradicts | unrelated`).
    The parsed response is hardened against hallucination: any returned id not
    in the shortlist is dropped, similarity is clamped to 0–1 (falling back to
    the deterministic overlap score if missing), and a `supersede`/`duplicate`
-   recommendation with zero surviving matches is downgraded to `novel` — the
+   recommendation with zero surviving matches is downgraded to `novel`: the
    UI must never offer a Supersede action with nothing to supersede.
 
 If the LLM path throws, returns non-JSON, or isn't configured, the route
@@ -142,12 +142,12 @@ seam over the **same** provider selection the scan pipeline uses
 is it usable here?" has exactly one answer in the codebase.
 
 - An explicit `LLM_PROVIDER` wins. If that provider's prerequisite is absent,
-  the runner is `null` — never a silent substitution of a provider the
+  the runner is `null`, never a silent substitution of a provider the
   operator did not choose.
 - `auto`/unset resolves to Gemini when a key is present, else `null`.
 - `mock` and (on a production host) `claude-cli` resolve to `null`: there is
   no honest deterministic text for a judgment call.
-- Per-call timeout is `MEMORY_CHECK_TIMEOUT_MS` (default 90s) — far below the
+- Per-call timeout is `MEMORY_CHECK_TIMEOUT_MS` (default 90s), far below the
   scan budget, because a human is waiting on a button.
 
 `null` means **no engine**, and both passes report it: the check verdict falls
@@ -156,7 +156,7 @@ back to the deterministic heuristic (`llmUnavailable: true`, `engine:
 "none"`). `engine` names the provider that actually answered.
 
 Until 2026-07-29 the only wired engine was the local `claude` CLI, which is
-local-dev-only by construction — so in **any** deployment reflect returned
+local-dev-only by construction, so in **any** deployment reflect returned
 zero proposals on every call and the `summary` kind was unreachable. Hosted
 providers now serve both passes.
 
@@ -169,12 +169,12 @@ explicit click that touches no model at all.
 ## The untrusted-content boundary on both memory prompts
 
 Memory content is written by org members, harvested from scanned
-repositories, and written by **agents** — an agent that read a poisoned
+repositories, and written by **agents**: an agent that read a poisoned
 README and stored what it "learned" is the ordinary way an injection reaches
 this store, with no human in that loop. Both memory prompts (the check
 verdict and the reflect proposal) therefore quote every foreign-authored
 fragment inside the shared untrusted-content boundary,
-`src/lib/llm/untrusted.ts` — the same implementation the scoring prompt uses,
+`src/lib/llm/untrusted.ts`, the same implementation the scoring prompt uses,
 extracted rather than re-implemented, because a second copy of a security
 control is the defect and not the fix.
 
@@ -187,7 +187,7 @@ and triple-backtick runs defused. The task statement and the JSON output
 contract stay outside the block.
 
 What this protects is specific: a verdict or proposal **names memory ids**,
-and a named id is superseded. Prompt-level hardening is the outer layer only —
+and a named id is superseded. Prompt-level hardening is the outer layer only:
 the parse-time guards (an id must belong to the shortlist/cluster we asked
 about, or the whole proposal is rejected) and the org-scoped database writes
 remain the load-bearing ones.
@@ -197,27 +197,27 @@ remain the load-bearing ones.
 `POST /api/org/memory/reflect` supports two distinct call shapes on the same
 route:
 
-- **Propose** (`{ org, namespace?, decay?, dryRun? }`) — a read-only pass.
+- **Propose** (`{ org, namespace?, decay?, dryRun? }`): a read-only pass.
   Candidate memories are clustered by pairwise **Jaccard similarity**
   (`|A∩B|/|A∪B|`, deliberately different from the check verdict's overlap
   coefficient because clustering wants two-way similarity, not
   correction-covers-original) via union-find at a similarity threshold of
-  0.3. Only clusters of at least 3 members qualify — a pair of similar
+  0.3. Only clusters of at least 3 members qualify: a pair of similar
   memories is better handled by supersede, not a rollup, since a summary that
   replaces only two rows usually loses more nuance than it saves. Up to 4
   clusters are sent to the model in one call; its proposed summaries are
   hardened the same way as the check verdict (a foreign member id rejects the
   whole proposal, fewer than 2 surviving members rejects it, blank summaries
   are rejected, and a proposal's confidence is capped at the highest
-  confidence among its own members — a rollup may never be more certain than
+  confidence among its own members: a rollup may never be more certain than
   the most certain thing it consolidates). **If no LLM is reachable, reflect
   returns zero proposals rather than falling back to a heuristic rollup**
-  (`llmUnavailable: true`) — unlike the check verdict, there is no honest
+  (`llmUnavailable: true`); unlike the check verdict, there is no honest
   non-LLM way to synthesize a summary, and a deterministic concatenation
   would still supersede its sources. A caller must not read that as "nothing
   to consolidate"; see the outcome table below.
 - **Apply** (`{ org, apply: { summaryContent, memberIds (≥2), confidence?,
-  namespace? } }`) — a second, explicit call that actually writes: in one
+  namespace? } }`): a second, explicit call that actually writes: in one
   transaction it creates a new `summary`-kind memory (`source: "reflection"`,
   tag `"auto-reflection"`, version = highest member version + 1) and stamps
   every named member `supersededBy = <new id>`. If the live member set
@@ -233,7 +233,7 @@ without archiving it.
 `/org/[slug]/memory` renders **MemoryReflectPanel** under the memory list.
 "Propose consolidation" runs the read-only propose call; each returned
 proposal renders its summary, the cluster's cohesion, the capped confidence,
-and — expandable — the full list of memories it would supersede, with its own
+and, expandable, the full list of memories it would supersede, with its own
 "Apply rollup" button. Applying is therefore always a second, per-proposal
 click, and never happens implicitly on write.
 
@@ -247,15 +247,15 @@ reader:
 
 | Response | What the panel says |
 | --- | --- |
-| `llmUnavailable: true` | No model engine is available, so nothing was proposed — configure `LLM_PROVIDER`. Nothing was changed. |
+| `llmUnavailable: true` | No model engine is available, so nothing was proposed; configure `LLM_PROVIDER`. Nothing was changed. |
 | `clusterCount: 0` | Nothing to consolidate: N memories compared, no family of three restated one subject. |
-| `clusterCount > 0`, no proposals | N families found, none worth rolling up — the model read them and declined. |
+| `clusterCount > 0`, no proposals | N families found, none worth rolling up: the model read them and declined. |
 
 ## Recall: scoring and budget packing
 
 `GET`/`POST /api/org/memory/recall` is the surface an agent or integration
 uses to pull relevant memories into context. Any org member (session) can
-call it, and — since 2026-08-14 — so can a **machine caller holding an org
+call it, and, since 2026-08-14, so can a **machine caller holding an org
 API token with the `memory:read` scope** (`Authorization: Bearer askl_…`,
 the same `authorizeOrgApi` seam the Skills routes use; minted on the Skills
 tab's API-tokens panel). A token principal carries no GitHub identity, so it
@@ -272,7 +272,7 @@ score = confidence × 0.5^(ageDays / halfLife(kind)) × (1 + 0.25·ln(1 + access
   `semantic` 180, `procedural` 365, `summary` 120; an unrecognized kind falls
   back to 180.
 - **Access bonus** is sub-linear (natural log), so repeated recall raises a
-  score but can't dominate it — the code's own estimate is roughly +60% at 10
+  score but can't dominate it: the code's own estimate is roughly +60% at 10
   recalls and +115% at 100.
 - Age is computed from `updatedAt` against an injected "now" (never read from
   the system clock inside the scoring function itself), clamped to zero so a
@@ -302,24 +302,24 @@ budget-bound memory is admitted by raising `charBudget`, while a superseded or
 expired one never is, at any budget. Reporting only `omittedCount` (as this
 route used to) tells a reader something was left out without telling them what
 to do about it. Both lists are derived in the route adapter from the pure
-core's own eligibility predicate — the scoring core is not involved.
+core's own eligibility predicate; the scoring core is not involved.
 
 ### Where a user triggers it
 
-`/org/[slug]/memory` renders **MemoryRecallPanel** below the memory list —
+`/org/[slug]/memory` renders **MemoryRecallPanel** below the memory list,
 the surface that makes recall different from browse (the list above is sorted
 by date; recall is sorted by value). It offers a character budget, an optional
 namespace and an optional kind, then shows:
 
 - the packed set with each row's server-computed `score` and `ageDays`
-  (rendered verbatim — never recomputed client-side, so the number shown is
+  (rendered verbatim, never recomputed client-side, so the number shown is
   the number that ranked the row) plus a budget-fill bar;
-- **"ranked but left out — budget"**, the same rows rendered the same way,
+- **"ranked but left out: budget"**, the same rows rendered the same way,
   muted, with the note that packing is whole-item and greedy;
 - **"not recallable"**, with the reason per row.
 
 Reads are ungated (any org member), matching the route. Because it calls the
-real route, packed memories have their `accessCount` incremented — the panel
+real route, packed memories have their `accessCount` incremented; the panel
 says so, since it is a genuine recall and not a preview.
 
 ## Decay (forgetting)
@@ -333,11 +333,11 @@ memory is archived only if **all four** hold:
 4. kind is not `procedural` (procedural memories are never auto-forgotten)
 
 Because the access-count term is part of the same score, a low-confidence
-memory that is still recalled often can stay above the floor — usage acts as
+memory that is still recalled often can stay above the floor: usage acts as
 a veto on forgetting. Each pass is capped at 50 archived rows. Decay is not
 its own route; it only runs as part of `POST /api/org/memory/reflect` when
 `decay: true` is passed. I did not find a scheduled/cron trigger for it in
-the files read — whether it also runs unattended on a schedule, versus only
+the files read; whether it also runs unattended on a schedule, versus only
 when explicitly requested, is not established from the code examined.
 
 ## Scan feed: how scan results become memories
@@ -346,22 +346,22 @@ when explicitly requested, is not established from the code examined.
 `source: "scan-pipeline"`, `confidence: 1.0` memories from the scan pipeline,
 namespaced to the repo's full name:
 
-- **Regression** — when a scan's regression check flags a drop, a memory
+- **Regression**: when a scan's regression check flags a drop, a memory
   records the overall-score move and severity.
-- **Level change** — when a fresh scan's overall score crosses a maturity
+- **Level change**: when a fresh scan's overall score crosses a maturity
   band (L1–L5) relative to the previous scan, a memory records the promotion
   or demotion. Both directions are recorded, not just demotions.
-- **Recommendation closed** — when a recommendation's status becomes `done`
+- **Recommendation closed**: when a recommendation's status becomes `done`
   (not `dismissed`, which means "decided not to do this" rather than "the gap
   closed"), a memory records the closure.
 
 All three funnel through one write path that checks the last 25 same-
 namespace scan-pipeline memories for an exact content match or a ≥0.95
-overlap score, and silently skips the write if a near-duplicate is found —
+overlap score, and silently skips the write if a near-duplicate is found:
 these are machine-templated lines where a genuine repeat is near-identical
 but a different event (different scores) should still get recorded. Every
 writer wraps its database call in try/catch and returns `null` on failure
-without throwing — a memory write is treated as decoration on a scan that
+without throwing: a memory write is treated as decoration on a scan that
 already succeeded, never something that can break it.
 
 ## API surface
@@ -414,7 +414,7 @@ read/recall/search).
 The gate actually applied on every write route is `workspaceAllowsMemory`
 (`src/lib/db/personal.ts`): `planAllowsMemory(plan) || isPersonalOrg(slug)`.
 A personal workspace can write regardless of plan, but is capped at 100 live
-(non-archived, non-superseded) memories — archived/superseded rows don't
+(non-archived, non-superseded) memories; archived/superseded rows don't
 count against the cap. A Team+ org has no such row cap. Attempting to write
 without either condition returns `403` ("Shared Org Memory is a Team-plan
 feature."); exceeding the personal cap returns `402`.

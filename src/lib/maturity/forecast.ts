@@ -339,11 +339,11 @@ export const MIN_FORECAST_SPAN_DAYS = 14;
 
 /** Why a fit isn't presentable, or null when it is. Copy-ready, caller renders it verbatim. */
 export function forecastInsufficiency(f: Forecast | null): string | null {
-  if (!f) return "Not enough history to project — a trend needs at least two scans on different days.";
+  if (!f) return "Not enough history to project: a trend needs at least two scans on different days.";
   if (f.points < MIN_FORECAST_POINTS)
-    return `Not enough history to project — ${f.points} distinct scan ${f.points === 1 ? "day" : "days"} (a line through ≤ 2 points fits perfectly no matter how noisy the data).`;
+    return `Not enough history to project: ${f.points} distinct scan ${f.points === 1 ? "day" : "days"} (a line through ≤ 2 points fits perfectly no matter how noisy the data).`;
   if (f.spanDays < MIN_FORECAST_SPAN_DAYS)
-    return `Not enough history to project — this fit spans ${f.spanDays} ${f.spanDays === 1 ? "day" : "days"}; a trajectory needs at least ${MIN_FORECAST_SPAN_DAYS}.`;
+    return `Not enough history to project: this fit spans ${f.spanDays} ${f.spanDays === 1 ? "day" : "days"}; a trajectory needs at least ${MIN_FORECAST_SPAN_DAYS}.`;
   return null;
 }
 
@@ -370,7 +370,7 @@ export function forecastHeadline(f: Forecast): string {
       : `At risk of slipping to ${lvl(f.eta.toLevel)} in ${when} (≈ ${f.eta.date}).`;
   }
   if (f.trajectory === "flat")
-    return `Holding around ${f.current} (${lvl(f.currentLevel)}) — no level change projected.`;
+    return `Holding around ${f.current} (${lvl(f.currentLevel)}), no level change projected.`;
   const dir = f.trajectory === "rising" ? "Climbing" : "Declining";
   const rate = `${f.perWeek > 0 ? "+" : ""}${f.perWeek}/wk`;
   return `${dir} at ${rate}, staying within ${lvl(f.currentLevel)} for now.`;

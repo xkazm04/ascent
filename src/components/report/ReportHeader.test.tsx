@@ -143,10 +143,10 @@ describe("ReportHeader", () => {
 
     const ta = await screen.findByLabelText<HTMLTextAreaElement>("Markdown briefing to copy manually");
     expect(ta.value).toBe(reportLlmMarkdown(r));
-    expect(ta.value).toContain("# Ascent maturity report — acme/web"); // and it is the real briefing
+    expect(ta.value).toContain("# Ascent maturity report: acme/web"); // and it is the real briefing
   });
 
-  // G1-36: PDF export is a Pro-plan+ entitlement (planAllowsPdfExport) — a Free-tier org's click
+  // G1-36: PDF export is a paid-tier entitlement (planAllowsPdfExport). A Free-tier org's click
   // 403s. The header has no plan/tier data to hide the button ahead of time, so the button stays
   // visible, but a 403 must not dead-end on inert error text: it has to offer a real way forward.
   it("G1-36: a 403 (Free-tier org, no PDF entitlement) links to /pricing instead of dead-ending", async () => {

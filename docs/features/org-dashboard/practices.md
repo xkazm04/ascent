@@ -1,6 +1,6 @@
 # Practices
 
-A **practice** is a recommended engineering improvement — one per dimension (D1–D9) — that
+A **practice** is a recommended engineering improvement, one per dimension (D1–D9), that
 Ascent can scaffold as a concrete starter file and **open as a draft pull request** in a
 target repo. It turns a roadmap insight ("you're weak on CI gates") into a leak-free
 artifact ("here's a starter `ci.yml` tailored to this repo's language") that a team can
@@ -34,7 +34,7 @@ analysis can link a weak dimension to its practice.
 { path, body, commitMessage, branch, prTitle, prBody, title }
 ```
 
-It is **language-aware** — a `commandsFor(language)` helper supplies the right test/lint
+It is **language-aware**: a `commandsFor(language)` helper supplies the right test/lint
 commands and CI setup step (node, python, go, rust, or generic), so a Node repo gets
 `npm test` while a Python repo gets `pytest`. A per-practice `switch` builds the right file
 (e.g. `agent-guidance` → `AGENTS.md`, `ci-gates` → `.github/workflows/ci.yml`, `docs-adrs`
@@ -54,7 +54,7 @@ writes).
 - GitHub App installed with `contents: write` + `pull_requests: write` (else `503`).
 - If auth is configured, a signed-in session (else `401`).
 - Caller holds at least the **admin** role in the target org (`requireOrgRole(owner,
-  "admin")`, else `403`) — this route pushes a branch/commit and opens a draft PR into a
+  "admin")`, else `403`), since this route pushes a branch/commit and opens a draft PR into a
   real customer repo using the org's installation token, so it requires the same floor as
   other mutations of comparable blast radius (segment delete, credit grants), not merely
   "member". The batch route (below) applies the same gate.
@@ -64,7 +64,7 @@ writes).
 
 1. Resolve the base branch (default branch if `base` omitted).
 2. Read the base ref SHA.
-3. Create `refs/heads/<branch>` at that SHA (tolerates `422` if it already exists —
+3. Create `refs/heads/<branch>` at that SHA (tolerates `422` if it already exists;
    idempotent).
 4. `PUT` the file via the Contents API (includes the existing blob `sha` if updating).
 5. Open a **draft** PR; if one already exists for the head, fetch and return it with
@@ -79,17 +79,17 @@ base branch").
 Both the single-repo and batch routes go through `applyPracticeToRepo()`, so the
 three behaviors below apply to either. Its inner write (openDraftPr + the uniform
 `path`/`pr`/`reused` audit envelope) is exported as `openArtifactDraftPr()`, which the
-AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply` — see
+AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply`, see
 [org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
 
 - **Content-drift guard.** The caller may pass the `expectedFingerprint` it previewed.
   If `artifactFingerprint(artifact.body)` no longer matches, apply returns
-  `{ kind: "content-drift" }` and **opens no PR** — so a template or repo-context
+  `{ kind: "content-drift" }` and **opens no PR**, so a template or repo-context
   change between preview and apply can't silently land unreviewed content.
 - **PR tracking.** On success, `recordPracticePr()` (`src/lib/db/improvement.ts`)
   persists the opened PR as an `ImprovementPr`, which is what the war room polls for
-  merge detection and post-merge impact measurement. A failure here is logged loudly
-  — the PR is open but untracked.
+  merge detection and post-merge impact measurement. A failure here is logged loudly:
+  the PR is open but untracked.
 
 ### Batch apply (`POST /api/practices/apply-batch`)
 
@@ -117,13 +117,13 @@ halves:
   its label becomes the title, its dimension carries over, its "what" plus the exemplar
   repo become the summary, and its leak-free starter becomes the checklist. The mapping is
   pure and bounded to exactly what `createPlaybook` stores (single-line title ≤200,
-  summary ≤1000, ≤20 steps of ≤300 chars) — see
-  `src/components/org/practices/promotePractice.ts` — so nothing is silently truncated on
+  summary ≤1000, ≤20 steps of ≤300 chars, see
+  `src/components/org/practices/promotePractice.ts`), so nothing is silently truncated on
   save. Everything stays editable: a promotion is a review, not a commit.
 - **Fleet rollout for playbooks (G7-24).** `POST /api/org/playbooks/[id]/apply-batch
   { repos[] }` opens a draft PR seeding the playbook into a whole segment (or the whole
   fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
-  role (resolved from the playbook's own org — the single-repo `apply` stays member-level),
+  role (resolved from the playbook's own org; the single-repo `apply` stays member-level),
   every repo must belong to that org (a foreign coordinate fails the whole batch, never
   partially applies), **25 repos per call** after case-insensitive dedupe with the excess
   reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
@@ -131,8 +131,8 @@ halves:
   rollout uses; the single-repo and batch paths are mutually locked. The write sequence
   itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the single route.
 - **Rollout rollup (G7-20).** `summarizeRollout` (in `practiceRows.ts`) folds the rows
-  already on screen into the fleet answer — repos adopting, starter PRs landed / in flight,
-  and lift — rendered by `PracticeRolloutStrip.tsx`. It adds no query and no schema: the
+  already on screen into the fleet answer: repos adopting, starter PRs landed / in flight,
+  and lift, rendered by `PracticeRolloutStrip.tsx`. It adds no query and no schema: the
   per-repo loop was already complete (apply → `ImprovementPr` → `refreshOps` merges it →
   `verifyMergedPrs` stamps the measured dimension impact), what was missing was the
   aggregate. Playbook lift is **sample-weighted** by `adoption.measured` so a one-repo
@@ -154,13 +154,13 @@ straight at the CI-gates practice and its exemplars.
 | File | Role |
 | --- | --- |
 | `src/lib/practices.ts` | `PRACTICES[]` catalog + `PracticeDef`. |
-| `src/lib/practice-artifact.ts` | `buildArtifact()` — deterministic, language-aware artifact builder. |
+| `src/lib/practice-artifact.ts` | `buildArtifact()`: deterministic, language-aware artifact builder. |
 | `src/lib/practice-artifact.test.ts` | Verifies tailored AGENTS.md, language-appropriate CI, non-null for every practice, null for unknown, placeholder degradation. |
 | `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |
-| `src/lib/github/write.ts` | `openDraftPr()` — branch → file → draft PR (idempotent). |
+| `src/lib/github/write.ts` | `openDraftPr()`: branch → file → draft PR (idempotent). |
 | `src/components/org/practices/PracticeApply.tsx` | Preview + apply UI. |
-| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout — admin-gated, org-scoped, capped at 25 repos/run. |
+| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. |
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/components/org/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/components/org/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
@@ -170,7 +170,7 @@ straight at the CI-gates practice and its exemplars.
 
 [`VISION-TRANSITION.md`](../../VISION-TRANSITION.md) §Pillar 2 promised that the org's strongest
 repos would have their institutional knowledge **templatized and offered to the repos that lack
-it** — "mine those exemplars, templatize their *shape* (not their code), and systematically offer it
+it**: "mine those exemplars, templatize their *shape* (not their code), and systematically offer it
 to the teams/repos that lack them". What shipped was nine hand-written starters, one per dimension,
 **identical for every customer**. An org that applied all nine had exhausted the product, and the
 starters described a generic good practice rather than *this org's* practice.
@@ -187,11 +187,11 @@ body**:
 | | |
 | --- | --- |
 | **Outline** | The markdown heading skeleton (H1–H3) of a guidance file, PR template, ADR or CONTRIBUTING. |
-| **Layout** | The directory/file layout of a harness or workflow set — path segments only. |
+| **Layout** | The directory/file layout of a harness or workflow set: path segments only. |
 
 The leak boundary the vision draws is **proprietary code**, and the travel is repo→repo *inside one
 organization*: an org's own headings moving to its own other repo is precisely the intended reuse.
-What must never travel is the body — where the code, the credentials and the customer names live —
+What must never travel is the body (where the code, the credentials and the customer names live),
 so **the body is not extracted at all** rather than extracted-and-filtered.
 
 The one place body content could leak into an outline is a `#` inside a fenced code block (a shell
@@ -204,7 +204,7 @@ cross-org variant, and nothing derived from it appears on a public report or in 
 ### The house pattern is AGREEMENT, not the best repo's copy
 
 The tempting implementation is "take the highest-scoring repo's outline and hand it to everyone".
-That is one team's document promoted to a standard nobody agreed to — and the first reader who
+That is one team's document promoted to a standard nobody agreed to, and the first reader who
 recognises it as *their* file reads the whole feature as surveillance rather than reuse.
 
 So a line enters the pattern only when at least **`MIN_AGREEMENT` (2)** exemplar repos carry it
@@ -213,10 +213,10 @@ its own three ADRs. Layout agreement compares trailing path segments, not full p
 `evals/golden/` and `packages/api/evals/golden/` are the same practice in two places.
 
 Normalization stops at case and punctuation **on purpose**: `Build & Test` and `Build and Test` read
-as one section to a human, but equating them needs a synonym table — and that is where a "your own
+as one section to a human, but equating them needs a synonym table, and that is where a "your own
 pattern" claim quietly becomes the vendor's interpretation of it.
 
-**Every mined line carries its evidence** — the `n×` count of how many repos agreed — and every
+**Every mined line carries its evidence**: the `n×` count of how many repos agreed, and every
 practice names which repos those were. A suggestion an engineer cannot trace back to their own
 codebase is one they are entitled to ignore.
 
@@ -227,7 +227,7 @@ codebase is one they are entitled to ignore.
 2. **Exemplars that share nothing** → no pattern, rather than promoting the best repo's copy.
 3. **A pattern with no gap repos** → said plainly as a good state, not dressed up as a task.
 
-`minedStarter()` returns `null` when nothing was mined — the signal to fall back to the static
+`minedStarter()` returns `null` when nothing was mined: the signal to fall back to the static
 starter. A caller **must say which it used**: "your own pattern, from 3 repos" and "a generic
 starter" are very different claims to put in front of an engineer.
 
@@ -236,15 +236,15 @@ coverage rather than as "your org shares nothing".
 
 ## Known gaps
 
-- **Adoption is tracked at the PR, not the repo** — `recordPracticePr()` persists each
+- **Adoption is tracked at the PR, not the repo**: `recordPracticePr()` persists each
   opened PR as an `ImprovementPr` (so merge detection and post-merge impact work), but
   there is no separate "practice X is adopted by repo Y" projection; adoption is
   derived from scan signals rather than from the apply event.
-- **Reuse doesn't update** — an already-open PR is returned as-is; a re-apply won't push a
+- **Reuse doesn't update**: an already-open PR is returned as-is; a re-apply won't push a
   refreshed template.
-- **Overwrites existing files** — `PUT` updates a file already at the path; there's no
+- **Overwrites existing files**: `PUT` updates a file already at the path; there's no
   "create-only" safety check.
-- **Batch apply is capped** — both `POST /api/practices/apply-batch` and
+- **Batch apply is capped**: both `POST /api/practices/apply-batch` and
   `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
   deliberate bound, not a limitation to remove: one click must never become hundreds of
   PRs); larger fleets need repeated, re-confirmed passes. The `base` override has no UI yet.
@@ -255,4 +255,4 @@ coverage rather than as "your org shares nothing".
   Copy-for-LLM markdown (`## Proof — improvement shipped and measured`). Always fleet-wide
   (practices aren't segment-scoped) and every renderer says so; null when nothing was ever
   applied, so "never tried" can't read as "tried and nothing landed".
-- **Catalog is global** — orgs can't customize practices or starter checklists.
+- **Catalog is global**: orgs can't customize practices or starter checklists.

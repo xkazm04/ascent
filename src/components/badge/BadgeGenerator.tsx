@@ -196,7 +196,7 @@ export function BadgeGenerator({ gate }: { gate?: { yaml: string; query: string 
           // Say what "pass" means, right where the verdict is previewed — the criteria must never be
           // an undisclosed default the badge author can't state.
           <p className="mt-2 text-sm text-slate-500">
-            Pass means: minimum overall level <span className="font-mono text-slate-300">{minLevel}</span> — the
+            Pass means: minimum overall level <span className="font-mono text-slate-300">{minLevel}</span>. The
             badge shows ✓ pass / ✗ fail against this bar.
           </p>
         )}
@@ -222,12 +222,12 @@ export function BadgeGenerator({ gate }: { gate?: { yaml: string; query: string 
           </button>
         </div>
         <pre className="mt-3 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-slate-300">
-          {snippet || "— enter a repository above —"}
+          {snippet || "enter a repository above"}
         </pre>
         {copyState === "failed" && (
           // Honest fallback when the clipboard is unavailable/denied — the snippet above stays selectable.
           <p role="status" className="mt-2 text-sm text-danger-soft">
-            Couldn&apos;t access the clipboard — select the snippet above and copy it manually.
+            Couldn&apos;t access the clipboard. Select the snippet above and copy it manually.
           </p>
         )}
       </div>

@@ -29,7 +29,7 @@ export function IndexLevels() {
         size="page"
         kicker="The ladder"
         title="Five levels, plotted as a climb"
-        intro="Each level is a higher altitude band on the 0–100 index. Cross the dashed line and the org reads AI-Native — adopting AI with the rigor to ship it safely."
+        intro="Each level is a higher altitude band on the 0–100 index. Cross the dashed line and the org reads AI-Native: adopting AI with the rigor to ship it safely."
       />
 
       {/* tick-corners frames the chart plate as an instrument read-out — the same registration marks

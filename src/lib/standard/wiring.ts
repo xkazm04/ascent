@@ -16,11 +16,11 @@ export function buildConformanceWiring(): GeneratedFile {
   // ASCENT_CONFORMANCE_TOKEN are configured as repo/org secrets, reports the fresh result back with
   // --json — closing the loop without requiring a human to open a PR first. Both triggers are
   // branch-name-agnostic (no hard-coded main/master/trunk) so this works on any default branch.
-  const body = `# .ai conformance — the hard-pass BACKSTOP for the .ai/ standard, plus a scheduled
+  const body = `# .ai conformance: the hard-pass BACKSTOP for the .ai/ standard, plus a scheduled
 # CONTINUOUS re-check so the score doesn't go stale between PRs.
 # The SAME command runs in your pre-push hook (primary) and here on the merge gate (backstop):
 # the agent self-certifies locally, CI only confirms. The doctor exits non-zero on a hard failure,
-# which blocks the merge (pull_request job only — a scheduled run must not fail the merge queue).
+# which blocks the merge (pull_request job only; a scheduled run must not fail the merge queue).
 # Add --run to also execute capability commands (heavier; the repo's own test/build CI usually
 # already does that).
 name: ai-conformance
@@ -33,7 +33,7 @@ on:
   workflow_dispatch: {}
 # Least-privilege GITHUB_TOKEN: this workflow only checks out the code and runs the in-repo doctor, so
 # it needs read access to repo contents and nothing else. Declaring it explicitly drops the token to
-# read-only even on repos whose org default is the broad read/write token — a supply-chain guardrail
+# read-only even on repos whose org default is the broad read/write token: a supply-chain guardrail
 # for a workflow Ascent generates into every adopting repo.
 permissions:
   contents: read

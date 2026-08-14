@@ -1,12 +1,12 @@
-# The App Readiness Passport — design document (v0.2.0)
+# The App Readiness Passport: design document (v0.2.0)
 
 > A small, **descriptive, tool-naming** JSON fingerprint you drop into every app so you can
 > cross-compare a whole portfolio **on first sight**: what the app *is*, what it's *built on*, how
 > ready it is for **full LLM-automated development**, and how ready it is for **production**.
 >
 > Companion files in this folder:
-> - [`app-passport.schema.json`](./app-passport.schema.json) — the JSON Schema (validate any passport against it).
-> - [`app-passport.example.json`](./app-passport.example.json) — Ascent's own filled passport, from real repo facts.
+> - [`app-passport.schema.json`](./app-passport.schema.json): the JSON Schema (validate any passport against it).
+> - [`app-passport.example.json`](./app-passport.example.json): Ascent's own filled passport, from real repo facts.
 
 ---
 
@@ -14,7 +14,7 @@
 
 Ascent already defines a standard for "is this repo ready for coding agents": the vendor-neutral
 [`.ai/manifest.yaml`](./docs/features/onboarding/ai-manifest-spec.md). Its single most important rule is **"capabilities,
-not tools"** — it declares `test → "npm test"`, **never** `framework: vitest`. That's correct *for an
+not tools"**: it declares `test → "npm test"`, **never** `framework: vitest`. That's correct *for an
 agent*: an agent needs to know an ability exists and how to invoke it; which tool is behind it is an
 implementation detail that will churn.
 
@@ -26,7 +26,7 @@ of the manifest, and the two are designed to coexist:
 | | `.ai/manifest.yaml` (exists) | `app-passport.json` (this design) |
 |---|---|---|
 | **Audience** | A coding **agent**, in-repo | A **human** comparing a portfolio |
-| **Stance** | Prescriptive — *how to act & verify* | Descriptive — *what this is & how ready* |
+| **Stance** | Prescriptive: *how to act & verify* | Descriptive: *what this is & how ready* |
 | **Tools** | **Hidden** (capabilities, not tools) | **Named** (Next, Prisma, Sentry, Polar…) |
 | **Scope** | One repo, deep | One row in a fleet table, shallow |
 | **Lifespan of a value** | Stable (a capability endures) | Snapshot (a stack/score as-of a date) |
@@ -42,13 +42,13 @@ thin; reference the deep stuff.
 ## 2. The two readiness axes (your core ask)
 
 You asked for "state of readiness for full automation" and "state of readiness for production." These
-are genuinely **different axes** — an app can be highly automatable but not production-ready (a
+are genuinely **different axes**: an app can be highly automatable but not production-ready (a
 well-instrumented prototype) or production-grade but hostile to agents (a battle-tested service with no
 docs, no `CLAUDE.md`, no fast local verify). Conflating them hides exactly the gap you want to see, so
 the Passport keeps them separate, each with a **0–100 score** (sortable) and an **ordinal band**
 (comparable).
 
-### 2a. `automationReadiness` — ready for full LLM-automated development
+### 2a. `automationReadiness`: ready for full LLM-automated development
 
 Reuses Ascent's existing **L1–L5 ladder** so it plugs straight into the maturity model
 ([`docs/features/scanning/maturity-model.md`](./docs/features/scanning/maturity-model.md)):
@@ -62,19 +62,19 @@ Reuses Ascent's existing **L1–L5 ladder** so it plugs straight into the maturi
 | **L5** | Autonomous | Agents propose, test, doc, and ship; humans supervise at the policy level. |
 
 The level is driven by three observable things:
-- **`artifacts`** — the agent-facing *inputs*: `agentInstructions` (CLAUDE.md/AGENTS.md/…), a
+- **`artifacts`**, the agent-facing *inputs*: `agentInstructions` (CLAUDE.md/AGENTS.md/…), a
   `contextGraph` (none/partial/full), **`memory` and `skills` as graded ladders** (§2c), an agent
   `manifest`, `evals`.
-- **`selfVerify`** — which of `build`/`test`/`lint`/`typecheck` an agent can run **locally** to prove a
-  change *before* a human looks. This is the single biggest determinant of safe autonomy — it's the
+- **`selfVerify`**: which of `build`/`test`/`lint`/`typecheck` an agent can run **locally** to prove a
+  change *before* a human looks. This is the single biggest determinant of safe autonomy: it's the
   difference between "the agent guesses" and "the agent knows it didn't break the build."
-- **`aiInWorkflow`** — evidence AI is *actually used* (AI co-author trailers, agent-authored PRs), not
+- **`aiInWorkflow`**: evidence AI is *actually used* (AI co-author trailers, agent-authored PRs), not
   merely configured.
 
-### 2b. `productionReadiness` — ready to be trusted in production
+### 2b. `productionReadiness`: ready to be trusted in production
 
-A 0–100 score in five bands — `prototype` (0–24), `internal` (25–44), `beta` (45–64),
-`production` (65–84), `hardened` (85–100) — backed by **five ordinal sub-scales**. Each sub-scale is a
+A 0–100 score in five bands: `prototype` (0–24), `internal` (25–44), `beta` (45–64),
+`production` (65–84), `hardened` (85–100), backed by **five ordinal sub-scales**. Each sub-scale is a
 short enum so a fleet sorts trivially:
 
 | Component | Scale (escalating) |
@@ -88,22 +88,22 @@ short enum so a fleet sorts trivially:
 > The key distinction baked into every scale is **"present" vs "enforced."** `checks` means CI runs the
 > tests; `gated` means a failing test actually *blocks the merge*. `scanning` means a SAST tool exists;
 > `gated` means it stops a release. That present-vs-enforced line is where most "looks ready, isn't"
-> surprises live — these enums make it explicit, which is exactly your "CI level / test coverage level"
+> surprises live; these enums make it explicit, which is exactly your "CI level / test coverage level"
 > ask, generalized.
 
 ---
 
-### 2c. Graded artifact ladders (0.2.0) — `memory` and `skills`
+### 2c. Graded artifact ladders (0.2.0): `memory` and `skills`
 
 In 0.1.0 both were **booleans**, and `true` was nearly meaningless: a repo with one stale `NOTES.md`
 under `.ai/memory/` scored the same as one running a superseded-fact memory library with a CI check.
-A boolean also can't show *movement* — the thing a portfolio owner actually wants to see. So 0.2.0
+A boolean also can't show *movement*: the thing a portfolio owner actually wants to see. So 0.2.0
 replaces them with the same four-rung ordinal ladder used everywhere else in the passport:
 
 | Rung | Means | `memory` criteria | `skills` criteria |
 |---|---|---|---|
 | **`none`** | Absent | No path under `.ai/memory[.md]` or `.claude/memory[.md]` | No path under `.claude/skills/` or `skills/` |
-| **`adhoc`** | Present but unstructured | The home exists but isn't a library — a single flat memory file, or one lone entry | Skills exist but aren't a library — loose files, or a single named skill |
+| **`adhoc`** | Present but unstructured | The home exists but isn't a library: a single flat memory file, or one lone entry | Skills exist but aren't a library: loose files, or a single named skill |
 | **`curated`** | Structured / maintained | **≥2** per-fact entry files under the memory dir, **or** an index (`index/memory/readme.*`) plus ≥1 entry | **≥2** distinct skills that each carry their own definition file (`<name>/SKILL.md`) |
 | **`governed`** | Curated **+ process** | Curated **and** one of: a supersede lineage link (`supersedes:` / `superseded-by:` / `replaces:`) inside a fetched entry, a `schema`/`policy`/`conventions` file in the memory tree, or a CI job that references `.ai/memory` \| `.claude/memory` | Curated **and** one of: a registry/index at the skills root, a CI job that references the skills tree, or a package script that lints/validates skills |
 
@@ -117,10 +117,10 @@ Two honesty rules, inherited from the **present-vs-enforced** cap that already g
 A `none` on either rung now emits an automation `blocker`, which is exactly the kind of gap an owner may
 legitimately **decline by choice** (§2d).
 
-### 2d. Declined by choice (0.2.0) — the passport as decision memory
+### 2d. Declined by choice (0.2.0): the passport as decision memory
 
 A blocker an owner has read and deliberately accepted is *not* the same as an unread finding, but 0.1.0
-had no way to say so — every re-scan re-surfaced it, and the reader re-litigated it. 0.2.0 lets the owner
+had no way to say so: every re-scan re-surfaced it, and the reader re-litigated it. 0.2.0 lets the owner
 mark specific field paths as **declined by choice**, with an optional reason:
 
 ```jsonc
@@ -134,20 +134,20 @@ The rules that make this decision *memory* rather than decoration:
 - **It never moves a score.** Choosing to skip a gap is a decision, not a fix. `productionReadiness.score`
   is identical before and after. A fleet comparison stays honest.
 - **It re-renders, it doesn't hide.** The matching `blockers` line is retired from the blocker list and
-  re-emitted under top-level `declined[]` as `{ path, label, reason?, blocker? }` — annotated as a
+  re-emitted under top-level `declined[]` as `{ path, label, reason?, blocker? }`, annotated as a
   decision, with the original blocker text preserved for audit.
 - **A re-scan cannot clear it.** Declines live in `Repository.passportOverridesJson`, keyed by field path,
   and are applied as a **read-time overlay**. A scan writes `passportJson` and never touches the overrides
-  column, so the choice survives every regeneration — including one where the passport shape changed.
+  column, so the choice survives every regeneration, including one where the passport shape changed.
 - **Only allow-listed paths.** `DECLINABLE_PATHS` (see `src/lib/analyze/passport-overlay.ts`) enumerates
-  what an owner may decline — the monitoring vendors, the production sub-scales, `delivery.iac`/`rollback`,
+  what an owner may decline: the monitoring vendors, the production sub-scales, `delivery.iac`/`rollback`,
   and the automation artifacts. Deliberately **not** declinable: the tokenless "enforcement not observable"
   caveat. That is a limitation of the *evidence*, and letting an owner silence it would let a trade-off
   annotation launder a blind spot.
 
 ---
 
-## 3. The metadata block (`stack`) — your "Monitoring tool, Persistence, Language framework, integrations"
+## 3. The metadata block (`stack`): your "Monitoring tool, Persistence, Language framework, integrations"
 
 This is the part that names tools, on purpose, because it's what makes a first-sight comparison
 possible. Every field you proposed maps directly:
@@ -156,7 +156,7 @@ possible. Every field you proposed maps directly:
 |---|---|---|
 | Language / framework | `stack.languages`, `stack.runtime`, `stack.frameworks` | named + versioned (`next@16`) |
 | Persistence | `stack.persistence[]` | `{ kind, engine, orm, migrations, required }` |
-| Monitoring tool | `stack.monitoring` | `{ errorTracking, logs, metrics, tracing, uptime }` — **`null` is meaningful** ("absent") |
+| Monitoring tool | `stack.monitoring` | `{ errorTracking, logs, metrics, tracing, uptime }`: **`null` is meaningful** ("absent") |
 | Type of integrations | `stack.integrations[]` | `{ name, kind, direction, auth }` where `kind` ∈ `llm/vcs/auth/payments/email/storage/queue/analytics/…` |
 | (added) Hosting | `stack.hosting` | named (`vercel`, `aws-ecs`, `self-hosted`) |
 | (added) Secrets origin | `stack.secretsFrom` | the vault/keyring, never the secrets |
@@ -169,14 +169,14 @@ Two deliberate modelling choices:
 
 ---
 
-## 4. Identity & provenance — the rest of "basic information"
+## 4. Identity & provenance: the rest of "basic information"
 
-- **`identity`** — `name`, `slug` (your portfolio sort key), `purpose` (one line), `repo`, `owner`,
-  `archetype` (solo/team/org — the same lens Ascent uses to weight scores), `lifecycle`
+- **`identity`**: `name`, `slug` (your portfolio sort key), `purpose` (one line), `repo`, `owner`,
+  `archetype` (solo/team/org, the same lens Ascent uses to weight scores), `lifecycle`
   (prototype→ga→maintenance), `visibility`, `license` (an SPDX id, or `"none"` which is a *legal*
   blocker), and `criticality` (experimental→mission-critical, which tells a reader **how hard to judge
-  the scores** — a prototype at `beta` readiness is fine; a mission-critical app at `beta` is an alarm).
-- **`evidence`** — `confidence` (0..1, how much could be inspected), `source` (`static-scan` /
+  the scores**: a prototype at `beta` readiness is fine; a mission-critical app at `beta` is an alarm).
+- **`evidence`**: `confidence` (0..1, how much could be inspected), `source` (`static-scan` /
   `manual-audit` / `ci-export`), and `files` (what it was synthesized from). Without this a reader can't
   tell a calibrated scan from a guess. Ascent's own report carries a `confidence` already; mirror it.
 
@@ -189,16 +189,16 @@ Two deliberate modelling choices:
 2. **Must-ignore-unknown.** A reader at `0.y` parses any `0.*` passport by ignoring fields it doesn't
    recognize. New integration kinds, new sub-scales, new metadata → **no schema migration, no broken
    readers**. (`additionalProperties: true` throughout enforces this.)
-   **Corollary — migrate on READ, never backfill.** A passport is persisted at scan time and read back
+   **Corollary: migrate on READ, never backfill.** A passport is persisted at scan time and read back
    months later; there is no rewrite pass and no guaranteed re-scan. When a field's *type* changes (0.2.0's
    booleans → ladders), `upgradePassport()` lifts the stored object at every read path
    (`src/lib/analyze/passport-migrate.ts`, wired into `parsePassportJson`). A lifted object is **tagged**
    with `migratedFrom` and an `evidence.notes` caveat, because a migrated ordinal is a *floor implied by
-   the old shape*, not a measurement — a reader must be able to tell the two apart.
+   the old shape*, not a measurement: a reader must be able to tell the two apart.
 3. **Pointers, not embeds.** The heavy artifacts (the agent manifest, the context map, the full report)
    are referenced from `links`, never inlined. The passport stays one screen long.
 4. **Snapshot, with provenance.** A passport is true *as of* `generatedAt`. `evidence.files` is the
-   drift set — when those change, the passport is stale and should be regenerated.
+   drift set: when those change, the passport is stale and should be regenerated.
 5. **Ordinal-first.** Every comparable dimension is a short ordinal enum, not free text, so a portfolio
    table is `sort()`-able and a dashboard can render it without parsing prose.
 
@@ -207,8 +207,8 @@ Two deliberate modelling choices:
 ## 6. How you actually use it across apps
 
 1. **Drop one file per app.** Canonical home: `.ai/passport.json` (co-located with the agent standard)
-   — or root `app-passport.json` if you prefer it visible. Validate against the schema in CI.
-2. **Roll up the fleet** with a few lines — every comparable field is a plain enum or number:
+   , or root `app-passport.json` if you prefer it visible. Validate against the schema in CI.
+2. **Roll up the fleet** with a few lines, since every comparable field is a plain enum or number:
    ```bash
    # "Which apps have no error tracking?"
    jq -r 'select(.stack.monitoring.errorTracking == null) | .identity.name' */app-passport.json
@@ -218,7 +218,7 @@ Two deliberate modelling choices:
            .productionReadiness.ci.level, .productionReadiness.tests.level] | @tsv' */app-passport.json
    ```
 3. **Spot the gap that matters: automatable but not production-ready (or vice-versa).** Sorting the two
-   scores side by side is the whole payoff — it's the view neither the agent manifest nor a CI badge can
+   scores side by side is the whole payoff: it's the view neither the agent manifest nor a CI badge can
    give you.
 4. **Regenerate, don't hand-maintain.** The fields are deliberately the same signals Ascent already
    extracts in a scan. The natural next step is to have the scanner **emit a passport** (see §8), so it
@@ -226,7 +226,7 @@ Two deliberate modelling choices:
 
 ---
 
-## 7. Worked example — Ascent's own passport (the "final state" to evaluate)
+## 7. Worked example: Ascent's own passport (the "final state" to evaluate)
 
 The full object is in [`app-passport.example.json`](./app-passport.example.json), filled from the real
 repo (CI workflow, committed Prisma migrations, `package.json`, `docs/archive/2026-audits/PRODUCTION_READINESS.md`). The
@@ -238,8 +238,8 @@ headline:
   itself (no in-repo `manifest`/`memory`), and nothing AI gates its own PRs.
 - **Production readiness: `beta`, 64.** CI **gates** merges on lint+typecheck+test+build; tests are
   `substantial` with critical paths covered; migrations are `versioned` and committed; LICENSE present.
-  Held at `beta` by **zero observability** (`observability.level: none` — no error tracking, no
-  structured logs), no automated deploy/e2e in CI, and — ironically for a security-scoring tool — no
+  Held at `beta` by **zero observability** (`observability.level: none`, no error tracking, no
+  structured logs), no automated deploy/e2e in CI, and (ironically for a security-scoring tool) no
   SAST/secret scanning in its *own* CI (`security.level: policy`).
 
 That single example shows the design earning its keep: two honest, comparable scores, named metadata,
@@ -266,7 +266,7 @@ and the gaps surfaced as explicit `blockers` you can sort and act on.
 
 ## 9. Version history
 
-### 0.2.0 — from display artifact to **decision memory**
+### 0.2.0: from display artifact to **decision memory**
 
 Two patterns proven in the sibling **Personas** project, brought over intact.
 
@@ -274,28 +274,28 @@ Two patterns proven in the sibling **Personas** project, brought over intact.
 |---|---|---|
 | `automationReadiness.artifacts.memory` | `boolean` | ordinal `none \| adhoc \| curated \| governed` (§2c) |
 | `automationReadiness.artifacts.skills` | `boolean` | ordinal `none \| adhoc \| curated \| governed` (§2c) |
-| Owner "I've accepted this gap" | *nothing* — every re-scan re-surfaced it | top-level `declined[]`, keyed by field path in the overrides store (§2d) |
+| Owner "I've accepted this gap" | *nothing*: every re-scan re-surfaced it | top-level `declined[]`, keyed by field path in the overrides store (§2d) |
 | Stored-passport reads | parsed as-is | lifted by `upgradePassport()` at every read path, tagged `migratedFrom` |
 | New optional fields | — | `migratedFrom`, `declined[]`, `evidence.notes[]` |
 | Schema `$id` | `app-passport-0.1.json` | `app-passport-0.2.json` |
 
 **Why the ladders.** A boolean answered "does a file exist?", which is not the question. It couldn't
-distinguish a stray note from a governed memory library, and — worse for a portfolio — it couldn't show
+distinguish a stray note from a governed memory library, and (worse for a portfolio) it couldn't show
 *movement*: a team investing all quarter in their agent memory saw the same `true` on day 1 and day 90.
 The four-rung ladder is the vocabulary the rest of the passport already uses (`ci`, `tests`, `security`,
 `observability`), so it sorts and charts with everything else.
 
 **Why declines.** The passport's whole value is that a reader trusts its blockers. A blocker the owner has
-consciously accepted poisons that trust — it trains the reader to skim. Declining moves it out of the
+consciously accepted poisons that trust: it trains the reader to skim. Declining moves it out of the
 "unread findings" list and into an explicit, reasoned, *auditable* decision, **without touching the
-score**, and — because it is stored beside the scan rather than inside it — it survives every re-scan.
+score**, and (because it is stored beside the scan rather than inside it) it survives every re-scan.
 
 **Migration (automatic, no action needed).** Stored 0.1.0 rows are lifted on read: `memory`/`skills`
 `true → "adhoc"`, `false → "none"`. `adhoc` is the honest ceiling for a boolean `true`, which only ever
 proved presence. Every lifted passport carries `migratedFrom: "0.1.0"` and an `evidence.notes` entry, so a
 migrated `adhoc` is never mistaken for an assessed one. Re-scan to get a real grade.
 
-### 0.1.0 — initial
+### 0.1.0: initial
 
 Two readiness axes (`automationReadiness` L1–L5, `productionReadiness` band/score), the tool-naming
 `stack` block, `identity`/`links`/`evidence`, and the derived production score. Owner overrides (P4) for
@@ -304,5 +304,5 @@ the three facts a scan can't observe: `criticality`, `lifecycle`, `rollback`.
 ---
 
 _Keep the spine thin: two scores, named metadata, pointers for the rest. The discipline that keeps the
-agent manifest durable — stable id, semver, ignore-unknown, pointers-not-embeds — is the same discipline
+agent manifest durable (stable id, semver, ignore-unknown, pointers-not-embeds) is the same discipline
 that will keep this passport reusable across every app you point it at._

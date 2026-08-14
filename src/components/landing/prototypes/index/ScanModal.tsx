@@ -218,7 +218,7 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                   <Kicker>Sign in to scan</Kicker>
                   <p className="mt-2 text-base leading-relaxed text-slate-300">
                     Scanning is for signed-in members on this deployment. Sign in with GitHub to run your
-                    scan — public repositories are free, and you&apos;ll also unlock private repos and saved
+                    scan. Public repositories are free, and you&apos;ll also unlock private repos and saved
                     history.
                   </p>
                   <div className="mt-4">
@@ -246,8 +246,8 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                       className="mt-1 h-4 w-4 shrink-0 accent-accent"
                     />
                     <span className="text-sm leading-relaxed text-slate-400">
-                      Authorize Ascent to read your repositories through the GitHub App — needed only for
-                      private repos and saved scan history. Public scans never need an account.
+                      Authorize Ascent to read your repositories through the GitHub App (needed only for
+                      private repos and saved scan history). Public scans never need an account.
                     </span>
                   </label>
 

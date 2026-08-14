@@ -1,4 +1,4 @@
-# Ascent — scoring calibration
+# Ascent: scoring calibration
 
 A small labeled benchmark + a harness to measure how well Ascent's levels match human
 judgment, so the rubric (weights/thresholds) can be tuned with evidence instead of
@@ -7,7 +7,7 @@ guesswork. Backlog items **I1** (labeled set) and **I2** (agreement harness).
 ## Why
 
 The maturity score must be *credible*. The harness runs a fixed set of repos through the
-scanner in **mock mode** (deterministic, signal-only — no LLM variance, no API key) and
+scanner in **mock mode** (deterministic, signal-only, no LLM variance, no API key) and
 reports agreement with hand-assigned expected levels, plus the per-dimension score
 distribution. This isolates and validates the **deterministic backbone**; the live LLM
 layer adds nuance on top of it.
@@ -26,15 +26,15 @@ unauthenticated 60/hr limit. Set `GITHUB_TOKEN` to be safe.
 
 ## What it reports
 
-- **Exact level** agreement and **within-1-level** agreement (the ordinal-friendly metric
-  — being one band off is a near-miss, not a failure).
+- **Exact level** agreement and **within-1-level** agreement (the ordinal-friendly metric:
+  being one band off is a near-miss, not a failure).
 - **Mean |level Δ|**.
-- **Per-dimension mean score** — a quick health check that no dimension is stuck at 0/100
+- **Per-dimension mean score**: a quick health check that no dimension is stuck at 0/100
   (a sign of a broken detector or a mis-weighted axis).
 
 ## The labeled set
 
-[`bench/repos.json`](../bench/repos.json) — `{ repo, expected, note }`. The expected
+[`bench/repos.json`](../bench/repos.json): `{ repo, expected, note }`. The expected
 levels are **provisional hand estimates**; curate and expand them as you build consensus
 (aim for a spread across L1–L5 and ~20–30 repos for a stable signal). Disagreement is the
 *input* to calibration, not a bug.
@@ -46,7 +46,7 @@ within-1-level agreement stayed at **100%** and D9 discriminates cleanly across 
 (`0` for repos with no committed security tooling → `~26` for SCA + policy → `60–69` for
 full supply-chain posture, anchored by `sigstore/cosign` and `aquasecurity/trivy`).
 
-**Known limitation — D9 only sees security that is committed as code.** A repo can score
+**Known limitation: D9 only sees security that is committed as code.** A repo can score
 `D9 = 0` while being well-secured in practice, because two common postures are invisible to
 a read-only file scan:
 - **GitHub "default-setup" CodeQL** is configured in repo settings and leaves no workflow
@@ -57,7 +57,7 @@ a read-only file scan:
 `pallets/flask` and `vercel/next.js` both score `D9 = 0` for exactly this reason (verified:
 no repo-level `dependabot.yml` / `SECURITY.md` / `renovate.json`), while `facebook/react`,
 which commits both, correctly scores `26`. This is the same "config-as-code only" ceiling
-that bounds the whole scanner — D9 is **deliberately not** inflated to compensate, since
+that bounds the whole scanner; D9 is **deliberately not** inflated to compensate, since
 that would over-credit repos that genuinely lack scanning. The signal layer is regression-
 guarded by [`src/lib/analyze/calibration.test.ts`](../src/lib/analyze/calibration.test.ts).
 
@@ -66,7 +66,7 @@ guarded by [`src/lib/analyze/calibration.test.ts`](../src/lib/analyze/calibratio
 Mock mode validates the deterministic backbone. To evaluate the **real LLM output** at
 scale without burning API credits, run the server with the **`claude-cli` provider**,
 which shells out to your locally installed `claude` CLI under your Pro/Max subscription
-(the Agent SDK only supports API keys, so we spawn the CLI — no Rust needed).
+(the Agent SDK only supports API keys, so we spawn the CLI; no Rust needed).
 
 ```bash
 # 1. Make sure the CLI is logged in (subscription) and no API key is set:
@@ -96,7 +96,7 @@ npm run bench -- --compare bench/results/<A>.json bench/results/<B>.json
 ```
 
 The compare output shows, per repo, A vs B level/score and which run is **closer to the
-expected level**, plus the net improved/regressed count — so quality changes are measured,
+expected level**, plus the net improved/regressed count, so quality changes are measured,
 not assumed.
 
 > Subscription note: headless `claude -p` draws from your plan (reported `total_cost_usd`
@@ -107,11 +107,11 @@ not assumed.
 
 1. `npm run bench` → read agreement + dimension distribution.
 2. Adjust the rubric in [`src/lib/maturity/model.ts`](../src/lib/maturity/model.ts):
-   - **`DIMENSIONS[].weight`** — rebalance which axes drive the overall score.
-   - **`SCORE_BLEND`** — how much the LLM nudges vs. the deterministic signal (mock mode
+   - **`DIMENSIONS[].weight`**: rebalance which axes drive the overall score.
+   - **`SCORE_BLEND`**: how much the LLM nudges vs. the deterministic signal (mock mode
      ignores this; it matters for live scoring).
-   - **`LLM_GUARDBAND`** — how far the LLM may move a dimension from its signal score.
-   - **`LEVELS[].band`** — the score→level cutoffs.
+   - **`LLM_GUARDBAND`**: how far the LLM may move a dimension from its signal score.
+   - **`LEVELS[].band`**: the score→level cutoffs.
 3. Or adjust detector thresholds/points in [`src/lib/analyze/index.ts`](../src/lib/analyze/index.ts)
    (e.g. test-count tiers, signal point values).
 4. Re-run. Repeat until within-1-level agreement is comfortably high and the distribution

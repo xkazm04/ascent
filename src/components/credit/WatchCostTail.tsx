@@ -73,7 +73,7 @@ export function WatchCostTail({
           </>
         ))}
       {isUnderAMonth(credit, monthlyCredits) && (
-        <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
+        <span className="text-warn"> (covers under a month; autoscans pause at zero)</span>
       )}
     </>
   );

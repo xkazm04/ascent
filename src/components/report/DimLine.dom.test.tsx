@@ -54,7 +54,7 @@ describe("DimLine mock-vs-model point provenance", () => {
 
   it("repeats the caveat in the screen-reader point list — the hollow mark is visual-only", () => {
     render(<DimLine values={[70, 30]} meta={meta(["claude-cli", "mock"])} name="Testing" />);
-    expect(screen.getByText(/30 of 100 on .*\(demo scan — deterministic rubric, no model\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/30 of 100 on .*\(demo scan: deterministic rubric, no model\)/i)).toBeInTheDocument();
     // The model-scored point carries no such qualifier.
     expect(screen.getByText(/^Testing 70 of 100 on [^(]*$/i)).toBeInTheDocument();
   });

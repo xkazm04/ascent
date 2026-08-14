@@ -108,7 +108,7 @@ export function PlanEnquiryFields({
       <Field
         as="fieldset"
         label="What should we scope?"
-        hint="Pick any that apply — it shapes what we come back with."
+        hint="Pick any that apply: it shapes what we come back with."
         className="mt-6"
       >
         <div className="grid gap-2 sm:grid-cols-2">

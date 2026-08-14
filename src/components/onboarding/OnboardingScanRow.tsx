@@ -58,7 +58,7 @@ export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: s
           )}
         </>
       ) : row.skipped ? (
-        <span className="text-sm text-amber-300">skipped — out of credits</span>
+        <span className="text-sm text-amber-300">skipped (out of credits)</span>
       ) : (
         <span className="text-sm text-slate-500">scanning…</span>
       )}

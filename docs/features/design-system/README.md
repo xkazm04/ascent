@@ -21,7 +21,7 @@ Context-map group: **Marketing Site & Design System** (`feature`).
 
 Marketing decks used to stop growing at `lg`: the container was pinned at
 `max-w-6xl` (72rem) and every type size sat at its `sm:` step, so a 2560px display
-rendered the same 1152px column of 16px body copy as a 1280px laptop — the reading
+rendered the same 1152px column of 16px body copy as a 1280px laptop: the reading
 distance grew, the page did not.
 
 `globals.css` now defines a fluid ramp that components opt into by class:
@@ -46,7 +46,7 @@ Rules that make this safe to extend:
 - **Unlayered rules beat Tailwind utilities.** Tailwind v4 emits utilities into the
   `utilities` cascade layer, so `class="text-4xl sm:text-6xl deck-h1"` keeps the
   small-screen steps and takes the ramp from `globals.css`. Restate `line-height`
-  in any new ramp — the utility's own line-height survives otherwise.
+  in any new ramp; the utility's own line-height survives otherwise.
 - **No root `font-size` trick.** It was tried; `html.snap-deck` is added in an
   effect *after* mount, so every large screen visibly re-typeset itself once
   hydration landed.
@@ -57,7 +57,7 @@ Rules that make this safe to extend:
 
 ## Scroll & canvas
 
-- **`DeckProgress`** (`src/components/deck/DeckProgress.tsx`) — a 2px accent rule at
+- **`DeckProgress`** (`src/components/deck/DeckProgress.tsx`): a 2px accent rule at
   the top of the viewport that fills as the deck is descended. Pure CSS via
   `animation-timeline: scroll(root block)` behind an `@supports` guard: no scroll
   listener, no rAF, no per-frame React work. Rendered by all three deck
@@ -66,16 +66,16 @@ Rules that make this safe to extend:
   `background-attachment: fixed` forced a main-thread repaint of a 70rem radial
   gradient on every scroll frame and blocked compositor promotion.
 - **`html.snap-deck body::after`** paints a ~3% fractal-noise paper grain (fixed,
-  180px tile). Scoped to the marketing decks — the org dashboard is a dense data
+  180px tile). Scoped to the marketing decks: the org dashboard is a dense data
   surface where even 3% noise is texture the reader has to look past.
 - **`html { scrollbar-gutter: stable }`** stops the sideways reflow when a modal
   locks scroll; **`html.snap-deck { overscroll-behavior-y: none }`** stops the
   rubber-band at both ends of a deck fighting the snap.
-- **`.tick-corners`** — four hairline registration marks drawn as eight 1px
+- **`.tick-corners`**: four hairline registration marks drawn as eight 1px
   background slivers, so it can sit on any panel without an extra element. Claims
   only `background-image`, so a panel's `bg-surface/40` is untouched.
 
-## `/about-org` — the organization edition deck
+## `/about-org`: the organization edition deck
 
 Eight snap sections: masthead · the five questions · the module map · three
 feature deep-dives (practices, memory & skills, governance) · the operating loop ·
@@ -84,8 +84,8 @@ CTA. It shares `DeckSection` / `DeckNav` / `Reveal` / `AboutFeature` /
 
 **The module map is derived, not authored.**
 `src/components/about-org/orgModules.ts` builds the six module groups from
-`ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`) — the same constant the shipping rail
-renders — and every href from `orgTabHref`. The only thing the file adds is one
+`ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`), the same constant the shipping rail
+renders, and every href from `orgTabHref`. The only thing the file adds is one
 sentence per view, keyed by `OrgTabId`. So a renamed tab flows through
 automatically, and an **added** tab fails `orgModules.test.ts` (which pins that
 every tab in `ORG_TAB_IDS` has a blurb) instead of silently going unmentioned. The
@@ -106,30 +106,34 @@ ships all 21 views in the server HTML for crawlers.
 ## Form controls (`src/components/ui/Field.tsx`)
 
 **This standard did not exist before 2026-08-14.** A survey found ~50 hand-rolled
-inputs on `border-slate-700 bg-slate-900 …` — the exact literal
-[BRAND.md](../../../src/components/ui/BRAND.md) tells you not to write — in four
+inputs on `border-slate-700 bg-slate-900 …`, the exact literal
+[BRAND.md](../../../src/components/ui/BRAND.md) tells you not to write, in four
 padding variants, plus a `FIELD_LABEL` mono-label constant copy-pasted per modal.
 Every dialog therefore looked slightly different from every other one, and none of
 them looked like `/` or `/about`, which do use the brand tokens.
 
 | Export | What it is |
 | --- | --- |
-| `Field` | A labelled row: `Kicker tone="muted"` eyebrow, the control, then a hint **or** an error line (`error` replaces `hint` rather than stacking, so the row doesn't resize as validation toggles). `as="fieldset"` renders a real `<fieldset>`/`<legend>` for a control group. |
+| `Field` | A labelled row: `Kicker tone="muted"` eyebrow, an optional hint, the control, then an error when there is one. The hint sits **above** the control and the error **below** it, because they are read at different moments: a hint is an instruction you want before you start typing (under a group of checkboxes it arrives after you have already answered), an error is feedback you look for where you just acted. `as="fieldset"` renders a real `<fieldset>`/`<legend>` for a control group. |
 | `TextInput` / `TextArea` / `SelectInput` | Thin wrappers over the shared skin. |
 | `CheckCard` | A checkbox drawn as a **selectable bordered tile** with a title + supporting line, tinting to the accent when picked. The native input stays in the DOM (`sr-only`) and drives the visual box through `peer`, so keyboard operation, form semantics and AT announcement are unchanged and the focus ring lands on the drawn box. |
-| `CONTROL_CLASS` | The skin itself, for a one-off control the wrappers don't fit — so it lands on the same tokens instead of inventing a fifth variant. |
+| `CONTROL_CLASS` | The skin itself, for a one-off control the wrappers don't fit, so it lands on the same tokens instead of inventing a fifth variant. |
+
+The field error is deliberately **not** a live region. A form that marks the offending field and
+also announces the same failure from its footer fires two announcements for one error, so the
+caller's summary is the announcement and the per-field marker is the visual "which control".
 
 Labels associate **implicitly** (the control is wrapped by its `<label>`), matching
 what the existing modals already did: no id plumbing at the call site and no chance
 of a mismatched `htmlFor`.
 
-`Kicker` gained an `as` prop (`div` | `span` | `legend`) for this — a Kicker used as
+`Kicker` gained an `as` prop (`div` | `span` | `legend`) for this: a Kicker used as
 a form label sits inside a `<label>` (phrasing content only, so a `div` there is
 invalid HTML) or as a fieldset's `<legend>`. Purely structural; the type treatment
 is identical.
 
 Adopted by `PlanEnquiryFields` (the `/pricing` Custom-plan dialog) and
-`CreateIssueModal` — the file the kit was extracted from, migrated in the same
+`CreateIssueModal`, the file the kit was extracted from, migrated in the same
 change so the standard didn't ship with exactly one user. The remaining hand-rolled
 inputs are unmigrated; move them as you touch them.
 
@@ -139,6 +143,6 @@ inputs are unmigrated; move them as you touch them.
 - The `Tile` → `TILE_LEDGER` hairline-chrome convention (`Tile` does not
   self-border) used across org pages.
 - How landing prototypes are staged behind a tab switcher and what promotes one
-  into the brand system — see the `/prototype` skill.
+  into the brand system; see the `/prototype` skill.
 - The 300-LOC-per-`.tsx` ceiling from [`AGENTS.md`](../../../AGENTS.md) and the
   co-located-extraction pattern it prescribes.

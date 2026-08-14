@@ -63,7 +63,7 @@ describe("useInstallationRepos — bulk-watch partial failure marks the failed r
     expect(result.current.bulkMsg).toEqual({ kind: "note", text: "Now watching 2 repos · 1 failed." });
 
     // ...but now EVERY failed row also carries its own visible reason, not just the aggregate count.
-    expect(result.current.errors["acme/charlie"]).toBe("Couldn't watch — not saved. Try again.");
+    expect(result.current.errors["acme/charlie"]).toBe("Couldn't watch. Not saved. Try again.");
     // The two rows that actually saved must NOT be marked as failed.
     expect(result.current.errors["acme/alpha"]).toBeUndefined();
     expect(result.current.errors["acme/bravo"]).toBeUndefined();
@@ -86,7 +86,7 @@ describe("useInstallationRepos — bulk-watch partial failure marks the failed r
 
     expect(result.current.bulkMsg?.kind).toBe("error");
     for (const fn of ["acme/alpha", "acme/bravo", "acme/charlie"]) {
-      expect(result.current.errors[fn]).toBe("Couldn't watch — not saved. Try again.");
+      expect(result.current.errors[fn]).toBe("Couldn't watch. Not saved. Try again.");
     }
   });
 

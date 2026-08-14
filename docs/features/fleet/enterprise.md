@@ -1,8 +1,8 @@
-# Ascent — Enterprise: org-wide AI-native maturity management
+# Ascent Enterprise: org-wide AI-native maturity management
 
 > **Status: built (E1–E5) and verified.** This documents the system as shipped.
 
-The product's selling point is **not** "scan one private repo" — it's **managing the
+The product's selling point is **not** "scan one private repo": it's **managing the
 AI-native maturity of an entire organization's repository fleet over time**: mass-scan,
 roll up, compare contributors, watch a subset, and auto-track on a schedule.
 
@@ -49,7 +49,7 @@ Two ways repos enter the fleet:
   short-lived installation token. Requires `GITHUB_APP_*` + `DATABASE_URL`.
 - **Public org (token, no App):** `POST /api/org/import` lists an org's most-recently-pushed
   **public** repos and scans them under the org slug. Needs only `GITHUB_TOKEN` + `DATABASE_URL`.
-  This is the free-tier funnel — *and* the local demo/seed path (see §5).
+  This is the free-tier funnel, *and* the local demo/seed path (see §5).
 
 ---
 
@@ -77,7 +77,7 @@ Two ways repos enter the fleet:
 | `/api/org/watch` | POST | App + DB | Upsert a repo + set its `watched` flag |
 | `/api/org/schedule` | POST | App + DB | Set `scanSchedule` + compute `nextScanAt` |
 | `/api/org/scan` | POST (SSE) | App + DB | Bulk-scan every **watched** repo via the install token; persist each; per-repo progress |
-| `/api/org/import` | POST (SSE) | DB (+ token) | **Token-based** bulk scan of a **public** org's repos by name — no App. Lists + scans + persists + optionally watches/schedules |
+| `/api/org/import` | POST (SSE) | DB (+ token) | **Token-based** bulk scan of a **public** org's repos by name, no App. Lists + scans + persists + optionally watches/schedules |
 | `/api/cron/rescan` | GET | `CRON_SECRET` | Scan repos whose `nextScanAt` is due; `advanceSchedule` after each |
 | `/api/cron/purge` | GET | `CRON_SECRET` | Enforce data retention: prune old scans/dimensions/recs + stale audit entries; record an audit entry |
 
@@ -85,7 +85,7 @@ DB query layer (`src/lib/db/org.ts`): `setRepoWatch`, `setRepoSchedule`, `listWa
 `listDueRescans`, `advanceSchedule`, `getRepoStates`, `getOrgContributors`, `getOrgRollup`.
 
 `getOrgRollup` returns repos that are **watched OR have at least one scan**, so a token-imported
-org with no App still appears on the dashboard. It also carries a `forecast` field — a linear
+org with no App still appears on the dashboard. It also carries a `forecast` field: a linear
 trajectory fit over the per-day `trend` series (`src/lib/maturity/forecast.ts`) that projects the
 maturity score forward and estimates an ETA to the next level promotion/demotion. It is `null`
 until at least two distinct scan days exist; the org overview renders it as the **Trajectory** card.
@@ -112,7 +112,7 @@ Setting a schedule on `/connect` seeds the first `nextScanAt`; the cron keeps it
 
 ## 5. Data retention & automated purge
 
-`Scan`, `ScanDimension`, `Recommendation`, and `AuditLog` otherwise grow unbounded — a DSQL
+`Scan`, `ScanDimension`, `Recommendation`, and `AuditLog` otherwise grow unbounded, a DSQL
 storage-cost and compliance liability for an audit product. A second daily cron enforces a
 configurable retention policy, mirroring the windows Datadog / Splunk / Stripe expose.
 
@@ -138,7 +138,7 @@ A per-org column wins when set (`null` = inherit the env default; an explicit `0
    `ScanDimension` + `Recommendation` rows first (`relationMode = "prisma"` emits no FK cascade).
 3. Delete `AuditLog` rows older than the cutoff (org-less entries from anonymous scans are swept
    under the global default).
-4. Record a `retention.purged` audit entry with the deleted counts — **the job audits itself**.
+4. Record a `retention.purged` audit entry with the deleted counts: **the job audits itself**.
 
 **DSQL-safe:** deletes run in small batches and each batch retries on a serialization conflict
 (`P2034` / SQLSTATE `40001`), matching DSQL's optimistic concurrency model.
@@ -162,7 +162,7 @@ node scripts/seed-org.mjs vercel 20 --live   # use the real LLM provider instead
 Then open **/org/vercel**. The script streams per-repo progress and a final summary; it
 calls `/api/org/import` under the hood (default `mock=true`, `watch=true`, `schedule=weekly`).
 
-Mock mode still fetches **real** repo structure — only the LLM-written nuance is stubbed — so
+Mock mode still fetches **real** repo structure; only the LLM-written nuance is stubbed, so
 dimension scores, axes, posture, and contributors are all real, signal-driven, and fast.
 
 ---
@@ -173,10 +173,10 @@ dimension scores, axes, posture, and contributors are all real, signal-driven, a
 |---|---|---|
 | **E1** | Schema (watched/schedule/contributors) + watch toggle + watch/schedule APIs | ✅ |
 | **E2** | Bulk "scan all watched" (SSE) + dashboard trigger | ✅ |
-| **E3** | Org rollup dashboard (`/org/[slug]`) — tiles, posture mix, leaderboard, heatmap, trend | ✅ |
+| **E3** | Org rollup dashboard (`/org/[slug]`): tiles, posture mix, leaderboard, heatmap, trend | ✅ |
 | **E4** | Contributor ingestion + per-repo & org "who's AI-native" comparison | ✅ |
-| **E5** | Autoscans — Vercel Cron + per-repo schedule management | ✅ |
-| **+** | `/api/org/import` — token-based public-org onboarding & seeder | ✅ |
+| **E5** | Autoscans: Vercel Cron + per-repo schedule management | ✅ |
+| **+** | `/api/org/import`: token-based public-org onboarding & seeder | ✅ |
 
 **Verified:** lint + build green; DB integration (schema push, scans persisted with axes/
 posture/contributors, dashboard renders); App-gated routes return clean `503`; cron due-logic

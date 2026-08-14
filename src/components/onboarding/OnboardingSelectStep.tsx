@@ -58,7 +58,7 @@ export function SelectStep({
       <p className="mt-1 text-slate-400">
         Up to {maxSelect}.{" "}
         {sourceInstallId
-          ? "Listed by stars, then recent activity — the top few are preselected."
+          ? "Listed by stars, then recent activity: the top few are preselected."
           : "Listed most-recently-pushed; the most-starred are preselected."}
         {sourceLabel && <> Source: {sourceLabel}</>}
       </p>
@@ -67,7 +67,7 @@ export function SelectStep({
           are the recent ones" and silently presenting a slice as the whole account. */}
       {listTruncated && !listing && repos.length > 0 && (
         <p className="mt-1 font-mono text-xs text-slate-500">
-          Showing the {repos.length} most recently pushed — {sourceLabel || "this account"} has more than this
+          Showing the {repos.length} most recently pushed. {sourceLabel || "this account"} has more than this
           listing reaches. Scan these now; add the rest from the dashboard.
         </p>
       )}
@@ -110,7 +110,7 @@ export function SelectStep({
                 // onto the row and hear the "limit reached" reason + swap hint; the click is no-op'd
                 // below. A native `disabled` button is unfocusable, hiding the constraint entirely.
                 aria-disabled={capped}
-                title={capped ? `Limit reached — deselect one to swap (max ${maxSelect})` : undefined}
+                title={capped ? `Limit reached: deselect one to swap (max ${maxSelect})` : undefined}
                 onClick={() => {
                   if (!capped) onToggle(r.fullName);
                 }}

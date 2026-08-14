@@ -99,7 +99,7 @@ export function LeaderboardHead({
       <th className="px-3 py-2 text-left">Level</th>
       <SortTh
         label="Commits"
-        title="Commits over the past ~4 weeks (≈1 month), from GitHub — click to sort"
+        title="Commits over the past ~4 weeks (≈1 month), from GitHub. Click to sort."
         thClass="px-3 py-2 text-left"
         active={sort?.key === "commits"}
         dir={dir}
@@ -107,7 +107,7 @@ export function LeaderboardHead({
       />
       <SortTh
         label="PR"
-        title="Merged pull requests across the analyzed PR window — click to sort"
+        title="Merged pull requests across the analyzed PR window. Click to sort."
         thClass="px-3 py-2 text-right"
         active={sort?.key === "pr"}
         dir={dir}
@@ -115,7 +115,7 @@ export function LeaderboardHead({
       />
       <SortTh
         label="LoC Δ"
-        title="Lines changed (additions + deletions) across the analyzed PR window — click to sort"
+        title="Lines changed (additions + deletions) across the analyzed PR window. Click to sort."
         thClass="px-3 py-2 text-right"
         active={sort?.key === "loc"}
         dir={dir}

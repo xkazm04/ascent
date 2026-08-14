@@ -1,11 +1,11 @@
-# From scorer to transition companion — the AI-SDLC plan
+# From scorer to transition companion: the AI-SDLC plan
 
 _2026-08-13. Successor to [`VISION-TRANSITION.md`](VISION-TRANSITION.md) (which set the voice) and
 [`GOLDEN-TRIO.md`](GOLDEN-TRIO.md) (which set the monetizable strengths). Those said **what** ascent
 should become. This says **in what order, in which files, and how we know it worked.**_
 
 _Grounded in a code audit of this repo (2026-08-13), the shipped UAT drain
-([`BACKLOG.md`](BACKLOG.md) §`2026-08-10-ascent-first`), and the external AI-SDLC framing — chiefly
+([`BACKLOG.md`](BACKLOG.md) §`2026-08-10-ascent-first`), and the external AI-SDLC framing, chiefly
 [Port's AI-SDLC piece](https://www.port.io/blog/ai-sdlc) and IBM's
 [AI-DLC](https://www.ibm.com/think/topics/ai-dlc) / [Bob](https://newsroom.ibm.com/2026-04-28-introducing-ibm-bob-ai-development-partner-that-takes-enterprises-from-ai-assisted-coding-to-production-ready-software)._
 
@@ -14,25 +14,25 @@ _Grounded in a code audit of this repo (2026-08-13), the shipped UAT drain
 ## 0. The thesis in one paragraph
 
 Ascent is an excellent **assessment** product wearing a **companion's** clothes. All nine dimensions
-(`src/lib/maturity/model.ts:122-203`) read one source — the git repo and the GitHub API — which is the
+(`src/lib/maturity/model.ts:122-203`) read one source (the git repo and the GitHub API), which is the
 *residue* of the software lifecycle, not the lifecycle. Mapped onto IBM's AI-DLC phases, ascent covers
 **Construction** and nothing of Inception or Operations. The org surface is 24 tabs in 6 groups
 (`src/lib/org/orgTabs.ts:14`) organised by **data type**, which is a BI tool's information
 architecture; a companion has a thread and a next move. Onboarding terminates at *"invite a
-teammate"* (`src/lib/org/getting-started.ts:96-147`) — the checklist ends exactly where the job
+teammate"* (`src/lib/org/getting-started.ts:96-147`). The checklist ends exactly where the job
 starts. The fix is mostly **rearrangement plus two data joins**, not a rewrite.
 
-## 1. The audit's surprise — most of the hard parts are built
+## 1. The audit's surprise: most of the hard parts are built
 
 The strategy docs undersell the codebase. Verified present today:
 
 | Asset | Where | Status in `GOLDEN-TRIO.md` |
 | --- | --- | --- |
-| **Per-PR AI evidence rows** — `AiChange` with `approved` / `approverLogin` / `aiSignal` / `aiTools` | `prisma/schema.prisma:389`, written in `scans-persist.ts:478` | listed as the missing T1 artifact |
-| **Tamper-evident audit** — per-row HMAC + CSV content-hash | `src/lib/db/audit-integrity.ts` | "~80% of an assurance product" ✔ |
+| **Per-PR AI evidence rows:** `AiChange` with `approved` / `approverLogin` / `aiSignal` / `aiTools` | `prisma/schema.prisma:389`, written in `scans-persist.ts:478` | listed as the missing T1 artifact |
+| **Tamper-evident audit:** per-row HMAC + CSV content-hash | `src/lib/db/audit-integrity.ts` | "~80% of an assurance product" ✔ |
 | **Graduated oversight tiers** T0–T3 + declared-vs-observed compliance | `src/lib/org/stance.ts`, `src/lib/db/org-stance.ts:263` | described as the GAIE gap to claim |
-| **Verified improvement loop** — identify → triage → PR → merge → rescan → `impactDim` | `src/lib/db/improvement.ts:1` | "converts a report into a purchase order" |
-| **Measured agent spend** — OTel ingest → `AiUsageRecord` → delivery ROI at `measured` fidelity | `src/lib/integrations/otlp.ts`, `.../delivery/ai/aiDeliveryModel.ts:126` | scaffolded ✔ |
+| **Verified improvement loop:** identify → triage → PR → merge → rescan → `impactDim` | `src/lib/db/improvement.ts:1` | "converts a report into a purchase order" |
+| **Measured agent spend:** OTel ingest → `AiUsageRecord` → delivery ROI at `measured` fidelity | `src/lib/integrations/otlp.ts`, `.../delivery/ai/aiDeliveryModel.ts:126` | scaffolded ✔ |
 | **CI conformance ingest** from in-repo `doctor.mjs`, org-token scoped | `src/app/api/report/conformance/route.ts` | T2-2 ✔ |
 | **Org-scoped API tokens** with scopes | `/api/org/tokens`, `src/lib/api-token-auth.ts` | — |
 
@@ -44,10 +44,10 @@ No wave here is a from-scratch bet.
 1. **A journey spine.** Nav is by data type; there is no program state, no cadence, no "you are here".
 2. **The evidence *artifact*.** The population exists as rows; nothing exports the signed
    population + sample + per-item pack an auditor asks for.
-3. **Agent *behaviour*.** `AiUsageRecord` is day-bucketed tokens/cost/sessions — no attempts, no
+3. **Agent *behaviour*.** `AiUsageRecord` is day-bucketed tokens/cost/sessions, with no attempts, no
    success rate, no per-task outcome. Port's core metrics are unreachable from it.
 4. **Anything outside GitHub.** No work items, no deploys, no incidents. Lead time and change-failure
-   rate — the outcomes leaders are measured on — cannot be computed.
+   rate (the outcomes leaders are measured on) cannot be computed.
 5. **A door for agents.** Ascent detects MCP in scanned repos and exposes none of its own.
 6. **A living action vocabulary.** Every remediation path bottoms out in the same 9 static practices
    (`src/lib/practices.ts`), one per dimension. An org that applies all nine exhausts the product.
@@ -55,7 +55,7 @@ No wave here is a from-scratch bet.
 
 ---
 
-## Wave 1 — The journey spine ✅ SHIPPED 2026-08-14
+## Wave 1: The journey spine ✅ SHIPPED 2026-08-14
 
 **The single highest-leverage change in this document, and the cheapest.** Copy, routing and one new
 model over data that already ships.
@@ -81,8 +81,8 @@ are untouched).
 | **Bought** | What did the last period buy? | `executive`, `delivery`, `contributors`, `teams` |
 | **Admin** | The boring rows, deliberately not hidden. | `members`, `integrations`, `audit`, `settings` |
 
-`ORG_TAB_IDS`, `PERSONAL_TAB_IDS`, `MIGRATED_ORG_TAB_IDS` and `TAB_SCOPED_PARAM_KEYS` are unchanged —
-this is a regrouping of `ORG_NAV_GROUPS` plus five icons in `OrgTabNav.tsx:35`. The existing
+`ORG_TAB_IDS`, `PERSONAL_TAB_IDS`, `MIGRATED_ORG_TAB_IDS` and `TAB_SCOPED_PARAM_KEYS` are unchanged.
+This is a regrouping of `ORG_NAV_GROUPS` plus five icons in `OrgTabNav.tsx:35`. The existing
 `ORG_NAV_GROUPS ⟷ ORG_TAB_IDS` completeness test keeps it honest.
 
 **Files:** `src/lib/org/orgTabs.ts` · `src/components/org/shell/OrgTabNav.tsx` ·
@@ -100,7 +100,7 @@ Settings to avoid a group key colliding with the `settings` tab id._
 `DEFAULT_ORG_TAB` stays `overview` for a *first* visit (the baseline is the point). Once the org has
 a completed scan **and** an `ImprovementPr` row in flight, a bare `/org/[slug]` opens on `live`.
 
-Shipped as a pure `resolveLandingTab` (`src/lib/org/landing.ts`) over two cheap facts —
+Shipped as a pure `resolveLandingTab` (`src/lib/org/landing.ts`) over two cheap facts:
 `getOrgHeaderSummary.scannedCount` and a new indexed `countInFlightPrs`, both React-`cache()`d so the
 layout and the page share one query each. It **renders** rather than redirects, so the bare URL stays
 shareable (it is the URL in the weekly digest) and keeps meaning "this org" for whoever opens it next.
@@ -109,7 +109,7 @@ The backlog deliberately does not count toward the decision: an item in the back
 yet taken, and landing someone on a to-do list every visit is nagging, not companionship.
 
 **The one non-obvious consequence.** The bare URL could not mean both "landing" and "the Overview
-tab" — with a conditional landing, a rail click on Overview (which normalized to the bare URL) would
+tab." With a conditional landing, a rail click on Overview (which normalized to the bare URL) would
 bounce straight back to Live, making Overview permanently unreachable. So `buildUrl` no longer
 collapses `?tab=overview`, and the shell threads the resolved landing tab into the rail
 (`OrgTabNav.landingTab` → `resolveActiveOrgTab`'s third argument) so the highlight matches what
@@ -120,7 +120,7 @@ rendered.
 `src/components/org/shell/OrgTabNav.tsx`.
 **Size:** S. **Status: SHIPPED 2026-08-14.**
 
-### 1c. Transition Program — the state that outlives onboarding
+### 1c. Transition Program: the state that outlives onboarding
 
 A new persisted object that turns the 5-step checklist into step 0 of a named, dated programme.
 
@@ -143,7 +143,7 @@ header then renders one persistent line on every tab:
 > *Week 7 of "Agent-ready by Q1" · L2 → L3 · 4 of 11 repos at target · 2 PRs in flight · next review Thu*
 
 That line is the companion. It is derived entirely from `fleetSnapshot` (`src/lib/db/plan.ts`),
-`listInitiatives`, and `OpsState` (`src/lib/db/improvement.ts`) — all shipped.
+`listInitiatives`, and `OpsState` (`src/lib/db/improvement.ts`), all shipped.
 
 **Files:** `prisma/schema.prisma` + migration + `init.sql` mirror · `src/lib/db/org-program.ts` (new,
 + 18 tests) · `src/lib/org/getting-started.ts` (sixth `program` step) ·
@@ -154,12 +154,12 @@ the only place a programme is created/re-targeted) · `/api/org/program` (new ro
 
 _Refinement against the draft gate ("don't render a programme whose Bought panel has nothing
 verified"): taken literally that would hide the programme until a PR had been verified, i.e. make it
-unusable at creation. What shipped is the honest reading — the strip always renders, and the **"pts
+unusable at creation. What shipped is the honest reading: the strip always renders, and the **"pts
 bought" segment alone** is gated on verified Impact Ledger points. Every other segment is
 independently conditional on its own data too._
 
 _Also: `getOrgHeaderSummary` gained a `levelCounts` tally folded into its **existing** pass over
-per-repo latest scans, so "N of M repos at target" costs no extra query — the shell does not
+per-repo latest scans, so "N of M repos at target" costs no extra query. The shell does not
 reintroduce the rollup tax "Shell cost discipline" removed._
 
 ### 1d. Close the "Bought" question with data that already exists
@@ -168,19 +168,19 @@ The **Bought** section opens with a ledger built from `ImprovementPr` rows: PRs 
 moved, points gained, verified vs awaiting-rescan. `impactDim` / `impactOverall` were already
 computed and stored (`src/lib/db/improvement.ts:58-60`) and were rendered only inside the war room.
 
-Shipped as the **Impact ledger** at the top of the Briefing tab (the first tab in Bought — adding a
+Shipped as the **Impact ledger** at the top of the Briefing tab (the first tab in Bought, since adding a
 new tab would have violated this document's own "no more analytics tabs" rule), scoped to the same
 `resolveOrgWindow` period as the rest of the briefing. It reads `ImprovementPr` directly rather than
 riding on `ExecBriefing`, so it cannot leak onto the public share page or into the board PDF; a read
 failure degrades the panel away rather than failing the tab (which also keeps UAT method commitment
-**M1** untouched — the briefing *PDF* is unchanged).
+**M1** untouched, since the briefing *PDF* is unchanged).
 
 **Four honesty rules bind it**, pinned at both the model and the render layer:
 
-1. **Verified only** — a merge without a rescan is named, not counted. A projection is not a purchase.
-2. **Null, never zero** — nothing verified renders an em dash and a reason.
-3. **Sign-aware** — regressions get their own tile and keep their sign (UAT `DANA-L1-010`).
-4. **No cross-repo overall sum** — `impactOverall` is per row only; the field notes say why.
+1. **Verified only.** A merge without a rescan is named, not counted. A projection is not a purchase.
+2. **Null, never zero.** Nothing verified renders an em dash and a reason.
+3. **Sign-aware.** Regressions get their own tile and keep their sign (UAT `DANA-L1-010`).
+4. **No cross-repo overall sum.** `impactOverall` is per row only; the field notes say why.
 
 **Files:** `src/lib/db/org-impact.ts` (new, + 12 model tests) ·
 `src/components/org/intelligence/executive/ImpactLedger.tsx` (new, + 8 render tests) ·
@@ -193,7 +193,7 @@ rail reads as a story; and the "Bought" panel shows only verified movement. Re-r
 
 ---
 
-## Wave 2 — The Conformance Pack (gives the journey a destination) ✅ SHIPPED 2026-08-14
+## Wave 2: The Conformance Pack (gives the journey a destination) ✅ SHIPPED 2026-08-14
 
 > **Status:** shipped. The pack (`src/lib/conformance/`, `GET /api/org/conformance-pack`, the
 > Governance-tab card) and the ungoverned-AI-change gate (`GatePolicy.minAiGovernedRate`, wired
@@ -205,7 +205,7 @@ rail reads as a story; and the "Bought" panel shows only verified movement. Re-r
 > - **Per-row HMAC was not added to the pack.** `signAudit` signs *audit rows*; the pack's integrity
 >   comes from SHA-256 over the exact bytes delivered (response header + both hashes embedded in the
 >   manifest, so the three files verify each other). Signing each CSV row with a server secret the
->   examiner cannot hold would be theatre — they cannot verify an HMAC without the key.
+>   examiner cannot hold would be theatre. They cannot verify an HMAC without the key.
 > - **PR titles are omitted from the CSV**, not included. They are attacker-influenced free text that
 >   routinely carries ticket ids and customer names, and `repository` + `pr_number` already lets an
 >   examiner re-verify the row against GitHub.
@@ -217,21 +217,21 @@ rail reads as a story; and the "Bought" panel shows only verified movement. Re-r
 >   would then reasonably ask us to defend.
 
 Without a destination a companion is a dashboard that greets you. The quarterly pack is what the
-transition is *for* — and per `AI-SDLC-STANDARDS-LANDSCAPE.md:98-100`, nobody ships it.
+transition is *for*, and per `AI-SDLC-STANDARDS-LANDSCAPE.md:98-100`, nobody ships it.
 
 **What ships:** one signed bundle per org per period containing
 
-1. **The population** — every `AiChange` row in the window, with `aiSignal` (authored vs marked),
+1. **The population.** Every `AiChange` row in the window, with `aiSignal` (authored vs marked),
    `aiTools`, `state`, `mergedAt`.
-2. **The sample** — a deterministic, seeded draw from the population, with the seed printed so an
+2. **The sample.** A deterministic, seeded draw from the population, with the seed printed so an
    examiner can reproduce it.
-3. **Per-item evidence** — for each sampled row: approved yes/no, named approver, CODEOWNER review,
+3. **Per-item evidence.** For each sampled row: approved yes/no, named approver, CODEOWNER review,
    required-checks status from branch governance (`src/lib/github/governance.ts`).
-4. **The findings** — merged-without-approval rows, which is the population `AiChange` exists to
+4. **The findings.** Merged-without-approval rows, which is the population `AiChange` exists to
    surface and which `org-stance.ts:263` already counts as `unapprovedAiChanges`.
-5. **Provenance** — engine + model per scan, rubric version, retention window, the method and the
+5. **Provenance.** Engine + model per scan, rubric version, retention window, the method and the
    sampling caps.
-6. **Integrity** — per-row HMAC (`signAudit`) plus the CSV content-hash header
+6. **Integrity.** Per-row HMAC (`signAudit`) plus the CSV content-hash header
    (`src/lib/db/audit-integrity.ts`), so the filed artifact is self-verifying.
 
 **Claims discipline is non-negotiable** and inherited verbatim from
@@ -239,7 +239,7 @@ transition is *for* — and per `AI-SDLC-STANDARDS-LANDSCAPE.md:98-100`, nobody 
 with"** a standard; anchor to SOC 2 CC8.1 first and ISO 42001 SoA second; **never** claim EU AI Act
 conformity; pseudonymize logins unless the org opts into named evidence.
 
-**Also in this wave — the ungoverned-change gate (T1-2).** Extend the deterministic 200/422 gate
+**Also in this wave: the ungoverned-change gate (T1-2).** Extend the deterministic 200/422 gate
 (`src/app/api/gate/[owner]/[repo]/route.ts`) with a provenance policy: fail when an AI-attributed
 change merges without a named human approver. The stance already declares the policy
 (`AiStanceReviewTier`); the gate does not yet read it. Small, deterministic, and it generates the
@@ -248,15 +248,15 @@ evidence stream the pack sells.
 **Files:** `src/lib/conformance/pack.ts` (new) · `src/lib/db/ai-changes.ts` (new read layer) ·
 `/api/org/conformance-pack` (new) · `src/lib/pdf/` (the human-readable cover) ·
 `src/lib/scoring/gate.ts` + gate route · `docs/features/org-dashboard/` doc.
-**Size:** M/L. **Depends on:** nothing — the rows exist today.
+**Size:** M/L. **Depends on:** nothing; the rows exist today.
 
 ---
 
-## Wave 3 — Agent-run truth ✅ SHIPPED 2026-08-14
+## Wave 3: Agent-run truth ✅ SHIPPED 2026-08-14
 
 > **Status:** shipped. `AgentSession` + the OTLP session mapper + the Unit economics panel on
 > Delivery (3a); the Copilot connector (3b); the `simulated` tier retired from the ROI model (3c).
-> The two pre-existing `getOrgUsageRollup` failures are fixed — they were **time-bomb fixtures**,
+> The two pre-existing `getOrgUsageRollup` failures are fixed. They were **time-bomb fixtures**,
 > not a code bug: fixed calendar dates that sat inside the trailing 35-day window when written and
 > had since aged out of it. Fixtures are now expressed in days-ago, the way the one test that never
 > broke always did. **Suite fully green: 6500 tests, 0 failures.** Docs:
@@ -272,25 +272,25 @@ evidence stream the pack sells.
 >   A per-PR figure would have been the first number a skeptical buyer tried to falsify.
 > - **Copilot ships as `seats-only`, not `allocated`.** GitHub exposes no per-seat price through any
 >   API, so the connector reports seats and engagement and `costCents: 0` means *not reported*. This
->   forced `OrgUsageRollup.hasAllocatedCost` — without it a connected Copilot org would have rendered
+>   forced `OrgUsageRollup.hasAllocatedCost`: without it a connected Copilot org would have rendered
 >   as "$0 spend / shadow AI" fleet-wide, which is worse than the simulated tier it replaced.
 > - **3b and 3c had to ship together** for exactly that reason: a cost-less connector breaks the ROI
 >   model unless the fabricating tier goes at the same time.
 
 Today ascent infers AI usage archaeologically from commit trailers and PR bodies. That is why
-`aiUsage.detected` once counted Renovate (`VALUE-CASE.md:30`). Port's metrics — **agent success rate,
-cost per *attempt*, retry rate** — need session-level outcome data, and `AiUsageRecord`
+`aiUsage.detected` once counted Renovate (`VALUE-CASE.md:30`). Port's metrics (**agent success rate,
+cost per *attempt*, retry rate**) need session-level outcome data, and `AiUsageRecord`
 (`prisma/schema.prisma:1067`) is day-bucketed tokens/cost/sessions with no notion of an attempt.
 
 **3a. Extend the OTel ingest to attempts and outcomes.** Claude Code's exporter already emits
 per-session counters; fold `AgentSession { orgId, source, repo, startedAt, durationMs, tokens,
 costCents, outcome }` beside the day rollup, where `outcome` ∈ `merged | abandoned | superseded`,
 resolved by joining the session's branch/PR back to `AiChange`. This is the join that produces
-**cost per *merged* change** — the number Port says everyone gets wrong by measuring adoption instead.
+**cost per *merged* change**: the number Port says everyone gets wrong by measuring adoption instead.
 
 **3b. Ship the Copilot connector.** `status: "planned"` today
 (`src/lib/integrations/providers.ts`); the Copilot Metrics API is GA and free. Fidelity stays
-`allocated` and must render as such — `FIDELITY_META` already carries the honest label.
+`allocated` and must render as such: `FIDELITY_META` already carries the honest label.
 
 **3c. Retire simulated spend from any default view.** The FNV-hash placeholder
 (`aiDeliveryModel.ts:89`) is the standing violation of `VALUE-CASE.md:46` (D32). Once a connector is
@@ -301,7 +301,7 @@ number.
 
 ---
 
-## Wave 4 — The outcome join ✅ SHIPPED 2026-08-14
+## Wave 4: The outcome join ✅ SHIPPED 2026-08-14
 
 > **Status:** shipped. `Deployment` ingested from the GitHub Deployments API during a scan,
 > `AiChange.mergeCommitSha` + the `PrStats.mergedShas` index for exact attribution, the
@@ -311,7 +311,7 @@ number.
 > **The modelling problem this wave hit, and how it was solved.** The plan assumed the authorship
 > split could be built from `AiChange`. It cannot: that table stores *only* AI-attributed PRs by
 > construction, so a deployment failing to match an AI sha is indistinguishable between "a human
-> wrote it" and "we could not attribute it" — which makes an AI-vs-human comparison impossible to
+> wrote it" and "we could not attribute it", which makes an AI-vs-human comparison impossible to
 > state honestly. The fix is `PrStats.mergedShas`, a `{s, a}` index of **every** merged PR with its
 > AI flag, riding inside the existing `Scan.prStats` blob. It needs no new column and no extra API
 > call: `mergeCommit.oid` has been on the wire since W5's revert linkage and was being discarded.
@@ -324,12 +324,12 @@ number.
 >   a service, so "mean time to restore" would be a claim the source cannot support.
 > - **No generic webhook / Vercel / Datadog / Sentry.** The GitHub Deployments API alone answered
 >   every metric this wave promised, through a credential that already exists. A second source is
->   worth adding when a customer's deployments genuinely live elsewhere — not before.
+>   worth adding when a customer's deployments genuinely live elsewhere, not before.
 
 One external source, chosen for the largest single unlock: **deploys and incidents**.
 
 The killer number nobody sells: *"AI-authored changes in your org fail at X% versus Y% for
-human-authored."* Half the arithmetic is already there — `org-rework.ts` computes `reworkRate` /
+human-authored."* Half the arithmetic is already there: `org-rework.ts` computes `reworkRate` /
 `aiReworkRate` / `revertRate` from PR data, and `AiChange` gives the authorship split. What's missing
 is the deployment event to anchor "failure" to something outside git.
 
@@ -340,31 +340,31 @@ GitHub Deployments API (free, already tokenised) → generic webhook → Vercel/
 Deliverables: change-failure rate split by authorship; MTTR split by authorship; the fourth DORA
 metric arriving free with deployment frequency. These land in **Bought**, not in a new tab.
 
-*Work-item ingestion (Jira/Linear) for lead time is the second candidate and is deliberately deferred
-— it costs more integration surface for a softer number.*
+*Work-item ingestion (Jira/Linear) for lead time is the second candidate and is deliberately deferred,
+because it costs more integration surface for a softer number.*
 
 **Size:** L.
 
 ---
 
-## Wave 5 — The agent door (MCP server) ✅ SHIPPED 2026-08-14
+## Wave 5: The agent door (MCP server) ✅ SHIPPED 2026-08-14
 
 > **Status:** shipped as `POST /api/mcp`, implementing MCP revision **2026-07-28**, with 34 tests.
 > Suite green at 6561. Docs: [skills.md](features/org-knowledge/skills.md#the-agent-door--mcp-server-w5-2026-08-14).
 >
 > **The research changed the build, and made it much smaller.** The 2026-07-28 revision made MCP
-> **stateless** — it removed the `initialize` handshake, protocol sessions and `Mcp-Session-Id`, the
+> **stateless**: it removed the `initialize` handshake, protocol sessions and `Mcp-Session-Id`, the
 > standalone GET/SSE stream, and stream resumability. Every request self-describes through `_meta`.
 > For a Next.js app on serverless that is decisive: **a single `force-dynamic` POST handler is a
-> conformant server** — no session store, no sticky routing, no long-lived connection fighting a
+> conformant server**, with no session store, no sticky routing, no long-lived connection fighting a
 > function timeout. Those were exactly the three things that would have made this wave real
 > infrastructure work a year ago.
 >
 > **So there is no SDK dependency**, and that is a conclusion from the spec rather than a preference:
 > an SDK would import transport and session machinery this revision deleted, to save ~150 lines. What
-> the revision *adds* — mandatory `Mcp-Method`/`Mcp-Name` header/body validation with `-32020` on
+> the revision *adds* (mandatory `Mcp-Method`/`Mcp-Name` header/body validation with `-32020` on
 > mismatch, `server/discover`, `resultType`, `ttlMs`/`cacheScope`, deterministic tool order, Origin
-> validation — is implemented rather than skipped.
+> validation) is implemented rather than skipped.
 >
 > **Deviations from the draft:**
 > - **Scopes are two-level.** `mcp:read` is the door; a tool over a scoped resource *also* requires
@@ -384,7 +384,7 @@ Expose an MCP server, authenticated by the existing org API tokens, with read to
 `get_repo_standing`, `get_gate_verdict`, `list_open_recommendations`, `recall_org_memory`,
 `get_practice_shape`, `get_ai_stance`. Every one of these is an existing internal function
 (`/api/org/memory/recall`, `/api/gate/…`, `/api/recommendations`, `src/lib/practices.ts`,
-`src/lib/org/stance.ts`) — this wave is a protocol adapter, not new logic.
+`src/lib/org/stance.ts`). This wave is a protocol adapter, not new logic.
 
 Deliberately **read-only in v1.** A write tool is a governance surface and needs the stance model to
 authorize it; that is a later decision, not a v1 default.
@@ -393,29 +393,29 @@ authorize it; that is a later decision, not a v1 default.
 
 ---
 
-## Wave 6 — A living practice library ✅ SHIPPED 2026-08-14
+## Wave 6: A living practice library ✅ SHIPPED 2026-08-14
 
 > **Status:** shipped. Shape extraction at scan time (`Scan.practiceShape`), the org-scoped miner,
 > and the **House pattern** panel above the catalog on the Practices tab. 35 new tests; suite green
 > at 6603. Docs: [practices.md](features/org-dashboard/practices.md#your-house-pattern--mined-from-the-orgs-own-repos-w6-2026-08-14).
 >
 > **The design decision that matters most: the house pattern is AGREEMENT, not the best repo's copy.**
-> The obvious implementation — take the highest-scoring repo's outline and hand it to everyone — is
+> The obvious implementation (take the highest-scoring repo's outline and hand it to everyone) is
 > one team's document promoted to a standard nobody agreed to, and the first reader who recognises
 > it as *their* file reads the whole feature as surveillance rather than reuse. A line enters the
 > pattern only when ≥2 exemplars carry it independently, counted by distinct repo.
 >
 > **Leak safety is structural, not filtered.** Only heading skeletons and path layouts are read; an
-> artifact's body is never extracted at all. The one leak vector — a `#` inside a fenced code block,
-> which is a shell comment rather than a heading — is handled explicitly and pinned by a test that a
+> artifact's body is never extracted at all. The one leak vector (a `#` inside a fenced code block,
+> which is a shell comment rather than a heading) is handled explicitly and pinned by a test that a
 > deploy script inside a fence cannot reach the shape.
 >
 > **Deviations:**
 > - **Normalization stops at case and punctuation.** `Build & Test` and `Build and Test` read as one
->   section to a human, but equating them needs a synonym table — and that is where a "your own
+>   section to a human, but equating them needs a synonym table, and that is where a "your own
 >   pattern" claim quietly becomes the vendor's interpretation of it.
 > - **No auto-generated PR yet.** `minedStarter()` returns the mined lines in the same `string[]`
->   shape the static `starter` uses, so the artifact builder can consume either without branching —
+>   shape the static `starter` uses, so the artifact builder can consume either without branching,
 >   but wiring it into apply-batch would ship a PR whose provenance line ("your own pattern" vs "a
 >   generic starter") has not been designed. The mining is the hard half; the plumbing is deliberate
 >   follow-on work.
@@ -427,7 +427,7 @@ has exhausted the product.
 
 Add a mined tier beside the static catalog: cluster the org's strongest repos per dimension, extract
 the *structure* of what they do (headings covered by their agent guidance, the shape of their eval
-harness, their PR template's sections), and offer it to gap repos as a starter — **the shape travels,
+harness, their PR template's sections), and offer it to gap repos as a starter: **the shape travels,
 the code does not**, which is the leak-free property already solved in `src/lib/practice-artifact.ts`
 (`buildArtifact`) and reused by `src/lib/org/stance-artifact.ts`.
 
@@ -453,11 +453,11 @@ from repo-state to lifecycle-state. W5/W6 deepen the relationship once the spine
 
 Five metrics, Port's cap, each with an owner and each baselined **before** W1 ships:
 
-1. **Return rate** — share of orgs that come back within their programme cadence.
-2. **Loop throughput** — `ImprovementPr` rows reaching `verified` per org per month.
-3. **Verified points delivered** — summed `impactOverall`, the "Bought" headline.
-4. **Programme survival** — share of `TransitionProgram` rows still `active` at 90 days.
-5. **Pack pull-through** — orgs exporting a conformance pack at least once a quarter.
+1. **Return rate.** Share of orgs that come back within their programme cadence.
+2. **Loop throughput.** `ImprovementPr` rows reaching `verified` per org per month.
+3. **Verified points delivered.** Summed `impactOverall`, the "Bought" headline.
+4. **Programme survival.** Share of `TransitionProgram` rows still `active` at 90 days.
+5. **Pack pull-through.** Orgs exporting a conformance pack at least once a quarter.
 
 Every wave re-enters `/uat recertify` against the originating Character's criteria. `shipped` is a
 waypoint; `resolved-verified` is the finish line (`docs/BACKLOG.md:10`).
@@ -465,7 +465,7 @@ waypoint; `resolved-verified` is the finish line (`docs/BACKLOG.md:10`).
 ## Explicitly out of scope
 
 - **Repricing.** `VALUE-CASE.md:44` (D31) and `GOLDEN-TRIO.md:203` both say the $10/$20 seat shape
-  contradicts the buyer. Deliberately deferred to its own pass — it is a packaging decision, not an
+  contradicts the buyer. Deliberately deferred to its own pass; it is a packaging decision, not an
   engineering one, and it should not ride along with this plan.
 - **More analytics tabs.** The 22nd panel adds less than reorganising the 21 that exist.
 - **Leading with ROI dollars.** Five funded vendors, free upstream data, and a contested evidence
@@ -482,5 +482,5 @@ waypoint; `resolved-verified` is the finish line (`docs/BACKLOG.md:10`).
 | W1 is a regroup, so it can be mistaken for cosmetic and deprioritised | It is the wave the other five land into. Ship it first or the plan degrades to a feature list. |
 | The programme line reads as a gimmick if the underlying numbers are thin | Gate 1c on 1d: don't render a programme whose "Bought" panel has nothing verified to show. |
 | W2 over-claims and becomes a liability | Claims discipline is inherited verbatim, and the pack states its own method and sampling caps. |
-| IBM Bob / Factory ship the same journey | Defend on **neutrality** (no agent to upsell) and fleet depth, never on the score — unchanged from `GOLDEN-TRIO.md:200`. |
+| IBM Bob / Factory ship the same journey | Defend on **neutrality** (no agent to upsell) and fleet depth, never on the score, unchanged from `GOLDEN-TRIO.md:200`. |
 | W4's deploy join stalls on integration surface | GitHub Deployments API first: already tokenised, zero new auth. |

@@ -109,7 +109,7 @@ function AuthGatePanel({
           <>
             You&apos;re signed in, but your account isn&apos;t a member of{" "}
             <span className="font-mono text-white">{gate.org}</span>, so Ascent won&apos;t write scans
-            into it. Install the Ascent GitHub App on that organization to claim it — or scan an
+            into it. Install the Ascent GitHub App on that organization to claim it, or scan an
             organization you belong to.
           </>
         )}

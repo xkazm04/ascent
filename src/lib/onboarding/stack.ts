@@ -159,10 +159,10 @@ type DimNotes = Partial<Record<DimensionId, string>>;
 const FRAMEWORK_NOTES: Record<string, DimNotes> = {
   "Next.js": {
     D1: "Document the App Router boundaries an agent must respect: server vs client components, which files may carry 'use server', and where env access is legal",
-    D2: "Cover route handlers and server actions, not just leaf utils — that boundary is where agent-written Next.js code actually breaks",
+    D2: "Cover route handlers and server actions, not just leaf utils: that boundary is where agent-written Next.js code actually breaks",
     D3: "next build runs pre-push: a bad route export or a server/client boundary violation must not first surface on the deploy",
     D6: "eslint-config-next runs on staged files so the framework's own rules (not just generic ESLint) hold",
-    D9: "No secret is read outside a server component / route handler — a NEXT_PUBLIC_ leak ships to every browser",
+    D9: "No secret is read outside a server component / route handler: a NEXT_PUBLIC_ leak ships to every browser",
   },
   React: {
     D2: "Component tests assert behavior via @testing-library/react (queries by role/text), never implementation detail an agent will churn",
@@ -175,16 +175,16 @@ const FRAMEWORK_NOTES: Record<string, DimNotes> = {
     D2: "Module-level e2e specs (supertest against the Nest testing module) cover the DI wiring an agent is most likely to break",
   },
   Express: {
-    D2: "Route-level integration tests (supertest) cover the middleware order — an agent reordering middleware is a silent auth bug",
+    D2: "Route-level integration tests (supertest) cover the middleware order: an agent reordering middleware is a silent auth bug",
     D9: "helmet + input validation on every route are asserted by a test, not assumed",
   },
   Django: {
     D2: "pytest-django runs the migration + view suite locally, so an agent's model change surfaces before push",
-    D3: "python manage.py makemigrations --check --dry-run runs pre-push — a model edit without a migration is a broken deploy",
+    D3: "python manage.py makemigrations --check --dry-run runs pre-push: a model edit without a migration is a broken deploy",
     D9: "python manage.py check --deploy runs pre-push (DEBUG, SECRET_KEY, HSTS, cookie flags)",
   },
   FastAPI: {
-    D2: "TestClient contract tests pin every response model — the OpenAPI schema is the agent's contract",
+    D2: "TestClient contract tests pin every response model: the OpenAPI schema is the agent's contract",
     D5: "The generated OpenAPI schema is committed/diffed so an agent's route change is visible in review",
   },
   Flask: {
@@ -203,11 +203,11 @@ const FRAMEWORK_NOTES: Record<string, DimNotes> = {
   },
   Android: {
     D3: "./gradlew assembleRelease + lint run before push; a release-only resource/proguard break must not reach the store track",
-    D9: "No key/keystore or API secret is in the repo — they come from the CI secret store, asserted by the secret scan",
+    D9: "No key/keystore or API secret is in the repo; they come from the CI secret store, asserted by the secret scan",
   },
   iOS: {
     D3: "xcodebuild test on the simulator runs pre-push; the scheme is shared and committed so an agent can run it",
-    D9: "Entitlements + Info.plist changes are reviewed explicitly — an agent widening a capability is a privacy regression",
+    D9: "Entitlements + Info.plist changes are reviewed explicitly: an agent widening a capability is a privacy regression",
   },
   Flutter: {
     D2: "flutter test --coverage locally; widget tests cover the screens an agent edits",
@@ -218,7 +218,7 @@ const FRAMEWORK_NOTES: Record<string, DimNotes> = {
   },
   Terraform: {
     D1: "State/backend location, which workspaces exist, and which resources an agent must NEVER destroy are written down",
-    D3: "terraform validate + terraform plan runs pre-push and the PLAN is what gets reviewed — apply stays a gated human step",
+    D3: "terraform validate + terraform plan runs pre-push and the PLAN is what gets reviewed; apply stays a gated human step",
     D9: "tfsec/checkov run pre-commit; a public bucket or open security group is caught before the plan is even shared",
   },
   Helm: {
@@ -229,30 +229,30 @@ const FRAMEWORK_NOTES: Record<string, DimNotes> = {
     D9: "Pod security context, resource limits, and secret refs are asserted by policy (conftest/kyverno), not review",
   },
   Jupyter: {
-    D2: "Notebooks are EXECUTED in the suite (nbval/papermill) — a notebook that only lints is untested code",
+    D2: "Notebooks are EXECUTED in the suite (nbval/papermill): a notebook that only lints is untested code",
     D6: "nbstripout runs pre-commit so outputs and execution counts don't pollute every diff",
     D7: "Notebook diffs are made reviewable (nbdime) so an agent's change is legible in the history",
   },
   PyTorch: {
-    D8: "Model/prompt changes are gated on a fixed eval set with a seeded run — accuracy deltas are the test",
+    D8: "Model/prompt changes are gated on a fixed eval set with a seeded run: accuracy deltas are the test",
   },
   TensorFlow: {
-    D8: "Model/prompt changes are gated on a fixed eval set with a seeded run — accuracy deltas are the test",
+    D8: "Model/prompt changes are gated on a fixed eval set with a seeded run: accuracy deltas are the test",
   },
 };
 
 /** Role-level notes — coarser than a framework, applied when no framework covered the dimension. */
 const ROLE_NOTES: Partial<Record<StackRole, DimNotes>> = {
   data_ml: {
-    D2: "Data/feature transforms have deterministic, seeded tests — a silent distribution change is the failure mode",
+    D2: "Data/feature transforms have deterministic, seeded tests: a silent distribution change is the failure mode",
     D8: "A held-out eval set with recorded baselines is the gate for any model or prompt change",
   },
   infra: {
-    D3: "The plan/diff is what gets reviewed and apply is a gated human step — never let an agent apply directly",
+    D3: "The plan/diff is what gets reviewed and apply is a gated human step; never let an agent apply directly",
     D9: "Policy-as-code (tfsec/checkov/conftest) runs pre-commit; a misconfigured resource is caught before the plan",
   },
   mobile: {
-    D3: "A release-configuration build runs before push — debug-only passes hide store-blocking breakage",
+    D3: "A release-configuration build runs before push: debug-only passes hide store-blocking breakage",
   },
   library: {
     D5: "The public API surface is documented and diffed; a breaking export change needs an explicit note",
@@ -269,12 +269,12 @@ export function stackNotesFor(dimId: DimensionId, stack: StackContext): string[]
   const notes: string[] = [];
   for (const f of stack.frameworks) {
     const line = FRAMEWORK_NOTES[f]?.[dimId];
-    if (line) notes.push(`${f} — ${line}`);
+    if (line) notes.push(`${f}: ${line}`);
   }
   if (notes.length === 0) {
     for (const r of stack.roles) {
       const line = ROLE_NOTES[r]?.[dimId];
-      if (line) notes.push(`${r.replace("_", "/")} repo — ${line}`);
+      if (line) notes.push(`${r.replace("_", "/")} repo: ${line}`);
     }
   }
   return notes;

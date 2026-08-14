@@ -109,7 +109,7 @@ export function detectRegression(
     reasons.push({
       severity: "critical",
       code: "posture-ungoverned",
-      message: `Posture slid to "${diff.posture.after.label}" — AI velocity outran the guardrails`,
+      message: `Posture slid to "${diff.posture.after.label}": AI velocity outran the guardrails`,
     });
   }
 
@@ -387,11 +387,11 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
       : isWithinNoise(d.overallDelta)
         ? d.overallDelta === 0
           ? " (no change this week)"
-          : ` (${signed(d.overallDelta)} — within noise this week)`
+          : ` (${signed(d.overallDelta)}, within noise this week)`
         : ` (${signed(d.overallDelta)} this week)`;
   const headline = `📊 Ascent weekly digest: ${d.org}`;
   const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
-  const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
+  const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
 
   const lines: string[] = [headline, summary.replace(/\*/g, "")];
@@ -401,7 +401,7 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
   if (d.creditsRemaining != null)
-    lines.push("", `Credits remaining: ${d.creditsRemaining} — top up to keep autoscans flowing`);
+    lines.push("", `Credits remaining: ${d.creditsRemaining}, top up to keep autoscans flowing`);
   if (d.url) lines.push("", d.url);
 
   const blocks: unknown[] = [
@@ -418,7 +418,7 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
       ),
     );
   if (d.creditsRemaining != null)
-    blocks.push(mrkdwnSection(`*Credits remaining:* ${d.creditsRemaining} — top up to keep autoscans flowing`));
+    blocks.push(mrkdwnSection(`*Credits remaining:* ${d.creditsRemaining}, top up to keep autoscans flowing`));
   if (d.url) blocks.push(linkContext(d.url, "Open the dashboard"));
   return { text: lines.join("\n"), blocks };
 }
@@ -469,9 +469,9 @@ export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
   const depleted = d.balance <= 0;
   const headline = depleted
     ? `🪫 Ascent: ${d.org} is out of scan credits`
-    : `🪫 Ascent: ${d.org} is low on scan credits — ${d.balance} left`;
+    : `🪫 Ascent: ${d.org} is low on scan credits (${d.balance} left)`;
   const body = depleted
-    ? "Private scans (manual and scheduled) are paused until the balance is topped up — maturity trends stop updating."
+    ? "Private scans (manual and scheduled) are paused until the balance is topped up; maturity trends stop updating."
     : `The prepaid balance just hit the low-water mark (${d.threshold}). Top up before it runs out to keep scheduled scans flowing.`;
 
   const textParts = [headline, body];
@@ -518,8 +518,8 @@ export function buildGoalAtRiskMessage(d: GoalAtRiskInput): AlertMessage {
     const by = g.targetDate ? ` by ${g.targetDate}` : "";
     const need =
       g.requiredPerWeek != null
-        ? ` — needs ${signed(Math.round(g.requiredPerWeek * 10) / 10)}/wk, running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`
-        : ` — running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`;
+        ? `: needs ${signed(Math.round(g.requiredPerWeek * 10) / 10)}/wk, running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`
+        : `: running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`;
     return `• ${g.label}: ${g.metricLabel} ${g.current}/${g.target}${by}${need}`;
   };
   const lines = d.goals.map(line);

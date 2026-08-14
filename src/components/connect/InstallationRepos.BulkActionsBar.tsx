@@ -35,7 +35,7 @@ export function BulkActionsBar({
       </button>
       <label
         className="flex items-center gap-1.5 font-mono text-sm text-slate-500"
-        title="Applies to every watched repo in this org — including repos outside the current filter."
+        title="Applies to every watched repo in this org, including repos outside the current filter."
       >
         {`Schedule all ${watchedCount} watched`}
         <select

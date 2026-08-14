@@ -14,15 +14,15 @@ Context-map group: **Repository Scanning & Scoring** (`feature`).
 | [gate.md](gate.md) | CI gate verdict, status checks, PR comment, org gate policy | CURRENT |
 | [llm-providers.md](llm-providers.md) | All six providers, BYOM, JSON hardening, benchmark + observability | CURRENT |
 | [llm-model-matrix.md](llm-model-matrix.md) | Cross-model benchmark leaderboard (self-flags its own staleness) | CURRENT |
-| [async-scan-aws.md](async-scan-aws.md) | Contingency design for async scanning. Not implemented — has an explicit adoption trigger | CURRENT (concept) |
+| [async-scan-aws.md](async-scan-aws.md) | Contingency design for async scanning. Not implemented; has an explicit adoption trigger | CURRENT (concept) |
 
 ## Implementation roots
 
-- `src/lib/scan.ts`, `src/lib/scan-cache.ts`, `src/lib/scan-finalize.ts` — pipeline
-- `src/lib/analyze/**` — deterministic signal extraction
-- `src/lib/maturity/**` — rubric, levels, forecast, noise
-- `src/lib/scoring/**` — engine, gate, gate-comment, impact, orgsim
-- `src/lib/llm/**` — provider abstraction, BYOM, eval/benchmark capture
+- `src/lib/scan.ts`, `src/lib/scan-cache.ts`, `src/lib/scan-finalize.ts`: pipeline
+- `src/lib/analyze/**`: deterministic signal extraction
+- `src/lib/maturity/**`: rubric, levels, forecast, noise
+- `src/lib/scoring/**`: engine, gate, gate-comment, impact, orgsim
+- `src/lib/llm/**`: provider abstraction, BYOM, eval/benchmark capture
 - `src/app/api/scan`, `src/app/api/gate/[owner]/[repo]`, `src/app/api/org/gate-policy`
 
 ## Known gaps

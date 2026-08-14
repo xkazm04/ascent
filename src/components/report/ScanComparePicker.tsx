@@ -109,7 +109,7 @@ export function ScanComparePicker({
       </div>
       {isInverted && (
         <p className="mt-3 font-mono text-sm text-warn">
-          ⚠ Baseline is newer than the compared scan — this diff looks backward in time and may read as a
+          ⚠ Baseline is newer than the compared scan, so this diff looks backward in time and may read as a
           regression that&apos;s actually a prior improvement. Swap to compare chronologically.
         </p>
       )}

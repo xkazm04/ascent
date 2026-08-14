@@ -43,7 +43,7 @@ describe("buildGoalAtRiskMessage", () => {
       goals: [goal, { ...goal, label: "Coverage", targetDate: null, requiredPerWeek: null, perWeek: -0.5 }],
     });
     expect(msg.text).toContain("2 goals off pace");
-    expect(msg.text).toContain("Coverage: Avg D9 Security 54/70 — running at -0.5/wk");
+    expect(msg.text).toContain("Coverage: Avg D9 Security 54/70: running at -0.5/wk");
     expect(msg.text).not.toContain("http");
     expect(msg.blocks.length).toBe(2);
   });

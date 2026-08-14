@@ -120,14 +120,14 @@ export function ConstellationField({
                 scanning
                   ? `Scanning ${c.login}'s watched repos…`
                   : scanDisabled
-                    ? "One scan at a time — another organization is scanning. This will be available when it finishes."
+                    ? "One scan at a time: another organization is scanning. This will be available when it finishes."
                     : "Scan this org's watched repos and brighten the map"
               }
               aria-label={
                 scanning
                   ? `Scanning ${c.login}'s watched repos`
                   : scanDisabled
-                    ? `Scan ${c.login} — unavailable, one scan at a time; another organization is scanning`
+                    ? `Scan ${c.login}: unavailable, one scan at a time; another organization is scanning`
                     : `Scan ${c.login}'s watched repos`
               }
               className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-accent/10"
@@ -142,7 +142,7 @@ export function ConstellationField({
         {/* role="group" (not "img"): the map contains interactive per-star <a> report links — role="img"
             collapses the whole SVG to one image and makes every star link (+ its aria-label) unreachable
             to screen readers. A group keeps the label AND exposes the links. */}
-        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={`${c.login} constellation — ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`}>
+        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={`${c.login} constellation with ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`}>
           {/* constellation lines from the org core to each scanned repo star */}
           {c.status === "done" &&
             starData.map(({ r, cx, cy, look, dim }) => {

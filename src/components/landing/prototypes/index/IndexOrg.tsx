@@ -57,7 +57,7 @@ export function IndexOrg() {
           <Kicker>Organization edition</Kicker>
           <h2 className="deck-h2 mt-2 text-2xl font-bold text-white">Index the whole organization</h2>
           <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
-            Ascent scans every repository in an org and rolls the results into one cross-repo register — shared
+            Ascent scans every repository in an org and rolls the results into one cross-repo register: shared
             strengths, the gaps common across teams, contributor activity, and where to invest next.
           </p>
         </div>

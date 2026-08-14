@@ -21,28 +21,28 @@ import { DEMO_ORG_SLUG } from "@/lib/site";
  * rows reads as a highlight reel, and a buyer comparing products notices the gap, not the polish.
  */
 const BLURBS: Record<OrgTabId, string> = {
-  overview: "The fleet's headline read — maturity, adoption vs rigor, trajectory, gap analysis and the highest-leverage moves.",
+  overview: "The fleet's headline read: maturity, adoption vs rigor, trajectory, gap analysis and the highest-leverage moves.",
   executive: "The briefing built for the meeting you have to walk into: what moved, what it cost, what to decide.",
-  repositories: "Every repo ranked by level, adoption, rigor and posture, plus a repo × dimension heatmap — and your own fleet segments.",
-  segments: "Slice the fleet your way — platform, mobile, legacy — with per-segment rollups and side-by-side comparison.",
+  repositories: "Every repo ranked by level, adoption, rigor and posture, plus a repo × dimension heatmap, and your own fleet segments.",
+  segments: "Slice the fleet your way (platform, mobile, legacy) with per-segment rollups and side-by-side comparison.",
   "tech-stacks": "Per-stack maturity profiles, A-vs-B stack comparison, and a dimension board that says where stacks diverge.",
   passports: "A one-page passport per repository: what it is, how it scores, and what it needs next.",
-  live: "The war-room wall — scores landing in real time as the fleet is scanned.",
+  live: "The war-room wall: scores landing in real time as the fleet is scanned.",
   security: "Security posture across the fleet, banded by score, with supply-chain alerts aggregated in one place.",
-  adoption: "Where AI tooling, agents and shared conventions have actually taken hold — and where they haven't.",
+  adoption: "Where AI tooling, agents and shared conventions have actually taken hold, and where they haven't.",
   delivery: "PR signals, branch governance, and day-by-day delivery trends: review coverage, merge rate, time to merge.",
   contributors: "AI champions, involvement, key-person exposure and per-repo bus factor.",
-  teams: "Per-team (CODEOWNERS) adoption × rigor, dimension shape, movers — and a suggested cross-team pairing.",
+  teams: "Per-team (CODEOWNERS) adoption × rigor, dimension shape, movers, and a suggested cross-team pairing.",
   practices: "The practice library: turn a gap into a starter artifact and open it as a draft PR, one repo or many.",
   plan: "Goals, initiatives and a what-if simulator that recomputes the whole fleet under a hypothetical fix.",
-  backlog: "Every open gap across the fleet with an owner and a due date — searchable, bulk-editable, exportable.",
+  backlog: "Every open gap across the fleet with an owner and a due date, searchable, bulk-editable, exportable.",
   skills: "A versioned SKILL.md library your org authors, adopts against repos, and syncs with CLI and CI.",
-  memory: "Durable org knowledge — decisions, incidents and conventions — recalled by value, corrected by supersede. Your agents can read it too, over scoped API tokens.",
+  memory: "Durable org knowledge (decisions, incidents and conventions) recalled by value, corrected by supersede. Your agents can read it too, over scoped API tokens.",
   members: "Who is in the org and what they can do.",
   governance: "Branch protection, review gates and rulesets, audited across every repository.",
   integrations: "Connect your AI coding providers so measured usage lands beside the git-side signals.",
   audit: "A searchable, paginated trail of every consequential action taken in the org.",
-  settings: "Org-level configuration — alert thresholds, gate policy, retention, LLM provider.",
+  settings: "Org-level configuration: alert thresholds, gate policy, retention, LLM provider.",
 };
 
 export interface AboutOrgView {

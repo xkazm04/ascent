@@ -91,7 +91,7 @@ export function retryRowMessage(
   outcome: { aborted: boolean; stalled: boolean; message?: string; status?: number },
   org: string,
 ): string {
-  if (outcome.aborted) return outcome.stalled ? "Stalled — try again." : "Canceled.";
+  if (outcome.aborted) return outcome.stalled ? "Stalled. Try again." : "Canceled.";
   const gate = classifyScanFailure({ status: outcome.status, message: outcome.message }, org);
   if (gate?.kind === "signin") return "Sign in to rescan.";
   if (gate?.kind === "personal") return "Personal workspaces don't run org scans.";

@@ -31,13 +31,13 @@ const bar = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-uncomparable
 describe("DiffBar — a one-sided dimension is flagged as structural, not drawn as a flat score", () => {
   it("labels a dimension the new scan added and says there is no baseline", () => {
     render(<DimensionDiffCard d={diff({ before: null, after: 64 })} />);
-    expect(screen.getByText(/new in this scan — no baseline to compare/i)).toBeInTheDocument();
+    expect(screen.getByText(/new in this scan, no baseline to compare/i)).toBeInTheDocument();
     expect(screen.queryByText(/no longer scored/i)).not.toBeInTheDocument();
   });
 
   it("labels a dimension the new scan dropped and says there is nothing to compare", () => {
     render(<DimensionDiffCard d={diff({ before: 64, after: null })} />);
-    expect(screen.getByText(/no longer scored — nothing to compare/i)).toBeInTheDocument();
+    expect(screen.getByText(/no longer scored, nothing to compare/i)).toBeInTheDocument();
     expect(screen.queryByText(/new in this scan/i)).not.toBeInTheDocument();
   });
 

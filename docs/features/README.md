@@ -1,13 +1,13 @@
 # Features
 
-These documents describe the **implemented product surface** of Ascent — the
+These documents describe the **implemented product surface** of Ascent, the
 maturity index for AI-native engineering. They are written for users, developers,
 and automation/CI agents that need a stable reference to how each feature actually
 works.
 
 Ascent points at a GitHub repository (or a whole org), reads its structure, config,
 tests, CI/CD, docs, commits, and pull-request signals, and produces an **AI-Native
-Maturity Score** (Level 1–5) across **9 weighted dimensions (D1–D9)** — with
+Maturity Score** (Level 1–5) across **9 weighted dimensions (D1–D9)**, with
 evidence, benchmarks, and a prioritized roadmap.
 
 For the *conceptual* model behind the scores, see [PRD.md](../PRD.md) and
@@ -48,7 +48,7 @@ and the audit method: [`../DOC-DRIFT.md`](../DOC-DRIFT.md).
 | OUTDATED | — |
 
 One group (**design-system**) still has no doc, and roughly a dozen shipped surfaces
-elsewhere remain undocumented — each area README lists its own.
+elsewhere remain undocumented; each area README lists its own.
 
 ## Maintenance notes
 
@@ -59,7 +59,7 @@ elsewhere remain undocumented — each area README lists its own.
 - If a feature is tier-gated or behind a dev flag, say so explicitly.
 - **State limitations as of a date, or not at all.** The most damaging drift the
   audit found was not missing docs but confidently-asserted "Known gaps" that the
-  code had since closed — `practices.md` and `org-planning/plan.md` each told
+  code had since closed: `practices.md` and `org-planning/plan.md` each told
   readers a capability was absent while it shipped.
 - When you add a feature area, add an entry to
   [`../../scripts/docs/feature-doc-map.json`](../../scripts/docs/feature-doc-map.json)

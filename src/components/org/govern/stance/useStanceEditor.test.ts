@@ -22,7 +22,7 @@ describe("stanceFromForm / formFromStance", () => {
     models: "claude-opus",
     zones: [
       { repoGlobs: "acme/billing-*", pathGlobs: "prisma/migrations/**, crypto/**", reason: " PCI " },
-      { repoGlobs: "", pathGlobs: "", reason: "empty — dropped" },
+      { repoGlobs: "", pathGlobs: "", reason: "empty (dropped)" },
     ],
     reviews: { T2: "Two approvals.", T1: "" } as const,
     requireTrailer: true,

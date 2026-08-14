@@ -141,7 +141,15 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
   const actual = createHash("sha256").update(rubricSurface).digest("hex");
 
   it(`rubric surface hash is pinned to version "${SCORING_RUBRIC_VERSION}"`, () => {
-    const EXPECTED_RUBRIC_HASH = "81f6d771307fbfe5341290c1a2288b1dc9ca8a0ed6310abd324a3458dbc78017";
+    // Re-pinned 2026-08-14 WITHOUT a SCORING_RUBRIC_VERSION bump, deliberately. The em-dash sweep
+    // rewrote punctuation in three DIMENSIONS `description` strings and three posture `blurb` strings
+    // (all of which render in the report, which is why they were in scope). No weight, band, blend,
+    // guardband, posture threshold or archetype lens moved, and no word changed: the scoring SEMANTICS
+    // are byte-for-byte equivalent, so cached scores are still correct and forcing every repo in every
+    // fleet to re-derive would spend real inference money to arrive at the same numbers.
+    // This guard exists to force that judgment into the diff rather than to forbid it. If a future
+    // change touches anything that can move a SCORE, bump the version instead of re-pinning here.
+    const EXPECTED_RUBRIC_HASH = "121425b5b6d060cc6ea5e31161933a3d8e774088a441306d619486ead75a5903";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

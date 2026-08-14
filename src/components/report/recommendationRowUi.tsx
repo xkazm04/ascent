@@ -136,7 +136,7 @@ export function DismissReasonPrompt({
       </label>
       <p className="mt-0.5 text-sm text-slate-400">
         Whatever you write here is read by the next scan, so it stops re-raising this gap. Skip it and
-        the next scan will surface it again — it has no way of knowing.
+        the next scan will surface it again, because it has no way of knowing.
       </p>
       <textarea
         id="dismiss-reason"
@@ -149,7 +149,7 @@ export function DismissReasonPrompt({
       />
       {tooLong && (
         <p role="alert" className="mt-1 text-sm text-amber-300/90">
-          That&rsquo;s {trimmed.length} characters — trim it to {REC_NOTE_MAX_LENGTH} or fewer.
+          That&rsquo;s {trimmed.length} characters, so trim it to {REC_NOTE_MAX_LENGTH} or fewer.
         </p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-2">

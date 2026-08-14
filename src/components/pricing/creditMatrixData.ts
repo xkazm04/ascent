@@ -92,30 +92,30 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
   {
     key: "scanning",
     title: "Scanning",
-    intro: "Every scan — public or private — draws on one monthly allowance; only scans past it cost a credit.",
+    intro: "Every scan, public or private, draws on one monthly allowance; only scans past it cost a credit.",
     rows: [
       {
         label: "Repository scan",
-        detail: "Any public or private repo — the full report, radar and roadmap. Free within your monthly allowance, then 1 credit each.",
+        detail: "Any public or private repo: the full report, radar and roadmap. Free within your monthly allowance, then 1 credit each.",
         tag: "credit",
         // Same derivation as MATRIX_PLANS — the one row in this table that restates a plan number.
         cells: allowanceCells(),
       },
       {
         label: "Re-scan an unchanged commit",
-        detail: "Cached — re-running a scan on the same commit never costs a credit.",
+        detail: "Cached: re-running a scan on the same commit never costs a credit.",
         tag: "free",
         cells: all(true),
       },
       {
         label: "Scheduled autoscans",
-        detail: "Watched repos rescanned on a schedule — each counts as one scan.",
+        detail: "Watched repos rescanned on a schedule, each counts as one scan.",
         tag: "credit",
         cells: from("pro"),
       },
       {
         label: "Buy extra scan credits",
-        detail: "Top up prepaid credits for scans beyond your plan — they roll over and never expire.",
+        detail: "Top up prepaid credits for scans beyond your plan; they roll over and never expire.",
         tag: "plan",
         cells: from("pro"),
       },
@@ -124,7 +124,7 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
   {
     key: "capabilities",
     title: "Capabilities",
-    intro: "Everything the report and the fleet dashboard unlock — included with your package, never metered.",
+    intro: "Everything the report and the fleet dashboard unlock, included with your package, never metered.",
     rows: [
       { label: "Maturity report + roadmap", detail: "The full level, radar and prioritized next steps.", tag: "plan", cells: all(true) },
       { label: "README maturity badge", detail: "A live, shareable score badge for your repo.", tag: "plan", cells: all(true) },
@@ -142,7 +142,7 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       // "adjustable, scoped with you" framing the honest cell is "Scoped", which is what the enquiry
       // form is for; the RBAC + audit half is stated separately below because it really is available.
       { label: "Roles · audit log", detail: "Owner/admin/member roles and a full audit trail.", tag: "plan", cells: from("pro") },
-      { label: "SSO · SAML/OIDC", detail: "Directory sign-in and provisioning — scoped as part of a Custom plan.", tag: "plan", cells: { free: false, pro: false, team: false, enterprise: "Scoped" } },
+      { label: "SSO · SAML/OIDC", detail: "Directory sign-in and provisioning, scoped as part of a Custom plan.", tag: "plan", cells: { free: false, pro: false, team: false, enterprise: "Scoped" } },
       { label: "Hosting", detail: "Where Ascent and its inference run.", tag: "plan", cells: { free: "Shared cloud", pro: "Shared cloud", team: "Shared cloud", enterprise: "Your VPC / on-prem" } },
       { label: "Support", detail: "How fast you can expect an answer.", tag: "plan", cells: { free: "Community", pro: "Email", team: "Email", enterprise: "SLA you pick" } },
       { label: "Members / seats", detail: "How many teammates can share the org.", tag: "plan", cells: { free: "1", pro: "3", team: "10", enterprise: "Yours to set" } },

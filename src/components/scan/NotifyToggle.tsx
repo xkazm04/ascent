@@ -40,8 +40,8 @@ export function NotifyToggle({
     return (
       <div className="mt-3 text-left font-mono text-sm text-slate-400">
         <p>
-          <span className="text-slate-500">Don&apos;t want to wait?</span> Scans take a few minutes —
-          sign in and we&apos;ll email you the report when it&apos;s ready.
+          <span className="text-slate-500">Don&apos;t want to wait?</span> Scans take a few minutes.
+          Sign in and we&apos;ll email you the report when it&apos;s ready.
         </p>
         <div className="mt-2">
           <SignInButtonFor auth={auth} next="/" variant="nav" label="Sign in to get emailed" />
@@ -56,7 +56,7 @@ export function NotifyToggle({
     return (
       <p className="mt-3 text-left font-mono text-sm text-slate-400">
         <span className="text-slate-500">Don&apos;t want to wait?</span> Your account has no email address,
-        so we can&apos;t notify you when a scan finishes — add one to your GitHub account (Settings →
+        so we can&apos;t notify you when a scan finishes. Add one to your GitHub account (Settings →
         Emails) and sign in again to get the report link by email.
       </p>
     );
@@ -73,7 +73,7 @@ export function NotifyToggle({
           className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-accent focus-ring"
         />
         Email me when it&apos;s done
-        <span className="text-slate-500">— scans take a few minutes</span>
+        <span className="text-slate-500">(scans take a few minutes)</span>
       </label>
 
       {notifyOn && (

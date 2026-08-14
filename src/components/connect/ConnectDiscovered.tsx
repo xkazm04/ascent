@@ -20,7 +20,7 @@ export function ConnectDiscovered({
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/30 bg-success/5 p-4">
           <p className="text-base text-slate-300">
             We pre-loaded <span className="font-mono text-white">{seededOrg}</span>&apos;s most active
-            repositories onto your watchlist — its dashboard is ready to scan.
+            repositories onto your watchlist. Its dashboard is ready to scan.
           </p>
           <Link
             href={`/org/${encodeURIComponent(seededOrg)}`}
@@ -33,8 +33,8 @@ export function ConnectDiscovered({
       {suggestedOrgs.length > 0 && (
         <div className="mt-3">
           <p className="text-base text-slate-400">
-            You belong to {suggestedOrgs.length === 1 ? "this organization" : "these organizations"} —
-            install the App to scan private repos, or{" "}
+            You belong to {suggestedOrgs.length === 1 ? "this organization" : "these organizations"}.
+            Install the App to scan private repos, or{" "}
             <Link
               href={suggestedOrgs.length === 1 ? `/onboarding?org=${encodeURIComponent(suggestedOrgs[0]!)}` : "/onboarding"}
               className="text-accent hover:text-white"

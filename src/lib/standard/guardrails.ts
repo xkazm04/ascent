@@ -23,7 +23,7 @@ export function buildGuardrails(): GeneratedFile {
   // Seeded empty — a scan can't tell which dirs are generated/vendored, so the agent fills it in
   // (the same honesty rule the manifest's TODO markers follow: leave a marker, never invent).
   const neverTouch = "[]";
-  const body = `# .ai/guardrails.yaml — machine-checkable invariants for any agent working in this repo.
+  const body = `# .ai/guardrails.yaml: machine-checkable invariants for any agent working in this repo.
 # Pointed at from .ai/manifest.yaml (paths.guardrails). The doctor ENFORCES what a machine can check
 # (see \`node .ai/doctor.mjs\`); the rest is contract for the agent that reads this file.
 # Open + must-ignore-unknown, like the manifest: add your own rules freely.
@@ -37,9 +37,9 @@ neverTouch: ${neverTouch}
 secrets:
   # DOCTOR-ENFORCED: if git tracks a file matching any of these, the conformance gate HARD FAILS.
   # Add repo-specific patterns; keep them precise (a pattern that matches a legitimate committed
-  # file — e.g. .env.example — turns the gate into noise).
+  # file, e.g. .env.example, turns the gate into noise).
   neverCommit: [${NEVER_COMMIT.map((p) => (/^[\w./@-]+$/.test(p) ? p : JSON.stringify(p))).join(", ")}]
-  # Where secrets legitimately come from — a vault/keyring NAME, never a secret.
+  # Where secrets legitimately come from: a vault/keyring NAME, never a secret.
   from: "TODO: the vault/keyring this repo reads secrets from"
 
 # Change discipline. These are the non-negotiables of agent-driven development in this repo.

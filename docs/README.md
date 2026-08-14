@@ -1,8 +1,8 @@
-# Ascent — Documentation
+# Ascent Documentation
 
 > **Ascent** is the maturity index for AI-native engineering. Point it at a GitHub
 > repository and it scores how deeply an engineering org has adopted LLM-driven
-> development — then tells them exactly how to climb to the next level.
+> development, then tells them exactly how to climb to the next level.
 
 **Stack:** Next.js 16 + TypeScript + Tailwind v4 on Vercel · LLM analysis across six
 providers (Gemini, Bedrock, OpenAI, OpenRouter, Claude CLI, Mock) · Prisma over
@@ -19,7 +19,7 @@ playbooks, passports, a CI gate). Docs from the hackathon period live in
 | --- | --- |
 | [`features/`](features/README.md) | **The implemented product surface**, one folder per `context-map.json` group. Start here for "how does X work today, and where is it in the code?" |
 | `*.md` (this level) | Cross-cutting docs: the *why*, the *model*, and the operational setup |
-| [`archive/`](archive/) | Dated, point-in-time artifacts. Append-only — never edited to look current |
+| [`archive/`](archive/) | Dated, point-in-time artifacts. Append-only; never edited to look current |
 | `harness/` | Gitignored local scan-run output. Not part of the corpus |
 
 ## Read in this order
@@ -39,7 +39,7 @@ produced them), and [DOC-DRIFT.md](./DOC-DRIFT.md).
 
 ## Known documentation caveats
 
-A six-agent audit on 2026-07-28 classified every doc against source —
+A six-agent audit on 2026-07-28 classified every doc against source:
 [DOC-DRIFT.md](./DOC-DRIFT.md) has the full evidence. Two things to know before
 you trust a doc here:
 
@@ -52,7 +52,7 @@ you trust a doc here:
 - ⚠️ **Treat "Known gaps" sections skeptically.** Several docs assert limitations
   the code has since removed. Each area README in `features/` flags the ones found.
 
-Drift is prevented going forward by the Documentation Sync rule and Stop hook —
+Drift is prevented going forward by the Documentation Sync rule and Stop hook;
 see [`AGENTS.md`](../AGENTS.md).
 
 ## TL;DR
@@ -60,7 +60,7 @@ see [`AGENTS.md`](../AGENTS.md).
 Companies spend heavily on AI coding tools but cannot answer *"are we actually
 becoming AI-native, or just paying for seats?"* Ascent reads a repository's
 structure, configuration, tests, CI/CD, docs, and commit signals, and produces an
-objective **AI-Native Maturity Score** (Level 1–5) across 9 weighted dimensions —
+objective **AI-Native Maturity Score** (Level 1–5) across 9 weighted dimensions,
 with evidence, benchmarks, and a prioritized roadmap of next steps.
 
 - **Free / B2C:** scan any public repo → score, report, shareable badge.
@@ -69,5 +69,5 @@ with evidence, benchmarks, and a prioritized roadmap of next steps.
   inference via AWS Bedrock or your own model (BYOM), audit logs, white-label.
 
 > Tier capabilities are defined in `src/lib/plans.ts` (`PLAN_FEATURES`), which is
-> the source of truth — not this list. SSO is **not** implemented; auth is GitHub
+> the source of truth, not this list. SSO is **not** implemented; auth is GitHub
 > via Supabase only.

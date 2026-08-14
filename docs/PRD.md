@@ -1,4 +1,4 @@
-# Ascent — Product Requirements (PRD)
+# Ascent: Product Requirements (PRD)
 
 ## 1. Vision
 
@@ -16,7 +16,7 @@ In 2024–2026, engineering orgs adopted AI coding tools at breakneck speed (Cop
 Claude Code, Cursor, agentic CI bots). But adoption is **assumed, not measured**:
 
 - **Leadership** approved budgets for AI tooling and now wants ROI and adoption
-  visibility. "We bought 400 Copilot seats — did anything change in how we ship?"
+  visibility. "We bought 400 Copilot seats. Did anything change in how we ship?"
 - **Engineering leaders / platform teams** want a roadmap: where are we weak, what
   should we invest in next (tests? CI gates? agent workflows? docs for agents?).
 - **Consultancies / DevEx vendors** need an objective, repeatable assessment to sell
@@ -33,7 +33,7 @@ maturity directly off the repo*:
 
 - Is there machine-readable guidance for agents (`CLAUDE.md`, `AGENTS.md`,
   `.cursorrules`, `copilot-instructions.md`, MCP configs)?
-- Are there strong **guardrails** (tests, types, linters, pre-commit, CI gates) — the
+- Are there strong **guardrails** (tests, types, linters, pre-commit, CI gates), the
   scaffolding that makes AI-generated code *safe* to merge?
 - Are agents actually **in the loop** (AI review bots, auto-fix, LLM steps in CI,
   auto-PRs, `Co-Authored-By` AI trailers)?
@@ -54,13 +54,13 @@ Ascent turns this fingerprint into a score, a level, and a roadmap.
 
 ## 5. Value Proposition
 
-- **Objective & evidence-based** — every score cites the files/signals behind it. No
+- **Objective & evidence-based**: every score cites the files/signals behind it. No
   black box; defensible in an exec review.
-- **Actionable** — not just a number, but a prioritized, effort-estimated roadmap of
+- **Actionable**: not just a number, but a prioritized, effort-estimated roadmap of
   "do this next to reach Level N+1."
-- **Benchmarked** — see where you stand vs. a maturity rubric (and, in Phase 2, vs.
+- **Benchmarked**: see where you stand vs. a maturity rubric (and, in Phase 2, vs.
   anonymized peers).
-- **Trackable** — re-scan over time; watch the trend; prove the transformation worked.
+- **Trackable**: re-scan over time, watch the trend, prove the transformation worked.
 
 ## 6. Core Use Cases
 
@@ -68,10 +68,10 @@ Ascent turns this fingerprint into a score, a level, and a roadmap.
    under a minute → share a badge. Zero signup.
 2. **Pro repo audit:** authenticate, scan private repos, export PDF, keep history.
 3. **Enterprise org assessment (B2B):** install the GitHub App, scan all org repos,
-   roll up to an org score, track progress quarterly, export audit-ready reports — all
+   roll up to an org score, track progress quarterly, export audit-ready reports, all
    with code processed under enterprise privacy controls.
 
-## 7. Monetization — usage-based
+## 7. Monetization: usage-based
 
 Pricing follows cost, not seats: public scans are free (a growth funnel), private scans
 are **metered per scan** to cover model-inference + service cost, and enterprise is a
@@ -80,16 +80,16 @@ bespoke, on-demand implementation.
 | Tier | Price | Who | Includes |
 |---|---|---|---|
 | **Public** | **Free** | Anyone, on the web | Unlimited public-repo scans, full report (radar + roadmap), shareable badge. No signup. |
-| **Private** | **Usage-based** (pay per scan) | Teams scanning private repos | Private repos via token / GitHub App, scan history + progress trends, recommendation tracking, PDF export. You pay only for what you scan — no subscription. |
-| **Enterprise** | **Custom** (on demand) | Regulated / large orgs | Bedrock private inference, SSO/SAML + RBAC, audit logs, data residency/VPC, org rollups, dedicated support — implemented to requirements. |
+| **Private** | **Usage-based** (pay per scan) | Teams scanning private repos | Private repos via token / GitHub App, scan history + progress trends, recommendation tracking, PDF export. You pay only for what you scan; no subscription. |
+| **Enterprise** | **Custom** (on demand) | Regulated / large orgs | Bedrock private inference, SSO/SAML + RBAC, audit logs, data residency/VPC, org rollups, dedicated support, implemented to requirements. |
 
 **Why usage-based:** the dominant variable cost is LLM inference per scan, so metering
 per private scan keeps margins predictable and lets customers start with zero commitment.
 Exact per-scan rate is TBD (a function of model + repo size); the model is the decision,
 the number is a later calibration.
 
-**Growth loop:** the free **maturity badge** (an SVG embedded in READMEs — "Ascent:
-AI-Native Level 3") drives organic discovery; each badge links back to a fresh scan,
+**Growth loop:** the free **maturity badge**, an SVG embedded in READMEs reading "Ascent:
+AI-Native Level 3", drives organic discovery; each badge links back to a fresh scan,
 funneling public users toward private/enterprise.
 
 **Why this is monetizable B2B (Track 2):** the buyer is an engineering org; the value
@@ -98,14 +98,14 @@ usage-based private tier converts the free funnel without a subscription barrier
 
 ## 8. Scope
 
-### MVP (this hackathon, Phase 1 — no database)
+### MVP (this hackathon, Phase 1, no database)
 - Public-repo scan via GitHub REST API (no clone).
 - Deterministic signal extraction + LLM synthesis → scored report.
 - Report UI: overall level, dimension radar, evidence, prioritized roadmap.
 - Shareable SVG badge.
 - "Mock mode" so the app is fully demoable without any API key.
 
-### Phase 2 (still within the 1-month window if time allows — DB + enterprise)
+### Phase 2 (still within the 1-month window if time allows: DB + enterprise)
 - **Aurora DSQL** persistence: scans, dimensions, findings, recommendations, audit log.
 - Auth + org/tenant model; scan **history & progress trends**.
 - **GitHub App** for private/org repos.

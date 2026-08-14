@@ -35,7 +35,7 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 
 - **`Kicker`** — mono uppercase eyebrow. `tone="accent"` (section eyebrow) | `"muted"` (metadata/table head). Replaces hand-rolled `font-mono uppercase tracking-widest` labels.
 - **`Surface`** — the panel: `rounded-{xl|2xl} border border-divider bg-surface/40`. Caller sets padding. Pass `id` for a scroll-anchored panel.
-- **`Stat`** — mono label + `tabular-nums` value + optional `delta`/`goal`. The org tabs compose it via `Tile` inside the `TILE_LEDGER` hairline frame (`@/components/org/ui`) — one bordered panel, 1px rules between stats — not one bordered card per stat.
+- **`Stat`**: mono label + `tabular-nums` value + optional `delta`/`goal`. The org tabs compose it via `Tile` inside the `TILE_LEDGER` hairline frame (`@/components/org/ui`) — one bordered panel, 1px rules between stats — not one bordered card per stat.
 - **`SectionHeading`** — `kicker` + `title` + `intro` + `right`. `size="page"` (editorial top, text-2xl/3xl) | `"lg"` (dashboard section) | `"sm"` (in-card).
 - **`HairlineGrid`** — a `gap-px` grid over `bg-divider`; children set `bg-ink` so gaps read as hairlines. The editorial cluster (levels, pricing, ledgers).
 - **`Dateline`** — masthead metadata row + hairline under-rule. The "publication" header.
@@ -45,6 +45,6 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 
 ## Conventions
 
-- New UI uses the primitives; don't re-hardcode `border-slate-800 bg-slate-900/40` or mono-label strings — use `Surface` / `Kicker`. **Form controls come from `Field` & co. — never a hand-written `border-slate-700 bg-slate-900` input.**
+- New UI uses the primitives; don't re-hardcode `border-slate-800 bg-slate-900/40` or mono-label strings; use `Surface` / `Kicker`. **Form controls come from `Field` & co. — never a hand-written `border-slate-700 bg-slate-900` input.**
 - Level/score color comes from `LEVEL_HEX` / `scoreHex` (`@/lib/ui`); never pick a hex by hand.
 - Charts are dependency-free SVG **or** Recharts styled to these tokens (divider grid, mono axes, ramp fills) — see the landing's `TrajectoryChart` and the report charts.

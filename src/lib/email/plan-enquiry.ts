@@ -53,7 +53,7 @@ function facts(input: PlanEnquiryEmailInput): [string, string][] {
  */
 export function buildPlanEnquiryEmail(input: PlanEnquiryEmailInput): { subject: string; html: string; text: string } {
   const who = input.company || input.name;
-  const subject = `Custom plan enquiry — ${who}`;
+  const subject = `Custom plan enquiry: ${who}`;
   const rows = facts(input);
 
   const text = [

@@ -36,7 +36,7 @@ GitHub App, OAuth, DSQL, retention, cost metering).
 
 ## Quality gates
 
-Every change must pass all of these locally before you open a PR — they mirror CI:
+Every change must pass all of these locally before you open a PR; they mirror CI:
 
 | Gate | Command | Bar |
 |---|---|---|
@@ -52,8 +52,8 @@ Watch mode while developing: `npm run test:watch`. The auth-off seeded-org e2e s
 
 - **Scope:** one focused change per PR; keep diffs reviewable.
 - **Tests:** add or update tests for any behavior change. Security-relevant code (auth/authz,
-  webhooks, token minting, rate limiting) **must** ship with tests — see `src/lib/authz.test.ts`
-  for the tenant-isolation pattern.
+  webhooks, token minting, rate limiting) **must** ship with tests (see `src/lib/authz.test.ts`
+  for the tenant-isolation pattern).
 - **No regressions to the strengths:** preserve 0 `any` / `@ts-ignore` / empty-catch, the
   empty/loading/error component coverage, and the deterministic `mock` provider as a first-class path.
 - **Docs:** update the relevant `docs/**` and `.env.example` when you add a flag, route, or model.
@@ -61,5 +61,5 @@ Watch mode while developing: `npm run test:watch`. The auth-off seeded-org e2e s
 
 ## Reporting bugs & vulnerabilities
 
-File functional bugs as GitHub issues. For security issues, **do not** open a public issue — follow
+File functional bugs as GitHub issues. For security issues, **do not** open a public issue; follow
 [SECURITY.md](./SECURITY.md).

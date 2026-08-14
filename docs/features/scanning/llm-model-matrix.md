@@ -1,13 +1,13 @@
-# LLM model matrix — which model for the repo-maturity assess op (judged, 10 repos × 6 models)
+# LLM model matrix: which model for the repo-maturity assess op (judged, 10 repos × 6 models)
 
-**What ran:** Ascent has exactly one LLM call site — `assess()`, the repo-maturity assessment. This bench
+**What ran:** Ascent has exactly one LLM call site, `assess()`, the repo-maturity assessment. This bench
 ranks candidate models on that one op three ways at once: judged output **quality**, **calibration**
 against the labeled benchmark (does the model's assessment blend to the right maturity level), and
 **reliability** (did it return a usable assessment at all), plus speed.
 
-**Method — capture & replay.** The model-independent input (`scoreInput` + repo `snapshot`) is captured
+**Method: capture & replay.** The model-independent input (`scoreInput` + repo `snapshot`) is captured
 once per labeled repo through the real scan pipeline (`scripts/matrix/capture.mts`, forcing the mock
-provider so no LLM key is needed — only GitHub). Then `scripts/matrix/run.mts` **replays** `assess()`
+provider so no LLM key is needed, only GitHub). Then `scripts/matrix/run.mts` **replays** `assess()`
 across every model on IDENTICAL inputs (no re-fetch), blends each result through the real engine
 (`assembleReport`) to a maturity level, and scores the assessment 1–10 with an LLM judge
 (`anthropic/claude-sonnet-5`). Every model runs through **OpenRouter** (one key, apples-to-apples).
@@ -34,7 +34,7 @@ deterministic-signal fallback, which would otherwise credit the model for the ba
    fastest in the panel (15s). `gpt-5.4-mini` is a close second (quality 6.7, 100% reliable, a bit slower).
    Both are safe defaults for the assess op.
 
-2. **Reliability is the real differentiator — not calibration.** Every model that returns a usable
+2. **Reliability is the real differentiator, not calibration.** Every model that returns a usable
    assessment lands **within one level 100% of the time** (calibration is dominated by Ascent's strong
    deterministic signals, which the LLM only nuances). So the axis that separates models is whether they
    reliably produce the assessment *shape* at all.
@@ -44,7 +44,7 @@ deterministic-signal fallback, which would otherwise credit the model for the ba
    Not safe to route production scans to on this evidence.
 
 4. **claude-sonnet-5 is unusable through this path (0/10).** Every attempt returned valid JSON that
-   wasn't the assessment shape (7 zero-dimension replies + 3 hard errors) — see below. Note the judge is
+   wasn't the assessment shape (7 zero-dimension replies + 3 hard errors); see below. Note the judge is
    also claude-sonnet-5, but as a *contestant* it scored nothing, so there is no self-preference concern
    in the ranking.
 
@@ -57,7 +57,7 @@ deterministic-signal fallback, which would otherwise credit the model for the ba
 > bench run. Until then, read the reliability column as path-specific, not as a model verdict.
 
 At the time of this run, the OpenRouter (and OpenAI-compatible) adapter decoded with
-`response_format: { type: "json_object" }`, which guarantees **valid JSON but not the assessment SHAPE** — unlike Gemini's `responseJsonSchema` or
+`response_format: { type: "json_object" }`, which guarantees **valid JSON but not the assessment SHAPE**, unlike Gemini's `responseJsonSchema` or
 Bedrock's forced tool schema, which constrain the structure up front. On this multi-field assessment
 schema (9 scored dimensions + headline + roadmap + discrepancies):
 
@@ -75,9 +75,9 @@ then, prefer a model proven reliable on this path (the three above).
 The baked leaderboard is surfaced to operators in **org → Settings** (`ModelScorecard.tsx`) so a BYOM
 org picks a model on evidence. Both connect-your-model cards write the org's single active provider:
 
-- **Bring your own model (Bedrock)** — in-boundary inference in the org's AWS account (the privacy path).
-- **Bring your own model (OpenRouter)** — the org's OpenRouter key, any model behind it (a
-  cost/flexibility path; routes to third-party upstreams — *not* in-boundary). New in this change.
+- **Bring your own model (Bedrock)**: in-boundary inference in the org's AWS account (the privacy path).
+- **Bring your own model (OpenRouter)**: the org's OpenRouter key, any model behind it (a
+  cost/flexibility path; routes to third-party upstreams, *not* in-boundary). New in this change.
 
 Pipeline: `run.mts` → `bake.mts` → `src/lib/llm/matrix-scores.data.ts` (generated, **do not hand-edit**)
 → pure helpers in `src/lib/llm/matrix-scores.ts` → the scorecard.
@@ -100,7 +100,7 @@ npx vite-node --config vitest.config.js scripts/matrix/bake.mts
 - **No cost axis.** OpenRouter list prices for these slugs aren't booked; output tokens + latency are the
   cost/speed proxy (glm/deepseek/sonnet are the token-heaviest and slowest).
 - **Reliability is path-specific.** The low glm/deepseek/sonnet reliability is against the `json_object`
-  decode path, not an absolute model verdict — a schema-constrained decode could change it.
+  decode path, not an absolute model verdict; a schema-constrained decode could change it.
 
 _Generated 2026-07-07 from `bench/matrix/records.json`. 10 repos × 6 models, judge claude-sonnet-5,
 quality + calibration + reliability from real (usable) LLM output._

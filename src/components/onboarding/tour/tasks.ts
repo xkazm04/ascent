@@ -55,7 +55,7 @@ interface TaskCopy {
 export const TASK_COPY: Record<GettingStartedStepId, TaskCopy> = {
   "first-scan": {
     title: "Run your first scan",
-    body: "A scan is the baseline everything else reads from — it places each repo on the L1–L5 ladder with the evidence behind the score.",
+    body: "A scan is the baseline everything else reads from: it places each repo on the L1–L5 ladder with the evidence behind the score.",
     cta: "Open the fleet",
     unavailable: "Not available on this workspace.",
     // Before the first scan the results grid does not exist, so point at the control that MAKES it.
@@ -64,15 +64,15 @@ export const TASK_COPY: Record<GettingStartedStepId, TaskCopy> = {
   },
   "gap-engaged": {
     title: "Resolve one gap",
-    body: "Pick a single recommendation and act on it — assign it, close it, or open the apply-PR. One resolved gap is the whole loop in miniature.",
+    body: "Pick a single recommendation and act on it: assign it, close it, or open the apply-PR. One resolved gap is the whole loop in miniature.",
     cta: "Open the backlog",
-    unavailable: "Needs member access — ask an owner to raise your role.",
+    unavailable: "Needs member access. Ask an owner to raise your role.",
   },
   registry: {
     title: "Make the fix repeatable",
     body: "Write the fix down once, as a skill or a memory entry, and the next agent starts from it instead of rediscovering it.",
     cta: "Open the registry",
-    unavailable: "Needs member access — ask an owner to raise your role.",
+    unavailable: "Needs member access. Ask an owner to raise your role.",
   },
   loop: {
     title: "Instrument the loop",
@@ -83,7 +83,7 @@ export const TASK_COPY: Record<GettingStartedStepId, TaskCopy> = {
   },
   team: {
     title: "Bring the team in",
-    body: "Maturity is an org property. Invite the people who will act on it — one more member is enough to make this a shared read.",
+    body: "Maturity is an org property. Invite the people who will act on it: one more member is enough to make this a shared read.",
     cta: "Open members",
     unavailable: "Invites are owner-only.",
   },
@@ -91,7 +91,7 @@ export const TASK_COPY: Record<GettingStartedStepId, TaskCopy> = {
     title: "Name what you're doing",
     body: "Setup ends here; the work doesn't. Name the transition you're actually running, pick the rung you're climbing to, and today's standing is frozen as the baseline every later number is measured against.",
     cta: "Open the plan",
-    unavailable: "A programme runs over a fleet — org workspaces only.",
+    unavailable: "A programme runs over a fleet (org workspaces only).",
   },
 };
 

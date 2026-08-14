@@ -183,7 +183,7 @@ const NOTE: Record<ControlVerdict, string> = {
   "not-operated":
     "This AI-attributed change merged with NO review recorded. Evidence that the control did not operate on this item.",
   "reviewed-not-approved":
-    "This AI-attributed change merged after review activity but with no APPROVING review recorded — reviewed is not approved.",
+    "This AI-attributed change merged after review activity but with no APPROVING review recorded: reviewed is not approved.",
   "not-applicable":
     "This change did not merge in the period, so the pre-merge review control was never due to operate on it.",
 };
@@ -271,7 +271,7 @@ export function buildConformancePack(pop: AiChangePopulation, opts: PackOptions)
     "The population is a LOWER BOUND. Ascent records an AI-attributed change only when it falls inside " +
       "a repository's scanned pull-request window, so changes that merged before a repository was first " +
       "scanned, or outside the window a scan paged, have no row here and are not counted.",
-    "AI attribution is derived from the pull request itself — an AI agent as author, or AI markers in " +
+    "AI attribution is derived from the pull request itself: an AI agent as author, or AI markers in " +
       "the title, body or labels. A change made with AI assistance and left unmarked is not detected, so " +
       "the true population is at least this large and may be larger.",
     "Review evidence is what the GitHub API reported at scan time. A review recorded after the most " +

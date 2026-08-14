@@ -182,7 +182,7 @@ export function NextLevelBanner({
     return (
       <p className="text-center text-sm leading-relaxed text-slate-500">
         {report.level.id === "L5"
-          ? "Top of the ladder — the work now is sustaining trust."
+          ? "Top of the ladder: the work now is sustaining trust."
           : "Sustaining the summit."}
       </p>
     );
@@ -212,7 +212,7 @@ export function NextLevelBanner({
         {names && (
           <>
             {" "}
-            — fastest via <span className="font-semibold text-white">{names}</span>
+            (fastest via <span className="font-semibold text-white">{names}</span>)
           </>
         )}
       </p>

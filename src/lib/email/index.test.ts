@@ -20,7 +20,7 @@ describe("buildScanCompletionEmail", () => {
   it("puts repo, level, score and the absolute link in subject + bodies", () => {
     const url = "https://ascent.dev/report/facebook/react@abc1234";
     const { subject, html, text } = buildScanCompletionEmail({ repoFullName: "facebook/react", url, report });
-    expect(subject).toBe("Your Ascent scan is ready — facebook/react (L4 Integrated)");
+    expect(subject).toBe("Your Ascent scan is ready: facebook/react (L4 Integrated)");
     expect(text).toContain("L4 Integrated");
     expect(text).toContain("72/100");
     expect(text).toContain(url);

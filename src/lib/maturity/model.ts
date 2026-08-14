@@ -134,7 +134,7 @@ export const DIMENSIONS: DimensionDef[] = [
     weight: 0.15,
     axis: "rigor",
     description:
-      "The guardrail that makes AI-generated code safe to merge — breadth and depth of tests.",
+      "The guardrail that makes AI-generated code safe to merge: breadth and depth of tests.",
     criteria:
       "Test files/dirs (__tests__, *.test.*, *_test.*, tests/), frameworks (Jest, Vitest, Pytest, Go test, JUnit, RSpec), e2e (Playwright/Cypress), test-to-source ratio, coverage config (codecov, coverage thresholds), fixtures, snapshots. Advanced rigor — mutation testing (Stryker, mutmut, PIT), contract testing (Pact), performance/load smoke tests (k6, Locust, Lighthouse CI), accessibility tests (axe, pa11y), and API-schema validation (Schemathesis, Dredd, Spectral) — signals a deliberate, high-confidence suite. High maturity = meaningful behavioral/edge-case tests with broad coverage and a clear testing philosophy.",
   },
@@ -202,7 +202,7 @@ export const DIMENSIONS: DimensionDef[] = [
     weight: 0.09,
     axis: "rigor",
     description:
-      "Shift-left security and provenance — the guardrail against the vulnerable, secret-leaking code AI can confidently produce.",
+      "Shift-left security and provenance: the guardrail against the vulnerable, secret-leaking code AI can confidently produce.",
     criteria:
       "Software-supply-chain security as code: SAST (CodeQL, Semgrep, SonarQube/SonarCloud, Snyk Code), dependency/SCA scanning + license compliance (Dependabot security updates, Snyk, OSV-Scanner, npm/pip audit in CI), secret scanning (gitleaks, trufflehog, detect-secrets), container image scanning (Trivy, Grype, Docker Scout) when containerized, SBOM generation (Syft, CycloneDX, SPDX, anchore/sbom-action), artifact signing + provenance (cosign/sigstore, SLSA generator, actions/attest), a SECURITY.md policy, and threat-model docs. High maturity = these run automatically in CI and gate merges/releases, not just sit in the repo.",
   },
@@ -426,18 +426,18 @@ export function postureFor(adoption: number, rigor: number): Posture {
     return {
       id: "ungoverned",
       label: "Fast & Ungoverned",
-      blurb: "Heavy AI use, light guardrails — add tests, CI, and agent guidance to ship safely.",
+      blurb: "Heavy AI use, light guardrails: add tests, CI, and agent guidance to ship safely.",
     };
   if (!a && r)
     return {
       id: "manual",
       label: "Solid but Manual",
-      blurb: "Strong engineering foundations with untapped AI leverage — operationalize AI tooling.",
+      blurb: "Strong engineering foundations with untapped AI leverage; operationalize AI tooling.",
     };
   return {
     id: "early",
     label: "Getting Started",
-    blurb: "Early on both AI adoption and engineering rigor — pick one axis to advance first.",
+    blurb: "Early on both AI adoption and engineering rigor; pick one axis to advance first.",
   };
 }
 

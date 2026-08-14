@@ -1,7 +1,7 @@
 # Usage metering
 
 Usage metering is the billing/visibility view over how many scans an org has run. The
-**billable unit is one computed (non-cached) `Scan` row** — re-scanning the same commit is
+**billable unit is one computed (non-cached) `Scan` row**: re-scanning the same commit is
 deduplicated and not double-counted (see [data-model.md](../data/data-model.md)). The dashboard
 splits billable vs free scans, breaks them down by LLM provider, and charts a per-day trend.
 Requires `DATABASE_URL`.
@@ -9,19 +9,19 @@ Requires `DATABASE_URL`.
 ## What counts as billable
 
 `isBillableScan()` (exported from `src/lib/db/usage.ts`) is the **single** definition, and
-every metered aggregate goes through it — the headline tile, the trend series (both its SQL
+every metered aggregate goes through it: the headline tile, the trend series (both its SQL
 and JS-fallback paths) and the top-repos attribution. A scan is billable only when **all
 three** hold:
 
 1. the repo is **private** (public scans are free by policy);
-2. `engineProvider !== "mock"` — a keyless/degraded run performed no inference (the same
+2. `engineProvider !== "mock"`: a keyless/degraded run performed no inference (the same
    exclusion `countMeteredScansThisMonth` in `credits.ts` applies to the allowance);
-3. `engineByom !== true` — a BYOM scan ran in the org's own provider account, which the org
+3. `engineByom !== true`: a BYOM scan ran in the org's own provider account, which the org
    already pays directly. `null` (rows predating the column) means the platform account, so
    it stays billable.
 
 Anything else in the period is **free**. Three forms of the predicate exist and must stay in
-lockstep: `isBillableScan()` (JS — also the daily series' fallback path), `billableScanWhere()`
+lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billableScanWhere()`
 (the Prisma `where`), and the `billable` expression inside the daily-series raw SQL, where
 `IS NOT TRUE` mirrors `!== true` over a NULL `engineByom`.
 
@@ -39,13 +39,13 @@ lockstep: `isBillableScan()` (JS — also the daily series' fallback path), `bil
     compatibility, not "every private scan"); `publicScans` is the derived free remainder,
     so `privateScans + publicScans === periodScans` and the tiles equal the chart's stacked
     totals by construction.
-- `byProvider` — count per `engineProvider`.
-- `daily` — a **zero-filled** per-day series (stable x-axis even with gaps), aggregated per
+- `byProvider`: count per `engineProvider`.
+- `daily`: a **zero-filled** per-day series (stable x-axis even with gaps), aggregated per
   UTC day in SQL (`date_trunc`, portable to Aurora DSQL) with a JS row-bucketing fallback.
 - `firstScanAt` / `lastScanAt` (all-time).
 
 **Window:** the period counts and the daily series share one half-open UTC window,
-`[since, tomorrow-UTC)`. The upper bound is load-bearing — without it a future-dated /
+`[since, tomorrow-UTC)`. The upper bound is load-bearing: without it a future-dated /
 clock-skewed row was counted in the headline tile but silently dropped from the chart (its
 day key isn't on the axis), so the billing page disagreed with itself.
 
@@ -63,16 +63,16 @@ Every public, unauthenticated endpoint that can cost money (`/api/scan`, `/api/s
 `/api/org/import`, `/api/gate/*`, `/api/badge/*`, `/api/quota`, `/api/plan-enquiry`) is charged
 against a sliding window with **two halves**:
 
-- **Per-IP burst** — always in-process. A burst is seconds long and normally pinned to one
+- **Per-IP burst**: always in-process. A burst is seconds long and normally pinned to one
   instance, so a per-instance cap is a real cap and the check stays synchronous.
-- **Global spend ceiling** — the budget itself. In-process it is really `instances × limit`,
+- **Global spend ceiling**: the budget itself. In-process it is really `instances × limit`,
   which *rises with autoscaling*. It can be backed by a **shared store** so a whole fleet charges
   one budget (`rateLimitRequestShared()`, `src/lib/rate-limit-store.ts`).
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
 | `ASCENT_RATE_LIMIT_STORE` | `memory` | `memory` (per-instance, no infrastructure) or `upstash` (fleet-wide global ceiling). |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | Required for `upstash`. Spoken over `fetch` against the REST `/pipeline` endpoint — **no npm client dependency**. If either is missing the store falls back to `memory` rather than failing requests. |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | Required for `upstash`. Spoken over `fetch` against the REST `/pipeline` endpoint: **no npm client dependency**. If either is missing the store falls back to `memory` rather than failing requests. |
 | `ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN` | unset (fail **closed**) | When the shared store is unreachable, `1` degrades to the in-memory ceiling (availability) instead of returning 429 (safety). |
 | `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,BADGE,CONTACT}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
 
@@ -97,7 +97,7 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 
 | File | Role |
 | --- | --- |
-| `src/lib/db/usage.ts` | `getUsageSummary()` — totals, provider mix, zero-filled daily series. |
+| `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
 | `src/lib/rate-limit-store.ts` | Shared-store adapter: in-memory default, fetch-based Upstash REST driver. |
 | `src/app/usage/page.tsx` | Usage dashboard. |
@@ -106,9 +106,9 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 
 ## Known gaps
 
-- **Usage is reporting, not invoicing** — billing runs through Polar (see
+- **Usage is reporting, not invoicing**: billing runs through Polar (see
   [billing.md](billing.md)), which is wired end-to-end (plans, checkout, webhook
   fulfilment, refunds); this page only surfaces scan counts/trends and doesn't
   itself drive invoicing.
-- **Single-org attribution** — multi-org installations don't yet attribute usage
+- **Single-org attribution**: multi-org installations don't yet attribute usage
   per-repo-owner.

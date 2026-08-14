@@ -20,7 +20,7 @@ export function CreditMatrixLedger() {
         size="page"
         kicker="Credits & capabilities"
         title="Where your credits actually go"
-        intro="One prepaid credit pays for one thing. Read down the Cost column: only a scan past your monthly allowance ever draws on credits — everything else is free or included."
+        intro="One prepaid credit pays for one thing. Read down the Cost column: only a scan past your monthly allowance ever draws on credits. Everything else is free or included."
       />
 
       <RuleBar />

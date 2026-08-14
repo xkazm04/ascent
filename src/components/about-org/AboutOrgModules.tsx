@@ -17,7 +17,7 @@ export function AboutOrgModules() {
           size="page"
           kicker="What you get"
           title={`${MODULE_COUNT} modules. ${VIEW_COUNT} views. One index.`}
-          intro="This is the actual navigation of the org dashboard, not an illustration of it — same modules, same order, same names. Pick one and every view inside opens in the live demo."
+          intro="This is the actual navigation of the org dashboard, not an illustration of it: same modules, same order, same names. Pick one and every view inside opens in the live demo."
         />
       </Reveal>
       <div className="mt-8 2xl:mt-12">
