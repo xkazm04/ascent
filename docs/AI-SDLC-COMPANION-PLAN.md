@@ -55,10 +55,16 @@ No wave here is a from-scratch bet.
 
 ---
 
-## Wave 1 — The journey spine
+## Wave 1 — The journey spine ✅ SHIPPED 2026-08-14
 
 **The single highest-leverage change in this document, and the cheapest.** Copy, routing and one new
 model over data that already ships.
+
+> **Status:** all four parts shipped in three commits (`54571826` W1a+W1b · `8a3c0ccd` W1d ·
+> `b6ac0b86` W1c). Unit suite green apart from two **pre-existing** `getOrgUsageRollup` failures
+> unrelated to this wave (they sit in the W3 area and are tracked there); `npm run build` passes.
+> Still outstanding for this wave: re-run Dana's UAT journey (method commitment **M1**) and the
+> `e2e/org-suite` pass against a live app.
 
 ### 1a. Regroup the rail around the transition, not the data
 
@@ -139,10 +145,22 @@ header then renders one persistent line on every tab:
 That line is the companion. It is derived entirely from `fleetSnapshot` (`src/lib/db/plan.ts`),
 `listInitiatives`, and `OpsState` (`src/lib/db/improvement.ts`) — all shipped.
 
-**Files:** `prisma/schema.prisma` + migration · `src/lib/db/org-program.ts` (new) ·
-`src/lib/org/getting-started.ts` · `src/components/org/shell/` (the header strip) ·
-`/api/org/program` (new route).
-**Size:** M.
+**Files:** `prisma/schema.prisma` + migration + `init.sql` mirror · `src/lib/db/org-program.ts` (new,
++ 18 tests) · `src/lib/org/getting-started.ts` (sixth `program` step) ·
+`src/components/org/shell/ProgramStrip.tsx` (new) · `src/components/org/plan/ProgramPanel.tsx` (new,
+the only place a programme is created/re-targeted) · `/api/org/program` (new route) ·
+`getOrgHeaderSummary` gained `levelCounts`.
+**Size:** M. **Status: SHIPPED 2026-08-14.**
+
+_Refinement against the draft gate ("don't render a programme whose Bought panel has nothing
+verified"): taken literally that would hide the programme until a PR had been verified, i.e. make it
+unusable at creation. What shipped is the honest reading — the strip always renders, and the **"pts
+bought" segment alone** is gated on verified Impact Ledger points. Every other segment is
+independently conditional on its own data too._
+
+_Also: `getOrgHeaderSummary` gained a `levelCounts` tally folded into its **existing** pass over
+per-repo latest scans, so "N of M repos at target" costs no extra query — the shell does not
+reintroduce the rollup tax "Shell cost discipline" removed._
 
 ### 1d. Close the "Bought" question with data that already exists
 
