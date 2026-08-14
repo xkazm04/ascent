@@ -6,9 +6,11 @@
 // Fidelity tiers (the core of the whole design):
 //   measured   — the vendor attributes spend to the exact repo (only Claude Code, via OTel git.repository)
 //   allocated  — the vendor reports above repo level; Ascent distributes it by git-attributed AI volume
-//   simulated  — no connector yet; the deterministic placeholder the views ship with today
+//   seats-only — the vendor reports seats and engagement but NOT spend (Copilot: GitHub does not
+//                expose the negotiated per-seat price through any API, so no cost figure exists to
+//                report and none is invented). W3c retired the old "simulated" tier entirely.
 
-export type Fidelity = "measured" | "allocated" | "simulated";
+export type Fidelity = "measured" | "allocated" | "seats-only";
 export type ProviderStatus = "available" | "planned";
 export type ConnectKind = "otel-push" | "admin-pull";
 
@@ -32,7 +34,11 @@ export interface ProviderDef {
 export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note: string }> = {
   measured: { label: "Measured", hex: "#22c55e", note: "attributed to the exact repo by the provider" },
   allocated: { label: "Allocated", hex: "#f59e0b", note: "reported above repo level; Ascent distributes it by git-attributed AI volume" },
-  simulated: { label: "Simulated", hex: "#64748b", note: "deterministic placeholder until a provider is connected" },
+  "seats-only": {
+    label: "Seats only",
+    hex: "#64748b",
+    note: "reports seats and engagement, not spend — no cost figure exists to report",
+  },
 };
 
 export const PROVIDERS: ProviderDef[] = [
@@ -54,16 +60,17 @@ export const PROVIDERS: ProviderDef[] = [
   {
     id: "copilot",
     name: "GitHub Copilot",
-    status: "planned",
-    fidelity: "allocated",
+    status: "available",
+    fidelity: "seats-only",
     connectKind: "admin-pull",
-    blurb: "Org & team seat and engagement metrics via the Copilot Metrics API.",
+    blurb: "Org seat counts and daily engagement via the Copilot Metrics + Billing APIs.",
     capabilities: [
-      "Seats & active users (org / team)",
-      "Acceptance & engagement by language / IDE",
-      "No native per-repo — allocated by git evidence",
+      "Total seats (org billing)",
+      "Daily engaged users",
+      "No cost — GitHub does not expose per-seat price",
     ],
-    perRepo: "Allocated — Copilot reports at org/team level only; Ascent distributes spend to repos by AI-attributed PR volume.",
+    perRepo:
+      "Seats only — Copilot reports at org level and returns no spend, so Ascent records seats and engagement and reports cost as unavailable rather than estimating it.",
     accent: "#7bbcff",
   },
   {

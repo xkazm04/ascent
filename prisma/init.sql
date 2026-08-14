@@ -1084,6 +1084,58 @@ CREATE TABLE "TransitionProgram" (
 -- CreateIndex
 CREATE UNIQUE INDEX "TransitionProgram_orgId_key" ON "TransitionProgram"("orgId");
 
+-- CreateTable
+CREATE TABLE "AgentSession" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "userKey" TEXT,
+    "startedAt" TIMESTAMP(3) NOT NULL,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL,
+    "tokens" INTEGER NOT NULL DEFAULT 0,
+    "costCents" INTEGER NOT NULL DEFAULT 0,
+    "commits" INTEGER NOT NULL DEFAULT 0,
+    "pullRequests" INTEGER NOT NULL DEFAULT 0,
+    "linesAdded" INTEGER NOT NULL DEFAULT 0,
+    "linesRemoved" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AgentSession_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AgentSession_orgId_source_sessionId_key" ON "AgentSession"("orgId", "source", "sessionId");
+
+-- CreateIndex
+CREATE INDEX "AgentSession_orgId_startedAt_idx" ON "AgentSession"("orgId", "startedAt");
+
+-- CreateIndex
+CREATE INDEX "AgentSession_orgId_repoFullName_idx" ON "AgentSession"("orgId", "repoFullName");
+
+-- CreateTable
+CREATE TABLE "PlanEnquiry" (
+    "id" TEXT NOT NULL,
+    "plan" TEXT NOT NULL DEFAULT 'enterprise',
+    "name" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "company" TEXT NOT NULL DEFAULT '',
+    "fleetSize" TEXT NOT NULL DEFAULT '',
+    "areasJson" TEXT NOT NULL DEFAULT '[]',
+    "message" TEXT NOT NULL,
+    "viewerLogin" TEXT,
+    "orgSlug" TEXT,
+    "emailStatus" TEXT NOT NULL DEFAULT 'pending',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PlanEnquiry_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "PlanEnquiry_createdAt_idx" ON "PlanEnquiry"("createdAt");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

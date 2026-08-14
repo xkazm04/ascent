@@ -2,7 +2,7 @@
 // one-page profit-and-loss a VP Eng / CFO would sign off. A headline ledger of the money numbers, one
 // plain-language verdict line, then a dense hairline table — one row per repo — that reconciles spend
 // against what the AI actually produced (AI-attributed PRs) and whether that work was governed. Every
-// number that isn't money is real (git-derived); money is the simulated connector layer.
+// number that isn't money is real (git-derived); money is the noCostSource connector layer.
 //
 // Editorial/instrument voice: TILE_LEDGER money row, mono tabular figures, verdict chips carry the
 // judgement. Server-safe (no hooks) — the client module renders it for the Table view.
@@ -25,7 +25,7 @@ function Money({
   value: string;
   sub?: string;
   color?: string;
-  /** Spend is simulated (no provider connected) — show a locked placeholder + connect prompt rather
+  /** No connected provider reports COST — render the money cells empty with a connect prompt rather
    *  than a fabricated dollar figure. */
   locked?: boolean;
 }) {
@@ -49,10 +49,15 @@ function verdictLine(m: AiDeliveryModel["summary"]): string {
   return `${bits.join(" · ")}${tail.length ? ` — ${tail.join(", ")}.` : "."}`;
 }
 
-function LedgerRow({ r, simulated }: { r: AiRepoRoi; simulated: boolean }) {
-  // Simulated spend is an FNV-hash placeholder — dash the tool/seats/$ cells so they can't read as real
-  // billing. Adoption (AI reach) and governance are always real (git) and render normally.
-  const sample = <span className="text-slate-600" title="sample — connect a provider for real spend">—</span>;
+function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean }) {
+  // W3c: with no cost source there IS no spend layer — the model no longer synthesizes one, so these
+  // cells are empty rather than blurred-but-populated. Adoption (AI reach) and governance are always
+  // real (git-derived) and render normally either way.
+  const sample = (
+    <span className="text-slate-600" title="No provider reports cost — connect one for spend figures">
+      —
+    </span>
+  );
   return (
     <tr className="text-slate-300">
       <td className="px-4 py-2">
@@ -60,9 +65,9 @@ function LedgerRow({ r, simulated }: { r: AiRepoRoi; simulated: boolean }) {
           {r.name}
         </Link>
       </td>
-      <td className="px-3 py-2 font-mono text-sm text-slate-400">{simulated ? sample : r.tool}</td>
-      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-slate-400">{simulated ? sample : r.planned ? r.seats : "—"}</td>
-      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-white">{simulated ? sample : r.monthlySpend > 0 ? fmtMoney(r.monthlySpend) : "—"}</td>
+      <td className="px-3 py-2 font-mono text-sm text-slate-400">{noCostSource ? sample : r.tool}</td>
+      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-slate-400">{noCostSource ? sample : r.planned ? r.seats : "—"}</td>
+      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-white">{noCostSource ? sample : r.monthlySpend > 0 ? fmtMoney(r.monthlySpend) : "—"}</td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-2">
           <Meter value={r.aiInvolvedRate} color={scoreHex(r.aiInvolvedRate)} className="w-16" size="sm" />
@@ -79,7 +84,7 @@ function LedgerRow({ r, simulated }: { r: AiRepoRoi; simulated: boolean }) {
         )}
       </td>
       <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-slate-200">
-        {simulated ? sample : r.costPerAiPr == null ? <span className="text-slate-600">—</span> : `$${r.costPerAiPr.toLocaleString()}`}
+        {noCostSource ? sample : r.costPerAiPr == null ? <span className="text-slate-600">—</span> : `$${r.costPerAiPr.toLocaleString()}`}
       </td>
       <td className="px-3 py-2 text-right">
         <VerdictChip verdict={r.verdict} />
@@ -90,12 +95,12 @@ function LedgerRow({ r, simulated }: { r: AiRepoRoi; simulated: boolean }) {
 
 export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: string }) {
   const s = model.summary;
-  const simulated = model.fidelity === "simulated";
+  const noCostSource = model.fidelity === "none";
   return (
     <div className="space-y-4">
-      {/* headline money ledger — the $-denominated tiles lock when spend is simulated (no provider). */}
+      {/* headline money ledger — the $-denominated tiles lock when spend is noCostSource (no provider). */}
       <div className="grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider sm:grid-cols-3 xl:grid-cols-6">
-        <Money label="AI spend / mo" value={fmtMoney(s.totalMonthlySpend)} sub={`${fmtMoney(s.annualSpend)}/yr · ${s.totalSeats} seats`} locked={simulated} />
+        <Money label="AI spend / mo" value={fmtMoney(s.totalMonthlySpend)} sub={`${fmtMoney(s.annualSpend)}/yr · ${s.totalSeats} seats`} locked={noCostSource} />
         <Money label="AI reach" value={`${s.aiShareOfPRs}%`} sub="of merged PRs" color={scoreHex(s.aiShareOfPRs)} />
         <Money
           label="Governed AI"
@@ -103,13 +108,13 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
           sub={s.governedAiShare == null ? "no sample" : "of AI PRs reviewed"}
           color={s.governedAiShare == null ? undefined : scoreHex(s.governedAiShare)}
         />
-        <Money label="Cost / AI PR" value={s.costPerAiPr == null ? "—" : `$${s.costPerAiPr.toLocaleString()}`} sub="fleet efficiency" locked={simulated} />
-        <Money label="Idle spend / mo" value={s.idleSpend > 0 ? fmtMoney(s.idleSpend) : "$0"} sub="reclaim candidates" color={s.idleSpend > 0 ? "#f97316" : undefined} locked={simulated} />
-        <Money label="Ungoverned / mo" value={s.ungovernedSpend > 0 ? fmtMoney(s.ungovernedSpend) : "$0"} sub="AI $ at risk" color={s.ungovernedSpend > 0 ? "#ef4444" : undefined} locked={simulated} />
+        <Money label="Cost / AI PR" value={s.costPerAiPr == null ? "—" : `$${s.costPerAiPr.toLocaleString()}`} sub="fleet efficiency" locked={noCostSource} />
+        <Money label="Idle spend / mo" value={s.idleSpend > 0 ? fmtMoney(s.idleSpend) : "$0"} sub="reclaim candidates" color={s.idleSpend > 0 ? "#f97316" : undefined} locked={noCostSource} />
+        <Money label="Ungoverned / mo" value={s.ungovernedSpend > 0 ? fmtMoney(s.ungovernedSpend) : "$0"} sub="AI $ at risk" color={s.ungovernedSpend > 0 ? "#ef4444" : undefined} locked={noCostSource} />
       </div>
 
-      {/* the takeaway — in simulated mode state only the real (git) facts + a connect prompt, never fake $. */}
-      {simulated ? (
+      {/* the takeaway — in noCostSource mode state only the real (git) facts + a connect prompt, never fake $. */}
+      {noCostSource ? (
         <p className="text-sm text-slate-400">
           AI reaches <span className="font-mono text-slate-200">{s.aiShareOfPRs}%</span> of merged PRs
           {s.governedAiShare != null && (
@@ -145,7 +150,7 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
         }
       >
         {model.repos.map((r) => (
-          <LedgerRow key={r.fullName} r={r} simulated={simulated} />
+          <LedgerRow key={r.fullName} r={r} noCostSource={noCostSource} />
         ))}
       </OrgTable>
     </div>

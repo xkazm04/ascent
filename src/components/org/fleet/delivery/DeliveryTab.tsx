@@ -14,6 +14,7 @@ import { resolveOrgScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { DeliveryTrendDataPanel } from "./DeliveryTrendDataPanel";
 import { DeliveryCorePanel } from "./DeliveryCorePanel";
+import { UnitEconomicsPanel } from "./ai/UnitEconomicsPanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -36,6 +37,13 @@ export async function DeliveryTab({ slug, sp }: { slug: string; sp: SearchParams
 
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <DeliveryCorePanel slug={slug} scope={scope} />
+      </Suspense>
+
+      {/* W3a — unit economics. Its OWN boundary: AgentSession + AiChange are a genuinely independent
+          read from the core panel's latest-scan aggregates, and it is windowed where the core is not,
+          so folding it in would make the whole tab wait on a query none of the other panels need. */}
+      <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
+        <UnitEconomicsPanel slug={slug} period={period} />
       </Suspense>
     </div>
   );

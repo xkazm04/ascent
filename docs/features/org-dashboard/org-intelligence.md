@@ -179,7 +179,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Bought | Contributors | `org/[slug]/contributors` | `src/app/org/[slug]/contributors/page.tsx` | AI champions, involvement table (withheld below 3 contributors), an **Org resilience** module (fleet key-person exposure — repo-level only, names nobody), and the per-repo concentration / bus-factor table. |
 | Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. |
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
-| Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers — Claude Code (measured, OTel push) today; Copilot / OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
+| Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers — Claude Code (measured, OTel push) and Copilot (seats-only, admin pull); OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
 | Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. |
 
@@ -632,15 +632,71 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
   owner's manual copy/paste path is never lost. The audit entry records the outcome.
 
+### Unit economics — what a unit of AI work costs (W3a, 2026-08-14)
+
+`AiUsageRecord` answers *"what did this repo's AI cost on Tuesday"*. It structurally cannot answer
+*"what does a unit of work cost"*, because a day bucket has no notion of an **attempt** — and that is
+the metric Port's AI-SDLC research says orgs get wrong by measuring adoption instead of outcomes.
+Agents bill per attempt, so a 30% no-output rate makes the real cost per completed unit ~1.43× the
+naive per-session figure.
+
+`AgentSession` is the attempt: one row per Claude Code `session.id`, folded out of the **same** OTLP
+export the day-buckets come from (`src/lib/integrations/sessions.ts`), carrying tokens, cost,
+commits, pull requests and lines as the agent itself reported them. Surfaced as the **Unit economics**
+panel on Delivery, in its own Suspense boundary (it is a windowed read; the rest of the tab is not).
+
+**Three refusals define the panel:**
+
+1. **No session is called a failure.** A session with no commit is very often a question, a code read
+   or a debugging pass. There is deliberately **no `outcome` enum** on the table; the counts are
+   stored and the read says *"produced code"* / *"did not"*, leaving the judgement to someone who
+   knows their own team. Naming those sessions "abandoned" would be an over-claim about the most
+   common kind of session there is.
+2. **No per-PR cost is claimed.** The telemetry carries no pull-request id, so a session→`AiChange`
+   link would be a repo-plus-time-window guess — a heuristic wearing a precise number's clothes.
+   The join is made at **repo × period**, where both sides are counted: agent spend in a repo over a
+   period ÷ AI-attributed merged PRs in that same repo and period. It is labelled an allocation and
+   its denominator is printed beside it.
+3. **No division by zero reads as free.** A repo that merged no AI-attributed change in the window
+   has *no denominator* — an em dash. The fleet ratio excludes those repos and **says how many it
+   excluded**, because dropping them silently would understate spend while including them would send
+   the figure toward infinity.
+
+The denominator is counted from `AiChange` — the same population the
+[evidence pack](#change-management-evidence-pack-w2-2026-08-14) reports — so the ROI arithmetic and
+the audit artifact can never disagree about how many AI changes shipped.
+
+An exporter that predates the `session.id` attribute yields zero attempts and keeps working exactly
+as before; the ingest response returns `sessions: 0` beside a non-zero `stored`, which is the
+actionable signal that attribution is missing.
+
 ## Provider integrations (`org/[slug]/integrations`, owner-only)
 
-Connects AI coding providers so the **AI delivery** views run on real usage instead of the
-simulated placeholder. One card per provider from the registry
-(`src/lib/integrations/providers.ts`), each declaring the best per-repo **fidelity** it can
-reach: `measured` (Claude Code, via the OTel `git.repository` resource attribute),
-`allocated` (Copilot / OpenAI — reported above repo level, distributed by git-attributed AI
-volume), `simulated` (nothing connected yet). Claude Code is the only `available` one today;
-the other two render as `planned`.
+Connects AI coding providers so the **AI delivery** views run on real usage. One card per
+provider from the registry (`src/lib/integrations/providers.ts`), each declaring the best
+per-repo **fidelity** it can reach:
+
+| Fidelity | Provider | What it means |
+| --- | --- | --- |
+| `measured` | Claude Code (available) | Spend attributed to the exact repo, via the OTel `git.repository` resource attribute. |
+| `allocated` | OpenAI · Codex (planned) | Reported above repo level; distributed by git-attributed AI volume. |
+| `seats-only` | GitHub Copilot (available, **W3b**) | Seats and daily engagement, **no spend** — GitHub exposes no per-seat price through any API. |
+
+**`seats-only` is not a lesser `allocated`; it is a different fact.** The Copilot connector stores
+real org-level records whose `costCents` is legitimately 0, which is why `OrgUsageRollup`
+distinguishes `hasAllocated` from **`hasAllocatedCost`**. Without that split, the ROI model's
+allocated branch would divide a zero total across every repository and render the whole fleet as
+"$0 spend / shadow AI" — connected-looking, confident, and entirely wrong. `POST
+/api/integrations/copilot/sync` (owner-only, via the org's App installation) says so in its own
+success response rather than leaving the operator to wonder why no money appeared.
+
+**The `simulated` tier is gone (W3c).** It filled the spend columns from an FNV hash of the
+repository name — plausible dollars, seat counts and plan assignments no provider ever reported.
+The UI blurred them, but the *model* still produced them, so every derived total (annual spend, idle
+spend, ungoverned spend, cost per AI PR) was arithmetic over fabricated input — precisely what
+[`VALUE-CASE.md`](../../VALUE-CASE.md) D32 forbids. The tier is now `none`: the spend layer is
+absent, money cells render empty with a connect prompt, and the two spend-derived verdicts
+(`shadow`, `idle`) are withheld. A test pins that spend cannot vary with a repository's name.
 
 **The ingest surface** (`src/app/api/integrations/ingest`, plus `/v1/metrics` and `/v1/logs`)
 is the app's only internet-facing, body-accepting endpoint authenticated by nothing but a

@@ -723,6 +723,52 @@ model Goal {
   @@index([orgId])
 }
 
+// One coding-agent SESSION, as an ATTEMPT rather than a day-bucketed total (W3a).
+//
+// `AiUsageRecord` answers "what did this repo's AI cost last Tuesday". It cannot answer the question
+// Port's AI-SDLC research says every org gets wrong — what does a UNIT OF WORK cost — because a day
+// bucket has no notion of an attempt. This table is the attempt.
+//
+// WHAT IS MEASURED HERE IS ONLY WHAT THE AGENT ITSELF REPORTS. Claude Code's OTel exporter emits
+// per-session counters (`claude_code.commit.count`, `.pull_request.count`, `.lines_of_code.count`,
+// tokens, cost) keyed by a `session.id` resource attribute. Those are facts. What is deliberately
+// NOT stored is any guess about WHICH pull request a session produced: the telemetry carries no PR
+// number, so linking a session to an `AiChange` row would mean matching on repo + time window, and a
+// heuristic join wearing a precise number's clothes is the exact defect `docs/VALUE-CASE.md` D32
+// exists to prevent. The join to merged changes is therefore made at REPO × PERIOD level, where both
+// sides are counted rather than guessed (see src/lib/db/agent-sessions.ts).
+//
+// NO `outcome` ENUM, ON PURPOSE. A session that produced no commit is very often a question, a code
+// read, or a debugging pass — calling it "abandoned" or "failed" would be an over-claim about the
+// most common kind of session there is. The counts are stored and the derived reads say exactly what
+// they mean: "sessions that produced code" vs "sessions that did not".
+model AgentSession {
+  id           String   @id @default(uuid())
+  orgId        String
+  source       String // "claude-code" — the only emitter today
+  sessionId    String // the agent's own session.id resource attribute
+  repoFullName String // lower-cased "owner/name", matching AiUsageRecord.scopeKey's folding
+  // An opaque per-user key (email or id as the exporter sent it). Nullable: a session with no user
+  // attribute is still a valid attempt and must not be dropped for lacking attribution.
+  userKey      String?
+  startedAt    DateTime // earliest datapoint observed for this session
+  lastSeenAt   DateTime // latest — sessions arrive across several exports
+  tokens       Int      @default(0)
+  costCents    Int      @default(0)
+  commits      Int      @default(0)
+  pullRequests Int      @default(0)
+  linesAdded   Int      @default(0)
+  linesRemoved Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // A session is ONE attempt: re-exported counters must UPDATE the row, never append a duplicate
+  // that would inflate the attempt count and deflate cost-per-attempt.
+  @@unique([orgId, source, sessionId])
+  @@index([orgId, startedAt])
+  @@index([orgId, repoFullName])
+}
+
 // The org's named, dated TRANSITION PROGRAMME (W1c) — the state that outlives onboarding.
 //
 // Onboarding's five-step checklist (src/lib/org/getting-started.ts) ends at "invite a teammate",
@@ -1293,4 +1339,31 @@ model SandboxScenario {
 
   @@unique([orgId, repoFullName, authorLogin])
   @@index([orgId, repoFullName])
+}
+
+// A Custom-plan enquiry submitted from the /pricing card's form (the tier stored as `enterprise`, shown
+// as "Custom"). The tier has no checkout — its price is negotiated — so this row IS the lead, and the
+// operator mail (src/lib/email/plan-enquiry.ts) is only a notification about it. Persisted FIRST for
+// exactly that reason: a Resend/SES outage or a bounced operator inbox must not lose a prospect, so
+// `emailStatus` records what happened to the notification without the enquiry depending on it.
+//
+// `areasJson` is a JSON string[] of ENQUIRY_AREAS ids (hosting / scans / support / customization / sso —
+// see src/lib/plan-enquiry.ts), `fleetSize` one of FLEET_SIZES or "". `viewerLogin`/`orgSlug` are filled
+// server-side from the session when the visitor happened to be signed in, never from the request body.
+// Standalone under relationMode = "prisma" (no FKs) — a prospect has no Organization yet by definition.
+model PlanEnquiry {
+  id          String   @id @default(uuid())
+  plan        String   @default("enterprise") // the stored PlanId enquired about
+  name        String
+  email       String
+  company     String   @default("")
+  fleetSize   String   @default("")
+  areasJson   String   @default("[]")
+  message     String
+  viewerLogin String? // GitHub login, when the submitter was signed in
+  orgSlug     String? // org they were browsing as, when resolvable
+  emailStatus String   @default("pending") // sent | skipped (no provider) | failed
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
 }

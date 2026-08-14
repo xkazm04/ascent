@@ -168,6 +168,14 @@ export interface RepoUsage {
 export interface OrgUsageRollup {
   hasMeasured: boolean; // any scope=repo, fidelity=measured records
   hasAllocated: boolean; // any scope=org records
+  /**
+   * W3b — any scope=org record carrying REAL COST. Distinct from `hasAllocated` on purpose: the
+   * Copilot Metrics API reports seats and engagement but NOT spend, so a connected Copilot org has
+   * allocated records whose `costCents` is legitimately 0. Entering the ROI model's allocated branch
+   * on `hasAllocated` alone would then divide a zero total across every repo and render the entire
+   * fleet as "$0 / shadow AI" — a confident, connected-looking, completely wrong answer.
+   */
+  hasAllocatedCost: boolean;
   /** Measured per-repo usage, keyed by repo fullName (costs/tokens summed over the window; seats = peak). */
   perRepo: Record<string, RepoUsage>;
   /** Allocated org-level totals per source (for distribution by git evidence). */
@@ -191,6 +199,7 @@ export async function getOrgUsageRollup(orgSlug: string, windowDays = 35): Promi
   const sources = new Set<string>();
   let hasMeasured = false;
   let hasAllocated = false;
+  let hasAllocatedCost = false;
 
   for (const r of rows) {
     sources.add(r.source);
@@ -205,6 +214,7 @@ export async function getOrgUsageRollup(orgSlug: string, windowDays = 35): Promi
       e.seats = Math.max(e.seats, r.seats);
     } else if (r.scope === "org") {
       hasAllocated = true;
+      if (r.costCents > 0) hasAllocatedCost = true;
       const e = orgAgg.get(r.source) ?? { costCents: 0, seats: 0, tokens: 0 };
       e.costCents += r.costCents;
       e.tokens += r.tokens;
@@ -216,6 +226,7 @@ export async function getOrgUsageRollup(orgSlug: string, windowDays = 35): Promi
   return {
     hasMeasured,
     hasAllocated,
+    hasAllocatedCost,
     perRepo,
     orgTotals: [...orgAgg.entries()].map(([source, v]) => ({ source, ...v })),
     sources: [...sources],

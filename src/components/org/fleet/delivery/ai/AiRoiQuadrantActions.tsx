@@ -18,14 +18,14 @@ const COHORTS: { verdict: Verdict; verb: string; dimId: string }[] = [
 ];
 
 // idle/shadow are money- & plan-framed ("reclaim seats", "bring under a plan") — honest actions only
-// when spend is connected. In simulated mode they'd rest on placeholder dollars, so the rail withholds
+// when spend is connected. In noCostSource mode they'd rest on placeholder dollars, so the rail withholds
 // them (the git-real governance cohort still shows). Kept in sync with classify()'s spend-derived set.
 const MONEY_COHORTS = new Set<Verdict>(["idle", "shadow"]);
 
-export function AiRoiQuadrantActions({ model, slug, simulated }: { model: AiDeliveryModel; slug: string; simulated: boolean }) {
+export function AiRoiQuadrantActions({ model, slug, noCostSource }: { model: AiDeliveryModel; slug: string; noCostSource: boolean }) {
   return (
     <div className="space-y-3">
-      {COHORTS.filter(({ verdict }) => !(simulated && MONEY_COHORTS.has(verdict))).map(({ verdict, verb, dimId }) => {
+      {COHORTS.filter(({ verdict }) => !(noCostSource && MONEY_COHORTS.has(verdict))).map(({ verdict, verb, dimId }) => {
         const rows = model.repos.filter((r) => r.verdict === verdict);
         if (rows.length === 0) return null;
         const spend = rows.reduce((s, r) => s + r.monthlySpend, 0);
@@ -33,7 +33,7 @@ export function AiRoiQuadrantActions({ model, slug, simulated }: { model: AiDeli
           <div key={verdict} className="rounded-xl border border-divider bg-surface/40 p-3">
             <div className="flex items-center justify-between gap-2">
               <VerdictChip verdict={verdict} />
-              {!simulated && spend > 0 && <span className="font-mono text-xs tabular-nums text-slate-400">{fmtMoney(spend)}/mo</span>}
+              {!noCostSource && spend > 0 && <span className="font-mono text-xs tabular-nums text-slate-400">{fmtMoney(spend)}/mo</span>}
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
               {verb} {rows.length} repo{rows.length > 1 ? "s" : ""}:
@@ -59,7 +59,7 @@ export function AiRoiQuadrantActions({ model, slug, simulated }: { model: AiDeli
           </div>
         );
       })}
-      {simulated ? (
+      {noCostSource ? (
         <div className="rounded-xl border border-divider bg-surface/40 p-3 text-xs text-slate-500">
           Idle-seat and shadow-AI verdicts rest on spend Ascent can&apos;t see yet.{" "}
           <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">

@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 //
-// Pins the "honest simulated-mode verdicts" UI gate on the Map view's action rail. The rail turns the
+// Pins the "honest no-cost-source verdicts" UI gate on the Map view's action rail. The rail turns the
 // concern cohorts into work lists; two of them are money- & plan-framed ("Reclaim seats on" for idle,
 // "Bring under a plan" for shadow). Those dollars are a placeholder until a provider is connected, so in
-// simulated mode the rail must WITHHOLD them and offer a connect prompt instead — while still showing
+// no-cost-source mode the rail must WITHHOLD them and offer a connect prompt instead — while still showing
 // the git-real governance cohort ("Require review on" for ungoverned). measured mode shows them all.
 //
 // The model is built by hand (not via buildAiDeliveryModel) with idle/shadow repos PRESENT even in the
-// simulated fixture, so the assertion proves the presentation layer suppresses them independent of the
+// no-cost-source fixture, so the assertion proves the presentation layer suppresses them independent of the
 // model's own classify() gating.
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -64,20 +64,20 @@ function model(fidelity: ModelFidelity): AiDeliveryModel {
 
 afterEach(cleanup);
 
-describe("AiRoiQuadrant action rail — simulated mode", () => {
+describe("AiRoiQuadrant action rail — no cost source", () => {
   it("withholds the money-framed cohorts (idle 'Reclaim seats', shadow 'Bring under a plan')", () => {
-    render(<AiRoiQuadrant model={model("simulated")} slug="acme" />);
+    render(<AiRoiQuadrant model={model("none")} slug="acme" />);
     expect(screen.queryByText(/Reclaim seats on/i)).toBeNull();
     expect(screen.queryByText(/Bring under a plan/i)).toBeNull();
   });
 
   it("keeps the git-real governance cohort ('Require review on')", () => {
-    render(<AiRoiQuadrant model={model("simulated")} slug="acme" />);
+    render(<AiRoiQuadrant model={model("none")} slug="acme" />);
     expect(screen.getByText(/Require review on/i)).toBeInTheDocument();
   });
 
   it("offers a connect-a-provider prompt in place of the withheld cohorts (invitation pattern intact)", () => {
-    render(<AiRoiQuadrant model={model("simulated")} slug="acme" />);
+    render(<AiRoiQuadrant model={model("none")} slug="acme" />);
     expect(screen.getByText(/reclaimable seats and unplanned AI/i)).toBeInTheDocument();
   });
 });
@@ -88,7 +88,7 @@ describe("AiRoiQuadrant action rail — measured mode (unchanged)", () => {
     expect(screen.getByText(/Require review on/i)).toBeInTheDocument();
     expect(screen.getByText(/Reclaim seats on/i)).toBeInTheDocument();
     expect(screen.getByText(/Bring under a plan/i)).toBeInTheDocument();
-    // The measured rail shows real spend and no simulated connect prompt.
+    // The measured rail shows real spend and no connect prompt.
     expect(screen.queryByText(/reclaimable seats and unplanned AI/i)).toBeNull();
   });
 });

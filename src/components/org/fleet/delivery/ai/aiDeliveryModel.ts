@@ -4,8 +4,18 @@
 // connected in Integrations:
 //   measured   — real per-repo usage (Claude Code OTel telemetry, getOrgUsageRollup.perRepo)
 //   allocated  — a connected org-level total distributed to repos by AI-attributed PR volume
-//   simulated  — a deterministic FNV-hash placeholder when nothing is connected
+//   none       — no provider reports COST, so there is no spend layer and none is invented
 // The UI badges whichever applies. Everything adoption/governance-related is always real (git).
+//
+// W3c RETIRED THE "simulated" TIER. It filled the spend columns from an FNV hash of the repo name —
+// plausible dollar figures, seat counts and plan assignments that no provider ever reported. The UI
+// blurred them behind a "locked" treatment, but the MODEL still produced them, so every derived
+// total (annual spend, idle spend, ungoverned spend, cost/AI-PR) was arithmetic over fabricated
+// input. docs/VALUE-CASE.md D32 names this exactly: no hash-synthesized number may reach a
+// customer-facing surface. The tier is now `none` and the spend layer is simply absent.
+//
+// `none` ≠ "$0 spent". Every spend field is zero because nothing was measured, and the UI renders
+// those cells empty with a connect prompt rather than as money.
 //
 // Type-only import from @/lib/db (erased at compile) so the client Table/Map views can import this
 // module's types without pulling server code into the bundle. Pure + server-safe.
@@ -13,7 +23,7 @@
 import type { OrgPrSignals, OrgUsageRollup } from "@/lib/db";
 
 export type Verdict = "working" | "ungoverned" | "idle" | "shadow" | "starter";
-export type ModelFidelity = "measured" | "allocated" | "simulated";
+export type ModelFidelity = "measured" | "allocated" | "none";
 
 /** Provider source id → display name for the tool column. */
 const SOURCE_NAME: Record<string, string> = { "claude-code": "Claude Code", copilot: "Copilot", openai: "Codex" };
@@ -31,17 +41,6 @@ const ADOPT_HI = 15; // ≥ this % of PRs AI-involved reads as "meaningfully ado
 const GOV_HI = 60; // ≥ this % of AI PRs reviewed reads as "governed"
 const SPEND_MEANINGFUL = 500; // $/mo above which paying-but-not-adopting reads as idle waste
 
-// Simulated per-seat monthly price by tool (the connectors would replace this with real billing).
-const SEAT_PRICE: Record<string, number> = {
-  Copilot: 19,
-  Cursor: 40,
-  Claude: 30,
-  Codex: 25,
-  Gemini: 22,
-  Devin: 60,
-  Aider: 0, // OSS — a "plan" with no seat cost
-};
-const DEFAULT_TOOLS = ["Copilot", "Claude", "Cursor", "Codex"];
 
 export interface AiRepoRoi {
   fullName: string;
@@ -85,20 +84,10 @@ export interface AiDeliveryModel {
   fidelity: ModelFidelity;
 }
 
-/** FNV-1a 32-bit — deterministic, dependency-free; used only to synthesize a stable spend layer. */
-function hash(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-// `spendReal` = the spend/seat/plan layer is a connected provider (measured|allocated), not the FNV
-// placeholder. The two SPEND-DERIVED verdicts — `shadow` (adopted but no assigned plan) and `idle`
-// (paying with little AI reaching PRs) — are only honest judgments when spend is real; in simulated
-// mode they'd rest on fabricated dollars, so we fall through to the git-derived verdicts instead
+// `spendReal` = a connected provider actually reports COST (measured|allocated). The two
+// SPEND-DERIVED verdicts — `shadow` (adopted but no assigned plan) and `idle` (paying with little AI
+// reaching PRs) — are only honest judgments when spend is real; with no cost source there are no
+// dollars to reason about at all, so we fall through to the git-derived verdicts instead
 // (adopted → ungoverned/working by real governance; not-adopted → starter). Adoption & governance are
 // always real (git), so ungoverned/working/starter never depend on `spendReal`.
 function classify(
@@ -117,14 +106,17 @@ function classify(
 const VERDICT_ORDER: Verdict[] = ["ungoverned", "shadow", "idle", "working", "starter"];
 
 /** Build the ROI model from the PR signals the delivery page already fetched, joined with connected
- *  provider usage when available. Fidelity: measured (real per-repo usage) > allocated (org total by
- *  git weight) > simulated (deterministic placeholder). Returns null when there are no per-repo PR rows
- *  (same empty contract as the rest of the tab). */
+ *  provider usage when available. Fidelity: measured (real per-repo usage) > allocated (a connected
+ *  org COST total split by git weight) > none (no cost source — the spend layer is absent, never
+ *  invented). Returns null when there are no per-repo PR rows (same empty contract as the tab). */
 export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRollup | null): AiDeliveryModel | null {
   if (!pr || pr.perRepo.length === 0) return null;
 
-  const fidelity: ModelFidelity = usage?.hasMeasured ? "measured" : usage?.hasAllocated ? "allocated" : "simulated";
-  const toolNames = pr.tools.length > 0 ? pr.tools.map((t) => t.name) : DEFAULT_TOOLS;
+  // `hasAllocatedCost`, NOT `hasAllocated` (W3b): the Copilot connector reports seats and engagement
+  // but no spend, so a connected Copilot org has allocated records with a legitimate 0 cost. Entering
+  // the allocated branch on those would divide a zero total across every repo and render the whole
+  // fleet as "$0 / shadow AI" — connected-looking and entirely wrong.
+  const fidelity: ModelFidelity = usage?.hasMeasured ? "measured" : usage?.hasAllocatedCost ? "allocated" : "none";
 
   // Allocated-mode context: the connected org total (dominant source) distributed by AI-PR weight.
   const aiPrOf = (row: { analyzed: number; aiInvolvedRate: number }) => Math.round((row.analyzed * row.aiInvolvedRate) / 100);
@@ -169,17 +161,16 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
       tool = SOURCE_NAME[allocSource] ?? allocSource ?? "—";
       planned = monthlySpend > 0;
     } else {
-      const h = hash(row.fullName);
-      const toolName = toolNames[h % toolNames.length]!;
-      // ~85% of repos have an assigned plan; the rest are shadow-AI candidates. Seats spread by hash
-      // (the demo seeds a near-constant PR count, so activity alone wouldn't separate them).
-      planned = (h >>> 7) % 100 < 85;
-      seats = 4 + ((h >>> 11) % 46); // 4..49
-      monthlySpend = planned ? seats * (SEAT_PRICE[toolName] ?? 25) + ((h >>> 17) % 80) : 0;
-      tool = toolName;
+      // No provider reports cost. The spend layer is ABSENT, not zero-valued — these zeros exist only
+      // because the type demands numbers, and `spendReal` (below) is false so no verdict is derived
+      // from them. The UI renders these cells empty with a connect prompt.
+      planned = false;
+      seats = 0;
+      monthlySpend = 0;
+      tool = "—";
     }
 
-    const verdict = classify({ aiInvolvedRate: row.aiInvolvedRate, governedRate: row.aiGovernedRate, planned, monthlySpend }, fidelity !== "simulated");
+    const verdict = classify({ aiInvolvedRate: row.aiInvolvedRate, governedRate: row.aiGovernedRate, planned, monthlySpend }, fidelity !== "none");
     return {
       fullName: row.fullName,
       name: row.name,

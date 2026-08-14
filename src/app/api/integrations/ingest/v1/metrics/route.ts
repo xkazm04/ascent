@@ -12,7 +12,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";
 import { parseOtlpMetrics, type OtlpMetricsBody } from "@/lib/integrations/otlp";
+import { parseOtlpSessions } from "@/lib/integrations/sessions";
 import { recordUsage } from "@/lib/db";
+import { recordAgentSessions } from "@/lib/db/agent-sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,8 +57,20 @@ export async function POST(req: NextRequest) {
   // `skipped` says, by reason, which of them had no home — an allowlisted metric name, a resource with
   // no git.repository, or a remote on a host whose repo identity Ascent doesn't model. Without this the
   // 202 was indistinguishable between "40 datapoints stored" and "40 datapoints silently dropped".
-  const parsed = parseOtlpMetrics(body, Date.now());
-  const res = await recordUsage(gate.slug, parsed.records, { mode: "add" });
+  const now = Date.now();
+  const parsed = parseOtlpMetrics(body, now);
+  // W3a — the SAME bytes also fold into per-session attempts, which is the shape day buckets
+  // structurally cannot answer "what does a unit of work cost" from. Independent of the usage write:
+  // an exporter that predates the `session.id` attribute yields zero sessions and keeps working
+  // exactly as before, and a session-write failure must never fail an ingest whose usage landed.
+  const sessions = parseOtlpSessions(body, now);
+  const [res, sessionsStored] = await Promise.all([
+    recordUsage(gate.slug, parsed.records, { mode: "add" }),
+    recordAgentSessions(gate.slug, sessions).catch((err) => {
+      console.error("[ingest] agent-session write failed — usage still stored", err);
+      return 0;
+    }),
+  ]);
   const droppedTotal = Object.values(parsed.skipped).reduce((a, b) => a + b, 0);
   return NextResponse.json(
     {
@@ -65,6 +79,9 @@ export async function POST(req: NextRequest) {
       org: gate.slug,
       received: parsed.received,
       stored: res.stored,
+      // Zero here with a non-zero `stored` is the actionable signal that the exporter is not sending
+      // `session.id` — usage lands, attempts do not, and unit economics stay unavailable.
+      sessions: sessionsStored,
       skipped: parsed.skipped,
       ...(parsed.unsupportedHosts.length ? { unsupportedHosts: parsed.unsupportedHosts } : {}),
       ...(droppedTotal > 0

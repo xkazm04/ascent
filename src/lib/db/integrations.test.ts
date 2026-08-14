@@ -67,11 +67,20 @@ function fakeUsageStore() {
   return { prisma: { aiUsageRecord }, rows };
 }
 
+/**
+ * Day-buckets RELATIVE TO NOW. `getOrgUsageRollup` reads a TRAILING 35-day window, so a fixture
+ * pinned to a fixed calendar date is a time bomb: it sits inside the window when written and
+ * silently ages out of it, at which point every "aggregates …" assertion fails with an empty rollup
+ * and looks like a regression in code that never changed. That is exactly what happened to the two
+ * tests below. Express fixture ages in DAYS AGO — the way the window-exclusion test below always did.
+ */
+const daysAgo = (n: number): Date => new Date(Date.now() - n * 86_400_000);
+
 const rec = (over: Partial<UsageRecordInput> = {}): UsageRecordInput => ({
   source: "claude-code",
   scope: "repo",
   scopeKey: "acme/api",
-  periodStart: new Date("2026-07-01T00:00:00Z"),
+  periodStart: daysAgo(3),
   fidelity: "measured",
   costCents: 1000,
   seats: 3,
@@ -163,7 +172,7 @@ describe("getOrgUsageRollup", () => {
     const { prisma } = fakeUsageStore();
     mockGetPrisma.mockReturnValue(prisma);
     const rollup = await getOrgUsageRollup("acme");
-    expect(rollup).toEqual({ hasMeasured: false, hasAllocated: false, perRepo: {}, orgTotals: [], sources: [] });
+    expect(rollup).toEqual({ hasMeasured: false, hasAllocated: false, hasAllocatedCost: false, perRepo: {}, orgTotals: [], sources: [] });
   });
 
   it("aggregates measured per-repo usage case-folded, summing cost/tokens and taking PEAK seats", async () => {
@@ -172,8 +181,8 @@ describe("getOrgUsageRollup", () => {
 
     // Two day-buckets for the same repo (different case) → one lower-cased perRepo entry.
     await recordUsage("acme", [
-      rec({ scopeKey: "Acme/API", periodStart: new Date("2026-07-01T00:00:00Z"), costCents: 1000, tokens: 500, seats: 5 }),
-      rec({ scopeKey: "acme/api", periodStart: new Date("2026-07-02T00:00:00Z"), costCents: 400, tokens: 200, seats: 3 }),
+      rec({ scopeKey: "Acme/API", periodStart: daysAgo(4), costCents: 1000, tokens: 500, seats: 5 }),
+      rec({ scopeKey: "acme/api", periodStart: daysAgo(3), costCents: 400, tokens: 200, seats: 3 }),
     ]);
 
     const rollup = await getOrgUsageRollup("acme");
@@ -200,8 +209,8 @@ describe("getOrgUsageRollup", () => {
     const { prisma } = fakeUsageStore();
     mockGetPrisma.mockReturnValue(prisma);
 
-    const old = new Date(Date.now() - 60 * 86_400_000);
-    const recent = new Date(Date.now() - 2 * 86_400_000);
+    const old = daysAgo(60);
+    const recent = daysAgo(2);
     await recordUsage("acme", [
       rec({ scopeKey: "acme/old", periodStart: old, costCents: 999 }),
       rec({ scopeKey: "acme/new", periodStart: recent, costCents: 111 }),
@@ -313,5 +322,31 @@ describe("ingest token epoch", () => {
     mockIsDbConfigured.mockReturnValue(true);
     mockGetOrgBySlug.mockResolvedValue(null);
     expect(await bumpIngestTokenEpoch("ghost")).toBeNull();
+  });
+});
+
+// W3b — `hasAllocated` and `hasAllocatedCost` are deliberately different facts. The Copilot
+// connector stores real org-level records whose costCents is 0 because GitHub does not expose a
+// per-seat price; treating those as a cost source would divide a zero total across every repo and
+// render the whole fleet as "$0 spend / shadow AI".
+describe("getOrgUsageRollup — allocated records vs allocated COST", () => {
+  it("flags a cost-bearing org record as both allocated and allocated-cost", async () => {
+    const { prisma } = fakeUsageStore();
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordUsage("acme", [rec({ scope: "org", scopeKey: "acme", fidelity: "allocated", costCents: 2000 })]);
+    const r = await getOrgUsageRollup("acme");
+    expect(r).toMatchObject({ hasAllocated: true, hasAllocatedCost: true });
+  });
+
+  it("flags a SEATS-ONLY org record as allocated but NOT a cost source", async () => {
+    const { prisma } = fakeUsageStore();
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordUsage("acme", [
+      rec({ source: "copilot", scope: "org", scopeKey: "acme", fidelity: "allocated", costCents: 0, tokens: 0, seats: 40 }),
+    ]);
+    const r = await getOrgUsageRollup("acme");
+    expect(r).toMatchObject({ hasAllocated: true, hasAllocatedCost: false });
+    // The seats are real and must still be reported — the connector is not useless, it just isn't money.
+    expect(r!.orgTotals).toEqual([{ source: "copilot", costCents: 0, seats: 40, tokens: 0 }]);
   });
 });

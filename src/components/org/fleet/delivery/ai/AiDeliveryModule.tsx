@@ -4,7 +4,7 @@
 // views over ONE model (aiDeliveryModel): the Table reconciles spend against AI output per repo
 // (metadata-rich at a glance), the Map surfaces the diagnostic that hides between the columns (where
 // the money goes vs. what it produces). A segmented toggle switches views; the section owns the
-// heading + the "simulated spend" honesty badge so neither view repeats them. Client (view state).
+// heading + the "noCostSource spend" honesty badge so neither view repeats them. Client (view state).
 
 import { useState } from "react";
 import { SectionHeader } from "@/components/org/shared/ui";

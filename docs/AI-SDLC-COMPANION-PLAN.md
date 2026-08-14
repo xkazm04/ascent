@@ -252,7 +252,30 @@ evidence stream the pack sells.
 
 ---
 
-## Wave 3 — Agent-run truth
+## Wave 3 — Agent-run truth ✅ SHIPPED 2026-08-14
+
+> **Status:** shipped. `AgentSession` + the OTLP session mapper + the Unit economics panel on
+> Delivery (3a); the Copilot connector (3b); the `simulated` tier retired from the ROI model (3c).
+> The two pre-existing `getOrgUsageRollup` failures are fixed — they were **time-bomb fixtures**,
+> not a code bug: fixed calendar dates that sat inside the trailing 35-day window when written and
+> had since aged out of it. Fixtures are now expressed in days-ago, the way the one test that never
+> broke always did. **Suite fully green: 6500 tests, 0 failures.** Docs:
+> [org-intelligence.md](features/org-dashboard/org-intelligence.md#unit-economics--what-a-unit-of-ai-work-costs-w3a-2026-08-14).
+>
+> **Deviations from the draft below, all deliberate:**
+> - **No `outcome ∈ merged | abandoned | superseded` enum.** None of those three is honestly
+>   derivable. The telemetry carries no PR id, so "merged" would be a repo+time-window guess; and a
+>   session with no commit is very often a question, a code read or a debugging pass, so calling it
+>   "abandoned" would be an over-claim about the most common kind of session there is. The table
+>   stores counts; the reads say *"produced code" / "did not"*.
+> - **The join is at repo × period, not per PR.** Both sides are counted there rather than inferred.
+>   A per-PR figure would have been the first number a skeptical buyer tried to falsify.
+> - **Copilot ships as `seats-only`, not `allocated`.** GitHub exposes no per-seat price through any
+>   API, so the connector reports seats and engagement and `costCents: 0` means *not reported*. This
+>   forced `OrgUsageRollup.hasAllocatedCost` — without it a connected Copilot org would have rendered
+>   as "$0 spend / shadow AI" fleet-wide, which is worse than the simulated tier it replaced.
+> - **3b and 3c had to ship together** for exactly that reason: a cost-less connector breaks the ROI
+>   model unless the fabricating tier goes at the same time.
 
 Today ascent infers AI usage archaeologically from commit trailers and PR bodies. That is why
 `aiUsage.detected` once counted Renovate (`VALUE-CASE.md:30`). Port's metrics — **agent success rate,

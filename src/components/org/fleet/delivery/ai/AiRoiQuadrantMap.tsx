@@ -15,7 +15,7 @@ const PAD_B = 52;
 
 export function AiRoiQuadrantMap({
   model,
-  simulated,
+  noCostSource,
   active,
   setActive,
   hover,
@@ -27,7 +27,7 @@ export function AiRoiQuadrantMap({
   splitY,
 }: {
   model: AiDeliveryModel;
-  simulated: boolean;
+  noCostSource: boolean;
   active: Verdict | null;
   setActive: (v: Verdict | null) => void;
   hover: AiRepoRoi | null;
@@ -71,7 +71,7 @@ export function AiRoiQuadrantMap({
             {c.text}
           </text>
         ))}
-        {simulated && (
+        {noCostSource && (
           <text
             x={(PAD_L + W - PAD_R) / 2}
             y={(PAD_T + H - PAD_B) / 2}
@@ -102,7 +102,7 @@ export function AiRoiQuadrantMap({
               onMouseEnter={() => setHover(r)}
               onMouseLeave={() => setHover(null)}
             >
-              <title>{simulated ? `${r.name} — AI reach ${r.aiInvolvedRate}% · ${VERDICT_META[r.verdict].label} (spend is a sample)` : `${r.name} — AI reach ${r.aiInvolvedRate}%, ${fmtMoney(r.monthlySpend)}/mo, ${r.seats} seats · ${VERDICT_META[r.verdict].label}`}</title>
+              <title>{noCostSource ? `${r.name} — AI reach ${r.aiInvolvedRate}% · ${VERDICT_META[r.verdict].label} (spend is a sample)` : `${r.name} — AI reach ${r.aiInvolvedRate}%, ${fmtMoney(r.monthlySpend)}/mo, ${r.seats} seats · ${VERDICT_META[r.verdict].label}`}</title>
             </circle>
           );
         })}
@@ -115,7 +115,7 @@ export function AiRoiQuadrantMap({
         >
           <div className="whitespace-nowrap font-mono text-sm font-bold text-white">{hover.name}</div>
           <div className="whitespace-nowrap font-mono text-xs text-slate-400">
-            {hover.aiInvolvedRate}% AI{simulated ? " · sample spend" : ` · ${fmtMoney(hover.monthlySpend)}/mo · ${hover.seats} seats`}
+            {hover.aiInvolvedRate}% AI{noCostSource ? " · sample spend" : ` · ${fmtMoney(hover.monthlySpend)}/mo · ${hover.seats} seats`}
           </div>
         </div>
       )}
