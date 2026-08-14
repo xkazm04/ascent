@@ -1,5 +1,6 @@
 // GET  /api/org/alerts?org=slug                                  -> { webhookUrl, overallDrop, dimensionDrop }  (admin)
 // GET  /api/org/alerts?org=slug&movement=1                       -> { movement }          (member) what moved since you last looked
+// GET  /api/org/alerts?org=slug&history=1                        -> { events }            (member) recent alert dispatches (AlertEvent)
 // POST /api/org/alerts { org, webhookUrl?, overallDrop?, dimensionDrop? } -> { ok, ... }  (admin)  set/clear sink + thresholds
 // POST /api/org/alerts { org, test: true }                       -> { ok, delivered }     (admin)  send a test alert
 // POST /api/org/alerts { org, seen: true }                       -> { ok, seen }          (member) advance the viewer's watermark
@@ -18,6 +19,7 @@ import {
   getOrgAlertWebhook,
   getOrgMovementSince,
   isDbConfigured,
+  listAlertEvents,
   markAlertsSeen,
   recordOrgAudit,
   setOrgAlertThresholds,
@@ -87,6 +89,15 @@ export async function GET(request: Request) {
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
   // Movement is a separate, member-readable payload — resolved BEFORE the admin gate below.
   if (params.get("movement") === "1") return movementResponse(org);
+  // Alert history — member-readable like movement (rows carry titles and outcomes, never the sink
+  // URL), resolved BEFORE the admin gate. Degrades to { events: [] } on any read failure: a drawer
+  // section must never error the popover.
+  if (params.get("history") === "1") {
+    const deniedHistory = await requireOrgRole(org, "viewer");
+    if (deniedHistory) return deniedHistory;
+    const events = await listAlertEvents(org).catch(() => null);
+    return NextResponse.json({ events: events ?? [] });
+  }
   const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
   const [webhookUrl, thresholds] = await Promise.all([getOrgAlertWebhook(org), getOrgAlertThresholds(org)]);

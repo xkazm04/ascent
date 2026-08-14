@@ -94,6 +94,7 @@ model Organization {
   memberships  Membership[]
   repositories Repository[]
   auditLogs    AuditLog[]
+  alertEvents  AlertEvent[]
   subscription Subscription?
   creditLedger CreditLedger[]
   goals        Goal[]
@@ -658,6 +659,36 @@ model AuditLog {
   @@index([at])
   // Serves the org-scoped audit viewer's keyset query (where orgId, order by at desc, id desc).
   @@index([orgId, at])
+}
+
+// One row per alert the product DECIDED to raise — deliberately NOT AuditLog: audit claim rows are
+// deleted on dispatch failure (releaseAuditClaim) and the whole trail is purged by
+// retentionAuditDays, so neither "what did we try to send" nor "what failed" survives there. This
+// table is the in-app alert history: rows are written even when NO sink is configured
+// (delivered=false, suppressedReason="no-sink") — without that, every alert except scan.regression
+// vanished without a trace on webhook-less orgs.
+model AlertEvent {
+  id           String   @id @default(uuid())
+  orgId        String
+  /** regression | promotion | security | low-credits | digest | goal-at-risk | spend-anomaly */
+  kind         String
+  /** info | warning | critical | celebration */
+  severity     String
+  repoFullName String?
+  title        String
+  /** The plain-text body the sink got (or would have gotten). */
+  body         String   @default("")
+  delivered    Boolean  @default(false)
+  /** webhook | email | null (no sink resolved). */
+  sinkKind     String?
+  /** Why nothing was sent: no-sink | cooldown | dispatch-failed. Null when delivered. */
+  suppressedReason String?
+  createdAt    DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  // Serves the history drawer's keyset query (where orgId, order by createdAt desc).
+  @@index([orgId, createdAt])
 }
 
 model Subscription {

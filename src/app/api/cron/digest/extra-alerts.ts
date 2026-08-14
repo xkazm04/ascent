@@ -16,7 +16,7 @@
 // EVERY dispatch here is subject to the same routing as the digest itself: the org's own sink (webhook
 // OR mailto:, see G7-01), else the global ALERT_WEBHOOK_URL, else nothing. No sink → no work.
 
-import { listGoals, getUsageSummary } from "@/lib/db";
+import { listGoals, getUsageSummary, recordAlertEvent, type AlertEventKind } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import {
   buildGoalAtRiskMessage,
@@ -61,11 +61,23 @@ async function claimAndDispatch(
   ctx: ExtraAlertContext,
   build: () => { text: string; blocks: unknown[] },
   meta: Record<string, unknown>,
+  record: { kind: AlertEventKind; severity: "warning" | "critical"; title: string },
 ): Promise<boolean> {
   const claim = await claimOrgAuditOnce(action, ctx.org, ctx.windowStart, meta);
   if (!claim.claimed) return false;
-  const ok = await dispatchAlert(build(), { webhookUrl: ctx.webhookUrl, org: ctx.org });
+  const message = build();
+  const ok = await dispatchAlert(message, { webhookUrl: ctx.webhookUrl, org: ctx.org });
   if (!ok && claim.id) await releaseAuditClaim(claim.id).catch(() => {});
+  // History row (in-app drawer). The released claim above deliberately forgets a failed window so
+  // next week retries; the history row REMEMBERS the failure — that split is the whole reason
+  // AlertEvent exists as its own table.
+  await recordAlertEvent(ctx.org, {
+    ...record,
+    body: message.text,
+    delivered: ok,
+    sinkKind: ctx.webhookUrl && /^mailto:/i.test(ctx.webhookUrl) ? "email" : "webhook",
+    suppressedReason: ok ? null : "dispatch-failed",
+  });
   return ok;
 }
 
@@ -117,6 +129,11 @@ export async function dispatchExtraAlerts(ctx: ExtraAlertContext): Promise<Extra
             goals,
           }),
         { goals: goals.length, weekStart: ctx.windowStart.toISOString() },
+        {
+          kind: "goal-at-risk",
+          severity: "warning",
+          title: `${goals.length} goal${goals.length === 1 ? "" : "s"} behind pace`,
+        },
       );
       if (sent) out.goalAlerts += 1;
     }
@@ -142,6 +159,11 @@ export async function dispatchExtraAlerts(ctx: ExtraAlertContext): Promise<Extra
               estimatedCostUsd: usage.estimatedCostUsd,
             }),
           { periodScans: period, baseline: Math.round(baselinePerPeriod), weekStart: ctx.windowStart.toISOString() },
+          {
+            kind: "spend-anomaly",
+            severity: "warning",
+            title: `Scan spend spiked: ${period} scans this week vs ~${Math.round(baselinePerPeriod)} baseline`,
+          },
         );
         if (sent) out.spendAlerts += 1;
       }

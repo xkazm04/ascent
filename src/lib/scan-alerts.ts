@@ -12,17 +12,21 @@ import {
   buildLowCreditsMessage,
   buildPromotionMessage,
   buildRegressionMessage,
+  buildSecurityAlertMessage,
   claimRegressionAlert,
   creditsAlertThreshold,
   DEFAULT_THRESHOLDS,
   detectPromotion,
   detectRegression,
   dispatchAlert,
-  isAlertConfigured,
+  emailSinkAddress,
   isLowCreditsCrossing,
+  resolveAlertWebhook,
+  type AlertMessage,
   type RegressionVerdict,
 } from "@/lib/alerts";
-import { getAuditLog, getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, reportPermalink } from "@/lib/db";
+import { getAuditLog, getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, recordAudit, reportPermalink } from "@/lib/db";
+import type { AlertEventInput } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
 import {
   AUTO_RECHARGE_ACTION,
@@ -47,6 +51,26 @@ function reportUrl(fullName: string, headSha?: string | null): string {
 async function orgWebhook(orgSlug?: string): Promise<string | null> {
   if (!orgSlug) return null;
   return getOrgAlertWebhook(orgSlug).catch(() => null);
+}
+
+/** What kind of sink the resolved URL is — for the history row, not for routing. */
+function sinkKindOf(resolved: string | null): "webhook" | "email" | null {
+  if (!resolved) return null;
+  return emailSinkAddress(resolved) ? "email" : "webhook";
+}
+
+/**
+ * Best-effort history row for an alert decision (delivered or suppressed). Keyed to the org when we
+ * can resolve one — a repo-only scan with no org context records nothing (there is no drawer to show
+ * it in). Never throws (recordAlertEvent's own contract).
+ */
+async function recordScanAlertEvent(
+  opts: { orgId?: string; orgSlug?: string },
+  input: AlertEventInput,
+): Promise<void> {
+  const org = opts.orgSlug ?? (opts.orgId ? { orgId: opts.orgId } : null);
+  if (!org) return;
+  await recordAlertEvent(org, input);
 }
 
 /**
@@ -110,16 +134,25 @@ export async function checkAndAlertRegression(
       if (!promotion.promoted) return { regressed: false, verdict, dispatched: false };
       let dispatched = false;
       const webhookUrl = await orgWebhook(opts.orgSlug);
+      const resolved = resolveAlertWebhook(webhookUrl);
       // SHARED claim pool with regressions, and the promotion CONSUMES it (see the cooldown block in
       // alerts.ts): a repo flapping across a band edge can't alternate 🎉/🔻 every scan.
-      if (isAlertConfigured(webhookUrl) && claimRegressionAlert(fullName)) {
-        const message = buildPromotionMessage(
-          { fullName, url: reportUrl(fullName, fresh.repo.headSha) },
-          diff,
-          promotion,
-        );
+      const claimed = resolved !== null && claimRegressionAlert(fullName);
+      let message: AlertMessage | null = null;
+      if (claimed) {
+        message = buildPromotionMessage({ fullName, url: reportUrl(fullName, fresh.repo.headSha) }, diff, promotion);
         dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
       }
+      await recordScanAlertEvent(opts, {
+        kind: "promotion",
+        severity: "celebration",
+        repoFullName: fullName,
+        title: promotion.reasons[0]?.message ?? `${fullName} climbed a maturity level`,
+        body: message?.text,
+        delivered: dispatched,
+        sinkKind: sinkKindOf(resolved),
+        suppressedReason: !resolved ? "no-sink" : !claimed ? "cooldown" : dispatched ? null : "dispatch-failed",
+      });
       return { regressed: false, verdict, dispatched, promoted: true };
     }
 
@@ -142,13 +175,61 @@ export async function checkAndAlertRegression(
 
     let dispatched = false;
     const webhookUrl = await orgWebhook(opts.orgSlug);
+    const resolved = resolveAlertWebhook(webhookUrl);
     // Per-repo cooldown (fleet-alerts-digests #4): a repo flapping across the regression line would
     // otherwise re-alert on EVERY scan. Claim the cooldown slot (check-and-stamp) only once we have a
     // resolvable sink and are about to POST — a within-window repeat is throttled (still returns
     // regressed:true, since the verdict + audit row above are real; only the Slack push is suppressed).
-    if (isAlertConfigured(webhookUrl) && claimRegressionAlert(fullName)) {
-      const message = buildRegressionMessage({ fullName, url: reportUrl(fullName, fresh.repo.headSha) }, diff, verdict);
+    const claimed = resolved !== null && claimRegressionAlert(fullName);
+    let message: AlertMessage | null = null;
+    if (claimed) {
+      message = buildRegressionMessage({ fullName, url: reportUrl(fullName, fresh.repo.headSha) }, diff, verdict);
       dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+    }
+    await recordScanAlertEvent(opts, {
+      kind: "regression",
+      severity: verdict.severity ?? "warning",
+      repoFullName: fullName,
+      title: verdict.reasons[0]?.message ?? `${fullName} regressed`,
+      body: message?.text,
+      delivered: dispatched,
+      sinkKind: sinkKindOf(resolved),
+      suppressedReason: !resolved ? "no-sink" : !claimed ? "cooldown" : dispatched ? null : "dispatch-failed",
+    });
+
+    // The SECURITY class (G7-03) fires here — the scan pipeline's post-scan diff, its documented
+    // natural trigger (extra-alerts.ts deliberately does NOT dispatch it weekly). Condition: D9 fell
+    // past the org's dimension-drop line but the generic regression push above headlined a DIFFERENT
+    // dimension (or only the overall drop) — when D9 is already the headline, a second push about the
+    // same slide would train the reader to ignore security pings. Own cooldown key so a D9 push isn't
+    // starved by the generic claim the block above just consumed.
+    const d9 = (diff.dimensions ?? []).find(
+      (d) => d.id === "D9" && typeof d.delta === "number" && d.delta <= -(orgT?.dimensionDrop ?? DEFAULT_THRESHOLDS.dimensionDrop),
+    );
+    const d9Headlined = verdict.reasons.some((r) => r.code === "dimension-drop" && r.message.startsWith("D9 "));
+    if (d9 && !d9Headlined) {
+      let secDispatched = false;
+      const secClaimed = resolved !== null && claimRegressionAlert(`${fullName}#security`);
+      let secMessage: AlertMessage | null = null;
+      const detail = `${d9.name} fell ${d9.delta} (${d9.before} → ${d9.after})`;
+      if (secClaimed) {
+        secMessage = buildSecurityAlertMessage({
+          org: opts.orgSlug ?? fullName,
+          url: reportUrl(fullName, fresh.repo.headSha),
+          items: [{ repo: fullName, detail, kind: "gate" }],
+        });
+        secDispatched = await dispatchAlert(secMessage, { signal: opts.signal, webhookUrl });
+      }
+      await recordScanAlertEvent(opts, {
+        kind: "security",
+        severity: "critical",
+        repoFullName: fullName,
+        title: `Security standing dropped: ${detail}`,
+        body: secMessage?.text,
+        delivered: secDispatched,
+        sinkKind: sinkKindOf(resolved),
+        suppressedReason: !resolved ? "no-sink" : !secClaimed ? "cooldown" : secDispatched ? null : "dispatch-failed",
+      });
     }
     return { regressed: true, verdict, dispatched };
   } catch (err) {
@@ -177,7 +258,7 @@ export async function maybeAlertLowCredits(
     const threshold = await orgLowBalanceThreshold(orgSlug);
     if (!isLowCreditsCrossing(balanceBefore, balanceAfter, threshold)) return false;
     const webhookUrl = await orgWebhook(orgSlug);
-    if (!isAlertConfigured(webhookUrl)) return false;
+    const resolved = resolveAlertWebhook(webhookUrl);
     const base = publicBaseUrl();
     const message = buildLowCreditsMessage({
       org: orgSlug,
@@ -185,7 +266,18 @@ export async function maybeAlertLowCredits(
       threshold,
       url: base ? `${base}/org/${encodeURIComponent(orgSlug)}` : undefined,
     });
-    return await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+    const dispatched = resolved !== null && (await dispatchAlert(message, { signal: opts.signal, webhookUrl }));
+    // History row even with no sink — depletion silently vanishing was exactly the gap.
+    await recordAlertEvent(orgSlug, {
+      kind: "low-credits",
+      severity: balanceAfter <= 0 ? "critical" : "warning",
+      title: balanceAfter <= 0 ? "Scan credits depleted" : `Scan credits low: ${balanceAfter} left (line: ${threshold})`,
+      body: message.text,
+      delivered: dispatched,
+      sinkKind: sinkKindOf(resolved),
+      suppressedReason: !resolved ? "no-sink" : dispatched ? null : "dispatch-failed",
+    });
+    return dispatched;
   } catch (err) {
     console.error("[scan-alerts] low-credits alert failed", err instanceof Error ? err.message : err);
     return false;

@@ -13,6 +13,7 @@
 // State/effects/handlers live in useAlertsControl.ts — this file is JSX only.
 
 import { trapTab, ThresholdFields } from "./AlertsControlParts";
+import { AlertsHistory } from "./AlertsHistory";
 import { MovementBadge, MovementSince } from "./AlertsMovement";
 import { useAlertsControl } from "./useAlertsControl";
 
@@ -71,6 +72,9 @@ export function AlertsControl({ org }: { org: string }) {
           {/* What moved since this viewer last looked — above the config, because it's the reason a
               returning lead opens this at all. Renders nothing when there's no movement payload. */}
           <MovementSince movement={movement} />
+          {/* Persisted dispatch history (AlertEvent) — what was raised and whether it landed,
+              including alerts raised with no sink configured. Member-readable, lazy-loaded. */}
+          <AlertsHistory org={org} />
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Alert routing</div>
           {denied ? (
             <p className="mt-2 text-sm text-slate-400">Only org admins can configure alert routing.</p>

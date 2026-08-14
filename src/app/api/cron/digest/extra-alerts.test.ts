@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/db", () => ({
   listGoals: vi.fn(async () => [] as unknown[]),
   getUsageSummary: vi.fn(async () => null as unknown),
+  // Alert history row written after each claim→dispatch — best-effort, swallowed here.
+  recordAlertEvent: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/db/scans-audit", () => ({

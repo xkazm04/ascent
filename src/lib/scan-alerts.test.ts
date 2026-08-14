@@ -30,6 +30,11 @@ vi.mock("@/lib/alerts", () => ({
   // isAlertConfigured mirrors the real "a non-empty url counts" semantics so the gate is exercised
   // honestly rather than hard-wired true.
   isAlertConfigured: vi.fn((url?: string | null) => !!(url && url.trim())),
+  // Same "non-empty url counts, no global fallback" semantics for the resolved-sink read the history
+  // rows use — plus the sink-kind + security-message helpers the glue now imports.
+  resolveAlertWebhook: vi.fn((url?: string | null) => (url && url.trim() ? url : null)),
+  emailSinkAddress: vi.fn(() => null),
+  buildSecurityAlertMessage: vi.fn(() => ({ text: "🚨 security", blocks: [] })),
   DEFAULT_THRESHOLDS: { overallDrop: 5, dimensionDrop: 15 },
   // Low-credits helpers are unused by checkAndAlertRegression but the module imports them, so the
   // mock must export them or the import would resolve to undefined and the module load could break.
@@ -41,6 +46,9 @@ vi.mock("@/lib/db", () => ({
   getOrgAlertThresholds: vi.fn(),
   getOrgAlertWebhook: vi.fn(),
   recordAudit: vi.fn(),
+  // Alert history rows (AlertEvent) — best-effort writes the glue makes around every dispatch
+  // decision. Resolved-and-swallowed by default so every pre-existing scenario is unaffected.
+  recordAlertEvent: vi.fn(async () => true),
   reportPermalink: vi.fn((fullName: string) => `/r/${fullName}`),
   // The per-org auto-recharge/low-balance preference (G1-40) — read the SAME way its own route does
   // (getAuditLog keyed on the AUTO_RECHARGE_ACTION, latest entry wins). No stored preference by
@@ -57,11 +65,12 @@ import {
   buildRegressionMessage,
   buildPromotionMessage,
   buildLowCreditsMessage,
+  buildSecurityAlertMessage,
   claimRegressionAlert,
   creditsAlertThreshold,
   isLowCreditsCrossing,
 } from "@/lib/alerts";
-import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, getAuditLog } from "@/lib/db";
+import { getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, recordAudit, getAuditLog } from "@/lib/db";
 import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
 
 const mockDiff = vi.mocked(diffReports);
@@ -557,5 +566,74 @@ describe("maybeAlertLowCredits — reads the org's own low-balance threshold whe
     mockAuditLog.mockRejectedValue(new Error("db down"));
     await expect(maybeAlertLowCredits("acme", 6, 5)).resolves.toBe(true);
     expect(mockBuildLow).toHaveBeenCalledWith(expect.objectContaining({ threshold: 5 }));
+  });
+});
+
+// --- Security class (G7-03): fired from the post-scan diff, its documented natural trigger --------
+
+describe("checkAndAlertRegression — the security push (D9 crossed its line, not headlined)", () => {
+  const mockBuildSec = vi.mocked(buildSecurityAlertMessage);
+  const mockRecordEvent = vi.mocked(recordAlertEvent);
+
+  function diffWithD9(delta: number) {
+    return {
+      ...fakeDiff(),
+      dimensions: [
+        { id: "D2", name: "Automated Testing", delta: -20, before: 70, after: 50 },
+        { id: "D9", name: "Supply Chain & Security", delta, before: 60, after: 60 + delta },
+      ],
+    } as unknown as ReturnType<typeof diffReports>;
+  }
+
+  it("dispatches the security-voiced push when D9 fell past the line but another dim headlined", async () => {
+    mockDiff.mockReturnValue(diffWithD9(-18));
+    // The generic verdict headlines D2 (the worst dim) — D9's slide would otherwise be buried.
+    mockDetect.mockReturnValue({
+      regressed: true,
+      severity: "warning",
+      reasons: [{ code: "dimension-drop", severity: "warning", message: "D2 Automated Testing fell -20 (70 → 50)" }],
+    } as never);
+    mockWebhook.mockResolvedValue("https://hooks.example/T/1");
+    mockDispatch.mockResolvedValue(true);
+    const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(out.regressed).toBe(true);
+    expect(mockBuildSec).toHaveBeenCalledWith(
+      expect.objectContaining({ items: [expect.objectContaining({ kind: "gate", repo: "acme/api" })] }),
+    );
+    expect(mockDispatch).toHaveBeenCalledTimes(2); // generic regression + security
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ kind: "security", severity: "critical", delivered: true }),
+    );
+  });
+
+  it("stays silent when D9 IS the headline — one slide must not ping twice", async () => {
+    mockDiff.mockReturnValue(diffWithD9(-18));
+    mockDetect.mockReturnValue({
+      regressed: true,
+      severity: "warning",
+      reasons: [{ code: "dimension-drop", severity: "warning", message: "D9 Supply Chain & Security fell -18 (60 → 42)" }],
+    } as never);
+    mockWebhook.mockResolvedValue("https://hooks.example/T/1");
+    mockDispatch.mockResolvedValue(true);
+    await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(mockBuildSec).not.toHaveBeenCalled();
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the security event as suppressed no-sink instead of vanishing", async () => {
+    mockDiff.mockReturnValue(diffWithD9(-18));
+    mockDetect.mockReturnValue({
+      regressed: true,
+      severity: "warning",
+      reasons: [{ code: "overall-drop", severity: "warning", message: "Overall score fell -15 (70 → 55)" }],
+    } as never);
+    mockWebhook.mockResolvedValue(null);
+    await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ kind: "security", delivered: false, suppressedReason: "no-sink" }),
+    );
   });
 });

@@ -27,6 +27,7 @@ import {
   getOrgRollup,
   isDbConfigured,
   listOrgsWithWatchedRepos,
+  recordAlertEvent,
   type OrgWindow,
 } from "@/lib/db";
 // Direct submodule import: the atomic once-per-window claim helpers are not re-exported through the
@@ -214,7 +215,8 @@ export async function GET(request: Request) {
         skippedAlreadySent += 1;
         return;
       }
-      if (await dispatchAlert(msg, { webhookUrl, org })) {
+      const delivered = await dispatchAlert(msg, { webhookUrl, org });
+      if (delivered) {
         sent += 1;
       } else {
         // Delivery failed AFTER we claimed the window — RELEASE the claim so the next run retries this
@@ -222,6 +224,17 @@ export async function GET(request: Request) {
         await releaseAuditClaim(claim.id);
         failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
       }
+      // History row for the in-app drawer — the released claim forgets a failed window (so next run
+      // retries); this row remembers the attempt and its outcome.
+      await recordAlertEvent(org, {
+        kind: "digest",
+        severity: "info",
+        title: `Weekly fleet digest (${rollup.scannedCount} repos, avg ${rollup.avgOverall})`,
+        body: msg.text,
+        delivered,
+        sinkKind: webhookUrl && /^mailto:/i.test(webhookUrl) ? "email" : "webhook",
+        suppressedReason: delivered ? null : "dispatch-failed",
+      });
     } catch (err) {
       errors.push(`${org}: ${err instanceof Error ? err.message : "failed"}`);
     }

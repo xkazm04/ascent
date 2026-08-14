@@ -207,10 +207,29 @@ releases it on a failed delivery; the whole call is internally caught, so it can
 but can never fail the digest that carries it. The run's response reports `goalAlerts` /
 `spendAlerts`.
 
-`buildSecurityAlertMessage` ships as a pure builder but is **not yet dispatched**: a fresh critical
-advisory or a gate pass→fail flip is a same-day event whose natural trigger is the scan pipeline's
-post-scan diff (`src/lib/scan-alerts.ts`), not a weekly sweep — firing it weekly would arrive stale
-and train the reader to ignore security pushes.
+**Security alerts (dispatched 2026-08-14, from the scan pipeline as intended).**
+`buildSecurityAlertMessage` fires from `checkAndAlertRegression`'s post-scan diff — the same-day
+trigger this doc always named — when **D9 fell past the org's `dimensionDrop` line but the generic
+regression push headlined a different dimension** (or only the overall drop). When D9 *is* the
+headline, no second push fires: one slide must not ping twice. It takes its own cooldown key
+(`<fullName>#security` in the shared claim pool) so the generic claim can't starve it.
+
+## Alert history (`AlertEvent`)
+
+Every dispatch decision is persisted to the **`AlertEvent`** table
+(`src/lib/db/alert-events.ts`: `recordAlertEvent` / `listAlertEvents`) — deliberately NOT
+`AuditLog`, whose claim rows are deleted on failed delivery (`releaseAuditClaim`) and purged by
+`retentionAuditDays`. Rows are written **even when no sink is configured**
+(`delivered=false, suppressedReason="no-sink"`), so a webhook-less org finally has a trace of what
+it would have been told. Fields: kind (`regression | promotion | security | low-credits | digest |
+goal-at-risk | spend-anomaly`), severity, repo, title, body, `delivered`, `sinkKind`
+(`webhook | email`), `suppressedReason` (`no-sink | cooldown | dispatch-failed`). Writers:
+`scan-alerts.ts` (regression / promotion / security / low-credits), the digest cron (digest), and
+`extra-alerts.ts` (goal-at-risk / spend-anomaly). Test alerts are deliberately not recorded.
+
+The history is surfaced in the Alerts popover ("Recent alerts", `AlertsHistory.tsx`, lazy-loaded
+`<details>`) via `GET /api/org/alerts?org=…&history=1` — member-readable like movement (rows carry
+titles and outcomes, never the sink URL).
 
 ## Environment variables
 
@@ -229,9 +248,10 @@ and train the reader to ignore security pushes.
 
 - **Promotions are band-crossings only** — a large in-band gain (46 → 60, still L3) is not
   pushed; only a level crossing is.
-- **No in-app alert history** — every dispatch is still fire-and-forget with no persisted record
-  or acknowledgement state. That needs an `AlertHistory` table (a migration), so it is not built.
+- (Closed 2026-08-14.) ~~No in-app alert history~~ — the `AlertEvent` table + the popover's
+  "Recent alerts" section persist every dispatch decision with its outcome (see above). Still open
+  within it: no acknowledgement state on individual rows.
 - **Per-org digest frequency/sections are not configurable** — the cadence is the weekly cron plus
   the movement gate; per-org preference fields would also need a migration.
-- **Security alerts are built but not dispatched** — see above; the dispatch site belongs in the
-  scan pipeline.
+- (Closed 2026-08-14.) ~~Security alerts are built but not dispatched~~ — dispatched from the
+  scan pipeline's post-scan diff (see above).

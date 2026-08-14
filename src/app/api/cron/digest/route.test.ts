@@ -37,6 +37,8 @@ vi.mock("@/lib/db", () => ({
   // Early fast-path (skip rollup for an org already sent this window): getAuditLog reports whether a
   // digest already went out. Default: nothing sent yet.
   getAuditLog: vi.fn(async () => ({ entries: [] as unknown[], nextCursor: null })),
+  // Alert history row written after each digest dispatch decision — best-effort, swallowed here.
+  recordAlertEvent: vi.fn(async () => true),
 }));
 
 // The atomic at-most-once claim (fleet #3) lives in the db submodule (not the @/lib/db barrel), so the
