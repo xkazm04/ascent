@@ -93,7 +93,7 @@ degrades the strip away, never the dashboard.
 ### Landing: what a bare `/org/<slug>` opens on (W1b, 2026-08-14)
 
 The bare org URL is a **landing decision**, not a synonym for the Overview tab
-(`resolveLandingTab`, `src/lib/org/landing.ts` — pure, unit-tested):
+(`resolveLandingTab`, `src/lib/org/landing.ts`, pure and unit-tested):
 
 - no completed scan yet → **Overview**. Nothing is in flight, and the baseline is the job.
 - a loop running (≥1 `ImprovementPr` in state `open`) → **Live**. Work is open on the org's behalf.
@@ -115,33 +115,33 @@ Two consequences worth knowing:
 
 The decision reads one extra indexed count (`countInFlightPrs`, `@@index([orgId, state])`),
 React-`cache()`d so the layout's call and the page's call collapse into one query. It renders rather
-than redirects, so the bare URL stays shareable — it is the URL in the weekly digest email, and the
+than redirects, so the bare URL stays shareable: it is the URL in the weekly digest email, and the
 next person to open it may have different loop state.
 
 **Getting there (2026-08-03).** The personal workspace's front door is `/me`
-(`src/app/me/page.tsx`), which resolves the signed-in login and redirects to `/org/{login}` — an
+(`src/app/me/page.tsx`), which resolves the signed-in login and redirects to `/org/{login}`, an
 `Organization` with `kind: "personal"`, auto-claimed on first visit by the identity-bound
 personal-namespace seed in `src/lib/authz.ts` (login === slug, so nobody can claim a victim's
 namespace). A viewer with **no** organization is coherent by construction: the claim creates their own
-workspace, and the org layout renders a zero-repo personal org's shell — its add-repo form *is* the
+workspace, and the org layout renders a zero-repo personal org's shell: its add-repo form *is* the
 empty state.
 
 **The zero-repo wall fell for members (W6b, 2026-08-12).** The layout's empty-org decision is now the
 pure `resolveOrgShellState` (`src/app/org/[slug]/orgShellGate.ts`, pinned by its co-located test):
-a **member's** zero-repo fleet org renders the FULL shell — org header (alerts · credits · scan) +
-rail + tabs — with a first-scan empty state in the content slot (`OrgFirstScanEmpty`: "Your dashboard
+a **member's** zero-repo fleet org renders the FULL shell: org header (alerts · credits · scan) +
+rail + tabs, with a first-scan empty state in the content slot (`OrgFirstScanEmpty`: "Your dashboard
 is waiting for its first scan" → `/onboarding`), instead of the old "No data for &lt;slug&gt;" wall.
 The wall remains for non-members on an empty org (an outsider still can't distinguish "exists,
 empty" from "no data yet") and for slugs with no org row at all; the DB-unreachable and
 no-`DATABASE_URL` gates are unchanged. Membership is resolved via `resolveViewerLogin` across both
 auth stacks (this also fixed the header role chip never resolving under the Supabase wall). The tour
-drawer is skipped in the first-scan state — its anchors don't exist yet.
+drawer is skipped in the first-scan state, because its anchors don't exist yet.
 
 **Preview-then-upgrade auto-start (W6b).** The header's `useOrgScanButton` consumes a one-shot
 sessionStorage flag written by the onboarding wizard's "fast preview first" run
 (`src/components/onboarding/upgradeScan.ts`: org-scoped, 15-min TTL, removed before the run starts so
 a refresh can never re-trigger) and starts the LIVE scan of exactly the just-previewed repos through
-the existing header stream — same meter, same credit disclosures/refusals, same server gates
+the existing header stream: same meter, same credit disclosures/refusals, same server gates
 (`requireOrgAccess`, `checkScanEntitlement`, per-repo reservation). Because the stream lives in the
 layout, it survives `?tab=` navigation while `persistScanReport`'s engine-aware dedup upgrades the
 preview (mock-engine) rows in place; mock provenance stays disclosed wherever rows render engine
@@ -151,7 +151,7 @@ rows land. See [the wizard doc](../onboarding/wizard.md) for the wizard half.
 `/me` is now reachable from **every** page: the header's signed-in identity
 (`IdentityLink` in `src/components/Brand.tsx`, rendered by `HeaderAccount`, which both `SiteHeader`
 and `OrgHeader` mount) links to it. Previously it did not: under the ACTIVE Supabase login the
-identity was an unlinked `<span>`, and only the DORMANT custom-OAuth branch linked it — to `/connect`,
+identity was an unlinked `<span>`, and only the DORMANT custom-OAuth branch linked it: to `/connect`,
 the GitHub-App install flow, which is not a workspace. The two branches now share ONE `IdentityLink`
 with one destination rather than a second, differently-behaving link being added beside the dead one.
 `/me` resolves identity with `resolveViewerLogin` (custom-OAuth session › Supabase/dev viewer), the
