@@ -10,11 +10,8 @@
 // ONE genuinely slow data source (two rollup queries over every repo's scan history) — so the period
 // control and the scope readout above it paint without waiting on it.
 
-import { DIMS, OrgEmpty } from "@/components/org/shared/ui";
-import { OrgScoreBadges } from "./OrgScoreBadges";
-import { PostureDimensionsPanel } from "./PostureDimensionsPanel";
-import { RepoCategoryRollup } from "./RepoCategoryRollup";
-import { RepoDimensionHeatmap } from "./RepoDimensionHeatmap";
+import { OrgEmpty } from "@/components/org/shared/ui";
+import { OverviewLedger } from "./OverviewLedger";
 import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
 import { buildTrajectories } from "./repoTrajectory";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
@@ -83,35 +80,23 @@ export async function OverviewFleetPanel({
       dims: r.latest!.dims.map((d) => ({ dimId: d.dimId, score: d.score })),
     }));
 
+  // The whole region is one client component (the fleet rollup and heatmap hold interaction state).
+  // Everything it renders is derived HERE, on the server, and handed over serialised — nothing in
+  // OverviewLedger awaits.
   return (
-    <div className="space-y-6">
-      {/* Where the fleet stands, in four numbers + the maturity trend as an inline sparkline. The
-          sparkline hides itself below two points (one rollup is a lone dot, not a trend). */}
-      <OrgScoreBadges badges={buildScoreBadges(rollup)} trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }} />
-
-      {/* The composition behind that headline: posture shares (each segment a filtered deep link)
-          and per-dimension averages with their cohort-matched movement over the window. */}
-      <PostureDimensionsPanel
-        slug={slug}
-        postureCounts={rollup.postureCounts}
-        dims={rollup.dimAverages}
-        dimDeltas={rollup.dimDeltas}
-        deltaLabel={`vs ${periodTitle.toLowerCase()}`}
-        search={search}
-      />
-
-      <div data-tour="results-view">
-        <RepoCategoryRollup trajectories={trajectories} periodTitle={periodTitle} orgSlug={slug} />
-      </div>
-
-      {/* The second Fleet-level instrument, beside the rollup so "which cohorts are moving" and
-          "who's strong/weak per dimension" read together. Cells open the per-dimension modal. The
-          `#heatmap` anchor is the target of the dimension grid's ▦ affordance above. */}
-      {heatmapRows.length > 0 && (
-        <div id="heatmap" className="scroll-mt-24">
-          <RepoDimensionHeatmap org={slug} dims={DIMS} rows={heatmapRows} initialSortDim={sortDim} />
-        </div>
-      )}
-    </div>
+    <OverviewLedger
+      slug={slug}
+      search={search ?? ""}
+      periodTitle={periodTitle}
+      sortDim={sortDim}
+      badges={buildScoreBadges(rollup)}
+      trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }}
+      postureCounts={rollup.postureCounts}
+      dims={rollup.dimAverages}
+      dimDeltas={rollup.dimDeltas ?? null}
+      deltaLabel={`vs ${periodTitle.toLowerCase()}`}
+      trajectories={trajectories}
+      heatmapRows={heatmapRows}
+    />
   );
 }

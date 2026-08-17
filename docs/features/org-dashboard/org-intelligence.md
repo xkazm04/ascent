@@ -161,7 +161,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Standing | Overview | `org/[slug]?tab=overview` | `src/components/org/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + per-dimension averages with per-dimension movement · the Fleet category rollup (repos grouped by Type/Stack/Level) · the repo × dimension heatmap. |
+| Standing | Overview | `org/[slug]?tab=overview` | `src/components/org/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4, see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
@@ -182,6 +182,38 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push) and Copilot (seats-only, admin pull); OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
 | Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. |
+
+### The Overview ledger (2026-08-17)
+
+The Overview is the org's first point of contact. Its old dimension grid showed nine bars with a
+number each and a label that silently linked to a practice card — numbers without a reading, and
+clicks without a stated destination. It was redesigned through a two-direction prototype round
+("Ledger", an editorial balance sheet read top-to-bottom, vs "Instrument", a cockpit read
+left-to-right along the pipeline with the posture plane and a fleet ladder); **Ledger won** and the
+Instrument variant, the pre-redesign baseline, and the A/B switcher were deleted.
+
+`OverviewLedger` (`src/components/org/overview/OverviewLedger.tsx`) composes the region; the
+dimension section is `LedgerDimensionRows`, fed by the pure `buildDimensionReadings` in
+`dimensionReading.ts`:
+
+- **Grouped by SDLC phase.** `SDLC_PHASES` — *Author with AI* (D1 AI Tooling · D4 Agentic · D8 AI
+  Process), *Verify* (D2 Testing · D6 Quality · D9 Security), *Ship & learn* (D3 CI/CD · D7 Commits
+  · D5 Docs). Each phase rule carries the question it answers and its own average, so a weak
+  *phase* is visible before any single number is read. This mapping is a product judgement about
+  how the rubric lays onto a delivery pipeline, **not** the maturity model's own grouping (that is
+  the adoption/rigor axis on each `DimensionDef`, which drives posture); it is the first thing to
+  argue about if the ledger is revised.
+- **One line item per dimension**, in fixed columns: name + **status word** (band word from
+  `levelForScore`: Weak · Emerging · Developing · Solid · Strong) · meter · score · window delta ·
+  a **one-line reading** (`weakest of 9 · below green in 3 of 3 repos · ▼4 vs 30d ago`; "below
+  green" is `< FOLLOW_UP_BELOW`, counted over the heatmap rows) · **`Practice → <name>`** (the
+  practice card that lifts the dimension, named so the click is legible) · **`▦ <n> repos`** (this
+  page's heatmap, sorted weakest-first on the dimension). Every column is a fixed `rem` track
+  except the meter and the reading, so the columns align across rows regardless of label length
+  (each row is its own grid; `auto`/`minmax` tracks would resolve per row).
+- **Posture composition** is unchanged (`PostureCompositionBar`, hoisted from the deleted panel):
+  one stacked bar of true shares, each segment and legend chip a link to Repositories filtered to
+  that posture.
 
 ### Segments (a Repositories tab, not a standalone page)
 
