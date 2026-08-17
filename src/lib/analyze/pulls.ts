@@ -368,6 +368,7 @@ export function mergeShaIndex(nodes: PrNode[]): { s: string; a: 0 | 1 }[] {
 /**
  * Fold pull-request signals into the deterministic dimension scores BEFORE the LLM blend, so
  * the Adoption × Rigor axes and posture reflect PR reality — not just file/commit signals:
+ *   D4 (AI Tooling, Adoption) — an AI reviewer OBSERVED reviewing merged PRs (additive).
  *   D6 (Quality, Rigor)    — review coverage + small-PR hygiene + low revert (bidirectional).
  *   D7 (Commits, Adoption) — AI showing up in PRs (additive: presence boosts, absence never penalizes).
  *   D8 (AI Process, Rigor) — are the AI-touched PRs actually reviewed? governed → lift, ungoverned → drag.
@@ -417,6 +418,28 @@ export function applyPrSignals(
                   : "PR review coverage n/a (fewer than 5 human-merged PRs in window)"
                 : `PR review coverage ${reviewedRate}%`,
             detail: `${pr.merged} merged · ${pr.smallPrRate}% small · ${pr.revertRate}% reverted`,
+          },
+        ],
+      };
+    }
+    if (s.id === "D4" && pr.aiPreReviewedRate != null && pr.aiPreReviewedRate > 0) {
+      // D4 (AI tooling) from OBSERVED behavior rather than committed config: an AI/bot reviewer that
+      // actually submitted a review before the first human one on merged PRs. A repo can configure a
+      // review bot and never let it run; this is the half that proves the tool is in the loop.
+      // Additive only (absence is not a penalty — an anonymous scan can't see reviews at all), and
+      // capped harder when the file detector already found the bot's config: the same tool observed
+      // twice is confirmation, not a second discovery.
+      const configured = s.signals.some((x) => x.label.startsWith("AI code-review agent"));
+      const credit = Math.min(configured ? 8 : 20, Math.round(pr.aiPreReviewedRate * 0.4));
+      return {
+        ...s,
+        signalScore: clamp(s.signalScore + credit),
+        signals: [
+          ...s.signals,
+          {
+            label: `AI reviewer active on ${pr.aiPreReviewedRate}% of merged PRs`,
+            detail:
+              "an AI/bot reviewer submitted a review before the first human review (Copilot code review, CodeRabbit, …)",
           },
         ],
       };

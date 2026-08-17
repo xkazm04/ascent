@@ -438,3 +438,104 @@ describe("summarizePullRequests — aiPreReviewedRate (W2)", () => {
     expect(extractAiChanges(nodes)).toHaveLength(0);
   });
 });
+
+// ── D4 from OBSERVED AI review (deepening pass) ───────────────────────────────
+// aiPreReviewedRate was computed and persisted but folded into no dimension: a repo whose AI reviewer
+// actually reviews merged PRs scored the same as one that never let it run. D4 credits the observed
+// behavior, additively, and caps it hard when the file detector already found the bot's config —
+// the same tool seen twice is confirmation, not a second discovery.
+
+describe("applyPrSignals — D4 fold from aiPreReviewedRate", () => {
+  const stats = (over: Partial<PrStats> = {}): PrStats => ({
+    analyzed: 20,
+    totalCount: 20,
+    open: 0,
+    merged: 20,
+    closedUnmerged: 0,
+    mergeRate: 100,
+    reviewedRate: 90,
+    avgReviews: 1,
+    avgComments: 1,
+    medianHoursToMerge: 4,
+    medianHoursToFirstReview: 2,
+    avgLineChanges: 60,
+    avgChangedFiles: 3,
+    smallPrRate: 70,
+    botAuthoredRate: 0,
+    aiInvolvedRate: 40,
+    aiGovernedRate: 80,
+    revertRate: 0,
+    draftRate: 0,
+    tools: [],
+    aiAuthoredPrs: 0,
+    aiMarkedPrs: 8,
+    aiTrailerPrs: 0,
+    aiTrailerRate: 40,
+    aiPreReviewedRate: 50,
+    reworkRate: 0,
+    aiReworkRate: null,
+    ...over,
+  });
+  const d4 = (signals: { label: string }[] = [], score = 40): DimensionSignals[] => [
+    { id: "D4", signalScore: score, signals },
+  ];
+
+  it("credits rate × 0.4 (50% → +20) and explains the observation", () => {
+    const [out] = applyPrSignals(d4(), stats());
+    expect(out!.signalScore).toBe(60);
+    expect(out!.signals[0]!.label).toBe("AI reviewer active on 50% of merged PRs");
+    expect(out!.signals[0]!.detail).toContain("before the first human review");
+  });
+
+  it("scales down for a thin rate (10% → +4)", () => {
+    const [out] = applyPrSignals(d4(), stats({ aiPreReviewedRate: 10 }));
+    expect(out!.signalScore).toBe(44);
+  });
+
+  it("caps at 20 for a fully AI-pre-reviewed repo", () => {
+    const [out] = applyPrSignals(d4(), stats({ aiPreReviewedRate: 100 }));
+    expect(out!.signalScore).toBe(60); // min(20, 40), not 40
+  });
+
+  it("caps at 8 when the file detector already found the review bot's config", () => {
+    const [out] = applyPrSignals(d4([{ label: "AI code-review agent in the pipeline" }]), stats());
+    expect(out!.signalScore).toBe(48); // +8, not +20 — behavioral confirmation of a known bot
+    expect(out!.signals).toHaveLength(2);
+  });
+
+  it("leaves D4 untouched when the rate is null (below the >=5 merged floor — no sample)", () => {
+    const base = d4();
+    const [out] = applyPrSignals(base, stats({ aiPreReviewedRate: null }));
+    expect(out).toEqual(base[0]);
+  });
+
+  it("leaves D4 untouched at a measured 0% (absence of AI review is not a penalty)", () => {
+    const base = d4();
+    const [out] = applyPrSignals(base, stats({ aiPreReviewedRate: 0 }));
+    expect(out).toEqual(base[0]);
+  });
+
+  it("clamps at 100", () => {
+    const [out] = applyPrSignals(d4([], 95), stats());
+    expect(out!.signalScore).toBe(100);
+  });
+
+  it("never decorates a crashed D4 detector (G3-08)", () => {
+    const failed: DimensionSignals[] = [{ id: "D4", signalScore: 0, signals: [], failed: true }];
+    expect(applyPrSignals(failed, stats())).toEqual(failed);
+  });
+
+  it("leaves the D6 / D7 / D8 folds byte-identical to a run with no AI-review sample", () => {
+    const dims = (): DimensionSignals[] => [
+      { id: "D6", signalScore: 80, signals: [] },
+      { id: "D7", signalScore: 50, signals: [] },
+      { id: "D8", signalScore: 50, signals: [] },
+    ];
+    const withRate = applyPrSignals(dims(), stats());
+    const withoutRate = applyPrSignals(dims(), stats({ aiPreReviewedRate: null }));
+    expect(withRate).toEqual(withoutRate);
+    expect(withRate[0]!.signalScore).toBe(82); // 0.65*80 + 0.35*(0.5*90 + 0.3*70 + 0.2*100)
+    expect(withRate[1]!.signalScore).toBe(68); // +min(18, round(40*0.5))
+    expect(withRate[2]!.signalScore).toBe(59); // 0.7*50 + 0.3*80
+  });
+});
