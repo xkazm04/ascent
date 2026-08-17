@@ -36,6 +36,9 @@ export const ORG_TAB_IDS = [
   "plan",
   "backlog",
   // Library
+  // The customer-owned registry repo (Skills/Practices/Memory as git) — first item in `Chosen`,
+  // because the other three Library tabs read their source of truth from it once it is mapped.
+  "registry",
   "skills",
   "memory",
   // Govern
@@ -130,6 +133,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     key: "chosen",
     label: "Chosen",
     items: [
+      // Registry sits FIRST: it is the onboarding step Practices/Skills/Memory depend on, and their
+      // sync-health strip links back here (docs/REGISTRY-AND-CARE-IMPL.md §0.2).
+      { id: "registry", label: "Registry" },
       { id: "plan", label: "Plan", countKey: "plan" },
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
@@ -184,6 +190,7 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "overview",
   "security",
   "backlog",
+  "registry",
   "skills",
   "memory",
 ]);
@@ -367,6 +374,7 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "plan",
   "backlog",
   "practices",
+  "registry",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

@@ -36,6 +36,8 @@ const BLURBS: Record<OrgTabId, string> = {
   practices: "The practice library: turn a gap into a starter artifact and open it as a draft PR, one repo or many.",
   plan: "Goals, initiatives and a what-if simulator that recomputes the whole fleet under a hypothetical fix.",
   backlog: "Every open gap across the fleet with an owner and a due date, searchable, bulk-editable, exportable.",
+  registry:
+    "Put your skills, practices and org memory in a git repo you own; ascent onboards it, indexes it, and shows which repos are in sync.",
   skills: "A versioned SKILL.md library your org authors, adopts against repos, and syncs with CLI and CI.",
   memory: "Durable org knowledge (decisions, incidents and conventions) recalled by value, corrected by supersede. Your agents can read it too, over scoped API tokens.",
   members: "Who is in the org and what they can do.",

@@ -28,6 +28,7 @@ import { SecurityTab } from "../intelligence/security/SecurityTab";
 import { PassportsTab } from "../intelligence/passports/PassportsTab";
 import { SkillsTab } from "../library/skills/SkillsTab";
 import { MemoryTab } from "../library/memory/MemoryTab";
+import { RegistryTab } from "../library/registry/RegistryTab";
 import { RepositoriesTab } from "../fleet/repositories/RepositoriesTab";
 import { TechStacksTab } from "../fleet/tech-stacks/TechStacksTab";
 import { TeamsTab } from "../fleet/teams/TeamsTab";
@@ -118,6 +119,14 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         {tab === "memory" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
             <MemoryTab slug={slug} />
+          </Suspense>
+        ) : null}
+
+        {/* The customer-owned registry repo: onboarding stepper when unmapped, dashboard once indexed.
+            Takes `sp` for the prototype round's `?demo=<state>` fixture switch. */}
+        {tab === "registry" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
+            <RegistryTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

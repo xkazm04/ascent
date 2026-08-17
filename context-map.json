@@ -1492,6 +1492,34 @@
             "/api/org/skills",
             "/api/org/tokens"
           ]
+        },
+        {
+          "name": "AI Registry Repo (Onboarding & Index)",
+          "description": "## Purpose\nThe customer-owned registry repo (`<org>/ai-registry`) that becomes the source of truth for Skills, Practices and Memory. Ascent onboards it (create / map / stay hosted), indexes it, and tracks how the fleet syncs against it; developers change it with plain git.\n\n## Key Flows\n- getRegistryView assembles the tab's read model (status, artifact counts registry-vs-hosted, migration steps, fleet sync, activity, telemetry, how-to); registry-view.fixture supplies the ?demo= states while the indexer is unbuilt.\n- RegistryTab (server) -> RegistryPanelSwitcher -> the three prototype directions (Ledger / Blueprint / Pipeline), all reading the same view.\n\n## Entry Points\n- src/lib/org/registry-view.ts\n- src/components/org/library/registry/RegistryTab.tsx",
+          "businessFeature": "AI Registry",
+          "category": "feature",
+          "filePaths": [
+            "src/lib/org/registry-view.ts",
+            "src/lib/org/registry-view.fixture.ts",
+            "src/components/org/library/registry/RegistryTab.tsx",
+            "src/components/org/library/registry/RegistryPanelSwitcher.tsx",
+            "src/components/org/library/registry/RegistryPanelLedger.tsx",
+            "src/components/org/library/registry/RegistryPanelBlueprint.tsx",
+            "src/components/org/library/registry/RegistryPanelPipeline.tsx",
+            "src/components/org/library/registry/RegistryStepperIndex.tsx",
+            "src/components/org/library/registry/RegistryPipelineFlow.tsx",
+            "src/components/org/library/registry/RegistryWiringDiagram.tsx",
+            "src/components/org/library/registry/RegistryTreeMap.tsx",
+            "src/components/org/library/registry/RegistryArtifactLedger.tsx",
+            "src/components/org/library/registry/RegistryFleetSync.tsx",
+            "src/components/org/library/registry/RegistryActivity.tsx",
+            "src/components/org/library/registry/RegistryHowTo.tsx",
+            "src/components/org/library/registry/RegistryActions.tsx",
+            "src/components/org/library/registry/registryModel.ts",
+            "src/app/org/[slug]/registry/page.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
         }
       ]
     },
