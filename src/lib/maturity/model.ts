@@ -64,7 +64,14 @@ import type {
 // scored and the summary is prose. But both are changed model inputs and the roadmap now covers up
 // to nine dimensions rather than 3-5, so a cached scan's "next steps" would silently disagree with
 // what a fresh one produces. Same class as r3/r5.
-export const SCORING_RUBRIC_VERSION = "r6";
+// r7 (2026-08-17): the deepening pass — detector point tables gained platform-observed, token-gated
+// ADDITIVE credits: the installed-App inventory read from the scored commit's check suites folds into
+// D4 (+25 AI review/agent App), D3 (+35 non-Actions CI, +10 deploy platform), D2 (+8 coverage
+// reporter) and the D9 battery (SAST 10 for a code-scanning App, dependency-updates 6 for a
+// supply-chain App); default-branch Actions health folds into D3 (+8/+4); the already-computed
+// aiPreReviewedRate folds into D4 (≤20). Anonymous scans are byte-identical; token scans of the same
+// commit can move UP, so a cached r6 score is no longer comparable with a fresh one.
+export const SCORING_RUBRIC_VERSION = "r7";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

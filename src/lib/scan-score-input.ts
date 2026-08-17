@@ -9,6 +9,9 @@
 
 import { analyzeSignals, classifyArchetype, offPlatformReview } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
+import { applyAppInventorySignals, applyCiHealthSignals } from "@/lib/analyze/platform-signals";
+import type { AppInventory } from "@/lib/github/check-suites";
+import type { CiHealth } from "@/lib/github/actions-health";
 import { detectStackFit, type StackFit } from "@/lib/analyze/stack-fit";
 import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { computeSecurityChecks } from "@/lib/security/checks";
@@ -32,6 +35,10 @@ export interface ScoreInputPhaseInput {
   governance: Governance | null;
   securityPosture: SecurityPosture | null;
   securityExposure: SecurityExposure | null;
+  /** Deepening pass: installed-App inventory on the scored commit; null = not observable. */
+  appInventory?: AppInventory | null;
+  /** Deepening pass: default-branch Actions run health; null = not observable. */
+  ciHealth?: CiHealth | null;
   /** The scan timestamp, resolved once by the caller so D7's recency bonus is deterministic. */
   now: string;
   /**
@@ -56,21 +63,31 @@ export interface ScoreInputPhaseResult {
 /** Build the model's input from the ingested snapshot + GitHub enrichments. */
 export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<ScoreInputPhaseResult> {
   const { snapshot, prStats, governance, securityPosture, securityExposure, now, decisionSlug } = input;
+  const appInventory = input.appInventory ?? null;
+  const ciHealth = input.ciHealth ?? null;
 
   const detectorWarnings: string[] = [];
-  const baseSignals = applyGovernanceSignals(
-    applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
-      // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
-      // gate is credited positively in the D6 detector from the same commit trailers.
-      offPlatformReview: offPlatformReview(snapshot.commits) != null,
-    }),
-    governance,
+  // Deepening pass: the platform-observed folds (installed Apps, CI health) run AFTER PR + governance
+  // so their "only when the file scan found none" guards see the full evidence list.
+  const baseSignals = applyCiHealthSignals(
+    applyAppInventorySignals(
+      applyGovernanceSignals(
+        applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
+          // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
+          // gate is credited positively in the D6 detector from the same commit trailers.
+          offPlatformReview: offPlatformReview(snapshot.commits) != null,
+        }),
+        governance,
+      ),
+      appInventory,
+    ),
+    ciHealth,
   );
   // Security (D9) is scored by the DETERMINISTIC check battery (OpenSSF-Scorecard-style: graded,
   // risk-weighted, auditable) rather than the file-grep detector + LLM blend. It reads the full
   // workflow set + governance + posture + exposure, and its result REPLACES the D9 signal, flagged
   // `deterministic` so the engine takes the number as-is (the LLM only narrates D9, per the framework).
-  const securityAssessment = computeSecurityChecks(snapshot, governance, securityPosture, securityExposure);
+  const securityAssessment = computeSecurityChecks(snapshot, governance, securityPosture, securityExposure, appInventory);
   const signals = baseSignals.map((s) =>
     s.id === "D9"
       ? { ...s, signalScore: securityAssessment.d9, deterministic: true, gaps: securityAssessment.gaps, signals: securityAssessment.evidence.map((label) => ({ label })) }

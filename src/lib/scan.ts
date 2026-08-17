@@ -200,7 +200,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   signal?.throwIfAborted();
 
   // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
-  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
+  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
     await ingestRepository({
       parsed,
       source,
@@ -225,6 +225,8 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     governance,
     securityPosture,
     securityExposure,
+    appInventory,
+    ciHealth,
     now,
     // decisionOrgSlug (individual tier) points the standing-decision read at the TRIGGERING viewer's
     // personal org on the public funnel; org scans keep reading their own org via the orgSlug fallback.

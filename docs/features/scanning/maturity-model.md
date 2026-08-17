@@ -121,7 +121,9 @@ real architectural/testing guidance an agent could follow?
 *Signals:* test directories/files (`__tests__`, `*.test.*`, `*_test.*`, `tests/`),
 frameworks (Jest, Vitest, Pytest, Go test, JUnit…), e2e (Playwright/Cypress),
 test-to-source file ratio, coverage config (`coverage`, `codecov.yml`), fixtures,
-snapshot tests.
+snapshot tests. *Platform (token-gated, additive, r7):* a coverage reporter App
+(Codecov/Coveralls/Codacy) posting a check suite on the scored commit earns +8 when no
+coverage config was committed (`analyze/platform-signals.ts`).
 *LLM assessment:* do tests look meaningful (behavioral, edge cases) vs. trivial? Is
 there a testing philosophy? Coverage breadth across the codebase.
 
@@ -131,7 +133,14 @@ test, build, deploy); branch-protection hints; release automation (semantic-rele
 release-please, changesets); preview deploys (Vercel/Netlify); IaC (Terraform, CDK,
 Pulumi); policy-as-code (OPA/conftest `.rego`); GitOps (ArgoCD/Flux manifests);
 progressive delivery (Argo Rollouts/Flagger, feature-flag SDKs); versioned DB migrations
-(Prisma/Alembic/Flyway/Liquibase).
+(Prisma/Alembic/Flyway/Liquibase). *Platform (token-gated, additive, r7):* a non-Actions CI
+App posting check suites on the scored commit (Azure Pipelines, CircleCI, Buildkite, …) earns
++35 when the file scan found no pipeline at all, a deploy platform App (Vercel/Netlify/…)
++10 when no deploy step was committed; and **default-branch Actions health**
+(`github/actions-health.ts`, last 50 non-PR runs) earns +8 at ≥90% green, +4 at 75–89%,
+and below that adds a named "Default-branch CI red" evidence line with the failing
+workflows but no penalty. When the file scan already found the same capability the App is
+appended as zero-point evidence, so a pipeline is never paid twice.
 *LLM assessment:* completeness of the pipeline (does it actually gate merges?), and how
 declarative, auditable, and reversible the path to production is: what lets autonomy
 compound.
@@ -140,7 +149,14 @@ compound.
 *Signals:* AI review bots (CodeRabbit, Claude/Copilot review, `claude-code-action`,
 Greptile, Sweep), LLM invocations inside CI workflows, auto-fix/auto-format bots,
 auto-PR tooling, Renovate/Dependabot **auto-merge**, issue→PR automation, agent configs
-in CI.
+in CI. *Platform (token-gated, additive, r7):* an AI review/agent **App** installed on the
+repo (the `claude`, `coderabbitai`, `greptile-apps`, `copilot-pull-request-reviewer`, …
+check suite on the scored commit) earns +25 when no review bot is configured in committed
+files, and the **observed** `aiPreReviewedRate` (share of merged PRs an AI reviewer reviewed
+before the first human) earns `min(20, rate × 0.4)`, capped at 8 when a bot is already
+configured in-repo (`analyze/pulls.ts:applyPrSignals`). Configured-in-repo remains the
+strongest evidence; the App and the observed reviews close the "installed at the org level,
+nothing committed" blind spot.
 *LLM assessment:* how deeply are agents embedded: keyboard assist only (low), or
 autonomous review/fix/ship loops (high)?
 
@@ -182,6 +198,14 @@ Scout) when containerized; SBOM (Syft, CycloneDX, SPDX); artifact signing + prov
 signing/protection folds in from the governance API.
 *LLM assessment:* do these run automatically and gate merges/releases, or just sit in
 the repo? This is the shift-left guardrail against vulnerable or secret-leaking AI output.
+
+*Platform (token-gated, additive, r7):* the battery also reads the **installed-App inventory**
+from the scored commit's check suites (`src/lib/github/check-suites.ts`): a code-scanning App
+(`github-code-scanning`, i.e. default-setup CodeQL, or Semgrep/Sonar Apps) scores the SAST check
+10 whether or not a workflow exists, and a supply-chain scanner App (Socket, Snyk, Wiz,
+GitGuardian, StepSecurity) scores dependency-updates 6 when nothing is committed and no bot
+commits are present. A null inventory (anonymous scan, or the read failed) leaves every check
+byte-identical; no new check was added, so a token scan can only move up.
 
 *Two parsing rules in the battery worth stating, because D9 is taken verbatim* (`src/lib/security/checks.ts`):
 
@@ -307,7 +331,7 @@ Design principles:
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r6`.**
+`src/lib/maturity/model.ts`. **Current: `r7`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -335,3 +359,4 @@ genuinely display-only change, but the reasoning belongs in the diff.
 | `r4` (2026-08-05) | Two Security (D9) detector corrections in `src/lib/security/checks.ts`: pinned-dependencies no longer counts multi-stage `FROM <alias>` or `FROM scratch` in the denominator, and the broad-write cap matches `contents: write` anywhere in a permissions block. D9 is taken verbatim by the engine. |
 | `r5` (2026-08-14) | The assessment system prompt gained `PROSE_STYLE_RULE` (`src/lib/llm/prose.ts`, interpolated in `src/lib/scoring/prompt.ts`). It constrains punctuation in the model's prose, so no scoring semantics moved — but it is a changed model input, which is the same class as `r3`. The em-dash sweep re-pinned the surface hash without bumping, having accounted for the six display-only strings it rewrote but not for the prompt injection. |
 | `r6` (2026-08-17) | The TASK block now asks for a *markdown-lite* summary (short paragraphs · bullets · bold · code) instead of one paragraph, and for **roadmap coverage** of every dimension below `FOLLOW_UP_BELOW` (65). Neither moves a score, but the roadmap grows from 3-5 entries to up to nine and the prose shape changes, so a cached scan's "next steps" would disagree with a fresh one. Same class as `r3`/`r5`. |
+| `r7` (2026-08-17) | The **deepening pass**: token-gated, additive platform credits entered the detector point tables. The installed-App inventory read from the scored commit's check suites (`src/lib/github/check-suites.ts`) folds into D4 (+25 AI review/agent App), D3 (+35 non-Actions CI, +10 deploy platform), D2 (+8 coverage reporter) and the D9 battery (SAST 10 for a code-scanning App, dependency-updates 6 for a supply-chain App); default-branch Actions health (`src/lib/github/actions-health.ts`) folds into D3 (+8 / +4); the already-computed `aiPreReviewedRate` folds into D4 (≤20). Anonymous scans are byte-identical to `r6`; a token scan of the same commit can move up, so cached `r6` scores are not comparable with fresh ones. |

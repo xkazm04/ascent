@@ -219,6 +219,31 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
   matched in the window", never "was never reverted".
 - `src/lib/github/governance.ts:fetchBranchGovernance`: branch protection + rulesets.
   Folds into D6/D3/D8. `fetchCommitActivity` adds 52-week commit history.
+- `src/lib/github/check-suites.ts:fetchAppInventory` (deepening pass, r7): the **installed-App
+  inventory**, read from the check suites posted on the *scored commit*
+  (`GET /repos/{o}/{r}/commits/{sha}/check-suites`, one page, deduped by `app.slug`). This is the
+  Settings-configured tooling a file scan structurally cannot see: default-setup CodeQL posts as
+  `github-code-scanning`, org-installed Socket/Snyk/Wiz/GitGuardian, Codecov, the Claude /
+  CodeRabbit / Greptile review Apps, Vercel/Netlify, Azure Pipelines/CircleCI/Buildkite. Public
+  repos answer an ordinary token; private repos ride the App's existing **Checks: read**.
+  `classifyApp` maps a slug to a conservative category (`ai-review · sast · supply-chain ·
+  coverage · ci · deploy · observability · actions · other`); an unknown slug earns nothing.
+  Folds ADDITIVELY into D2/D3/D4 (`analyze/platform-signals.ts:applyAppInventorySignals`) and
+  into the D9 battery (`security/checks.ts`, SAST + dependency-updates). Null = "not observable"
+  (anonymous scan / read failed) and never means "no Apps"; an empty list on a 200 is a real zero.
+- `src/lib/github/actions-health.ts:fetchCiHealth` (deepening pass, r7): **default-branch CI
+  health** from the last 50 non-PR Actions runs (`GET /repos/{o}/{r}/actions/runs?branch=…&
+  exclude_pull_requests=true`): success rate over completed runs with a verdict (cancelled /
+  skipped / neutral / stale / action_required leave the sample), median duration, distinct
+  workflows, and the workflows whose *most recent* run is red. Public repos answer an ordinary
+  token; private repos need the optional **Actions: read** App permission, otherwise null. Folds
+  additively into D3 (`applyCiHealthSignals`: +8 at ≥90% green, +4 at 75–89%, a named "red" line
+  with no penalty below; `sampled < 5` is evidence only, `sampled: 0` says nothing). The
+  penalty-free shape is deliberate: an anonymous scan cannot observe runs, and a token-gated
+  penalty would make the same repo score lower the more it lets Ascent see.
+- `applyPrSignals` (deepening pass, r7) now also folds the already-computed `aiPreReviewedRate`
+  into **D4**: `min(20, rate × 0.4)`, capped at 8 when a review bot is configured in committed
+  files (behavioural confirmation, not a second discovery).
 
 Both `applyPrSignals` and `applyGovernanceSignals` (`pulls.ts`) skip a dimension outright
 when `signals.failed` is set: a crashed detector's placeholder `signalScore: 0` is never
@@ -409,7 +434,10 @@ cancelled only when the last interested caller disconnects.
 | `src/app/api/scan/stream/route.ts` | SSE streaming endpoint with heartbeat + abort handling. |
 | `src/lib/github/source.ts` | `GitHubPublicSource.fetchSnapshot()`: metadata, tree, file sampling, commits, conditional head. |
 | `src/lib/analyze/index.ts` | `analyzeSignals()`: the 9 detectors, `classifyArchetype`, `detectAiUsage`, `computeContributors`. |
-| `src/lib/analyze/pulls.ts` | PR stats over GraphQL; folds into D6/D7/D8. |
+| `src/lib/analyze/pulls.ts` | PR stats over GraphQL; folds into D4/D6/D7/D8. |
+| `src/lib/analyze/platform-signals.ts` | Additive folds of the installed-App inventory (D2/D3/D4) and default-branch CI health (D3). |
+| `src/lib/github/check-suites.ts` | `fetchAppInventory()` + `classifyApp()`: the Apps that posted check suites on the scored commit. |
+| `src/lib/github/actions-health.ts` | `fetchCiHealth()`: default-branch Actions run health (success rate, median duration, currently-red workflows). |
 | `src/lib/analyze/passport.ts` | `buildPassport()`: the pure App Readiness Passport projection (barrel for grades/score/autonomy/overlay/migrate siblings), incl. the 0.3.0 sandbox/hooks detectors. |
 | `src/lib/analyze/passport-autonomy.ts` | `deriveAutonomyTier()`: the T0–T3 per-repo autonomy ladder + unlock checklists (token-capped; read-time derivation for stored rows). |
 | `src/lib/analyze/context-health.ts` | `deriveContextHealth()`: guidance freshness/quality/drift (W4); `pickGuidanceFiles`, `commitsSince`, decay math, `parseContextHealthJson`. Display-only. |
@@ -429,7 +457,19 @@ cancelled only when the last interested caller disconnects.
 - **Coverage is a heuristic.** `estimateCoverage` caps confidence on truncated/large
   repos; it isn't ground truth, and reports below 50% coverage carry an "indicative only"
   warning.
-- **PR + governance signals require a token.** Anonymous scans skip them and warn.
+- **PR + governance + platform signals require a token.** Anonymous scans skip PR stats,
+  governance, security posture/exposure, deployments, the installed-App inventory and CI
+  health, and warn. Every token-gated fold is additive, so an anonymous scan is a floor, not a
+  different rubric.
+- **The App inventory is one page of one commit.** It reads the suites on the *scored* commit
+  only (≤100, `truncated` flags a floor). An App that posts suites only on pull-request heads
+  and never on the default branch is invisible to it; the observed `aiPreReviewedRate` covers
+  the review-bot case from the PR side, but a PR-only SAST/coverage App can still go
+  uncredited. Reading suites on recent PR heads is the obvious extension (a few more calls).
+- **Code-scanning REST endpoints are not read.** `/code-scanning/default-setup` and
+  `/code-scanning/alerts` return 403 for an ordinary token on public repos (they need
+  `security_events`, which the App does not request), so default-setup CodeQL is credited only
+  when it posted a `github-code-scanning` check suite on the scored commit.
 - **LLM fallback is automatic but lossy.** A failed LLM swaps to the deterministic mock;
   the report still renders but with `engine.provider: "mock"` and a warning. It is no longer
   *silent*: each fallback bumps a `scan_degraded` tally (see [Outcome

@@ -27,7 +27,8 @@ maturity gate, push-driven re-scan, and "open a practice starter PR") need a lit
 | **Metadata** | Read | mandatory |
 | **Contents** | Read | scan private files; **Read & write** to open practice-starter PRs |
 | **Pull requests** | Read & write | PR maturity-gate sticky comment; open starter PRs |
-| **Checks** | Read & write | post the PR maturity-gate Check Run (the merge status) |
+| **Checks** | Read & write | post the PR maturity-gate Check Run (the merge status); Read also lets the scan see the **installed-App inventory** (check suites on the scored commit) on private repos |
+| **Actions** | Read (optional) | default-branch **CI health** (recent workflow runs) on private repos; without it that enrichment is simply not observed |
 
 Grant only what you use: read-only Contents + Metadata is enough for pure scanning.
 

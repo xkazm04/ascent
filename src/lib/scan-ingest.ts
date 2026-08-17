@@ -13,6 +13,8 @@ import { pickGuidanceFiles } from "@/lib/analyze/context-health";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { fetchDeployments, type DeploymentRecord } from "@/lib/github/deployments";
 import { fetchSecurityPosture } from "@/lib/github/security-posture";
+import { fetchAppInventory, type AppInventory } from "@/lib/github/check-suites";
+import { fetchCiHealth, type CiHealth } from "@/lib/github/actions-health";
 import { fetchSecurityExposure } from "@/lib/security/exposure";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { Governance, GuidanceFreshness, PrStats, RepoSnapshot, SecurityExposure, SecurityPosture } from "@/lib/types";
@@ -48,6 +50,11 @@ export interface IngestPhaseResult {
   deployments: DeploymentRecord[];
   securityPosture: SecurityPosture | null;
   securityExposure: SecurityExposure | null;
+  /** Deepening pass: GitHub Apps that posted check suites on the scored commit (Settings-configured
+   *  tooling a file scan can't see). Null = not observable (anonymous scan / read failed). */
+  appInventory: AppInventory | null;
+  /** Deepening pass: recent default-branch Actions run health. Null = not observable. */
+  ciHealth: CiHealth | null;
   /** Display-only; still in flight. Awaited at compose time so it overlaps the LLM call. */
   activityPromise: Promise<number[] | null>;
   /** Context Health (W4): per-guidance-file last-modified lookups (≤3 REST calls, keyless-safe,
@@ -111,6 +118,18 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   const activityPromise: Promise<number[] | null> = token
     ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
+  // Deepening pass — the two platform-observed enrichments. Both are one bounded REST call, token-gated
+  // like governance (rate-limit hygiene; the App's existing Checks:read covers suites on private repos,
+  // Actions:read is optional and its absence degrades to null), and both fold ADDITIVELY into the
+  // deterministic scores (analyze/platform-signals.ts, security/checks.ts). Score-bearing, so awaited
+  // with the others before analysis.
+  const scoredSha = snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch;
+  const appInventoryPromise: Promise<AppInventory | null> = token
+    ? fetchAppInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(() => null)
+    : Promise.resolve(null);
+  const ciHealthPromise: Promise<CiHealth | null> = token
+    ? fetchCiHealth(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
+    : Promise.resolve(null);
   // W4 — deployments, the outcome anchor. Token-gated and BEST-EFFORT: a repo that doesn't use
   // GitHub Deployments returns an empty list, and no read scope returns null → no rows, which the
   // outcome views render as "not measured" rather than as a zero failure rate. It never blocks or
@@ -133,7 +152,14 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     : Promise.resolve([]);
 
   emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prResult, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
+  const [prResult, governance, securityPosture, securityExposure, appInventory, ciHealth] = await Promise.all([
+    prPromise,
+    govPromise,
+    secPromise,
+    expPromise,
+    appInventoryPromise,
+    ciHealthPromise,
+  ]);
 
   return {
     snapshot,
@@ -155,6 +181,8 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     governance,
     securityPosture,
     securityExposure,
+    appInventory,
+    ciHealth,
     activityPromise,
     guidanceFreshnessPromise,
   };

@@ -46,20 +46,27 @@ within-1-level agreement stayed at **100%** and D9 discriminates cleanly across 
 (`0` for repos with no committed security tooling → `~26` for SCA + policy → `60–69` for
 full supply-chain posture, anchored by `sigstore/cosign` and `aquasecurity/trivy`).
 
-**Known limitation: D9 only sees security that is committed as code.** A repo can score
-`D9 = 0` while being well-secured in practice, because two common postures are invisible to
-a read-only file scan:
+**Known limitation (narrowed in r7): D9 sees security committed as code, plus what a token
+scan can observe on GitHub's side.** The mock/anonymous path is still file-only, so a repo can
+score `D9 = 0` there while being well-secured in practice. Two postures used to be invisible
+to any scan; both now have a token-gated, additive read:
 - **GitHub "default-setup" CodeQL** is configured in repo settings and leaves no workflow
-  file, so SAST is undetectable.
-- **Org-level security policy** (a `SECURITY.md` / `dependabot.yml` in the org's `.github`
-  repo) applies to every repo but isn't in the scanned repo's tree.
+  file. Since r7 the D9 battery reads the **installed-App inventory** from the scored commit's
+  check suites (`src/lib/github/check-suites.ts`): a `github-code-scanning` suite scores the
+  SAST check 10 with or without a workflow, and a supply-chain App (Socket/Snyk/Wiz/…) lifts
+  dependency-updates to 6 when nothing is committed. Only credited when the App actually
+  posted a suite on that commit; a null inventory leaves the score byte-identical.
+- **Org-level security policy** (a `SECURITY.md` in the org's `.github` repo) is read by
+  `src/lib/github/security-posture.ts` and credits the security-policy check (8); an
+  org-level `dependabot.yml` is still inferred behaviourally from bot commits (8), not read.
 
-`pallets/flask` and `vercel/next.js` both score `D9 = 0` for exactly this reason (verified:
-no repo-level `dependabot.yml` / `SECURITY.md` / `renovate.json`), while `facebook/react`,
-which commits both, correctly scores `26`. This is the same "config-as-code only" ceiling
-that bounds the whole scanner; D9 is **deliberately not** inflated to compensate, since
-that would over-credit repos that genuinely lack scanning. The signal layer is regression-
-guarded by [`src/lib/analyze/calibration.test.ts`](../src/lib/analyze/calibration.test.ts).
+The mock-mode figures above are unchanged (`pallets/flask` and `vercel/next.js` still score
+`D9 = 0` without a token, verified: no repo-level `dependabot.yml` / `SECURITY.md` /
+`renovate.json`; `facebook/react`, which commits both, scores `26`), and D9 is still
+**deliberately not** inflated to compensate for what no source can observe. The signal layer
+is regression-guarded by [`src/lib/analyze/calibration.test.ts`](../src/lib/analyze/calibration.test.ts)
+(no inventory) and by the byte-identical pins in `src/lib/security/checks.test.ts` (null
+inventory ≡ pre-r7).
 
 ## Live eval with the Claude CLI (subscription)
 
