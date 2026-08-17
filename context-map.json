@@ -1123,6 +1123,37 @@
           ],
           "target": null,
           "apiRoutes": []
+        },
+        {
+          "name": "Individual Care (UC3)",
+          "description": "## Purpose\nThe `Care` tab: UC3 individual care in the app. ONE tab id, TWO modes by Organization.kind — personal mode is the developer’s own home (profile, moves board, session shape, my repos’ gaps, journal, privacy ledger), org mode is the anonymized care aggregate under the champion floors. The local /mentor skill is the sensor and coach; this surface is the memory, the map and the bridge to the registry.\n\n## Key Flows\n- getCareView(slug, {demo}) decides the mode with isPersonalOrg and returns an honest empty state until C3/C4 land; ?demo= selects a fixture view model.\n- CareTab (server) streams CarePanelSwitcher (client), which holds the three prototype directions (Companion / Climb / Cockpit); all three render both modes plus the empty and below-floor states.\n- Org mode reuses CHAMPION_MIN_POP from components/org/shared/champions; there is no per-person shape in the org branch of CareView.\n\n## Entry Points\n- src/components/org/library/care/CareTab.tsx\n- src/lib/org/care-view-load.ts\n- src/lib/org/care-view.ts",
+          "businessFeature": "Individual care (UC3)",
+          "category": "feature",
+          "filePaths": [
+            "src/lib/org/care-view.ts",
+            "src/lib/org/care-view-load.ts",
+            "src/lib/org/care-view.fixture.ts",
+            "src/app/org/[slug]/care/page.tsx",
+            "src/components/org/library/care/CareTab.tsx",
+            "src/components/org/library/care/CarePanelSwitcher.tsx",
+            "src/components/org/library/care/CarePanelCompanion.tsx",
+            "src/components/org/library/care/CarePanelClimb.tsx",
+            "src/components/org/library/care/CarePanelCockpit.tsx",
+            "src/components/org/library/care/CareBits.tsx",
+            "src/components/org/library/care/CareProfileCard.tsx",
+            "src/components/org/library/care/CareMovesBoard.tsx",
+            "src/components/org/library/care/CareSessionShape.tsx",
+            "src/components/org/library/care/CareRepoGaps.tsx",
+            "src/components/org/library/care/CareJournal.tsx",
+            "src/components/org/library/care/CarePrivacyLedger.tsx",
+            "src/components/org/library/care/CareWhyStrip.tsx",
+            "src/components/org/library/care/CareClimbChart.tsx",
+            "src/components/org/library/care/CareAltimeter.tsx",
+            "src/components/org/library/care/CareCockpitGauges.tsx",
+            "src/components/org/library/care/CareOrgAggregate.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
         }
       ]
     },

@@ -77,9 +77,10 @@ describe("org tab catalog", () => {
 
   it("every personal-workspace tab is a real id", () => {
     for (const id of PERSONAL_TAB_IDS) expect(isOrgTabId(id)).toBe(true);
-    // Mirrors OrgNav's old PERSONAL_SEGMENTS ("" was the overview root), plus `registry`: a personal
-    // workspace gets the same layout against `<user>/ai-registry` (REGISTRY-AND-CARE-IMPL §1).
-    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "memory", "overview", "registry", "security", "skills"]);
+    // Mirrors OrgNav's old PERSONAL_SEGMENTS ("" was the overview root), plus `registry` (a personal
+    // workspace gets the same layout against `<user>/ai-registry`, REGISTRY-AND-CARE-IMPL §1) and `care`
+    // (UC3's tab is the one surface a personal workspace exists FOR).
+    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "care", "memory", "overview", "registry", "security", "skills"]);
   });
 
   it("every migrated tab is a real id", () => {
