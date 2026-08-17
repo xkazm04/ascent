@@ -5,6 +5,8 @@
 
 import { describe, it, expect } from "vitest";
 import { computeSecurityChecks } from "./checks";
+import { classifyApp } from "@/lib/github/check-suites";
+import type { AppInventory } from "@/lib/github/check-suites";
 import type { Governance, RepoFile, RepoSnapshot, SecurityExposure, SecurityPosture } from "@/lib/types";
 
 function snap(files: { path: string; content: string }[], treePaths: string[] = []): RepoSnapshot {
@@ -23,6 +25,13 @@ const gov = (over: Partial<Governance> = {}): Governance => ({
   requiresCodeOwnerReview: false, requiresStatusChecks: true, requiresSignatures: false, linearHistory: false, ruleCount: 3, readable: true, ...over,
 });
 const get = (a: ReturnType<typeof computeSecurityChecks>, id: string) => a.checks.find((c) => c.id === id)!;
+/** An installed-App inventory on the scored commit, from bare slugs. */
+const inv = (...slugs: string[]): AppInventory => ({
+  sha: "deadbeef",
+  apps: slugs.map((slug) => ({ slug, name: slug, conclusion: "success" })),
+  total: slugs.length,
+  truncated: false,
+});
 
 describe("computeSecurityChecks — grading is effectiveness, not presence", () => {
   it("branch protection is graded by what's ENFORCED, not just protected:true", () => {
@@ -231,5 +240,118 @@ jobs: {}`),
 some-other-key:
   contents: write`),
     ).toBe(10);
+  });
+});
+
+// Security configured in GitHub SETTINGS rather than committed as code (default-setup CodeQL, org-level
+// Socket/Snyk/Wiz) is invisible to a file scan — flask and next.js scored SAST 0 on controls they run.
+// The installed-App inventory (Apps that posted a check suite on the scored commit) closes that gap. It
+// is strictly ADDITIVE: null must reproduce the old numbers byte-for-byte, and an observed App may only
+// raise a check. These pin both halves.
+describe("App inventory — additive only, never lowers a score", () => {
+  const noSastWf = snap([{ path: ".github/workflows/ci.yml", content: "jobs:\n  test:\n    steps:\n      - run: go test ./..." }]);
+
+  it("a null inventory reproduces the pre-inventory assessment byte-for-byte", () => {
+    // Hard pin, not a self-comparison: these are the exact evidence lines the battery emitted before the
+    // inventory existed. If threading `apps` through ever perturbs a check, this fails loudly.
+    const a = computeSecurityChecks(noSastWf, gov(), null, null, null);
+    expect(a.evidence).toEqual([
+      "Branch protection [posture/high]: 8/10 — Default branch: protected, 1 approval(s), status checks.",
+      "Dangerous workflow [posture/critical]: 10/10 — No script-injection or untrusted-checkout patterns detected.",
+      "Token permissions [posture/high]: 0/10 — 0/1 workflows set an explicit `permissions:` scope.",
+      "SAST [posture/medium]: 0/10 — No SAST (CodeQL/Semgrep/Sonar) wired into CI.",
+      "Dependency updates [posture/high]: 0/10 — No dependency-update tool committed.",
+      "Pinned dependencies [posture/medium]: n/a/10 — No Actions/Docker dependencies to pin.",
+      "Security policy [posture/medium]: 0/10 — No security policy (SECURITY.md) found.",
+      "Signed releases [posture/high]: 0/10 — No artifact signing / provenance in CI.",
+      "SBOM [posture/low]: 0/10 — No SBOM generation.",
+      "Known vulnerabilities [exposure/high]: n/a/10 — Dependency vulnerabilities not inspected (no lockfile / no alert access).",
+    ]);
+    // …and omitting the argument entirely is the same thing (the parameter defaults to null).
+    expect(computeSecurityChecks(noSastWf, gov(), null, null)).toEqual(a);
+  });
+
+  it("an inventory of unrelated Apps changes nothing at all", () => {
+    const base = computeSecurityChecks(noSastWf, gov(), null, null, null);
+    expect(computeSecurityChecks(noSastWf, gov(), null, null, inv("vercel", "codecov", "sentry"))).toEqual(base);
+  });
+
+  it("SAST: default-setup code scanning fills in the n/a when there are no workflows at all", () => {
+    const s = snap([{ path: "README.md", content: "# r" }]);
+    expect(get(computeSecurityChecks(s, null, null, null, null), "sast").score).toBeNull();
+    const withApp = get(computeSecurityChecks(s, null, null, null, inv("github-code-scanning")), "sast");
+    expect(withApp.score).toBe(10);
+    expect(withApp.evidence).toBe("Code scanning App active on the scored commit (github-code-scanning).");
+    expect(withApp.remediation).toBeUndefined();
+  });
+
+  it("SAST: workflows exist but commit no SAST — an App turns the 0 into a 10 (flask/next.js case)", () => {
+    expect(get(computeSecurityChecks(noSastWf, gov(), null, null, null), "sast").score).toBe(0);
+    const withApp = get(computeSecurityChecks(noSastWf, gov(), null, null, inv("github-code-scanning")), "sast");
+    expect(withApp.score).toBe(10);
+    expect(withApp.evidence).toBe("Code scanning App active on the scored commit (github-code-scanning).");
+  });
+
+  it("SAST: the whole D9 moves UP when that 0 flips to 10", () => {
+    const before = computeSecurityChecks(noSastWf, gov(), null, null, null);
+    const after = computeSecurityChecks(noSastWf, gov(), null, null, inv("github-code-scanning"));
+    expect(after.d9).toBeGreaterThan(before.d9);
+    expect(after.posture).toBeGreaterThan(before.posture);
+  });
+
+  it("SAST: a committed, PR-gating workflow keeps its own evidence and appends the App", () => {
+    const s = snap([
+      { path: ".github/workflows/codeql.yml", content: "on: [pull_request]\njobs:\n  analyze:\n    steps:\n      - uses: github/codeql-action/analyze@v3" },
+    ]);
+    expect(get(computeSecurityChecks(s, null, null, null, null), "sast").evidence).toBe("SAST runs on PR/push.");
+    const withApp = get(computeSecurityChecks(s, null, null, null, inv("github-code-scanning", "semgrep-app")), "sast");
+    expect(withApp.score).toBe(10);
+    expect(withApp.evidence).toContain("SAST runs on PR/push");
+    expect(withApp.evidence).toContain("github-code-scanning, semgrep-app");
+  });
+
+  it("SAST: a non-gating workflow (6) plus an App that posts on the commit is a 10", () => {
+    const s = snap([
+      { path: ".github/workflows/codeql.yml", content: "on:\n  workflow_dispatch:\njobs:\n  analyze:\n    steps:\n      - uses: github/codeql-action/analyze@v3" },
+    ]);
+    const bare = get(computeSecurityChecks(s, null, null, null, null), "sast");
+    expect(bare.score).toBe(6);
+    expect(bare.remediation).toBeDefined();
+    const withApp = get(computeSecurityChecks(s, null, null, null, inv("github-code-scanning")), "sast");
+    expect(withApp.score).toBe(10);
+    expect(withApp.evidence).toContain("not clearly gating PRs");
+    expect(withApp.evidence).toContain("github-code-scanning");
+    expect(withApp.remediation).toBeUndefined();
+  });
+
+  it("dependency-updates: a supply-chain App earns partial credit over a bare 0, keeping the remediation", () => {
+    const s = snap([{ path: "go.mod", content: "module x" }]); // no config, no bot commits
+    expect(get(computeSecurityChecks(s, null, null, null, null), "dependency-updates").score).toBe(0);
+    const withApp = get(computeSecurityChecks(s, null, null, null, inv("socket-security")), "dependency-updates");
+    expect(withApp.score).toBe(6);
+    expect(withApp.evidence).toBe("Supply-chain scanner App active on the scored commit (socket-security); no dependency-update config committed.");
+    expect(withApp.remediation).toBe("Add a `.github/dependabot.yml` (or Renovate) config.");
+  });
+
+  it("dependency-updates: a committed config still wins outright — the App cannot change it", () => {
+    const s = snap([{ path: ".github/dependabot.yml", content: "version: 2" }]);
+    const withApp = get(computeSecurityChecks(s, null, null, null, inv("socket-security", "snyk")), "dependency-updates");
+    expect(withApp.score).toBe(10);
+    expect(withApp.evidence).toBe("Automated dependency updates configured (Dependabot/Renovate).");
+  });
+
+  it("dependency-updates: a hash-suffixed Wiz slug still classifies as supply-chain", () => {
+    expect(classifyApp("wiz-abc123")).toBe("supply-chain");
+    const s = snap([{ path: "go.mod", content: "module x" }]);
+    const withApp = get(computeSecurityChecks(s, null, null, null, inv("wiz-abc123")), "dependency-updates");
+    expect(withApp.score).toBe(6);
+    expect(withApp.evidence).toContain("wiz-abc123");
+  });
+
+  it("adds no new check to the battery — the id set is unchanged with or without an inventory", () => {
+    const ids = (a: ReturnType<typeof computeSecurityChecks>) => a.checks.map((c) => c.id);
+    expect(ids(computeSecurityChecks(noSastWf, gov(), null, null, inv("github-code-scanning", "socket-security")))).toEqual(
+      ids(computeSecurityChecks(noSastWf, gov(), null, null, null)),
+    );
   });
 });

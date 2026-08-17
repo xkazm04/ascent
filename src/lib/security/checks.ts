@@ -8,8 +8,18 @@
 // Deliberately NOT a full Scorecard reimplementation — it covers the highest-signal checks evaluable
 // from committed files + the GitHub state we already fetch. Signed-releases is a config PROXY (release-
 // signing wired in CI), not Releases-API asset inspection; noted honestly in its evidence.
+//
+// The battery also takes an optional installed-App inventory (the Apps that posted a check suite on the
+// scored commit). It closes the "security lives in Settings, not in the repo" blind spot that floored
+// default-setup CodeQL repos at SAST 0 (flask, next.js — see docs/features/scanning/calibration.md, D9).
+// The inventory is strictly ADDITIVE: a null inventory (anonymous scan, or the read failed) leaves every
+// score byte-identical, and an observed App can only raise or fill in a check, never lower one. No new
+// check was added for it — a fresh 0-default control would drag D9 for every token scan and open a
+// token-vs-anonymous downward divergence, which is exactly the asymmetry this enrichment exists to avoid.
 
 import type { Governance, RepoSnapshot, SecurityAssessment, SecurityCheck, SecurityExposure, SecurityPosture } from "@/lib/types";
+import type { AppInventory } from "@/lib/github/check-suites";
+import { appsOf } from "@/lib/github/check-suites";
 import { hasDependencyBotCommits } from "@/lib/analyze";
 
 const clamp10 = (n: number) => Math.max(0, Math.min(10, n));
@@ -142,21 +152,49 @@ function dangerousWorkflow(wf: { path: string; content: string }[]): { score: nu
   return { score: 10, evidence: "No script-injection or untrusted-checkout patterns detected." };
 }
 
-/** SAST — static analysis wired into CI, graded by whether it runs on PR/push vs manual-only. */
-function sast(wf: { path: string; content: string }[], snap: RepoSnapshot): { score: number | null; evidence: string; remediation?: string } {
+/** Comma-joined App slugs, for evidence text. */
+const slugsOf = (apps: { slug: string }[]) => apps.map((a) => a.slug).join(", ");
+
+/**
+ * SAST — static analysis wired into CI, graded by whether it runs on PR/push vs manual-only.
+ *
+ * Committed workflows are only one of the two ways SAST is actually turned on. GitHub's *default setup*
+ * CodeQL commits nothing at all — it is a Settings toggle that posts a `github-code-scanning` check
+ * suite — and third-party scanners (Semgrep App, SonarCloud) are installed org-wide the same way. A
+ * file-only detector therefore scored flask and next.js a hard 0 on a control they demonstrably run.
+ * An observed sast-category App is direct evidence the control fires on the scored commit, so it earns
+ * a 10 both where the committed evidence was absent (n/a) and where it was searched-for and missing (0).
+ */
+function sast(
+  wf: { path: string; content: string }[],
+  snap: RepoSnapshot,
+  apps: AppInventory | null = null,
+): { score: number | null; evidence: string; remediation?: string } {
+  const sastApps = appsOf(apps, "sast");
+  const appEvidence = `Code scanning App active on the scored commit (${slugsOf(sastApps)}).`;
   // No GitHub Actions workflows to inspect → n/a (excluded), not a 0. A hard 0 here conflated "no SAST"
   // with "no GitHub-native CI to look in", flooring elite off-GitHub repos (govulncheck/CodeQL may run
   // on Gerrit/LUCI). Mirrors dangerous-workflow / token-permissions, which already go n/a without workflows.
-  if (!wf.length) return { score: null, evidence: "No GitHub Actions workflows to inspect for SAST (may run off-GitHub)." };
+  if (!wf.length) {
+    if (sastApps.length) return { score: 10, evidence: appEvidence };
+    return { score: null, evidence: "No GitHub Actions workflows to inspect for SAST (may run off-GitHub)." };
+  }
   const sastRe = /codeql|github\/codeql-action|semgrep|sonarcloud|sonarqube|sonarsource|snyk code/i;
   const hit = wf.find((w) => sastRe.test(w.content)) || (hasPath(snap, /^\.github\/workflows\/.*codeql/i) ? { content: "on: [pull_request]" } : null);
-  if (!hit) return { score: 0, evidence: "No SAST (CodeQL/Semgrep/Sonar) wired into CI.", remediation: "Add CodeQL (or Semgrep) scanning that runs on pull_request." };
+  if (!hit) {
+    if (sastApps.length) return { score: 10, evidence: appEvidence };
+    return { score: 0, evidence: "No SAST (CodeQL/Semgrep/Sonar) wired into CI.", remediation: "Add CodeQL (or Semgrep) scanning that runs on pull_request." };
+  }
   const onPr = /on:[\s\S]{0,200}(pull_request|push)/i.test(hit.content);
-  return { score: onPr ? 10 : 6, evidence: onPr ? "SAST runs on PR/push." : "SAST present but not clearly gating PRs.", remediation: onPr ? undefined : "Run SAST on pull_request so it gates merges." };
+  const also = sastApps.length ? `; also ${slugsOf(sastApps)} App` : "";
+  // Committed SAST that doesn't clearly gate PRs (6) plus an App that fires on the commit anyway is a
+  // gating control by observation — take the 10 and drop the remediation with it.
+  if (!onPr && sastApps.length) return { score: 10, evidence: `SAST present but not clearly gating PRs${also} active on the scored commit.` };
+  return { score: onPr ? 10 : 6, evidence: onPr ? `SAST runs on PR/push${also}.` : "SAST present but not clearly gating PRs.", remediation: onPr ? undefined : "Run SAST on pull_request so it gates merges." };
 }
 
 /** Dependency-update tool — Dependabot/Renovate configured. */
-function dependencyUpdateTool(snap: RepoSnapshot): { score: number | null; evidence: string; remediation?: string } {
+function dependencyUpdateTool(snap: RepoSnapshot, apps: AppInventory | null = null): { score: number | null; evidence: string; remediation?: string } {
   const has = hasPath(snap, /(^|\/)\.github\/dependabot\.ya?ml$/) || hasPath(snap, /(^|\/)(\.?renovaterc(\.json)?|renovate\.json5?)$/);
   if (has) return { score: 10, evidence: "Automated dependency updates configured (Dependabot/Renovate)." };
   // Behavioral fallback: Renovate/Dependabot is frequently enabled at the org/App level with no committed
@@ -164,6 +202,16 @@ function dependencyUpdateTool(snap: RepoSnapshot): { score: number | null; evide
   // active bot isn't scored 0 just because its config lives off-repo (reference-scan P1-2).
   if (hasDependencyBotCommits(snap))
     return { score: 8, evidence: "Dependency-update bot active via org/App config (bot commits present; no committed file)." };
+  // A supply-chain scanner App (Socket/Snyk/Wiz/GitGuardian) watches dependencies on every push but does
+  // not OPEN update PRs, so it lands below a committed config or an observed bot — partial credit, and
+  // the remediation stands: the repo still has nothing that proposes the upgrade.
+  const chainApps = appsOf(apps, "supply-chain");
+  if (chainApps.length)
+    return {
+      score: 6,
+      evidence: `Supply-chain scanner App active on the scored commit (${slugsOf(chainApps)}); no dependency-update config committed.`,
+      remediation: "Add a `.github/dependabot.yml` (or Renovate) config.",
+    };
   return { score: 0, evidence: "No dependency-update tool committed.", remediation: "Add a `.github/dependabot.yml` (or Renovate) config." };
 }
 
@@ -208,16 +256,30 @@ function vulnerabilities(exp: SecurityExposure | null): { score: number | null; 
 
 // ── Battery + aggregation ──────────────────────────────────────────────────────
 
-const POSTURE_SPEC = [
-  { id: "branch-protection", name: "Branch protection", risk: "high" as const, weight: 3, run: (s: RepoSnapshot, g: Governance | null) => branchProtection(g) },
-  { id: "dangerous-workflow", name: "Dangerous workflow", risk: "critical" as const, weight: 3, run: (s: RepoSnapshot) => dangerousWorkflow(workflowFiles(s)) },
-  { id: "token-permissions", name: "Token permissions", risk: "high" as const, weight: 2, run: (s: RepoSnapshot) => tokenPermissions(workflowFiles(s)) },
-  { id: "sast", name: "SAST", risk: "medium" as const, weight: 2, run: (s: RepoSnapshot) => sast(workflowFiles(s), s) },
-  { id: "dependency-updates", name: "Dependency updates", risk: "high" as const, weight: 2, run: (s: RepoSnapshot) => dependencyUpdateTool(s) },
-  { id: "pinned-dependencies", name: "Pinned dependencies", risk: "medium" as const, weight: 2, run: (s: RepoSnapshot) => pinnedDependencies(workflowFiles(s), s) },
-  { id: "security-policy", name: "Security policy", risk: "medium" as const, weight: 1, run: (s: RepoSnapshot, g: Governance | null, p: SecurityPosture | null) => securityPolicy(s, p) },
-  { id: "signed-releases", name: "Signed releases", risk: "high" as const, weight: 1, run: (s: RepoSnapshot) => signedReleases(workflowFiles(s)) },
-  { id: "sbom", name: "SBOM", risk: "low" as const, weight: 1, run: (s: RepoSnapshot) => sbom(workflowFiles(s)) },
+/** Result shape every check returns. */
+type CheckResult = { score: number | null; evidence: string; remediation?: string };
+
+/** One battery entry. Every `run` takes the full input set (snapshot, governance, posture, App
+ *  inventory) and ignores what it doesn't need — a uniform signature so `computeSecurityChecks` can
+ *  hand each check the same four arguments. */
+interface PostureSpec {
+  id: string;
+  name: string;
+  risk: SecurityCheck["risk"];
+  weight: number;
+  run: (s: RepoSnapshot, g: Governance | null, p: SecurityPosture | null, apps: AppInventory | null) => CheckResult;
+}
+
+const POSTURE_SPEC: PostureSpec[] = [
+  { id: "branch-protection", name: "Branch protection", risk: "high", weight: 3, run: (s, g) => branchProtection(g) },
+  { id: "dangerous-workflow", name: "Dangerous workflow", risk: "critical", weight: 3, run: (s) => dangerousWorkflow(workflowFiles(s)) },
+  { id: "token-permissions", name: "Token permissions", risk: "high", weight: 2, run: (s) => tokenPermissions(workflowFiles(s)) },
+  { id: "sast", name: "SAST", risk: "medium", weight: 2, run: (s, g, p, apps) => sast(workflowFiles(s), s, apps) },
+  { id: "dependency-updates", name: "Dependency updates", risk: "high", weight: 2, run: (s, g, p, apps) => dependencyUpdateTool(s, apps) },
+  { id: "pinned-dependencies", name: "Pinned dependencies", risk: "medium", weight: 2, run: (s) => pinnedDependencies(workflowFiles(s), s) },
+  { id: "security-policy", name: "Security policy", risk: "medium", weight: 1, run: (s, g, p) => securityPolicy(s, p) },
+  { id: "signed-releases", name: "Signed releases", risk: "high", weight: 1, run: (s) => signedReleases(workflowFiles(s)) },
+  { id: "sbom", name: "SBOM", risk: "low", weight: 1, run: (s) => sbom(workflowFiles(s)) },
 ];
 
 /**
@@ -230,9 +292,14 @@ export function computeSecurityChecks(
   gov: Governance | null,
   posture: SecurityPosture | null,
   exposure: SecurityExposure | null,
+  /** Deepening pass: installed-App inventory on the scored commit (github-code-scanning, Socket, Snyk,
+   *  Wiz, …). Null = not observable (anonymous scan or a failed read) and NEVER "no Apps installed" —
+   *  which is why it is only ever additive: SAST fills in / rises, dependency-updates gains partial
+   *  credit, and nothing else moves. Passing null reproduces the pre-inventory scores exactly. */
+  apps: AppInventory | null = null,
 ): SecurityAssessment {
   const checks: SecurityCheck[] = POSTURE_SPEC.map((spec) => {
-    const r = spec.run(snap, gov, posture);
+    const r = spec.run(snap, gov, posture, apps);
     return { id: spec.id, name: spec.name, group: "posture" as const, score: r.score, weight: spec.weight, risk: spec.risk, evidence: r.evidence, remediation: r.remediation };
   });
   const vuln = vulnerabilities(exposure);
