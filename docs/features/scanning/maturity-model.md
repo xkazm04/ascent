@@ -307,7 +307,7 @@ Design principles:
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r5`.**
+`src/lib/maturity/model.ts`. **Current: `r6`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -334,3 +334,4 @@ genuinely display-only change, but the reasoning belongs in the diff.
 | `r3` (2026-07-28) | The assessment system prompt gained the untrusted-repo-data boundary and a stated discrepancy budget, which the engine now enforces (a scan may widen at most `MAX_FLAGGED_DIMENSIONS` guardbands). |
 | `r4` (2026-08-05) | Two Security (D9) detector corrections in `src/lib/security/checks.ts`: pinned-dependencies no longer counts multi-stage `FROM <alias>` or `FROM scratch` in the denominator, and the broad-write cap matches `contents: write` anywhere in a permissions block. D9 is taken verbatim by the engine. |
 | `r5` (2026-08-14) | The assessment system prompt gained `PROSE_STYLE_RULE` (`src/lib/llm/prose.ts`, interpolated in `src/lib/scoring/prompt.ts`). It constrains punctuation in the model's prose, so no scoring semantics moved — but it is a changed model input, which is the same class as `r3`. The em-dash sweep re-pinned the surface hash without bumping, having accounted for the six display-only strings it rewrote but not for the prompt injection. |
+| `r6` (2026-08-17) | The TASK block now asks for a *markdown-lite* summary (short paragraphs · bullets · bold · code) instead of one paragraph, and for **roadmap coverage** of every dimension below `FOLLOW_UP_BELOW` (65). Neither moves a score, but the roadmap grows from 3-5 entries to up to nine and the prose shape changes, so a cached scan's "next steps" would disagree with a fresh one. Same class as `r3`/`r5`. |

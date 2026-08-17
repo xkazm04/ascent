@@ -38,7 +38,7 @@ import {
   weightsFor,
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { buildFallbackRoadmap } from "@/lib/scoring/recommendations";
+import { buildDimensionFollowUps, buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
 import { computeContributors, detectAiUsage } from "@/lib/analyze";
 import { formatSignal } from "@/lib/types";
@@ -306,12 +306,20 @@ export function assembleReport(
     );
   }
 
-  const roadmap = assessment.roadmap.length
+  const modelRoadmap = assessment.roadmap.length
     ? assessment.roadmap
     // G3-09: rank the fallback roadmap by the BLENDED dimension scores the report actually shows,
     // not the raw signal scores — otherwise the roadmap's "biggest gap" can contradict the card
     // the reader is looking at.
     : buildFallbackRoadmap(signals, overallScore, archetype, dimensions.map((d) => ({ id: d.id, score: d.score })));
+  // The follow-up guarantee: every dimension still below the green band carries a next step, grounded
+  // in its own gaps. Runs on BOTH branches — the fallback roadmap is top-3-by-upside and can leave a
+  // below-green dimension uncovered just as the model can. See buildDimensionFollowUps.
+  const roadmap = buildDimensionFollowUps(
+    modelRoadmap,
+    dimensions.map((d) => ({ id: d.id, score: d.score, gaps: d.gaps })),
+    overallScore,
+  );
 
   return {
     repo: snap.meta,

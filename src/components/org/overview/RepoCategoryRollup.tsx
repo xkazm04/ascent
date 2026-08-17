@@ -60,9 +60,17 @@ export function RepoCategoryRollup({
   const levelOpts: FilterOption[] = levelsPresent(trajectories).map((l) => ({ value: l, label: l, leading: levelGlyph(l) }));
 
   const filtered = applyFilters(trajectories, filters);
-  // Strongest cohort first. A group with no live-scored repo has NO average (see agg) — it sorts to
-  // the end rather than being coerced to 0, which would rank an unmeasured cohort as the worst one.
-  const groups = buildGroups(mode, filtered).sort((a, b) => (agg(b.rows).avg ?? -1) - (agg(a.rows).avg ?? -1));
+  // Type and Stack: strongest cohort first. A group with no live-scored repo has NO average (see agg)
+  // — it sorts to the end rather than being coerced to 0, which would rank an unmeasured cohort as
+  // the worst one.
+  // Level: the ladder order, L1→L5, always. A level IS an ordinal — sorting level groups by their
+  // average put L3 above L1 above L2 whenever a small L1 cohort happened to out-average a larger L2
+  // one, which reads as the ladder being drawn wrong rather than as a ranking. The group key is the
+  // level id, so a plain string compare is the ladder.
+  const groups =
+    mode === "level"
+      ? buildGroups(mode, filtered).sort((a, b) => a.key.localeCompare(b.key))
+      : buildGroups(mode, filtered).sort((a, b) => (agg(b.rows).avg ?? -1) - (agg(a.rows).avg ?? -1));
   const active = filtersActive(filters);
   const fleet = summarize(filtered);
 

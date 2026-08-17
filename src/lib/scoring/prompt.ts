@@ -5,7 +5,7 @@ import type { DecisionNote } from "@/lib/db/org-decisions";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats, SecurityAssessment } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
-import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
+import { DIMENSIONS, FOLLOW_UP_BELOW, LEVELS } from "@/lib/maturity/model";
 import { MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import {
@@ -138,9 +138,21 @@ function decisionsBlock(decisions: DecisionNote[]): string {
 // "the evidence above". [Tiger P0-1]
 const TASK = `TASK
 For each of the ${DIMENSIONS.length} dimensions (D1..D${DIMENSIONS.length}) return a score 0-100 (calibrated to its signalScore),
-a one-paragraph summary, up to 4 concrete strengths, and up to 4 concrete gaps — all grounded
-in the provided evidence. Then give an overall headline sentence, 3-5 org-level strengths, 3-5
-risks, and a prioritized roadmap of 3-5 entries.
+a summary, up to 4 concrete strengths, and up to 4 concrete gaps — all grounded in the provided
+evidence. Then give an overall headline sentence, 3-5 org-level strengths, 3-5 risks, and a
+prioritized roadmap.
+
+SUMMARY FORMAT. A summary is read in a narrow panel; do not write it as one paragraph. Use 2-4
+SHORT paragraphs separated by a blank line, or a "- " bullet per parallel point. Put the single
+finding a reader must not miss in **bold**. Put file names, commands and config keys in
+\`backticks\`. No headings, no links, no other markup — only paragraphs, "- " bullets, **bold**
+and \`code\`. Each strength and gap is ONE self-contained sentence.
+
+ROADMAP COVERAGE. Every dimension scoring BELOW ${FOLLOW_UP_BELOW} gets at least one roadmap entry
+naming it in "dimension" — a dimension that is not yet in the green band always has a next thing
+worth exploring, and a reader who opens it and finds nothing concludes it is fine. Dimensions at
+${FOLLOW_UP_BELOW} or above may have an entry when there is a real gap. Order the roadmap by
+impact. Keep each entry tight; more entries, not longer ones.
 
 IMPORTANT — Ascent is a transition COMPANION, not a boss. The roadmap surfaces *gaps in the
 level of trust* (how much the team can trust AI in its workflow) as things to EXPLORE, never as

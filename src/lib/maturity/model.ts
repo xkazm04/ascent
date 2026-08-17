@@ -57,7 +57,14 @@ import type {
 // re-derived numbers should land in the same place. The bump is not a claim that scores were wrong.
 // It is that a cached score carries the prompt that produced it, and this prompt is not that prompt —
 // which is exactly the invariant `rubricVersion` exists to keep honest.
-export const SCORING_RUBRIC_VERSION = "r5";
+// r6 (2026-08-17): the assessment prompt's TASK block changed twice over — the summary is now asked
+// for as structured markdown-lite (short paragraphs, "- " bullets, **bold**, `code`) instead of "one
+// paragraph", and ROADMAP COVERAGE requires an entry for every dimension below FOLLOW_UP_BELOW (the
+// engine now guarantees it via buildDimensionFollowUps). Neither moves a SCORE: the roadmap is not
+// scored and the summary is prose. But both are changed model inputs and the roadmap now covers up
+// to nine dimensions rather than 3-5, so a cached scan's "next steps" would silently disagree with
+// what a fresh one produces. Same class as r3/r5.
+export const SCORING_RUBRIC_VERSION = "r6";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -111,6 +118,16 @@ export const LEVELS: MaturityLevel[] = [
       "A fully autonomous, reliable, established system. Agents propose, test, document, and ship changes with humans supervising at the policy level. Comprehensive automated tests, docs, and CI/CD; high reliability; governance and guardrails are first-class.",
   },
 ];
+
+/**
+ * The score below which a dimension is owed a follow-up: the floor of L4 (Integrated), i.e. the
+ * first "green" band on the LEVEL_HEX ramp. Below it a scan must carry at least one roadmap entry
+ * for the dimension — asked of the model in the prompt (ROADMAP COVERAGE) and GUARANTEED by the
+ * engine (buildDimensionFollowUps), which synthesises one from the dimension's own gaps when the
+ * model did not. Named once here so the prompt, the engine and the drill-in's empty-state copy
+ * ("nothing owed" vs "not on record") agree on where green starts.
+ */
+export const FOLLOW_UP_BELOW = 65;
 
 /**
  * Planning defaults, single-sourced here so the Plan tab, the initiatives seed flow, and the DB-layer

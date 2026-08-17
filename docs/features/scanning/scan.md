@@ -240,6 +240,21 @@ deterministic signal block, the sampled file contents, and a commit sample. The 
 strengths/gaps, an overall headline, cross-cutting strengths/risks, an invitational
 `roadmap`, and `discrepancies` (signals the LLM thinks the detectors got wrong).
 
+**Summary format (r6, 2026-08-17).** A dimension summary is asked for as *markdown-lite* — 2-4
+short paragraphs or `- ` bullets, `**bold**` for the one finding not to miss, `` `code` `` for
+files/commands — never one paragraph. `MarkdownLite` (`src/components/report/MarkdownLite.tsx`)
+renders exactly those four constructs and nothing else (no links, no HTML: the text describes
+untrusted repository content), and a marker-free legacy summary renders as one paragraph as
+before. Gaps and evidence render as lists.
+
+**Follow-up guarantee (r6).** Every dimension scoring below `FOLLOW_UP_BELOW` (65, the L4 floor —
+the first green band) carries at least one roadmap entry naming it. The prompt asks for it
+(*ROADMAP COVERAGE*); `buildDimensionFollowUps` (`recommendations.ts`) enforces it after
+assembly, appending an entry per uncovered below-green dimension — titled with the dimension's
+own first gap when the model gave one, else the catalog template — lowest score first, after the
+model's own entries. Before this, 3-5 roadmap entries over nine dimensions left most mediocre
+dimensions with an empty "Next steps", which the drill-in read as "not a current gap".
+
 If the LLM fails or returns an unusable result (`isAssessmentUsable()` requires ≥ 50% of
 dimensions), `scanRepository` automatically falls back to `MockProvider` and adds a
 warning. Provider selection and the abstraction are documented in

@@ -8,6 +8,7 @@ import type { ScanReport } from "@/lib/types";
 import { LLM_GUARDBAND } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 import { linScale } from "@/components/report/chartScale";
+import { MarkdownLite, renderInline } from "@/components/report/MarkdownLite";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
 
 export function DimensionDetail({
@@ -39,26 +40,39 @@ export function DimensionDetail({
         </span>
       </div>
 
-      {d.summary && <p className="leading-relaxed text-slate-300">{d.summary}</p>}
+      {/* The summary is model prose in markdown-lite (short paragraphs · bullets · bold · code) —
+          rendered as structure, not as one paragraph. Legacy single-paragraph summaries render as
+          exactly that. `text-slate-200`, not 300: this is the body copy of the whole detail, and
+          the muted grey read as fine print on the dark surface. */}
+      {d.summary && <MarkdownLite text={d.summary} className="text-slate-200" />}
 
       {d.evidence.length > 0 && (
         <div>
           <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
-          <ul className="mt-1 space-y-1 text-slate-400">
+          <ul className="mt-1 space-y-1 text-slate-300">
             {d.evidence.map((e, i) => (
               <li key={i} className="flex gap-2">
                 <span className="text-slate-600">·</span>
-                <span>{e}</span>
+                <span>{renderInline(e)}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
 
+      {/* Gaps as a LIST. They were joined with " · " into one run-on line, which made four distinct
+          findings read as one sentence and hid where each ended. */}
       {d.gaps.length > 0 && (
-        <div className="text-slate-400">
-          <span className="text-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps: </span>
-          {d.gaps.join(" · ")}
+        <div>
+          <div className="text-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps</div>
+          <ul className="mt-1 space-y-1 text-slate-300">
+            {d.gaps.map((g, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-amber-400/60">·</span>
+                <span>{renderInline(g)}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

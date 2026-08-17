@@ -4,7 +4,7 @@
 // is steered toward tooling/tests/docs rather than org-scale CI it doesn't need yet.
 
 import type { DimensionId, DimensionSignals, LlmRoadmapItem, RepoArchetype } from "@/lib/types";
-import { DIMENSION_BY_ID, levelForScore, nextLevel, weightsFor } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID, FOLLOW_UP_BELOW, levelForScore, nextLevel, weightsFor } from "@/lib/maturity/model";
 
 interface RecTemplate {
   title: string;
@@ -169,4 +169,54 @@ export function buildFallbackRoadmap(
         levelUnlock: unlock,
       };
     });
+}
+
+/**
+ * The follow-up GUARANTEE: every dimension below FOLLOW_UP_BELOW (the L4 floor — the first green
+ * band) carries at least one roadmap entry, whether or not the model wrote one.
+ *
+ * WHY. The prompt asks for 3-5 roadmap entries and there are nine dimensions, so most scans left
+ * four to six dimensions with nothing under "Next steps" — including 40s and 50s. The drill-in
+ * then said "It isn't a current gap", which certified a mediocre dimension as fine. A reader takes
+ * an empty follow-up list as a verdict, so a dimension that is not yet green must never have one.
+ *
+ * The prompt now asks for full coverage (ROADMAP COVERAGE); this is what makes it a guarantee
+ * rather than a request. Ordering: the model's entries stay first, in the model's order — the
+ * synthesised ones are appended, lowest score first, so a fully-covered scan is byte-identical to
+ * before and a partly-covered one grows at the tail. Each synthesised entry is grounded in the
+ * dimension's OWN gaps when the model supplied them (the first gap becomes the title, in the
+ * catalog's invitational voice), falling back to the catalog template only when it did not.
+ * Pure; the caller supplies the blended scores. Exported for the tests.
+ */
+export function buildDimensionFollowUps(
+  roadmap: LlmRoadmapItem[],
+  dimensions: { id: DimensionId; score: number; gaps?: string[] }[],
+  overallScore: number,
+): LlmRoadmapItem[] {
+  const covered = new Set(roadmap.map((r) => r.dimension));
+  const current = levelForScore(overallScore);
+  const next = nextLevel(current.id);
+  const unlock = next ? `${current.id}->${next.id}` : undefined;
+  const missing = dimensions
+    .filter((d) => d.score < FOLLOW_UP_BELOW && !covered.has(d.id) && CATALOG[d.id] && DIMENSION_BY_ID[d.id])
+    .sort((a, b) => a.score - b.score);
+  if (missing.length === 0) return roadmap;
+  return [
+    ...roadmap,
+    ...missing.map((d) => {
+      const t = CATALOG[d.id];
+      const gap = d.gaps?.find((g) => g.trim().length > 0)?.trim();
+      return {
+        // The scan's own finding, if it made one; the catalog's framing otherwise. Either way an
+        // OBSERVATION, never an imperative — the same voice the prompt requires of the model.
+        title: gap ?? t.title,
+        dimension: d.id,
+        impact: t.impact,
+        effort: t.effort,
+        rationale: `${DIMENSION_BY_ID[d.id].name} scored ${d.score}/100, below the green band (${FOLLOW_UP_BELOW}). ${t.rationale}`,
+        explore: t.explore,
+        levelUnlock: unlock,
+      };
+    }),
+  ];
 }

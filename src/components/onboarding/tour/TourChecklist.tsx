@@ -122,7 +122,13 @@ export function TourChecklist({ slug }: { slug: string }) {
     <>
       {open && spotlight && <HighlightRing rect={t.rect} />}
 
-      <div className="fixed right-0 top-1/2 z-[55] -translate-y-1/2">
+      {/* `pointer-events-none` on the fixed wrapper, re-enabled on the tab and the panel below. The
+          wrapper is a transparent box as wide as the panel (w-80), pinned to the right edge and
+          vertically centred — and a transparent element still captures clicks. With the panel
+          collapsed it sat, invisibly, over whatever the dashboard put in that band: on the Overview
+          that was the Fleet card's Type/Stack/Level group buttons, which read as dead. The panel is
+          only translated off-screen, so `inert` already handles focus; this handles the mouse. */}
+      <div className="pointer-events-none fixed right-0 top-1/2 z-[55] -translate-y-1/2">
         <div
           className={`relative transition-transform duration-300 ease-out motion-reduce:transition-none ${
             open ? "translate-x-0" : "translate-x-full"
@@ -134,7 +140,7 @@ export function TourChecklist({ slug }: { slug: string }) {
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             aria-label={open ? "Hide guided setup" : "Open guided setup"}
-            className="focus-ring absolute right-full top-1/2 flex -translate-y-1/2 items-center gap-2 rounded-l-xl border border-r-0 border-divider bg-surface-strong px-2.5 py-4 text-accent shadow-2xl transition hover:bg-accent/10"
+            className="focus-ring pointer-events-auto absolute right-full top-1/2 flex -translate-y-1/2 items-center gap-2 rounded-l-xl border border-r-0 border-divider bg-surface-strong px-2.5 py-4 text-accent shadow-2xl transition hover:bg-accent/10"
             style={{ writingMode: "vertical-rl" }}
           >
             <span aria-hidden className="text-sm">{open ? "▸" : "◂"}</span>
@@ -146,7 +152,7 @@ export function TourChecklist({ slug }: { slug: string }) {
               and a keyboard/SR user walks through an invisible drawer. The pull tab sits outside it. */}
           <div
             inert={!open}
-            className="flex max-h-[80vh] w-80 max-w-[85vw] flex-col rounded-l-2xl border border-r-0 border-divider bg-surface-strong shadow-2xl ring-1 ring-white/5 backdrop-blur-md"
+            className="pointer-events-auto flex max-h-[80vh] w-80 max-w-[85vw] flex-col rounded-l-2xl border border-r-0 border-divider bg-surface-strong shadow-2xl ring-1 ring-white/5 backdrop-blur-md"
           >
             <div className="flex items-start justify-between gap-3 border-b border-divider px-4 py-3">
               <div>

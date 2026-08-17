@@ -13,8 +13,11 @@ import { createPortal } from "react-dom";
 import { Kicker } from "./Kicker";
 import { MODAL_ROOT_ID } from "./ModalRoot";
 
-export type ModalSize = "md" | "lg" | "xl";
-const SIZE: Record<ModalSize, string> = { md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-4xl" };
+export type ModalSize = "md" | "lg" | "reading" | "xl";
+// `reading` (50rem ≈ 800px) is the long-prose size: ~20% wider than `lg`, sized to a comfortable
+// reading measure for a dialog whose body is paragraphs (a dimension's assessment) rather than a
+// form. `xl` is for wide tabular content and is too wide for text to stay readable.
+const SIZE: Record<ModalSize, string> = { md: "max-w-lg", lg: "max-w-2xl", reading: "max-w-[50rem]", xl: "max-w-4xl" };
 
 // Header/footer read close-wiring from context so callers don't thread onClose/locked twice.
 const ModalCtx = createContext<{ onClose: () => void; locked: boolean }>({ onClose: () => {}, locked: false });
@@ -92,19 +95,26 @@ export function Modal({
   return createPortal(
     <ModalCtx.Provider value={{ onClose, locked }}>
       <div
-        className="animate-fade-in fixed inset-0 z-50 flex overflow-y-auto bg-ink/80 p-4 sm:p-8"
+        className="animate-fade-in fixed inset-0 z-50 overflow-y-auto bg-ink/80"
         onClick={() => !locked && onClose()}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
       >
-        <div
-          ref={panelRef}
-          tabIndex={-1}
-          onClick={(e) => e.stopPropagation()}
-          className={`animate-fade-up m-auto w-full ${SIZE[size]} rounded-2xl border border-divider bg-surface-strong shadow-2xl outline-none`}
-        >
-          {children}
+        {/* Centring that survives a panel TALLER than the viewport. The old `m-auto` inside an
+            overflow-scrolling flex box centred a tall panel by pushing its top edge above the
+            scrollport, where no amount of scrolling could reach it — the header was simply gone. A
+            `min-h-full` flex wrapper centres a short panel and, for a tall one, grows to the panel's
+            height so the whole thing scrolls from its top. */}
+        <div className="flex min-h-full items-center justify-center p-4 sm:p-8">
+          <div
+            ref={panelRef}
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            className={`animate-fade-up w-full ${SIZE[size]} rounded-2xl border border-divider bg-surface-strong shadow-2xl outline-none`}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </ModalCtx.Provider>,

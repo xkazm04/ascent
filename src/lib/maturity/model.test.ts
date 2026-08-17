@@ -156,7 +156,10 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // This guard exists to force the judgment into the diff rather than to forbid it. Re-pinning is
     // legitimate for a genuinely display-only change; anything that alters a model INPUT or can move a
     // SCORE gets the bump instead.
-    const EXPECTED_RUBRIC_HASH = "121425b5b6d060cc6ea5e31161933a3d8e774088a441306d619486ead75a5903";
+    //
+    // Re-pinned 2026-08-17 WITH the r6 bump: the TASK block's summary format + ROADMAP COVERAGE
+    // instructions changed the assessment prompt (see the r6 note on the constant).
+    const EXPECTED_RUBRIC_HASH = "ad1daf53479415ef8d75c056aba2b7a75d52db7c311a6c57114e42d091e6d366";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +
