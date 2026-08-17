@@ -38,6 +38,7 @@ const BLURBS: Record<OrgTabId, string> = {
   backlog: "Every open gap across the fleet with an owner and a due date, searchable, bulk-editable, exportable.",
   skills: "A versioned SKILL.md library your org authors, adopts against repos, and syncs with CLI and CI.",
   memory: "Durable org knowledge (decisions, incidents and conventions) recalled by value, corrected by supersede. Your agents can read it too, over scoped API tokens.",
+  care: "Your own care loop: the moves you kept, how your sessions look, and the gaps of the repos you commit to — private by default, aggregated only above a floor.",
   members: "Who is in the org and what they can do.",
   governance: "Branch protection, review gates and rulesets, audited across every repository.",
   integrations: "Connect your AI coding providers so measured usage lands beside the git-side signals.",

@@ -172,6 +172,15 @@
       ]
     },
     {
+      "area": "org-dashboard",
+      "doc": "docs/features/org-dashboard/care.md",
+      "sourceGlobs": [
+        "src/lib/org/care-view*.ts",
+        "src/components/org/library/care/**",
+        "src/app/org/[slug]/care/**"
+      ]
+    },
+    {
       "area": "org-planning",
       "doc": "docs/features/org-planning/plan.md",
       "sourceGlobs": [

@@ -77,8 +77,9 @@ describe("org tab catalog", () => {
 
   it("every personal-workspace tab is a real id", () => {
     for (const id of PERSONAL_TAB_IDS) expect(isOrgTabId(id)).toBe(true);
-    // Mirrors OrgNav's old PERSONAL_SEGMENTS exactly ("" was the overview root).
-    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "memory", "overview", "security", "skills"]);
+    // Mirrors OrgNav's old PERSONAL_SEGMENTS ("" was the overview root), plus `care` — UC3's tab is
+    // the one surface a personal workspace exists FOR, so it must be in the personal subset.
+    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "care", "memory", "overview", "security", "skills"]);
   });
 
   it("every migrated tab is a real id", () => {

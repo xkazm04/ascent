@@ -38,6 +38,9 @@ export const ORG_TAB_IDS = [
   // Library
   "skills",
   "memory",
+  // UC3 "individual care": ONE id, TWO modes by Organization.kind — personal mode is the
+  // developer's own home; org mode is the anonymized aggregate under the champion floors.
+  "care",
   // Govern
   "members",
   "governance",
@@ -134,6 +137,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
       { id: "memory", label: "Memory" },
+      // Care sits LAST before Governance: the individual end of "what we chose our way of working
+      // is" — the personal loop that produces the registry content the tabs above govern.
+      { id: "care", label: "Care" },
       { id: "governance", label: "Governance" },
     ],
   },
@@ -186,6 +192,8 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "backlog",
   "skills",
   "memory",
+  // The developer's own home — in a personal workspace this tab is the point of the product.
+  "care",
 ]);
 
 /** Every tab's label, derived from the nav catalog (plus the not-in-nav ids). For the a11y
@@ -367,6 +375,7 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "plan",
   "backlog",
   "practices",
+  "care",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

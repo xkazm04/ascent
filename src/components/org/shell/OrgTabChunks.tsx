@@ -28,6 +28,7 @@ import { SecurityTab } from "../intelligence/security/SecurityTab";
 import { PassportsTab } from "../intelligence/passports/PassportsTab";
 import { SkillsTab } from "../library/skills/SkillsTab";
 import { MemoryTab } from "../library/memory/MemoryTab";
+import { CareTab } from "../library/care/CareTab";
 import { RepositoriesTab } from "../fleet/repositories/RepositoriesTab";
 import { TechStacksTab } from "../fleet/tech-stacks/TechStacksTab";
 import { TeamsTab } from "../fleet/teams/TeamsTab";
@@ -118,6 +119,14 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         {tab === "memory" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
             <MemoryTab slug={slug} />
+          </Suspense>
+        ) : null}
+
+        {/* UC3 "Care": one id, two modes resolved INSIDE the tab (personal vs org) so the shell stays
+            ignorant of Organization.kind — same contract as every other panel. */}
+        {tab === "care" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
+            <CareTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 
