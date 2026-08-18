@@ -10,7 +10,6 @@ import { getOrgId } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
 import { DEFAULT_INITIATIVE_TARGET, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
-import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
 export type GoalMetric = "overall" | "adoption" | "rigor" | DimensionId;
@@ -41,8 +40,18 @@ export function metricLabel(metric: string): string {
   return DIMENSION_BY_ID[metric as DimensionId]?.name ?? metric;
 }
 
-/** A repo in the snapshot: its dims (for the simulator) plus its headline scores (for goal laggards). */
-type SnapshotRepo = RepoDims & { overall: number; adoption: number; rigor: number };
+/** A repo in the snapshot: its dims plus its headline scores (for goal laggards). The `dims` half
+ *  used to be the retired simulator's `RepoDims` (src/lib/scoring/orgsim.ts); the shape is kept
+ *  inline so the goal projector's laggard read is unchanged. */
+type SnapshotRepo = {
+  fullName: string;
+  name: string;
+  archetype: RepoArchetype;
+  dims: Record<string, number>;
+  overall: number;
+  adoption: number;
+  rigor: number;
+};
 
 /** The fleet's latest-scan snapshot — averages, per-dimension averages, and per-repo dims. */
 interface FleetSnapshot {
@@ -434,295 +443,10 @@ export function getGoalOrgSlug(id: string): Promise<string | null> {
   return ownerOrgSlug(() => getPrisma().goal.findUnique({ where: { id }, select: { org: { select: { slug: true } } } }));
 }
 
-// ── Initiatives ──────────────────────────────────────────────────────────────
-
-export interface InitiativeRow {
-  id: string;
-  title: string;
-  dimId: string;
-  dimLabel: string;
-  practiceId: string | null;
-  targetScore: number;
-  repos: string[];
-  status: string;
-  /** GitHub login of the owner driving the work, or null when unassigned. */
-  assigneeLogin: string | null;
-  /** Due date (YYYY-MM-DD) the initiative is steered toward, or null when open-ended. */
-  targetDate: string | null;
-  /** Id of the steering Goal this initiative serves, or null when standalone. */
-  goalId: string | null;
-  /** Label of the linked Goal (resolved at read time), or null when unlinked / goal removed. */
-  goalLabel: string | null;
-  /** Id of the Playbook whose rollout this initiative tracks, or null. */
-  playbookId: string | null;
-  /** Title of the linked Playbook (resolved at read time), or null when unlinked / playbook removed. */
-  playbookLabel: string | null;
-  createdAt: string;
-  /** Of the scoped repos, how many currently meet the target on this dimension. */
-  progress: { atTarget: number; total: number };
-}
-
-function parseRepos(raw: string): string[] {
-  try {
-    const p = JSON.parse(raw);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-export async function createInitiative(
-  orgSlug: string,
-  input: {
-    title: string;
-    dimId: DimensionId;
-    practiceId?: string | null;
-    targetScore?: number;
-    repos: string[];
-    assigneeLogin?: string | null;
-    targetDate?: string | null;
-    goalId?: string | null;
-    playbookId?: string | null;
-  },
-): Promise<{ id: string } | null> {
-  if (!isDbConfigured()) return null;
-  const prisma = getPrisma();
-  const org = await ensureOrg(orgSlug);
-  const title = input.title.slice(0, 200);
-  // Idempotency (backlog-management #1): promoting the same backlog gap — or re-tracking the same fleet
-  // move — must not spawn duplicate initiatives. The only previous guard was a transient client-side
-  // `promoted` flag that resets on reload / row remount, so each click POSTed another identical row. Reuse
-  // an existing initiative on the same (org, title, dimension) and merge any newly-scoped repos into it
-  // instead of inserting a second one, making the create idempotent at the source.
-  const existing = await prisma.initiative.findFirst({
-    where: { orgId: org.id, title, dimId: input.dimId },
-    select: { id: true, repos: true },
-  });
-  if (existing) {
-    const mergedRepos = Array.from(new Set([...parseRepos(existing.repos), ...input.repos])).slice(0, 200);
-    await prisma.initiative.update({ where: { id: existing.id }, data: { repos: JSON.stringify(mergedRepos) } });
-    return { id: existing.id };
-  }
-  // Tenant-scope the goal link (goals-initiatives #7): a goalId must reference a Goal in THIS org, or
-  // we'd persist a cross-org foreign key. The PATCH route rejects a foreign id with a 400; the create
-  // route has no channel to surface that, so drop the out-of-org link (and log it) rather than store it.
-  let goalId = input.goalId ?? null;
-  if (goalId) {
-    const linked = await prisma.goal.findUnique({ where: { id: goalId }, select: { orgId: true } });
-    if (!linked || linked.orgId !== org.id) {
-      console.warn(`[initiatives] dropping cross-org goalId "${goalId}" on create for org "${orgSlug}"`);
-      goalId = null;
-    }
-  }
-  const created = await prisma.initiative.create({
-    data: {
-      orgId: org.id,
-      title,
-      dimId: input.dimId,
-      practiceId: input.practiceId ?? null,
-      targetScore: Math.max(0, Math.min(100, Math.round(input.targetScore ?? DEFAULT_INITIATIVE_TARGET))),
-      repos: JSON.stringify(input.repos.slice(0, 200)),
-      assigneeLogin: input.assigneeLogin?.trim().slice(0, 100) || null,
-      targetDate: parseTargetDate(input.targetDate),
-      goalId,
-      playbookId: input.playbookId ?? null,
-    },
-    select: { id: true },
-  });
-  return created;
-}
-
-export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] | null> {
-  if (!isDbConfigured()) return null;
-  const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return [];
-  const [rows, snap, goals, playbooks] = await Promise.all([
-    prisma.initiative.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
-    fleetSnapshot(orgId),
-    prisma.goal.findMany({ where: { orgId }, select: { id: true, label: true } }),
-    prisma.playbook.findMany({ where: { orgId }, select: { id: true, title: true } }),
-  ]);
-  const dimByRepo = new Map(snap.repos.map((r) => [r.fullName, r.dims]));
-  const goalLabelById = new Map(goals.map((g) => [g.id, g.label]));
-  const playbookLabelById = new Map(playbooks.map((p) => [p.id, p.title]));
-  return rows.map((i) => {
-    const repos = parseRepos(i.repos);
-    const atTarget = repos.filter((fn) => (dimByRepo.get(fn)?.[i.dimId] ?? 0) >= i.targetScore).length;
-    return {
-      id: i.id,
-      title: i.title,
-      dimId: i.dimId,
-      dimLabel: DIMENSION_BY_ID[i.dimId as DimensionId]?.name ?? i.dimId,
-      practiceId: i.practiceId,
-      targetScore: i.targetScore,
-      repos,
-      status: i.status,
-      assigneeLogin: i.assigneeLogin,
-      targetDate: i.targetDate ? i.targetDate.toISOString().slice(0, 10) : null,
-      goalId: i.goalId,
-      // A linked goal/playbook that was since deleted resolves to null — the UI shows it unlinked.
-      goalLabel: i.goalId ? goalLabelById.get(i.goalId) ?? null : null,
-      playbookId: i.playbookId,
-      playbookLabel: i.playbookId ? playbookLabelById.get(i.playbookId) ?? null : null,
-      createdAt: i.createdAt.toISOString(),
-      progress: { atTarget, total: repos.length },
-    };
-  });
-}
-
-/** Normalize an assignee login to its stored form (trimmed, ≤100 chars, empty → null). */
-function normAssignee(a?: string | null): string | null {
-  return a?.trim().slice(0, 100) || null;
-}
-
-/**
- * Patch an initiative's status, owner, due date, or linked goal — only the provided fields move.
- * Same optimistic compare-and-set as updateGoal (Initiative also has no version column): the write
- * lands only if each changed field still equals the editor's last-seen value (`expected`, else the
- * server pre-image), so two admins moving the SAME field don't silently clobber each other — the
- * loser gets INIT_CONFLICT → 409. Throws P2025 on an unknown id so the route 404s.
- */
-export async function updateInitiative(
-  id: string,
-  patch: { status?: string; assigneeLogin?: string | null; targetDate?: string | null; goalId?: string | null },
-  expected: { status?: string; assigneeLogin?: string | null; targetDate?: string | null; goalId?: string | null } = {},
-): Promise<boolean> {
-  if (!isDbConfigured()) return false;
-  const prisma = getPrisma();
-  const write: Record<string, unknown> = {
-    ...(patch.status ? { status: patch.status } : {}),
-    ...("assigneeLogin" in patch ? { assigneeLogin: normAssignee(patch.assigneeLogin) } : {}),
-    ...("targetDate" in patch ? { targetDate: parseTargetDate(patch.targetDate) } : {}),
-    ...("goalId" in patch ? { goalId: patch.goalId || null } : {}),
-  };
-  const current = await prisma.initiative.findUnique({
-    where: { id },
-    select: { status: true, assigneeLogin: true, targetDate: true, goalId: true },
-  });
-  if (!current) throw Object.assign(new Error("Initiative not found."), { code: "P2025" });
-  if (Object.keys(write).length === 0) return true; // no-op patch; existence already confirmed
-  const where: Record<string, unknown> = { id };
-  if ("status" in write) where.status = expected.status != null ? expected.status : current.status;
-  if ("assigneeLogin" in write) where.assigneeLogin = "assigneeLogin" in expected ? normAssignee(expected.assigneeLogin) : current.assigneeLogin;
-  if ("targetDate" in write) where.targetDate = "targetDate" in expected ? parseTargetDate(expected.targetDate) : current.targetDate;
-  if ("goalId" in write) where.goalId = "goalId" in expected ? (expected.goalId || null) : current.goalId;
-  const res = await prisma.initiative.updateMany({ where, data: write });
-  if (res.count === 0) {
-    throw Object.assign(new Error("Initiative changed concurrently; refresh and retry."), { code: "INIT_CONFLICT" });
-  }
-  return true;
-}
-
-/** The owning org's slug for an initiative id (per-row tenant gate on /api/org/initiatives/:id). Null = unknown id. */
-export function getInitiativeOrgSlug(id: string): Promise<string | null> {
-  return ownerOrgSlug(() => getPrisma().initiative.findUnique({ where: { id }, select: { org: { select: { slug: true } } } }));
-}
-
-// ── What-if simulator ──────────────────────────────────────────────────────
-
-/**
- * Multi-dimension variant (SIM-2): project several `{dimId, target}` legs landing together across
- * the scope, so a leader can model a combined push ("raise Tests to 70 AND CI to 60 on these repos")
- * rather than one dimension at a time. Reuses the same pure simulateFleet projection.
- */
-export async function simulateOrgFixes(
-  orgSlug: string,
-  fixes: SimFix[],
-  repoFullNames: string[],
-): Promise<FleetProjection | null> {
-  if (!isDbConfigured()) return null;
-  if (fixes.length === 0) return null;
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
-  const snap = await fleetSnapshot(orgId);
-  if (snap.repos.length === 0) return null;
-  const scope = repoFullNames.length ? repoFullNames : snap.repos.map((r) => r.fullName);
-  return simulateFleet(snap.repos, fixes, scope);
-}
-
-/** How a simulated scenario would move one active goal's ETA — the forecast coupled to the sim (SIM-4). */
-export interface GoalImpact {
-  id: string;
-  label: string;
-  metric: string;
-  metricLabel: string;
-  target: number;
-  /** Today's fleet value on the metric, and the value after the simulated fix lands. */
-  currentValue: number;
-  simulatedValue: number;
-  /** Projected target-crossing date at today's value vs. re-anchored at the simulated value. */
-  currentEtaDate: string | null;
-  simulatedEtaDate: string | null;
-  /** The simulated value already meets the target (the goal is reached on landing). */
-  reachedNow: boolean;
-  /** Days the target is pulled forward by landing the fix (currentEta − simulatedEta), or null. */
-  daysSooner: number | null;
-}
-
-/**
- * SIM-4 — couple the simulator to the goal forecast. For each active goal on an axis/overall metric,
- * re-anchor its trend at the *simulated* fleet value (keeping the fitted slope) and compare the ETA
- * to the one at today's value: "landing this fix reaches 'Reach L4' ~3 months sooner". Dimension-metric
- * goals are skipped (the projection's after-snapshot only carries the axis/overall averages). `before`
- * and `after` come straight from the FleetProjection, so no extra fleet query is needed.
- */
-export async function goalImpactsForScenario(
-  orgSlug: string,
-  before: { avgOverall: number; avgAdoption: number; avgRigor: number },
-  after: { avgOverall: number; avgAdoption: number; avgRigor: number },
-): Promise<GoalImpact[] | null> {
-  if (!isDbConfigured()) return null;
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
-  const AXIS = new Set(["overall", "adoption", "rigor"]);
-  const goals = (await getPrisma().goal.findMany({ where: { orgId, status: "active" } })).filter((g) => AXIS.has(g.metric));
-  if (goals.length === 0) return [];
-  const series = await metricSeries(orgId, new Set(goals.map((g) => g.metric)));
-  const now = Date.now();
-  const valueOf = (snap: { avgOverall: number; avgAdoption: number; avgRigor: number }, metric: string) =>
-    metric === "adoption" ? snap.avgAdoption : metric === "rigor" ? snap.avgRigor : snap.avgOverall;
-
-  const impacts: GoalImpact[] = [];
-  for (const g of goals) {
-    const cur = valueOf(before, g.metric);
-    const sim = valueOf(after, g.metric);
-    if (sim <= cur) continue; // the scenario doesn't move this metric — nothing to show
-    const targetDate = g.targetDate ? g.targetDate.toISOString().slice(0, 10) : null;
-    const s = series[g.metric] ?? [];
-    const curProj = projectGoal({ series: s, current: cur, target: g.target, targetDate, nowMs: now });
-    const simProj = projectGoal({ series: s, current: sim, target: g.target, targetDate, nowMs: now });
-    impacts.push({
-      id: g.id,
-      label: g.label,
-      metric: g.metric,
-      metricLabel: metricLabel(g.metric),
-      target: g.target,
-      currentValue: cur,
-      simulatedValue: sim,
-      currentEtaDate: curProj.etaDate,
-      simulatedEtaDate: simProj.etaDate,
-      reachedNow: sim >= g.target,
-      daysSooner: curProj.etaDays != null && simProj.etaDays != null ? curProj.etaDays - simProj.etaDays : null,
-    });
-  }
-  return impacts;
-}
-
-/**
- * Rank D1..D9 by the projected fleet lift from raising each to `target` across the scope (SIM-3) —
- * the "where should we invest?" recommendation, reusing the same pure projection as the manual sim.
- */
-export async function rankOrgInvestments(
-  orgSlug: string,
-  target: number,
-  repoFullNames: string[],
-): Promise<InvestmentRank[] | null> {
-  if (!isDbConfigured()) return null;
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
-  const snap = await fleetSnapshot(orgId);
-  if (snap.repos.length === 0) return null;
-  const scope = repoFullNames.length ? repoFullNames : snap.repos.map((r) => r.fullName);
-  return rankFleetInvestments(snap.repos, scope, target);
-}
+// The Initiatives and What-if simulator sections that used to follow (createInitiative, listInitiatives,
+// updateInitiative, getInitiativeOrgSlug, simulateOrgFixes, goalImpactsForScenario, rankOrgInvestments)
+// were retired with the Plan tab on 2026-08-17, along with src/lib/scoring/orgsim.ts and the
+// /api/org/initiatives + /api/org/simulate routes. The follow-ups ledger (src/lib/org/followups.ts) is
+// the mechanism that replaced them for the common case: gaps sized for one agent session, one fix
+// prompt, closed by the next scan. Goals remain READ by the briefing, the live wall, the overview's
+// fix-first band and the digest alerts; their management UI retired with the tab.

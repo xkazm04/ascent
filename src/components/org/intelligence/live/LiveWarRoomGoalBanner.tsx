@@ -49,8 +49,8 @@ export function GoalBanner({
           <span className="font-medium text-white">{goal.label}</span>
           <PaceChip pace={goal.pace} />
         </div>
-        <Link href={orgTabHref(slug, "plan")} className="font-mono text-sm text-accent hover:text-white">
-          manage →
+        <Link href={orgTabHref(slug, "executive")} className="font-mono text-sm text-accent hover:text-white">
+          briefing →
         </Link>
       </div>
       <Meter

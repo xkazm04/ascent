@@ -1331,6 +1331,28 @@
             "/api/org/goals",
             "/api/org/goals/[id]"
           ]
+        },
+        {
+          "name": "Follow-ups Ledger",
+          "description": "## Purpose\nEvery open gap across the fleet in one ledger: filter, pick a batch, generate ONE fix prompt for a local coding agent, hand it off, and let the next default-branch scan close what landed (Ascent-Resolves commit trailer, or the gap no longer restated). Sized for one agent session; intended to replace Backlog + Plan for the common case.\n\n## Key Flows\n- FollowupsTab reads getOrgBacklog(includeClosed) once → rowsFromBacklog → Worklist / Sessions variants → FollowupsPromptModal (buildFixPrompt) → POST /api/org/followups/handoff marks in_progress.\n- Engine collects Ascent-Resolves ids into ScanReport.resolvedFollowUpIds; scans-persist applies decideInProgress at carry-forward and writes resolved rows as done + a system RecommendationEvent.\n\n## Entry Points\n- src/components/org/followups/FollowupsTab.tsx (?tab=followups)\n- src/app/api/org/followups/handoff/route.ts",
+          "businessFeature": "Improvement Backlog",
+          "category": "ui",
+          "filePaths": [
+            "src/lib/org/followups.ts",
+            "src/lib/org/followups.test.ts",
+            "src/app/api/org/followups/handoff/route.ts",
+            "src/components/org/followups/FollowupsTab.tsx",
+            "src/components/org/followups/FollowupsWorklist.tsx",
+            "src/components/org/followups/FollowupsPromptModal.tsx",
+            "src/components/org/followups/FollowupsFilterBar.tsx",
+            "src/components/org/followups/FollowupChips.tsx",
+            "src/components/org/followups/followupsModel.ts",
+            "docs/features/org-followups/README.md"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/followups/handoff"
+          ]
         }
       ]
     },

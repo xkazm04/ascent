@@ -9,7 +9,6 @@ import { ChangeTag, CoverageChip } from "@/components/org/fleet/tech-stacks/anal
 import { coverageOf, type DimInsight } from "@/components/org/fleet/tech-stacks/fleetAnalysis";
 import type { AnalysisScope } from "@/components/org/fleet/tech-stacks/analysisScope";
 import { buildPlaybook } from "@/components/org/fleet/tech-stacks/transferPlaybook";
-import { CreateInitiativeButton } from "@/components/org/plan/CreateInitiativeButton";
 
 function Handoff({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -87,16 +86,9 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
             ))}
           </ul>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            {/* Files the playbook's structured target directly (fleet-scoped: the laggard endpoint is
-                a stack cohort, not a repo list — Plan's progress view resolves coverage per repo). */}
-            <CreateInitiativeButton
-              slug={org}
-              title={`Lift ${d.dimId} · ${d.label} in ${d.laggard.name} to ${p.target}`}
-              dimId={d.dimId}
-              targetScore={p.target}
-              repos={[]}
-            />
-            <Handoff href={`/org/${org}/plan`}>assign an owner &amp; track as a goal in Plan →</Handoff>
+            {/* The gaps behind this playbook live in the Follow-ups ledger, where a batch becomes a
+                fix prompt (initiatives and the Plan tab were retired 2026-08-17). */}
+            <Handoff href={`/org/${org}?tab=followups&dim=${d.dimId}`}>work the {d.dimId} gaps in Follow-ups →</Handoff>
           </div>
         </div>
       </div>

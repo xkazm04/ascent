@@ -1,6 +1,6 @@
 // Pins the Overview "Fix first" derivation: triage priority (regression > findings queue > behind
 // goal), the busiest-findings-module pick, the cap at 3, and the href contracts each cell deep-links
-// to (report permalink / module tab / plan tab), including scope carry.
+// to (report permalink / module tab / follow-ups tab), including scope carry.
 
 import { describe, expect, it } from "vitest";
 import { deriveFixFirst, type FixFirstInputs } from "@/components/org/overview/fixFirst";
@@ -34,9 +34,11 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
   it("links each item to its evidence surface", () => {
     const items = deriveFixFirst("acme", FULL);
     expect(items[0]!.href).toBe("/report/acme/api");
-    // security/plan are migrated tabs — orgTabHref resolves them to the `?tab=` shell.
+    // security/followups are migrated tabs — orgTabHref resolves them to the `?tab=` shell. (The
+    // behind-pace goal used to point at the Plan tab; that tab retired 2026-08-17 and the goal's
+    // work now lives in the Follow-ups ledger.)
     expect(items[1]!.href).toBe("/org/acme?tab=security");
-    expect(items[2]!.href).toBe("/org/acme?tab=plan");
+    expect(items[2]!.href).toBe("/org/acme?tab=followups");
   });
 
   it("picks the busiest findings module and pluralizes the title", () => {
@@ -81,6 +83,6 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     const items = deriveFixFirst("acme", FULL, "stack=react");
     expect(items[0]!.href).toBe("/report/acme/api");
     expect(items[1]!.href).toBe("/org/acme?tab=security&stack=react");
-    expect(items[2]!.href).toBe("/org/acme?tab=plan&stack=react");
+    expect(items[2]!.href).toBe("/org/acme?tab=followups&stack=react");
   });
 });

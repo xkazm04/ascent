@@ -70,6 +70,8 @@ import { persistScanReport } from "./scans-persist";
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
 
 type PrevRec = {
+  /** Persisted id — the follow-up feedback path keys trailer resolution on it. Optional in older fixtures. */
+  id?: string;
   dimId: string;
   title: string;
   status: string;
@@ -92,6 +94,9 @@ function fakePrisma(opts: {
   scanCreateThrows?: unknown;
 } = {}) {
   const createdScans: Array<Record<string, unknown>> = [];
+  /** Rows written by the follow-up feedback path (resolved in-progress rows copied forward as done). */
+  const createdResolved: Array<Record<string, unknown>> = [];
+  const createdEvents: Array<Record<string, unknown>> = [];
   const scanCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
     if (opts.scanCreateThrows !== undefined && scanCreate.mock.calls.length === 1) {
       throw opts.scanCreateThrows;
@@ -104,8 +109,21 @@ function fakePrisma(opts: {
     scan: { create: scanCreate, delete: vi.fn(async () => ({})) },
     // Engine-upgrade path: the mock scan's graph is torn down (children first, no cascades) before the
     // live row is written. Faked so the upgrade tests can assert the delete order + that it ran at all.
-    recommendationEvent: { deleteMany: vi.fn(async () => ({})) },
-    recommendation: { deleteMany: vi.fn(async () => ({})) },
+    recommendationEvent: {
+      deleteMany: vi.fn(async () => ({})),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        createdEvents.push(data);
+        return { id: "evt_new" };
+      }),
+    },
+    recommendation: {
+      deleteMany: vi.fn(async () => ({})),
+      // The follow-up feedback path writes resolved in-progress rows one by one onto the new scan.
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        createdResolved.push(data);
+        return { id: `rec_done_${createdResolved.length}` };
+      }),
+    },
     scanDimension: { deleteMany: vi.fn(async () => ({})) },
     repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     repoTeam: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
@@ -128,7 +146,7 @@ function fakePrisma(opts: {
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   };
 
-  return { prisma, scanCreate, createdScans, tx };
+  return { prisma, scanCreate, createdScans, createdResolved, createdEvents, tx };
 }
 
 /** A minimal-but-real-shaped ScanReport; `roadmap` carries the rec identities matchRecommendations sees. */
@@ -137,6 +155,8 @@ function makeReport(over: {
   scannedAt?: string;
   roadmap?: Array<{ dimension: string; title: string }>;
   engineProvider?: string;
+  /** Follow-up ids the commit sample declared resolved (Ascent-Resolves trailers). */
+  resolvedFollowUpIds?: string[];
 } = {}): ScanReport {
   const roadmap = (over.roadmap ?? [{ dimension: "D1", title: "Add CI smoke tests" }]).map((r) => ({
     dimension: r.dimension,
@@ -172,6 +192,7 @@ function makeReport(over: {
     dimensions: [],
     contributors: [],
     roadmap,
+    ...(over.resolvedFollowUpIds ? { resolvedFollowUpIds: over.resolvedFollowUpIds } : {}),
     scannedAt: over.scannedAt ?? "2026-06-18T00:00:00.000Z",
   } as unknown as ScanReport;
 }
@@ -936,5 +957,82 @@ describe("persistScanReport — AiChange revert stamp (W5)", () => {
     expect(call!.create.revertedAt).toBeNull();
     expect("revertedByPr" in call!.update).toBe(false);
     expect("revertedAt" in call!.update).toBe(false);
+  });
+});
+
+// ── Follow-up feedback: in-progress rows resolve on rescan (src/lib/org/followups.ts) ────────────
+// An in-progress row is a claim ("we took this on"); the next scan is the feedback. It is DONE when
+// a commit trailer names it or when the scan no longer restates it (title tiers only), and stays in
+// progress when restated. Resolved rows are copied onto the NEW scan as `done` with a system event.
+describe("persistScanReport — follow-up feedback on in-progress rows", () => {
+  const prevInProgress = (over: Partial<PrevRec> = {}): PrevRec => ({
+    id: "rec_ip",
+    dimId: "D2",
+    title: "No coverage threshold fails a run",
+    status: "in_progress",
+    assigneeLogin: "octocat",
+    targetDate: null,
+    ...over,
+  });
+
+  it("NOT RESTATED → copied onto the new scan as done, with a 'no longer raised' event; the new item stays open", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents } = fakePrisma({ previousRecs: [prevInProgress()] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    // The dimension still has an item (r6 guarantees one) — but a DIFFERENT gap.
+    await persistScanReport(makeReport({ headSha: "sha_v2", roadmap: [{ dimension: "D2", title: "Snapshot tests can bless a regression wholesale" }] }));
+
+    // The new gap is NOT paired with the claimed row (no tier-3 carry onto work nobody took on).
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs).toHaveLength(1);
+    expect(recs[0]).toMatchObject({ title: "Snapshot tests can bless a regression wholesale", status: "open", assigneeLogin: null });
+    // The claimed row rides forward as done, keeping its owner, on the new scan.
+    expect(createdResolved).toHaveLength(1);
+    expect(createdResolved[0]).toMatchObject({ scanId: "scan_new", title: "No coverage threshold fails a run", status: "done", assigneeLogin: "octocat" });
+    expect(createdEvents).toHaveLength(1);
+    expect(createdEvents[0]).toMatchObject({ fromValue: "in_progress", toValue: "done", actor: null });
+    expect(String(createdEvents[0]!.note)).toContain("no longer raised");
+  });
+
+  it("TRAILER → done even though the scan restates the gap, with a trailer event", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents } = fakePrisma({ previousRecs: [prevInProgress()] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({ headSha: "sha_v3", roadmap: [{ dimension: "D2", title: "No coverage threshold fails a run" }], resolvedFollowUpIds: ["rec_ip"] }),
+    );
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    // The restated item is a fresh open row — the trailer says the CLAIM is resolved, and if the
+    // scan still raises the gap that is a new finding, not the old claim.
+    expect(recs[0]).toMatchObject({ status: "open" });
+    expect(createdResolved[0]).toMatchObject({ status: "done" });
+    expect(String(createdEvents[0]!.note)).toContain("Ascent-Resolves");
+  });
+
+  it("RESTATED without a trailer → stays in progress on the new scan (carry-forward as before), nothing resolved", async () => {
+    const { prisma, createdScans, createdResolved } = fakePrisma({ previousRecs: [prevInProgress()] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_v4", roadmap: [{ dimension: "D2", title: "no coverage threshold fails a run." }] }));
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs[0]).toMatchObject({ status: "in_progress", assigneeLogin: "octocat" });
+    expect(createdResolved).toHaveLength(0);
+  });
+
+  it("an OPEN (unclaimed) row is untouched by the rule: tier-3 still carries it as before", async () => {
+    const { prisma, createdScans, createdResolved } = fakePrisma({ previousRecs: [prevInProgress({ status: "open", assigneeLogin: "hubot" })] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_v5", roadmap: [{ dimension: "D2", title: "A reworded D2 gap" }] }));
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs[0]).toMatchObject({ status: "open", assigneeLogin: "hubot" }); // lone-in-dimension pairing kept
+    expect(createdResolved).toHaveLength(0);
   });
 });

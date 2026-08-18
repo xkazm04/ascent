@@ -39,9 +39,9 @@ const QUESTIONS: OrgQuestion[] = [
   },
   {
     ask: "Where is the one fix that moves twenty repos instead of two?",
-    module: "Plan",
-    tab: "plan",
-    view: "Simulator",
+    module: "Standing",
+    tab: "followups",
+    view: "Follow-ups",
   },
   {
     ask: "Who already knows how to do this, and which teams are sitting at zero?",

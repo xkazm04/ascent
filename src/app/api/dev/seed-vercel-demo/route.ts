@@ -14,7 +14,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   createGoal,
-  createInitiative,
   createOrgSkill,
   createSegment,
   getPrisma,
@@ -23,7 +22,7 @@ import {
   setOrgPlan,
   setRepoSegmentsBulk,
 } from "@/lib/db";
-import { DEMO_ORG, GOALS, INITIATIVES, MEMBERS, SEGMENTS, SKILLS } from "./demo-data";
+import { DEMO_ORG, GOALS, MEMBERS, SEGMENTS, SKILLS } from "./demo-data";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const runtime = "nodejs";
@@ -112,22 +111,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 6) Initiatives (idempotent by title), linked to the steering goal on the same metric when present.
-  const existingInits = await prisma.initiative.findMany({ where: { orgId: org.id }, select: { title: true } });
-  const existingTitles = new Set(existingInits.map((i) => i.title));
-  let initiativesCreated = 0;
-  for (const i of INITIATIVES) {
-    if (existingTitles.has(i.title)) continue;
-    const goalId = i.linkGoalMetric ? goalIdByMetric.get(i.linkGoalMetric) ?? null : null;
-    const created = await createInitiative(slug, {
-      title: i.title,
-      dimId: i.dimId,
-      repos: i.repos,
-      targetScore: i.targetScore,
-      goalId,
-    }).catch(() => null);
-    if (created) initiativesCreated++;
-  }
+  // 6) (Initiatives were seeded here until the Plan tab and its initiatives retired, 2026-08-17.)
 
   // 7) Members (+ display names). setMembershipRole upserts the User + Membership idempotently.
   let membersSet = 0;
@@ -141,12 +125,12 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     org: { slug, name: DEMO_ORG.name, renamedFrom: renamed.count > 0 ? DEMO_ORG.fromSlug : null, plan: DEMO_ORG.plan },
-    seeded: { segmentsCreated, repoTags, skillsCreated, goalsCreated, initiativesCreated, membersSet },
+    seeded: { segmentsCreated, repoTags, skillsCreated, goalsCreated, membersSet },
     view: {
       dashboard: `/org/${slug}`,
       segments: `/org/${slug}/segments`,
       skills: `/org/${slug}/skills`,
-      plan: orgTabHref(slug, "plan"),
+      followups: orgTabHref(slug, "followups"),
       members: `/org/${slug}/members`,
     },
   });

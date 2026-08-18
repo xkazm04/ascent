@@ -13,7 +13,6 @@
 //     /share/briefing/[token] page is untouched and renders the same components with those props OFF.
 //     ExecutiveTab.test.tsx (moved from the old page.test.tsx) pins that this tab still does so.
 
-import Link from "next/link";
 import { buildExecBriefing, briefingMarkdown, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { PriorPeriodGrid } from "./briefingShared";
@@ -36,12 +35,13 @@ import { OrgLeverageMoves } from "./OrgLeverageMoves";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
 import { getOrgImpactLedger } from "@/lib/db/org-impact";
+import { getOrgProgram } from "@/lib/db/org-program";
+import { ProgramPanel } from "./ProgramPanel";
 import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { chipButtonClass } from "@/components/ui";
-import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -83,6 +83,9 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   // page and in the board PDF, and this ledger is an authenticated in-app panel. Degrades to null
   // (panel omitted) rather than failing the tab — it is evidence, not chrome the page needs.
   const impact = await getOrgImpactLedger(slug, { start: period.start, end: period.end }).catch(() => null);
+  // The transition programme (W1c) — relocated here from the deleted Plan tab: this is the leadership
+  // surface, and the programme is the named, dated commitment leadership reads the briefing against.
+  const program = await getOrgProgram(slug).catch(() => null);
 
   const isOwner = await hasOrgRole(slug, "owner");
   const canShare = briefingShareEnabled() && isOwner;
@@ -148,6 +151,9 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
           explicit count of what hasn't been re-scanned yet and therefore bought nothing. */}
       {impact && <ImpactLedger slug={slug} ledger={impact} periodTitle={period.title} />}
 
+      {/* The programme control (start / re-target / pause / end) — the only place it can be changed. */}
+      <ProgramPanel slug={slug} initial={program} />
+
       {/* GB: fleet signals as ONE wrap-row strip instead of three stacked <p> lines. */}
       <ExecutiveSignalsStrip briefing={briefing} />
 
@@ -177,15 +183,9 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
           The fleet-wide movement scale is deliberately NOT passed — the signals strip above has it. */}
       <BriefingMovementCard gainers={briefing.topGainers} regressions={briefing.topRegressions} reportLinks />
 
-      <BriefingGoalsCard
-        goals={briefing.goals}
-        emptyText="No goals set. Define maturity targets on the Plan tab to track progress here."
-        right={
-          <Link href={orgTabHref(slug, "plan")} className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent">
-            Manage goals →
-          </Link>
-        }
-      />
+      {/* Goals are READ here. Their management UI retired with the Plan tab (2026-08-17); the
+          transition programme above is the org's one named commitment now. */}
+      <BriefingGoalsCard goals={briefing.goals} emptyText="No goals set." />
 
       {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
     </div>

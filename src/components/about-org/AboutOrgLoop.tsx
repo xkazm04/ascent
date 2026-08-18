@@ -47,16 +47,16 @@ const STEPS: LoopStep[] = [
   {
     n: "04",
     title: "Decide",
-    detail: "Simulate a fix across the whole fleet before committing budget, then set the goal it serves.",
-    module: "Plan",
-    tab: "plan",
+    detail: "The org-wide gaps — open in half the fleet — are practices to fix once; the ledger marks them so a batch is the right shape.",
+    module: "Standing",
+    tab: "followups",
   },
   {
     n: "05",
     title: "Apply",
-    detail: "Practices open draft PRs; the backlog tracks what is left, with an owner and a date.",
-    module: "Plan",
-    tab: "backlog",
+    detail: "Tick a batch, get one fix prompt for your local agent, hand it off; the next scan closes what landed.",
+    module: "Standing",
+    tab: "followups",
   },
 ];
 

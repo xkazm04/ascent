@@ -138,7 +138,7 @@ export function ProgramStrip({ slug, status }: { slug: string; status: ProgramSt
         )}
 
         <a
-          href={orgTabHref(slug, "plan")}
+          href={orgTabHref(slug, "executive")}
           className="focus-ring ml-auto font-mono text-xs text-slate-500 transition hover:text-accent"
         >
           Programme →

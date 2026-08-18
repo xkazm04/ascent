@@ -6,7 +6,6 @@
 import Link from "next/link";
 import { fmtMoney, type AiDeliveryModel, type Verdict } from "./aiDeliveryModel";
 import { VerdictChip } from "./aiShared";
-import { CreateInitiativeButton } from "@/components/org/plan/CreateInitiativeButton";
 
 // Concern cohorts get an action rail; starter/working don't need one. Each cohort maps to the
 // dimension its remedy actually moves — review guardrails are D6, tooling adoption is D1, process
@@ -49,12 +48,11 @@ export function AiRoiQuadrantActions({ model, slug, noCostSource }: { model: AiD
               {rows.length > 8 && <li className="font-mono text-sm text-slate-600">+{rows.length - 8}</li>}
             </ul>
             <div className="mt-2">
-              <CreateInitiativeButton
-                slug={slug}
-                title={`${verb} ${rows.length} repo${rows.length > 1 ? "s" : ""}`}
-                dimId={dimId}
-                repos={rows.map((r) => r.fullName)}
-              />
+              {/* The concrete gaps behind this cohort live in the Follow-ups ledger, dimension-scoped
+                  (initiatives and the Plan tab were retired 2026-08-17). */}
+              <Link href={`/org/${slug}?tab=followups&dim=${dimId}`} className="focus-ring font-mono text-xs text-accent transition hover:text-white">
+                work the {dimId} follow-ups →
+              </Link>
             </div>
           </div>
         );

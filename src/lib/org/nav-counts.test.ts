@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
   getOrgTeamRollup: vi.fn(async () => null),
   getContributorInsights: vi.fn(async () => null),
   resolvedKeys: vi.fn(async () => new Map<string, Set<string>>()),
-  getOrgNavCounts: vi.fn(async () => ({ backlog: 1, plan: 2, members: 3 })),
+  getOrgNavCounts: vi.fn(async () => ({ followups: 1, members: 3 })),
   buildSecurityOverview: vi.fn(async () => null),
 }));
 
@@ -75,8 +75,7 @@ describe("nav-count finding derivation", () => {
 
   it("merges the stateful counts with the derived ones", async () => {
     expect(await getNavCounts("acme")).toEqual({
-      backlog: 1,
-      plan: 2,
+      followups: 1,
       members: 3,
       security: 0,
       teams: 0,

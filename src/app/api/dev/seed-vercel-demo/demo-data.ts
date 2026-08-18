@@ -4,7 +4,6 @@
 // match repositories actually imported for the org (see scripts/seed-org.mjs vercel) — an unknown
 // fullName is silently ignored by setRepoSegmentsBulk.
 
-import type { DimensionId } from "@/lib/types";
 import type { GoalMetric } from "@/lib/db/plan";
 import type { SkillCategory } from "@/lib/org/skill-categories";
 import type { OrgRole } from "@/lib/db/members";
@@ -134,12 +133,6 @@ export const GOALS: { label: string; metric: GoalMetric; target: number; targetD
   { label: "Supply Chain & Security (D9) to 65", metric: "D9", target: 65, targetDate: "2026-11-30" },
 ];
 
-/** Tracked initiatives; `linkGoalMetric` wires the initiative to the steering goal on the same metric. */
-export const INITIATIVES: { title: string; dimId: DimensionId; repos: string[]; targetScore: number; linkGoalMetric?: GoalMetric }[] = [
-  { title: "Adopt AGENTS.md across frameworks", dimId: "D1", repos: ["vercel/next.js", "vercel/turborepo", "vercel/swr"], targetScore: 75 },
-  { title: "Raise test coverage on core SDKs", dimId: "D2", repos: ["vercel/ai", "vercel/swr"], targetScore: 70, linkGoalMetric: "D2" },
-  { title: "Supply-chain hardening (pin actions, SBOM)", dimId: "D9", repos: ["vercel/vercel", "vercel/next.js"], targetScore: 65, linkGoalMetric: "D9" },
-];
 
 /** Org members + roles (owner | admin | member | viewer). `name` sets the User display name. */
 export const MEMBERS: { login: string; name: string; role: OrgRole }[] = [

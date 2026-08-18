@@ -1,11 +1,17 @@
-# Planning: goals, initiatives & the simulator
+# Planning: what remains after the Plan and Backlog tabs (retired 2026-08-17)
 
-The Plan tab (`src/app/org/[slug]/plan/page.tsx`) is the management layer over
-[org intelligence](../org-dashboard/org-intelligence.md). It lets an org set maturity **goals**, track scoped programs
-of work as **initiatives**, and run a deterministic **what-if simulator** to see a fix's
-fleet impact before committing. It also surfaces the **detector backlog** (the LLM
-auditor's suspected detector misses) for calibration. All three persist via
-`src/lib/db/plan.ts` and require `DATABASE_URL`.
+**The Plan tab and the Backlog tab are gone.** They were planning machinery sized for a quarter —
+goals with owners and pace, initiatives, a what-if simulator, an owner/due-date backlog, a debt
+statement, a detector-calibration list — for work that is usually one Claude Code session per repo.
+The **[Follow-ups ledger](../org-followups/README.md)** (`?tab=followups`, Standing) replaced them
+for that common case: every open gap in one table, tick a batch, one fix prompt for a local agent,
+and the next default-branch scan closes what landed. Three ideas were ported into it because they
+fit a mass-scan world (10–20 items per repo): **bulk resolve/dismiss** (from Backlog), the
+**org-wide gap call** — a dimension open in ≥ half the fleet is a practice to fix once (from Plan's
+gap decomposition) — and the **per-row timeline** (from Backlog). The **transition programme**
+control (W1c) moved to the Briefing tab.
+
+Everything below is what still exists in this area and what it is for.
 
 ## Goals
 
@@ -24,128 +30,46 @@ per repo, never stored as a snapshot.
 - **DB:** `createGoal`, `listGoals` (computes progress through `currentFor(metric, snap)`),
   `updateGoal`, `deleteGoal`.
 
-## Initiatives
 
-An initiative is a tracked program of work scoped to a set of repos, often **seeded from a
-fleet recommendation** (e.g. "Add AGENTS.md to these 8 repos").
+**Goals are READ, not managed, since 2026-08-17.** The GoalsPanel retired with the Plan tab, so
+there is no in-app way to create or edit a goal; the write API (`/api/org/goals`) is kept because
+the seed route and any external caller still use it. The read paths that made goals worth keeping
+for now: the executive briefing's goals card, the live wall's goal banner, the overview's fix-first
+band ("behind the pace its deadline needs" now sends the reader to the Follow-ups ledger), and the
+digest alerts. Goals duplicate the transition programme's single named commitment and are the next
+retirement candidate; when that happens those four readers lose a branch each, nothing else.
 
-- **Model:** `Initiative { id, orgId, title, dimId, practiceId?, targetScore (default 70),
-  repos (JSON fullNames[]), status, createdAt }`, status ∈
-  `open | in_progress | done | dismissed`.
-- **API** (`src/app/api/org/initiatives/route.ts`, `…/initiatives/[id]/route.ts`):
-  - `GET ?org=` → `{ initiatives }` with live progress (`atTarget / total` scoped repos at
-    `targetScore` on `dimId`).
-  - `POST { org, title, dimId, repos[], targetScore?, practiceId? }` → `{ id }`.
-  - `PATCH /:id { status }` moves through the workflow.
-- **UI:** `src/components/org/plan/InitiativesPanel.tsx` shows active initiatives (progress
-  bar, status dropdown) plus a "**Start from a fleet move**" section that turns the top
-  untracked `getOrgRecommendations` results into a one-click initiative.
-- **DB:** `createInitiative`, `listInitiatives`, `updateInitiativeStatus`.
-- **Seeding from the diagnostic tabs** (2026-08-14): the shared
-  `src/components/org/plan/CreateInitiativeButton.tsx` files the already-constructed payload
-  from four read surfaces straight into `POST /api/org/initiatives` (idempotent server-side
-  on `(org, title, dimId)`):
-  - **Delivery**: each ROI concern cohort (`AiRoiQuadrantActions`) tracks its repo set
-    against the dimension its remedy moves (ungoverned→D6, idle→D1, shadow→D8).
-  - **Tech Stacks**: a transformation playbook (`PlaybookDetail`) tracks its `dimId` +
-    `target` as a fleet-scoped initiative.
-  - **Adoption**: an enablement target (`EnablementTargets`) tracks a D1 enablement
-    initiative naming the login in the title (no assignee: the person to enable is not the
-    initiative's owner).
-  - **Simulator**: saved scenarios carry their immutable `fixes` + concrete repo set, so a
-    single-leg save can be committed as an initiative after the live form has moved on
-    (multi-leg saves stay compare-only; per-leg looping was rejected as non-atomic).
+## Transition programme
 
-An optional `practiceId` links an initiative to a [Practice Library](../org-dashboard/practices.md) item.
+Documented in [org-intelligence.md](../org-dashboard/org-intelligence.md) (W1c). Its control panel
+(`ProgramPanel`: start / re-target / pause / end) now renders on the **Briefing** tab
+(`src/components/org/intelligence/executive/ProgramPanel.tsx`), which is where the shell's
+`ProgramStrip` and the getting-started "programme" step link.
 
-## Simulator (what-if)
+## Executive briefing, live wall, playbooks
 
-The simulator answers "if we raise dimension D to target T across these repos, what happens
-to the fleet?" (deterministically, with **no writes**).
+Unchanged by the retirement and documented where they live: the briefing and its PDF in
+[org-intelligence.md](../org-dashboard/org-intelligence.md); playbooks in
+[practices.md](../org-dashboard/practices.md).
 
-- **Core** (`src/lib/scoring/orgsim.ts`): `simulateFleet(repos, fix, scope)`:
-  1. `recomputeRepo(dims, archetype)` reproduces the live engine's archetype-weighted
-     blend, so the *before* state matches actual scores.
-  2. For in-scope repos currently below target, raise `dimId` to `target`.
-  3. Recompute the *after* state.
-  4. Return a `FleetProjection`: before/after snapshots (overall/adoption/rigor), per-repo
-     deltas sorted by gain, and a promotions count (repos that cross a level).
-- **API** (`src/app/api/org/simulate/route.ts`): `POST { org, dimId, target, repos? }` →
-  `{ projection }`, via `simulateOrgFix` in `plan.ts` (which builds the latest-scan
-  `FleetSnapshot` and calls `simulateFleet`).
-- **UI:** `src/components/org/plan/Simulator.tsx` lets you pick a dimension + target + scope
-  (all scanned repos or a checkbox subset), Simulate, and see affected repos, promotions,
-  before/after with deltas, and the biggest movers. The result is read-only and never
-  persisted.
+## Retired on 2026-08-17 (for the record)
 
-## Debt Ledger (Backlog tab)
-
-The Backlog tab (`src/components/org/plan/backlog/BacklogTab.tsx`) opens with the **Debt
-Ledger** (W5, 2026-08-12): AI-era quality debt as a statement of account, rendered ABOVE
-the working backlog panel (which keeps grouping, inline edits, search/filter, bulk actions
-and CSV export; the ledger summarizes, the panel manages). The prototype's variant
-switcher and mock data (`DebtSwitcher.tsx`, `debtMockData.ts`) are retired; every number is
-real:
-
-- **Principal / Overdue / Due-soon.** The backlog itself (`getOrgBacklog`): score points
-  locked up in past-due recommendations (projected points, impact-based fallback for
-  legacy scans), per repo and fleet-wide. The panel's old Overdue/Due-soon tiles moved up
-  here.
-- **Interest**: `reworkRate` (share of merged PRs later reverted; W5 revert linkage) from
-  each repo's latest scan via `src/lib/db/org-rework.ts` (`getOrgRework`, mirroring
-  `org-signals.ts`: latest-scan blobs, analyzed-PR-weighted fleet aggregates). A per-repo
-  **AI interest** column shows `aiReworkRate` (the same over AI-involved merges).
-- **Write-offs**: `revertRate` (revert-titled PRs, W1a). **Exposure**: the
-  trailer-grounded `aiTrailerRate` (W2) where measured, falling back to the marker-based
-  `aiInvolvedRate` and labeled as the fallback.
-- **Pressure** (row sort + verdict tone): a 0–100 composite over the MEASURED terms only
-  (overdue principal 45% · rework 35% · write-offs 20%, weights renormalizing when a rate
-  is null), documented in `debtModel.ts`.
-
-**Null discipline:** a repo whose latest scan predates rework tracking, has no PR data, or
-is under the ≥5-sample floors renders an honest "—" with the reason in the tooltip and the
-ledger's field notes ("scan predates rework tracking; re-scan to measure"), never a zero.
-The rework rates are **lower bounds** (window-scoped matcher; renamed reverts escape),
-stated in the field notes.
-
-**Deferred:** *AI churn share* (rework landing on AI-authored lines) has no real signal yet:
-it needs per-PR file paths (tier B churn ingest, pairs with stance path-zone enforcement).
-The prototype's mock column was removed rather than faked; it returns with its signal.
-
-## Detector backlog
-
-`getOrgDiscrepancies(slug)` aggregates the LLM auditor's flagged signals (where it thinks a
-detector under/over-counted), grouped by dimension with examples. The Plan page renders
-this as a calibration backlog: the human-in-the-loop signal for improving the
-deterministic detectors.
-
-## Key files
-
-| File | Role |
+| Was | Where it went |
 | --- | --- |
-| `src/app/org/[slug]/plan/page.tsx` | Plan tab host (goals, simulator, initiatives, detector backlog). |
-| `src/components/org/plan/GoalsPanel.tsx` | Goals CRUD + live progress. |
-| `src/components/org/plan/InitiativesPanel.tsx` | Initiatives CRUD + seeding from fleet moves. |
-| `src/components/org/plan/Simulator.tsx` | What-if form + projection display. |
-| `src/lib/db/plan.ts` | Goals, initiatives, `simulateOrgFix`, `fleetSnapshot`, `currentFor`. |
-| `src/components/org/plan/backlog/debt/` | Debt Ledger: `DebtLedger.tsx` (the statement), `debtModel.ts` (backlog × rework join, pressure composite), `debtParts.tsx` (field notes, rate cells, verdicts). |
-| `src/lib/db/org-rework.ts` | Fleet rework read: per-repo `reworkRate`/`aiReworkRate`/`revertRate`/exposure from latest-scan `prStats` blobs + weighted fleet aggregates (`buildOrgRework` pure + `getOrgRework`). |
-| `src/lib/scoring/orgsim.ts` | Pure fleet simulator (`recomputeRepo`, `simulateFleet`). |
-| `src/app/api/org/goals/*`, `initiatives/*`, `simulate/route.ts` | Planning APIs. |
+| Backlog tab (owners, due dates, owner/due grouping, undo, CSV, bulk assign) | Follow-ups ledger; bulk resolve/dismiss + timeline ported; owners/due dates dropped (`assigneeLogin`/`targetDate` columns remain on `Recommendation`, unread by the ledger). |
+| Debt Ledger (rework/revert/exposure statement) | Deleted with the tab. `getOrgRework` (`src/lib/db/org-rework.ts`, W5 revert linkage) is now an **orphaned read** — real data, no consumer; a Delivery-tab home is the obvious next step. |
+| Plan tab: initiatives (+ `CreateInitiativeButton` on Adoption, Delivery ROI, Tech-stack playbooks) | Deleted, incl. `/api/org/initiatives`, `createInitiative/listInitiatives/updateInitiative`, the `Initiative` nav count. Those three surfaces now link to the Follow-ups ledger scoped to the dimension (`?tab=followups&dim=Dn`). The `Initiative` table stays in the schema (no migration; rows are inert). |
+| Plan tab: what-if simulator | Deleted, incl. `src/lib/scoring/orgsim.ts`, `/api/org/simulate`, `simulateOrgFixes/rankOrgInvestments/goalImpactsForScenario`. |
+| Plan tab: gap decomposition (org vs repo problem) | Ported as the ledger's `org-wide N/M` tag + filter (`dimensionSpread`). `getOrgGapAnalysis` is now an orphaned read. |
+| Plan tab: detector backlog (LLM auditor's suspected detector misses) | Deleted with the tab. `getOrgDiscrepancies` is now an orphaned read; calibration is documented in [calibration.md](../scanning/calibration.md) and needs a new (operator-side) home. |
+| Plan tab: goals management | See *Goals* above. |
+| `plan` / `backlog` tab ids, rail items, `OrgNavCounts.plan` | Removed; `OrgNavCounts.backlog` → `followups`. `/org/<slug>/plan` and `/backlog` remain as permanent redirects (links in inboxes) → `?tab=followups`. |
 
 ## Known gaps
 
-- **Simulator legs are independent.** A scenario is one or more `{ dimId, target }`
-  legs (`rankFleetInvestments` ranks them; `Simulator.RankPanel.tsx` and
-  `Simulator.SavedScenarios.tsx` drive the UI), but each leg is projected on its own:
-  the model doesn't express a dependency between legs, so it can't capture "fixing D3
-  makes D6 cheaper".
-- (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row now
-  carries `series`: the same per-day metric trend the pace/ETA projection is fitted on
-  (`metricSeries`), display-clamped to the plan's retention floor and capped at 90 daily
-  points; the shared `GoalCard` draws it as a trajectory line toward the dashed
-  target (`src/components/org/shared/GoalTrend.tsx`), on both the Plan tab and the
-  overview goals panel. The `pct` meter's documented blind spot (standing, not travel) is
-  now covered by the line above it.
-- **Detector backlog is read-only.** No drill-in or auto-filing to a detector-improvement
-  process.
+- **Three orphaned reads** — `getOrgRework`, `getOrgGapAnalysis`, `getOrgDiscrepancies` — carry real
+  data with no UI. Kept (tested) rather than deleted so a future home does not have to re-derive
+  them; each is a decision, not an oversight.
+- **Goals have no management UI.** Deliberate half-state, see above.
+- (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row carries
+  `series`, drawn by `GoalCard` (`src/components/org/shared/GoalTrend.tsx`).

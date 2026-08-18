@@ -10,5 +10,6 @@ export const dynamic = "force-dynamic";
 // one edit in orgTabs.ts.
 export default async function OrgBacklogRedirect({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  redirect(orgTabHref(slug, "backlog"));
+  // The Backlog tab itself was retired 2026-08-17; the Follow-ups ledger is where its rows live now.
+  redirect(orgTabHref(slug, "followups"));
 }

@@ -14,6 +14,8 @@
 export const ORG_TAB_IDS = [
   // Overview
   "overview",
+  // The follow-ups ledger: every open gap across the fleet, pick a batch, hand it to a local agent.
+  "followups",
   "executive",
   // Fleet
   "repositories",
@@ -31,10 +33,8 @@ export const ORG_TAB_IDS = [
   "delivery",
   "contributors",
   "teams",
-  // Plan
+  // Plan (the Plan and Backlog tabs were retired 2026-08-17 in favour of the Follow-ups ledger)
   "practices",
-  "plan",
-  "backlog",
   // Library
   // The customer-owned registry repo (Skills/Practices/Memory as git) — first item in `Chosen`,
   // because the other three Library tabs read their source of truth from it once it is mapped.
@@ -76,7 +76,7 @@ export const DEFAULT_ORG_TAB: OrgTabId = "overview";
 
 /** Key into `NavCounts` (src/lib/org/nav-counts.ts). Kept as a string here so this JSX-free module
  *  stays free of a nav-counts import; OrgTabNav pins it against the real `NavCounts` type. */
-export type OrgTabCountKey = "passports" | "security" | "contributors" | "teams" | "plan" | "backlog" | "members";
+export type OrgTabCountKey = "passports" | "security" | "contributors" | "teams" | "followups" | "members";
 
 export interface OrgTabDef {
   id: OrgTabId;
@@ -127,6 +127,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     label: "Standing",
     items: [
       { id: "overview", label: "Overview" },
+      // The action surface of Standing: what the scans left open, as a ledger you can hand off from.
+      // Sits right under Overview because the ledger's rows ARE the Overview's "owe a follow-up".
+      { id: "followups", label: "Follow-ups", countKey: "followups" },
       // Segments is merged into Repositories as its "?tab=segments" view — no separate rail item.
       { id: "repositories", label: "Repositories" },
       { id: "tech-stacks", label: "Tech Stacks" },
@@ -142,7 +145,6 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       // Registry sits FIRST: it is the onboarding step Practices/Skills/Memory depend on, and their
       // sync-health strip links back here (docs/REGISTRY-AND-CARE-IMPL.md §0.2).
       { id: "registry", label: "Registry" },
-      { id: "plan", label: "Plan", countKey: "plan" },
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
       { id: "memory", label: "Memory" },
@@ -158,7 +160,6 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     label: "In flight",
     items: [
       { id: "live", label: "Live" },
-      { id: "backlog", label: "Backlog", countKey: "backlog" },
     ],
   },
   {
@@ -199,7 +200,7 @@ export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>(["se
 export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "overview",
   "security",
-  "backlog",
+  "followups",
   "registry",
   "skills",
   "memory",
@@ -387,9 +388,8 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "contributors",
   "adoption",
   "delivery",
-  "plan",
-  "backlog",
   "practices",
+  "followups",
   "registry",
 ]);
 

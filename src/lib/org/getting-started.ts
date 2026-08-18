@@ -110,9 +110,9 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       phase: "resolve",
       done: facts.gapEngaged,
       // Assigning/closing a rec or opening an apply-PR is a member-level write; a personal
-      // workspace engages through its private overlay on the same backlog tab.
+      // workspace engages through its private overlay, rendered by the same Follow-ups tab.
       available: can(role, "member"),
-      tab: "backlog",
+      tab: "followups",
       anchor: GETTING_STARTED_ANCHORS["gap-engaged"],
     },
     {
@@ -154,9 +154,9 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       phase: "program",
       done: facts.hasProgram,
       // Available to any member on a real org — a personal workspace has no fleet to run a
-      // programme over, and the Plan tab is not in its subset.
+      // programme over, and the Briefing tab (where the programme control lives) is not in its subset.
       available: !personal && can(role, "member"),
-      tab: "plan",
+      tab: "executive",
       anchor: GETTING_STARTED_ANCHORS.program,
     },
   ];

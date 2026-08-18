@@ -22,6 +22,7 @@ import { DEMO_ORG_SLUG } from "@/lib/site";
  */
 const BLURBS: Record<OrgTabId, string> = {
   overview: "The fleet's headline read: maturity, adoption vs rigor, trajectory, gap analysis and the highest-leverage moves.",
+  followups: "Every open gap across the fleet in one ledger: filter, pick a batch, get one fix prompt for your local agent, and let the next scan close what landed.",
   executive: "The briefing built for the meeting you have to walk into: what moved, what it cost, what to decide.",
   repositories: "Every repo ranked by level, adoption, rigor and posture, plus a repo × dimension heatmap, and your own fleet segments.",
   segments: "Slice the fleet your way (platform, mobile, legacy) with per-segment rollups and side-by-side comparison.",
@@ -34,8 +35,6 @@ const BLURBS: Record<OrgTabId, string> = {
   contributors: "AI champions, involvement, key-person exposure and per-repo bus factor.",
   teams: "Per-team (CODEOWNERS) adoption × rigor, dimension shape, movers, and a suggested cross-team pairing.",
   practices: "The practice library: turn a gap into a starter artifact and open it as a draft PR, one repo or many.",
-  plan: "Goals, initiatives and a what-if simulator that recomputes the whole fleet under a hypothetical fix.",
-  backlog: "Every open gap across the fleet with an owner and a due date, searchable, bulk-editable, exportable.",
   registry:
     "Put your skills, practices and org memory in a git repo you own; ascent onboards it, indexes it, and shows which repos are in sync.",
   skills: "A versioned SKILL.md library your org authors, adopts against repos, and syncs with CLI and CI.",

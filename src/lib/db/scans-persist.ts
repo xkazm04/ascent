@@ -8,6 +8,7 @@ import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
+import { decideInProgress, isRestated, resolutionNote } from "@/lib/org/followups";
 import {
   canonicalRepoFullName,
   DEFAULT_ORG_SLUG,
@@ -281,13 +282,46 @@ export async function persistScanReport(
       // ARBITRARY row on a tie — carrying tracked status/assignee from a non-canonical predecessor.
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
-      select: { recommendations: { select: { dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true } } },
+      select: { recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true } } },
     });
     const prevRecs = previous?.recommendations ?? [];
     const carryMatch = matchRecommendations(
       prevRecs.map((r) => ({ dim: r.dimId, title: r.title })),
       report.roadmap.map((r) => ({ dim: r.dimension, title: r.title })),
     );
+
+    // FOLLOW-UP FEEDBACK (src/lib/org/followups.ts). An IN-PROGRESS row is a claim a user made — "we
+    // took this on" — and this scan is the feedback on that claim. It is resolved when a commit in the
+    // sample carries the row's `Ascent-Resolves:` trailer, or when the new assessment no longer
+    // restates it (title tiers only — tier-3 lone-in-dimension pairing is NOT applied to claimed rows,
+    // because since r6 every below-green dimension always has some item and tier 3 would carry "in
+    // progress" onto whatever new gap the dimension produced). It STAYS in progress when the scan
+    // restates it. Resolved rows are copied forward onto THIS scan as `done` with a system event that
+    // names the mechanism, so the ledger's archive reads off the latest scan like everything else.
+    // Carry-forward's own tier-3 match for an in-progress row is dropped for the same reason: a
+    // claimed row is carried by its title or not at all.
+    const nextIds = report.roadmap.map((r) => ({ dim: r.dimension, title: r.title }));
+    const resolvedIds = new Set(report.resolvedFollowUpIds ?? []);
+    const resolvedRows: { row: (typeof prevRecs)[number]; note: string }[] = [];
+    prevRecs.forEach((r, i) => {
+      if (r.status !== "in_progress") return;
+      const restated = isRestated({ dim: r.dimId, title: r.title }, nextIds);
+      const decision = decideInProgress({ id: r.id }, restated, resolvedIds);
+      if (decision.kind === "done") {
+        resolvedRows.push({ row: r, note: resolutionNote(decision, headSha ? headSha.slice(0, 12) : "latest") });
+        // Un-pair any next item carry-forward matched to this row: it is not the same gap.
+        carryMatch.forEach((m, j) => {
+          if (m === i) carryMatch[j] = null;
+        });
+      } else {
+        // Restated (kept): keep the pairing ONLY if it is a title-tier match. matchRecommendations does
+        // not report the tier, so re-check the specific pair — a tier-3 pairing joins titles that
+        // isRestated rejects.
+        carryMatch.forEach((m, j) => {
+          if (m === i && !isRestated({ dim: r.dimId, title: r.title }, [nextIds[j]!])) carryMatch[j] = null;
+        });
+      }
+    });
 
     // Atomic write: the scan graph (scan + dimensions + recommendations), the contributor upserts,
     // and the audit entry commit together or roll back together — closing the partial-write hole
@@ -399,6 +433,32 @@ export async function persistScanReport(
           },
           select: { id: true },
         });
+
+        // Resolved follow-ups ride onto THIS scan as `done` rows (see the FOLLOW-UP FEEDBACK note
+        // above) with a system event that says which mechanism closed them. Written after the scan
+        // row so the event can be attached, in the same transaction so a crash leaves no scan whose
+        // archive silently forgot what the fix commits declared.
+        for (const { row, note } of resolvedRows) {
+          const done = await tx.recommendation.create({
+            data: {
+              scanId: scan.id,
+              title: row.title,
+              dimId: row.dimId,
+              impact: row.impact,
+              effort: row.effort,
+              rationale: row.rationale,
+              explore: row.explore,
+              levelUnlock: row.levelUnlock,
+              status: "done",
+              assigneeLogin: row.assigneeLogin,
+              targetDate: row.targetDate,
+            },
+            select: { id: true },
+          });
+          await tx.recommendationEvent.create({
+            data: { recommendationId: done.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "done", note },
+          });
+        }
 
         // Recent contributors (top 50, with AI-attribution) for org-wide comparison — in the same tx
         // so they share the scan's fate (no orphaned scan with a half-written contributor set).

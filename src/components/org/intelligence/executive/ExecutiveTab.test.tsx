@@ -147,14 +147,17 @@ describe("OrgExecutive page — internal-only affordances turned ON (proves the 
     expect(movement.props.reportLinks).toBe(true); // per-repo report link ON
   });
 
-  it("passes a 'Manage goals' action into BriefingGoalsCard's header slot", async () => {
+  // The "Manage goals →" header action retired with the Plan tab (2026-08-17): goals are read here,
+  // not managed. The card must still render — the shared-card boundary is about the OTHER internal
+  // affordances — but with no header action, same as the public share page.
+  it("renders BriefingGoalsCard without a management action (goals are read-only since the Plan tab retired)", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing());
 
     const el = await renderPage();
     const goals = findElement(el, BriefingGoalsCard)!;
 
     expect(goals).not.toBeNull();
-    expect(React.isValidElement(goals.props.right)).toBe(true); // "Manage goals →" link present
+    expect(goals.props.right).toBeUndefined();
   });
 
   it("renders nothing (SectionEmpty) and skips the briefing cards entirely when there's no scanned data", async () => {

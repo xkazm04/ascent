@@ -80,7 +80,7 @@ describe("org tab catalog", () => {
     // Mirrors OrgNav's old PERSONAL_SEGMENTS ("" was the overview root), plus `registry` (a personal
     // workspace gets the same layout against `<user>/ai-registry`, REGISTRY-AND-CARE-IMPL §1) and
     // `developer` (UC3's home is the one surface a personal workspace exists FOR).
-    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "developer", "memory", "overview", "registry", "security", "skills"]);
+    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["developer", "followups", "memory", "overview", "registry", "security", "skills"]);
   });
 
   it("every migrated tab is a real id", () => {

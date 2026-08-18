@@ -98,8 +98,8 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       key: "goal",
       title: `Rescue “${behind.label}”`,
       detail: "behind the pace its deadline needs",
-      href: withScope(orgTabHref(slug, "plan"), scopeQuery),
-      cta: "review plan →",
+      href: withScope(orgTabHref(slug, "followups"), scopeQuery),
+      cta: "work the follow-ups →",
     });
   }
 

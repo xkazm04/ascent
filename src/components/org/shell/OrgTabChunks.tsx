@@ -35,8 +35,7 @@ import { TeamsTab } from "../fleet/teams/TeamsTab";
 import { ContributorsTab } from "../fleet/contributors/ContributorsTab";
 import { AdoptionTab } from "../fleet/adoption/AdoptionTab";
 import { DeliveryTab } from "../fleet/delivery/DeliveryTab";
-import { PlanTab } from "../plan/PlanTab";
-import { BacklogTab } from "../plan/backlog/BacklogTab";
+import { FollowupsTab } from "../followups/FollowupsTab";
 import { PracticesTab } from "../plan/practices/PracticesTab";
 import { OrgTabErrorBoundary } from "./OrgTabErrorBoundary";
 import { OrgTabGap } from "./OrgTabGap";
@@ -179,18 +178,11 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
-        {/* Plan owns its OWN internal <Suspense> boundaries (gap / core / detector backlog — see
-            PlanTab), same shape as Overview; it takes no `sp` since none of its panels are scoped by
-            a deep-link param. */}
-        {tab === "plan" ? (
+        {/* The follow-ups ledger (Standing): one scoped backlog read. Replaced the Plan and Backlog
+            tabs (retired 2026-08-17). */}
+        {tab === "followups" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <PlanTab slug={slug} />
-          </Suspense>
-        ) : null}
-
-        {tab === "backlog" ? (
-          <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <BacklogTab slug={slug} sp={sp} />
+            <FollowupsTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

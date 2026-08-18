@@ -68,7 +68,7 @@ describe("getOrgNavCounts", () => {
     mockGetPrisma.mockReturnValue(fake.client);
 
     const counts = await getOrgNavCounts("acme");
-    expect(counts).toEqual({ backlog: 15, plan: 4, members: 2 });
+    expect(counts).toEqual({ followups: 15, members: 2 });
   });
 
   it("scopes the backlog count to the latest scan and the unresolved statuses", async () => {
@@ -87,15 +87,13 @@ describe("getOrgNavCounts", () => {
     expect(fake.calls.repoFindMany[0]!.where).toMatchObject({ orgId: "org_1" });
   });
 
-  it("counts only unresolved initiatives, and only pending invites that have not expired", async () => {
+  it("counts only pending invites that have not expired (initiatives retired with the Plan tab)", async () => {
     const fake = fakePrisma({});
     mockGetPrisma.mockReturnValue(fake.client);
     await getOrgNavCounts("acme");
 
-    expect(fake.calls.initiativeCount[0]!.where).toMatchObject({
-      orgId: "org_1",
-      status: { in: ["open", "in_progress"] },
-    });
+    // The Plan tab and its initiatives are gone (2026-08-17); the badge must not buy their count.
+    expect(fake.calls.initiativeCount).toHaveLength(0);
 
     const inviteWhere = fake.calls.inviteCount[0]!.where as {
       orgId: string;

@@ -157,11 +157,11 @@ describe("navigation targets", () => {
     const m = buildGettingStartedModel(facts(), null);
     expect(m.steps.map((s) => [s.id, s.tab, s.anchor])).toEqual([
       ["first-scan", "overview", GETTING_STARTED_ANCHORS["first-scan"]],
-      ["gap-engaged", "backlog", GETTING_STARTED_ANCHORS["gap-engaged"]],
+      ["gap-engaged", "followups", GETTING_STARTED_ANCHORS["gap-engaged"]],
       ["registry", "skills", GETTING_STARTED_ANCHORS.registry],
       ["loop", "repositories", GETTING_STARTED_ANCHORS.loop],
       ["team", "members", GETTING_STARTED_ANCHORS.team],
-      ["program", "plan", GETTING_STARTED_ANCHORS.program],
+      ["program", "executive", GETTING_STARTED_ANCHORS.program],
     ]);
     // first-scan reuses the data-tour anchor that ALREADY exists in the DOM.
     expect(GETTING_STARTED_ANCHORS["first-scan"]).toBe("results-view");

@@ -861,6 +861,10 @@ export interface ScanReport {
    *  (a briefing, a percentile, a signed export, a diligence verdict) must be able to read them.
    *  Undefined on reconstructed snapshots that predate the field. */
   scoreIntegrity?: ScoreIntegrity;
+  /** Follow-up ids named by `Ascent-Resolves:` trailers in the scanned commit sample (src/lib/org/
+   *  followups.ts). Evidence, not score: persistence uses it to close in-progress follow-ups the
+   *  fix commits declared resolved. Empty/absent when no commit carries a trailer. */
+  resolvedFollowUpIds?: string[];
   /** The PR slice this report's D6/D7/D8 signals were derived from was INCOMPLETE — GraphQL returned a
    *  truncated page (null nodes / an `errors` array on a 200). The scores understate reality, so the
    *  report must not be cached or persisted as authoritative. `graphql.ts` computes this and `pulls.ts`

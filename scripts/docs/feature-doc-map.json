@@ -172,6 +172,16 @@
       ]
     },
     {
+      "area": "org-followups",
+      "doc": "docs/features/org-followups/README.md",
+      "sourceGlobs": [
+        "src/lib/org/followups.ts",
+        "src/components/org/followups/**",
+        "src/app/api/org/followups/**",
+        "src/app/api/org/backlog/**"
+      ]
+    },
+    {
       "area": "org-dashboard",
       "doc": "docs/features/org-dashboard/developer.md",
       "sourceGlobs": [

@@ -4,7 +4,6 @@
 // tab's individual drill-down — never a passive scoreboard. Server-safe (native <details>).
 
 import { OrgTable } from "@/components/org/shared/ui";
-import { CreateInitiativeButton } from "@/components/org/plan/CreateInitiativeButton";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { timeAgo } from "@/lib/ui";
 
@@ -41,9 +40,6 @@ export function EnablementTargets({
               <th className="px-3 py-2 text-right">Commits</th>
               <th className="px-3 py-2 text-right">Repos</th>
               <th className="px-3 py-2 text-left">Last active</th>
-              <th className="px-3 py-2 text-left">
-                <span className="sr-only">Track enablement</span>
-              </th>
             </tr>
           }
         >
@@ -56,12 +52,6 @@ export function EnablementTargets({
               <td className="px-3 py-2 text-right font-mono tabular-nums">{t.commits}</td>
               <td className="px-3 py-2 text-right font-mono tabular-nums">{t.repos}</td>
               <td className="px-3 py-2 text-sm text-slate-500">{timeAgo(t.lastActiveAt ?? undefined)}</td>
-              <td className="px-3 py-2 text-right">
-                {/* Files an enablement move against D1 (tooling & conventions). Deliberately NO
-                    assignee — the target is the person to enable, not the initiative's owner, and
-                    this band's framing is "inputs, not a to-do list for anyone". */}
-                <CreateInitiativeButton slug={slug} title={`Enable ${t.login} on AI workflows`} dimId="D1" repos={[]} label="Track enablement →" />
-              </td>
             </tr>
           ))}
         </OrgTable>

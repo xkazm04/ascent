@@ -21,10 +21,9 @@ import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } fro
 
 /** Unresolved counts keyed by the org route segment the badge belongs to. */
 export interface OrgNavCounts {
-  /** Recommendations still open or in progress on each repo's latest scan. */
-  backlog: number;
-  /** Initiatives still open or in progress. */
-  plan: number;
+  /** Follow-ups (recommendations) still open or handed off on each repo's latest scan — the
+   *  Follow-ups ledger's badge. (The Plan tab's initiatives count retired with the tab, 2026-08-17.) */
+  followups: number;
   /** Invites still pending and not yet expired. */
   members: number;
 }
@@ -43,7 +42,7 @@ export const getOrgNavCounts = cache(async (orgSlug: string): Promise<OrgNavCoun
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const [repos, plan, members] = await Promise.all([
+  const [repos, members] = await Promise.all([
     prisma.repository.findMany({
       where: { orgId: org.id },
       select: {
@@ -54,12 +53,11 @@ export const getOrgNavCounts = cache(async (orgSlug: string): Promise<OrgNavCoun
         },
       },
     }),
-    prisma.initiative.count({ where: { orgId: org.id, status: { in: UNRESOLVED } } }),
     prisma.invite.count({ where: { orgId: org.id, status: "pending", expiresAt: { gt: new Date() } } }),
   ]);
 
-  const backlog = repos.reduce((n, r) => n + (r.scans[0]?.recommendations.length ?? 0), 0);
-  return { backlog, plan, members };
+  const followups = repos.reduce((n, r) => n + (r.scans[0]?.recommendations.length ?? 0), 0);
+  return { followups, members };
 });
 
 /** One repo's readiness blockers, override-applied — the only rollup field the passports badge reads. */

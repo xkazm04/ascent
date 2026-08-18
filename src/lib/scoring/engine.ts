@@ -39,6 +39,7 @@ import {
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
 import { buildDimensionFollowUps, buildFallbackRoadmap } from "@/lib/scoring/recommendations";
+import { parseResolvedIds } from "@/lib/org/followups";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
 import { computeContributors, detectAiUsage } from "@/lib/analyze";
 import { formatSignal } from "@/lib/types";
@@ -320,6 +321,7 @@ export function assembleReport(
     dimensions.map((d) => ({ id: d.id, score: d.score, gaps: d.gaps })),
     overallScore,
   );
+  const resolvedFollowUpIds = [...parseResolvedIds(snap.commits.map((c) => c.message))];
 
   return {
     repo: snap.meta,
@@ -354,6 +356,9 @@ export function assembleReport(
       effectiveBlend,
     },
     ...(incomplete ? { incomplete: true as const } : {}),
+    // Follow-up ids the commit sample declares resolved (`Ascent-Resolves:` trailers). Read here,
+    // where the snapshot's commit messages are in hand, so persistence never needs the snapshot.
+    ...(resolvedFollowUpIds.length ? { resolvedFollowUpIds } : {}),
     confidence: coverage,
     warnings: warnings.length ? warnings : undefined,
     scannedAt,
