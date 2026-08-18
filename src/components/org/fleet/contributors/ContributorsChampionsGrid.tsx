@@ -7,8 +7,18 @@
 import { SectionHeader } from "@/components/org/shared/ui";
 import { AiBar } from "./AiBar";
 import type { ContributorInsights } from "@/lib/db";
+import { isViewer, YouMark } from "./ContributorsYouPointer";
 
-export function ContributorsChampionsGrid({ champions }: { champions: ContributorInsights["champions"] }) {
+export function ContributorsChampionsGrid({
+  champions,
+  slug,
+  viewerLogin = null,
+}: {
+  champions: ContributorInsights["champions"];
+  slug: string;
+  /** §5.2 — when the viewer is one of the champions, their card links across to their own view. */
+  viewerLogin?: string | null;
+}) {
   return (
     <div className="mt-8">
       <SectionHeader
@@ -23,6 +33,11 @@ export function ContributorsChampionsGrid({ champions }: { champions: Contributo
               <span className="shrink-0 font-mono text-sm uppercase tracking-widest text-accent">#{i + 1} ★</span>
             </div>
             {c.name && <div className="text-sm text-slate-500">{c.name}</div>}
+            {isViewer(c.login, viewerLogin) && (
+              <div className="mt-2">
+                <YouMark slug={slug} />
+              </div>
+            )}
             <div className="mt-3"><AiBar pct={c.aiShare} /></div>
             <div className="mt-2 flex gap-4 font-mono text-sm text-slate-400">
               <span>{c.commits} commits</span>

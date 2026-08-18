@@ -7,11 +7,11 @@
 // SkillsTab / MemoryTab (docs/ORG-TABS-REFACTOR.md). One data source (`getRegistryView`), so the
 // single <Suspense> at the OrgTabChunks call site is enough and no boundary is added here.
 //
-// PROTOTYPE ROUND: `?demo=<state>` selects a fixture view so all three directions can be judged
-// against the indexed dashboard and every edge case, not just the honest-but-empty unmapped state.
-// The real loader returns `unmapped` until the OrgRegistry table + indexer land (R2).
+// `?demo=<state>` selects a fixture view so the indexed dashboard and every edge case can be seen, not
+// just the honest-but-empty unmapped state. The real loader returns `unmapped` until the OrgRegistry
+// table + indexer land (R2).
 
-import { RegistryPanelSwitcher } from "./RegistryPanelSwitcher";
+import { RegistryPanel } from "./RegistryPanel";
 import { getRegistryView } from "@/lib/org/registry-view";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -22,5 +22,5 @@ function one(v: string | string[] | undefined): string | undefined {
 
 export async function RegistryTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const view = await getRegistryView(slug, { demo: one(sp.demo) });
-  return <RegistryPanelSwitcher view={view} slug={slug} />;
+  return <RegistryPanel view={view} slug={slug} />;
 }

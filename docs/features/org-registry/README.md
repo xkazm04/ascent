@@ -21,8 +21,9 @@ read their source of truth from it once it is mapped.
 | `src/lib/org/registry-view.ts` | `RegistryView` type + `getRegistryView(slug, { demo })` |
 | `src/lib/org/registry-view.fixture.ts` | fixture views selected by `?demo=<state>` |
 | `src/components/org/library/registry/RegistryTab.tsx` | server tab (shell contract: `slug` + `sp`) |
-| `src/components/org/library/registry/RegistryPanelSwitcher.tsx` | prototype A/B/C strip (`#v=blueprint`) |
-| `src/components/org/library/registry/registryModel.ts` | the shared pure derivations (six steps, repo tree, pipeline edges, verdict line) |
+| `src/components/org/library/registry/RegistryPanel.tsx` | the tab's one render — the unmapped invitation and the identified drawing |
+| `src/components/org/library/registry/RegistryInstrumentPanel.tsx` | the mono readout column (repo, shas, webhook, sink, counts) |
+| `src/components/org/library/registry/registryModel.ts` | the shared pure derivations (six steps, repo tree, verdict line) |
 | `src/app/org/[slug]/registry/page.tsx` | permanent redirect stub into `?tab=registry` |
 
 ## The two states
@@ -39,16 +40,22 @@ read their source of truth from it once it is mapped.
 "Stay hosted" is a first-class answer, not a dimmed decoy: an org with a handful of artifacts and one
 repo genuinely does not need a registry yet, and the copy says so.
 
-## Prototype directions
+## The one render
 
-Three, behind `RegistryPanelSwitcher`, all rendering the same `RegistryView`:
+`RegistryPanel` is a single component with two shapes over the same `RegistryView` — the consolidated
+result of the prototype round (the Ledger and Blueprint directions were fused; Pipeline and the A/B/C
+switcher were cut).
 
-- **Ledger** — editorial single column; a `Dateline` masthead, ledger cells, and onboarding as a
-  numbered contents page filling in. No diagrams.
-- **Blueprint** — engineering drawing; the repo as a mono file map with counts and hashes, an
-  instrument readout panel, and a wiring diagram (ascent → registry → fleet) that *is* the stepper.
-- **Pipeline** — a left-to-right conveyor with a counter on every hand-off (index → catalog → sync →
-  invoke, the last as a return leg); each stage lights when its own steps are satisfied.
+- **Not identified** (`unmapped`, including the no-permission case) — the editorial invitation: a
+  `Dateline` masthead, the honest verdict line, the three artifacts as they sit in ascent's tables
+  today, and the numbered contents page ("Contents · setting up the registry") with step 1's three
+  answers inline. Nothing is drawn, because there is no machine yet to draw.
+- **Identified** (`scaffold_pr_open` · `indexed` · `migrating` · `error` · hosted mirror) — the drawing
+  on top: the repo as a mono file map with counts and hashes, the artifact counts beneath it, and the
+  instrument readout column beside both. Below the drawing the SAME contents page carries only what is
+  still open ("Contents · wiring the registry" — migrate → point the fleet → verify; satisfied entries
+  drop out, a `skipped` entry stays because it states why the step will never run), then fleet sync,
+  telemetry, activity and the developer how-to.
 
 `?demo=` renders the states the real loader cannot produce yet: `indexed`, `scaffold_pr_open`,
 `migrating`, `error`, `hosted`, `no-permission`, `unmapped`.

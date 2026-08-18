@@ -8,9 +8,9 @@
 import { Kicker } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
 import { CareAction, CareLinkAction } from "./CareBits";
-import type { CarePersonalView } from "@/lib/org/care-view";
+import type { DeveloperView } from "@/lib/org/developer-view";
 
-export function CareProfileCard({ profile, tone = "calm" }: { profile: CarePersonalView["profile"]; tone?: "calm" | "readout" }) {
+export function CareProfileCard({ profile, tone = "calm" }: { profile: DeveloperView["profile"]; tone?: "calm" | "readout" }) {
   const shared = Boolean(profile.sharedAt);
   const mono = tone === "readout";
 

@@ -41,9 +41,12 @@ export const ORG_TAB_IDS = [
   "registry",
   "skills",
   "memory",
-  // UC3 "individual care": ONE id, TWO modes by Organization.kind — personal mode is the
-  // developer's own home; org mode is the anonymized aggregate under the champion floors.
-  "care",
+  // UC3 "individual care". A rail item and a first-class id (label / a11y / href contract), but NOT a
+  // `?tab=` panel: it is the personalized route `/org/developer`, which every signed-in developer sees
+  // their OWN slice of, so it can't be an org-scoped panel. See `orgTabHref` and
+  // docs/REGISTRY-AND-CARE-IMPL.md §5.1. (The former `care` id, whose org mode is now a section inside
+  // Contributors, is retired.)
+  "developer",
   // Govern
   "members",
   "governance",
@@ -143,10 +146,11 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
       { id: "memory", label: "Memory" },
-      // Care sits LAST before Governance: the individual end of "what we chose our way of working
-      // is" — the personal loop that produces the registry content the tabs above govern.
-      { id: "care", label: "Care" },
       { id: "governance", label: "Governance" },
+      // Developer sits LAST: the individual end of "what we chose our way of working is" — the
+      // personal loop that produces the registry content the tabs above govern. Unlike every sibling
+      // it navigates to its own route (`/org/developer?org=<slug>`), not a `?tab=` panel.
+      { id: "developer", label: "Developer" },
     ],
   },
   {
@@ -199,8 +203,8 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "registry",
   "skills",
   "memory",
-  // The developer's own home — in a personal workspace this tab is the point of the product.
-  "care",
+  // The developer's own home — in a personal workspace this item is the point of the product.
+  "developer",
 ]);
 
 /** Every tab's label, derived from the nav catalog (plus the not-in-nav ids). For the a11y
@@ -339,6 +343,10 @@ export function resolveActiveOrgTab(
   fallback: OrgTabId = DEFAULT_ORG_TAB,
 ): OrgTabId {
   const parts = (pathname ?? "").split("/").filter(Boolean);
+  // `/org/developer` is a STATIC route, not a slug — the personalized Developer home (§5.1). It is a
+  // rail item with no `?tab=` and no `/org/<slug>/<tab>` shape, so it is resolved by name here (the
+  // shell also passes `activeOverride`, which wins; this keeps the pure helper honest on its own).
+  if (parts[0] === "org" && parts[1] === "developer" && parts.length === 2) return "developer";
   // /org/<slug>/<segment>[/...] — a drill-in under a tab keeps that tab lit.
   const segment = parts[0] === "org" ? parts[2] : undefined;
   if (segment) return isOrgTabId(segment) ? segment : fallback;
@@ -383,7 +391,6 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "backlog",
   "practices",
   "registry",
-  "care",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {
@@ -395,6 +402,11 @@ export function isMigratedOrgTab(id: OrgTabId): boolean {
  *  and alert pushes already sitting in inboxes — point at these paths. */
 export function legacyOrgTabPath(slug: string, id: OrgTabId): string {
   const base = `/org/${encodeURIComponent(slug)}`;
+  // `developer` is not a legacy route and never becomes a `?tab=` panel: it is the personalized
+  // route, org context carried as a query param. Handled here as well as in `orgTabHref` so no caller
+  // can build `/org/<slug>/developer` (which is only a redirect stub) by reaching for the low-level
+  // helper. See docs/REGISTRY-AND-CARE-IMPL.md §5.1.
+  if (id === "developer") return `/org/developer?org=${encodeURIComponent(slug)}`;
   return id === DEFAULT_ORG_TAB ? base : `${base}/${id}`;
 }
 

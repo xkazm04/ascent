@@ -10,7 +10,7 @@ import {
   CARE_CATEGORY_LABEL,
   type CareMoveCategory,
   type CareMoveState,
-} from "@/lib/org/care-view";
+} from "@/lib/org/developer-view";
 
 /**
  * The one action button for the prototype. Every Care action (Share, Promote, Mark kept/dropped,
@@ -119,12 +119,12 @@ export function CarePrivacyNote({ children }: { children?: React.ReactNode }) {
   );
 }
 
-/** The fixture stamp — a prototype must never be mistaken for someone's real reflection. */
+/** The preview stamp — a fixture must never be mistaken for someone's real reflection. */
 export function CareFixtureChip({ demo }: { demo?: string }) {
   if (!demo) return null;
   return (
     <span className="rounded-full border border-warn/40 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-warn">
-      fixture · {demo}
+      preview · {demo}
     </span>
   );
 }

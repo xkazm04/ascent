@@ -9,9 +9,9 @@
 import { OrgTable, SectionEmpty } from "@/components/org/shared/ui";
 import { reportPermalink } from "@/lib/ui";
 import { CareLevelMark, CareLinkAction } from "./CareBits";
-import type { CarePersonalView } from "@/lib/org/care-view";
+import type { DeveloperView } from "@/lib/org/developer-view";
 
-export function CareRepoGaps({ repos, layout = "cards" }: { repos: CarePersonalView["myRepos"]; layout?: "cards" | "rows" }) {
+export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView["myRepos"]; layout?: "cards" | "rows" }) {
   if (repos.length === 0) {
     return (
       <SectionEmpty>

@@ -46,6 +46,7 @@ export function OrgTabNav({
   counts,
   kind = "org",
   landingTab = DEFAULT_ORG_TAB,
+  activeOverride,
 }: {
   slug: string;
   counts?: NavCounts;
@@ -53,12 +54,16 @@ export function OrgTabNav({
   /** W1b — the tab a bare `/org/<slug>` renders (resolveLandingTab), threaded from the shell so the
    *  rail lights the panel the page actually showed instead of always assuming Overview. */
   landingTab?: OrgTabId;
+  /** The rail item a page OUTSIDE the `?tab=` shell wants lit. `/org/developer` is a real rail item
+   *  whose URL carries neither a `/org/<slug>/<tab>` segment nor `?tab=`, so the pathname alone
+   *  cannot resolve it — the page states it instead (docs/REGISTRY-AND-CARE-IMPL.md §5.1). */
+  activeOverride?: OrgTabId;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const search = params.toString();
-  const active = resolveActiveOrgTab(pathname, params.get("tab"), landingTab);
+  const active = activeOverride ?? resolveActiveOrgTab(pathname, params.get("tab"), landingTab);
 
   // a11y — on a tab switch, move focus to the <main> landmark (reusing the skip-link target) and
   // announce the newly active tab through a polite live region, so an AT user isn't left with a

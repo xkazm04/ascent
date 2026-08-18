@@ -12,7 +12,7 @@
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
 import { CareAction, CarePrivacyNote } from "./CareBits";
-import type { CarePersonalView } from "@/lib/org/care-view";
+import type { DeveloperView } from "@/lib/org/developer-view";
 
 function StateMark({ shared, locked }: { shared: boolean; locked: boolean }) {
   if (locked) {
@@ -25,7 +25,7 @@ function StateMark({ shared, locked }: { shared: boolean; locked: boolean }) {
   );
 }
 
-export function CareSetupStrip({ setup }: { setup: CarePersonalView["setup"] }) {
+export function CareSetupStrip({ setup }: { setup: DeveloperView["setup"] }) {
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
       <span className="font-mono text-sm tabular-nums text-slate-400">
@@ -59,7 +59,7 @@ export function CarePrivacyLedger({
   setup,
   layout = "list",
 }: {
-  setup: CarePersonalView["setup"];
+  setup: DeveloperView["setup"];
   layout?: "list" | "switch";
 }) {
   if (setup.sharing.length === 0) {

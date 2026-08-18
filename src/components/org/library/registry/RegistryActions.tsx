@@ -1,13 +1,11 @@
 "use client";
 
-// The Registry tab's action affordances, shared by all three prototype directions. PROTOTYPE ROUND:
-// every action is real-looking and logs its intent (`console.info`) instead of calling an API — the
-// writers (`scaffoldRegistryPr`, `migrateToRegistryPr`, the indexer, the pointer PRs) land in R2/R3.
-// Hoisted here from the first variant that needed a button so the three directions cannot drift on
-// what the actions ARE, only on how they are laid out.
+// The Registry tab's action affordances, in one file so the panel and the stepper cannot drift on what
+// the actions ARE, only on where they are laid out. PROTOTYPE ROUND: every action is real-looking and
+// logs its intent (`console.info`) instead of calling an API — the writers (`scaffoldRegistryPr`,
+// `migrateToRegistryPr`, the indexer, the pointer PRs) land in R2/R3.
 
 import { useState } from "react";
-import { Kicker } from "@/components/ui";
 import { CTA_OUTLINE, CTA_PRIMARY, timeAgo } from "@/lib/ui";
 import type { RegistryCandidate, RegistryView } from "@/lib/org/registry-view";
 
@@ -167,12 +165,3 @@ export function RegistryMigrateAction({
   );
 }
 
-/** Small labelled action row used by the Blueprint/Pipeline readouts. */
-export function RegistryActionRail({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <Kicker tone="muted">{label}</Kicker>
-      {children}
-    </div>
-  );
-}

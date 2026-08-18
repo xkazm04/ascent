@@ -8,7 +8,7 @@
 // argument stays falsifiable instead of being marketing copy inside the product.
 
 import { HairlineGrid } from "@/components/ui";
-import type { CarePersonalView } from "@/lib/org/care-view";
+import type { DeveloperView } from "@/lib/org/developer-view";
 
 function Line({ label, value, body }: { label: string; value: string; body: string }) {
   return (
@@ -20,7 +20,7 @@ function Line({ label, value, body }: { label: string; value: string; body: stri
   );
 }
 
-export function CareWhyStrip({ personal }: { personal: CarePersonalView }) {
+export function CareWhyStrip({ personal }: { personal: DeveloperView }) {
   const gaps = personal.myRepos.reduce((a, r) => a + r.openRecommendations.length, 0);
   const grounded = personal.moves.filter((m) => m.evidence).length;
   const promotable = personal.moves.filter((m) => m.state === "kept" && m.registryPromotable).length;

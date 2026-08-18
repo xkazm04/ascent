@@ -9,7 +9,7 @@ Context-map group: **Org Dashboard & Analytics** (`feature`).
 | --- | --- | --- |
 | [practices.md](practices.md) | Practice artifacts, single + batch apply, drift guard, PR tracking | CURRENT |
 | [org-intelligence.md](org-intelligence.md) | Tour of the org dashboard: all 21 tabs, membership/roles/invites | CURRENT |
-| [care.md](care.md) | The `Care` tab (UC3 individual care): personal mode, floored org aggregate, prototype variants | CURRENT (prototype round) |
+| [developer.md](developer.md) | The Developer page `/org/developer` (UC3 individual care): personalized route presented as a rail item, the Contributors relation, the floored Care section | CURRENT |
 | [roadmap.md](roadmap.md) | Forward-looking design notes (F-series waves) | STALE (stops at F6) |
 
 ## Implementation roots

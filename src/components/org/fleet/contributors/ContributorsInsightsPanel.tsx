@@ -14,10 +14,20 @@ import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
 import { ContributorsConcentrationTable } from "./ContributorsConcentrationTable";
 import { IndividualInvolvement } from "./IndividualInvolvement";
 import { ResilienceModule } from "./ResilienceModule";
+import { ContributorsYouStrip, isViewer } from "./ContributorsYouPointer";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
+export async function ContributorsInsightsPanel({
+  slug,
+  sp,
+  viewerLogin = null,
+}: {
+  slug: string;
+  sp: SearchParams;
+  /** The signed-in developer, resolved by the tab — drives the "You" pointer (§5.2). */
+  viewerLogin?: string | null;
+}) {
   // Optional segment + tech-stack scope (bogus id/key → whole fleet); the two filters compose.
   const { segments, segmentId, techGroups, activeStack, techGroupId, barProps } = await resolveOrgScope(slug, sp);
 
@@ -41,6 +51,10 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
       </div>
     );
   }
+
+  // Is the viewer one of the people this tab describes? Below the naming floor the producer returns
+  // no per-person rows at all, so this is false and the quiet strip (not a row mark) is what shows.
+  const meInRoster = insights.contributors.some((c) => isViewer(c.login, viewerLogin));
 
   return (
     <div>
@@ -87,9 +101,21 @@ export async function ContributorsInsightsPanel({ slug, sp }: { slug: string; sp
           contributors a single Copilot user becomes a celebrated "#1 ★ champion" — success theater
           that overstates a barely-adopted fleet. The floor is enforced in getContributorInsights,
           not here, so every other consumer of it inherits the same suppression. */}
-      {insights.champions.length > 0 && <ContributorsChampionsGrid champions={insights.champions} />}
+      {insights.champions.length > 0 && (
+        <ContributorsChampionsGrid champions={insights.champions} slug={slug} viewerLogin={viewerLogin} />
+      )}
 
-      <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} stack={activeStack?.key ?? null} />
+      {/* §5.2 — the pointer across to the developer's own view. When the viewer IS in the roster their
+          row and champion card carry the mark instead, so the strip would only repeat it. */}
+      {meInRoster ? null : <ContributorsYouStrip slug={slug} viewerLogin={viewerLogin} />}
+
+      <IndividualInvolvement
+        insights={insights}
+        slug={slug}
+        segmentId={segmentId}
+        stack={activeStack?.key ?? null}
+        viewerLogin={viewerLogin}
+      />
 
       {/* G7-18: the fleet read on key-person exposure, above the per-repo table it summarizes. It
           names no individual at any population size — see ResilienceModule's header. */}

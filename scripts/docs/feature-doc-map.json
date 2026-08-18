@@ -173,18 +173,18 @@
     },
     {
       "area": "org-dashboard",
-      "doc": "docs/features/org-dashboard/care.md",
+      "doc": "docs/features/org-dashboard/developer.md",
       "sourceGlobs": [
-        "src/lib/org/care-view*.ts",
-        "src/components/org/library/care/**",
-        "src/app/org/[slug]/care/**"
+        "src/lib/org/developer-view*.ts",
+        "src/components/org/developer/**",
+        "src/app/org/developer/**",
+        "src/app/org/[slug]/developer/**"
       ]
     },
     {
       "area": "org-planning",
       "doc": "docs/features/org-planning/plan.md",
       "sourceGlobs": [
-        "src/lib/scoring/orgsim.ts",
         "src/lib/maturity/forecast.ts",
         "src/lib/db/plan.ts",
         "src/lib/db/playbooks.ts",
@@ -194,13 +194,9 @@
         "src/lib/live-share.ts",
         "src/lib/briefing-share.ts",
         "src/components/org/plan/**",
-        "src/components/org/plan/backlog/**",
         "src/components/org/intelligence/live/**",
         "src/components/org/intelligence/executive/**",
         "src/app/api/org/goals/**",
-        "src/app/api/org/initiatives/**",
-        "src/app/api/org/backlog/**",
-        "src/app/api/org/simulate/**",
         "src/app/api/org/playbooks/**",
         "src/app/api/org/briefing/**",
         "src/app/api/org/ops/**",

@@ -1,6 +1,6 @@
 "use client";
 
-// Org-mode pieces, shared by all three variants (each wraps them in its own chrome).
+// The org-side care aggregate — the pieces the Contributors tab's Care section renders (§5.2).
 //
 // The floors are not a UI nicety: `CHAMPION_MIN_POP` is the same guard the Contributors / Adoption /
 // Teams tabs apply, and it is stated ON SCREEN rather than silently applied — an org that cannot see
@@ -9,13 +9,13 @@
 
 import { Meter, OrgTable, SectionEmpty, TILE_LEDGER, Tile } from "@/components/org/shared/ui";
 import { deltaHex, fmtDelta } from "@/components/ui";
-import { CareAction, CareCategoryChip } from "./CareBits";
+import { CareAction, CareCategoryChip } from "@/components/org/developer/CareBits";
 import {
   CARE_SHAPE_LABEL,
   CARE_SHAPE_ORDER,
   careShapeValue,
   type CareOrgView,
-} from "@/lib/org/care-view";
+} from "@/lib/org/developer-view";
 
 export function CareOrgFloorNote({ org }: { org: CareOrgView }) {
   return (

@@ -29,7 +29,6 @@ import { PassportsTab } from "../intelligence/passports/PassportsTab";
 import { SkillsTab } from "../library/skills/SkillsTab";
 import { MemoryTab } from "../library/memory/MemoryTab";
 import { RegistryTab } from "../library/registry/RegistryTab";
-import { CareTab } from "../library/care/CareTab";
 import { RepositoriesTab } from "../fleet/repositories/RepositoriesTab";
 import { TechStacksTab } from "../fleet/tech-stacks/TechStacksTab";
 import { TeamsTab } from "../fleet/teams/TeamsTab";
@@ -131,13 +130,9 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
-        {/* UC3 "Care": one id, two modes resolved INSIDE the tab (personal vs org) so the shell stays
-            ignorant of Organization.kind — same contract as every other panel. */}
-        {tab === "care" ? (
-          <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
-            <CareTab slug={slug} sp={sp} />
-          </Suspense>
-        ) : null}
+        {/* UC3 "individual care" has NO branch here on purpose: it is the personalized route
+            /org/developer (a rail item, not a `?tab=` panel), and its former org mode is now a
+            section inside Contributors. See docs/REGISTRY-AND-CARE-IMPL.md §5.1–5.2. */}
 
         {/* `segments` and `repositories` both render RepositoriesTab, with the RAW tab id mapped to an
             explicit `mode` prop here — this is the one place that decides what `?tab=segments` means

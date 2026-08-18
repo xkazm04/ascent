@@ -40,20 +40,40 @@ function Entry({ step, children }: { step: RegistryStep; children?: React.ReactN
   );
 }
 
-export function RegistryStepperIndex({ view, slug }: { view: RegistryView; slug: string }) {
+export function RegistryStepperIndex({
+  view,
+  slug,
+  kicker = "Contents · setting up the registry",
+  hideDone = false,
+}: {
+  view: RegistryView;
+  slug: string;
+  /** The section's label — the identified panel reads it as "wiring the registry". */
+  kicker?: string;
+  /** Drop the entries already satisfied, so an identified registry shows only what is still open. */
+  hideDone?: boolean;
+}) {
   const steps = registrySteps(view);
   const done = steps.filter((s) => s.state === "done" || s.state === "skipped").length;
+  // `skipped` (hosted mirror's migrate step) is kept even when hiding done entries: it states WHY the
+  // step will never run, which is the opposite of noise.
+  const shown = hideDone ? steps.filter((s) => s.state !== "done") : steps;
 
   return (
     <section className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <Kicker tone="muted">Contents · setting up the registry</Kicker>
+        <Kicker tone="muted">{kicker}</Kicker>
         <span className="font-mono text-xs text-slate-500">
           <span className="tabular-nums text-slate-200">{done}</span>/{steps.length} complete
         </span>
       </div>
+      {shown.length === 0 ? (
+        <p className="border-y border-divider py-4 text-sm text-slate-400">
+          Every step is done — the registry indexes itself, the fleet syncs against the catalog, and invokes are reporting back.
+        </p>
+      ) : (
       <ol className="divide-y divide-divider border-y border-divider">
-        {steps.map((s) => (
+        {shown.map((s) => (
           <Entry key={s.id} step={s}>
             {s.id === "choose" && s.state === "active" ? <RegistryChoiceActions view={view} slug={slug} /> : null}
             {s.id === "permissions" && s.state === "blocked" && view.permission.installUrl ? (
@@ -70,6 +90,7 @@ export function RegistryStepperIndex({ view, slug }: { view: RegistryView; slug:
           </Entry>
         ))}
       </ol>
+      )}
       {view.error ? (
         <p className="pt-2 text-sm text-warn">
           <span className="font-mono text-xs uppercase tracking-[0.18em]">index error · </span>

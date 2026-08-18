@@ -78,9 +78,9 @@ describe("org tab catalog", () => {
   it("every personal-workspace tab is a real id", () => {
     for (const id of PERSONAL_TAB_IDS) expect(isOrgTabId(id)).toBe(true);
     // Mirrors OrgNav's old PERSONAL_SEGMENTS ("" was the overview root), plus `registry` (a personal
-    // workspace gets the same layout against `<user>/ai-registry`, REGISTRY-AND-CARE-IMPL §1) and `care`
-    // (UC3's tab is the one surface a personal workspace exists FOR).
-    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "care", "memory", "overview", "registry", "security", "skills"]);
+    // workspace gets the same layout against `<user>/ai-registry`, REGISTRY-AND-CARE-IMPL §1) and
+    // `developer` (UC3's home is the one surface a personal workspace exists FOR).
+    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["backlog", "developer", "memory", "overview", "registry", "security", "skills"]);
   });
 
   it("every migrated tab is a real id", () => {
@@ -186,6 +186,15 @@ describe("resolveActiveOrgTab", () => {
   it("an explicit ?tab= always beats the landing fallback", () => {
     expect(resolveActiveOrgTab("/org/acme", "overview", "live")).toBe("overview");
   });
+
+  // §5.1 — `/org/developer` is a STATIC route (it wins over `/org/[slug]`), so the rail must light
+  // "Developer" there even though the URL carries neither a tab segment nor `?tab=`. A path one level
+  // deeper is a normal org slug again and must NOT be captured by this branch.
+  it("lights Developer on the personalized route", () => {
+    expect(resolveActiveOrgTab("/org/developer", null)).toBe("developer");
+    expect(resolveActiveOrgTab("/org/developer", null, "live")).toBe("developer");
+    expect(resolveActiveOrgTab("/org/developer/audit", null)).toBe("audit");
+  });
 });
 
 describe("TAB_SCOPED_PARAM_KEYS", () => {
@@ -241,8 +250,20 @@ describe("orgTabHref", () => {
   });
 
   it("points an un-migrated tab at its legacy route", () => {
-    const unmigrated = ORG_TAB_IDS.find((id) => !isMigratedOrgTab(id)) as OrgTabId;
-    expect(orgTabHref("acme", unmigrated)).toBe(`/org/acme/${unmigrated}`);
+    const unmigrated = ORG_TAB_IDS.find((id) => !isMigratedOrgTab(id) && id !== "developer");
+    // Every id except `developer` has now migrated into the `?tab=` shell, so this only asserts
+    // anything while one is left behind. Kept (rather than deleted) so re-adding a legacy tab is
+    // covered again the moment it happens.
+    if (unmigrated) expect(orgTabHref("acme", unmigrated)).toBe(`/org/acme/${unmigrated}`);
+  });
+
+  // §5.1 — `developer` is a rail item but NOT a `?tab=` panel: it is the personalized route, with the
+  // org carried as a query param. Both helpers must agree, because 58 link sites reach for one or the
+  // other and `/org/<slug>/developer` is only a redirect stub.
+  it("points `developer` at the personalized route with the org as a param", () => {
+    expect(orgTabHref("acme", "developer")).toBe("/org/developer?org=acme");
+    expect(legacyOrgTabPath("acme", "developer")).toBe("/org/developer?org=acme");
+    expect(orgTabHref("acme corp/x", "developer")).toBe(`/org/developer?org=${encodeURIComponent("acme corp/x")}`);
   });
 
   it("agrees with legacyOrgTabPath for every un-migrated tab", () => {

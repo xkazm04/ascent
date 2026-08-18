@@ -6,6 +6,7 @@ import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import type { ContributorInsights } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
 import { AiBar } from "./AiBar";
+import { isViewer, YouMark } from "./ContributorsYouPointer";
 
 // Per-individual involvement — OPT-IN, default collapsed. The default contributor view is team-level
 // (the tiles, champions-when-population-allows, and Concentration / bus-factor below); naming individuals
@@ -16,12 +17,15 @@ export function IndividualInvolvement({
   slug,
   segmentId,
   stack,
+  viewerLogin = null,
 }: {
   insights: ContributorInsights;
   slug: string;
   segmentId: string | null;
   /** Active tech-stack group key — forwarded so the CSV matches the filtered view. */
   stack: string | null;
+  /** §5.2 — the viewer's login, so their own row points at their Developer view. */
+  viewerLogin?: string | null;
 }) {
   // Withheld, not missing: getContributorInsights returns NO per-person rows below the floor (and the
   // CSV route 403s on the same condition), so say why rather than rendering an empty table.
@@ -75,6 +79,11 @@ export function IndividualInvolvement({
               <td className="px-4 py-2">
                 <span className="font-mono text-sm text-white">{c.login}</span>
                 {c.name && <span className="ml-2 text-sm text-slate-500">{c.name}</span>}
+                {isViewer(c.login, viewerLogin) && (
+                  <span className="ml-2 inline-block align-middle">
+                    <YouMark slug={slug} />
+                  </span>
+                )}
               </td>
               <td className="px-3 py-2 text-right font-mono tabular-nums">{c.commits}</td>
               <td className="px-3 py-2 text-right font-mono tabular-nums text-accent">{c.aiCommits}</td>

@@ -8,7 +8,7 @@
 
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
-import type { CarePersonalView } from "@/lib/org/care-view";
+import type { DeveloperView } from "@/lib/org/developer-view";
 
 const KIND_LABEL: Record<string, string> = { retro: "session retro", weekly: "weekly", move: "move closed" };
 
@@ -22,7 +22,7 @@ export function CareJournal({
   layout = "entries",
   limit,
 }: {
-  journal: CarePersonalView["journal"];
+  journal: DeveloperView["journal"];
   layout?: "entries" | "spine";
   limit?: number;
 }) {

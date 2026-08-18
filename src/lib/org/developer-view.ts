@@ -1,22 +1,28 @@
-// The read model behind the `Care` tab (UC3 "individual care" — docs/REGISTRY-AND-CARE-IMPL.md §5).
+// The read model behind the Developer route (`/org/developer` — UC3 "individual care",
+// docs/REGISTRY-AND-CARE-IMPL.md §5.4).
 //
-// ONE view model, TWO modes, decided by `Organization.kind`:
-//   personal → the developer's own home. Everything here arrived because THEY pushed it
-//              (`npx ascent mentor share`); nothing is derived from a scan of a person.
-//   org      → the anonymized care aggregate, under the SAME anti-surveillance floors the
-//              Contributors/Adoption tabs use (`champions.ts`). There is deliberately NO per-person
-//              shape in the org branch of this type: the surveillance-y view is not merely hidden in
-//              the UI, it is unrepresentable in the data.
+// TWO view models, deliberately separated by WHO may see them:
+//   DeveloperView → the signed-in developer's own home. Their repos, their AI-attributed share,
+//                   their care loop. Everything in the care half arrived because THEY pushed it
+//                   (`npx ascent mentor share`); nothing is derived from a scan of another person,
+//                   and nobody but the developer ever reads this shape.
+//   CareOrgView   → the anonymized care aggregate rendered inside the Contributors tab, under the
+//                   SAME anti-surveillance floors (`champions.ts`). There is deliberately NO
+//                   per-person shape in it: the surveillance-y view is not merely hidden in the UI,
+//                   it is unrepresentable in the data.
 //
-// Until C3 lands (`POST /api/me/mentor/share` + the personal tables), the loader in the `-load` sibling
-// returns an HONEST
-// EMPTY state — nothing shared yet / population below the floor. It never fabricates. The three
-// prototype variants are exercised from `care-view.fixture.ts` via `?demo=`.
+// Until C3 lands (`POST /api/me/mentor/share` + the personal tables), the loader in the `-load`
+// sibling fills the git-side half from `getContributorInsights` and returns an HONEST EMPTY care loop
+// (nothing shared yet / population below the floor). It never fabricates. `developer-view.fixture.ts`
+// backs the client-state "preview as" control only.
+//
+// PURE module — no `@/lib/db` import, because every Developer component is a client component (see
+// the "build not in the gate" note: a db import here would break `next build` with tsc still green).
 
 import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import type { DimensionId } from "@/lib/types";
 
-// ── Personal mode ─────────────────────────────────────────────────────────────────────────────────
+// ── The developer's own view ──────────────────────────────────────────────────────────────────────
 
 /** The five move families of the local mentor's seed catalogue (GOLDEN-USE-CASES.md UC3). */
 export type CareMoveCategory = "session" | "verification" | "context" | "tooling" | "cost";
@@ -67,7 +73,12 @@ export interface CareBand {
   p75: number;
 }
 
-export interface CarePersonalView {
+export interface DeveloperView {
+  /** The signed-in developer this view describes, or null when nobody is signed in. */
+  login: string | null;
+  /** Fixture label. Set ONLY by the client-side "preview as" control — a real view never carries it,
+   *  so the UI can stamp a visible chip and a preview is never mistaken for someone's data. */
+  demo?: string;
   profile: {
     /** Self-stated, from the mentor interview — never inferred. */
     role: string | null;
@@ -83,6 +94,23 @@ export interface CarePersonalView {
   sharedFields: CareShapeField[];
   /** Anonymous org bands for the shared fields — present only if the developer opted into comparison. */
   orgBands: Partial<Record<CareShapeField, CareBand>> | null;
+  /**
+   * The git-side slice ascent already holds about this login — their OWN numbers, read out of the
+   * org's contributor snapshot. Unfloored because it is their own data (the floors in `champions.ts`
+   * exist to stop the ORG reading a person, not to stop a person reading themself); null when the
+   * roster carries no row for them (never committed to a scanned repo here, or the population is
+   * below the floor and the producer withheld every per-person row).
+   */
+  activity: {
+    commits: number;
+    aiCommits: number;
+    /** 0..100 — share of this developer's commits that are AI-attributed. */
+    aiShare: number;
+    repos: number;
+    lastActiveAt: string | null;
+    /** True when this login is in the org's named AI-champions cohort. */
+    champion: boolean;
+  } | null;
   /** Cross-repo grounding the local skill cannot see: the repos you commit to, and their open gaps. */
   myRepos: Array<{
     fullName: string;
@@ -101,7 +129,7 @@ export interface CarePersonalView {
   };
 }
 
-// ── Org mode ──────────────────────────────────────────────────────────────────────────────────────
+// ── The org's anonymized care aggregate (rendered inside Contributors) ────────────────────────────
 
 export interface CareOrgView {
   /** Developers in the workspace who could opt in — the floor denominator. */
@@ -120,19 +148,12 @@ export interface CareOrgView {
   outcomes: Array<{ move: string; repos: number; avgDelta: number; dimension: DimensionId | string }>;
 }
 
-export interface CareView {
-  mode: "personal" | "org";
-  /** Fixture-driven demo label, surfaced as a chip so a prototype is never mistaken for live data. */
-  demo?: string;
-  personal?: CarePersonalView;
-  org?: CareOrgView;
-}
-
 // ── Honest empties ────────────────────────────────────────────────────────────────────────────────
 
-/** The pre-C3 personal state: the mentor has never shared anything. Nothing invented. */
-export function emptyPersonalView(): CarePersonalView {
+/** The pre-C3 developer state: the mentor has never shared anything. Nothing invented. */
+export function emptyDeveloperView(login: string | null = null): DeveloperView {
   return {
+    login,
     profile: { role: null, archetypeHint: null, goals: [], sharedAt: null },
     moves: [],
     shape: {
@@ -145,6 +166,7 @@ export function emptyPersonalView(): CarePersonalView {
     },
     sharedFields: [],
     orgBands: null,
+    activity: null,
     myRepos: [],
     journal: [],
     setup: { mentorInstalled: false, hookInstalled: false, lastShareAt: null, sharing: SHARING_LEDGER_OFF },
@@ -156,7 +178,7 @@ export function emptyPersonalView(): CarePersonalView {
  * of naming the never-shared rows explicitly is that silence about transcripts would be read as
  * "maybe". It says so in the negative, permanently.
  */
-export const SHARING_LEDGER_OFF: CarePersonalView["setup"]["sharing"] = [
+export const SHARING_LEDGER_OFF: DeveloperView["setup"]["sharing"] = [
   { field: "Session counts (30d)", shared: false },
   { field: "Plan-mode ratio", shared: false },
   { field: "Tests-before-commit ratio", shared: false },

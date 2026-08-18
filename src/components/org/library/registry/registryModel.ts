@@ -1,7 +1,7 @@
-// Pure, shared derivations for the Registry tab's three prototype directions. No JSX, no hooks — so
-// the server tab, the client switcher and every variant read the SAME six steps, the same repo tree
-// and the same pipeline edges. Hoisted here the moment the second variant needed a step list: the
-// stepper is the surface's spine and three divergent copies of it would have been the real bug.
+// Pure, shared derivations for the Registry tab. No JSX, no hooks — so the server tab, the panel and
+// every sub-component read the SAME six steps, the same verdict line and the same repo tree. Hoisted
+// here during the prototype round, when the second variant needed a step list: the stepper is the
+// surface's spine and divergent copies of it would have been the real bug.
 
 import type { MigrationStep, RegistryArtifact, RegistryView } from "@/lib/org/registry-view";
 
@@ -180,7 +180,7 @@ export function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : "—";
 }
 
-/** The registry repo rendered as a file map — the Blueprint direction's spine. */
+/** The registry repo rendered as a file map — the identified panel's spine. */
 export type TreeNode = { path: string; kind: "dir" | "file"; count?: number; note: string; generated?: boolean };
 
 export function registryTree(v: RegistryView): TreeNode[] {
@@ -196,44 +196,3 @@ export function registryTree(v: RegistryView): TreeNode[] {
   ];
 }
 
-/** The four hand-offs the Pipeline direction lights up, left to right. */
-export type PipelineEdge = { id: "index" | "catalog" | "sync" | "invoke"; label: string; value: string; sub: string; live: boolean; stale: boolean };
-
-export function pipelineEdges(v: RegistryView): PipelineEdge[] {
-  const indexed = v.status === "indexed" || v.status === "error";
-  const behind = v.fleet.adoption.stale + v.fleet.adoption.diverged;
-  return [
-    {
-      id: "index",
-      label: "index",
-      value: shortSha(v.registry?.lastIndexSha),
-      sub: v.registry?.webhookHealthy ? "webhook healthy" : "webhook not confirmed",
-      live: indexed && v.status !== "error",
-      stale: v.status === "error" || (indexed && !v.registry?.webhookHealthy),
-    },
-    {
-      id: "catalog",
-      label: "catalog",
-      value: inRegistryTotal(v).toLocaleString(),
-      sub: v.registry?.catalogSha ? `sha ${shortSha(v.registry.catalogSha)}` : "not written",
-      live: !!v.registry?.catalogSha,
-      stale: indexed && !v.registry?.catalogSha,
-    },
-    {
-      id: "sync",
-      label: "sync",
-      value: `${v.fleet.reposSynced30d}/${v.fleet.reposPointing || 0}`,
-      sub: behind > 0 ? `${behind} behind` : "repos synced 30d",
-      live: v.fleet.reposSynced30d > 0,
-      stale: behind > 0,
-    },
-    {
-      id: "invoke",
-      label: "invoke",
-      value: v.telemetry.invokes30d.toLocaleString(),
-      sub: `${v.telemetry.reposReporting} repos reporting · sink ${SINK_LABEL[v.telemetry.sink]}`,
-      live: v.telemetry.invokes30d > 0,
-      stale: v.telemetry.sink === "off",
-    },
-  ];
-}

@@ -17,9 +17,9 @@ import {
   careBandVerdict,
   careShapeValue,
   type CareBand,
-  type CarePersonalView,
+  type DeveloperView,
   type CareShapeField,
-} from "@/lib/org/care-view";
+} from "@/lib/org/developer-view";
 
 /** A field's own scale, so a count and a percentage can share one visual rule. */
 function scaleMax(field: CareShapeField, value: number | null, band: CareBand | undefined): number {
@@ -63,7 +63,7 @@ export function CareSessionShape({
   personal,
   layout = "ledger",
 }: {
-  personal: CarePersonalView;
+  personal: DeveloperView;
   layout?: "ledger" | "bands" | "dials";
 }) {
   const shared = new Set(personal.sharedFields);

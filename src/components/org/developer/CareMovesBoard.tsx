@@ -12,7 +12,7 @@
 
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { CareAction, CareCategoryChip, CareLinkAction, CareSaving, CareStateChip, CARE_STATE_LABEL } from "./CareBits";
-import { careMovesByState, CARE_MOVE_STATES, type CareMove, type CareMoveState } from "@/lib/org/care-view";
+import { careMovesByState, CARE_MOVE_STATES, type CareMove, type CareMoveState } from "@/lib/org/developer-view";
 
 function MoveCard({ move, showState }: { move: CareMove; showState: boolean }) {
   const closed = move.state === "dropped";
