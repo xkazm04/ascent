@@ -14,8 +14,8 @@ Context-map group: **Org Knowledge & Skills** (`feature`).
 
 | Surface | Route(s) | Source |
 | --- | --- | --- |
-| Org Memory | `/org/[slug]/memory`, `/api/org/memory[/check,/recall,/reflect]` | `src/lib/memory/**`, `src/lib/db/org-memory.ts`, `org-memory-lifecycle.ts`, `src/components/org/Memory*.tsx` |
-| Skills Registry | `/org/[slug]/skills`, `/api/org/skills*` | `src/lib/org/skill-*.ts`, `src/lib/db/org-skills.ts`, `src/components/org/skills/**` |
+| Org Memory | `/org/[slug]/memory`, `/api/org/memory[/check,/recall,/reflect]` | `src/lib/memory/**`, `src/lib/db/org-memory.ts`, `org-memory-lifecycle.ts`, `src/features/shared/memory/Memory*.tsx` |
+| Skills Registry | `/org/[slug]/skills`, `/api/org/skills*` | `src/lib/org/skill-*.ts`, `src/lib/db/org-skills.ts`, `src/features/shared/skills/**` |
 | API Tokens | `/api/org/tokens` | `src/lib/api-token-auth.ts`, `src/lib/db/org-api-tokens.ts` |
 
 Backing models: `OrgMemory`, `OrgSkill`, `OrgSkillAdoption`, `OrgSkillDownload`,

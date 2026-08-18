@@ -34,8 +34,8 @@ transformation owner is asked in a leadership meeting, plus an admin tail:
 
 | Section | Answers | Tabs |
 | --- | --- | --- |
-| **Standing** | Where are we, honestly? | Overview · Repositories · Tech Stacks · Passports · Security · Adoption |
-| **Chosen** | What did we decide our way of working is? | Plan · Practices · Skills · Memory · Governance |
+| **Standing** | Where are we, honestly? | Overview · Follow-ups · Repositories · Tech Stacks · Passports · Security · Adoption · Governance |
+| **Shared** | What do we publish once and every repo consumes? | Registry · Practices · Skills · Memory |
 | **In flight** | What is moving right now? | Live |
 | **Bought** | What did the last period buy us? | Briefing · Delivery · Contributors · Teams |
 | **Admin** | The boring rows, deliberately not hidden. | Members · Integrations · Audit · Settings |
@@ -161,18 +161,18 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Standing | Overview | `org/[slug]?tab=overview` | `src/components/org/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
+| Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4, see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
 | Standing | Security | `org/[slug]/security` | `src/app/org/[slug]/security/` | Security posture across the fleet. |
 | Standing | Adoption | `org/[slug]/adoption` | `src/app/org/[slug]/adoption/` | Adoption signals. |
 | Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
-| Chosen | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
-| Chosen | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
-| Chosen | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
-| Chosen | Developer | `/org/developer?org=<slug>` | `src/components/org/developer/` | UC3 individual care, and the one rail item that is **not** a `?tab=` panel: a static route personalized to the signed-in viewer (their commits and AI share, the open gaps of their repos, their private care loop). It renders the same `OrgShell` as every tab, with `activeTab="developer"`. The anonymized org aggregate lives in Contributors, under `CHAMPION_MIN_POP`, never a per-person row — see [developer.md](developer.md). |
-| Chosen | Governance | `org/[slug]/governance` | `src/app/org/[slug]/governance/` | Governance rollups. |
+| Shared | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
+| Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
+| Shared | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
+| — (header menu) | Developer | `/org/developer` | `src/features/developer/` | UC3 individual care. Reached from the **header identity menu** (your own name), not from the org rail — it is not org-scoped, so it is in `ORG_TABS_NOT_IN_NAV`. Not a `?tab=` panel either: a static route personalized to the signed-in viewer (their commits and AI share, the open gaps of their repos, their private care loop). It renders the same `OrgShell` as every tab, with `activeTab="developer"`. The anonymized org aggregate lives in Contributors, under `CHAMPION_MIN_POP`, never a per-person row — see [developer.md](developer.md). |
+| Standing | Governance | `org/[slug]/governance` | `src/app/org/[slug]/governance/` | Governance rollups. |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Bought | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
 | Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: nine small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. |
@@ -192,7 +192,7 @@ clicks without a stated destination. It was redesigned through a two-direction p
 left-to-right along the pipeline with the posture plane and a fleet ladder); **Ledger won** and the
 Instrument variant, the pre-redesign baseline, and the A/B switcher were deleted.
 
-`OverviewLedger` (`src/components/org/overview/OverviewLedger.tsx`) composes the region; the
+`OverviewLedger` (`src/features/standing/overview/OverviewLedger.tsx`) composes the region; the
 dimension section is `LedgerDimensionRows`, fed by the pure `buildDimensionReadings` in
 `dimensionReading.ts`:
 
@@ -222,7 +222,7 @@ route file still exists (`src/app/org/[slug]/segments/page.tsx`) but only as a p
 redirect to `/org/[slug]/repositories?tab=segments`, so old links/bookmarks don't 404. The
 real view is now the `?tab=segments` view of `org/[slug]/repositories/page.tsx`
 (`src/app/org/[slug]/repositories/page.tsx`), rendered by `SegmentsSection`
-(`src/components/org/repositories/SegmentsSection.tsx`) under the shared `FleetTabs`. The
+(`src/features/standing/repositories/SegmentsSection.tsx`) under the shared `FleetTabs`. The
 repositories page branches to it *before* running the repo-inventory/rollup reads, so the
 Segments view doesn't pay for a rollup it won't render. It shows user-defined fleet slices
 (platform, mobile, legacy…): per-segment maturity rollups plus a side-by-side
@@ -241,7 +241,7 @@ tooltip saying which one they are.
 
 ### Context half-life (the Repositories tab's context-layer lens, W4, real)
 
-`ContextHealthPanel` (`src/components/org/fleet/repositories/context-health/`) renders above the
+`ContextHealthPanel` (`src/features/standing/repositories/context-health/`) renders above the
 leaderboard: the quality-over-presence read of the fleet's agent-context layer (CLAUDE.md /
 AGENTS.md / rules files). It went **real** in W4: the P4 prototype's Baseline/Half-life switcher
 and its `contextHealthMock` synthesis are deleted; every number now comes from the
@@ -265,7 +265,7 @@ and its `contextHealthMock` synthesis are deleted; every number now comes from t
 ### Tech Stacks — dimension analysis, and what each verdict rests on
 
 The Tech Stacks tab's "Consensus & transfer plan" board diagnoses every dimension across the
-org's scored stacks (`computeFleetInsights`, `src/components/org/tech-stacks/fleetAnalysis.ts`)
+org's scored stacks (`computeFleetInsights`, `src/features/standing/tech-stacks/fleetAnalysis.ts`)
 and labels it **divergent** (best-vs-worst ≥ 35 pts), **gap** (even the best stack ≤ 45),
 **strength** (even the worst ≥ 68) or **consistent**. Divergent and gap rows expand into a
 transformation playbook (moves, a proposed Practices artifact, an adoption checklist).
@@ -353,12 +353,12 @@ The Overview page composes several server queries, all scoped to the org:
 | `computeOrgResilience(concentration)` (`src/lib/db/org-contributors.ts`) | **Org resilience / key-person exposure (2026-07-28).** Returned as `ContributorInsights.resilience`. Rolls the per-repo concentration rows into a commit-weighted fleet score (0-100), a critical/at-risk repo count, `exposedCommitShare` (how much of the fleet's recent commit volume sits in at-risk repos), and the riskiest repos ranked by `0.6 × topShare + 0.4 × (100 / busFactor)`. **It emits no login at any population size**, stricter than the `CHAMPION_MIN_POP` floor, on purpose: a "risk" framing is where a name stops being attribution and becomes an accusation, and the repo-level statement ("one point of failure, 92% concentration") carries the whole decision. Conversely it *survives* below the naming floor: a 2-person org is the most exposed org there is, so withholding the read would hide the finding, not a person. |
 | `getOrgDiscrepancies(slug)` | Aggregated LLM-auditor flags grouped by dimension (the calibration backlog). |
 
-**Trajectory** (`src/components/org/overview/Trajectory.tsx`) renders the `Forecast` from
+**Trajectory** (`src/features/standing/overview/Trajectory.tsx`) renders the `Forecast` from
 `src/lib/maturity/forecast.ts`, a linear regression over the daily maturity series:
 now → projected score/level at the horizon, weekly rate, direction, ETA (date) to the next
 level, and an R² fit-quality confidence. Shared layout primitives (`Tile`, `Card`,
 `SectionHeader`, `Meter`, `SectionEmpty`, posture labels) live in
-`src/components/org/ui.tsx`.
+`src/components/org/shared/ui.tsx`.
 
 ## Change-management evidence pack (W2, 2026-08-14)
 
@@ -517,7 +517,7 @@ via the deployment default until they are threaded the same way.
 default, would diverge the moment `ASCENT_ORG_TZ` is set):
 `src/lib/db/org-rollup.ts`'s `localDayKey` (server-local, the trend day-key axis),
 `src/lib/db/usage.ts`'s `dayKey` (UTC), and the client-side `daysUntil` in
-`src/components/org/live/LiveWarRoomHeader.tsx` (genuinely viewer-local, and therefore able
+`src/features/inflight/live/LiveWarRoomHeader.tsx` (genuinely viewer-local, and therefore able
 to disagree with the server's bucket by a day).
 
 ## Executive briefing (`src/lib/org/briefing.ts`)
@@ -553,7 +553,7 @@ plain anchor would display as the whole page. Same treatment as the Security tab
 ### Impact ledger — what the loop bought (W1d, 2026-08-14)
 
 The Briefing tab opens the rail's fourth question ("what did the last period buy us?") with the
-**Impact ledger** (`src/components/org/intelligence/executive/ImpactLedger.tsx` over
+**Impact ledger** (`src/features/bought/executive/ImpactLedger.tsx` over
 `src/lib/db/org-impact.ts`). It aggregates the improvement loop's own bookends: each row is a starter
 PR the org accepted on the Live wall, merged, and then re-scanned, and the number beside it is
 `ImprovementPr.impactDim`: the measured delta on the dimension that PR was aimed at, first
@@ -629,7 +629,7 @@ consumed by another model, which gains nothing from prose we generated for it.
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
 `practice.pr_opened`, `scan.regression`, `retention.purged`.
-`src/components/org/AuditLogViewer.tsx` is the searchable, paginated client viewer.
+`src/features/admin/audit/AuditLogViewer.tsx` is the searchable, paginated client viewer.
 
 ## Membership, roles & invites
 
@@ -809,9 +809,9 @@ field and the `ENVIRONMENT` block, because the snippet used to interpolate the f
 screenshotting or screen-sharing the page leaked the credential the owner believed was hidden. Masking
 stops at the display: **Copy always puts the working token on the clipboard**, on the field and on the
 snippet alike, since a clipboard full of `•` would be a worse failure than the leak. Both
-representations come from one pair of functions (`src/components/org/integrations/envSnippet.ts`), so
+representations come from one pair of functions (`src/features/admin/integrations/envSnippet.ts`), so
 there is no per-surface masking rule to drift. Pinned by
-`src/components/org/integrations/ClaudeCodeSetup.dom.test.tsx`, which asserts the raw mac is absent
+`src/features/admin/integrations/ClaudeCodeSetup.dom.test.tsx`, which asserts the raw mac is absent
 from the entire rendered DOM while masked and present after reveal.
 
 Rotating `INTEGRATIONS_INGEST_SECRET` still works as the break-glass for **all** orgs at once.
@@ -854,9 +854,9 @@ lives in metrics; folding log events into usage is a later step.
 | --- | --- |
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
-| `src/components/org/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter · Repositories-tab tag manager · A-vs-B comparison picker. |
-| `src/components/org/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
-| `src/components/org/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
+| `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter · Repositories-tab tag manager · A-vs-B comparison picker. |
+| `src/features/standing/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
+| `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
 | `src/lib/org/timezone.ts` | **The canonical org time-zone policy**: one reference frame (UTC by default, `ASCENT_ORG_TZ`-overridable) for every calendar-day boundary: zoned midnights, calendar-day arithmetic, day keys, date-literal parsing. See [above](#canonical-time-zone-policy-srcliborgtimezonets). |
 | `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, `end` compat bound, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
@@ -865,12 +865,12 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
 | `src/components/org/shell/OrgTabNav.tsx` | Persistent nav rail (two-level `SectionRailNav`), grouped by the transition journey. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
-| `src/components/org/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview, **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
-| `src/components/org/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
-| `src/components/org/AuditLogViewer.tsx` | Audit trail viewer. |
+| `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview, **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
+| `src/components/org/shared/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
+| `src/features/admin/audit/AuditLogViewer.tsx` | Audit trail viewer. |
 | `src/components/org/followups/` | The Follow-ups ledger (replaced the Backlog panel 2026-08-17): `FollowupsWorklist` (ranked table, bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner). |
 | `src/components/org/backlog/BacklogGroups.tsx` | The grouped Cards + rows + the three empty states (filter-empty is distinct from backlog-empty). |
-| `src/components/org/ui.tsx` | Shared org-UI primitives. |
+| `src/components/org/shared/ui.tsx` | Shared org-UI primitives. |
 | `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate; see [plan.md](../org-planning/plan.md)). |
 | `src/app/api/recommendations/[id]` | `PATCH` (status / `assigneeLogin` / `targetDate`, recording a `RecommendationEvent` attributed to the signed-in user) · `[id]/events` `GET` → the item's activity timeline. |
 | `src/app/api/audit/route.ts` | Audit query endpoint. |
@@ -888,7 +888,7 @@ rows are excluded from it:
 | Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |
 
 Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. Pinned by
-`src/components/org/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
+`src/features/standing/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
 
 ## AI stance (Governance tab, W3)
 
@@ -910,7 +910,7 @@ from existing scan data, never "enforced", and the copy must never claim it is.
   the stance version it evaluated**. Repo-scoped no-AI zones are checkable (glob vs fullName);
   **path-scoped zones are advisory-only** (commit file paths aren't ingested) and every surface
   labels them with the shared `PATH_ZONE_ADVISORY_LABEL`.
-- **UI** (`src/components/org/govern/stance/`): `StanceSection` (server) renders the **Perimeter**
+- **UI** (`src/features/standing/governance/stance/`): `StanceSection` (server) renders the **Perimeter**
   (`StancePerimeter` + `perimeterParts`): checkpoint strip (declared tools/models vs
   observed-undeclared), four tier bands T0→T3 fed by each repo's **real autonomy tier from the
   shared `passport-autonomy` resolver** (repos with no passport are shown as "tier not assessed",
@@ -927,7 +927,7 @@ from existing scan data, never "enforced", and the copy must never claim it is.
 
 - (Closed 2026-08-13.) ~~The Overview shows standing, not a punch list.~~ The three-item **Fix
   first** band is back on the Overview (`OverviewFixFirstPanel` → pure `deriveFixFirst` in
-  `src/components/org/overview/fixFirst.ts`), revived from the 2026-08-03 deletion with a cheaper
+  `src/features/standing/overview/fixFirst.ts`), revived from the 2026-08-03 deletion with a cheaper
   input set: worst regresser (`getOrgMovers`), the busiest unresolved derived-findings queue
   (`getOrgFindings`, already `unstable_cache`d for the rail badges, decisions subtracted fresh),
   and the first behind-pace active goal (`listGoals`). It streams in its own `<Suspense>` boundary

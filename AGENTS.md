@@ -25,6 +25,52 @@ Keep every React component file (`.tsx`) at **300 lines of code or fewer**. A fi
   (Use `-LiteralPath` so App Router `[slug]`/`[owner]` bracket dirs aren't treated as wildcards.)
 - **Status:** the codebase currently has **zero** `.tsx` files over 300 LOC; keep it that way. New and edited `.tsx` files must comply from the start; if an edit would push a file over the limit, extract first (don't commit the over-limit file).
 
+## `src/features/<group>/<tab>/` — the client structure mirrors the nav
+
+Every org-dashboard tab lives under `src/features/<nav group key>/<tab id>/`, where the group key and
+the tab id are the ones in `ORG_NAV_GROUPS` / `ORG_TAB_IDS` (`src/lib/org/orgTabs.ts`). The tree is
+the UI hierarchy, so "where does this component live?" has the same answer as "where does the user
+find it?" — and a regroup in the nav is visible as a directory move rather than as invisible drift.
+
+```
+src/features/
+  standing/    overview/ repositories/ tech-stacks/ passports/ security/ adoption/ governance/
+  shared/      registry/ practices/ skills/ memory/
+  inflight/    live/
+  bought/      executive/ delivery/ contributors/ teams/
+  admin/       members/ integrations/ audit/ settings/
+  developer/   ← no group: it hangs off the header identity menu, not the org rail
+```
+
+What deliberately stays in `src/components/org/`:
+
+- `shell/` — the tab shell itself (`OrgShell`, `OrgTabNav`, `OrgTabChunks`, the error boundary, the
+  quiet gap). It renders every group, so it belongs to none.
+- `shared/` — cross-group components and hooks (alerts, credits, scope filters, meters). **Nothing in
+  a feature group may be imported from here**; the dependency only runs the other way.
+- `followups/` and the loose `Personal*.tsx` / `DecisionControl.tsx` / `SecurityFindings.tsx` files.
+
+## Max 200 LOC per file under `src/features/**`
+
+Stricter than the repo-wide rule above and **not limited to `.tsx`**: every file under
+`src/features/**` — components, hooks, pure modules and co-located tests alike — is capped at **200
+lines**. The 300-LOC `.tsx` rule still governs everything outside `src/features/**`.
+
+The remedy is the same one: extract themed sub-components/helpers into **co-located files in the same
+folder**, keep the original file as the orchestrator (or a thin re-export barrel, so no call site
+changes), add `"use client"` to any extracted file that uses hooks or event handlers, and never add it
+to one that doesn't — that would drag a server panel across the boundary. A test file over the cap is
+split into sibling `<name>.<theme>.test.ts(x)` files, each carrying its own `@vitest-environment`
+pragma and mock setup.
+
+- **Check before committing anything under `src/features`:**
+  ```powershell
+  Get-ChildItem -Recurse -File src/features | Where-Object { $_.Extension -in '.ts','.tsx' } |
+    ForEach-Object { [pscustomobject]@{ LOC=(Get-Content -LiteralPath $_.FullName).Count; Path=$_.FullName } } |
+    Where-Object { $_.LOC -gt 200 } | Sort-Object LOC -Descending
+  ```
+  (Use `-LiteralPath` so App Router `[slug]`/`[owner]` bracket dirs aren't treated as wildcards.)
+
 ---
 
 # Documentation Sync: one surface, same-session enforcement
@@ -77,12 +123,13 @@ reference:
 | `src/lib/alerts.ts`, `src/app/api/cron/digest/**` | `docs/features/fleet/alerts.md` |
 | `src/app/api/cron/rescan/**`, `src/lib/db/org-watch.ts`, `src/lib/scan-credit.ts` | `docs/features/fleet/rescan.md` |
 | `src/app/api/cron/purge/**`, `src/lib/db/retention.ts` | `docs/features/data/retention.md` |
-| `src/lib/practices/**`, `src/app/api/practices/**` | `docs/features/org-dashboard/practices.md` |
-| `src/app/org/**`, `src/components/org/**`, `src/lib/org/**` | `docs/features/org-dashboard/org-intelligence.md` |
-| `src/lib/scoring/orgsim.ts`, `src/components/org/{plan,backlog,live,executive}/**` | `docs/features/org-planning/plan.md` |
-| `src/lib/memory/**`, `src/lib/db/org-memory*.ts` | `docs/features/org-knowledge/memory.md` |
-| `src/lib/org/skill-*.ts`, `src/lib/db/org-{skills,api-tokens}.ts` | `docs/features/org-knowledge/skills.md` |
-| `src/app/report/**`, `src/components/report/**`, `src/lib/report/**` | `docs/features/reporting/report.md` |
+| `src/lib/practices/**`, `src/app/api/practices/**`, `src/features/shared/practices/**` | `docs/features/org-dashboard/practices.md` |
+| `src/app/org/**`, `src/components/org/**`, `src/features/{standing,admin}/**`, `src/lib/org/**` | `docs/features/org-dashboard/org-intelligence.md` |
+| `src/lib/scoring/orgsim.ts`, `src/features/inflight/live/**`, `src/features/bought/executive/**` | `docs/features/org-planning/plan.md` |
+| `src/lib/memory/**`, `src/lib/db/org-memory*.ts`, `src/features/shared/memory/**` | `docs/features/org-knowledge/memory.md` |
+| `src/lib/org/skill-*.ts`, `src/lib/db/org-{skills,api-tokens}.ts`, `src/features/shared/skills/**` | `docs/features/org-knowledge/skills.md` |
+| `src/app/report/**`, `src/components/report/**`, `src/lib/report/**`, `src/features/standing/passports/**` | `docs/features/reporting/report.md` |
+| `src/features/developer/**` | `docs/features/org-dashboard/developer.md` |
 | `src/lib/{plans,polar,entitlement}.ts`, `src/app/api/billing/**` | `docs/features/billing/billing.md` |
 | `src/lib/db/usage.ts`, `src/lib/rate-limit.ts` | `docs/features/billing/usage.md` |
 | `src/app/api/badge/**`, `src/lib/badge.ts` | `docs/features/billing/badge.md` |

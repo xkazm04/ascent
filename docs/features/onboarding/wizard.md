@@ -142,7 +142,7 @@ pure UI state; only "Skip setup" writes.
   results grid doesn't exist yet) and switches to `results-view` once done; `loop` borrows
   "Choose what's in scope". The three teach steps no task claims stay reachable in the teaching rail.
   **W1a (2026-08-14):** the `modules-nav` teach step ("The rail is the journey") now names the five
-  journey sections: Standing · Chosen · In flight · Bought · Admin, instead of the retired
+  journey sections: Standing · Shared · In flight · Bought · Admin, instead of the retired
   data-type modules. Teach copy describes the shipping rail, so a regroup edits it in lockstep; see
   [org-intelligence.md](../org-dashboard/org-intelligence.md#the-rail-is-grouped-by-the-journey-not-by-data-type-w1a-2026-08-14).
 - **A sixth step: name the programme (W1c, 2026-08-14).** The checklist used to end at "invite a

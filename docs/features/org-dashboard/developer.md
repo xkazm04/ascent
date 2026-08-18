@@ -14,15 +14,22 @@ machine. This page is the **memory, the map and the bridge**: it keeps the profi
 machines, grounds moves in the standing of every repo the developer commits to, and turns a kept move
 into a registry skill authored by the person who proved it.
 
-## A route, presented as a rail item
+## A route, reached from the header identity menu
 
 `/org/developer` is a **static** App Router segment, so it wins over `/org/[slug]`. That is the whole
 point: the page is personalized to the **authenticated viewer** and shows *their own* activity, never
 someone else's — which a `?tab=` panel can never be, because a panel is org-scoped and anyone with org
 access opens the same one.
 
-It still presents as a rail item ("Developer", last in the **Chosen** group), so the full dashboard
-chrome stays available:
+**It left the org rail.** It used to sit last in the old `Chosen` group, which was structurally wrong:
+the rail is org-scoped navigation, this page is not org-scoped at all, and a personal surface listed
+beside Members and Audit reads as another org report. Its entry point is now the **header identity
+menu** — your own login, present on every marketing page and every dashboard tab, in both auth stacks
+(`src/components/header/IdentityMenu.tsx`, mounted by `HeaderAccount` in `src/components/Brand.tsx`).
+The menu links `/org/developer` bare: the route resolves its own context, so no `?org=` is needed.
+`developer` is now in `ORG_TABS_NOT_IN_NAV`.
+
+It still renders the full dashboard chrome:
 
 | Concern | How |
 | --- | --- |
@@ -78,11 +85,11 @@ The line between them is enforced in two directions:
 | Fixtures (client preview only) | `src/lib/org/developer-view.fixture.ts` |
 | Route | `src/app/org/developer/page.tsx` |
 | Legacy redirect | `src/app/org/[slug]/developer/page.tsx` |
-| Client root (preview state) | `src/components/org/developer/DeveloperHome.tsx` |
-| The render | `src/components/org/developer/DeveloperCompanion.tsx` |
+| Client root (preview state) | `src/features/developer/DeveloperHome.tsx` |
+| The render | `src/features/developer/DeveloperCompanion.tsx` |
 | Sub-components | `.../DeveloperActivityStrip.tsx`, `CareBits`, `CareProfileCard`, `CareMovesBoard`, `CareSessionShape`, `CareRepoGaps`, `CareJournal`, `CarePrivacyLedger`, `CareWhyStrip` |
 | Shared org shell | `src/components/org/shell/OrgShell.tsx` (+ `src/lib/org/orgShellGate.ts`) |
-| Contributors relation | `src/components/org/fleet/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
+| Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
 
 `developer-view.ts` is deliberately **pure** (types + constants + helpers) with the `@/lib/db` reads
 split into the `-load.ts` sibling, because the render is a client component and imports those helpers —

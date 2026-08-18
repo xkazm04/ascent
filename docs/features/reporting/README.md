@@ -18,7 +18,7 @@ Context-map group: **Reporting & Visualization** (`feature`).
 | Trends & Comparison | `/trends`, `/report/compare`, `/api/history` | `src/lib/report/compare.ts` |
 | Roadmap & Recommendation Tracking | `/api/recommendations[/id][/events]` | `src/lib/db`, `src/components/report/**` |
 | PDF & LLM Export | `/api/report/pdf` | `src/lib/pdf/**`, `src/components/CopyForLlm.tsx` |
-| AI-Native Passports | `/org/[slug]/passports`, `/api/report/passport`, `/api/org/{decision,issue}` | `src/lib/analyze/passport*.ts`, `src/components/org/passports/**` |
+| AI-Native Passports | `/org/[slug]/passports`, `/api/report/passport`, `/api/org/{decision,issue}` | `src/lib/analyze/passport*.ts`, `src/features/standing/passports/**` |
 | Portfolio & Public Leaderboard | `/portfolio`, `/leaderboard` | `src/lib/org/portfolio.ts`, `src/components/leaderboard/**` |
 
 ## Known gaps

@@ -15,7 +15,7 @@ adopt-picker), plan/credit state, and membership/admin role. It renders
 `SkillsPanel` with `canAuthor = isMember && planAllowed`, then, only for
 members, `ApiTokensPanel`.
 
-`SkillsPanel` (`src/components/org/skills/SkillsPanel.tsx`, client) debounces
+`SkillsPanel` (`src/features/shared/skills/SkillsPanel.tsx`, client) debounces
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
 changes, renders a filter bar and a table (Name / Category / Status /
 Adoptions / Uses), and expands a `SkillCard` beneath a clicked row.
@@ -359,6 +359,30 @@ clear a bar CI then blocks. Absence is always answered explicitly ("this repo ha
 scanned", "no stance published, absence is not permission") rather than as an empty object a model
 would read as *nothing to worry about*.
 
+## Registry-backed state (UC2, 2026-08-18)
+
+This tab is a **consumer of the org's registry repo** (`docs/features/org-registry/README.md`). One
+loader, `src/lib/org/registry-sync.ts`, answers "where does this content live?", and one component,
+`src/features/shared/registry/RegistrySyncStrip.tsx`, says it identically here, on Skills and on
+Practices — so the three tabs cannot drift in what they claim.
+
+| Registry | What the tab shows |
+| --- | --- |
+| Not mapped | A pointer strip: "Nothing is backed by a registry yet — … lives only in ascent," linking to the Registry tab. It is a pointer, **not a gate**: hosted rows and the author form render below exactly as before, and nothing on screen names a repo that may not exist. |
+| Mapped | The strip becomes the live status — the repo (linked), `indexed <relative time>` (or "mapped, not indexed yet" before the first pass), and the counts the last index pass read out of the repo. |
+
+Per row, once a registry is mapped, an origin marker (`src/features/shared/registry/RegistryOriginTag.tsx`)
+distinguishes the two worlds, and the affordances follow it:
+
+- `origin: "hosted"` — ascent's own row; every in-app affordance (edit, archive) is unchanged.
+- `origin: "registry"` — a mirror of a file in a repo the customer owns. In-app archive is **replaced**
+  by **Open in registry** (a blob deep link built from `registryPath`, rendered only when the indexer
+  actually recorded a path, so the link cannot 404 by construction). Editing here would be overwritten
+  by the next index pass, so it is not offered.
+
+Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
+only news once the other world exists.
+
 ## Known gaps
 
 - `OrgSkillEvent.source` is documented as `cli | hook | ci | web` but is
@@ -394,9 +418,9 @@ would read as *nothing to worry about*.
 | `src/lib/db/org-skills.ts` | CRUD, `toRow()` read-time frontmatter resolution. |
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
-| `src/components/org/skills/SkillsPanel.tsx` | Client orchestrator. |
-| `src/components/org/skills/SkillCard.tsx` | Per-skill detail, adopt/copy/download/archive actions. |
-| `src/components/org/skills/SkillDormancyBadge.tsx` | Dormancy status chip. |
-| `src/components/org/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
-| `src/components/org/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
+| `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. |
+| `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt/copy/download/archive actions. |
+| `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip. |
+| `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
+| `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |

@@ -43,7 +43,7 @@ retirement candidate; when that happens those four readers lose a branch each, n
 
 Documented in [org-intelligence.md](../org-dashboard/org-intelligence.md) (W1c). Its control panel
 (`ProgramPanel`: start / re-target / pause / end) now renders on the **Briefing** tab
-(`src/components/org/intelligence/executive/ProgramPanel.tsx`), which is where the shell's
+(`src/features/bought/executive/ProgramPanel.tsx`), which is where the shell's
 `ProgramStrip` and the getting-started "programme" step link.
 
 ## Executive briefing, live wall, playbooks

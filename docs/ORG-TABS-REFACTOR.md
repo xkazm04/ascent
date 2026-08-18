@@ -152,10 +152,16 @@ and every cheap panel paint immediately, and only the genuinely slow region wait
 
 ## 3. Files, folders, naming
 
-### The cap: **200 lines, `.tsx` only**
+### The cap: **200 lines, every file under `src/features/**`**
 
-`.ts` is deliberately uncapped. The rule pushes complexity *out of JSX files*; it does not cap
-complexity. `kp`'s `usePipelineTabState.ts` is 962 lines by design. Extraction order, in priority:
+> **Superseded 2026-08-18.** This section originally capped `.tsx` only, leaving `.ts` uncapped on
+> `kp`'s reasoning (the rule pushes complexity *out of JSX files*; `kp`'s `usePipelineTabState.ts` is
+> 962 lines by design). In practice the uncapped half is where the unreadable files accumulated —
+> `autonomyModel.ts` at 399 lines, `useLiveWarRoom.ts` at 327 — so the cap now covers **every** file
+> under `src/features/**`: components, hooks, pure modules and co-located tests alike. The repo-wide
+> 300-LOC `.tsx` rule still governs everything outside `src/features/**`. See `AGENTS.md`.
+
+Extraction order, in priority:
 
 1. state/effects/handlers → `use<Feature><Thing>.ts` (owns no JSX)
 2. pure functions → `<feature><Thing>.ts`
@@ -165,16 +171,24 @@ complexity. `kp`'s `usePipelineTabState.ts` is 962 lines by design. Extraction o
 
 ### The tree mirrors the nav
 
+Updated 2026-08-18: the feature dirs moved out of `src/components/org/` into `src/features/`, nested
+one level deeper so the path spells out the **nav group** a tab is in. The old tree grouped by the six
+data-type modules, which the W1a regroup had already retired in the UI — the folders were describing a
+nav that no longer existed.
+
 ```
+src/features/
+  standing/    overview/ repositories/ tech-stacks/ passports/ security/ adoption/ governance/
+  shared/      registry/ practices/ skills/ memory/
+  inflight/    live/
+  bought/      executive/ delivery/ contributors/ teams/
+  admin/       members/ integrations/ audit/ settings/
+  developer/   ← no group: reached from the header identity menu, not the org rail
+
 src/components/org/
-  shell/          OrgWorkspace.tsx  OrgTabChunks.tsx  OrgTabNav.tsx  orgTabs.ts
-  overview/       OverviewTab.tsx + parts
-  fleet/          repositories/ segments/ tech-stacks/ teams/ contributors/ adoption/ delivery/
-  intelligence/   executive/ live/ security/ passports/
-  plan/           plan/ backlog/ practices/
-  library/        skills/ memory/
-  govern/         governance/ members/ audit/ integrations/ settings/
-  shared/         ← cross-group only; nothing here may import from a group
+  shell/       OrgShell.tsx  OrgTabChunks.tsx  OrgTabNav.tsx  OrgTabErrorBoundary.tsx  OrgTabGap.tsx
+  shared/      ← cross-group only; nothing here may import from a group
+  followups/   the follow-ups ledger
 ```
 
 ### Naming by role (from `kp`, verified against its real filenames)

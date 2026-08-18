@@ -86,7 +86,7 @@ This is a regrouping of `ORG_NAV_GROUPS` plus five icons in `OrgTabNav.tsx:35`. 
 `ORG_NAV_GROUPS ⟷ ORG_TAB_IDS` completeness test keeps it honest.
 
 **Files:** `src/lib/org/orgTabs.ts` · `src/components/org/shell/OrgTabNav.tsx` ·
-`src/components/org/overview/orgIcons.tsx` · `src/components/about-org/` (the public module map
+`src/features/standing/overview/orgIcons.tsx` · `src/components/about-org/` (the public module map
 derives from the same catalog) · `src/components/onboarding/tour/steps.ts` (teach copy names the
 rail) · the nav catalog test.
 **Size:** S. **Status: SHIPPED 2026-08-14.**
@@ -183,7 +183,7 @@ failure degrades the panel away rather than failing the tab (which also keeps UA
 4. **No cross-repo overall sum.** `impactOverall` is per row only; the field notes say why.
 
 **Files:** `src/lib/db/org-impact.ts` (new, + 12 model tests) ·
-`src/components/org/intelligence/executive/ImpactLedger.tsx` (new, + 8 render tests) ·
+`src/features/bought/executive/ImpactLedger.tsx` (new, + 8 render tests) ·
 `ExecutiveTab.tsx` + its test.
 **Size:** S/M. **Status: SHIPPED 2026-08-14.**
 

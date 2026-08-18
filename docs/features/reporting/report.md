@@ -477,7 +477,7 @@ safely hand an agent in this repo") with per-tier `unlocks[].missing` checklists
 pre-0.3.0 rows are lifted read-time by `upgradePassport` (tiers without a rescan, sandbox/hooks left
 unknown, never fabricated). Detection rules and the exact ladder live in
 [scan.md](../scanning/scan.md#app-readiness-passport--autonomy-tier-srclibanalyzepassportts). The
-Passports tab's Clearance prototype (`src/components/org/intelligence/passports/autonomy/`) prefers
+Passports tab's Clearance prototype (`src/features/standing/passports/autonomy/`) prefers
 the real `pp.autonomy` tier and the real `sandbox`/`hooks` gates when the passport carries them,
 falling back to its labeled proxy/mock derivation for pre-0.3.0 data.
 

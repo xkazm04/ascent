@@ -25,7 +25,7 @@ whose `namespace` matches the repo's full name and whose `updatedAt` is within
 every tracked repo, not just repos that already have memory, so the strip
 cannot show a flattering 100% just because nothing has been recorded yet.
 
-Below the strip, `MemoryPanel` (`src/components/org/MemoryPanel.tsx`, client)
+Below the strip, `MemoryPanel` (`src/features/shared/memory/MemoryPanel.tsx`, client)
 is the orchestrator: filter bar, list, and author form. Under it sit the two
 lifecycle surfaces: **MemoryRecallPanel** (value-ranked recall, a read, any
 member) and **MemoryReflectPanel** (propose/apply consolidation, gated as a
@@ -425,6 +425,30 @@ feature."); exceeding the personal cap returns `402`.
   in the files read; decay only runs as a side effect of an explicit
   `POST /api/org/memory/reflect { decay: true }` call.
 
+## Registry-backed state (UC2, 2026-08-18)
+
+This tab is a **consumer of the org's registry repo** (`docs/features/org-registry/README.md`). One
+loader, `src/lib/org/registry-sync.ts`, answers "where does this content live?", and one component,
+`src/features/shared/registry/RegistrySyncStrip.tsx`, says it identically here, on Skills and on
+Practices — so the three tabs cannot drift in what they claim.
+
+| Registry | What the tab shows |
+| --- | --- |
+| Not mapped | A pointer strip: "Nothing is backed by a registry yet — … lives only in ascent," linking to the Registry tab. It is a pointer, **not a gate**: hosted rows and the author form render below exactly as before, and nothing on screen names a repo that may not exist. |
+| Mapped | The strip becomes the live status — the repo (linked), `indexed <relative time>` (or "mapped, not indexed yet" before the first pass), and the counts the last index pass read out of the repo. |
+
+Per row, once a registry is mapped, an origin marker (`src/features/shared/registry/RegistryOriginTag.tsx`)
+distinguishes the two worlds, and the affordances follow it:
+
+- `origin: "hosted"` — ascent's own row; every in-app affordance (edit, archive) is unchanged.
+- `origin: "registry"` — a mirror of a file in a repo the customer owns. In-app archive is **replaced**
+  by **Open in registry** (a blob deep link built from `registryPath`, rendered only when the indexer
+  actually recorded a path, so the link cannot 404 by construction). Editing here would be overwritten
+  by the next index pass, so it is not offered.
+
+Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
+only news once the other world exists.
+
 ## Key files
 
 | File | Role |
@@ -444,16 +468,16 @@ feature."); exceeding the personal cap returns `402`.
 | `src/lib/db/org-memory.ts` | CRUD + supersede transaction, visibility scoping. |
 | `src/lib/db/org-memory-lifecycle.ts` | `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
-| `src/components/org/MemoryPanel.tsx` | Client orchestrator. |
-| `src/components/org/MemoryRecallPanel.tsx` | Value-ranked recall surface. |
-| `src/components/org/MemoryRecallPanel.Rows.tsx` | Packed / omitted / ineligible rows. |
-| `src/components/org/memoryRecall.ts` | Client fetch helper + omission-reason copy. |
-| `src/components/org/MemoryReflectPanel.tsx` | Reflect propose/apply surface. |
-| `src/components/org/MemoryReflectPanel.Proposal.tsx` | One proposal + what it would supersede. |
-| `src/components/org/memoryReflect.ts` | Client fetch helpers + the three-outcome copy. |
+| `src/features/shared/memory/MemoryPanel.tsx` | Client orchestrator. |
+| `src/features/shared/memory/MemoryRecallPanel.tsx` | Value-ranked recall surface. |
+| `src/features/shared/memory/MemoryRecallRows.tsx` | Packed / omitted / ineligible rows. |
+| `src/features/shared/memory/memoryRecall.ts` | Client fetch helper + omission-reason copy. |
+| `src/features/shared/memory/MemoryReflectPanel.tsx` | Reflect propose/apply surface. |
+| `src/features/shared/memory/MemoryReflectProposal.tsx` | One proposal + what it would supersede. |
+| `src/features/shared/memory/memoryReflect.ts` | Client fetch helpers + the three-outcome copy. |
 | `src/lib/memory/consolidation-engine.ts` | Resolves the provider-backed prompt runner. |
 | `src/lib/llm/text.ts` | Shared "prompt in → text out" seam over the provider selection. |
 | `src/lib/llm/untrusted.ts` | The shared untrusted-content boundary. |
-| `src/components/org/memoryCheck.ts` | Client fetch helper + copy for the check verdict. |
+| `src/features/shared/memory/memoryCheck.ts` | Client fetch helper + copy for the check verdict. |
 | `src/app/org/[slug]/memory/page.tsx` | Page composition. |
 | `src/app/org/[slug]/memory/MemoryCoverageStrip.tsx` | Fleet-wide freshness strip. |

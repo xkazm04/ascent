@@ -9,7 +9,7 @@ the brief the prototype builders and the ship-loop milestones read._
 1. **The registry is a customer-owned repo; ascent onboards, indexes and tracks it.** Skills,
    Practices and Memory move *out of* ascent's tables as source of truth and *into* the registry
    repo. Ascent keeps mirror rows (the index) so every existing read surface keeps working.
-2. **A new tab module `Registry` under the `Chosen` group** (`?tab=registry`), sitting first in the
+2. **A new tab module `Registry` under the `Shared` group** (renamed from `Chosen`, see §0b) (`?tab=registry`), sitting first in the
    group: it is the onboarding step the other three depend on, and their sync-health strip links back
    to it. Group order becomes: Registry · Practices · Skills · Memory · Governance · Developer
    (Plan/Backlog were retired for Follow-ups by a parallel change on 2026-08-17).
@@ -26,6 +26,33 @@ the brief the prototype builders and the ship-loop milestones read._
 5. **Prototype every new tab with three directional variants** (`/prototype`, worktree, Opus builders),
    pick, consolidate. Registry and Care each get a prototype round before any data-layer work beyond
    the read model they need.
+
+## 0b. Nav + code-structure decisions (2026-08-18)
+
+1. **The `Chosen` group is renamed `Shared`** — it holds the org's *shared primitives*: the registry
+   and everything it distributes (Plan · Practices · Skills · Memory). "Chosen" described a question
+   ("what did we decide our way of working is?"); "Shared" describes what the group actually contains.
+2. **Governance moves to `Standing`.** It is a statement of where the org *stands* (branch protection,
+   required reviews, the AI stance), not a shared primitive the registry distributes.
+3. **Developer leaves the rail and lives behind the header username.** It is per-person, not per-org:
+   it hangs off the identity, opened from the header menu (`/org/developer`). It stays in
+   `ORG_TAB_IDS` (route, label, a11y contract) and joins `ORG_TABS_NOT_IN_NAV`.
+4. **Client code mirrors the UI hierarchy**: `src/features/<nav-group>/<tab>/…`
+   (`src/features/standing/governance/GovernanceTab.tsx`), sub-folders for larger features, **max 200
+   LOC per file** under `src/features/**` (the repo-wide 300-LOC rule still governs everything else).
+   Shared/cross-cutting components are explicitly excluded and stay put (`src/components/ui`,
+   `src/components/org/shared`, `src/components/org/shell`).
+5. **Registry actions are capability-gated, never decorative.** `getRegistryView` carries a
+   `capabilities` block (app configured · installation present · token mintable · viewer role ·
+   can-create-repo). If ascent cannot act on the user's behalf, the GitHub buttons and links are **not
+   rendered at all** — no dead affordance, no silent failure. When it can, the action opens a real PR
+   through the existing `openDraftPr` path.
+6. **Practices · Skills · Memory read their state from the registry.** Unmapped ⇒ each tab shows the
+   same honest empty state pointing at Registry; mapped ⇒ content comes from the indexed mirror rows,
+   and the write affordances follow `origin` (hosted rows keep in-app forms; registry rows offer
+   "Open in registry" / "Propose change (PR)").
+7. **A real example registry** lives at `github.com/xkazm04/ai-registry` — the fixture the integrations
+   are wired and tested against (it carries one deliberately drifted skill version so `stale` shows up).
 
 ## 1. The registry repo (v1 layout, scaffolded by ascent)
 
@@ -96,9 +123,9 @@ Existing readers (`listOrgSkills`, `listOrgMemories`, practice-shape loaders) ke
   `POST /api/org/skills/events` (existing; `invoke` restored). Token scope `registry:write` added to
   `SKILL_TOKEN_SCOPES` for the CLI's PR-opening path when the developer has no GitHub write access.
 
-## 4. The `Registry` tab (module under Chosen) — states and content
+## 4. The `Registry` tab (module under Shared) — states and content
 
-`src/components/org/library/registry/RegistryTab.tsx` (server, `slug` prop, same shell contract as
+`src/features/shared/registry/RegistryTab.tsx` (server, `slug` prop, same shell contract as
 SkillsTab/MemoryTab) → `RegistryPanel*` (client where interactive). Read model
 `src/lib/org/registry-view.ts → getRegistryView(slug): RegistryView`:
 
@@ -195,8 +222,8 @@ variant is the render. Decisions taken with the pick:
   care loop), never someone else's. So it does not belong under `?tab=care` inside an org's panel set;
   it lives at **`/org/developer`** (static route; wins over `/org/[slug]`), org context via
   `?org=<slug>` (default: the viewer's first readable org, else their personal workspace).
-- It **presents as a rail item** ("Developer", in the *Chosen* group, last) so the whole left rail
-  stays available on the route: the page reuses the org shell (extract the `[slug]/layout.tsx` body
+- It is reached from the **header identity menu** (§0b.3), not the rail, so the whole left rail
+  stays available on the route without a personal surface sitting inside org-scoped navigation: the page reuses the org shell (extract the `[slug]/layout.tsx` body
   into a shared `OrgShell` server component; the developer route renders the same header + rail with
   the `developer` item active). `orgTabHref(slug, "developer")` returns `/org/developer?org=<slug>`;
   `developer` is in `ORG_TAB_IDS` (for the rail/label/a11y contract) but is **not** a `?tab=` panel and
@@ -275,7 +302,7 @@ init` (scaffold locally + open PR via `gh` if present). Reads `.ai/manifest.yaml
 | T | cross | `/tiger` `engine/_expected/{tailored-adopt,mentor}.md` written before E/C2 land | — |
 
 Docs: new feature area `org-registry` → `docs/features/org-registry/README.md` + entry in
-`scripts/docs/feature-doc-map.json` (`src/lib/registry/**`, `src/components/org/library/registry/**`,
+`scripts/docs/feature-doc-map.json` (`src/lib/registry/**`, `src/features/shared/registry/**`,
 `src/app/api/org/[slug]/registry/**`); `org-knowledge/skills.md` + `memory.md` updated in R3/R4;
 `docs/features/org-dashboard/care.md` for UC3.
 
@@ -283,7 +310,7 @@ Docs: new feature area `org-registry` → `docs/features/org-registry/README.md`
 
 - One git worktree per tab (`.claude/worktrees/prototype-registry`, `…/prototype-care`), branched from
   HEAD; the main checkout carries foreign WIP and is not touched.
-- Wire the tab for real (ORG_TAB_IDS, `ORG_NAV_GROUPS` Chosen group, `MIGRATED_ORG_TAB_IDS`,
+- Wire the tab for real (ORG_TAB_IDS, `ORG_NAV_GROUPS` Shared group, `MIGRATED_ORG_TAB_IDS`,
   `PERSONAL_TAB_IDS` for `care` (+ `registry`), `OrgTabChunks` branch, legacy redirect route stub) so
   the variants render inside the actual shell at `/org/<slug>?tab=registry`.
 - `RegistryPanelSwitcher.tsx` / `CarePanelSwitcher.tsx` (client) hold the variant state; each variant

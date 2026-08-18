@@ -98,7 +98,7 @@ to `MAX_BATCH = 25`, fanned out with `mapPool` at `SCAN_CONCURRENCY`, with per-r
 error isolation so one failure doesn't sink the batch. Driven by
 `PracticeApplyBatch.tsx` / `PracticeApplyBatchResults.tsx`.
 
-## UI (`src/app/org/[slug]/practices/page.tsx`, `src/components/org/PracticeApply.tsx`)
+## UI (`src/app/org/[slug]/practices/page.tsx`, `src/features/shared/practices/PracticeApply.tsx`)
 
 The practices page renders one card per practice (label, "what", adoption meter, exemplar
 link, gap repos, the reusable-shape checklist) with an embedded `PracticeApply`. That
@@ -118,7 +118,7 @@ halves:
   repo become the summary, and its leak-free starter becomes the checklist. The mapping is
   pure and bounded to exactly what `createPlaybook` stores (single-line title ≤200,
   summary ≤1000, ≤20 steps of ≤300 chars, see
-  `src/components/org/practices/promotePractice.ts`), so nothing is silently truncated on
+  `src/features/shared/practices/promotePractice.ts`), so nothing is silently truncated on
   save. Everything stays editable: a promotion is a review, not a commit.
 - **Fleet rollout for playbooks (G7-24).** `POST /api/org/playbooks/[id]/apply-batch
   { repos[] }` opens a draft PR seeding the playbook into a whole segment (or the whole
@@ -159,12 +159,12 @@ straight at the CI-gates practice and its exemplars.
 | `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |
 | `src/lib/github/write.ts` | `openDraftPr()`: branch → file → draft PR (idempotent). |
-| `src/components/org/practices/PracticeApply.tsx` | Preview + apply UI. |
+| `src/features/shared/practices/PracticeApply.tsx` | Preview + apply UI. |
 | `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. |
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
-| `src/components/org/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
-| `src/components/org/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
-| `src/components/org/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
+| `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
+| `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
+| `src/features/shared/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
 
 ## Your house pattern — mined from the org's own repos (W6, 2026-08-14)
 
@@ -234,6 +234,21 @@ starter" are very different claims to put in front of an engineer.
 Shapes appear as repos are re-scanned; there is no backfill, and thin coverage reads as thin
 coverage rather than as "your org shares nothing".
 
+## Registry-backed state (UC2, 2026-08-18)
+
+Practices are the second consumer of the org's registry repo. The same
+`RegistrySyncStrip` heads this tab (unmapped ⇒ a pointer to the Registry tab; mapped ⇒ the repo,
+last-index time and counts), and a **"From your registry"** section
+(`src/features/shared/practices/RegistryPractices.tsx`) lists the `practices/<slug>/PRACTICE.md`
+entries the indexer read out of that repo, above ascent's generic catalog.
+
+Those rows carry the dimension, the `applies-when` line and an **Open in registry** link — and
+deliberately **no Apply button**. They are files under the customer's own review process; ascent
+indexes them so the whole fleet can see what the org already agreed on, but applying one is a write
+into someone else's repo through a PR flow that does not exist yet (see Known gaps). The section
+renders nothing when there are no registry-origin shapes, so an org that never mapped a registry sees
+no empty scaffolding.
+
 ## Known gaps
 
 - **Adoption is tracked at the PR, not the repo**: `recordPracticePr()` persists each
@@ -255,4 +270,7 @@ coverage rather than as "your org shares nothing".
   Copy-for-LLM markdown (`## Proof — improvement shipped and measured`). Always fleet-wide
   (practices aren't segment-scoped) and every renderer says so; null when nothing was ever
   applied, so "never tried" can't read as "tried and nothing landed".
-- **Catalog is global**: orgs can't customize practices or starter checklists.
+- **Catalog is global**: ascent's own practice catalog can't be customized per org — but an org can now
+  declare its own in its registry repo, and those are read and shown (see Registry-backed state).
+- **Registry practices are read-only**: a `practices/<slug>/PRACTICE.md` from the registry can be opened
+  in git but not applied from ascent; the "apply a registry practice to N repos" PR flow is not built.

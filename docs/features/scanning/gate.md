@@ -306,8 +306,8 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/lib/github/pr-gate.ts` | `runPrGate()`: the shared Check Run + sticky comment writer. |
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
 | `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs. |
-| `src/components/org/govern/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
-| `src/components/org/govern/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
+| `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
+| `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
 | `src/lib/db/org-rollup.ts` | `parseProvenanceLite`: the fleet gate's `aiGovernedRate` input. |

@@ -185,13 +185,13 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 
 ### Settings UI
 
-- `src/components/org/govern/settings/LlmProviderSettings.tsx`: the Bedrock BYOM card. Owner-
+- `src/features/admin/settings/LlmProviderSettings.tsx`: the Bedrock BYOM card. Owner-
   only, write-only credential fields (cleared after save, shown as "configured ••••"),
   save → test → enable flow via `/api/org/llm-provider` and `/api/org/llm-provider/test`,
   plan/encryption gated. Blocks a cross-provider switch without re-entering AWS keys (would
   otherwise leave the other provider's secret in place under the new provider name and
   break every scan via the fail-closed guard above).
-- `src/components/org/govern/settings/OpenRouterByomSettings.tsx`: the structural twin for
+- `src/features/admin/settings/OpenRouterByomSettings.tsx`: the structural twin for
   OpenRouter: model slug + API key, same save/test/enable/disable flow, same one-active-
   provider replacement semantics, explicitly labelled as the cost/flexibility path (not
   in-boundary).
@@ -403,7 +403,7 @@ workflow described in full in [llm-model-matrix.md](llm-model-matrix.md):
   the `OPENAI_MAX_TOKENS`/`OPENROUTER_MAX_TOKENS` default) rather than a real model
   verdict, so the scorecard doesn't discredit a model for an adapter limit.
   `isMatrixStale()` flags a baked run older than `MATRIX_STALE_AFTER_DAYS` (45).
-  `src/components/org/govern/settings/ModelScorecard.tsx` renders this as a read-only, ranked
+  `src/features/admin/settings/ModelScorecard.tsx` renders this as a read-only, ranked
   table in org LLM settings so an operator picks a BYOM/platform model on evidence.
 - **`eval-log.ts`**: when `ASCENT_EVAL_LOG_DIR` is set, every `assess()` outcome is
   appended as one JSONL record (`captureAssessment()`): prompt (`system`/`user`, secrets
