@@ -1,7 +1,7 @@
 ---
 name: tiger
-description: Goes for the throat of an LLM-powered app — its LLM call sites, the highest-value/highest-cost/highest-variance part — and certifies them across three lenses an ordinary test suite is blind to. (A) Engine quality of the integration code (wrapping, logging/observability, caching efficiency). (B) Business value of the model's output, using UAT's Character-driven L1 method but scoped ONLY to the LLM pieces (is the output senior-grade, grounded, trustworthy, worth the wait, per Character). (C) Model optimization as an alternative scenario — benchmarking the same Characters across different models × thinking levels to find the cheapest config that still clears every bar, and whether a premium config meaningfully upgrades value. Everything is memorized to an Obsidian vault (`tiger/`) so each run builds on the last — the vault IS cross-session memory. Stack-agnostic engine; per-app specifics live in the vault. Invoke with `/tiger init|run|benchmark|recall [args]`.
-version: 1.0
+description: Goes for the throat of an LLM-powered app — its LLM call sites, the highest-value/highest-cost/highest-variance part — and certifies them across three lenses an ordinary test suite is blind to, judged against the app's golden use cases (for ascent: UC1 standardize a codebase L1→L5, UC2 share & improve AI-dev skills/knowledge across an org, UC3 individual developer care — every call site and finding carries a `use_case`). (A) Engine quality of the integration code (wrapping, logging/observability, caching efficiency). (B) Business value of the model's output, using UAT's Character-driven L1 method but scoped ONLY to the LLM pieces (is the output senior-grade, grounded, trustworthy, worth the wait, per Character). (C) Model optimization as an alternative scenario — benchmarking the same Characters across different models × thinking levels to find the cheapest config that still clears every bar, and whether a premium config meaningfully upgrades value. Everything is memorized to an Obsidian vault (`tiger/`) so each run builds on the last — the vault IS cross-session memory. Stack-agnostic engine; per-app specifics live in the vault. Invoke with `/tiger init|run|benchmark|recall [args]`.
+version: 2.0
 ---
 
 # Tiger — certify the LLM engine, the highest-value part of an AI app
@@ -9,6 +9,18 @@ version: 1.0
 In an LLM-powered product, the LLM call sites are the **vital organ**: they carry most of the value, most of the variable cost, and almost all of the output variance. A conventional test suite is structurally blind to whether they're *wrapped well*, *worth the money*, and *right-sized for the model*. Tiger hunts exactly those sites and judges them — nothing else. (UAT certifies the whole product journey; **Tiger drills into only the LLM pieces** and adds two LLM-native lenses UAT doesn't have: integration **code quality** and **model/cost optimization**.)
 
 > Terminology shared with `/uat`: a **Character** is a durable, repo-committed representative user with goals, a senior-quality bar, and their own scored judgement. Tiger **reuses the UAT roster** (don't reinvent users) and re-scopes each Character to the *AI surface* — the part of the experience the model generates.
+
+## Golden use cases — the value frame every lens judges against
+
+An LLM call site is only "at its potential" relative to the job it serves. Ascent's jobs are its three golden use cases (`docs/GOLDEN-USE-CASES.md`); other apps declare theirs in `tiger/README.md` at `init`:
+
+| `use_case` | Job | What Lens B's grounding audit asks | Who judges (roster binding) |
+|---|---|---|---|
+| **UC1** — standardize a codebase for AI development (L1→L5 in quick iterations) | scan → gaps-to-explore → apply → rescan | do the *detected* signals, the prior scan (memory grounding), and the org's exemplars reach the prompt? is the output structural and repo-specific, never generic? | Sam (staff eng), Mariam (audit), Tomas (buyer) |
+| **UC2** — share & improve AI-dev techniques across an org (skills + knowledge tracked and shared) | observe → propose → adopt → track → improve → redistribute | does the fleet's skill registry, the exemplar's real commands, and Org Memory reach the prompt? is frontmatter preserved by construction? is the tailored output honest about what it could not ground? | Priya (platform lead), Marcus (eng manager), Anika (JVM platform) |
+| **UC3** — individual care (help a developer use LLM dev tools better) | reflect → interview → profile → moves → re-measure | does the developer's own journal + the repo's gaps + the org's skills reach the prompt? does *nothing* leave the machine that the developer didn't choose? is the advice senior-mentor grade, not generic hygiene? | Priyanka (indie/solo IC), Sam-as-IC, Elena (CTO founder) |
+
+Rules: every `engine/*` note and every finding carries `use_case` (one primary; `cross` allowed for shared plumbing). Each use case keeps ≥2 judges. **Expected kills**: at `init`/`run`, list the call sites the use cases *imply but the code doesn't yet have* (ascent: UC2-E "tailored adopt", UC3 "mentor" reflection) as `engine/_expected/<slug>.md` — so the day they land, the machinery/grounding bar is already written and the first run diffs against it instead of starting cold.
 
 > Real model calls are the point of L2 (that's what makes business-value and the cost frontier real, not a thought experiment). So Tiger's live passes are a **deliberate periodic exercise, never a per-commit CI gate.** The two-level design keeps it affordable.
 
@@ -31,6 +43,7 @@ The UAT method (Nielsen heuristics + cognitive walkthrough + JTBD), but the surf
   - **Audit BOTH directions.** *In:* does context reach the prompt? *Out:* does the model's provenance (engine, model, which fields it moved, degraded-or-not) survive into the **durable artifact** the Character actually files/exports/shares? A signed audit CSV that drops the engine column — so a deterministic-floor quarter is byte-identical to a model-scored one — is a grounding-OUT failure no prompt audit catches.
   - **The sharpest finding is "computed-but-not-wired".** Don't ask "does this context exist?" — ask "does context the app **already computed or already paid to fetch** actually reach the model?". The richest pilot findings were a stack detector whose result was dropped into `warnings` instead of the prompt, and a signal-ranked file fetch that got **re-sorted alphabetically** before the prompt window truncated it — both fully visible in code, both invisible to "does it exist?".
   - **Memory grounding.** On a *re-run* product, does the prompt carry "what changed since last time" / the Character's prior choices — or does it re-judge cold every call? (The vault itself is the model for what good cross-run memory looks like.)
+  - **Use-case grounding.** Ask the row of the golden-use-case table above: the "computed-but-not-wired" question is asked *per use case* (UC1: detected signals + prior scan; UC2: registry + exemplar + memory; UC3: the developer's journal). A call site that grounds UC1 beautifully and serves UC2 cold is a `use_case: UC2` finding, not a pass.
 - **Senior-quality bar** — is the model's output at least as good as this Character would produce as a senior in their role? Generic, ungrounded, or self-contradicting output fails even if it "worked".
 - **Time-saved & trust** — does the AI output beat their manual way (a number), and would they stake their reputation on it (does it reconcile, is it sourced)?
 
@@ -59,14 +72,15 @@ tiger/                         # open THIS folder as an Obsidian vault
   README.md                    # what this is, how to run, the engine summary
   MOC.md                       # Map of Content — the home note; links every engine/character/session/backlog note
   engine/                      # THE memorized LLM-usage map — one atomic note per call site ("the kills")
-    <call-site>.md             # frontmatter {file,line,task,provider,model,grounding,lenses}; body: 3-lens audit + [[links]]
+    <call-site>.md             # frontmatter {file,line,task,use_case,provider,model,grounding,lenses}; body: 3-lens audit + [[links]]
+    _expected/<slug>.md        # call sites the golden use cases imply but the code lacks yet — the bar written ahead of the code
   lenses/
     engine-quality.md          # Lens A rubric (the wrapping/logging/caching dials)
     business-value.md          # Lens B rubric (inherits uat/rubric.md dimensions, LLM-scoped)
     model-optimization.md      # Lens C rubric + how to read the frontier
   models.md                    # the model × thinking-level benchmark matrix + a dated price-table snapshot
   characters/
-    _roster.md                 # which UAT Characters this vault uses + each one's AI-surface ANGLE (cost/trust/privacy/grounding)
+    _roster.md                 # which UAT Characters this vault uses + each one's AI-surface ANGLE (cost/trust/privacy/grounding) + use_case binding (≥2 judges per use case)
     <slug>.md                  # only for Characters NOT already in uat/characters/ (else [[link]] to the UAT file)
   sessions/                    # session memory — one dated note per run (Obsidian daily-note style)
     <YYYY-MM-DD-slug>.md       # journal: surface diff vs last session, lens scores, links to new/closed findings
@@ -88,8 +102,9 @@ Why chronological: L1 is a cheap filter and the only level that scales Character
 
 Extends the UAT finding with `lens` and the Lens-C model fields:
 
-`{ id, lens, call_site, character?, cert_level, type, severity, impact, dimension, title, expected, got, evidence[], code_check, verdict, cost_note?, model_variant?, quality_delta?, cost_delta?, resolution, ceiling, l2_priority? }`
+`{ id, lens, use_case, call_site, character?, cert_level, type, severity, impact, dimension, title, expected, got, evidence[], code_check, verdict, cost_note?, model_variant?, quality_delta?, cost_delta?, resolution, ceiling, l2_priority? }`
 - `lens`: `engine-quality | business-value | model-optimization`
+- `use_case`: `UC1 | UC2 | UC3 | cross` — REQUIRED; the backlog is grouped by use case first, then impact-ranked within it.
 - `call_site`: the `engine/<note>` this is about (the LLM touchpoint) — REQUIRED, so every finding links to a memorized site.
 - `character`: required for Lens B/C findings (whose bar), omitted for pure Lens-A code findings.
 - `cert_level` `L1|L2`; `type` `missing-feature|quality-gap|broken-flow|confusion|trust|cost`; `dimension` adds `cost` and `observability` to UAT's seven.
@@ -106,9 +121,9 @@ Goal: scaffold the `tiger/` vault grounded in the codebase's **actual LLM surfac
 
 1. **Discover the LLM call sites (stack-agnostic).** Grep for provider SDKs and call shapes: `openai`, `anthropic`/`@anthropic-ai`, `@google/genai`/`generativelanguage`, `@aws-sdk/client-bedrock`, `langchain`, `vercel ai` (`ai` pkg / `generateText`/`generateObject`), `ollama`, `mistral`, plus a local provider abstraction (`assess(`, `complete(`, `chat(`, `generateStructured(`). **Follow the import chain** from each call to the code that builds its prompt and decodes its response — don't guess the file. Each distinct touchpoint → one `engine/<call-site>.md` note.
 2. **For each call site, capture (in its note):** the *task* (what the model is asked to do), the *prompt construction* + what **grounding** reaches it (`grounding N/M`), the *structured-output* contract (schema? validator?), the *provider/model* + how it's selected, and the **wrapping/logging/caching** machinery present → the Lens-A dials. Cite `file:line` for everything.
-3. **Bind Characters.** Reuse `uat/characters/*` if a UAT overlay exists (it usually does — `/tiger` and `/uat` are siblings). In `characters/_roster.md`, list the chosen Characters and give each an **AI-surface angle** — the dimension of the *model output* they judge hardest (grounding, hallucination, trust/defensibility, latency, **cost**, **model privacy/on-prem**, **determinism**). Pick a roster that spans all three lenses (you need cost- and model-savvy Characters for Lens C, a security Character for Lens A, skeptics for Lens B). If no UAT roster exists, derive Characters from the app's target group exactly as `/uat init` does.
+3. **Bind Characters.** Reuse `uat/characters/*` if a UAT overlay exists (it usually does — `/tiger` and `/uat` are siblings). In `characters/_roster.md`, list the chosen Characters and give each an **AI-surface angle** — the dimension of the *model output* they judge hardest (grounding, hallucination, trust/defensibility, latency, **cost**, **model privacy/on-prem**, **determinism**) — **and a `use_case` binding** (≥2 judges per use case; the golden-use-case table above is the default binding for ascent). Pick a roster that spans all three lenses (you need cost- and model-savvy Characters for Lens C, a security Character for Lens A, skeptics for Lens B). If no UAT roster exists, derive Characters from the app's target group exactly as `/uat init` does.
 4. **Write the lenses + the model matrix.** `lenses/*.md` (engine-quality dials, business-value = link to `uat/rubric.md` + the LLM scope, model-optimization frontier method). `models.md`: the candidate **models × thinking levels** to benchmark, with a **dated snapshot of the app's own price basis** (find the price table / cost config in code) so the cost frontier is grounded in real rates, not guesses.
-5. **Write `MOC.md` + `README.md`.** The MOC links every note so the vault is navigable in Obsidian from one home note.
+5. **Write `MOC.md` + `README.md`.** The MOC links every note so the vault is navigable in Obsidian from one home note. `README.md` states the app's golden use cases (for ascent, copy the table above); write `engine/_expected/*` for the call sites they imply.
 
 Output: a short summary of the LLM surface found + the Lens-A dials' starting values. Do not run Characters in `init`.
 
@@ -120,7 +135,7 @@ Certify the LLM surface across the three lenses. Honor the **continuity contract
 - **Lens A (code audit) — one focused pass (you, or 1–3 subagents for a large surface).** Walk each `engine/*` note's machinery and score the wrapping/logging/caching dials with fresh `file:line`. Emit Lens-A findings (no Character needed). This is pure code truth.
 - **Lens B (Character value) — dispatch one subagent per Character.** Each reads its bound call sites, builds the AI-output surface model, runs the grounding audit, and walks the output in-character against their scored criteria (senior-quality, time-saved, trust) — **scoped to the model output only**. Returns a per-Character value verdict + grounding score + findings.
 - **Lens C (model frontier) — one subagent (or fold into the Lens-B agents' "would a cheaper/bigger model change your verdict?" question).** Produce the predicted frontier per call site, place the current default, and emit the **benchmark matrix** for `benchmark` mode to run live.
-- **Synthesize.** A final pass writes the session note + updates `backlog.md`: the **impact-ranked backlog** across all three lenses, the **dial deltas** vs the prior session, and the **model-fit recommendation (predicted)**.
+- **Synthesize.** A final pass writes the session note + updates `backlog.md`: the backlog **grouped by use case, impact-ranked within each**, the **dial deltas** vs the prior session, the **model-fit recommendation (predicted)**, and a one-line **use-case verdict** (per UC: does the LLM surface serve this job at senior grade today — yes / partly / not wired). Diff `engine/_expected/*` against discovered sites: an expected site that now exists graduates into `engine/`.
 
 ### Phase L2 — empirical (serial, live; `--l2`)
 Only the questions L1 raised. For **Lens B**: run the real LLM piece against each Character's grounded inputs and assert the live output *uses* the grounding + clears the bar (real quality, latency, determinism on a re-run). For **Lens C**: see `benchmark`. Adversarially verify every kept finding (a refuter pass — "is the slow call a timeout or just slow?"; "did the cheaper model actually fail, or did the judge over-penalize?"). Only `confirmed` reach the headline.
@@ -150,6 +165,7 @@ Read the vault's `sessions/*` + `backlog.md` + `engine/*` and report the **traje
 - **Impact over label:** rank the backlog by `impact` (frequency × reachability × trust-erosion / cost), not the raw severity word — a per-call token waste or an every-scan ungrounded field outranks a rare edge case.
 - **Honest ceilings:** every `resolved-verified`/`by-design` finding names the limit that remains.
 - **Lens separation:** never let a gorgeous Lens-A wrapper excuse a Lens-B grounding gap, or a great Lens-B output hide that it's running on a 3×-too-expensive model (Lens C). The three verdicts are independent.
+- **Use-case separation:** a call site that clears UC1 does not clear UC2/UC3 by association; judge each job it claims to serve with that job's judges. UC3 adds a hard privacy check to Lens A: no developer transcript content in prompts, logs, or telemetry unless the developer chose it.
 
 ## Using this on a new app
 1. Drop `/tiger` into the repo (`.claude/skills/tiger.md` — a portable, copy-to-other-repos asset, like `/uat`). 2. `/tiger init` → discovers the LLM call sites, scaffolds the `tiger/` vault, reuses the UAT roster (or derives one). 3. `/tiger run` → cheap L1 sweep across all three lenses → a session note + an impact-ranked backlog + a predicted model frontier. 4. Fix the Lens-A/B items; **`/tiger benchmark`** when you want the real cost frontier. 5. `/tiger recall` any time to see the engine's trajectory. The vault carries the memory forward — run it on a cadence and the dials become a story.
