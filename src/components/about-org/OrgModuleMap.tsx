@@ -16,14 +16,14 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import { AdminIcon, BoughtIcon, ChosenIcon, InFlightIcon, StandingIcon } from "@/components/org/overview/orgIcons";
+import { AdminIcon, BoughtIcon, InFlightIcon, SharedIcon, StandingIcon } from "@/features/standing/overview/orgIcons";
 import { ABOUT_ORG_MODULES } from "./orgModules";
 
 // Keyed by the catalog's group key — the same lookup OrgTabNav does, so a module can't show up here
 // wearing a different glyph than it wears inside the product.
 const ICONS: Record<string, React.ReactNode> = {
   standing: <StandingIcon size={22} />,
-  chosen: <ChosenIcon size={22} />,
+  shared: <SharedIcon size={22} />,
   inflight: <InFlightIcon size={22} />,
   bought: <BoughtIcon size={22} />,
   admin: <AdminIcon size={22} />,

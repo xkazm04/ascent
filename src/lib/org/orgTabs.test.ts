@@ -50,8 +50,24 @@ describe("org tab catalog", () => {
   // the questions a transformation owner is asked, and it is load-bearing — reordering these is a
   // product decision, not a cosmetic one. See docs/AI-SDLC-COMPANION-PLAN.md §Wave 1.
   it("the nav groups are the journey sections, in rail order", () => {
-    expect(ORG_NAV_GROUPS.map((g) => g.key)).toEqual(["standing", "chosen", "inflight", "bought", "admin"]);
-    expect(ORG_NAV_GROUPS.map((g) => g.label)).toEqual(["Standing", "Chosen", "In flight", "Bought", "Admin"]);
+    expect(ORG_NAV_GROUPS.map((g) => g.key)).toEqual(["standing", "shared", "inflight", "bought", "admin"]);
+    expect(ORG_NAV_GROUPS.map((g) => g.label)).toEqual(["Standing", "Shared", "In flight", "Bought", "Admin"]);
+  });
+
+  // `shared` holds what the org publishes once and every repo consumes — the registry repo and the
+  // three libraries it distributes. Governance (a reading of the fleet's controls) moved to Standing
+  // and Developer left the nav entirely, so a stray id drifting back in fails here.
+  it("scopes the Shared group to the registry and what it distributes", () => {
+    const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory"]);
+  });
+
+  // Governance is an audit of where the fleet stands, not something the org distributes: it is the
+  // LAST item in Standing, after adoption.
+  it("puts Governance last in Standing", () => {
+    const standing = ORG_NAV_GROUPS.find((g) => g.key === "standing");
+    expect(standing?.items.at(-1)?.id).toBe("governance");
+    expect(standing?.items.at(-2)?.id).toBe("adoption");
   });
 
   // The loop is the product. It sat third-of-four inside a data-type group called "Fleet"; the
@@ -79,8 +95,19 @@ describe("org tab catalog", () => {
     for (const id of PERSONAL_TAB_IDS) expect(isOrgTabId(id)).toBe(true);
     // Mirrors OrgNav's old PERSONAL_SEGMENTS ("" was the overview root), plus `registry` (a personal
     // workspace gets the same layout against `<user>/ai-registry`, REGISTRY-AND-CARE-IMPL §1) and
-    // `developer` (UC3's home is the one surface a personal workspace exists FOR).
+    // `developer` (UC3's home is the one surface a personal workspace exists FOR — kept in the SET
+    // even though it left the rail, so a gate asking "is this a personal surface?" still says yes).
     expect([...PERSONAL_TAB_IDS].sort()).toEqual(["developer", "followups", "memory", "overview", "registry", "security", "skills"]);
+  });
+
+  // Developer is reachable only from the header identity menu, so it is deliberately not-in-nav. The
+  // completeness test above would otherwise read its absence as "forgotten".
+  it("keeps `developer` a real id that is reachable outside the rail", () => {
+    expect(isOrgTabId("developer")).toBe(true);
+    expect(ORG_TABS_NOT_IN_NAV.has("developer")).toBe(true);
+    expect(navIds).not.toContain("developer");
+    expect(orgTabLabel("developer")).toBe("Developer");
+    expect(orgTabHref("acme", "developer")).toBe("/org/developer?org=acme");
   });
 
   it("every migrated tab is a real id", () => {

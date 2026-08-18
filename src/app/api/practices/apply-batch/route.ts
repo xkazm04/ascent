@@ -16,7 +16,7 @@ import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
 import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
-import type { BatchResult } from "@/components/org/plan/practices/practiceApplyShared";
+import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

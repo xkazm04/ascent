@@ -16,27 +16,27 @@
 // component with a differing prop.
 
 import { Suspense } from "react";
-import { AuditTab } from "../govern/audit/AuditTab";
-import { GovernanceTab } from "../govern/governance/GovernanceTab";
-import { MembersTab } from "../govern/members/MembersTab";
-import { IntegrationsTab } from "../govern/integrations/IntegrationsTab";
-import { SettingsTab } from "../govern/settings/SettingsTab";
-import { OverviewTab } from "../overview/OverviewTab";
-import { ExecutiveTab } from "../intelligence/executive/ExecutiveTab";
-import { LiveTab } from "../intelligence/live/LiveTab";
-import { SecurityTab } from "../intelligence/security/SecurityTab";
-import { PassportsTab } from "../intelligence/passports/PassportsTab";
-import { SkillsTab } from "../library/skills/SkillsTab";
-import { MemoryTab } from "../library/memory/MemoryTab";
-import { RegistryTab } from "../library/registry/RegistryTab";
-import { RepositoriesTab } from "../fleet/repositories/RepositoriesTab";
-import { TechStacksTab } from "../fleet/tech-stacks/TechStacksTab";
-import { TeamsTab } from "../fleet/teams/TeamsTab";
-import { ContributorsTab } from "../fleet/contributors/ContributorsTab";
-import { AdoptionTab } from "../fleet/adoption/AdoptionTab";
-import { DeliveryTab } from "../fleet/delivery/DeliveryTab";
+import { AuditTab } from "@/features/admin/audit/AuditTab";
+import { GovernanceTab } from "@/features/standing/governance/GovernanceTab";
+import { MembersTab } from "@/features/admin/members/MembersTab";
+import { IntegrationsTab } from "@/features/admin/integrations/IntegrationsTab";
+import { SettingsTab } from "@/features/admin/settings/SettingsTab";
+import { OverviewTab } from "@/features/standing/overview/OverviewTab";
+import { ExecutiveTab } from "@/features/bought/executive/ExecutiveTab";
+import { LiveTab } from "@/features/inflight/live/LiveTab";
+import { SecurityTab } from "@/features/standing/security/SecurityTab";
+import { PassportsTab } from "@/features/standing/passports/PassportsTab";
+import { SkillsTab } from "@/features/shared/skills/SkillsTab";
+import { MemoryTab } from "@/features/shared/memory/MemoryTab";
+import { RegistryTab } from "@/features/shared/registry/RegistryTab";
+import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
+import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
+import { TeamsTab } from "@/features/bought/teams/TeamsTab";
+import { ContributorsTab } from "@/features/bought/contributors/ContributorsTab";
+import { AdoptionTab } from "@/features/standing/adoption/AdoptionTab";
+import { DeliveryTab } from "@/features/bought/delivery/DeliveryTab";
 import { FollowupsTab } from "../followups/FollowupsTab";
-import { PracticesTab } from "../plan/practices/PracticesTab";
+import { PracticesTab } from "@/features/shared/practices/PracticesTab";
 import { OrgTabErrorBoundary } from "./OrgTabErrorBoundary";
 import { OrgTabGap } from "./OrgTabGap";
 import type { OrgTabId } from "@/lib/org/orgTabs";
@@ -122,10 +122,10 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         ) : null}
 
         {/* The customer-owned registry repo: onboarding stepper when unmapped, dashboard once indexed.
-            Takes `sp` for the prototype round's `?demo=<state>` fixture switch. */}
+            Takes no `sp` — the shaped example states are a React-state preview, not a URL. */}
         {tab === "registry" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
-            <RegistryTab slug={slug} sp={sp} />
+            <RegistryTab slug={slug} />
           </Suspense>
         ) : null}
 

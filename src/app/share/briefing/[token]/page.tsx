@@ -5,14 +5,14 @@
 
 import { Logo } from "@/components/Brand";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { PriorPeriodGrid } from "@/components/org/intelligence/executive/briefingShared";
-import { BriefingProofBanner } from "@/components/org/intelligence/executive/BriefingProofBanner";
+import { PriorPeriodGrid } from "@/features/bought/executive/briefingShared";
+import { BriefingProofBanner } from "@/features/bought/executive/BriefingProofBanner";
 import {
   BriefingDimensionCards,
   BriefingGoalsCard,
   BriefingMovementCard,
   BriefingTiles,
-} from "@/components/org/intelligence/executive/briefingCards";
+} from "@/features/bought/executive/briefingCards";
 import { TokenNotice } from "@/components/TokenNotice";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";

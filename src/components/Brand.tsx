@@ -2,6 +2,7 @@ import Link from "next/link";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { SupabaseSignInButton, SignOutButton } from "@/components/SupabaseAuthButtons";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { IdentityMenu } from "@/components/header/IdentityMenu";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
@@ -15,7 +16,7 @@ import { scoreHex } from "@/lib/ui";
 export { Logo };
 
 /**
- * The signed-in identity, as the app's ONE persistent door to the personal workspace.
+ * The signed-in identity, as the app's ONE persistent door to everything that is YOURS.
  *
  * The individual tier works end to end — `/me` resolves the viewer and lands on `/org/{login}`, a
  * `kind: "personal"` org whose namespace is identity-bound (login === slug, so nobody can claim
@@ -32,21 +33,24 @@ export { Logo };
  *
  * Rendered inside HeaderAccount, which both SiteHeader and OrgHeader mount — so the path is present on
  * every marketing page AND every dashboard tab, which is what "persistent" has to mean.
+ *
+ * It is now a MENU (IdentityMenu, the co-located client component) rather than a bare link, because a
+ * second personal surface arrived: `/org/developer`, the personalized Developer home. That page used
+ * to be an item on the ORG rail, which was structurally wrong — it is not org-scoped, it resolves
+ * your own slice from the session — so it moved behind your own name, the only chrome that is yours
+ * on every page. `/me` stays the first row, so the old click still leads where it always did.
+ *
+ * Kept a SERVER component: only the popup itself is a client island.
  */
-function IdentityLink({ login, image }: { login: string; image?: string | null }) {
-  return (
-    <Link
-      href="/me"
-      className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white"
-      title="Your personal workspace"
-    >
-      {image && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
-      )}
-      <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">{login}</span>
-    </Link>
-  );
+const IDENTITY_MENU_ITEMS = [
+  { href: "/me", label: "Your workspace", hint: "Your repos, scored" },
+  // The personalized route resolves its own context from the session — no `?org=` needed, which is
+  // exactly why it does not belong on an org-scoped rail. See docs/REGISTRY-AND-CARE-IMPL.md §5.1.
+  { href: "/org/developer", label: "Developer", hint: "Your loop, gaps and care" },
+] as const;
+
+function IdentityLink({ login, image, signOut }: { login: string; image?: string | null; signOut?: React.ReactNode }) {
+  return <IdentityMenu login={login} image={image} items={IDENTITY_MENU_ITEMS} signOut={signOut} />;
 }
 
 /**
@@ -72,10 +76,11 @@ export async function HeaderAccount() {
   const activeOrg = showSwitcher ? await getActiveOrg(session) : "public";
 
   if (supaOn) {
+    // Sign out moved INSIDE the identity menu: it is an action on the identity, and leaving it beside
+    // the name would put two same-weight controls where the menu now says which is which.
     return viewer ? (
       <span className="flex items-center gap-3">
-        <IdentityLink login={viewer.login} image={viewer.avatar} />
-        <SignOutButton />
+        <IdentityLink login={viewer.login} image={viewer.avatar} signOut={<SignOutButton />} />
       </span>
     ) : (
       <SupabaseSignInButton variant="nav" next="/" />
@@ -88,12 +93,17 @@ export async function HeaderAccount() {
         {/* Was a link to /connect — the GitHub-App install flow, not an identity destination. Same
             IdentityLink as the Supabase branch above, so the two can't say different things about
             what clicking your own name does. */}
-        <IdentityLink login={session.login} image={session.image} />
-        <form action="/api/auth/logout" method="post" className="contents">
-          <button type="submit" className="focus-ring rounded-sm hover:text-white">
-            Sign out
-          </button>
-        </form>
+        <IdentityLink
+          login={session.login}
+          image={session.image}
+          signOut={
+            <form action="/api/auth/logout" method="post" className="contents">
+              <button type="submit" className="focus-ring rounded-sm hover:text-white">
+                Sign out
+              </button>
+            </form>
+          }
+        />
       </span>
     );
   }

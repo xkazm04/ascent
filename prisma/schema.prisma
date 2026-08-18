@@ -91,26 +91,26 @@ model Organization {
   githubInstallId    String?
   createdAt          DateTime @default(now())
 
-  memberships  Membership[]
-  repositories Repository[]
-  auditLogs    AuditLog[]
-  alertEvents  AlertEvent[]
-  subscription Subscription?
-  creditLedger CreditLedger[]
-  goals        Goal[]
-  initiatives  Initiative[]
-  segments     Segment[]
-  playbooks    Playbook[]
-  invites      Invite[]
-  orgSkills    OrgSkill[]
-  orgApiTokens OrgApiToken[]
-  orgMemories  OrgMemory[]
-  orgDecisions OrgDecision[]
-  recOverlays  RecommendationOverlay[]
+  memberships      Membership[]
+  repositories     Repository[]
+  auditLogs        AuditLog[]
+  alertEvents      AlertEvent[]
+  subscription     Subscription?
+  creditLedger     CreditLedger[]
+  goals            Goal[]
+  initiatives      Initiative[]
+  segments         Segment[]
+  playbooks        Playbook[]
+  invites          Invite[]
+  orgSkills        OrgSkill[]
+  orgApiTokens     OrgApiToken[]
+  orgMemories      OrgMemory[]
+  orgDecisions     OrgDecision[]
+  recOverlays      RecommendationOverlay[]
   sandboxScenarios SandboxScenario[]
-  program      TransitionProgram?
-  techGroups   TechStackGroup[]
-  llmConfig    OrgLlmConfig?
+  program          TransitionProgram?
+  techGroups       TechStackGroup[]
+  llmConfig        OrgLlmConfig?
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -190,16 +190,16 @@ model User {
 }
 
 model Membership {
-  id           String    @id @default(uuid())
-  orgId        String
-  userId       String
-  role         String    @default("member") // owner | admin | member | viewer
-  createdAt    DateTime  @default(now())
+  id                    String    @id @default(uuid())
+  orgId                 String
+  userId                String
+  role                  String    @default("member") // owner | admin | member | viewer
+  createdAt             DateTime  @default(now())
   // Per-user-per-org "last looked at the fleet" watermark — the read state behind the Alerts chip's
   // movement count ("what moved since you last looked"). Nullable: a member who has never opened the
   // control has no watermark, and the movement window falls back to `createdAt` (since you joined)
   // rather than replaying the org's whole history. Advanced by POST /api/org/alerts { seen: true }.
-  alertsSeenAt DateTime?
+  alertsSeenAt          DateTime?
   // Org-scoped onboarding stamp (W6a). The getting-started gate is a STAMP, not an empty-data
   // heuristic: either timestamp, once set, silences the guided onboarding flow for THIS member in
   // THIS org forever (the kp pattern). Two nullable columns rather than one enum so "finished it"
@@ -305,6 +305,10 @@ model Repository {
   // the repo reappears in a listing. Cleanup is an explicit user action on the repositories tab.
   // See reconcileListedRepos in src/lib/db/org-watch.ts.
   missingSince          DateTime?
+  // What this repo IS to the org. "fleet" = a product repo the maturity math grades; "registry" = the
+  // org's shared-primitive repo (UC2), excluded from fleet scoring and rollups because grading the
+  // library against product-delivery dimensions is meaningless. Defaulted, so every existing row is fleet.
+  role                  String    @default("fleet") // fleet | registry
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -391,37 +395,37 @@ model RepoContributor {
 // evidence; the raw logins stay internal so a sample can be re-verified against GitHub. Rows age out
 // under the org's normal retention window like every other scan artifact.
 model AiChange {
-  id            String    @id @default(uuid())
-  repoId        String
-  orgId         String // denormalized so the org-wide population is one query, not a join per repo
-  prNumber      Int
-  title         String
-  authorLogin   String? // null for a deleted GitHub account
-  authorIsBot   Boolean   @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
+  id             String    @id @default(uuid())
+  repoId         String
+  orgId          String // denormalized so the org-wide population is one query, not a join per repo
+  prNumber       Int
+  title          String
+  authorLogin    String? // null for a deleted GitHub account
+  authorIsBot    Boolean   @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
   // How this PR was identified as AI-involved: "authored" (an AI agent opened it) or "marked" (an AI
   // marker in the title/body/labels — a human using a tool). Kept because the two carry very different
   // governance weight and an auditor will ask which one a sampled row was.
-  aiSignal      String
+  aiSignal       String
   /**
    * Tools named in the PR, comma-separated (from the same taxonomy prStats counts).
    */
-  aiTools       String    @default("")
-  state         String // OPEN | CLOSED | MERGED
-  mergedAt      DateTime?
+  aiTools        String    @default("")
+  state          String // OPEN | CLOSED | MERGED
+  mergedAt       DateTime?
   // THE CONTROL: was this AI-attributed change approved by a human before merge, and by whom.
   // `approved=false` with `approverLogin=null` is the finding an auditor is looking for.
-  approved      Boolean   @default(false)
-  approverLogin String?
-  approvedAt    DateTime?
+  approved       Boolean   @default(false)
+  approverLogin  String?
+  approvedAt     DateTime?
   /**
    * Reviews submitted on the PR (any state) — distinguishes "unreviewed" from "reviewed, not approved".
    */
-  reviewCount   Int       @default(0)
+  reviewCount    Int       @default(0)
   // W5 revert linkage: the merged revert PR that rolled this AI change back, matched within the
   // scanned PR window (title `Revert "<original title>"` / message `This reverts commit <sha>`).
   // A LOWER BOUND — null means "no revert matched in the window", never "was never reverted".
-  revertedByPr  Int?
-  revertedAt    DateTime?
+  revertedByPr   Int?
+  revertedAt     DateTime?
   // W4: the PR's merge-commit SHA, lower-cased. Already on the wire — the revert linkage has paged
   // `mergeCommit.oid` since W5 and discarded it — so persisting it costs no extra API call.
   //
@@ -432,8 +436,8 @@ model AiChange {
   // can produce ("AI-authored changes fail at X%"). A wrong attribution there is not a rounding
   // error, it is the whole claim. Null on pre-W4 rows and on unmerged PRs.
   mergeCommitSha String?
-  createdAt     DateTime // the PR's own creation time, not the row's
-  recordedAt    DateTime  @default(now())
+  createdAt      DateTime // the PR's own creation time, not the row's
+  recordedAt     DateTime  @default(now())
 
   repo Repository @relation(fields: [repoId], references: [id])
 
@@ -460,21 +464,21 @@ model AiChange {
 // "time to the next successful deployment in the same environment", which is a proxy for restore
 // time and is labelled as one.
 model Deployment {
-  id           String   @id @default(uuid())
-  repoId       String
-  orgId        String // denormalized so the org-wide read is one query
+  id          String    @id @default(uuid())
+  repoId      String
+  orgId       String // denormalized so the org-wide read is one query
   // GitHub's own deployment id, so re-ingesting a window updates rather than appends.
-  externalId   String
-  environment  String // "production" | "staging" | … as the repo names them
-  sha          String // lower-cased; the join key to AiChange.mergeCommitSha
-  ref          String?
+  externalId  String
+  environment String // "production" | "staging" | … as the repo names them
+  sha         String // lower-cased; the join key to AiChange.mergeCommitSha
+  ref         String?
   // Latest status from the deployment's status list: success | failure | error | inactive |
   // in_progress | queued | pending. A deployment with NO status is stored with "pending" rather than
   // being dropped — it happened, we just do not know how it ended.
-  state        String
-  createdAt    DateTime // the deployment's own creation time
-  statusAt     DateTime? // when the latest status was recorded — the clock MTTR is measured on
-  recordedAt   DateTime @default(now())
+  state       String
+  createdAt   DateTime // the deployment's own creation time
+  statusAt    DateTime? // when the latest status was recorded — the clock MTTR is measured on
+  recordedAt  DateTime  @default(now())
 
   repo Repository @relation(fields: [repoId], references: [id])
 
@@ -504,9 +508,9 @@ model RepoTeam {
 }
 
 model Scan {
-  id             String   @id @default(uuid())
-  repoId         String
-  headSha        String? // the commit the scan pinned to — powers /report/{owner}/{repo}@{sha} permalinks
+  id                String   @id @default(uuid())
+  repoId            String
+  headSha           String? // the commit the scan pinned to — powers /report/{owner}/{repo}@{sha} permalinks
   // CROSS-INSTANCE idempotency key for SHA-LESS scans (G3-01). `@@unique([repoId, headSha])` is the
   // cross-instance dedup backstop for a scan pinned to a commit, but Postgres treats NULLs as distinct,
   // so it never engages when headSha is NULL — two concurrent instances persisting the same sha-less
@@ -519,37 +523,37 @@ model Scan {
   // SET ONLY ON SHA-LESS ROWS. A scan with a headSha leaves this NULL and stays governed by the
   // (repoId, headSha) constraint — one dedup identity per row, never two competing ones. NULLs being
   // distinct is what makes that (and the un-backfilled legacy rows) safe under the unique index.
-  dedupKey       String?
-  overallScore   Int
-  level          String // "L1".."L5"
-  levelName      String
-  archetype      String   @default("org")
-  adoptionScore  Int      @default(0)
-  rigorScore     Int      @default(0)
-  posture        String   @default("")
-  confidence     Float    @default(0)
-  engineProvider String
-  engineModel    String
-  headline       String
-  strengths      String   @default("[]") // JSON string[]
-  risks          String   @default("[]") // JSON string[]
+  dedupKey          String?
+  overallScore      Int
+  level             String // "L1".."L5"
+  levelName         String
+  archetype         String   @default("org")
+  adoptionScore     Int      @default(0)
+  rigorScore        Int      @default(0)
+  posture           String   @default("")
+  confidence        Float    @default(0)
+  engineProvider    String
+  engineModel       String
+  headline          String
+  strengths         String   @default("[]") // JSON string[]
+  risks             String   @default("[]") // JSON string[]
   // LLM-as-auditor output: suspected deterministic-detector misses, persisted so the
   // detector backlog (getOrgDiscrepancies) can aggregate them across the fleet. JSON Discrepancy[].
-  discrepancies  String   @default("[]")
-  prStats        String? // JSON PrStats (pull-request process signals); null if no token
+  discrepancies     String   @default("[]")
+  prStats           String? // JSON PrStats (pull-request process signals); null if no token
   // W6 — the repo's PRACTICE SHAPE: the heading outlines and path layouts of its guidance, PR
   // template, ADRs and harness. STRUCTURE ONLY, never a body (see analyze/practice-shape.ts). It is
   // what lets the org mine its OWN house pattern instead of shipping the same nine generic starters
   // to every customer. Display/reuse-only — never scored, never on a public surface.
-  practiceShape  String?
-  governance     String? // JSON Governance (branch protection / rulesets); null if no token
-  commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
+  practiceShape     String?
+  governance        String? // JSON Governance (branch protection / rulesets); null if no token
+  commitActivity    String? // JSON number[] — last ~12 weekly commit totals; null if no token
   // Per-scan detected tech stack (Feature 3a) — JSON TechStack. Keeps history honest when a repo
   // re-stacks; the latest is also cached on Repository.techStackJson. Display-only (never scored).
-  techStackJson  String?
+  techStackJson     String?
   // Per-scan App Readiness Passport — JSON AppPassport. Per-scan history; latest cached on
   // Repository.passportJson. Display-only (never scored). See src/lib/analyze/passport.ts.
-  passportJson   String?
+  passportJson      String?
   // Per-scan Context Health (W4) — JSON ContextHealth: per-guidance-file last-modified + size +
   // quality, approximate commits-since-edit staleness, and dead @file-reference drift. Latest cached
   // on Repository.contextHealthJson. Display-only (never scored). See src/lib/analyze/context-health.ts.
@@ -557,28 +561,28 @@ model Scan {
   // Non-fatal scan caveats (JSON string[]): degrade-to-mock, low-coverage, truncated, no-token, and
   // stack-fit warnings. Persisted so a reloaded/permalinked scan keeps its reliability disclosure
   // instead of silently reading as a confident full scan (reference-scan P1-5). null = none.
-  warningsJson   String?
+  warningsJson      String?
   // Per-scan AI-usage indicator (JSON AiUsage: detected + PR-level signals + tool attribution). Persisted
   // so a reloaded report reproduces the fresh scan's detection instead of a lossy re-derivation from
   // contributors (the tree/commits that back guidance-file detection aren't stored). reference-scan P2/aiUsage.
-  aiUsageJson    String?
+  aiUsageJson       String?
   // Scoring rubric version (SCORING_RUBRIC_VERSION, src/lib/maturity/model.ts) active when this scan was
   // scored. Persisted per-row so the cross-instance DB cache tier can self-invalidate on a rubric bump
   // (persistedMatchesActiveIdentity) instead of serving a stale-rubric score until the 7-day age gate.
   // Nullable: rows scored before this column keep today's behavior (served, age-gated) — never force-rescanned.
-  rubricVersion  String?
+  rubricVersion     String?
   // WHOSE account this scan's inference ran in: true = the org's OWN connected provider (BYOM),
   // false = Ascent's platform account. Read back onto engine.byom so the report header can say
   // "in YOUR AWS account" only when that is literally true. Nullable: rows scored before this column
   // are UNKNOWN, and unknown must render as the platform wording — never as the customer's account.
-  engineByom     Boolean?
+  engineByom        Boolean?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
-  inputTokens    Int?
-  outputTokens   Int?
-  llmLatencyMs   Int?
-  scannedAt      DateTime
-  createdAt      DateTime @default(now())
+  inputTokens       Int?
+  outputTokens      Int?
+  llmLatencyMs      Int?
+  scannedAt         DateTime
+  createdAt         DateTime @default(now())
 
   repo            Repository       @relation(fields: [repoId], references: [id])
   dimensions      ScanDimension[]
@@ -724,22 +728,32 @@ model AuditLog {
 // (delivered=false, suppressedReason="no-sink") — without that, every alert except scan.regression
 // vanished without a trace on webhook-less orgs.
 model AlertEvent {
-  id           String   @id @default(uuid())
-  orgId        String
-  /** regression | promotion | security | low-credits | digest | goal-at-risk | spend-anomaly */
-  kind         String
-  /** info | warning | critical | celebration */
-  severity     String
-  repoFullName String?
-  title        String
-  /** The plain-text body the sink got (or would have gotten). */
-  body         String   @default("")
-  delivered    Boolean  @default(false)
-  /** webhook | email | null (no sink resolved). */
-  sinkKind     String?
-  /** Why nothing was sent: no-sink | cooldown | dispatch-failed. Null when delivered. */
+  id               String   @id @default(uuid())
+  orgId            String
+  /**
+   * regression | promotion | security | low-credits | digest | goal-at-risk | spend-anomaly
+   */
+  kind             String
+  /**
+   * info | warning | critical | celebration
+   */
+  severity         String
+  repoFullName     String?
+  title            String
+  /**
+   * The plain-text body the sink got (or would have gotten).
+   */
+  body             String   @default("")
+  delivered        Boolean  @default(false)
+  /**
+   * webhook | email | null (no sink resolved).
+   */
+  sinkKind         String?
+  /**
+   * Why nothing was sent: no-sink | cooldown | dispatch-failed. Null when delivered.
+   */
   suppressedReason String?
-  createdAt    DateTime @default(now())
+  createdAt        DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -842,22 +856,22 @@ model AgentSession {
 // One row per org (`orgId` unique) — a programme is the org's current commitment, not a backlog of
 // them. Re-targeting edits the row; the audit log carries the history.
 model TransitionProgram {
-  id     String @id @default(uuid())
-  orgId  String @unique
-  name   String
+  id           String    @id @default(uuid())
+  orgId        String    @unique
+  name         String
   // The maturity rung being climbed to, as a LevelId ("L1".."L5") — the vocabulary a programme is
   // actually discussed in, unlike Goal.target which is a 0-100 score. Validated against LEVELS.
-  targetLevel String @default("L4")
-  targetDate  DateTime? // null = open-ended; the strip then omits the pace read rather than faking one
-  cadence     String    @default("weekly") // weekly | biweekly | monthly — how often the org reviews
+  targetLevel  String    @default("L4")
+  targetDate   DateTime? // null = open-ended; the strip then omits the pace read rather than faking one
+  cadence      String    @default("weekly") // weekly | biweekly | monthly — how often the org reviews
   // Frozen at creation and NEVER rewritten. Null when the org had no scanned repo yet: an honest
   // absent origin, not a zeroed one that would make the first scan look like pure progress.
   baselineAt   DateTime
   baselineJson String?
-  status       String   @default("active") // active | paused | achieved
+  status       String    @default("active") // active | paused | achieved
   startedBy    String? // GitHub login who started it
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   org Organization @relation(fields: [orgId], references: [id])
 }
@@ -993,20 +1007,28 @@ model TeamStandingSnapshot {
 // sort-by-most-used. DISTINCT from SkillGeneration (the per-repo onboarding SKILL.md generator) — no
 // coupling. `tags` and the body are JSON/TEXT (no jsonb). See src/lib/db/org-skills.ts.
 model OrgSkill {
-  id            String   @id @default(uuid())
-  orgId         String
-  name          String // <= 200 chars; unique within the org
-  description   String   @default("") // <= 1000
-  content       String // the skill body (SKILL.md-like markdown); <= 50KB
-  category      String // one of src/lib/org/skill-categories.ts (validated on write)
-  tags          String   @default("[]") // JSON string[] — secondary, optional refinement
-  version       Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
-  contentHash   String   @default("") // sha256 hex of `content` — the sync-manifest change key (diff without shipping the body)
-  archived      Boolean  @default(false) // soft archive, not hard delete
-  downloadCount Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
-  createdBy     String? // GitHub login of the author
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(uuid())
+  orgId           String
+  name            String // <= 200 chars; unique within the org
+  description     String   @default("") // <= 1000
+  content         String // the skill body (SKILL.md-like markdown); <= 50KB
+  category        String // one of src/lib/org/skill-categories.ts (validated on write)
+  tags            String   @default("[]") // JSON string[] — secondary, optional refinement
+  version         Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
+  contentHash     String   @default("") // sha256 hex of `content` — the sync-manifest change key (diff without shipping the body)
+  archived        Boolean  @default(false) // soft archive, not hard delete
+  downloadCount   Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
+  // Registry mirror (UC2). `origin` decides writability: a "hosted" row keeps today's in-app forms;
+  // a "registry" row is PR-only and is rewritten by src/lib/registry/index-registry.ts, keyed on
+  // (registryId, registryPath). Nullable by design — every pre-registry row reads as hosted.
+  origin          String   @default("hosted") // hosted | registry
+  registryId      String?
+  registryPath    String? // repo-relative path, e.g. "skills/pr-review-rigor/SKILL.md"
+  registryHash    String? // sha256 hex of the file as indexed — the change key
+  registryVersion String? // `version` as declared in the document's frontmatter
+  createdBy       String? // GitHub login of the author
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   org       Organization       @relation(fields: [orgId], references: [id])
   adoptions OrgSkillAdoption[]
@@ -1014,6 +1036,7 @@ model OrgSkill {
   @@unique([orgId, name])
   @@index([orgId, archived])
   @@index([orgId, category])
+  @@index([registryId, registryPath])
 }
 
 // Records that a repo adopted a skill — the explicit reuse signal (mirror PlaybookApplication). One row
@@ -1115,6 +1138,11 @@ model OrgMemory {
   archived     Boolean   @default(false) // soft archive, never a hard delete
   accessCount  Int       @default(0) // denormalized recall/copy tally
   expiresAt    DateTime? // TTL for ephemeral/scratch memory; null = permanent
+  // Registry mirror (UC2) — see OrgSkill.origin for the contract.
+  origin       String    @default("hosted") // hosted | registry
+  registryId   String?
+  registryPath String? // repo-relative path, e.g. "memory/decision/postgres-over-dynamo.md"
+  registryHash String?
   createdBy    String? // GitHub login of the author
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -1124,6 +1152,7 @@ model OrgMemory {
   @@index([orgId, archived])
   @@index([orgId, namespace])
   @@index([orgId, kind])
+  @@index([registryId, registryPath])
 }
 
 // Auto-derived tech-stack group (Feature 3b) — a parallel, immutable grouping of an org's repos by
@@ -1421,4 +1450,81 @@ model PlanEnquiry {
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// UC2 "Registry" — the customer-owned registry repo ascent onboards, indexes and tracks.
+// See docs/REGISTRY-AND-CARE-IMPL.md §1–§3. Every column here is ADDITIVE and nullable/defaulted, so
+// an existing database migrates on read (and the PGlite dev boot's drift repair can add them).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+// One row per MAPPED registry repo (`<org>/ai-registry` by default; any repo can be mapped). The org
+// keeps exactly one `canonical` registry — the one every fleet view merges first on name collision —
+// and may map further team-level registries beside it. Standalone under relationMode = "prisma" (no
+// FKs), like Deployment/OrgSkillEvent: `orgId` leads every query.
+//
+// `status` is the onboarding state machine the Registry tab renders:
+//   unmapped -> scaffolding -> scaffold_pr_open -> indexed, with `error` reachable from any state
+//   (the last index attempt failed; `lastError` says how, and the previous index stays readable).
+// `mode` decides who may write: git_native = PR-only (the registry is the source of truth),
+// hosted_mirror = ascent still writes its own tables and the repo is a mirror.
+model OrgRegistry {
+  id             String    @id @default(uuid())
+  orgId          String
+  repositoryId   String? // Repository row of the registry repo (role = "registry"), when one exists
+  fullName       String // "owner/name"
+  defaultBranch  String    @default("main")
+  canonical      Boolean   @default(true)
+  mode           String    @default("git_native") // git_native | hosted_mirror
+  telemetrySink  String    @default("off") // api | registry | off
+  status         String    @default("unmapped") // unmapped | scaffolding | scaffold_pr_open | indexed | error
+  lastIndexedAt  DateTime?
+  lastIndexSha   String? // commit sha the last successful index read
+  catalogSha     String? // sha of the catalog.json ascent last wrote
+  webhookHealthy Boolean   @default(false)
+  policiesJson   String? // JSON of `.ascent/registry.yaml -> policies`
+  migrationJson  String? // JSON Record<"skills"|"practices"|"memory", {state, prUrl?, moved, total}>
+  scaffoldPrUrl  String?
+  lastError      String?
+  // Denormalized index result, so the tab's header renders without re-counting mirror rows.
+  skillCount     Int       @default(0)
+  practiceCount  Int       @default(0)
+  memoryCount    Int       @default(0)
+  lessonCount    Int       @default(0)
+  warningsJson   String    @default("[]") // JSON string[] — files the last index skipped, with why
+  createdBy      String? // GitHub login that mapped it
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([orgId, fullName])
+  @@index([orgId, canonical])
+}
+
+// The org's PRACTICE SHAPES as mirrored from `practices/<slug>/PRACTICE.md` in the registry (the
+// leak-free shape, never a customer artifact body). A hosted row (origin = "hosted") is one ascent
+// authored itself; a registry row is PR-only and rewritten by the indexer. Distinct from the
+// per-scan `Scan.practiceShape` blob, which is MINED structure from a repo — this is the CHOSEN,
+// published shape the fleet adopts.
+model OrgPracticeShape {
+  id           String   @id @default(uuid())
+  orgId        String
+  slug         String // kebab-case directory name under practices/
+  practiceId   String   @default("") // maps to the practice catalog id when recognized
+  dimension    String   @default("") // D1..D10, when declared
+  title        String   @default("")
+  appliesWhen  String   @default("") // frontmatter `applies-when`
+  content      String // the PRACTICE.md body (frontmatter stripped)
+  contentHash  String   @default("") // sha256 hex of the raw file
+  archived     Boolean  @default(false) // soft archive — a vanished registry path is archived, never deleted
+  origin       String   @default("hosted") // hosted | registry
+  registryId   String?
+  registryPath String?
+  registryHash String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([orgId, archived])
+  @@index([registryId, registryPath])
 }

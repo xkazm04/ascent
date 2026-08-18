@@ -14,7 +14,7 @@
 // Server component (no hooks) — it renders inside the server-rendered trends page.
 
 import { Card } from "@/components/org/shared/ui";
-import { Trajectory } from "@/components/org/overview/Trajectory";
+import { Trajectory } from "@/features/standing/overview/Trajectory";
 import { forecastInsufficiency, type Forecast } from "@/lib/maturity/forecast";
 
 /** The line that tells the reader exactly what the number above it was computed from. */

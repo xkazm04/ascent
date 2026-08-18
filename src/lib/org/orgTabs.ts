@@ -36,16 +36,17 @@ export const ORG_TAB_IDS = [
   // Plan (the Plan and Backlog tabs were retired 2026-08-17 in favour of the Follow-ups ledger)
   "practices",
   // Library
-  // The customer-owned registry repo (Skills/Practices/Memory as git) — first item in `Chosen`,
+  // The customer-owned registry repo (Skills/Practices/Memory as git) — first item in `Shared`,
   // because the other three Library tabs read their source of truth from it once it is mapped.
   "registry",
   "skills",
   "memory",
-  // UC3 "individual care". A rail item and a first-class id (label / a11y / href contract), but NOT a
-  // `?tab=` panel: it is the personalized route `/org/developer`, which every signed-in developer sees
-  // their OWN slice of, so it can't be an org-scoped panel. See `orgTabHref` and
-  // docs/REGISTRY-AND-CARE-IMPL.md §5.1. (The former `care` id, whose org mode is now a section inside
-  // Contributors, is retired.)
+  // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
+  // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
+  // developer sees their OWN slice of, so it can't be an org-scoped panel — and its one entry point is
+  // now the header identity menu (src/components/header/IdentityMenu.tsx), not the org rail. See
+  // `orgTabHref`, `ORG_TABS_NOT_IN_NAV` and docs/REGISTRY-AND-CARE-IMPL.md §5.1. (The former `care`
+  // id, whose org mode is now a section inside Contributors, is retired.)
   "developer",
   // Govern
   "members",
@@ -104,7 +105,7 @@ export interface OrgNavGroup {
  * leadership meeting, plus an admin tail:
  *
  *   Standing  — where are we, honestly?
- *   Chosen    — what did we decide our way of working is?
+ *   Shared    — what do we publish once and every repo consumes?
  *   In flight — what is moving right now?
  *   Bought    — what did the last period buy us?
  *   Admin     — the boring rows, deliberately not hidden.
@@ -136,11 +137,19 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       { id: "passports", label: "Passports", countKey: "passports" },
       { id: "security", label: "Security", countKey: "security" },
       { id: "adoption", label: "Adoption" },
+      // Governance is a READING of where the fleet stands on branch protection, review gates and
+      // rulesets — an audit of the current state, not something the org distributes. It sits last in
+      // Standing (moved here from the old `chosen` group) because it answers "where are we, honestly?"
+      // about the controls, which is the same question every tab above it answers about the code.
+      { id: "governance", label: "Governance" },
     ],
   },
   {
-    key: "chosen",
-    label: "Chosen",
+    // `shared`, not `chosen`: this group holds the org's SHARED primitives — the registry repo and
+    // everything it distributes to the fleet (practices, skills, memory). The old name described the
+    // act of choosing; the group is really about what the org publishes ONCE and every repo consumes.
+    key: "shared",
+    label: "Shared",
     items: [
       // Registry sits FIRST: it is the onboarding step Practices/Skills/Memory depend on, and their
       // sync-health strip links back here (docs/REGISTRY-AND-CARE-IMPL.md §0.2).
@@ -148,11 +157,6 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
       { id: "memory", label: "Memory" },
-      { id: "governance", label: "Governance" },
-      // Developer sits LAST: the individual end of "what we chose our way of working is" — the
-      // personal loop that produces the registry content the tabs above govern. Unlike every sibling
-      // it navigates to its own route (`/org/developer?org=<slug>`), not a `?tab=` panel.
-      { id: "developer", label: "Developer" },
     ],
   },
   {
@@ -189,7 +193,14 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
  * explicitly so the `ORG_NAV_GROUPS` ⟷ `ORG_TAB_IDS` completeness test can tell "intentionally
  * absent" from "forgot to add it to the nav".
  */
-export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>(["segments"]);
+export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
+  "segments",
+  // `developer` left the rail: the personalized route is reached from the HEADER identity menu (your
+  // own name, on every page, signed in or not in an org), which is the one place a personal surface
+  // belongs — it is not an org-scoped view and never was. Still a full id: label, href contract and
+  // the `/org/<slug>/developer` redirect stub all remain.
+  "developer",
+]);
 
 /**
  * The tabs a PERSONAL workspace (Organization.kind === "personal") shows. An individual's public-repo
@@ -204,7 +215,10 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "registry",
   "skills",
   "memory",
-  // The developer's own home — in a personal workspace this item is the point of the product.
+  // The developer's own home — in a personal workspace this surface is the point of the product. It
+  // is in the personal SET (so `PERSONAL_TAB_IDS.has("developer")` stays true for any gate that asks)
+  // but no longer renders as a rail item: it is not in ORG_NAV_GROUPS, and the header identity menu
+  // is its entry point.
   "developer",
 ]);
 
@@ -213,6 +227,7 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
 const LABELS: ReadonlyMap<OrgTabId, string> = new Map<OrgTabId, string>([
   ...ORG_NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label] as [OrgTabId, string])),
   ["segments", "Segments"],
+  ["developer", "Developer"],
 ]);
 
 export function orgTabLabel(id: OrgTabId): string {

@@ -8,7 +8,7 @@ import { Suspense } from "react";
 import { ReportShell } from "@/components/report/ReportShell";
 import { ColdScanGate } from "@/components/report/ColdScanGate";
 import { ReportView } from "@/components/report/ReportView";
-import { PassportCard } from "@/components/org/intelligence/passports/PassportCard";
+import { PassportCard } from "@/features/standing/passports/PassportCard";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { Kicker } from "@/components/ui";
 import {

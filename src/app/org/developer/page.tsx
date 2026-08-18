@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { OrgShell } from "@/components/org/shell/OrgShell";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
-import { DeveloperHome } from "@/components/org/developer/DeveloperHome";
+import { DeveloperHome } from "@/features/developer/DeveloperHome";
 import { getDeveloperView } from "@/lib/org/developer-view-load";
 import { resolveViewerLogin } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
@@ -15,9 +15,11 @@ export const dynamic = "force-dynamic";
  *
  * A STATIC segment, so it wins over `/org/[slug]`: this page is personalized to the AUTHENTICATED
  * viewer and shows their own activity, never someone else's. That is exactly why it is not a `?tab=`
- * panel — a panel is org-scoped and anyone with org access opens the same one. It still presents as a
- * rail item, so it renders the SAME `OrgShell` (header + rail + program strip) every org tab wears,
- * with the `developer` item lit.
+ * panel — a panel is org-scoped and anyone with org access opens the same one. Its entry point is the
+ * HEADER identity menu (your own login), not the org rail, for the same reason. It still renders the
+ * SAME `OrgShell` (header + rail + program strip) every org tab wears, so a viewer who arrived from an
+ * org keeps their chrome; `activeTab="developer"` simply lights nothing, since `developer` is in
+ * `ORG_TABS_NOT_IN_NAV`.
  */
 type SearchParams = { [key: string]: string | string[] | undefined };
 

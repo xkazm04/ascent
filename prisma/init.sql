@@ -131,6 +131,7 @@ CREATE TABLE "Repository" (
     "aiConformanceWarns" INTEGER,
     "aiConformanceAt" TIMESTAMP(3),
     "missingSince" TIMESTAMP(3),
+    "role" TEXT NOT NULL DEFAULT 'fleet',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -140,6 +141,7 @@ CREATE TABLE "Repository" (
 -- EXISTS, so an EXISTING local .pglite DB needs the new column applied explicitly.
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "missingSince" TIMESTAMP(3);
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "role" TEXT NOT NULL DEFAULT 'fleet';
 
 -- CreateTable
 CREATE TABLE "Segment" (
@@ -729,6 +731,11 @@ CREATE TABLE "OrgSkill" (
     "contentHash" TEXT NOT NULL DEFAULT '',
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "downloadCount" INTEGER NOT NULL DEFAULT 0,
+    "origin" TEXT NOT NULL DEFAULT 'hosted',
+    "registryId" TEXT,
+    "registryPath" TEXT,
+    "registryHash" TEXT,
+    "registryVersion" TEXT,
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -763,6 +770,18 @@ CREATE INDEX "OrgSkill_orgId_archived_idx" ON "OrgSkill"("orgId", "archived");
 
 -- CreateIndex
 CREATE INDEX "OrgSkill_orgId_category_idx" ON "OrgSkill"("orgId", "category");
+
+-- Idempotent add-column (same rule as Repository's above): pglite-boot rewrites CREATE TABLE -> IF
+-- NOT EXISTS, so an EXISTING local .pglite DB needs the registry-mirror columns applied explicitly —
+-- and the index below is over one of them, so it must land first.
+ALTER TABLE "OrgSkill" ADD COLUMN IF NOT EXISTS "origin" TEXT NOT NULL DEFAULT 'hosted';
+ALTER TABLE "OrgSkill" ADD COLUMN IF NOT EXISTS "registryId" TEXT;
+ALTER TABLE "OrgSkill" ADD COLUMN IF NOT EXISTS "registryPath" TEXT;
+ALTER TABLE "OrgSkill" ADD COLUMN IF NOT EXISTS "registryHash" TEXT;
+ALTER TABLE "OrgSkill" ADD COLUMN IF NOT EXISTS "registryVersion" TEXT;
+
+-- CreateIndex
+CREATE INDEX "OrgSkill_registryId_registryPath_idx" ON "OrgSkill"("registryId", "registryPath");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OrgSkill_orgId_name_key" ON "OrgSkill"("orgId", "name");
@@ -839,6 +858,10 @@ CREATE TABLE "OrgMemory" (
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "accessCount" INTEGER NOT NULL DEFAULT 0,
     "expiresAt" TIMESTAMP(3),
+    "origin" TEXT NOT NULL DEFAULT 'hosted',
+    "registryId" TEXT,
+    "registryPath" TEXT,
+    "registryHash" TEXT,
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -854,6 +877,14 @@ CREATE INDEX "OrgMemory_orgId_namespace_idx" ON "OrgMemory"("orgId", "namespace"
 
 -- CreateIndex
 CREATE INDEX "OrgMemory_orgId_kind_idx" ON "OrgMemory"("orgId", "kind");
+
+ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "origin" TEXT NOT NULL DEFAULT 'hosted';
+ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "registryId" TEXT;
+ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "registryPath" TEXT;
+ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "registryHash" TEXT;
+
+-- CreateIndex
+CREATE INDEX "OrgMemory_registryId_registryPath_idx" ON "OrgMemory"("registryId", "registryPath");
 
 
 -- CreateTable: human decisions on derived findings (security checks, unowned repos, passport
@@ -1175,6 +1206,78 @@ CREATE INDEX "Deployment_orgId_sha_idx" ON "Deployment"("orgId", "sha");
 
 -- CreateIndex
 CREATE INDEX "AiChange_orgId_mergeCommitSha_idx" ON "AiChange"("orgId", "mergeCommitSha");
+
+-- CreateTable: the customer-owned registry repo ascent onboards, indexes and tracks (UC2 —
+-- docs/REGISTRY-AND-CARE-IMPL.md §2). One row per MAPPED registry repo; `canonical` marks the one the
+-- fleet views merge first on name collision.
+CREATE TABLE "OrgRegistry" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repositoryId" TEXT,
+    "fullName" TEXT NOT NULL,
+    "defaultBranch" TEXT NOT NULL DEFAULT 'main',
+    "canonical" BOOLEAN NOT NULL DEFAULT true,
+    "mode" TEXT NOT NULL DEFAULT 'git_native',
+    "telemetrySink" TEXT NOT NULL DEFAULT 'off',
+    "status" TEXT NOT NULL DEFAULT 'unmapped',
+    "lastIndexedAt" TIMESTAMP(3),
+    "lastIndexSha" TEXT,
+    "catalogSha" TEXT,
+    "webhookHealthy" BOOLEAN NOT NULL DEFAULT false,
+    "policiesJson" TEXT,
+    "migrationJson" TEXT,
+    "scaffoldPrUrl" TEXT,
+    "lastError" TEXT,
+    "skillCount" INTEGER NOT NULL DEFAULT 0,
+    "practiceCount" INTEGER NOT NULL DEFAULT 0,
+    "memoryCount" INTEGER NOT NULL DEFAULT 0,
+    "lessonCount" INTEGER NOT NULL DEFAULT 0,
+    "warningsJson" TEXT NOT NULL DEFAULT '[]',
+    "createdBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgRegistry_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgRegistry_orgId_fullName_key" ON "OrgRegistry"("orgId", "fullName");
+
+-- CreateIndex
+CREATE INDEX "OrgRegistry_orgId_canonical_idx" ON "OrgRegistry"("orgId", "canonical");
+
+-- CreateTable: published PRACTICE SHAPES mirrored from practices/<slug>/PRACTICE.md in the registry.
+-- Distinct from Scan.practiceShape (mined structure of one repo) — this is the CHOSEN shape.
+CREATE TABLE "OrgPracticeShape" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "practiceId" TEXT NOT NULL DEFAULT '',
+    "dimension" TEXT NOT NULL DEFAULT '',
+    "title" TEXT NOT NULL DEFAULT '',
+    "appliesWhen" TEXT NOT NULL DEFAULT '',
+    "content" TEXT NOT NULL,
+    "contentHash" TEXT NOT NULL DEFAULT '',
+    "archived" BOOLEAN NOT NULL DEFAULT false,
+    "origin" TEXT NOT NULL DEFAULT 'hosted',
+    "registryId" TEXT,
+    "registryPath" TEXT,
+    "registryHash" TEXT,
+    "createdBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgPracticeShape_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgPracticeShape_orgId_slug_key" ON "OrgPracticeShape"("orgId", "slug");
+
+-- CreateIndex
+CREATE INDEX "OrgPracticeShape_orgId_archived_idx" ON "OrgPracticeShape"("orgId", "archived");
+
+-- CreateIndex
+CREATE INDEX "OrgPracticeShape_registryId_registryPath_idx" ON "OrgPracticeShape"("registryId", "registryPath");
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the

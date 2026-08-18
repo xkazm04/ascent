@@ -35,6 +35,16 @@ export interface SkillRow {
   downloadCount: number;
   /** Distinct repos that have adopted this skill (from the adoption relation count). */
   adoptionCount: number;
+  /**
+   * WHERE THIS SKILL LIVES (UC2 registry mirror). `"hosted"` = ascent's own table, editable in-app;
+   * `"registry"` = a mirror of `skills/<name>/SKILL.md` in the customer's registry repo, which is
+   * PR-only — the UI must offer "Open in registry" rather than an edit/archive affordance.
+   */
+  origin: "hosted" | "registry";
+  /** Repo-relative path of the mirrored file. Null for a hosted row. */
+  registryPath: string | null;
+  /** `version` as declared in the file's frontmatter (a string, unlike the hosted integer `version`). */
+  registryVersion: string | null;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -99,6 +109,11 @@ function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { ado
     contentHash: s.contentHash,
     downloadCount: s.downloadCount,
     adoptionCount: s._count.adoptions,
+    // Read defensively: every pre-registry row has the column default, and anything that is not
+    // literally "registry" is by definition still ascent's to write.
+    origin: s.origin === "registry" ? "registry" : "hosted",
+    registryPath: s.registryPath ?? null,
+    registryVersion: s.registryVersion ?? null,
     createdBy: s.createdBy,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),

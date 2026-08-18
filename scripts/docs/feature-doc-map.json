@@ -35,7 +35,7 @@
         "src/lib/github/checks.ts",
         "src/lib/github/pr-gate.ts",
         "src/lib/db/org-gate.ts",
-        "src/components/org/govern/governance/GatePolicyEditor.tsx"
+        "src/features/standing/governance/GatePolicyEditor.tsx"
       ]
     },
     {
@@ -43,9 +43,9 @@
       "doc": "docs/features/scanning/llm-providers.md",
       "sourceGlobs": [
         "src/lib/llm/**",
-        "src/components/org/govern/settings/LlmProviderSettings.tsx",
-        "src/components/org/govern/settings/OpenRouterByomSettings.tsx",
-        "src/components/org/govern/settings/ModelScorecard.tsx",
+        "src/features/admin/settings/LlmProviderSettings.tsx",
+        "src/features/admin/settings/OpenRouterByomSettings.tsx",
+        "src/features/admin/settings/ModelScorecard.tsx",
         "src/lib/db/org-llm.ts"
       ]
     },
@@ -140,7 +140,7 @@
         "src/lib/practices.ts",
         "src/lib/practice-artifact.ts",
         "src/app/api/practices/**",
-        "src/components/org/plan/practices/**",
+        "src/features/shared/practices/**",
         "src/lib/org/governance.ts",
         "src/lib/org/adoption.ts",
         "src/lib/org/playbook-apply.ts"
@@ -151,13 +151,13 @@
       "doc": "docs/features/org-dashboard/org-intelligence.md",
       "sourceGlobs": [
         "src/app/org/**",
-        "src/components/org/overview/**",
-        "src/components/org/fleet/repositories/**",
+        "src/features/standing/overview/**",
+        "src/features/standing/repositories/**",
         "src/components/org/shared/**",
-        "src/components/org/intelligence/security/**",
-        "src/components/org/govern/integrations/**",
-        "src/components/org/fleet/delivery/**",
-        "src/components/org/fleet/tech-stacks/**",
+        "src/features/standing/security/**",
+        "src/features/admin/integrations/**",
+        "src/features/bought/delivery/**",
+        "src/features/standing/tech-stacks/**",
         "src/lib/org/**",
         "src/lib/db/org-rollup.ts",
         "src/lib/db/org-insights.ts",
@@ -167,8 +167,8 @@
         "src/lib/integrations/**",
         "src/app/api/org/invites/**",
         "src/app/api/org/ai-stance/**",
-        "src/components/org/govern/stance/**",
-        "src/components/org/govern/governance/GovernancePanel.tsx"
+        "src/features/standing/governance/stance/**",
+        "src/features/standing/governance/GovernancePanel.tsx"
       ]
     },
     {
@@ -182,11 +182,23 @@
       ]
     },
     {
+      "area": "org-registry",
+      "doc": "docs/features/org-registry/README.md",
+      "sourceGlobs": [
+        "src/lib/registry/**",
+        "src/app/api/org/[slug]/registry/**",
+        "src/lib/org/registry-view.ts",
+        "src/lib/org/registry-sync.ts",
+        "src/lib/db/org-registry*.ts",
+        "src/features/shared/registry/**"
+      ]
+    },
+    {
       "area": "org-dashboard",
       "doc": "docs/features/org-dashboard/developer.md",
       "sourceGlobs": [
         "src/lib/org/developer-view*.ts",
-        "src/components/org/developer/**",
+        "src/features/developer/**",
         "src/app/org/developer/**",
         "src/app/org/[slug]/developer/**"
       ]
@@ -203,9 +215,8 @@
         "src/lib/pdf/**",
         "src/lib/live-share.ts",
         "src/lib/briefing-share.ts",
-        "src/components/org/plan/**",
-        "src/components/org/intelligence/live/**",
-        "src/components/org/intelligence/executive/**",
+        "src/features/inflight/live/**",
+        "src/features/bought/executive/**",
         "src/app/api/org/goals/**",
         "src/app/api/org/playbooks/**",
         "src/app/api/org/briefing/**",
@@ -220,8 +231,8 @@
         "src/lib/memory/**",
         "src/lib/db/org-memory.ts",
         "src/lib/db/org-memory-lifecycle.ts",
-        "src/components/org/library/memory/Memory*.tsx",
-        "src/components/org/library/memory/memoryCheck.ts",
+        "src/features/shared/memory/Memory*.tsx",
+        "src/features/shared/memory/memoryCheck.ts",
         "src/app/api/org/memory/**"
       ]
     },
@@ -233,7 +244,7 @@
         "src/lib/db/org-api-tokens.ts",
         "src/lib/org/skill-*.ts",
         "src/lib/api-token-auth.ts",
-        "src/components/org/library/skills/**",
+        "src/features/shared/skills/**",
         "src/app/api/org/skills/**",
         "src/app/api/org/tokens/**"
       ]
@@ -246,7 +257,7 @@
         "src/components/report/**",
         "src/lib/report/**",
         "src/lib/analyze/passport*.ts",
-        "src/components/org/intelligence/passports/**",
+        "src/features/standing/passports/**",
         "src/app/trends/**",
         "src/app/portfolio/**",
         "src/app/leaderboard/**",
@@ -314,7 +325,7 @@
         "src/lib/db/scans-audit.ts",
         "src/lib/db/audit-integrity.ts",
         "src/app/api/audit/**",
-        "src/components/org/govern/audit/**",
+        "src/features/admin/audit/**",
         "src/lib/db/mode.ts",
         "src/instrumentation.ts"
       ]

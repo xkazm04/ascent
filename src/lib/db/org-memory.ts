@@ -43,6 +43,11 @@ export interface MemoryRow {
   version: number;
   accessCount: number;
   expiresAt: string | null;
+  /** WHERE THIS NOTE LIVES (UC2 registry mirror) — see `SkillRow.origin`. `"registry"` rows are
+   *  a mirror of `memory/<kind>/<slug>.md` and are changed by pull request, not in ascent. */
+  origin: "hosted" | "registry";
+  /** Repo-relative path of the mirrored file. Null for a hosted row. */
+  registryPath: string | null;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -130,6 +135,8 @@ export function toRow(m: OrgMemory): MemoryRow {
     version: m.version,
     accessCount: m.accessCount,
     expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
+    origin: m.origin === "registry" ? "registry" : "hosted",
+    registryPath: m.registryPath ?? null,
     createdBy: m.createdBy,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),

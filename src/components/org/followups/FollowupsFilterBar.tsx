@@ -4,7 +4,7 @@
 // FilterMenu, so the ledger filters the way the Fleet card does), a search box, and the working-set /
 // archive switch. Options come from the FULL row set so a dropdown never shrinks as you filter.
 
-import { FilterMenu, type FilterOption } from "@/components/org/overview/FilterMenu";
+import { FilterMenu, type FilterOption } from "@/features/standing/overview/FilterMenu";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
 import { STATUS_LABEL, filtersActive, type FollowUpFilters, type FollowUpRow } from "./followupsModel";

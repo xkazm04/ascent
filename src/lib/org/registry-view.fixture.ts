@@ -1,26 +1,42 @@
-// Fixture `RegistryView`s for the Registry tab's prototype round, selected by `?demo=<state>`.
+// Shaped example `RegistryView`s — the states a young org cannot produce, so the tab can be READ
+// before it is wired.
 //
-// The real loader (registry-view.ts) can only honestly report `unmapped` until the OrgRegistry table +
-// indexer land (R2), so every rich state the three variants must render — the indexed dashboard, a
-// scaffold PR waiting on a merge, a migration half-done, an index error, hosted-mirror mode, a missing
-// App permission — comes from here. Pure data, no imports beyond the types: safe on the server and in
-// a client component.
+// SELECTED IN REACT STATE, NOT BY A SEARCH PARAM. `?demo=` made a preview a shareable, bookmarkable
+// lie; the preview switcher now lives in `RegistryPreviewShell` (client), is offered ONLY while the
+// real status is `unmapped`, and stamps every previewed state as a preview.
 //
-//   ?demo=indexed          the registry dashboard, healthy
-//   ?demo=scaffold_pr_open the scaffold PR is open, waiting on a CODEOWNER merge
-//   ?demo=migrating        indexed, skills merged, practices PR open, memory not started
-//   ?demo=error            indexed once, last index attempt failed
-//   ?demo=hosted           hosted-mirror mode (ascent writes, git mirrors) — the "stay hosted" path
-//   ?demo=no-permission    unmapped, App lacks contents:write, candidate repos offered
-//   ?demo=unmapped         the empty onboarding stepper, with a candidate list
+// CLIENT-SAFE BY CONSTRUCTION: the only value imports are `@/lib/registry/layout` (pure constants)
+// and `./registry-howto` (a pure string builder). Importing `./registry-view` for a VALUE here would
+// drag `@/lib/db` into the browser bundle and break `next build` while tsc and vitest stayed green.
+//
+//   indexed          the registry dashboard, healthy
+//   scaffold_pr_open the scaffold PR is open, waiting on a CODEOWNER merge
+//   migrating        indexed, skills merged, practices PR open, memory not started
+//   error            indexed once, last index attempt failed
+//   hosted           hosted-mirror mode (ascent writes, git mirrors) — the "stay hosted" path
+//   no-permission    unmapped, the viewer is not an admin
+//   unmapped         the empty onboarding stepper, with a candidate list
 
-import {
-  DEFAULT_REGISTRY_NAME,
-  registryHowTo,
-  type RegistryActivityEntry,
-  type RegistryCandidate,
-  type RegistryView,
+import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
+import { registryHowTo } from "./registry-howto";
+import type {
+  RegistryActivityEntry,
+  RegistryCandidate,
+  RegistryCapabilities,
+  RegistryView,
 } from "./registry-view";
+
+/** The fixtures assume a fully-wired deployment; `no-permission` is the one that doesn't. */
+const CAPABLE: RegistryCapabilities = {
+  appConfigured: true,
+  installed: true,
+  canWrite: true,
+  canCreateRepo: true,
+  reason: null,
+  installUrl: "https://github.com/apps/ascent/installations/new",
+};
+
+const NOT_PERMITTED: RegistryCapabilities = { ...CAPABLE, canWrite: false, canCreateRepo: false, reason: "insufficient-role" };
 
 export const REGISTRY_DEMO_STATES = [
   "unmapped",
@@ -94,6 +110,7 @@ function indexedBase(slug: string): RegistryView {
     activity: ACTIVITY,
     telemetry: { invokes30d: 1_284, reposReporting: 19, sink: "api" },
     howTo: registryHowTo(fullName),
+    capabilities: CAPABLE,
     permission: { contentsWrite: true },
     candidates: [],
   };
@@ -118,12 +135,13 @@ function unmappedBase(slug: string, contentsWrite: boolean): RegistryView {
     activity: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
     howTo: registryHowTo(fullName),
+    capabilities: contentsWrite ? CAPABLE : NOT_PERMITTED,
     permission: contentsWrite ? { contentsWrite: true } : { contentsWrite: false, installUrl: "https://github.com/apps/ascent/installations/new" },
     candidates: CANDIDATES,
   };
 }
 
-/** Returns a fixture view for a recognized `?demo=` value, or null so the real loader runs. */
+/** Returns the shaped example view for a recognized preview name, or null when it is not one. */
 export function fixtureRegistryView(slug: string, demo: string | undefined): RegistryView | null {
   if (!isDemoState(demo)) return null;
 

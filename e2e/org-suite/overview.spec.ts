@@ -22,7 +22,7 @@ test.describe("Org Overview — fleet standing", () => {
     await expect(nav.getByRole("link", { name: "Overview", exact: true })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Repositories", exact: true })).toBeVisible();
     // The five journey sections are the rail's first level.
-    for (const section of ["Standing", "Chosen", "In flight", "Bought", "Admin"]) {
+    for (const section of ["Standing", "Shared", "In flight", "Bought", "Admin"]) {
       await expect(nav.getByRole("button", { name: new RegExp(section, "i") }).first()).toBeVisible();
     }
   });

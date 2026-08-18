@@ -15,6 +15,51 @@ import { parsePracticeShape } from "@/lib/analyze/practice-shape";
 import type { ShapeSource } from "@/lib/org/practice-mining";
 
 /**
+ * One row of the `OrgPracticeShape` TABLE — the org's CHOSEN, published practice shapes.
+ *
+ * NOT the same thing as `getOrgPracticeShapes` below, despite the shared noun: that function MINES
+ * structure out of each repo's latest scan blob and never touches this table. This is the registry
+ * mirror surface — `practices/<slug>/PRACTICE.md` indexed out of the customer's registry repo
+ * (`origin === "registry"`), beside anything ascent authored itself (`origin === "hosted"`).
+ */
+export interface PracticeShapeRow {
+  id: string;
+  slug: string;
+  practiceId: string;
+  dimension: string;
+  title: string;
+  appliesWhen: string;
+  origin: "hosted" | "registry";
+  registryPath: string | null;
+  updatedAt: string;
+}
+
+/**
+ * Every live shape row of `orgSlug`, registry-mirrored ones first. Empty when persistence is off or
+ * the org is unknown — a tab that renders nothing is honest; a throw would take the tab down.
+ */
+export async function listOrgPracticeShapeRows(orgSlug: string): Promise<PracticeShapeRow[]> {
+  if (!isDbConfigured()) return [];
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return [];
+  const rows = await getPrisma().orgPracticeShape.findMany({
+    where: { orgId: org.id, archived: false },
+    orderBy: [{ origin: "desc" }, { slug: "asc" }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    practiceId: r.practiceId,
+    dimension: r.dimension,
+    title: r.title,
+    appliesWhen: r.appliesWhen,
+    origin: r.origin === "registry" ? "registry" : "hosted",
+    registryPath: r.registryPath ?? null,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+}
+
+/**
  * Every repo in `orgSlug` whose latest scan carried a practice shape, with that scan's per-dimension
  * scores. Repos without a shape are omitted rather than included empty — the miner counts exemplars,
  * and a repo that contributed no structure is not an exemplar of anything.

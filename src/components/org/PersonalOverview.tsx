@@ -5,10 +5,10 @@
 
 import Link from "next/link";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Sparkline } from "@/components/org/fleet/repositories/Sparkline";
-import { Trajectory } from "@/components/org/overview/Trajectory";
+import { Sparkline } from "@/features/standing/repositories/Sparkline";
+import { Trajectory } from "@/features/standing/overview/Trajectory";
 import { AddRepoForm, UntrackButton } from "@/components/org/PersonalWatchControls";
-import { PassportCard } from "@/components/org/intelligence/passports/PassportCard";
+import { PassportCard } from "@/features/standing/passports/PassportCard";
 import { EmptyState } from "@/components/EmptyState";
 import { getPersonalPassports, getPersonalUsage, getPersonalWatchlist, PERSONAL_WATCH_LIMIT, type PersonalMeter, type PersonalRepo } from "@/lib/db";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";

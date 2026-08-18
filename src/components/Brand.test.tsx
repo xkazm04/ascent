@@ -10,7 +10,7 @@
 // my workspace" is exactly the kind of thing that regresses invisibly when one branch is edited.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 const h = vi.hoisted(() => ({
   getSession: vi.fn(async () => null as null | { login: string; image?: string; installations: string[] }),
@@ -49,24 +49,57 @@ describe("HeaderAccount — the personal-workspace door", () => {
     h.getActiveOrg.mockResolvedValue("public");
   });
 
-  it("links the identity to /me under the LIVE Supabase login (it used to be an unlinked span)", async () => {
+  it("opens a menu on the identity under the LIVE Supabase login, with /me still the first row", async () => {
     h.getViewer.mockResolvedValue({ login: "alice", avatar: "https://example.test/a.png" });
     render(await HeaderAccount());
 
-    const link = screen.getByRole("link", { name: /alice/ });
-    expect(link).toHaveAttribute("href", "/me");
-    expect(link).toHaveAttribute("title", "Your personal workspace");
+    // The identity is a MENU trigger now, not a bare link — Developer joined /me behind your own name.
+    const trigger = screen.getByRole("button", { name: /alice/ });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    // Closed, it exposes no destinations at all: the menu is the only way to them.
+    expect(screen.queryByRole("link", { name: "Your workspace Your repos, scored" })).toBeNull();
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const rows = screen.getAllByRole("menuitem");
+    expect(rows[0]).toHaveAttribute("href", "/me");
+    expect(rows[1]).toHaveAttribute("href", "/org/developer");
   });
 
-  it("links the identity to /me under the dormant custom-OAuth branch too — same destination, not a second one", async () => {
+  it("opens the same menu under the dormant custom-OAuth branch — one identity affordance, not two", async () => {
     h.supabaseAuthConfigured.mockReturnValue(false);
     h.getSession.mockResolvedValue({ login: "bob", installations: [] });
     render(await HeaderAccount());
 
-    const link = screen.getByRole("link", { name: /bob/ });
-    expect(link).toHaveAttribute("href", "/me");
+    const trigger = screen.getByRole("button", { name: /bob/ });
+    fireEvent.click(trigger);
+    const rows = screen.getAllByRole("menuitem");
+    expect(rows.map((r) => r.getAttribute("href"))).toEqual(["/me", "/org/developer"]);
     // The old dead link pointed at the GitHub-App install flow. Nothing in this cluster may still do so.
-    expect(screen.queryByRole("link", { name: /bob/ })).not.toHaveAttribute("href", "/connect");
+    expect(rows.map((r) => r.getAttribute("href"))).not.toContain("/connect");
+  });
+
+  it("folds sign out into the menu rather than leaving it loose beside the name", async () => {
+    h.getViewer.mockResolvedValue({ login: "alice" });
+    render(await HeaderAccount());
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /alice/ }));
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  // Escape must both close AND restore focus to the trigger: dismissing to <body> restarts a keyboard
+  // user's tab order at the top of the document, which is the half of the ARIA menu contract that
+  // silently goes missing.
+  it("closes on Escape and hands focus back to the trigger", async () => {
+    h.getViewer.mockResolvedValue({ login: "alice" });
+    render(await HeaderAccount());
+    const trigger = screen.getByRole("button", { name: /alice/ });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("offers no workspace link at all when nobody is signed in", async () => {

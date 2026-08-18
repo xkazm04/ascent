@@ -16,11 +16,11 @@ import {
   resolveActiveOrgTab,
   type OrgTabId,
 } from "@/lib/org/orgTabs";
-import { AdminIcon, BoughtIcon, ChosenIcon, InFlightIcon, StandingIcon } from "../overview/orgIcons";
+import { AdminIcon, BoughtIcon, InFlightIcon, SharedIcon, StandingIcon } from "@/features/standing/overview/orgIcons";
 
 /**
  * The org dashboard's section nav — the two-level rail (SectionRailNav): an icon rail of module
- * groups (Standing · Chosen · In flight · Bought · Admin) beside a panel holding only the selected
+ * groups (Standing · Shared · In flight · Bought · Admin) beside a panel holding only the selected
  * group's tabs. Presentation is unchanged from the pre-refactor OrgNav; what moved is the
  * catalog (now src/lib/org/orgTabs.ts, so a server component can read it) and the navigation model:
  * a migrated tab is a `?tab=` push on the shell route instead of a full page navigation.
@@ -35,7 +35,7 @@ import { AdminIcon, BoughtIcon, ChosenIcon, InFlightIcon, StandingIcon } from ".
 
 const ICONS: Record<string, React.ReactNode> = {
   standing: <StandingIcon size={24} />,
-  chosen: <ChosenIcon size={24} />,
+  shared: <SharedIcon size={24} />,
   inflight: <InFlightIcon size={24} />,
   bought: <BoughtIcon size={24} />,
   admin: <AdminIcon size={24} />,
