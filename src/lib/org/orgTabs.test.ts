@@ -59,7 +59,7 @@ describe("org tab catalog", () => {
   // and Developer left the nav entirely, so a stray id drifting back in fails here.
   it("scopes the Shared group to the registry and what it distributes", () => {
     const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
-    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory"]);
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge"]);
   });
 
   // Governance is an audit of where the fleet stands, not something the org distributes: it is the
@@ -97,7 +97,18 @@ describe("org tab catalog", () => {
     // workspace gets the same layout against `<user>/ai-registry`, REGISTRY-AND-CARE-IMPL §1) and
     // `developer` (UC3's home is the one surface a personal workspace exists FOR — kept in the SET
     // even though it left the rail, so a gate asking "is this a personal surface?" still says yes).
-    expect([...PERSONAL_TAB_IDS].sort()).toEqual(["developer", "followups", "memory", "overview", "registry", "security", "skills"]);
+    expect([...PERSONAL_TAB_IDS].sort()).toEqual([
+      "developer",
+      "followups",
+      // Reference the registry publishes; identical for a personal workspace because it carries no
+      // per-repo adoption state — that absence is what keeps the fleet surfaces org-only.
+      "knowledge",
+      "memory",
+      "overview",
+      "registry",
+      "security",
+      "skills",
+    ]);
   });
 
   // Developer is reachable only from the header identity menu, so it is deliberately not-in-nav. The
