@@ -18,7 +18,7 @@
 
 import { Kicker } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
-import { artifactTotal, type KnowledgeDomain, type KnowledgeView } from "@/lib/org/knowledge-view";
+import { artifactTotal, type KnowledgeDomain, type KnowledgeView } from "@/lib/org/knowledge-shape";
 
 /** Turn a category id into its display form: `ui-surfaces` → `UI surfaces`. */
 function categoryLabel(id: string): string {

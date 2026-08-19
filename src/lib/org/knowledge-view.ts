@@ -25,44 +25,14 @@
 // admit it is a preview is just a wrong number.
 
 import { getRegistryView } from "./registry-view";
+import { sortDomains } from "./knowledge-shape";
+import type { KnowledgeDomain, KnowledgeView } from "./knowledge-shape";
 
-export type KnowledgeStatus = "unmapped" | "empty" | "indexed" | "error";
-
-/** One domain bundle's overview row. Mirrors `index.json`'s `meta` block. */
-export type KnowledgeDomain = {
-  /** Directory name under `knowledge/`, e.g. `software-engineering`. */
-  name: string;
-  /** Display title derived from the name. */
-  title: string;
-  subjects: number;
-  techniques: number;
-  applications: number;
-  /** Cross-cutting laws cited by this bundle's techniques. */
-  laws: number;
-  /** Category ids declared by the bundle, in declaration order. */
-  categories: string[];
-  /**
-   * How many techniques carry a `use_when` trigger, as `written/total`. This is the field an agent
-   * selects on, so a low ratio is the difference between a bundle that can be consulted
-   * automatically and one that can only be read by a human.
-   */
-  useWhenCoverage: { written: number; total: number };
-};
-
-export type KnowledgeView = {
-  status: KnowledgeStatus;
-  /** The mapped registry repo, when there is one. */
-  registry?: { fullName: string; url: string; lastIndexedAt: string | null };
-  /** Sorted by artifact weight, largest first — see `sortDomains`. */
-  domains: KnowledgeDomain[];
-  totals: { domains: number; subjects: number; techniques: number; applications: number };
-  /**
-   * True while the counts come from the seeded preview rather than a real index pass. The UI must
-   * surface this; see the file header.
-   */
-  provisional: boolean;
-  error?: { message: string; at: string };
-};
+// The view SHAPE lives in a client-safe sibling (see its header); re-exported so every existing
+// `@/lib/org/knowledge-view` import keeps working. SERVER callers may use this barrel; a client
+// component must import from "./knowledge-shape" directly or it drags Prisma into the browser.
+export type { KnowledgeStatus, KnowledgeDomain, KnowledgeView } from "./knowledge-shape";
+export { artifactTotal, sortDomains } from "./knowledge-shape";
 
 /**
  * The real contents of xkazm04/ai-registry, verified 2026-08-19 against
@@ -91,19 +61,6 @@ const PREVIEW_DOMAINS: KnowledgeDomain[] = [
     useWhenCoverage: { written: 0, total: 624 },
   },
 ];
-
-/** Total published artifacts across the three layers that publish. */
-export function artifactTotal(d: KnowledgeDomain): number {
-  return d.subjects + d.techniques + d.applications;
-}
-
-/**
- * Sort order for the ledger: heaviest bundle first, ties broken by name so the order is stable
- * across renders (two bundles of equal weight must not swap places between page loads).
- */
-export function sortDomains(domains: KnowledgeDomain[]): KnowledgeDomain[] {
-  return [...domains].sort((a, b) => artifactTotal(b) - artifactTotal(a) || a.name.localeCompare(b.name));
-}
 
 export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
   const registry = await getRegistryView(slug);

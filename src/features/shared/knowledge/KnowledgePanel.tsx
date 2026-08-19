@@ -10,7 +10,7 @@ import { useState } from "react";
 
 import { Kicker } from "@/components/ui";
 import { chipButtonClass } from "@/components/ui";
-import type { KnowledgeView } from "@/lib/org/knowledge-view";
+import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 
 import { KnowledgeLedger } from "./KnowledgeLedger";
 import { KnowledgeShelf } from "./KnowledgeShelf";
@@ -33,7 +33,12 @@ export function KnowledgePanel({ view }: { view: KnowledgeView }) {
             key={d.id}
             type="button"
             onClick={() => setDirection(d.id)}
-            className={chipButtonClass(direction === d.id ? "on" : "off")}
+            // chipButtonClass has no selected state (ChipState is idle/success/danger), so the
+            // selection is the repo's accent treatment layered on the idle chip via `extra`.
+            className={chipButtonClass(
+              "idle",
+              direction === d.id ? "border-accent bg-accent/10 text-white" : "",
+            )}
             title={d.blurb}
           >
             {d.label}

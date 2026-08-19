@@ -14,7 +14,7 @@
 import { Kicker, Stat } from "@/components/ui";
 import { TILE_LEDGER } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
-import { artifactTotal, type KnowledgeDomain, type KnowledgeView } from "@/lib/org/knowledge-view";
+import { artifactTotal, type KnowledgeDomain, type KnowledgeView } from "@/lib/org/knowledge-shape";
 
 /** The three layers that publish, in hierarchy order — the column contract for every row. */
 const LAYERS = [
