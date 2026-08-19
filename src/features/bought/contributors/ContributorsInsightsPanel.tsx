@@ -10,8 +10,10 @@ import { orgTabHref } from "@/lib/org/orgTabs";
 import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
 import { scoreHex } from "@/lib/ui";
 import { decisionMap } from "@/lib/org/decision-map";
+import { enablementTargets } from "@/lib/org/adoption";
 import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
 import { ContributorsConcentrationTable } from "./ContributorsConcentrationTable";
+import { EnablementTargets } from "./EnablementTargets";
 import { IndividualInvolvement } from "./IndividualInvolvement";
 import { ResilienceModule } from "./ResilienceModule";
 import { ContributorsYouStrip, isViewer } from "./ContributorsYouPointer";
@@ -55,6 +57,10 @@ export async function ContributorsInsightsPanel({
   // Is the viewer one of the people this tab describes? Below the naming floor the producer returns
   // no per-person rows at all, so this is false and the quiet strip (not a row mark) is what shows.
   const meInRoster = insights.contributors.some((c) => isViewer(c.login, viewerLogin));
+
+  // The zero-AI enablement cohort, off the insights already read. Same helper the adoption LLM brief
+  // uses, so the two can never disagree about who is on the list.
+  const enablement = enablementTargets(insights);
 
   return (
     <div>
@@ -116,6 +122,17 @@ export async function ContributorsInsightsPanel({
         stack={activeStack?.key ?? null}
         viewerLogin={viewerLogin}
       />
+
+      {/* "Who to enable next" — moved here from Adoption (2026-08-19). It belongs beside the roster
+          above it: both are named per-person lists, and this one is the other half of the same
+          question ("who is leaning in" / "who hasn't started"). Derived from the insights already in
+          hand via the shared `enablementTargets`, so it costs no extra read; an empty list renders
+          nothing, which is also the privacy floor's guard. */}
+      {enablement.length > 0 && (
+        <div className="mt-6">
+          <EnablementTargets targets={enablement} nonePool={insights.distribution.none} />
+        </div>
+      )}
 
       {/* G7-18: the fleet read on key-person exposure, above the per-repo table it summarizes. It
           names no individual at any population size — see ResilienceModule's header. */}

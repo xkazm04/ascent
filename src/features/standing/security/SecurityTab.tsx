@@ -66,11 +66,11 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <SectionHeader
-          descriptionClassName="max-w-3xl"
-          title="Security"
-          description={`Security engineering evidenced from each repo + its GitHub state, not a guarantee the code is safe. Scored by a deterministic, Scorecard-style check battery (graded controls + current vuln exposure); the register grid shows which controls are covered, per repo. Click a score for the full per-check evidence.`}
-        />
+        {/* Title only. The three-sentence standfirst that used to sit here (what the score is
+            evidenced from, how it is computed, that a score is clickable) restated what the Control
+            matrix caption below already says, one screenful above the thing it describes — so it
+            pushed the tiles down on every visit and was read on none. */}
+        <SectionHeader title="Security" />
         <div className="flex flex-wrap items-center gap-2">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
           {/* Fetch-and-download (not a bare anchor): the PDF render is slow and error branches return
@@ -107,17 +107,25 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
           sub={`${gate.passing} of ${sec.scanned} pass`}
           color={gate.failing > 0 ? "#dc2626" : "#16a34a"}
         />
+        {/* Last cell of the same ledger, spanning every column: the band spectrum is the frame's
+            bottom edge rather than a strip floating under it. Must stay a DIRECT child of TILE_GRID —
+            the `gap-px` hairline bed only works on direct children. */}
+        <SecurityBandSpectrum band={sec.band} scanned={sec.scanned} />
       </div>
 
-      <SecurityBandSpectrum band={sec.band} scanned={sec.scanned} />
-
       <Card>
-        <SectionHeader
-          size="sm"
-          title="Control matrix"
-          description={`All ${sec.scanned} scanned repos against the security gate (D9 ≥ ${gate.minSecurity}, not "ungoverned"), each graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides posture from exposure.`}
-          right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
-        />
+        {/* The caption is rendered as a sibling, NOT through SectionHeader's `description`. That slot
+            is a lede — capped at max-w-2xl, which is right for prose but wrapped this one into four
+            short lines against a card that is three times as wide. Passing `descriptionClassName` a
+            competing max-width would be a cascade coin-flip (two utilities of equal specificity, order
+            decided by Tailwind's emission, not by the class list), so the caption owns its own <p>
+            below the header row and runs the full width of the card. */}
+        <SectionHeader size="sm" title="Control matrix" right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />} />
+        <p className="mb-3 mt-2 text-base text-slate-400">
+          All {sec.scanned} scanned repos against the security gate (D9 ≥ {gate.minSecurity}, not &ldquo;ungoverned&rdquo;), each
+          graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides
+          posture from exposure.
+        </p>
         {supplyDegraded && (
           <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-warn">
             Vulnerability advisories couldn&apos;t be fetched for this org, so the exposure columns below are

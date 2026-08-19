@@ -2,22 +2,32 @@
 // most recent volume, i.e. where enablement moves the org's AI share fastest. Names individuals, so it
 // is OPT-IN (default collapsed) with the same "inputs, not a to-do list" framing as the Contributors
 // tab's individual drill-down — never a passive scoreboard. Server-safe (native <details>).
+//
+// Moved out of the Adoption tab (2026-08-19) into the Contributors group, where it belongs: it is a
+// named per-person roster, which is the one thing this tab is FOR and the thing Adoption otherwise
+// keeps at arm's length (rates, bands, teams). It now sits directly under IndividualInvolvement, so
+// the two per-person lists — who is leaning in, who hasn't started — read as one section. Adoption's
+// spread bar still points here by cross-tab deep link (`?tab=contributors#enablement`), hence
+// `scroll-mt-24` so the arriving anchor clears the sticky header.
+//
+// The cohort itself is `enablementTargets` (src/lib/org/adoption.ts) — ONE definition, shared with
+// the adoption LLM brief, carrying the CHAMPION_MIN_POP naming guard. An empty list is the render
+// guard; no call site re-checks the population.
 
 import { OrgTable } from "@/components/org/shared/ui";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { timeAgo } from "@/lib/ui";
 
 export function EnablementTargets({
-  slug,
   targets,
   nonePool,
 }: {
-  slug: string;
   targets: AdoptionOverview["enablement"];
+  /** Everyone with zero AI-attributed commits, so the table can say what it left out. */
   nonePool: number;
 }) {
   return (
-    <details id="enablement" className="rounded-xl border border-slate-800 bg-slate-900/20">
+    <details id="enablement" className="scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20">
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-medium text-slate-200 marker:text-slate-600">
         <span>
           Who to enable next <span className="font-mono text-sm text-slate-500">({targets.length})</span>

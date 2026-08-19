@@ -58,16 +58,6 @@ const fixture: GovernanceOverview = {
       reasons: ["Level L2 is below the required L3.", "D9 Supply Chain & Security scored 30, below the required 40."],
     },
   ],
-  closestToGreen: [
-    {
-      name: "web",
-      fullName: "acme/web",
-      failCount: 2,
-      gap: 10,
-      dims: [{ dimId: "D9", name: "Supply Chain & Security", score: 30, floor: 40, gap: 10, practiceId: "supply-chain" }],
-      blockers: ["Level L2 is below the required L3."],
-    },
-  ],
   gateQuery: "min_level=L3&min_dimension=40&no_ungoverned=1",
   ciWith: ["min-level: L3", "min-dimension: '40'", "no-ungoverned: 'true'"],
 };
@@ -103,7 +93,7 @@ describe("governanceMarkdown", () => {
 // ── buildGovernanceOverview: the engine that PRODUCES the overview from a rollup ──────────────────
 // Org policy = defaultGatePolicy("org") = { minLevel: L3, minDimension: 40, forbidPostures: [ungoverned] }.
 // We craft a fleet so every code path is exercised: a clean pass, a multi-dimension fail (dedup), a
-// single-condition near-miss (closest-to-green), and a level-only fail (a partial set of signals).
+// single-condition near-miss, and a level-only fail (a partial set of signals).
 
 type RepoRow = {
   name: string;
@@ -134,12 +124,12 @@ describe("buildGovernanceOverview", () => {
     mockGetOrgGatePolicy.mockResolvedValue(null);
   });
 
-  it("computes the green-path pass math over a crafted fleet (pass-rate, counts, sort, dedup)", async () => {
+  it("computes the fleet pass math over a crafted fleet (pass-rate, counts, sort, dedup)", async () => {
     const fleet: RepoRow[] = [
       PASS("clean"),
       // Fails 3 dimension floors (D1=10, D2=20, D9=30). Should count ONCE toward byReason.dimension.
       { name: "multi", fullName: "acme/multi", latest: { level: "L4", overall: 80, posture: "governed", dims: dims({ D1: 10, D2: 20, D9: 30 }) } },
-      // Single condition, smallest gap: D1=39 → 1 point from the 40 floor. The cheapest repo to flip.
+      // Single condition, 1 point from the 40 floor — the near-miss shape.
       { name: "tiny", fullName: "acme/tiny", latest: { level: "L4", overall: 80, posture: "governed", dims: dims({ D1: 39, D2: 70, D9: 70 }) } },
     ];
     mockGetOrgRollup.mockResolvedValue(rollupOf(3, fleet));
@@ -148,7 +138,7 @@ describe("buildGovernanceOverview", () => {
     expect(o).not.toBeNull();
     const ov = o!;
 
-    // Green-path % math: 1 of 3 repos passes → 33% (rounded).
+    // Pass-rate math: 1 of 3 repos passes → 33% (rounded).
     expect(ov.scanned).toBe(3);
     expect(ov.passing).toBe(1);
     expect(ov.failing).toBe(2);
@@ -160,20 +150,9 @@ describe("buildGovernanceOverview", () => {
     expect(ov.byReason.posture).toBe(0);
     expect(ov.byReason.overall).toBe(0);
 
-    // Closest-to-green: single-condition + smallest gap first → "tiny" (1 failing dim, gap 1) leads.
-    expect(ov.closestToGreen[0].name).toBe("tiny");
-    expect(ov.closestToGreen[0].failCount).toBe(1);
-    expect(ov.closestToGreen[0].gap).toBe(1); // 40 - 39
-    // …and its dim carries the real points-to-floor + the mapped practice (D1 → agent-guidance).
-    expect(ov.closestToGreen[0].dims).toHaveLength(1);
-    expect(ov.closestToGreen[0].dims[0]).toMatchObject({ dimId: "D1", score: 39, floor: 40, gap: 1, practiceId: "agent-guidance" });
-
-    // "multi" gap = summed points-to-floor = (40-10)+(40-20)+(40-30) = 60.
-    const multi = ov.closestToGreen.find((g) => g.name === "multi")!;
-    expect(multi.failCount).toBe(3);
-    expect(multi.gap).toBe(60);
-    // Its dims are sorted by ascending gap (cheapest dimension first): D9(10) < D2(20) < D1(30).
-    expect(multi.dims.map((d) => d.dimId)).toEqual(["D9", "D2", "D1"]);
+    // Failures sort worst-first: most failing conditions, then lowest overall.
+    expect(ov.failures.map((f) => f.name)).toEqual(["multi", "tiny"]);
+    expect(ov.failures[0].reasons).toHaveLength(3);
   });
 
   it("collapses duplicate per-reason gaps so one repo's repeated gap isn't double-counted", async () => {
@@ -206,11 +185,10 @@ describe("buildGovernanceOverview", () => {
     expect(ov.byReason.dimension).toBe(0);
     expect(ov.byReason.posture).toBe(0);
     expect(ov.byReason.overall).toBe(0);
-    // A level miss is a non-numeric blocker (no dim gap), so green-path gap is 0 with no dims.
-    const item = ov.closestToGreen.find((g) => g.name === "lowlevel")!;
-    expect(item.gap).toBe(0);
-    expect(item.dims).toHaveLength(0);
-    expect(item.blockers.length).toBe(1);
+    // …and it lands in `failures` carrying exactly that one reason.
+    const item = ov.failures.find((f) => f.name === "lowlevel")!;
+    expect(item.reasons).toHaveLength(1);
+    expect(item.reasons[0]).toMatch(/Level L2/);
     expect(ov.passRate).toBe(50);
   });
 

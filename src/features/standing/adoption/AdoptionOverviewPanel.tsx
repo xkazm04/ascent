@@ -7,14 +7,11 @@ import { Surface, Kicker } from "@/components/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { resolveOrgWindow } from "@/lib/org/period";
-import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { AdoptionSpectrum } from "./AdoptionSpectrum";
 import { ChampionsCard } from "./ChampionsCard";
 import { TeamAdoption } from "./TeamAdoption";
-import { EnablementTargets } from "./EnablementTargets";
 import { DeliveryStrip } from "./DeliveryStrip";
 import { AdoptionToolFootprint } from "./AdoptionToolFootprint";
 
@@ -29,11 +26,7 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
   // Optional segment + tech-stack scope (bogus id/key → whole fleet) — a per-client / per-stack
   // adoption read for orgs that segment their fleet; the two filters compose.
   const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
-  // The period is cross-tab state (cookie + ?range=), so a window chosen on Overview arrives here even
-  // though NOTHING below can honour it — buildAdoptionOverview reads latest-scan snapshots with no
-  // per-day history. Resolve it anyway, purely to NAME the inapplicable selection in the notice; see
-  // SnapshotScopeNotice for why threading it into the query would be a fake fix.
-  const [period, a] = await Promise.all([resolveOrgWindow(sp), buildAdoptionOverview(slug, segmentId, techGroupId)]);
+  const a = await buildAdoptionOverview(slug, segmentId, techGroupId);
 
   const filterBar = (
     <ScopeFilterBar segments={segments} segmentId={segmentId} techGroups={techGroups} activeStack={activeStack} />
@@ -53,9 +46,9 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
 
   const md = adoptionMarkdown(a);
   const d = a.delivery;
-  // No population re-check here on purpose: buildAdoptionOverview returns `enablement: []` below the
-  // floor (which getContributorInsights itself enforces), so an empty list IS the guard. A second
-  // copy of the threshold at the call site is what let three surfaces drift apart in the first place.
+  // The "Who to enable next" TABLE moved to the Contributors tab (2026-08-19). This flag survives
+  // only to decide whether the spread bar's "none" follow-up is a live cross-tab link or plain text —
+  // an empty cohort (below the naming floor, or nobody qualifying) must not offer a link to nothing.
   const showEnablement = a.enablement.length > 0;
 
   return (
@@ -71,15 +64,6 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
           <CopyForLlm text={md} label="Copy adoption brief for LLM" />
         </div>
       </div>
-
-      {/* Stated ABOVE the numbers, not in the footnote below them: the failure this kills is a user
-          who picked 90 days on Overview reading these tiles as 90-day figures. */}
-      <SnapshotScopeNotice
-        period={period}
-        subject="adoption"
-        scopedHref={orgTabHref(slug, "delivery")}
-        scopedLabel="Delivery"
-      />
 
       <div className={TILE_GRID}>
         {/* Adoption metrics use a neutral accent hue, not the red→green maturity ramp: low adoption
@@ -123,8 +107,6 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
         <TeamAdoption teams={a.teams} pairing={a.teamPairing} slug={slug} />
       </div>
 
-      {showEnablement && <EnablementTargets slug={slug} targets={a.enablement} nonePool={a.distribution.none} />}
-
       {d ? (
         <DeliveryStrip delivery={d} slug={slug} />
       ) : (
@@ -140,8 +122,13 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
       )}
 
       <p className="font-mono text-sm text-slate-600">
-        {/* The scan-time framing now leads the panel (SnapshotScopeNotice) instead of hiding here, so
-            this footnote carries only the attribution mechanics it uniquely explains. */}
+        {/* The SnapshotScopeNotice banner that used to lead this panel is gone (2026-08-19), so the
+            scan-time framing comes back HERE as one clause. It is not decoration: the period picker
+            is cross-tab state, so someone who chose "90 days" on Overview arrives with that selection
+            still showing and nothing on this tab can honour it — buildAdoptionOverview reads
+            latest-scan snapshots with no per-day history. Saying so once is the difference between a
+            stale number and a wrong one. Delete this clause only along with the period picker. */}
+        Figures are latest-scan snapshots, not a dated window — the period selector does not apply here.
         AI attribution reads co-authorship and tool markers on commits and PRs. Team rollups use CODEOWNERS attribution; see the{" "}
         <Link href={orgTabHref(slug, "teams")} className="text-slate-500 transition hover:text-accent">Teams</Link> tab.
       </p>

@@ -37,6 +37,14 @@ export interface Finding {
   title: string;
   /** The "what to do about it" text. */
   detail: string;
+  /**
+   * The finding's own name WITHOUT the repo context `title` carries — e.g. "Branch protection" where
+   * the title is "Branch protection (acme/api)". For a surface that already has a repo column, so it
+   * doesn't print the repo twice per row. Optional: a builder whose title IS the repo (teams,
+   * contributors) has nothing to strip and omits it. Never use this as an identity — `itemKey` is the
+   * identity, and `title` is what gets persisted onto the decision.
+   */
+  subject?: string;
 }
 
 /**
@@ -83,6 +91,7 @@ export function securityFindings(rows: SecurityFindingInput[]): Finding[] {
         itemKey: `${row.fullName}::${c.id}`,
         repo: row.fullName,
         title: `${c.name} (${row.fullName})`,
+        subject: c.name,
         detail: c.detail || c.risk,
       });
     }

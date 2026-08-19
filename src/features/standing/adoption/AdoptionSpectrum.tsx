@@ -26,7 +26,9 @@ export function AdoptionSpectrum({
   total: number;
   knowledgeLeader: AdoptionOverview["knowledgeLeader"];
   slug: string;
-  /** True when the enablement panel below is rendered, so the "none" follow-up can deep-link to it. */
+  /** True when the enablement cohort is non-empty, so the "none" follow-up can deep-link to the
+   *  Contributors tab's "Who to enable next" table. False (an empty cohort, or a population below the
+   *  naming floor) renders the same sentence as plain text — never a link to a section that isn't there. */
   showEnablementLink: boolean;
 }) {
   const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
@@ -67,9 +69,12 @@ export function AdoptionSpectrum({
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-divider pt-3 font-mono text-sm text-slate-500">
           {distribution.none > 0 &&
             (showEnablementLink ? (
-              <a href="#enablement" className="transition hover:text-accent">
-                → {distribution.none} contributor{distribution.none === 1 ? " has" : "s have"} no AI-attributed commits: see who to enable next
-              </a>
+              // Cross-TAB now: the "Who to enable next" table moved to Contributors (2026-08-19), so
+              // this is `?tab=contributors#enablement` rather than a same-page anchor. The <details>
+              // it lands on carries scroll-mt-24 to clear the sticky header.
+              <Link href={`${orgTabHref(slug, "contributors")}#enablement`} className="transition hover:text-accent">
+                → {distribution.none} contributor{distribution.none === 1 ? " has" : "s have"} no AI-attributed commits: see who to enable next on Contributors
+              </Link>
             ) : (
               <span>
                 {distribution.none} contributor{distribution.none === 1 ? " has" : "s have"} no AI-attributed commits yet

@@ -8,12 +8,23 @@
 //
 // Deliberately a separate section rather than a control inside the grid: the grid is a dense 0–10
 // matrix optimized for scanning coverage at a glance, and hanging buttons in its cells would wreck
-// that. Findings that are already settled sink to the bottom, greyed, carrying their reason.
+// that.
+//
+// SERVER half. It does the decision join and the ordering — both cheap, both better done once here
+// than in every client render — and hands plain rows to SecurityFindingsTable, which owns the filters,
+// the row cap and the expand state. That table replaced an unbounded <ul> (one card per finding): the
+// list is `repos × failing checks`, so a mid-sized fleet turned this section into tens of screens with
+// no way to reach a specific repo. See SecurityFindingsTable for what it borrows from the Follow-ups
+// worklist and why.
 
-import { DecisionControl } from "@/components/org/DecisionControl";
 import { SectionHeader } from "@/components/org/shared/ui";
+import { SecurityFindingsTable, type SecurityFindingRow } from "@/components/org/SecurityFindingsTable";
 import { securityFindings, type SecurityFindingInput } from "@/lib/org/findings";
 import { isOpen, type DecisionMap } from "@/lib/org/decision-map";
+
+/** Settled findings sink below the open ones, in a stable order, so the top of the table is always the
+ *  work still awaiting a call. Within a bucket: by repo, then by control name. */
+const STATUS_RANK: Record<SecurityFindingRow["status"], number> = { open: 0, snoozed: 1, accepted: 2, dismissed: 3 };
 
 export function SecurityFindings({
   org,
@@ -27,8 +38,31 @@ export function SecurityFindings({
   const findings = securityFindings(rows);
   if (findings.length === 0) return null;
 
-  const open = findings.filter((f) => isOpen(decisions, f.itemKey));
-  const settled = findings.filter((f) => !isOpen(decisions, f.itemKey));
+  const openCount = findings.filter((f) => isOpen(decisions, f.itemKey)).length;
+  const settledCount = findings.length - openCount;
+
+  const tableRows: SecurityFindingRow[] = findings
+    .map((f) => {
+      const d = decisions[f.itemKey];
+      return {
+        itemKey: f.itemKey,
+        repo: f.repo,
+        // securityFindings always sets `subject`; the fallback keeps the type honest for any future
+        // caller that passes findings from a builder which doesn't.
+        subject: f.subject ?? f.title,
+        title: f.title,
+        detail: f.detail,
+        status: isOpen(decisions, f.itemKey) ? ("open" as const) : d!.status,
+        rationale: d?.rationale,
+        decidedBy: d?.decidedBy,
+      };
+    })
+    .sort(
+      (a, b) =>
+        STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+        a.repo.localeCompare(b.repo) ||
+        a.subject.localeCompare(b.subject),
+    );
 
   return (
     <div className="mt-8">
@@ -41,36 +75,12 @@ export function SecurityFindings({
               Accept the work, or dismiss with a reason: the reason reaches connected agents and the next scan.
             </span>{" "}
             <span className="font-mono text-sm text-slate-500">
-              ({open.length} open · {settled.length} settled)
+              ({openCount} open · {settledCount} settled)
             </span>
           </>
         }
       />
-      <ul className="mt-3 divide-y divide-divider rounded-2xl border border-divider">
-        {[...open, ...settled].map((f) => {
-          const decision = decisions[f.itemKey];
-          const done = !isOpen(decisions, f.itemKey);
-          return (
-            <li key={f.itemKey} className={`px-4 py-3 ${done ? "opacity-60" : ""}`}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-mono text-sm text-white">{f.title}</div>
-                  <p className="mt-0.5 max-w-2xl text-sm text-slate-400">{f.detail}</p>
-                </div>
-                <DecisionControl
-                  org={org}
-                  module="security"
-                  itemKey={f.itemKey}
-                  title={f.title}
-                  status={decision?.status ?? "open"}
-                  rationale={decision?.rationale}
-                  decidedBy={decision?.decidedBy}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <SecurityFindingsTable org={org} rows={tableRows} />
     </div>
   );
 }
