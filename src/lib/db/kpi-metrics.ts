@@ -229,7 +229,7 @@ export async function avgLlmCostPerScan(windowDays = 30): Promise<ScanCostMetric
   if (!isDbConfigured()) return null;
   const scans = await getPrisma().scan.findMany({
     where: { scannedAt: { gte: ago(windowDays) } },
-    select: { engineModel: true, inputTokens: true, outputTokens: true },
+    select: { engineProvider: true, engineModel: true, inputTokens: true, outputTokens: true },
   });
 
   let total = 0;
@@ -237,7 +237,14 @@ export async function avgLlmCostPerScan(windowDays = 30): Promise<ScanCostMetric
   let unpriced = 0;
   for (const s of scans) {
     const usage: ModelTokenUsage[] = [
-      { model: s.engineModel, inputTokens: s.inputTokens ?? 0, outputTokens: s.outputTokens ?? 0 },
+      // `provider` carried through so a local ($0) engine prices as zero rather than falling into the
+      // `unpriced` bucket — otherwise a self-hosted fleet would look like a fleet Ascent can't cost.
+      {
+        model: s.engineModel,
+        provider: s.engineProvider,
+        inputTokens: s.inputTokens ?? 0,
+        outputTokens: s.outputTokens ?? 0,
+      },
     ];
     if ((s.inputTokens ?? 0) + (s.outputTokens ?? 0) === 0) continue; // mock / token-less
     const cost = estimateLlmCostFromTable(usage);

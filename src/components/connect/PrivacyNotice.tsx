@@ -1,4 +1,5 @@
 import { resolveProviderChoice, hasLlmKey } from "@/lib/llm";
+import { localLlmConfigured } from "@/lib/llm/local";
 import { MAX_FILES } from "@/lib/github/source";
 import type { ProviderName } from "@/lib/types";
 
@@ -7,7 +8,12 @@ import type { ProviderName } from "@/lib/types";
 // explicitly-selected real provider is shown as-is (it fails fast → mock only if mis-wired at scan time).
 function effectiveProvider(): ProviderName {
   const choice = resolveProviderChoice();
-  if (choice === "auto" || choice === "gemini") return hasLlmKey() ? "gemini" : "mock";
+  if (choice === "gemini") return hasLlmKey() ? "gemini" : "mock";
+  // Mirrors autoProvider()'s ladder in src/lib/llm/index.ts: Gemini key, else a configured local
+  // server, else mock. A self-hoster running Ollama was previously told their code goes "nowhere:
+  // scoring is fully local and deterministic" — accidentally true about the destination, but it named
+  // the wrong reason (mock, i.e. no AI at all) at the exact screen where the reason is the point.
+  if (choice === "auto") return hasLlmKey() ? "gemini" : localLlmConfigured() ? "local" : "mock";
   return choice;
 }
 
@@ -20,6 +26,7 @@ const WHERE: Record<ProviderName, string> = {
   gemini: "the Google Gemini API to produce the score.",
   openai: "your configured OpenAI-compatible endpoint to produce the score.",
   openrouter: "the OpenRouter API, which routes the request to your selected model's upstream provider.",
+  local: "your own LLM server at LOCAL_LLM_BASE_URL: no code leaves the machines you run.",
   mock: "nowhere: scoring is fully local and deterministic; no code leaves this deployment.",
 };
 
@@ -33,6 +40,11 @@ export function ConnectPrivacyNotice() {
   const provider = effectiveProvider();
   const isBedrock = provider === "bedrock";
   const isMock = provider === "mock";
+  // Inference that never leaves hardware the operator controls: a local OpenAI-compatible server, or
+  // the `claude` CLI running on this machine. Both are a STRONGER privacy position than Bedrock, so
+  // they must not be shown the "upgrade to Bedrock for an in-your-cloud guarantee" nudge below — that
+  // would be advising a self-hoster to send their source to a third party for privacy reasons.
+  const staysOnPremises = provider === "local" || provider === "claude-cli";
   return (
     <section className="mt-5 rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-300">
       <div className="font-mono text-xs uppercase tracking-[0.25em] text-accent">Where your code goes</div>
@@ -46,7 +58,12 @@ export function ConnectPrivacyNotice() {
           ✓ This deployment routes inference through AWS Bedrock, the enterprise-privacy path.
         </p>
       )}
-      {!isBedrock && !isMock && (
+      {staysOnPremises && (
+        <p className="mt-2 text-emerald-300">
+          ✓ Inference runs on hardware you control. Your source never reaches a third-party API.
+        </p>
+      )}
+      {!isBedrock && !isMock && !staysOnPremises && (
         <p className="mt-2 text-slate-400">
           Need a no-training, in-your-cloud guarantee for sensitive code? Route inference through{" "}
           <span className="font-mono text-slate-300">AWS Bedrock</span> (

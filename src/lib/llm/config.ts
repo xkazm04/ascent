@@ -1,10 +1,38 @@
 import type { ProviderName } from "@/lib/types";
+import { selfHosted } from "@/lib/env";
 
 // Env-driven LLM tuning knobs shared by the real providers. Temperature and Bedrock's maxTokens were
 // hard-coded literals, so a big-repo assessment could be truncated by the fixed cap and determinism
 // couldn't be tuned without a code change — inconsistent with the existing GEMINI_MODEL /
 // BEDROCK_MODEL_ID / LLM_TIMEOUT_MS env convention. These default to the prior literals, so unset
 // envs preserve exact behavior.
+
+/**
+ * Whether the `claude` CLI provider may run in THIS process.
+ *
+ * It used to be dev-only: `assess()` threw whenever NODE_ENV === "production". That was right when the
+ * only production deployment was Ascent Cloud on Vercel, where no `claude` binary exists. It is wrong
+ * now that self-hosting is a first-class path — a self-hoster runs `npm run build && npm start` (or the
+ * Docker image), which sets NODE_ENV=production, and the flagship "score your fleet with the Claude
+ * subscription you already pay for, zero API spend" story died exactly where it was meant to work.
+ *
+ * So: allowed in development, and allowed on a SELF-HOSTED production deployment. Ascent Cloud
+ * (billing configured → selfHosted() false) still refuses it, so a stray LLM_PROVIDER=claude-cli there
+ * fails fast and degrades through the accounted retry → failover chain instead of hanging on a binary
+ * that isn't there.
+ *
+ * COST OF THE CHANGE, stated plainly: the old guard folded to a compile-time `false` in production, so
+ * the dynamic import below was dead code and claude-cli.ts (with its `child_process.spawn`, a "very
+ * dynamic require") dropped out of the Node File Trace. This predicate is runtime, so it can no longer
+ * fold — the module now joins the production trace and adds an NFT warning alongside the existing ones.
+ * That is a few KB in the cloud bundle, traded for the provider actually working on the deployments
+ * this project now exists to serve. A build-time flag could restore the pruning, but only by making
+ * self-hosters set a variable before `npm run build`, which is precisely the friction the transition
+ * is trying to remove.
+ */
+export function cliProviderAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" || selfHosted();
+}
 
 /** Read an env var as a number, falling back to `fallback` when unset/blank/non-numeric. */
 export function envNumber(name: string, fallback: number): number {
@@ -132,12 +160,34 @@ export const PROVIDER_LABEL: Record<ProviderName, string> & Record<string, strin
   bedrock: "AWS Bedrock",
   openai: "OpenAI",
   openrouter: "OpenRouter",
+  local: "Local model",
   mock: "Mock (deterministic)",
 };
 
 /** Human label for an inference-engine provider id; unknown ids fall back to the raw id. */
 export function providerLabel(id: string): string {
   return PROVIDER_LABEL[id] ?? id;
+}
+
+/**
+ * Providers whose inference carries NO per-token bill, so their tokens price at exactly $0 rather
+ * than at a guessed rate or at "no estimate".
+ *
+ * `local` only. The distinction matters because MODEL_PRICES is keyed on model-id PREFIXES: a local
+ * tag that happens to start like a hosted model ("gpt-4o-ish", a re-tagged "sonnet") would otherwise
+ * be billed at the hosted rate, inventing a dollar figure for inference that ran on the operator's
+ * own GPU. And a self-hosted org running only local models must see "$0.00", not "no estimate" —
+ * $0.00 is the answer, and "no estimate" reads as a broken panel.
+ *
+ * Deliberately NOT `claude-cli`: that runs under a paid Claude subscription, and MODEL_PRICES prices
+ * its aliases at first-party rates on purpose so the /usage figure reflects what those tokens are
+ * worth. `mock` needs no entry — it reports no tokens at all, so it never reaches the price fold.
+ */
+const ZERO_COST_PROVIDERS: ReadonlySet<string> = new Set<ProviderName>(["local"]);
+
+/** Whether a persisted `Scan.engineProvider` id bills nothing per token. */
+export function isZeroCostProvider(provider: string | null | undefined): boolean {
+  return provider != null && ZERO_COST_PROVIDERS.has(provider);
 }
 
 // ---------------------------------------------------------------------------

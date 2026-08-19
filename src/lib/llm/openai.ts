@@ -7,10 +7,15 @@
 //
 // Config: OPENAI_API_KEY (required), OPENAI_MODEL (default gpt-4o-mini), OPENAI_BASE_URL (override
 // for Azure / self-hosted; default https://api.openai.com/v1). Select with LLM_PROVIDER=openai.
+//
+// This class is also the ENGINE behind the first-class `local` provider (src/lib/llm/local.ts): a
+// local Ollama / vLLM / LM Studio server speaks this exact protocol. Everything that differs there —
+// the reported provider name, the "no API key needed" rule, the $0 cost class — is a constructor
+// option rather than a fork, so a fix to the decoding/retry logic lands on both at once.
 
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { validateAssessment, isAssessmentUsable } from "@/lib/llm/provider";
-import type { LlmAssessment } from "@/lib/types";
+import type { LlmAssessment, ProviderName } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { llmMaxTokens, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
@@ -19,31 +24,61 @@ import { assessmentResponseFormat, isResponseFormatRejection, JSON_OBJECT_RESPON
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
+/** Constructor options. The last four exist so `local.ts` can reuse this class without forking it. */
+export interface OpenAiProviderOptions {
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  /** Reported provider id — what gets persisted as `Scan.engineProvider` and drives the /usage
+   *  provenance bars and the cost basis. Defaults to "openai". */
+  name?: ProviderName;
+  /** Human name used in error/warn text ("OpenAI", "the local LLM server"). */
+  label?: string;
+  /** Whether a missing API key is a hard error. False for a local server, which does not authenticate.
+   *  Defaults to true. */
+  requireApiKey?: boolean;
+  /** Error text when `requireApiKey` is true and no key is present. */
+  missingKeyMessage?: string;
+}
+
 export class OpenAiProvider implements LLMProvider {
-  readonly name = "openai" as const;
+  readonly name: ProviderName;
   readonly model: string;
   private apiKey: string;
   private baseUrl: string;
+  private label: string;
+  private requireApiKey: boolean;
+  private missingKeyMessage: string;
 
-  constructor(opts: { apiKey?: string; model?: string; baseUrl?: string } = {}) {
+  constructor(opts: OpenAiProviderOptions = {}) {
     this.apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY ?? "";
     this.model = opts.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
     this.baseUrl = (opts.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
+    this.name = opts.name ?? "openai";
+    this.label = opts.label ?? "OpenAI";
+    this.requireApiKey = opts.requireApiKey ?? true;
+    this.missingKeyMessage = opts.missingKeyMessage ?? "OPENAI_API_KEY is not set.";
   }
 
   async assess(input: LlmScoreInput, opts: AssessOptions = {}): Promise<LlmAssessment> {
-    if (!this.apiKey) throw new Error("OPENAI_API_KEY is not set.");
+    if (this.requireApiKey && !this.apiKey) throw new Error(this.missingKeyMessage);
     const { system, user } = buildAssessmentPrompt(input);
 
     // Abort on client disconnect OR our own timeout, whichever fires first — via the shared
     // withLlmTimeout helper (the AbortSignal.any form gemini/bedrock use), which composes the two
     // signals and owns the timer/listener lifecycle so no listener leaks. (Was a hand-rolled
     // addEventListener/removeEventListener pair.)
-    const { signal, clear } = withLlmTimeout(opts.signal, llmTimeoutMs(), "OpenAI request timed out.");
+    const { signal, clear } = withLlmTimeout(opts.signal, llmTimeoutMs(), `${this.label} request timed out.`);
     const post = (responseFormat: unknown) =>
       fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
+        // Send Authorization only when there IS a key. A local Ollama / LM Studio server does not
+        // authenticate, and a bare `Bearer ` (empty credential) is a malformed header that some
+        // OpenAI-compatible servers reject with a 401 — which would read as "your local model is
+        // broken" rather than "we sent a header we should not have".
+        headers: this.apiKey
+          ? { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` }
+          : { "content-type": "application/json" },
         body: JSON.stringify({
           model: this.model,
           temperature: llmTemperature(),
@@ -75,24 +110,24 @@ export class OpenAiProvider implements LLMProvider {
         const body = await res.text().catch(() => "");
         if (isResponseFormatRejection(res.status, body)) {
           console.warn(
-            `[llm/openai] model "${this.model}" rejected strict json_schema decoding; ` +
+            `[llm/${this.name}] model "${this.model}" rejected strict json_schema decoding; ` +
               "retrying with json_object (shape is then prompt-enforced only).",
           );
           res = await post(JSON_OBJECT_RESPONSE_FORMAT);
         } else {
-          throw new Error(`OpenAI request failed (${res.status}): ${body.slice(0, 200)}`);
+          throw new Error(`${this.label} request failed (${res.status}): ${body.slice(0, 200)}`);
         }
       }
       if (!res.ok) {
         const body = await res.text().catch(() => "");
-        throw new Error(`OpenAI request failed (${res.status}): ${body.slice(0, 200)}`);
+        throw new Error(`${this.label} request failed (${res.status}): ${body.slice(0, 200)}`);
       }
       const data = (await res.json()) as {
         choices?: { message?: { content?: string } }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       const text = data.choices?.[0]?.message?.content;
-      if (!text) throw new Error("Empty response from OpenAI.");
+      if (!text) throw new Error(`Empty response from ${this.label}.`);
       opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
 
       // The json_object FALLBACK path guarantees VALID JSON, not the assessment SHAPE, and even under
@@ -104,7 +139,7 @@ export class OpenAiProvider implements LLMProvider {
       // coercing it to an empty assessment that reads as a real (deterministic-floor) scan.
       const parsed = parseJsonLoose(text);
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("OpenAI returned JSON that is not an assessment object.");
+        throw new Error(`${this.label} returned JSON that is not an assessment object.`);
       }
       const assessment = validateAssessment(parsed);
       // A valid-but-thin object (few/no dimensions scored) will make the engine fall back to the
@@ -112,7 +147,7 @@ export class OpenAiProvider implements LLMProvider {
       // can see their endpoint under-graded, rather than only inferring it from the "mock" engine chip.
       if (!isAssessmentUsable(assessment, input.signals.length)) {
         console.warn(
-          `[llm/openai] model "${this.model}" scored only ${assessment.dimensions.length}/${input.signals.length} ` +
+          `[llm/${this.name}] model "${this.model}" scored only ${assessment.dimensions.length}/${input.signals.length} ` +
             `dimensions — the scan will lean on deterministic signals. Verify the endpoint honors JSON output.`,
         );
       }

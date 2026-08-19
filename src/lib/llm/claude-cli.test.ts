@@ -37,19 +37,31 @@ afterEach(() => {
   h.spawn.mockReset();
 });
 
-describe("runClaudePrompt (local-dev-only production guard)", () => {
-  it("throws immediately when NODE_ENV is production, before ever spawning the CLI", async () => {
+describe("runClaudePrompt (managed-deployment guard)", () => {
+  // The guard reads cliProviderAllowed() — the SAME predicate the CLI provider's assess() uses — so
+  // this surface can never disagree with the provider about whether a `claude` binary is reachable.
+  // The suite pins ASCENT_SELF_HOSTED=0 (vitest.config.js), so "production" here is managed cloud.
+  it("throws immediately on a managed production deployment, before ever spawning the CLI", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    await expect(runClaudePrompt("hello")).rejects.toThrow(
-      /local-dev-only.*not available in production/i,
-    );
+    await expect(runClaudePrompt("hello")).rejects.toThrow(/not available on this managed deployment/i);
     expect(h.spawn).not.toHaveBeenCalled();
   });
 
-  it("does not fire the production guard outside production (falls through to the real call path)", async () => {
+  // The self-hosting unblock, asserted on THIS surface too. Shared Org Memory's write-intelligence
+  // pass calls runClaudePrompt; had the two guards drifted, unblocking the CLI provider would have
+  // left that feature dead on exactly the deployments that had just gained a working CLI.
+  it("falls through on a self-hosted production deployment", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    h.spawn.mockImplementation(() => fakeChild(1)); // exit 1 — asserts we got PAST the guard
+    await expect(runClaudePrompt("hello")).rejects.not.toThrow(/managed deployment/i);
+    expect(h.spawn).toHaveBeenCalled();
+  });
+
+  it("does not fire the guard outside production (falls through to the real call path)", async () => {
     vi.stubEnv("NODE_ENV", "test");
     h.spawn.mockImplementation(() => fakeChild(1)); // exit 1 — asserts we got PAST the guard, not that it "succeeds"
-    await expect(runClaudePrompt("hello")).rejects.not.toThrow(/local-dev-only/i);
+    await expect(runClaudePrompt("hello")).rejects.not.toThrow(/managed deployment/i);
     expect(h.spawn).toHaveBeenCalled();
   });
 });

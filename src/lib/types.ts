@@ -5,7 +5,7 @@ export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
 export type Impact = "high" | "medium" | "low";
 export type Effort = "high" | "medium" | "low";
-export type ProviderName = "gemini" | "bedrock" | "openai" | "openrouter" | "mock" | "claude-cli";
+export type ProviderName = "gemini" | "bedrock" | "openai" | "openrouter" | "local" | "mock" | "claude-cli";
 /** Token usage reported by an LLM provider for one assess() call — the metered cost basis. */
 export interface TokenUsage {
   inputTokens?: number;

@@ -140,26 +140,42 @@ describe("resolveProviderChoice — unknown values fail LOUD, never coerce to au
 });
 
 describe("providerAvailable('claude-cli') — matches assess()'s throw gate (llm-provider-abstraction #1)", () => {
-  // assess() throws whenever NODE_ENV === "production" (the dynamic import is dead-code-pruned by the
-  // prod build), so availability MUST use the SAME signal — not VERCEL. Otherwise a non-Vercel prod
-  // host (Docker/ECS/plain `next start`) reports available yet always throws, silently mocking every
-  // scan and breaking the failover skip.
+  // availability and assess() share ONE predicate (cliProviderAllowed): dev, OR a self-hosted
+  // production deployment. If they could disagree, a host would report the provider available and
+  // then always throw — silently mocking every scan and breaking the failover skip. Note the suite
+  // pins ASCENT_SELF_HOSTED=0 (vitest.config.js), so "production" below means Ascent Cloud unless a
+  // test says otherwise.
   it("is available in non-production (dev/test) where assess() actually runs", () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("VERCEL", "");
     expect(providerAvailable("claude-cli")).toBe(true);
   });
 
-  it("is UNavailable in production even off Vercel (assess() would throw there)", () => {
+  it("is UNavailable on a managed production deployment (no `claude` binary on the host)", () => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("VERCEL", ""); // self-hosted prod: no VERCEL, but assess() still throws
+    vi.stubEnv("VERCEL", "");
     expect(providerAvailable("claude-cli")).toBe(false);
   });
 
-  it("failover skips claude-cli in production (providerByName returns null, no doomed attempt)", () => {
+  // The self-hosting unblock. A self-hoster runs `npm run build && npm start` or the Docker image,
+  // which sets NODE_ENV=production — and the old NODE_ENV-only gate killed the flagship "score your
+  // fleet on the Claude subscription you already pay for" path exactly where it was meant to work.
+  it("IS available in production on a self-hosted deployment", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    expect(providerAvailable("claude-cli")).toBe(true);
+  });
+
+  it("failover skips claude-cli on managed production (providerByName returns null, no doomed attempt)", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "");
     expect(providerByName("claude-cli")).toBeNull();
+  });
+
+  it("failover keeps claude-cli on self-hosted production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    expect(providerByName("claude-cli")?.name).toBe("claude-cli");
   });
 
   it("failover keeps claude-cli in non-production", () => {

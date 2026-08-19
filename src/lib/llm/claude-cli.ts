@@ -17,7 +17,7 @@ import { validateAssessment } from "@/lib/llm/provider";
 import { parseJsonLoose } from "@/lib/llm/json";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
-import { envNumber } from "@/lib/llm/config";
+import { cliProviderAllowed, envNumber } from "@/lib/llm/config";
 
 export const DEFAULT_CLAUDE_MODEL = "sonnet";
 // Floor for the CLI timeout, mirroring config.ts's MIN_LLM_TIMEOUT_MS rationale: a 0/negative/tiny
@@ -115,9 +115,10 @@ export class ClaudeCliProvider implements LLMProvider {
  * `.result` string: each caller owns its own schema and parses/validates it (with parseJsonLoose),
  * exactly as assess() does, so this seam stays contract-free.
  *
- * LOCAL-DEV-ONLY, like the rest of this module: callers must gate on providerAvailable("claude-cli")
- * and reach it through a `NODE_ENV !== "production"` dynamic import, so the prod build dead-code-prunes
- * this file (and its child_process.spawn) out of the Node File Trace.
+ * Available wherever the CLI provider is — development, or a SELF-HOSTED production deployment (see
+ * cliProviderAllowed in src/lib/llm/config.ts). Callers should still gate on
+ * providerAvailable("claude-cli") and reach this module through a dynamic import, so a managed cloud
+ * build never pulls it on a path that can't use it.
  *
  * `timeoutMs` defaults to the scan-sized cliTimeoutMs() (10 min). An INTERACTIVE caller (a user waiting
  * on a UI action) should pass something far smaller — a duplicate check that hangs for ten minutes is a
@@ -127,15 +128,21 @@ export async function runClaudePrompt(
   prompt: string,
   opts: { model?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<string> {
-  // Mirror ClaudeCliProvider's production guard (enforced today only via the caller convention
-  // documented above: gate on providerAvailable("claude-cli") + a NODE_ENV-gated dynamic import).
-  // A caller that skips that convention — a new non-scan surface reaching this function directly —
-  // would otherwise shell out to a `claude` binary that doesn't exist on Vercel with no explicit
-  // "why did this fail" signal. Defense-in-depth, not the primary guard: the primary protection is
-  // still index.ts's LazyClaudeCliProvider dead-code-pruning this whole module out of prod builds; this
-  // check only fires for the rarer path where a caller imports claude-cli.ts directly. (G3-27)
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("runClaudePrompt is local-dev-only and is not available in production builds");
+  // Mirror the CLI provider's gate EXACTLY (cliProviderAllowed: dev, or a self-hosted deployment).
+  // A caller that skips the documented convention — a new non-scan surface importing this module
+  // directly — would otherwise shell out to a `claude` binary that doesn't exist on managed cloud with
+  // no explicit "why did this fail" signal. Defense-in-depth, not the primary guard.
+  //
+  // Sharing the predicate matters more than it looks: when this was `NODE_ENV === "production"` alone,
+  // unblocking the CLI provider for self-hosting would have left the Shared Org Memory
+  // write-intelligence pass (src/lib/memory/consolidation.ts) still throwing on the very deployments
+  // that had just gained a working CLI — one feature quietly dead on the open-source build because two
+  // copies of "is the CLI usable here?" had drifted apart. (G3-27)
+  if (!cliProviderAllowed()) {
+    throw new Error(
+      "runClaudePrompt needs a local `claude` binary and is not available on this managed deployment. " +
+        "Set ASCENT_SELF_HOSTED=1 if you are running Ascent on your own machine.",
+    );
   }
   const model = opts.model || process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL;
   const raw = await runClaude(model, prompt, opts.signal, opts.timeoutMs);
