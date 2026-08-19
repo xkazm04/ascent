@@ -63,7 +63,12 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
   free: {
     id: "free",
     label: "Free",
-    includedCredits: 5,
+    // Raised from 5 on 2026-08-19, with the open-source transition. The Free tier's JOB changed: it
+    // used to be a trial of a product with no alternative, and it is now competing with `git clone`
+    // — a self-hosted Ascent that is unlimited, ungated and free forever. Five private scans a month
+    // is not a reason to stay on the cloud; it is a reason to go read the Dockerfile. This is the one
+    // number to tune if hosted COGS runs ahead of conversion (it is the whole cloud free-tier bill).
+    includedCredits: 20,
     unlimited: false,
     monthlyPrice: 0,
     billing: "free",
@@ -97,7 +102,15 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: ["Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
+    features: [
+      "Segments + comparisons",
+      "White-label briefings",
+      "Connect your own model (BYOM)",
+      "Playbooks + planning",
+      "Buy extra scans anytime",
+      "10 members",
+      "1-year history",
+    ],
   },
   // Stored id `enterprise` (see the TIER ID vs TIER LABEL note atop this file); shown as "Custom".
   // Its bullets describe the DIMENSIONS that get scoped in the conversation, not a list of unlimited
@@ -244,13 +257,23 @@ export function planAllowsMemory(plan: string | null | undefined): boolean {
   return id === "team" || id === "enterprise";
 }
 
-/** Plans that may connect their own LLM (BYOM / Bedrock — Feature 1) — Enterprise-only (§8.4): it's the
- *  marquee enterprise unlock (inference in the org's own AWS account/bill). A downgrade dormants any
- *  saved config (the provider resolver + settings route both gate on this). */
+/**
+ * Plans that may connect their own LLM (BYOM — Bedrock or OpenRouter) — **Team and up** since
+ * 2026-08-19; Enterprise-only before that (§8.4).
+ *
+ * It was the marquee enterprise unlock when there was no alternative to the hosted product. Under
+ * open-source-first there is one: a self-hoster points Ascent at any model, including a local one,
+ * for free. BYOM is therefore the exact concession that keeps a customer who *could* self-host on
+ * the cloud — "keep your model and your inference bill, let us run everything else" — and pricing it
+ * out of reach of everyone below Enterprise pushed that customer toward `git clone` instead. What
+ * stays genuinely Enterprise is operational, not capability: SSO, VPC/on-prem hosting, an SLA.
+ *
+ * A downgrade dormants any saved config (the provider resolver + settings route both gate on this).
+ */
 export function planAllowsByom(plan: string | null | undefined): boolean {
   if (selfHosted()) return true; // the operator already owns the keys — gating them is theatre
   const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "enterprise";
+  return id === "team" || id === "enterprise";
 }
 
 /** Plans that may export a saved report as a PDF — Starter (`pro`) and up. The PRD's legacy "Private" tier (paid,

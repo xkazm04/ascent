@@ -10,7 +10,7 @@ import { Dateline } from "@/components/ui";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { ScoreGauge } from "./ScoreGauge";
 import { ScanModal } from "./ScanModal";
-import { demoOrgHref } from "@/lib/site";
+import { demoOrgHref, sourceRepoHref } from "@/lib/site";
 import { DeckSection } from "@/components/deck/DeckSection";
 import type { LandingData } from "../types";
 
@@ -29,6 +29,11 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
   // Falsy when the corpus is empty — the sample-report link is then omitted (the curated org-demo link,
   // which points at a seeded org, still shows).
   const sampleRepo = exampleRepos?.[0] ?? null;
+  // The source link is the strongest zero-commitment preview there is on an open-source product: it
+  // is the one claim on this page a sceptical engineer can verify without giving us anything. Null
+  // (and therefore omitted) unless the deployment names its repository — NEXT_PUBLIC_SOURCE_REPO_URL
+  // is inlined at build time, so this resolves in the client bundle. See lib/site.
+  const sourceHref = sourceRepoHref();
   return (
     <DeckSection id="hero" variant="hero">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
@@ -101,6 +106,16 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
               <Link href={demoOrgHref()} className="focus-ring rounded-sm transition hover:text-accent">
                 <span aria-hidden>▸</span> See an example org dashboard
               </Link>
+              {sourceHref && (
+                <a
+                  href={sourceHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="focus-ring rounded-sm transition hover:text-accent"
+                >
+                  <span aria-hidden>▸</span> Open source · run it yourself
+                </a>
+              )}
             </div>
           </div>
 

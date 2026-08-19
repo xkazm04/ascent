@@ -54,13 +54,21 @@ const FAQ_LD = {
     },
     {
       "@type": "Question",
+      name: "Is Ascent open source?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Yes. Ascent is licensed under the GNU AGPL-3.0. You can clone it and run it yourself for free, forever, with no feature gates and no scan limits, pointed at any model including a local one (Ollama, vLLM, LM Studio) or your own Claude subscription. The hosted cloud runs the same codebase; paying for it buys operation — a managed database, a registered GitHub App, scheduled scans, alerts and support — not capability.",
+      },
+    },
+    {
+      "@type": "Question",
       name: "Is Ascent free?",
       acceptedAnswer: {
         "@type": "Answer",
         // DERIVED from the plan model, like the /pricing SEO copy — this sentence hardcoded
         // "Pro ($10/mo) and Team ($20/mo)" and sailed through both a repricing and a rename before
         // anyone noticed the landing page was quoting a price nobody could buy.
-        text: `Every plan includes a monthly private-scan allowance: ${PLAN_FEATURES.free.includedCredits} scans a month free; public scans are always free and unmetered. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements: hosting, scan volume, support, customization and SSO.`,
+        text: `Self-hosting is free and unlimited. On the hosted cloud, every plan includes a monthly private-scan allowance: ${PLAN_FEATURES.free.includedCredits} scans a month free; public scans are always free and unmetered. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements: hosting, scan volume, support, customization and SSO.`,
       },
     },
   ],

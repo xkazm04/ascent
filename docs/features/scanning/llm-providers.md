@@ -183,7 +183,7 @@ entry point the scan pipeline calls in place of `getProvider()`:
 3. Otherwise, `resolveByomProvider(orgSlug)` (from `org-llm.ts`) is called. It returns
    `null` unless BYOM is **active** for the org: `isByomActive()` requires a stored
    config row with `enabled: true` **and** a non-null `credentialsEncrypted` blob, the
-   org's plan allowing BYOM (`planAllowsByom`, Enterprise), and `isEncryptionConfigured()`
+   org's plan allowing BYOM (`planAllowsByom`, **Team and up** since 2026-08-19), and `isEncryptionConfigured()`
    (an `ENCRYPTION_KEY` is set on the deployment). If active, the stored secret is
    decrypted and a real provider is built:
    - `kind: "bedrock"` → `new BedrockProvider({ model, region, credentials })`: inference

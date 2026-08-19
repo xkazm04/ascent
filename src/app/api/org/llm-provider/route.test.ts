@@ -102,8 +102,9 @@ describe("POST /api/org/llm-provider — gate chain + order", () => {
     expect(res.status).toBe(403);
     expect(h.setOrgLlmConfig).not.toHaveBeenCalled();
   });
-  it("403 on a non-Enterprise plan", async () => {
-    h.getCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
+  // BYOM is Team-and-up since 2026-08-19 (planAllowsByom); Starter is the tier below the gate.
+  it("403 on a plan below the BYOM tier", async () => {
+    h.getCreditState.mockResolvedValue({ plan: "pro", balance: 0, unlimited: false });
     const res = await POST(post(valid));
     expect(res.status).toBe(403);
     expect(h.setOrgLlmConfig).not.toHaveBeenCalled();

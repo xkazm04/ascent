@@ -135,8 +135,10 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       { label: "Playbooks + planning", detail: "Turn gaps into tracked initiatives and goals.", tag: "plan", cells: from("team") },
       { label: "White-label briefings", detail: "Board-ready PDF briefings under your own brand.", tag: "plan", cells: from("team") },
       { label: "Skills library", detail: "Author and roll out your own agent-skill catalog.", tag: "plan", cells: from("team") },
-      // BYOM ships today and is genuinely gated at this tier (planAllowsByom), so it stays a ✓.
-      { label: "Private inference · AWS Bedrock", detail: "Run scoring in your own AWS account (bring-your-own-model).", tag: "plan", cells: from("enterprise") },
+      // BYOM ships today and is genuinely gated at this tier (planAllowsByom) — Team and up since the
+      // open-source transition: it is the concession that keeps a customer who COULD self-host on the
+      // cloud, so pricing it at Enterprise pushed exactly that customer toward `git clone`.
+      { label: "Connect your own model", detail: "Run scoring on your own Bedrock or OpenRouter account (bring-your-own-model).", tag: "plan", cells: from("team") },
       // Roles and the audit trail ship today; SAML/OIDC sign-in does NOT — the login is GitHub OAuth via
       // Supabase (src/lib/auth.ts). A ✓ here claimed a shipped capability. Under the Custom tier's
       // "adjustable, scoped with you" framing the honest cell is "Scoped", which is what the enquiry

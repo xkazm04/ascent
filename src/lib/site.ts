@@ -69,3 +69,26 @@ export function demoOrgHref(subPath = ""): string {
 
 /** Href for the demo org dashboard — compat alias for `demoOrgHref()`. */
 export const DEMO_ORG_HREF = demoOrgHref();
+
+/**
+ * Public URL of this deployment's SOURCE REPOSITORY, or null when the operator hasn't named one.
+ *
+ * Ascent is AGPL-3.0, so a deployment's users are entitled to its source (§13) and the marketing
+ * surfaces make an open-source claim a visitor should be able to check in one click. There is
+ * deliberately **no default**: guessing a GitHub URL would ship a dead link on every fork and
+ * self-hosted instance, and a broken "view the source" link damages the exact claim it is there to
+ * support more than its absence does. Surfaces degrade to naming the in-repo path instead.
+ *
+ * A fork that has modified Ascent should point this at ITS OWN repository, not upstream — that is
+ * what the licence actually asks for.
+ */
+export const SOURCE_REPO_URL: string | null =
+  process.env.NEXT_PUBLIC_SOURCE_REPO_URL?.trim().replace(/\/+$/, "") || null;
+
+/** Link to a path inside the source repository (e.g. `sourceRepoHref("docs/SELF-HOSTING.md")`), or
+ *  null when no repository URL is configured. Assumes a GitHub-style `/blob/HEAD/<path>` layout. */
+export function sourceRepoHref(path = ""): string | null {
+  if (!SOURCE_REPO_URL) return null;
+  const clean = path.replace(/^\/+/, "");
+  return clean ? `${SOURCE_REPO_URL}/blob/HEAD/${clean}` : SOURCE_REPO_URL;
+}

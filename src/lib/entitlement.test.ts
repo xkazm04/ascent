@@ -17,6 +17,13 @@ vi.mock("@/lib/db/credits", () => ({
 }));
 
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "./entitlement";
+import { scanAllowance } from "@/lib/plans";
+
+// The Free tier's monthly allowance, read from the plan model. These tests assert what happens AT the
+// allowance boundary, so the literal was only ever a stand-in for "the boundary" — and it turned each
+// of them into a repricing tripwire. Non-null asserted: Free is metered by definition, and a change
+// to that IS something these tests should fail on.
+const FREE_ALLOWANCE = scanAllowance("free") as number;
 
 beforeEach(() => {
   mockGetCreditState.mockReset();
@@ -69,14 +76,18 @@ describe("checkScanEntitlement (hybrid: allowance, then credits)", () => {
   });
 
   it("allowanceRemaining = the monthly free scans left (the batch-cap input that was missing)", async () => {
-    // A Free org (5/mo) that's used 4 and bought 0 credits still has 1 FREE scan left — so a bulk
-    // scan/import must be sized to balance + allowanceRemaining (1), not balance (0). Capping on credits
-    // alone wrongly skipped every included free scan.
+    // A Free org one scan short of its allowance, with 0 credits bought, still has 1 FREE scan left —
+    // so a bulk scan/import must be sized to balance + allowanceRemaining (1), not balance (0).
+    // Capping on credits alone wrongly skipped every included free scan.
+    //
+    // The allowance is read from the plan model rather than written as a literal: this test is about
+    // the ARITHMETIC at the boundary, not about the Free tier's current volume, and hard-coding the
+    // number made it a tripwire that fired on a repricing while the behaviour never changed.
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false });
-    mockCountUsage.mockResolvedValue(4);
+    mockCountUsage.mockResolvedValue(FREE_ALLOWANCE - 1);
     expect(await checkScanEntitlement("acme")).toMatchObject({ balance: 0, allowanceRemaining: 1 });
     // Allowance fully spent ⇒ 0 remaining (overflow then draws on credits only).
-    mockCountUsage.mockResolvedValue(5);
+    mockCountUsage.mockResolvedValue(FREE_ALLOWANCE);
     expect((await checkScanEntitlement("acme")).allowanceRemaining).toBe(0);
   });
 
@@ -87,7 +98,7 @@ describe("checkScanEntitlement (hybrid: allowance, then credits)", () => {
   });
 
   it("once the allowance is SPENT: allowed via credits when balance > 0, blocked (402) at zero", async () => {
-    mockCountUsage.mockResolvedValue(5); // Free's 5/mo allowance exhausted
+    mockCountUsage.mockResolvedValue(FREE_ALLOWANCE); // Free's monthly allowance exhausted
     mockGetCreditState.mockResolvedValue({ balance: 3, plan: "free", unlimited: false });
     expect(await checkScanEntitlement("acme")).toMatchObject({ allowed: true, withinAllowance: false });
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false });
