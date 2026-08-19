@@ -1232,6 +1232,11 @@ CREATE TABLE "OrgRegistry" (
     "practiceCount" INTEGER NOT NULL DEFAULT 0,
     "memoryCount" INTEGER NOT NULL DEFAULT 0,
     "lessonCount" INTEGER NOT NULL DEFAULT 0,
+    -- The registry usage/ lane, aggregated at index time. Ascent READS the lane; the
+    -- installations that run skills count locally and contribute. 0 contributors means
+    -- nobody is reporting, which is not the same as a fleet that runs nothing.
+    "usageInvokes30d" INTEGER NOT NULL DEFAULT 0,
+    "usageContributors" INTEGER NOT NULL DEFAULT 0,
     "warningsJson" TEXT NOT NULL DEFAULT '[]',
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
