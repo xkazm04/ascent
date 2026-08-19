@@ -14,6 +14,13 @@ const config = {
     // pinned; the bug+ui scan's 93 ui-perfectionist findings had no test coverage available to them.
     // The setup file is inert under node (it guards on `document`), so it costs the node tests nothing.
     setupFiles: ["./vitest.setup.dom.js"],
+    // Pin the deployment mode for the whole suite. `selfHosted()` (src/lib/env.ts) defaults to TRUE
+    // when no POLAR_ACCESS_TOKEN is present — which is right for a fresh clone but wrong for a test
+    // run, where the assertions are about Ascent CLOUD's tier gating (BYOM is Enterprise-only, the
+    // Free tier gets 5 scans, retention is 30 days). Without this pin, every one of those assertions
+    // would flip the moment the gates learned about self-hosting. Self-host behaviour has its own
+    // coverage in src/lib/self-host.test.ts, which sets the flag per-test via vi.stubEnv.
+    env: { ASCENT_SELF_HOSTED: "0" },
     // 15s, up from the 5s default. Not a licence for slow tests — it is a contention allowance. The
     // suite grew past 5,000 tests across ~400 files, several of which do real work (spawning the
     // doctor subprocess against fixture repos, driving the @react-pdf pipeline end to end). Those

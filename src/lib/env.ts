@@ -16,6 +16,52 @@ export function envBool(name: string): boolean {
   return v === "1" || v === "true";
 }
 
+// ── Deployment-mode predicate ────────────────────────────────────────────────
+
+/**
+ * Whether this deployment SELLS plans — i.e. whether a Polar server token is present. Read as a bare
+ * env string rather than through `@/lib/polar` on purpose: this module must stay importable from
+ * `@/lib/plans`, which client components import for its DATA constants, and pulling the Polar SDK
+ * across that boundary would drag a server-only dependency into the browser bundle.
+ */
+function billingConfigured(): boolean {
+  return Boolean(process.env.POLAR_ACCESS_TOKEN?.trim());
+}
+
+/**
+ * Whether Ascent is running as a SELF-HOSTED deployment — the open-source path, where the operator
+ * owns the keys, the model, the database and the bill.
+ *
+ * Ascent is AGPL-3.0 software whose cloud sells OPERATION, not features. That promise has to be true
+ * in code, not just on the pricing page: on a self-hosted deployment every plan gate is off (BYOM,
+ * white-label, skills, memory, PDF export), scans are unmetered, and retention is unbounded. The tier
+ * model still EXISTS — a self-hoster can run Ascent Cloud's exact code — it just isn't enforced.
+ *
+ * Resolution order, so that the common cases need no configuration at all:
+ *   1. `ASCENT_SELF_HOSTED=1|true`  → self-hosted (force it on: a private cloud that also sells
+ *      nothing internally, or a staging clone of the production env that must not meter).
+ *   2. `ASCENT_SELF_HOSTED=0|false` → NOT self-hosted (force it off: the hosted product, and the unit
+ *      suite, which asserts CLOUD-mode gating — see the `env` block in vitest.config.js).
+ *   3. unset → **self-hosted iff billing is not configured**. A fresh `git clone && npm run dev` has
+ *      no `POLAR_ACCESS_TOKEN`, so it gets the full product immediately instead of silently landing
+ *      on the Free tier's 5-scan allowance with the marquee features greyed out — which is exactly
+ *      the first-run experience an open-source-first project cannot afford.
+ *
+ * SERVER-SIDE ONLY. Every caller (the `planAllows*` gates, `isMeteredScan`) runs in a route handler,
+ * a server component, or the db layer; no client component calls a gate — they import only the plan
+ * DATA constants (verified: `PlanControl.tsx`, `CreditsControl.sections.tsx`). Were one to call a
+ * gate, `process.env.POLAR_ACCESS_TOKEN` is undefined in the browser and this would wrongly report
+ * self-hosted, so keep gate evaluation on the server and pass the boolean down as a prop.
+ */
+export function selfHosted(): boolean {
+  const raw = process.env.ASCENT_SELF_HOSTED?.trim().toLowerCase();
+  // Deliberately NOT envBool: this flag needs a third state. `envBool` cannot distinguish "unset"
+  // (fall through to the billing sniff) from an explicit "0" (the operator says: enforce plans).
+  if (raw === "1" || raw === "true") return true;
+  if (raw === "0" || raw === "false") return false;
+  return !billingConfigured();
+}
+
 // ── Auth-gate env predicates ─────────────────────────────────────────────────
 // Pure (process.env only) so BOTH the server-only access gate (src/lib/access.ts, which can't run in
 // the proxy) and the next/headers-free proxy (src/proxy.ts) read one definition instead of two copies.

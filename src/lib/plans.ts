@@ -10,6 +10,13 @@
 // amounts are invented here", which hid this hazard.) An automated reconciliation now exists:
 // src/lib/price-drift.ts fetches the live Polar prices and reports any mismatch on the operator KPI
 // route (GET /api/kpi → `priceDrift`) — a detector, not a fixer; the mirror edit here is still manual.
+//
+// SELF-HOSTED DEPLOYMENTS. Ascent is AGPL software whose cloud sells OPERATION, not features. Every
+// `planAllows*` gate below therefore short-circuits to "allowed" when `selfHosted()` is true, scans
+// are unmetered, and retention is unbounded — see src/lib/env.ts for how that mode is detected. The
+// tier model still exists on a self-hosted box (it is the same code the cloud runs); it is simply
+// not enforced. Keep this discipline when adding a gate: a new `planAllows*` that forgets the
+// short-circuit silently makes the open-source build worse than the cloud one.
 
 // TIER ID vs TIER LABEL. `enterprise` is the STORED id — it is written to `Organization.plan`, appears
 // in the POLAR_PLAN_PRODUCTS env mapping, and is compared by the webhook's downgrade-guard rank. The
@@ -17,6 +24,8 @@
 // Renaming the id would be a data migration across every persisted org row plus a coordinated env edit
 // on every deployment, for zero user-visible gain — so the tier reads "Custom" everywhere a human looks
 // and stays `enterprise` everywhere a machine looks.
+
+import { selfHosted } from "@/lib/env";
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
@@ -159,14 +168,17 @@ export function planFeatures(plan: string | null | undefined): PlanFeature {
   return (plan && isPlanId(plan) ? PLAN_FEATURES[plan] : null) ?? PLAN_FEATURES.free;
 }
 
-/** Plans whose private scans are included (never consume credits) — now data-driven. */
+/** Plans whose private scans are included (never consume credits) — now data-driven. A SELF-HOSTED
+ *  deployment is always unlimited: the operator is paying their own LLM and infrastructure bill, so
+ *  there is nothing for a credit to meter. */
 export function isUnlimitedPlan(plan: string | null | undefined): boolean {
-  return planFeatures(plan).unlimited;
+  return selfHosted() || planFeatures(plan).unlimited;
 }
 
 /** The plan's monthly metered-scan allowance (free scans before overflow draws on credits), or null
  *  for unlimited (Enterprise). A metered scan is free while the org is under this; beyond it, 1 credit. */
 export function scanAllowance(plan: string | null | undefined): number | null {
+  if (selfHosted()) return null; // unmetered — see the SELF-HOSTED note atop this file
   const p = planFeatures(plan);
   return p.unlimited ? null : (p.includedCredits ?? 0);
 }
@@ -210,6 +222,7 @@ export function resolveScanCharge(opts: { plan: string | null | undefined; usage
 /** Plans that include white-label briefing branding — Team and up (was Enterprise-only; opened up so a
  *  Team-tier reseller can brand the reports they hand to clients). */
 export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
+  if (selfHosted()) return true;
   const id = plan && isPlanId(plan) ? plan : "free";
   return id === "team" || id === "enterprise";
 }
@@ -217,6 +230,7 @@ export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
 /** Plans that may author + manage the Org Skills Library (Feature 2) — Team and up, for parity with
  *  Playbooks/Segments (§8.6). Reads stay open to all members; only create/edit/archive is gated. */
 export function planAllowsSkillsLibrary(plan: string | null | undefined): boolean {
+  if (selfHosted()) return true;
   const id = plan && isPlanId(plan) ? plan : "free";
   return id === "team" || id === "enterprise";
 }
@@ -225,6 +239,7 @@ export function planAllowsSkillsLibrary(plan: string | null | undefined): boolea
  *  with the Skills Library: the durable org knowledge store is a team asset, so authoring is the gated
  *  capability while reads stay open to every member (a memory nobody can read is worthless). */
 export function planAllowsMemory(plan: string | null | undefined): boolean {
+  if (selfHosted()) return true;
   const id = plan && isPlanId(plan) ? plan : "free";
   return id === "team" || id === "enterprise";
 }
@@ -233,6 +248,7 @@ export function planAllowsMemory(plan: string | null | undefined): boolean {
  *  marquee enterprise unlock (inference in the org's own AWS account/bill). A downgrade dormants any
  *  saved config (the provider resolver + settings route both gate on this). */
 export function planAllowsByom(plan: string | null | undefined): boolean {
+  if (selfHosted()) return true; // the operator already owns the keys — gating them is theatre
   const id = plan && isPlanId(plan) ? plan : "free";
   return id === "enterprise";
 }
@@ -243,6 +259,7 @@ export function planAllowsByom(plan: string | null | undefined): boolean {
  *  gating any lower would mean no plan at all could ever unlock it. Least-breaking reading of an
  *  otherwise-stale "Private tier" label (g1-02). */
 export function planAllowsPdfExport(plan: string | null | undefined): boolean {
+  if (selfHosted()) return true;
   const id = plan && isPlanId(plan) ? plan : "free";
   return id === "pro" || id === "team" || id === "enterprise";
 }
@@ -255,6 +272,10 @@ export function planAllowsPdfExport(plan: string | null | undefined): boolean {
  * function stays pure and unit-testable.
  */
 export function retentionCutoff(plan: string | null | undefined, nowMs: number): Date | null {
+  // Self-hosted: it is the operator's own disk and their own retention policy. Ascent Cloud's tiered
+  // read floor is a COGS control, and applying it to someone else's Postgres would hide their data
+  // from them for no reason.
+  if (selfHosted()) return null;
   const days = planFeatures(plan).retentionDays;
   return days == null ? null : new Date(nowMs - days * 86_400_000);
 }
