@@ -13,7 +13,7 @@
 // different shapes.
 
 import { buildCatalog, serializeCatalog } from "./catalog";
-import { DEFAULT_POLICIES, modeToYaml, serializeRegistryYaml } from "./policy";
+import { DEFAULT_LANES, DEFAULT_POLICIES, modeToYaml, serializeRegistryYaml } from "./policy";
 
 /** Default repo name ascent proposes; any repo can be mapped instead. */
 export const DEFAULT_REGISTRY_NAME = "ai-registry";
@@ -122,6 +122,9 @@ export function buildScaffoldFiles(orgSlug: string): RegistryFile[] {
         canonical: true,
         mode: "git_native",
         telemetry: "off",
+        // A fresh registry has no usage/ directory yet — the lane is created by its first
+        // contributor. Declaring the role up front is what makes it a reader when it appears.
+        lanes: { ...DEFAULT_LANES },
         policies: DEFAULT_POLICIES,
         owners: [],
       }),

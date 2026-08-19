@@ -15,6 +15,30 @@ import type { RegistryModeValue, TelemetrySinkValue } from "@/lib/db/org-registr
 /** The four `kind` values a memory note may declare — the closed set OrgMemory.kind stores. */
 export const REGISTRY_MEMORY_KINDS = ["episodic", "semantic", "procedural", "summary"] as const;
 
+/**
+ * What ascent does with one of the lanes the registry's ROOT `registry.yaml` declares.
+ *
+ * `reader` — index the lane, never write to it. Every lane ascent understands today is a reader,
+ * and for `usage/` that is load-bearing rather than incidental: the installations that RUN skills
+ * count locally and each contribute one `usage/<contributor>.json`. Two writers on one number is
+ * the failure those per-contributor files exist to prevent, so ascent sums what they published
+ * and contributes nothing. `writer` is carried so a future lane can state the other relationship
+ * without a schema break; nothing ascent emits uses it.
+ */
+export type RegistryLaneRole = "reader" | "writer";
+
+/**
+ * The lanes ascent indexes when the overlay does not say. Not a guess: it is what the indexer
+ * hardcodes (`index-walk.ts` — skills/practices/memory artifacts plus `usage/<contributor>.json`),
+ * so an older overlay written before the `lanes` block existed still describes ascent truthfully.
+ */
+export const DEFAULT_LANES: Readonly<Record<string, RegistryLaneRole>> = {
+  skills: "reader",
+  practices: "reader",
+  memory: "reader",
+  usage: "reader",
+};
+
 export interface RegistryPolicies {
   requireDescription: boolean;
   requireVersion: boolean;
@@ -29,9 +53,19 @@ export interface RegistryDeclaration {
   canonical: boolean;
   mode: RegistryModeValue;
   telemetry: TelemetrySinkValue;
+  /** Lane name -> ascent's role in it. A lane absent from the map is one ascent does not index. */
+  lanes: Record<string, RegistryLaneRole>;
   policies: RegistryPolicies;
   owners: string[];
 }
+
+/**
+ * Does the declaration give ascent permission to WRITE `lane`?
+ *
+ * The whole point of the field, expressed as the guard a write-back would have to pass. `usage/`
+ * must answer false: ascent reads contributed counts and produces none of its own.
+ */
+export const writesLane = (d: RegistryDeclaration, lane: string): boolean => d.lanes[lane] === "writer";
 
 export const DEFAULT_POLICIES: RegistryPolicies = {
   requireDescription: true,
@@ -118,6 +152,22 @@ const asList = (v: unknown, fallback: string[]) =>
   Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : fallback;
 
 /**
+ * Read the `lanes:` map. An UNRECOGNIZED role is dropped rather than coerced — silently reading
+ * `writer` as `reader` would invert the one fact this field exists to state — and a block that
+ * yields nothing usable falls back to the documented defaults, same as every other field here.
+ */
+function asLanes(node: Node | undefined): Record<string, RegistryLaneRole> {
+  if (typeof node !== "object" || Array.isArray(node) || node === null) return { ...DEFAULT_LANES };
+  const out: Record<string, RegistryLaneRole> = {};
+  for (const [lane, role] of Object.entries(node)) {
+    if (Array.isArray(role)) continue;
+    const r = String(role).trim().toLowerCase();
+    if (r === "reader" || r === "writer") out[lane] = r;
+  }
+  return Object.keys(out).length ? out : { ...DEFAULT_LANES };
+}
+
+/**
  * Read `.ascent/registry.yaml`. Never throws: an unreadable or partial file yields the documented
  * defaults, because refusing to index a registry over a typo in its settings would be a worse
  * failure than indexing it with defaults and saying so.
@@ -134,6 +184,7 @@ export function parseRegistryYaml(text: string): RegistryDeclaration {
     canonical: asBool(tree.canonical, true),
     mode: MODES[String(tree.mode ?? "").toLowerCase()] ?? "git_native",
     telemetry: SINKS[String(tree.telemetry ?? "").toLowerCase()] ?? "off",
+    lanes: asLanes(tree.lanes),
     owners: asList(tree.owners, []),
     policies: {
       requireDescription: asBool(pol.requireDescription, DEFAULT_POLICIES.requireDescription),
@@ -146,6 +197,11 @@ export function parseRegistryYaml(text: string): RegistryDeclaration {
 }
 
 const list = (items: string[]) => items.map((i) => `    - ${i}`).join("\n");
+
+const lanes = (m: Record<string, RegistryLaneRole>) =>
+  Object.entries(m)
+    .map(([lane, role]) => `  ${lane}: ${role}`)
+    .join("\n");
 
 /** Emit the file the scaffold seeds — the same key-for-key shape the fixture registry declares. */
 export function serializeRegistryYaml(d: RegistryDeclaration): string {
@@ -162,8 +218,16 @@ canonical: ${d.canonical}
 # hosted-mirror - content is authored in the ascent app and mirrored here.
 mode: ${modeToYaml(d.mode)}
 
-# Where invocation counts go. api = POST to ascent; registry = a telemetry/ folder in this repo;
-# off = no counts at all. Counts only, never prompt or transcript text.
+# Ascent's role in each lane the root \`registry.yaml\` declares. A lane named here is one ascent
+# INDEXES; \`reader\` means it reads that lane and never writes to it. \`usage/\` is a reader by
+# design: the installations that run the skills contribute the counts, one file each, and two
+# writers on one number is the failure those per-contributor files exist to prevent.
+lanes:
+${lanes(d.lanes)}
+
+# Where the invocation counts this consumer observes are sent. api = POST to ascent;
+# registry = committed into this repo's usage/ lane; off = no counts at all. Counts only, never
+# prompt or transcript text.
 telemetry: ${d.telemetry}
 
 policies:
