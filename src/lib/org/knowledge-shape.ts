@@ -1,10 +1,15 @@
 // The client-safe SHAPE of the Knowledge base view: its types and the two pure helpers that read
 // them. Split out of `knowledge-view.ts` because that module reaches the database (via
-// `registry-view` → `@/lib/db` → Prisma → `pg`), and `KnowledgeLedger`/`KnowledgeShelf` render
-// under a `"use client"` panel. A single VALUE import of `artifactTotal` from there pulled the
-// whole Prisma/pg chain into the browser bundle, which fails to resolve Node's `tls` and
-// `util/types` and 500s every /org/<slug> route. Types alone would have been erased; the value
-// import is what crossed the boundary, so the values live here where the client may have them.
+// `registry-view` → `@/lib/db` → Prisma → `pg`) and `KnowledgeLedger` rendered under a
+// `"use client"` panel. A single VALUE import of `artifactTotal` from there pulled the whole
+// Prisma/pg chain into the browser bundle, which fails to resolve Node's `tls` and `util/types`
+// and 500s every /org/<slug> route. Types alone would have been erased; the value import is what
+// crossed the boundary, so the values live here where the client may have them.
+//
+// The prototype switcher that made the panel a client component is GONE (Ledger won; the whole
+// tab is server-rendered now), so nothing in this feature currently crosses that boundary. The
+// split stays anyway: the failure it prevents is one `"use client"` away, and the seam costs a
+// file. Do not fold it back in on the grounds that nothing needs it today.
 //
 // Rule of thumb for this pair: anything a client component needs goes in this file; anything that
 // touches the database stays in `knowledge-view.ts`.

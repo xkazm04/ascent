@@ -17,7 +17,7 @@
 import { Kicker } from "@/components/ui";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";
 
-import { KnowledgePanel } from "./KnowledgePanel";
+import { KnowledgeLedger } from "./KnowledgeLedger";
 
 function Notice({ title, body }: { title: string; body: React.ReactNode }) {
   return (
@@ -76,5 +76,20 @@ export async function KnowledgeTab({ slug }: { slug: string }) {
     );
   }
 
-  return <KnowledgePanel view={view} />;
+  return (
+    <div className="space-y-6">
+      {view.provisional ? (
+        <div className="rounded-2xl border border-divider bg-ink px-5 py-4">
+          <Kicker tone="muted">Preview</Kicker>
+          <p className="mt-1 text-sm text-slate-400">
+            These counts are the registry&apos;s real contents read once by hand, not an index pass — the
+            indexer walks skills, practices and memory today and does not parse{" "}
+            <span className="font-mono text-xs text-slate-300">knowledge/**</span> yet. Shape is final;
+            freshness is not.
+          </p>
+        </div>
+      ) : null}
+      <KnowledgeLedger view={view} />
+    </div>
+  );
 }
