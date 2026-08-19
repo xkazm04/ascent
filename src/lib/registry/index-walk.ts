@@ -60,6 +60,20 @@ export const isUsageFile = (path: string): boolean => {
   return parts.length === 2 && parts[0] === "usage" && parts[1]!.endsWith(".json");
 };
 
+/**
+ * `knowledge/<domain>/index.json` — the GENERATED summary of one Reference
+ * Knowledge Bundle.
+ *
+ * The bundle itself is ~1,000 markdown documents; indexing those would blow the
+ * file cap and tell us nothing the index does not. The index exists precisely so
+ * a consumer can characterise a bundle from ONE file, which is why this selects
+ * that file and nothing else under `knowledge/`.
+ */
+export const isBundleIndex = (path: string): boolean => {
+  const parts = path.split("/");
+  return parts.length === 3 && parts[0] === "knowledge" && parts[2] === "index.json";
+};
+
 /** Lesson entries are `## <version> - <date> - <project>` headings; the count is the lane's depth. */
 export const countLessons = (text: string): number => (text.match(/^##\s+\S/gm) ?? []).length;
 
@@ -71,6 +85,8 @@ export interface SelectedArtifacts {
   memory: RegistryTreeEntry[];
   /** Contributed usage counts — see `isUsageFile`. Empty on a registry nobody reports to. */
   usage: RegistryTreeEntry[];
+  /** One generated index per knowledge bundle — see `isBundleIndex`. */
+  bundles: RegistryTreeEntry[];
 }
 
 /**
@@ -96,6 +112,7 @@ export function selectArtifacts(tree: RegistryTree, warnings: string[]): Selecte
     practices: take((p) => isArtifact(p, REGISTRY_DIRS.practices, REGISTRY_PRACTICE_FILE), "practices"),
     memory: take(isMemoryNote, "memory"),
     usage: take(isUsageFile, "usage"),
+    bundles: take(isBundleIndex, "knowledge"),
   };
 }
 

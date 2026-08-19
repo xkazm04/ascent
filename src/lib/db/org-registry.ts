@@ -61,6 +61,16 @@ export interface OrgRegistryRow {
    * be able to tell them apart.
    */
   usage: { invokes30d: number; contributors: number };
+  /** The knowledge/ lane, one entry per bundle, as its generated index states it. */
+  bundles: {
+    name: string;
+    subjects: number;
+    techniques: number;
+    applications: number;
+    laws: number;
+    categories: string[];
+    useWhenCoverage: string | null;
+  }[];
   warnings: string[];
   createdBy: string | null;
   updatedAt: string;
@@ -119,6 +129,7 @@ function toRow(r: any): OrgRegistryRow {
       lessons: r.lessonCount ?? 0,
     },
     usage: { invokes30d: r.usageInvokes30d ?? 0, contributors: r.usageContributors ?? 0 },
+    bundles: parseRegistryJson<OrgRegistryRow["bundles"]>(r.bundlesJson ?? null, []),
     warnings: parseRegistryJson<string[]>(r.warningsJson ?? null, []).filter((w) => typeof w === "string"),
     createdBy: r.createdBy ?? null,
     updatedAt: new Date(r.updatedAt ?? Date.now()).toISOString(),

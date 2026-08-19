@@ -13,6 +13,8 @@ export interface IndexResultInput {
   catalogSha?: string | null;
   /** Aggregate of the registry's `usage/` lane, when the pass read it. */
   usage?: { invokes30d: number; contributors: number };
+  /** The knowledge/ lane's bundles, when the pass read them. */
+  bundles?: unknown[];
 }
 
 /**
@@ -58,6 +60,9 @@ export async function recordIndexResult(id: string, result: IndexResultInput): P
       ...(result.usage
         ? { usageInvokes30d: result.usage.invokes30d, usageContributors: result.usage.contributors }
         : {}),
+      // Same rule as usage: omitted when the pass did not read the lane, so
+      // "not measured" never overwrites a good reading with an empty one.
+      ...(result.bundles ? { bundlesJson: JSON.stringify(result.bundles) } : {}),
     },
   });
 }

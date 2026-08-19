@@ -15,14 +15,13 @@
 // exists so a consumer can characterise a bundle WITHOUT reading its ~1,000 markdown documents —
 // which is what makes this tab cheap enough to be an overview rather than an explorer.
 //
-// ## Status of the wiring (read this before trusting the counts)
+// ## Where the numbers come from now
 //
-// The registry indexer does not parse `knowledge/**` yet — it walks skills/practices/memory. Until
-// it does, `getKnowledgeView` reports the mapping state truthfully from the registry row and serves
-// domain rows from `PREVIEW_DOMAINS`, whose numbers are the REAL current contents of
-// xkazm04/ai-registry (verified 2026-08-19), not invented placeholders. The `provisional` flag is
-// on the view rather than in a comment so the UI can SAY SO to the user; a preview that cannot
-// admit it is a preview is just a wrong number.
+// The indexer reads each bundle's generated index on every pass and stores the summary on the
+// registry row, so this view is a plain read of indexed truth. It used to serve a hand-read
+// `PREVIEW_DOMAINS` constant behind a `provisional` flag; that flag now reports whether the lane
+// has actually been indexed, and the constant is gone — a hand-maintained number displayed as fact
+// drifts silently, which is exactly why it was flagged rather than trusted.
 
 import { getRegistryView } from "./registry-view";
 import { sortDomains } from "./knowledge-shape";
@@ -34,33 +33,21 @@ import type { KnowledgeDomain, KnowledgeView } from "./knowledge-shape";
 export type { KnowledgeStatus, KnowledgeDomain, KnowledgeView } from "./knowledge-shape";
 export { artifactTotal, sortDomains } from "./knowledge-shape";
 
-/**
- * The real contents of xkazm04/ai-registry, verified 2026-08-19 against
- * `knowledge/software-engineering/index.json`. Replace with indexer output — do not "update" these
- * by hand as the bundle grows, because a hand-maintained number drifts silently and this one is
- * displayed as fact.
- */
-const PREVIEW_DOMAINS: KnowledgeDomain[] = [
-  {
-    name: "software-engineering",
-    title: "Software engineering",
-    subjects: 105,
-    techniques: 624,
-    applications: 236,
-    laws: 9,
-    categories: [
-      "ui-surfaces",
-      "client-architecture",
-      "llm-agent",
-      "backend-platform",
-      "operations",
-      "security",
-      "integration",
-      "engineering-process",
-    ],
-    useWhenCoverage: { written: 0, total: 624 },
-  },
-];
+/** `software-engineering` → `Software engineering`. The bundle's directory name is its identity;
+ *  the title is presentation, so it is derived rather than stored twice. */
+function titleOf(name: string): string {
+  const spaced = name.replace(/-/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** `"0/624"` → `{ written: 0, total: 624 }`. Falls back to the bundle's technique count so a
+ *  missing or malformed field reads as "none of them", never as a coverage of zero out of zero —
+ *  which would render as 0% and 100% depending on which way the UI divides. */
+function parseCoverage(raw: string | null, techniques: number): { written: number; total: number } {
+  const m = raw?.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (!m) return { written: 0, total: techniques };
+  return { written: Number(m[1]), total: Number(m[2]) };
+}
 
 export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
   const registry = await getRegistryView(slug);
@@ -87,7 +74,19 @@ export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
     };
   }
 
-  const domains = sortDomains(PREVIEW_DOMAINS);
+  // One row per bundle, exactly as that bundle's own generated index states it.
+  const domains = sortDomains(
+    registry.bundles.map((b) => ({
+      name: b.name,
+      title: titleOf(b.name),
+      subjects: b.subjects,
+      techniques: b.techniques,
+      applications: b.applications,
+      laws: b.laws,
+      categories: b.categories,
+      useWhenCoverage: parseCoverage(b.useWhenCoverage, b.techniques),
+    })),
+  );
 
   return {
     status: domains.length === 0 ? "empty" : "indexed",
@@ -103,6 +102,7 @@ export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
       techniques: domains.reduce((n, d) => n + d.techniques, 0),
       applications: domains.reduce((n, d) => n + d.applications, 0),
     },
-    provisional: true,
+    // Indexed truth once a pass has read the lane; an empty lane is not a preview.
+    provisional: false,
   };
 }

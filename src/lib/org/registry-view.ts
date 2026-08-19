@@ -84,6 +84,9 @@ export type RegistryView = {
   /** Last 20, newest first. */
   activity: RegistryActivityEntry[];
   telemetry: { invokes30d: number; reposReporting: number; sink: TelemetrySink };
+  /** The knowledge/ lane, one entry per Reference Knowledge Bundle, as that
+   *  bundle's own generated index states it. Empty until a pass reads the lane. */
+  bundles: OrgRegistryRow["bundles"];
   howTo: { syncCmd: string; hooksCmd: string; pointer: string };
 
   /** What ascent can ACTUALLY do for this viewer: render a GitHub action only when its flag is true
@@ -182,6 +185,7 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     // `reposReporting` is how many installations CONTRIBUTED a file — a zero with
     // invokes 0 means nobody is reporting, which is a different fact from a fleet
     // that runs nothing, and the instrument panel says so.
+    bundles: row?.bundles ?? [],
     telemetry: {
       invokes30d: row?.usage.invokes30d ?? 0,
       reposReporting: row?.usage.contributors ?? 0,

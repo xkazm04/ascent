@@ -43,6 +43,72 @@ export interface IndexRegistryResult {
    * ascent stays a reader here.
    */
   usage?: RegistryUsage;
+  /**
+   * The `knowledge/` lane: one row per Reference Knowledge Bundle.
+   *
+   * Read from each bundle's GENERATED index, never by walking its markdown —
+   * that is what the index is for, and walking ~1,000 documents to recount what
+   * one file already states would be both expensive and a second authority.
+   */
+  bundles?: RegistryBundle[];
+}
+
+/** One Reference Knowledge Bundle, as its generated index states it. */
+export interface RegistryBundle {
+  /** Directory name under `knowledge/`. */
+  name: string;
+  subjects: number;
+  techniques: number;
+  applications: number;
+  /** Cross-cutting laws the bundle's techniques cite. */
+  laws: number;
+  /** Category ids the bundle declares, in its own order. */
+  categories: string[];
+  /** `written/total` — how many techniques carry a consult trigger. */
+  useWhenCoverage: string | null;
+}
+
+/**
+ * Read the bundle indexes. Tolerant like every other read here: a malformed
+ * index degrades ITSELF into a warning and the other bundles still land.
+ *
+ * Counts are taken from `meta` verbatim rather than recomputed. The bundle's own
+ * generator owns them; recomputing here would make ascent a second authority for
+ * a number it does not produce, and the two would drift the first time either
+ * side changed what it counts.
+ */
+export function readBundles(
+  files: { path: string; text: string | null }[],
+  warnings: string[],
+): RegistryBundle[] {
+  const out: RegistryBundle[] = [];
+  for (const { path, text } of files) {
+    if (text === null) continue;
+    let doc: unknown;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      warnings.push(`${path}: not valid JSON — bundle not indexed`);
+      continue;
+    }
+    const meta = (doc as { meta?: Record<string, unknown> })?.meta;
+    if (!meta || typeof meta !== "object") {
+      warnings.push(`${path}: no meta block — bundle not indexed`);
+      continue;
+    }
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : 0);
+    const name = typeof meta.bundle === "string" && meta.bundle ? meta.bundle : path.split("/")[1]!;
+    out.push({
+      name,
+      subjects: num(meta.subjects),
+      techniques: num(meta.techniques),
+      applications: num(meta.applications),
+      laws: num(meta.laws),
+      categories: Array.isArray(meta.categories) ? meta.categories.filter((c) => typeof c === "string") : [],
+      useWhenCoverage: typeof meta.use_when_coverage === "string" ? meta.use_when_coverage : null,
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Aggregate of the registry's `usage/` lane. */
@@ -261,6 +327,12 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     }
   }
 
+  // ── knowledge/<domain>/index.json ──
+  const bundles = readBundles(
+    await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await read(e) }))),
+    warnings,
+  );
+
   // ── usage/<contributor>.json ──
   const usage = aggregateUsage(
     await Promise.all(picked.usage.map(async (e) => ({ path: e.path, text: await read(e) }))),
@@ -294,7 +366,8 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     warnings,
     catalogSha: picked.byPath.get(REGISTRY_CATALOG_PATH)?.sha ?? null,
     usage: { invokes30d: usage.invokes30d, contributors: usage.contributors },
+    bundles,
   }).catch(() => {});
 
-  return { kind: "ok", headSha: tree.headSha, counts, warnings, archived, declaration, catalog, usage };
+  return { kind: "ok", headSha: tree.headSha, counts, warnings, archived, declaration, catalog, usage, bundles };
 }

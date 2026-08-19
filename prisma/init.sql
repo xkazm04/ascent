@@ -1237,6 +1237,9 @@ CREATE TABLE "OrgRegistry" (
     -- nobody is reporting, which is not the same as a fleet that runs nothing.
     "usageInvokes30d" INTEGER NOT NULL DEFAULT 0,
     "usageContributors" INTEGER NOT NULL DEFAULT 0,
+    -- knowledge/ lane summary, one entry per Reference Knowledge Bundle, as read from each
+    -- bundle's generated index. Ascent reads these numbers; it does not produce them.
+    "bundlesJson" TEXT NOT NULL DEFAULT '[]',
     "warningsJson" TEXT NOT NULL DEFAULT '[]',
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
