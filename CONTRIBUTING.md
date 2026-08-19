@@ -3,8 +3,12 @@
 Thanks for your interest in improving Ascent. This guide covers local setup and the quality bar a
 change must clear before it merges.
 
-> **License note:** Ascent is source-available under the [Business Source License 1.1](./LICENSE).
-> By contributing you agree your contributions are licensed under the same terms. See
+> **License note:** Ascent is free software under the [GNU AGPL-3.0](./LICENSE). By contributing you
+> agree your contributions are licensed under the same terms, and you grant the maintainers a
+> perpetual, worldwide, non-exclusive right to also distribute your contribution under other terms
+> (this is what lets Ascent Cloud exist alongside the AGPL release without every contributor having
+> to be re-contacted). Sign off each commit with `git commit -s` — that is your
+> [DCO](https://developercertificate.org/) attestation and the only paperwork required. See
 > [README › License](./README.md#license).
 
 ## Prerequisites

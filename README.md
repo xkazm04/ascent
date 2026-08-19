@@ -293,12 +293,20 @@ Ascent targets **Vercel**. Production requirements:
 
 ## License
 
-Ascent is source-available under the **Business Source License 1.1** (SPDX `BUSL-1.1`):
-see [`LICENSE`](./LICENSE). You may read, modify, and self-host it, and the published
-GitHub Action (`action.yml`) and maturity badge are free to use in your own CI. The one
-restriction: you may not offer Ascent to third parties as a competing hosted/managed
-repository-maturity service. Each release converts to **Apache-2.0** on its Change Date
-(2030-06-08). For other arrangements, open an issue.
+Ascent is free and open-source software under the **GNU Affero General Public License v3.0**
+(SPDX `AGPL-3.0-only`): see [`LICENSE`](./LICENSE).
+
+    Copyright (C) 2026 Ascent authors
+
+Run it, read it, modify it, self-host it for any purpose including commercially — for free,
+forever, with no feature gates. The one obligation AGPL adds over GPL: if you run a **modified**
+version as a network service that other people use, you must offer those users the source of your
+modified version (§13). Using unmodified Ascent for your own org triggers nothing.
+
+**Dual licensing.** The maintainers also offer Ascent under commercial terms for organizations that
+want to embed or redistribute it without the AGPL's source-sharing obligation — open an issue to
+ask. Ascent Cloud (the hosted service) runs this same codebase; you are paying for operation, not
+for features.
 
 ---
 Scored by Ascent · #H0Hackathon

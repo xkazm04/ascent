@@ -93,6 +93,13 @@ An "amend existing file" write path is a shared prerequisite for D3 and D4.
 wedge" (D2) and any AAIF donation (D1) require a **separate, separately-licensed repository/package**.
 This is a business decision that gates engineering, and the strategy doc does not mention it.
 
+> **Resolved in part, 2026-08-19.** Ascent relicensed from BUSL-1.1 to **AGPL-3.0-only** (OSI-approved)
+> as part of the open-source-first transition. `npm publish` and an OSS wedge are no longer blocked by
+> the license id. What C6 still holds for: AGPL is *copyleft*, which foundations and spec consumers
+> generally will not accept for a **specification** or a client library — so a donated `.ai` spec (D1)
+> and any published SDK still want their own permissive repo (Apache-2.0 / CC-BY). The "separate,
+> separately-licensed package" conclusion survives; only the "not OSI-approved" premise is gone.
+
 ### C7: a publishable Action already exists, but it is the *wrong* Action
 
 `action.yml` at the repo root is real and well-documented, but it is the **hosted** maturity gate: it
