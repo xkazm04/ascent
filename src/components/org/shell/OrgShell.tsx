@@ -13,7 +13,7 @@ import { getNavCounts } from "@/lib/org/nav-counts";
 import { resolveLandingTab } from "@/lib/org/landing";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer, resolveViewerLogin } from "@/lib/access";
-import { selfHosted } from "@/lib/env";
+import { selfHostedExplicit } from "@/lib/env";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import type { OrgTabId } from "@/lib/org/orgTabs";
@@ -239,10 +239,11 @@ export async function OrgShell({
               kind={summary.kind}
               landingTab={resolveLandingTab({ scannedCount: summary.scannedCount, inFlightPrs })}
               activeOverride={activeTab}
-              // Local-mode pairing maps repos to the SERVER's filesystem — meaningless on managed
-              // cloud, so the rail hides it there (deep links still resolve; the tab itself repeats
-              // the guard server-side and explains).
-              hideTabs={selfHosted() ? undefined : ["pairing"]}
+              // Local-mode pairing maps repos to the SERVER's filesystem. Shown only when the
+              // operator EXPLICITLY set ASCENT_SELF_HOSTED — the implicit no-billing default must not
+              // put a filesystem control in every dev deployment's rail. Deep links still resolve;
+              // the tab repeats its own guard server-side and explains.
+              hideTabs={selfHostedExplicit() ? undefined : ["pairing"]}
             />
           </aside>
           {/* W6b: a member's zero-repo fleet org gets the first-scan empty state in the content slot

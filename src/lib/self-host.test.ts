@@ -10,7 +10,7 @@
 // tier gating), so every test in this file sets the mode explicitly.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { selfHosted } from "@/lib/env";
+import { selfHosted, selfHostedExplicit } from "@/lib/env";
 import {
   isUnlimitedPlan,
   planAllowsByom,
@@ -81,6 +81,24 @@ describe("selfHosted()", () => {
     vi.stubEnv("ASCENT_SELF_HOSTED", "yes");
     vi.stubEnv("POLAR_ACCESS_TOKEN", "polar_at_live_xxx");
     expect(selfHosted()).toBe(false);
+  });
+});
+
+describe("selfHostedExplicit()", () => {
+  // The Pairing tab's rail visibility keys on this, NOT on selfHosted(): the implicit no-billing
+  // default must not surface a server-filesystem control in every dev deployment's Admin group.
+  it("is true only when the flag is explicitly set", () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    expect(selfHostedExplicit()).toBe(true);
+    vi.stubEnv("ASCENT_SELF_HOSTED", "true");
+    expect(selfHostedExplicit()).toBe(true);
+  });
+
+  it("is false when unset, even where selfHosted() defaults to true (no billing configured)", () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "");
+    vi.stubEnv("POLAR_ACCESS_TOKEN", "");
+    expect(selfHosted()).toBe(true);
+    expect(selfHostedExplicit()).toBe(false);
   });
 });
 

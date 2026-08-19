@@ -269,6 +269,12 @@ describe("orgTabHref", () => {
     expect(orgTabHref("acme", "audit")).toBe("/org/acme?tab=audit");
   });
 
+  // Regression pin: pairing was born as a ?tab= panel and has NO legacy route — omitting it from
+  // MIGRATED_ORG_TAB_IDS sent the rail to /org/<slug>/pairing, a page that has never existed.
+  it("points pairing at the ?tab= shell (it never had a legacy route)", () => {
+    expect(orgTabHref("acme", "pairing")).toBe("/org/acme?tab=pairing");
+  });
+
   // W1b: Overview is an explicit destination. The bare /org/acme is the LANDING url, and a link
   // labelled "Overview" that lands you on Live is exactly the bug this prevents — including on a
   // middle-click, where the rail's href (not its onSelect) is what the browser follows.

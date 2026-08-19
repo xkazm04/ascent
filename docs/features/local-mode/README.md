@@ -23,8 +23,13 @@ local coding agent at the backlog and verify its work in the same breath.
 - Routes (`/api/org/local/pairing`, `/api/org/local/repo`) are **owner**-gated with the role check
   before any filesystem probe (no "does folder X exist?" oracle), and 404 on managed cloud
   (`selfHostGuard`, `src/lib/api/self-host.ts`). Adding a public repo to scope reuses `setRepoWatch`.
-- Tab id `pairing` lives in the Admin group of the catalog; visibility is a shell decision
-  (`OrgShell` threads `hideTabs` into `OrgTabNav`). A cloud deep link gets an explanation, not a 404.
+- Tab id `pairing` lives in the Admin group of the catalog (and in `MIGRATED_ORG_TAB_IDS` — it was
+  born as a `?tab=` panel and has no legacy route). Rail visibility keys on **`selfHostedExplicit()`**
+  (`ASCENT_SELF_HOSTED=1` set by the operator), NOT on the implicit no-billing `selfHosted()` default:
+  a dev deployment that merely lacks a Polar token must not grow a server-filesystem control in its
+  Admin group. Feature behavior (gates, routes, the tab's own guard) stays on `selfHosted()`, so a
+  deliberate deep link on an implicit self-host still works. A cloud deep link gets an explanation,
+  not a 404.
 
 ## Scan from disk (`src/lib/local/source.ts`)
 

@@ -413,6 +413,9 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "practices",
   "followups",
   "registry",
+  // Born migrated (2026-08-19): pairing never had a legacy route — it exists ONLY as a `?tab=` panel.
+  // Omitting it here sent the rail to /org/<slug>/pairing, a page that has never existed.
+  "pairing",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

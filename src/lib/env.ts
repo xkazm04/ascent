@@ -53,6 +53,19 @@ function billingConfigured(): boolean {
  * gate, `process.env.POLAR_ACCESS_TOKEN` is undefined in the browser and this would wrongly report
  * self-hosted, so keep gate evaluation on the server and pass the boolean down as a prop.
  */
+/**
+ * Whether the operator EXPLICITLY declared this a self-hosted deployment (`ASCENT_SELF_HOSTED=1`),
+ * as opposed to `selfHosted()`'s implicit no-billing default. The distinction gates surfaces that
+ * should not appear just because Polar happens to be unconfigured: the Admin → Pairing tab maps
+ * repos to the server's filesystem, and showing it to every billing-less dev deployment put a
+ * filesystem-shaped control in front of people who never opted into local mode. Feature BEHAVIOR
+ * (gates, metering) stays on `selfHosted()`; only deliberate local-mode UI keys on this.
+ */
+export function selfHostedExplicit(): boolean {
+  const raw = process.env.ASCENT_SELF_HOSTED?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
 export function selfHosted(): boolean {
   const raw = process.env.ASCENT_SELF_HOSTED?.trim().toLowerCase();
   // Deliberately NOT envBool: this flag needs a third state. `envBool` cannot distinguish "unset"
