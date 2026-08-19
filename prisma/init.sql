@@ -119,6 +119,7 @@ CREATE TABLE "Repository" (
     "headSha" TEXT,
     "headEtag" TEXT,
     "watched" BOOLEAN NOT NULL DEFAULT false,
+    "localPath" TEXT,
     "scanSchedule" TEXT NOT NULL DEFAULT 'off',
     "lastScanAt" TIMESTAMP(3),
     "nextScanAt" TIMESTAMP(3),
