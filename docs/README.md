@@ -30,6 +30,7 @@ playbooks, passports, a CI gate). Docs from the hackathon period live in
 | 2 | [features/scanning/maturity-model.md](./features/scanning/maturity-model.md) | The 5 levels, 9 scoring dimensions, criteria/signals, scoring math |
 | 3 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Request flow, deployment, the Aurora DSQL rationale, security posture |
 | 4 | [SETUP.md](./SETUP.md) | Local and deployed setup ⚠️ *see caveat below* |
+| 4b | [SELF-HOSTING.md](./SELF-HOSTING.md) | **Running Ascent yourself**: deployment modes, choosing a model (incl. local + `$0` paths), Docker, cron, upgrades |
 | 5 | [VISION-TRANSITION.md](./VISION-TRANSITION.md) | Where the product is heading, with dated delivery markers |
 | 6 | [features/README.md](./features/README.md) | Feature-by-feature reference with file pointers |
 

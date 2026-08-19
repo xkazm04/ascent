@@ -275,6 +275,7 @@
       "sourceGlobs": [
         "src/lib/plans.ts",
         "src/lib/polar.ts",
+        "src/lib/env.ts",
         "src/lib/entitlement.ts",
         "src/lib/credit-estimate.ts",
         "src/lib/db/credits.ts",
