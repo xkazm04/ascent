@@ -35,7 +35,7 @@ transformation owner is asked in a leadership meeting, plus an admin tail:
 | Section | Answers | Tabs |
 | --- | --- | --- |
 | **Standing** | Where are we, honestly? | Overview · Follow-ups · Repositories · Tech Stacks · Passports · Security · Adoption · Governance |
-| **Shared** | What do we publish once and every repo consumes? | Registry · Practices · Skills · Memory |
+| **Shared** | What do we publish once and every repo consumes? | Registry · Practices · Skills · Memory · Knowledge base |
 | **In flight** | What is moving right now? | Live |
 | **Bought** | What did the last period buy us? | Briefing · Delivery · Contributors · Teams |
 | **Admin** | The boring rows, deliberately not hidden. | Members · Integrations · Audit · Settings |
@@ -171,6 +171,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Shared | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
 | Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
 | Shared | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
+| Shared | Knowledge base | `org/[slug]?tab=knowledge` | `src/features/shared/knowledge/` | Overview of the Reference Knowledge Bundles the registry publishes under `knowledge/<domain>/`, counted per domain across the three layers that ship (Golden Path → Technique → Application; Evidence is consumer-side and is deliberately not counted). Unmapped/empty/error registries each get their own notice rather than a zeroed table. Born inside the `?tab=` shell, so unlike its Shared siblings it has **no** `/org/[slug]/knowledge` route — which is exactly why its id must sit in `MIGRATED_ORG_TAB_IDS`: a tab outside that set is redirected by `/org/[slug]/page.tsx` to a legacy path it never had (it shipped that way on 2026-08-19 and 404'd the rail link; `orgTabs.test.ts` now asserts every un-migrated tab owns a real route). The counts are still `provisional` — the registry indexer walks skills/practices/memory and does not parse `knowledge/**` yet, so the view says so in the UI. |
 | — (header menu) | Developer | `/org/developer` | `src/features/developer/` | UC3 individual care. Reached from the **header identity menu** (your own name), not from the org rail — it is not org-scoped, so it is in `ORG_TABS_NOT_IN_NAV`. Not a `?tab=` panel either: a static route personalized to the signed-in viewer (their commits and AI share, the open gaps of their repos, their private care loop). It renders the same `OrgShell` as every tab, with `activeTab="developer"`. The anonymized org aggregate lives in Contributors, under `CHAMPION_MIN_POP`, never a per-person row — see [developer.md](developer.md). |
 | Standing | Governance | `org/[slug]/governance` | `src/app/org/[slug]/governance/` | Governance rollups. |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |

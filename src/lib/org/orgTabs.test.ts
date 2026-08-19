@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 import {
   buildOrgTabUrl,
@@ -308,6 +311,25 @@ describe("orgTabHref", () => {
     for (const id of ORG_TAB_IDS) {
       if (isMigratedOrgTab(id)) continue;
       expect(orgTabHref("acme", id)).toBe(legacyOrgTabPath("acme", id));
+    }
+  });
+
+  // The seam's one real hazard, and the bug it shipped: a tab whose panel IS registered in
+  // OrgTabChunks but whose id was never added to MIGRATED_ORG_TAB_IDS. Nothing above catches that —
+  // the href helpers happily agree on `/org/<slug>/<id>` — but the page redirects `?tab=<id>` to
+  // that path, and for a tab born inside the shell no such route exists, so the rail link 404s and
+  // the panel never renders. `knowledge` shipped exactly this way. An un-migrated tab must own a
+  // real legacy route directory; `developer` is exempt (its legacy path is the static
+  // /org/developer route, asserted above).
+  it("gives every un-migrated tab a real legacy route to redirect to", () => {
+    const appDir = path.join(process.cwd(), "src", "app", "org", "[slug]");
+    for (const id of ORG_TAB_IDS) {
+      if (isMigratedOrgTab(id) || id === "developer") continue;
+      expect(
+        fs.existsSync(path.join(appDir, id, "page.tsx")),
+        `un-migrated tab "${id}" has no src/app/org/[slug]/${id}/page.tsx to redirect to — ` +
+          `add it to MIGRATED_ORG_TAB_IDS if its panel is registered in OrgTabChunks`,
+      ).toBe(true);
     }
   });
 });

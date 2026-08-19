@@ -42,8 +42,10 @@ export const ORG_TAB_IDS = [
   "skills",
   "memory",
   // The registry's fourth lane: Reference Knowledge Bundles under `knowledge/<domain>/`. Overview
-  // only — no drill-down route, so it is deliberately absent from MIGRATED_ORG_TAB_IDS (it has no
-  // pre-refactor page to redirect from; it never existed before the shell).
+  // only — no drill-down route. Having no pre-refactor page is exactly why it MUST be in
+  // MIGRATED_ORG_TAB_IDS: that set means "renders as a panel in the shell", and a tab outside it
+  // is redirected by /org/[slug]/page.tsx to `/org/<slug>/<id>` — a route this tab never had, so
+  // leaving it out 404s the rail link and blanks `?tab=knowledge`.
   "knowledge",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
@@ -417,6 +419,7 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "practices",
   "followups",
   "registry",
+  "knowledge",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {
