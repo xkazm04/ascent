@@ -274,6 +274,12 @@ model Repository {
   headSha               String?
   headEtag              String?
   watched               Boolean   @default(false)
+  // LOCAL MODE (self-hosted only): absolute path of this repo's working copy on the SERVER's
+  // filesystem — the pairing that lets scans ingest from disk (git ls-files/log, no GitHub round
+  // trip) and lets the autopilot dispatch a local coding agent into the checkout. Null = unpaired.
+  // Written only by the Admin → Pairing tab (self-host-gated routes); meaningless on Ascent Cloud.
+  // Under Docker this is a path INSIDE the container — the operator mounts their code as a volume.
+  localPath             String?
   scanSchedule          String    @default("off") // off | daily | weekly | monthly
   lastScanAt            DateTime?
   nextScanAt            DateTime?

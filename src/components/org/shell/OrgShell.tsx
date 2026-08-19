@@ -13,6 +13,7 @@ import { getNavCounts } from "@/lib/org/nav-counts";
 import { resolveLandingTab } from "@/lib/org/landing";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer, resolveViewerLogin } from "@/lib/access";
+import { selfHosted } from "@/lib/env";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import type { OrgTabId } from "@/lib/org/orgTabs";
@@ -225,6 +226,12 @@ export async function OrgShell({
           with a silently swapped page. Without it, .focus() is a no-op on a non-interactive element. */}
       <main id="main" tabIndex={-1} className={`${ORG_SHELL} py-8 focus:outline-none`}>
         <div className="lg:grid lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-6">
+          {/* The rail is STICKY, so it must never be moved by anything but the user's own scroll.
+              The one thing that used to move it was OrgTabNav's post-switch focus() on <main>, which
+              scrolled the tall content region to the top of the scrollport and dragged the rail up to
+              its `top-20` perch on every tab click — fixed there with `preventScroll` (see the note
+              in OrgTabNav). Keep this element's position purely declarative: no scroll-into-view, no
+              programmatic focus, nothing that reads or writes scrollTop. */}
           <aside data-tour="modules-nav" className="lg:sticky lg:top-20 lg:self-start">
             <OrgTabNav
               slug={slug}
@@ -232,6 +239,10 @@ export async function OrgShell({
               kind={summary.kind}
               landingTab={resolveLandingTab({ scannedCount: summary.scannedCount, inFlightPrs })}
               activeOverride={activeTab}
+              // Local-mode pairing maps repos to the SERVER's filesystem — meaningless on managed
+              // cloud, so the rail hides it there (deep links still resolve; the tab itself repeats
+              // the guard server-side and explains).
+              hideTabs={selfHosted() ? undefined : ["pairing"]}
             />
           </aside>
           {/* W6b: a member's zero-repo fleet org gets the first-scan empty state in the content slot

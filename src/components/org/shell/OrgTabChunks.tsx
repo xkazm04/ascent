@@ -21,6 +21,7 @@ import { GovernanceTab } from "@/features/standing/governance/GovernanceTab";
 import { MembersTab } from "@/features/admin/members/MembersTab";
 import { IntegrationsTab } from "@/features/admin/integrations/IntegrationsTab";
 import { SettingsTab } from "@/features/admin/settings/SettingsTab";
+import { PairingTab } from "@/features/admin/pairing/PairingTab";
 import { OverviewTab } from "@/features/standing/overview/OverviewTab";
 import { ExecutiveTab } from "@/features/bought/executive/ExecutiveTab";
 import { LiveTab } from "@/features/inflight/live/LiveTab";
@@ -82,6 +83,12 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         {tab === "settings" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
             <SettingsTab slug={slug} />
+          </Suspense>
+        ) : null}
+
+        {tab === "pairing" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
+            <PairingTab slug={slug} />
           </Suspense>
         ) : null}
 
@@ -150,7 +157,7 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
 
         {tab === "tech-stacks" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <TechStacksTab slug={slug} sp={sp} />
+            <TechStacksTab slug={slug} />
           </Suspense>
         ) : null}
 

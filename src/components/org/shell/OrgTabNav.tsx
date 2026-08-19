@@ -47,6 +47,7 @@ export function OrgTabNav({
   kind = "org",
   landingTab = DEFAULT_ORG_TAB,
   activeOverride,
+  hideTabs,
 }: {
   slug: string;
   counts?: NavCounts;
@@ -58,6 +59,10 @@ export function OrgTabNav({
    *  whose URL carries neither a `/org/<slug>/<tab>` segment nor `?tab=`, so the pathname alone
    *  cannot resolve it — the page states it instead (docs/REGISTRY-AND-CARE-IMPL.md §5.1). */
   activeOverride?: OrgTabId;
+  /** Tabs the SHELL decided this deployment must not show (today: `pairing` on managed cloud, where
+   *  a server-filesystem pairing is meaningless). Server-decided and threaded down — this client
+   *  component can't read the deployment mode itself, and must not guess. */
+  hideTabs?: readonly OrgTabId[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -70,23 +75,29 @@ export function OrgTabNav({
   // silently swapped page. The prev comparison fires the effect ONLY on a real tab change: the very
   // first render (initial load / deep link) sees prev === active and skips, so we never steal focus
   // on load, and unrelated re-renders (count refreshes) don't re-announce.
+  //
+  // preventScroll is LOAD-BEARING, not a nicety. <main> is taller than the viewport and starts below
+  // the org header, so a bare .focus() made the browser scroll it to the top of the scrollport — the
+  // "the page jumps down by itself right after a tab renders" bug (worst on Follow-ups and
+  // Repositories, whose tables are tall). That scroll also dragged the sticky left rail up to its
+  // `top-20` perch, so the nav appeared to move on every tab click. `router.push(…, {scroll:false})`
+  // below cannot prevent it: the scroll came from focus(), not from the navigation.
   const [announcement, setAnnouncement] = useState("");
   const prev = useRef(active);
   useEffect(() => {
     if (prev.current === active) return;
     prev.current = active;
-    document.getElementById("main")?.focus();
+    document.getElementById("main")?.focus({ preventScroll: true });
     setAnnouncement(`${orgTabLabel(active)} tab`);
   }, [active]);
 
   // Personal workspaces render the same rail from the same catalog, filtered to the individual
   // subset — one source of truth for labels/badges, so an org-nav change can't drift from it.
-  const groups =
-    kind === "personal"
-      ? ORG_NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((t) => PERSONAL_TAB_IDS.has(t.id)) })).filter(
-          (g) => g.items.length > 0,
-        )
-      : ORG_NAV_GROUPS;
+  const hidden = hideTabs && hideTabs.length > 0 ? new Set(hideTabs) : null;
+  const groups = ORG_NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((t) => (kind === "personal" ? PERSONAL_TAB_IDS.has(t.id) : true) && !hidden?.has(t.id)),
+  })).filter((g) => g.items.length > 0);
 
   // push, NOT replace — a tab switch is the navigation users most expect Back to undo (replace made
   // `kp`'s workspace exit entirely). scroll:false keeps the reading position on the rail. The

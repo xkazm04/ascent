@@ -52,6 +52,10 @@ export const ORG_TAB_IDS = [
   "members",
   "governance",
   "integrations",
+  // LOCAL MODE (self-hosted only): pair fleet repos with working copies on the server's filesystem.
+  // A full id — label/href/a11y — but the shell HIDES it from the rail on a managed-cloud deployment
+  // (OrgShell threads `hideTabs`), where a server-filesystem pairing is meaningless.
+  "pairing",
   "audit",
   "settings",
 ] as const;
@@ -182,6 +186,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     items: [
       { id: "members", label: "Members", countKey: "members" },
       { id: "integrations", label: "Integrations" },
+      // Self-hosted only — hidden on managed cloud via OrgShell's `hideTabs` (the id stays in the
+      // catalog so labels/hrefs/completeness derive from one place; visibility is a shell decision).
+      { id: "pairing", label: "Pairing" },
       { id: "audit", label: "Audit" },
       { id: "settings", label: "Settings" },
     ],

@@ -173,6 +173,7 @@ export {
   setRepoSegmentsBulk,
   getSegmentOrgSlug,
   getRepoSegmentMap,
+  listTaggableRepos,
   compareSegments,
   listSegmentSummaries,
   buildSegmentComparison,
@@ -180,6 +181,7 @@ export {
   normalizeColor,
   segmentInputError,
   type SegmentRow,
+  type TaggableRepo,
   type SegmentSummary,
   type SegmentComparison,
 } from "@/lib/db/segments";
@@ -386,3 +388,9 @@ export {
   type StoredPlanEnquiry,
   type EnquiryEmailStatus,
 } from "@/lib/db/plan-enquiry";
+export {
+  listLocalPairings,
+  getRepoLocalPath,
+  setRepoLocalPath,
+  type LocalPairing,
+} from "@/lib/db/org-local";
