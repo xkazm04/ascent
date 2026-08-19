@@ -53,6 +53,14 @@ export interface OrgRegistryRow {
   scaffoldPrUrl: string | null;
   lastError: string | null;
   counts: { skills: number; practices: number; memory: number; lessons: number };
+  /**
+   * The registry's `usage/` lane, aggregated at index time.
+   *
+   * `contributors: 0` means nobody is REPORTING — which is a different fact from
+   * a fleet that runs nothing, and every surface that renders the number has to
+   * be able to tell them apart.
+   */
+  usage: { invokes30d: number; contributors: number };
   warnings: string[];
   createdBy: string | null;
   updatedAt: string;
@@ -110,6 +118,7 @@ function toRow(r: any): OrgRegistryRow {
       memory: r.memoryCount ?? 0,
       lessons: r.lessonCount ?? 0,
     },
+    usage: { invokes30d: r.usageInvokes30d ?? 0, contributors: r.usageContributors ?? 0 },
     warnings: parseRegistryJson<string[]>(r.warningsJson ?? null, []).filter((w) => typeof w === "string"),
     createdBy: r.createdBy ?? null,
     updatedAt: new Date(r.updatedAt ?? Date.now()).toISOString(),

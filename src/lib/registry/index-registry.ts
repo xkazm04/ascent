@@ -33,6 +33,70 @@ export interface IndexRegistryResult {
   declaration?: RegistryDeclaration;
   /** The catalog this pass WOULD commit; writing it back is a separate, policy-gated step. */
   catalog?: RegistryCatalog;
+  /**
+   * The registry's `usage/` lane, aggregated: how often the fleet reaches for
+   * these skills and how many installations reported it.
+   *
+   * Ascent does not COUNT invocations — the installations that run skills do,
+   * locally, and contribute an aggregate. This reads what they published. Two
+   * writers for one number is the failure the per-contributor files prevent, so
+   * ascent stays a reader here.
+   */
+  usage?: RegistryUsage;
+}
+
+/** Aggregate of the registry's `usage/` lane. */
+export interface RegistryUsage {
+  /** Total invocations across every contributor, over their reported window. */
+  invokes30d: number;
+  /** How many installations contributed a file. Zero means nobody is reporting —
+   *  which is NOT the same as a fleet that runs nothing. */
+  contributors: number;
+  /** Per skill, summed across contributors. */
+  bySkill: Record<string, number>;
+}
+
+/**
+ * Sum the usage lane. Tolerant by the same rule as every other read here: a
+ * malformed contribution degrades ITSELF into a warning and the rest still
+ * counts. The registry's own gate is what keeps these files well-formed; this
+ * must never be the thing that fails a whole index pass.
+ */
+export function aggregateUsage(
+  files: { path: string; text: string | null }[],
+  warnings: string[],
+): RegistryUsage {
+  const bySkill: Record<string, number> = {};
+  let contributors = 0;
+  let invokes30d = 0;
+
+  for (const { path, text } of files) {
+    if (text === null) continue;
+    let doc: unknown;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      warnings.push(`${path}: not valid JSON — contribution skipped`);
+      continue;
+    }
+    const skills = (doc as { skills?: Record<string, { invokes?: unknown }> })?.skills;
+    if (!skills || typeof skills !== "object") {
+      warnings.push(`${path}: no skills object — contribution skipped`);
+      continue;
+    }
+    contributors += 1;
+    for (const [name, entry] of Object.entries(skills)) {
+      const n = entry?.invokes;
+      if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
+        warnings.push(`${path}: skills["${name}"].invokes is not a count — ignored`);
+        continue;
+      }
+      const whole = Math.floor(n);
+      bySkill[name] = (bySkill[name] ?? 0) + whole;
+      invokes30d += whole;
+    }
+  }
+  return { invokes30d, contributors, bySkill };
 }
 
 /**
@@ -172,14 +236,51 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   const zero = { skills: 0, practices: 0, memory: 0 };
   const archived = await archiveVanishedRegistryRows(registry.id, seen).catch(() => zero);
 
+  // The catalog as committed, read so `buildCatalog` can carry forward the keys
+  // it does not own. Tolerant: an unreadable or malformed catalog means "carry
+  // nothing", never a failed pass — but it IS reported, because silently
+  // dropping another producer's `bundles` array is the exact outcome this read
+  // exists to prevent.
+  let priorCatalog: RegistryCatalog | null = null;
+  {
+    const entry = picked.byPath.get(REGISTRY_CATALOG_PATH);
+    if (entry) {
+      const text = await read(entry);
+      if (text !== null) {
+        try {
+          const parsed: unknown = JSON.parse(text);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            priorCatalog = parsed as RegistryCatalog;
+          } else {
+            warnings.push(`${REGISTRY_CATALOG_PATH}: not an object — foreign keys not carried forward`);
+          }
+        } catch {
+          warnings.push(`${REGISTRY_CATALOG_PATH}: not valid JSON — foreign keys not carried forward`);
+        }
+      }
+    }
+  }
+
+  // ── usage/<contributor>.json ──
+  const usage = aggregateUsage(
+    await Promise.all(picked.usage.map(async (e) => ({ path: e.path, text: await read(e) }))),
+    warnings,
+  );
+
   const counts = { skills: seen.skills.length, practices: seen.practices.length, memory: seen.memory.length, lessons };
   const catalog = buildCatalog({
+    // Carry forward the keys this builder does not own — `bundles` from the
+    // knowledge lane, and anything a future producer adds. Without this, a
+    // catalog write-back would silently delete another producer's work.
+    previous: priorCatalog,
     fullName: registry.fullName,
     defaultBranch: registry.defaultBranch,
     canonical: declaration.canonical,
     mode: modeToYaml(declaration.mode),
     telemetry: declaration.telemetry,
-    skills: catalogSkills,
+    // `invokes30d` is DERIVED from the usage lane, never counted here. A skill
+    // nobody reported reads 0, which is true: no witness, not "unused".
+    skills: catalogSkills.map((s) => ({ ...s, invokes30d: usage.bySkill[s.name] ?? 0 })),
     practices: catalogPractices,
     memory: catalogMemory,
     lessons,
@@ -192,7 +293,8 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     counts,
     warnings,
     catalogSha: picked.byPath.get(REGISTRY_CATALOG_PATH)?.sha ?? null,
+    usage: { invokes30d: usage.invokes30d, contributors: usage.contributors },
   }).catch(() => {});
 
-  return { kind: "ok", headSha: tree.headSha, counts, warnings, archived, declaration, catalog };
+  return { kind: "ok", headSha: tree.headSha, counts, warnings, archived, declaration, catalog, usage };
 }

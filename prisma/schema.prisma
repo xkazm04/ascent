@@ -1491,6 +1491,11 @@ model OrgRegistry {
   practiceCount  Int       @default(0)
   memoryCount    Int       @default(0)
   lessonCount    Int       @default(0)
+  // The `usage/` lane, aggregated at index time. Ascent READS this lane; the installations that run
+  // skills are what count invocations, locally, and contribute an aggregate. `usageContributors = 0`
+  // means nobody is reporting — which is not the same as a fleet that runs nothing.
+  usageInvokes30d   Int    @default(0)
+  usageContributors Int    @default(0)
   warningsJson   String    @default("[]") // JSON string[] — files the last index skipped, with why
   createdBy      String? // GitHub login that mapped it
   createdAt      DateTime  @default(now())

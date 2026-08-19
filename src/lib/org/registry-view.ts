@@ -178,7 +178,15 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     // the catalog; reported as zero rather than estimated.
     fleet: { reposTotal: rollup?.repos?.length ?? 0, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } },
     activity: activityOf(row),
-    telemetry: { invokes30d: 0, reposReporting: 0, sink: row?.telemetrySink ?? "off" },
+    // Read from the registry's own `usage/` lane at index time, not counted here.
+    // `reposReporting` is how many installations CONTRIBUTED a file — a zero with
+    // invokes 0 means nobody is reporting, which is a different fact from a fleet
+    // that runs nothing, and the instrument panel says so.
+    telemetry: {
+      invokes30d: row?.usage.invokes30d ?? 0,
+      reposReporting: row?.usage.contributors ?? 0,
+      sink: row?.telemetrySink ?? "off",
+    },
     howTo: registryHowTo(fullName),
     capabilities: caps,
     permission: { contentsWrite: caps.canWrite, ...(caps.installUrl ? { installUrl: caps.installUrl } : {}) },
