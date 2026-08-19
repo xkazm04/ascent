@@ -12,8 +12,13 @@
 # scores, pass an LLM provider; to get history and the org dashboards, pass DATABASE_URL. See
 # docs/SELF-HOSTING.md and .env.example.
 
+# NODE 24, not the older LTS: package-lock.json is a v3 lockfile written by npm 11, and npm 10
+# (which node:22-alpine ships) resolves that tree differently — `npm ci` fails outright with a wall of
+# "Missing: … from lock file". The image must match the toolchain the lockfile was generated with, so
+# bumping this base image is a real decision, not a cosmetic one: change it and re-verify `npm ci`.
+
 # ── deps ─────────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 # Prisma's engines need libc compatibility on Alpine.
 RUN apk add --no-cache libc6-compat
@@ -24,7 +29,7 @@ COPY prisma ./prisma
 RUN npm ci
 
 # ── build ────────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY --from=deps /app/node_modules ./node_modules
@@ -37,7 +42,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ── runtime ──────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 
