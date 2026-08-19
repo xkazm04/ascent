@@ -8,6 +8,7 @@ import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui
 import type { SegmentSummary } from "@/lib/db";
 import { computeFleetInsights, type DimInsight } from "@/features/standing/tech-stacks/fleetAnalysis";
 import { AnalysisPlaybookBoard } from "@/features/standing/tech-stacks/AnalysisPlaybookBoard";
+import { SectionHelp } from "@/features/standing/tech-stacks/SectionHelp";
 import type { AnalysisScope } from "@/features/standing/tech-stacks/analysisScope";
 
 export function StackInsights({ org, stacks, fleet, dims, scope }: {
@@ -38,11 +39,18 @@ export function StackInsights({ org, stacks, fleet, dims, scope }: {
       </div>
 
       <Card>
-        <SectionHeader
-          size="sm"
-          title="Consensus & transfer plan"
-          description={`Every dimension diagnosed across the ${ins.scoredCount} scored ${scope.nounPlural}, most-actionable first. Each row states how many of them its verdict rests on: a dimension only a minority can evidence is de-weighted, not hidden. Expand a divergent or systemic-gap row for its transformation playbook (the moves, a Practices artifact, and a goal to own in Plan).`}
-        />
+        {/* The explanation lives behind the "?" beside the title, not as a paragraph under it: this
+            board is scanned far more often than it is explained, and four lines of preamble pushed
+            the first diagnosis row down every single visit. */}
+        <div className="flex items-center gap-2">
+          <SectionHeader size="sm" title="Consensus & transfer plan" />
+          <SectionHelp label="How to read the consensus & transfer plan">
+            Every dimension diagnosed across the {ins.scoredCount} scored {scope.nounPlural}, most-actionable
+            first. Each row states how many of them its verdict rests on: a dimension only a minority can
+            evidence is de-weighted, not hidden. Expand a divergent or systemic-gap row for its
+            transformation playbook (the moves, a Practices artifact, and a goal to own in Plan).
+          </SectionHelp>
+        </div>
         <div className="mt-3">
           <AnalysisPlaybookBoard org={org} dims={ins.dims} scope={scope} />
         </div>

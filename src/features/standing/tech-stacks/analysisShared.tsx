@@ -99,13 +99,19 @@ export function noteFor(d: DimInsight) {
 }
 
 /** The 0→100 range track: quarter gridlines, fleet baseline tick, the min→max spread bar, and the
- *  laggard (hollow) / leader (filled) dots. `compact` shrinks it for card headers. */
+ *  laggard (hollow) / leader (filled) dots. `compact` shrinks it for card headers.
+ *
+ *  Capped at HALF the width of its column. The track carries four marks over a fixed 0→100 domain, so
+ *  stretching it to the full column bought no extra resolution — it just spread a handful of dots
+ *  across the widest element in the row and starved the diagnosis text and the leader/laggard readout
+ *  beside it. `w-1/2` keeps the scale honest (every mark is still a percentage of the same track) and
+ *  gives the row back the space the numbers need. */
 export function RangeBar({ d, compact }: { d: DimInsight; compact?: boolean }) {
   // A minority-coverage spread is drawn in neutral ink: the bar still shows the full min→max range,
   // it just stops asserting the class colour it can't fully evidence.
   const m = coverageOf(d).level === "low" ? CLASS_META.consistent : CLASS_META[d.klass];
   return (
-    <div className={`relative ${compact ? "h-5" : "h-8"}`}>
+    <div className={`relative w-1/2 ${compact ? "h-5" : "h-8"}`}>
       {[25, 50, 75].map((g) => (
         <div key={g} className="absolute inset-y-1 w-px bg-divider/70" style={{ left: `${g}%` }} />
       ))}

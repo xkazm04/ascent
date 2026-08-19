@@ -44,9 +44,10 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
           </div>
         </>
       )}
-      {/* G4-08: repoCount here is the watched-or-scanned rollup universe, NOT every repo tagged into the
-          segment (that count lives on the Repositories tab's tagging chips) — the title disambiguates
-          so the two screens' numbers are never read as contradicting each other. */}
+      {/* G4-08: repoCount here is the watched-or-scanned rollup universe, NOT every repo tagged into
+          the segment (that count is the one on the "Create & tag" chips directly above this strip) —
+          the title disambiguates so the two numbers are never read as contradicting each other. They
+          now sit on ONE screen, so the disambiguation matters more, not less. */}
       <div className="mt-1 font-mono text-sm text-slate-600" title="Repos in this segment that are watched or have a scan (may be fewer than the total tagged into the segment)">
         {s.scannedCount}/{s.repoCount} scanned
       </div>

@@ -49,13 +49,16 @@ export async function RepositoriesTab({
   return (
     <div className="stagger-children space-y-6">
       <FleetTabs slug={slug} active="repositories" />
-      {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
-          layer, anchored above the leaderboard. Fed by each scan's persisted contextHealthJson. */}
-      <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <ContextHealthPanel slug={slug} />
-      </Suspense>
+      {/* The leaderboard leads. It is the answer to the question the tab's own name asks ("which
+          repos do I have, and where do they stand?"), so it must not be pushed below the fold by a
+          derived lens — Context Health used to sit above it and did exactly that. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <RepositoriesLeaderboardPanel slug={slug} sp={sp} />
+      </Suspense>
+      {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
+          layer. Fed by each scan's persisted contextHealthJson. */}
+      <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
+        <ContextHealthPanel slug={slug} />
       </Suspense>
     </div>
   );

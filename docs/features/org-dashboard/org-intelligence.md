@@ -27,6 +27,16 @@ The same nav definition renders a filtered subset for a PERSONAL workspace
 (`Organization.kind === "personal"`): only Overview, Security, Follow-ups, Skills and Memory,
 since fleet aggregation/attribution surfaces need a real org's breadth.
 
+**A tab switch never scrolls the page (2026-08-19).** Two things have to hold together for this.
+`OrgTabNav` pushes the new `?tab=` with `{ scroll: false }`, so Next doesn't reset the scroll
+position — and its a11y effect focuses the `<main>` landmark with `focus({ preventScroll: true })`.
+Without the second half the first half is useless: `<main>` is taller than the viewport and starts
+below the org header, so a bare `.focus()` made the browser scroll it up to the top of the
+scrollport. The page appeared to scroll itself down a moment after each tab rendered (worst on the
+tall tables — Follow-ups, Repositories), and the sticky left rail was dragged up to its `top-20`
+perch along with it, so the nav looked like it moved on every click. Treat the rail's position as
+purely declarative: nothing in the shell may scroll it, focus into it, or read/write `scrollTop`.
+
 ### The rail is grouped by the journey, not by data type (W1a, 2026-08-14)
 
 The five module groups in `ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`) are the four questions a
@@ -162,8 +172,8 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
 | Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
-| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The **Context half-life** panel (W4, see below) above the repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
-| Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles, an A-vs-B stack comparison, and the **dimension analysis** board (see below). |
+| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
+| Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
 | Standing | Security | `org/[slug]/security` | `src/app/org/[slug]/security/` | Security posture across the fleet. |
 | Standing | Adoption | `org/[slug]/adoption` | `src/app/org/[slug]/adoption/` | Adoption signals. |
@@ -225,9 +235,20 @@ real view is now the `?tab=segments` view of `org/[slug]/repositories/page.tsx`
 (`src/features/standing/repositories/SegmentsSection.tsx`) under the shared `FleetTabs`. The
 repositories page branches to it *before* running the repo-inventory/rollup reads, so the
 Segments view doesn't pay for a rollup it won't render. It shows user-defined fleet slices
-(platform, mobile, legacy…): per-segment maturity rollups plus a side-by-side
-segment-vs-segment comparison (headline metrics + per-dimension Δ). Tags are managed on the
-main Repositories view of the same page (`RepoSegmentsPanel`).
+(platform, mobile, legacy…), top to bottom:
+
+1. **Create & tag** (`RepoSegmentsPanel`) — the segment manager: create/rename/recolor/delete a
+   segment, auto-add every repo of a language, and tag repos one by one. It renders at **any**
+   segment count, including zero.
+2. **Segment maturity** — per-segment rollup cards, once there is at least one segment.
+3. **Compare** — side-by-side segment-vs-segment (headline metrics + per-dimension Δ).
+
+The manager moved here from the main Repositories view on 2026-08-19. It used to sit above the
+leaderboard, which left this view with an empty state whose only advice was "go to the Repositories
+tab and create one" — a dead end on the exact screen a user opens to work on segments. It now feeds
+off `listTaggableRepos` (`src/lib/db/segments.ts`), a three-column read over the same
+watched-OR-has-scans universe `getOrgRollup` uses, so hosting it here does **not** reintroduce the
+rollup this view deliberately skips.
 
 **Two different `repoCount`s, by design: label whichever one you render.** `listSegments`'s
 `SegmentRow.repoCount` counts every repo ever **tagged** into the segment, watched or not,
@@ -235,13 +256,14 @@ scanned or not (the number `RepoSegmentsPanel`'s tagging chips show). `SegmentSu
 (from `listSegmentSummaries` / `compareSegments`, used by the Segments tab's rollup cards and
 comparison view) counts only the segment's repos in the **fleet-rollup universe** (watched OR
 has-scans), the same restriction `getOrgRollup` already applies everywhere else. A segment with
-tagged-but-unwatched/unscanned repos legitimately shows a smaller number on the Segments tab than
-on its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces now carry a
-tooltip saying which one they are.
+tagged-but-unwatched/unscanned repos legitimately shows a smaller number on its rollup card than on
+its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces carry a tooltip saying
+which one they are. Since 2026-08-19 the two counts sit **on one screen** (chips above, cards
+below), so the labelling matters more, not less.
 
 ### Context half-life (the Repositories tab's context-layer lens, W4, real)
 
-`ContextHealthPanel` (`src/features/standing/repositories/context-health/`) renders above the
+`ContextHealthPanel` (`src/features/standing/repositories/context-health/`) renders **below** the
 leaderboard: the quality-over-presence read of the fleet's agent-context layer (CLAUDE.md /
 AGENTS.md / rules files). It went **real** in W4: the P4 prototype's Baseline/Half-life switcher
 and its `contextHealthMock` synthesis are deleted; every number now comes from the
@@ -268,7 +290,19 @@ The Tech Stacks tab's "Consensus & transfer plan" board diagnoses every dimensio
 org's scored stacks (`computeFleetInsights`, `src/features/standing/tech-stacks/fleetAnalysis.ts`)
 and labels it **divergent** (best-vs-worst ≥ 35 pts), **gap** (even the best stack ≤ 45),
 **strength** (even the worst ≥ 68) or **consistent**. Divergent and gap rows expand into a
-transformation playbook (moves, a proposed Practices artifact, an adoption checklist).
+transformation playbook (moves, a proposed Practices artifact, an adoption checklist). How to read
+the board lives behind the **?** disclosure beside its title (`SectionHelp`, a native `<details>`,
+so the server panel stays a server panel), not as a paragraph under it — the board is scanned far
+more often than it is explained.
+
+**The A-vs-B "Compare stacks" panel was deleted (2026-08-19)**, root and branch:
+`TechStacksComparePanel` / `StackComparePanel` / `TechStackComparePicker`, the `insightCompareHref`
+deep link (`#compare`) into it, and its data read — `compareTechStacks` + `summarizeTechStack`
+(`src/lib/db/tech-groups.ts`) and `tech-groups-compare.test.ts`. It answered a strictly narrower
+version of what this board already answers: which stack leads, which lags, by how much, on which
+dimension — for two hand-picked stacks instead of all of them, with no playbook attached.
+`listTechStackSummaries` is now the tab's only per-stack read. Segments keep their A/B comparison
+(`compareSegments`); only the tech-stack one is gone.
 
 **Every verdict states its coverage (2026-07-29).** A dimension is only averaged over the stacks
 whose scans actually carry it, so a "divergent" call can rest on 2 of 8 scored stacks or on all 8.
@@ -853,8 +887,8 @@ lives in metrics; folding log events into usage is a later step.
 | File | Role |
 | --- | --- |
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
-| `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
-| `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter · Repositories-tab tag manager · A-vs-B comparison picker. |
+| `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, `listTaggableRepos` (the tag manager's repo universe), per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
+| `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter (its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. |
 | `src/features/standing/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
 | `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |

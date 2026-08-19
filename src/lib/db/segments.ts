@@ -221,6 +221,35 @@ export async function getRepoSegmentMap(
   return out;
 }
 
+/** A repo the tagging UI can put into a segment: identity + GitHub's detected primary language
+ *  (which feeds auto-add-by-language). */
+export interface TaggableRepo {
+  fullName: string;
+  name: string;
+  language: string | null;
+}
+
+/**
+ * The repos the segment manager can tag — the SAME universe getOrgRollup uses (watched OR has-scans),
+ * so the tagging list can never offer a repo the segment rollups would then ignore.
+ *
+ * Exists because the segment manager moved from the Repositories tab (which already had a full
+ * `getOrgRollup` in hand for its leaderboard) to the Segments tab (which does not). Re-running the
+ * rollup there would have paid for every repo's latest scan, its dimension rows, and four JSON blob
+ * parses to read three scalar columns.
+ */
+export async function listTaggableRepos(orgSlug: string): Promise<TaggableRepo[]> {
+  if (!isDbConfigured()) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const repos = await getPrisma().repository.findMany({
+    where: { orgId, OR: [{ watched: true }, { scans: { some: {} } }] },
+    select: { fullName: true, name: true, primaryLanguage: true },
+    orderBy: { fullName: "asc" },
+  });
+  return repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage ?? null }));
+}
+
 // ── Segment-vs-segment comparison ─────────────────────────────────────────────
 
 /** One side of a comparison — a segment's (or the whole fleet's) headline maturity shape. */

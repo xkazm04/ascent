@@ -36,9 +36,9 @@ export function SegmentSelector({ segments, active }: { segments: SegmentOption[
     if (!slug) return null;
     return (
       <Link
-        href={orgTabHref(slug, "repositories")}
+        href={orgTabHref(slug, "segments")}
         className="font-mono text-sm text-slate-500 transition hover:text-accent"
-        title="Group repos into named slices on the Repositories tab"
+        title="Group repos into named slices on the Segments view"
       >
         + Create a segment →
       </Link>

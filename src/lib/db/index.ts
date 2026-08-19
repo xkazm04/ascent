@@ -281,7 +281,6 @@ export {
   listTechStackGroups,
   getTechGroupIdByKey,
   listTechStackSummaries,
-  compareTechStacks,
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
 export { getDbMode, dbModeLabel, dbModeIsAws, type DbMode } from "@/lib/db/mode";

@@ -825,9 +825,7 @@
             "src/app/org/[slug]/tech-stacks/page.tsx",
             "src/lib/db/tech-groups.ts",
             "src/lib/db/tech-groups.test.ts",
-            "src/lib/db/tech-groups-compare.test.ts",
-            "src/features/standing/tech-stacks/TechStackComparePicker.tsx",
-            "src/features/standing/tech-stacks/StackComparePanel.tsx",
+            "src/features/standing/tech-stacks/SectionHelp.tsx",
             "src/features/standing/tech-stacks/TechStacksAnalysis.tsx",
             "src/features/standing/tech-stacks/StackProfiles.tsx",
             "src/features/standing/tech-stacks/StackRadarChart.tsx",
@@ -873,7 +871,6 @@
             "src/features/standing/repositories/useRepoLeaderboard.ts",
             "src/features/standing/tech-stacks/AnalysisPlaybookBoard.dom.test.tsx",
             "src/features/standing/tech-stacks/TechStacksAnalysisPanel.tsx",
-            "src/features/standing/tech-stacks/TechStacksComparePanel.tsx",
             "src/features/standing/tech-stacks/TechStacksTab.tsx"
           ],
           "target": null,
