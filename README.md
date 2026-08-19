@@ -5,40 +5,86 @@
 development, a **5-level maturity ladder** across **9 weighted dimensions**, with the
 evidence behind every score and a prioritized roadmap to the next level.
 
-Built for the **AWS Databases × Vercel** hackathon (Track 2: Monetizable B2B, with a
-free B2C tier as the top of the funnel).
-**Stack:** Next.js 16 · React 19 · TypeScript · Tailwind v4 · Vercel · Gemini (public) /
-AWS Bedrock (enterprise) / deterministic mock (keyless) · Prisma + **Aurora DSQL**
-(Phase 2 persistence).
+**Open source ([AGPL-3.0](./LICENSE)), and built to run on your own machine.** Any model,
+including a local one. No feature gates, no scan limits, no telemetry. There is a hosted
+cloud too — it sells operation, not capability.
 
-> 📚 Concept docs (vision, maturity model, architecture) live in [`/docs`](./docs/README.md).
-> The **implemented product surface**, feature by feature with file references, is in
+**Stack:** Next.js 16 · React 19 · TypeScript · Tailwind v4 · Prisma + Postgres (or Aurora
+DSQL) · a pluggable LLM layer with seven providers.
+
+> 📚 **Self-hosting guide:** [`docs/SELF-HOSTING.md`](./docs/SELF-HOSTING.md).
+> Concept docs (vision, maturity model, architecture) live in [`/docs`](./docs/README.md); the
+> **implemented product surface**, feature by feature with file references, is in
 > [`/docs/features`](./docs/features/README.md). Build journal in [`blog.md`](./blog.md).
 
 ## Quick start
 
 ```bash
+git clone https://github.com/<you>/ascent && cd ascent
 npm install
-cp .env.example .env.local   # optional — everything below has a keyless default
 npm run dev                  # http://localhost:3000
 ```
 
-Then paste a public GitHub repo (e.g. `vercel/next.js`) and scan. With no keys at all,
-Ascent runs in **deterministic mock mode**: fully functional for demos and CI.
+Paste a public GitHub repo (e.g. `vercel/next.js`) and scan it. **That is a complete
+Ascent** — no key, no database, no signup. With nothing configured it runs in
+**deterministic mock mode**, where the nine analyzers do the real work and the rubric
+produces a real, reproducible score; you are missing the LLM-written nuance on top, not
+the product.
 
-### Keys are optional
+Or bring the whole stack up in one command:
+
+```bash
+docker compose --profile app up -d      # app + Postgres → http://localhost:3000
+```
+
+### Run it with your own model
+
+The LLM only *calibrates and explains* the deterministic signals — it never invents a
+score. Two of these cost nothing per token and keep your source on hardware you control:
+
+| Want | Set |
+|---|---|
+| **A local model** — Ollama, vLLM, LM Studio. `$0`, nothing leaves the machine. | `LLM_PROVIDER=local` + `LOCAL_LLM_BASE_URL=http://localhost:11434/v1` + `LOCAL_LLM_MODEL=qwen2.5-coder:14b` |
+| **Your Claude subscription** — the local `claude` CLI, not per-token API credits. | `LLM_PROVIDER=claude-cli` + `CLAUDE_MODEL=sonnet` |
+| Google Gemini | `LLM_PROVIDER=gemini` + `GEMINI_API_KEY` |
+| OpenAI / Azure / any compatible endpoint | `LLM_PROVIDER=openai` + `OPENAI_API_KEY` (+ `OPENAI_BASE_URL`) |
+| One key, any vendor's model | `LLM_PROVIDER=openrouter` + `OPENROUTER_API_KEY` |
+| Inference inside your AWS boundary, never trained on | `LLM_PROVIDER=bedrock` + AWS credentials |
+| Nothing at all | *(mock — deterministic, keyless, fully functional)* |
+
+Use a **14B-class coder model or better** for the local path: the assessment is a multi-KB
+structured JSON, and a small model tends to score under half the rubric, which drops the
+scan to its deterministic floor. Details, including the `auto` resolution ladder:
+[`llm-providers.md`](./docs/features/scanning/llm-providers.md).
+
+### Everything else is optional
 
 | Env | Effect |
 |---|---|
-| _(none)_ | **Mock mode**: deterministic rubric scoring from repo signals. Fully demoable. |
-| `GEMINI_API_KEY` | **Live mode**: Gemini calibrates the signal scores and writes the roadmap. |
-| `GITHUB_TOKEN` | Raises GitHub rate limits and unlocks PR + branch-governance signals. |
 | `DATABASE_URL` | Turns on **persistence** (history, trends, org rollups, usage, audit). |
+| `GITHUB_TOKEN` | Raises GitHub rate limits and unlocks PR + branch-governance signals. |
 | GitHub App vars | Private & org-wide repos, PR auto-gate, push re-scans (see below). |
-| `LLM_PROVIDER=bedrock` | Routes inference through **AWS Bedrock** (Claude) for enterprise privacy. |
+| `CRON_SECRET` | Enables the scheduled autoscan / digest / retention routes. |
+| Supabase pair | Puts a GitHub sign-in wall in front of the deployment. |
+| `ASCENT_SELF_HOSTED` | `1` forces self-hosted mode; unset means self-hosted unless billing is configured. |
 
-See [`.env.example`](./.env.example) for the full, commented list (`GEMINI_MODEL`,
-`BEDROCK_MODEL_ID`, OAuth, `CRON_SECRET`, `ALERT_WEBHOOK_URL`, retention, …).
+See [`.env.example`](./.env.example) for the full, commented list.
+
+### Self-hosted vs. Ascent Cloud
+
+The same code computes the same scores in both. What differs is who operates it.
+
+| | Self-hosted | Ascent Cloud |
+|---|---|---|
+| Price | Free, forever | Free tier, then paid |
+| Scans | Unlimited | Metered (recovering *our* LLM + infra bill) |
+| Features | **All of them** — BYOM, white-label briefings, skills, shared memory, PDF export | Tiered |
+| Retention | Your disk, your policy | Per tier |
+| Model | Any, including local | Ours, or bring your own |
+| You operate | Postgres, the GitHub App, cron, alerts, backups | Nothing |
+
+If you find a capability that is better on the cloud than in this repository, that is a
+bug — [open an issue](../../issues).
 
 ### DevInspector: click a component, copy its source path
 
@@ -237,7 +283,7 @@ src/
     maturity/model.ts                 the rubric: levels, dimensions, weights, posture
     github/                           ingestion, App tokens, governance, write (PRs)
     analyze/                          deterministic detectors D1–D9
-    llm/                              provider abstraction (gemini · bedrock · mock · cli)
+    llm/                              provider abstraction (local · claude-cli · gemini · bedrock · openai · openrouter · mock)
     scoring/                          prompt · engine · gate · recommendations · orgsim
     db/                               org rollups, usage, retention, installations, plan
     scan.ts                           top-level orchestrator
@@ -259,7 +305,26 @@ Hackathon-era plan: [`docs/archive/2026-hackathon/PLAN.md`](./docs/archive/2026-
 
 ## Deploying
 
-Ascent targets **Vercel**. Production requirements:
+### Self-hosted
+
+The container image is the supported path — see [`docs/SELF-HOSTING.md`](./docs/SELF-HOSTING.md)
+for the full guide:
+
+```bash
+docker compose --profile app up -d      # app + Postgres → http://localhost:3000
+```
+
+The image runs as a non-root user, needs **no secrets at build time**, and sets
+`ASCENT_SELF_HOSTED=1` so every plan gate is open and scans are unmetered. A plain
+`npm run build && npm start` works too; set `ASCENT_SELF_HOSTED=1` alongside it if you want the
+`claude-cli` provider (that gate reads it, because `NODE_ENV` is `production` either way).
+
+Cron routes (`/api/cron/*`) are plain HTTP behind `CRON_SECRET`, so any scheduler drives
+them — systemd timers, `cron`, a Kubernetes `CronJob`, GitHub Actions.
+
+### Ascent Cloud (Vercel)
+
+The hosted deployment targets **Vercel**. Production requirements:
 
 - **Vercel Pro (or higher).** The scan, org-import, cron and webhook routes set `maxDuration` of
   120–300s (a full scan + LLM scoring, or a bulk org import, runs long). Vercel's Hobby plan caps
@@ -309,4 +374,8 @@ ask. Ascent Cloud (the hosted service) runs this same codebase; you are paying f
 for features.
 
 ---
-Scored by Ascent · #H0Hackathon
+
+**Contributing:** [`CONTRIBUTING.md`](./CONTRIBUTING.md) · **Security:** [`SECURITY.md`](./SECURITY.md) ·
+**Self-hosting:** [`docs/SELF-HOSTING.md`](./docs/SELF-HOSTING.md)
+
+Scored by Ascent
