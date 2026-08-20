@@ -1,6 +1,8 @@
 // Shared domain types for Ascent — the AI-native maturity index.
 // See docs/features/scanning/maturity-model.md for the conceptual model behind these types.
 
+import type { PrRateBook } from "@/lib/analyze/pr-thresholds";
+
 export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
 export type Impact = "high" | "medium" | "low";
@@ -677,6 +679,23 @@ export interface PrStats {
    * the outcome model reports as attribution coverage rather than silently narrowing a denominator.
    */
   mergedShas?: { s: string; a: 0 | 1 }[];
+  /**
+   * The same rates as the scalars above, in the qualified form that carries its own denominator,
+   * exclusions, sample floor and (for `aiInvolved`) per-channel precision — see
+   * `src/lib/analyze/pr-thresholds.ts`. A reader-facing surface must take its number from here
+   * through `rateReading`, never from the bare scalar beside it.
+   *
+   * It lives ON `PrStats` rather than on an analyzer-only return-type extension because the blob is
+   * persisted wholesale: a consumer typed as plain `PrStats` (every DB read — `org-signals.ts`, the
+   * rollups, the report page) could not SEE the field otherwise, so the qualified form existed in
+   * the database and nowhere in the type system that reads it. Declaring it here is behaviourally
+   * identical; what changes is who can reach it.
+   *
+   * OPTIONAL on purpose: a scan written before the contract genuinely has no rate book, and an
+   * absent population must be rendered as unknown, never fabricated into an empty one (`{}` would
+   * read as "eight rates, all with a zero denominator", which is a different and false claim).
+   */
+  rates?: PrRateBook;
 }
 
 /** Default-branch governance — from the branch `protected` flag + the (read-only) rulesets API.

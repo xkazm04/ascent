@@ -8,6 +8,54 @@ import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/
 import { parseStringArray } from "@/lib/db/scans-shared";
 import type { PrStats } from "@/lib/types";
 
+/**
+ * The fleet rates `OrgPrSignals` publishes, keyed so a rate and the basis that produced it cannot
+ * drift apart. Deliberately NOT `RateBasisId` (pr-thresholds.ts): that enumerates what the ANALYZER
+ * publishes per scan, this enumerates what the FLEET rollup publishes, and the two sets differ
+ * (`merge`, `aiTrailer`, `aiPreReviewed` are rolled up but have no per-scan qualified rate;
+ * `botAuthored`, `selfApproved`, `fastApproval` are the reverse). Naming them the same type would
+ * force one list to carry the other's members as permanent holes.
+ */
+export type FleetRateId =
+  | "merge"
+  | "reviewed"
+  | "smallPr"
+  | "aiInvolved"
+  | "aiGoverned"
+  | "revert"
+  | "aiTrailer"
+  | "aiPreReviewed";
+
+/**
+ * What actually produced one fleet rate.
+ *
+ * The defect this closes: `repos` and `totalPrs` sit beside eight `avg*Rate` percentages and are the
+ * denominator of NONE of them. `weightedRate` skips every repo whose rate is null ("no sample"), so
+ * a fleet review-coverage figure could rest on 2 of 40 repos while "40 repos / 5,000 PRs" was
+ * printed next to it — and even for a repo that DID contribute, `analyzed` is the whole scanned
+ * window, not the rate's own denominator (reviewedRate is over human-authored MERGED PRs, which may
+ * be a tenth of it). A reader who divides the headline by the volume beside it gets a number the
+ * data never supported.
+ */
+export interface FleetRateBasis {
+  /**
+   * The weight the mean actually used, summed over contributing repos: analyzed PRs, the persisted
+   * volume proxy the weighting has always run on. Kept as the weight (rather than switching to
+   * `population`) so no published fleet number moves in this change — what changes is that the
+   * weight is now stated instead of implied by the `totalPrs` beside it.
+   */
+  weight: number;
+  /** Repos that contributed a measurement — never the fleet's repo count when some were null. */
+  repos: number;
+  /**
+   * The rate's OWN denominator, summed across the contributing repos — the number a reader may
+   * legitimately divide the percentage by. Null when at least one contributor did not persist it
+   * (a scan predating the qualified-rate book), because a partial sum is a smaller denominator
+   * masquerading as a complete one. Null means "not persisted", never zero.
+   */
+  population: number | null;
+}
+
 /** One repo's PR-signal row for the delivery drill-down table. */
 export interface PrRepoRow {
   fullName: string;
@@ -30,11 +78,24 @@ export interface PrRepoRow {
   aiTrailerRate: number | null;
   /** % of merged PRs with an AI/bot review before the first human review (W2). Same null semantics. */
   aiPreReviewedRate: number | null;
+  /**
+   * The denominator behind each rate ABOVE, for this repo — the same defect as the fleet one, one
+   * level down: `analyzed` is printed in the row next to a `reviewedRate` measured over human-merged
+   * PRs and an `aiGovernedRate` measured over AI-involved ones, so the table invited a division that
+   * was never valid. A key is present only when the scan actually persisted that denominator (the
+   * sub-denominated ones arrive with the qualified-rate book, `PrStats.rates`); an absent key means
+   * "not persisted by this scan", which a render must show as unknown rather than fall back to
+   * `analyzed`. This is also what lets the fleet sum its denominators honestly.
+   */
+  population: Partial<Record<FleetRateId, number>>;
 }
 
 export interface OrgPrSignals {
-  repos: number; // repos that have PR data
-  totalPrs: number; // PRs analyzed across the fleet
+  /** Repos with PR data. The fleet's COVERAGE, not any rate's repo count — a rate whose sample only
+   *  a few of them carry is weighted over those few; `rateBasis[id].repos` is that number. */
+  repos: number;
+  /** PRs analyzed across the fleet. Fleet VOLUME, not any rate's denominator — see `rateBasis`. */
+  totalPrs: number;
   avgMergeRate: number; // analyzed-PR-weighted fleet merge rate (a large repo outweighs a toy one)
   avgReviewedRate: number | null; // analyzed-weighted repo reviewedRate (null when NO repo has a human-merged sample)
   avgSmallPrRate: number; // analyzed-weighted
@@ -47,6 +108,44 @@ export interface OrgPrSignals {
   typicalHoursToFirstReview: number | null; // mean of per-repo first-review medians (same shape as above)
   tools: { name: string; count: number }[];
   perRepo: PrRepoRow[]; // sorted riskiest first: lowest review coverage, then slowest merges
+  /** Per-rate weight, contributing repo count and true denominator — the basis every `avg*Rate`
+   *  above must be read with. Always present for all eight ids (a rate no repo measured reports
+   *  zero weight, zero repos, and a null population). */
+  rateBasis: Record<FleetRateId, FleetRateBasis>;
+}
+
+/**
+ * The true denominator of each of a repo's rates, taken from what the scan actually persisted.
+ *
+ * Three sources, all persisted, none recomputed here:
+ *  - the analyzed-denominated rates (smallPr / aiInvolved / revert) are over `analyzed` itself;
+ *  - `merge` is over the DECIDED PRs (merged + closed-unmerged) — an open PR is in `analyzed` but is
+ *    not in the merge rate's denominator, which is exactly the kind of gap this map exists to state;
+ *  - `aiTrailer` / `aiPreReviewed` are over merged PRs;
+ *  - `reviewed` / `aiGoverned` have sub-denominators (human-authored merged PRs; AI-involved PRs)
+ *    that NO scan persisted until the qualified-rate book (`PrStats.rates`, pr-thresholds.ts) — so
+ *    they are read from there and are simply absent for an older blob, which is the honest answer.
+ *
+ * A key is omitted rather than defaulted: an absent denominator is unknown, and `analyzed` standing
+ * in for it is the precise misreading this whole change removes.
+ */
+function ratePopulations(p: PrStats, num: (v: unknown) => number | null): Partial<Record<FleetRateId, number>> {
+  const pop: Partial<Record<FleetRateId, number>> = {};
+  const put = (id: FleetRateId, v: number | null) => {
+    if (v != null && v >= 0) pop[id] = v;
+  };
+  const analyzed = num(p.analyzed);
+  put("smallPr", analyzed);
+  put("aiInvolved", analyzed);
+  put("revert", analyzed);
+  const merged = num(p.merged);
+  const closedUnmerged = num(p.closedUnmerged);
+  if (merged != null && closedUnmerged != null) put("merge", merged + closedUnmerged);
+  put("aiTrailer", merged);
+  put("aiPreReviewed", merged);
+  put("reviewed", num(p.rates?.reviewed?.population));
+  put("aiGoverned", num(p.rates?.aiGoverned?.population));
+  return pop;
 }
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */
@@ -70,6 +169,8 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
   const stats: PrStats[] = [];
+  /** Index-aligned with `stats`: each repo's per-rate denominators (see ratePopulations). */
+  const pops: Partial<Record<FleetRateId, number>>[] = [];
   const perRepo: PrRepoRow[] = [];
   for (const r of repos) {
     const raw = r.scans[0]?.prStats;
@@ -77,8 +178,11 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     try {
       const p = JSON.parse(raw) as PrStats;
       if (p.analyzed > 0) {
+        const population = ratePopulations(p, num);
         stats.push(p);
+        pops.push(population);
         perRepo.push({
+          population,
           fullName: r.fullName,
           name: r.name,
           analyzed: p.analyzed,
@@ -117,15 +221,31 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   // repo carries it, preserving the null-vs-measured-0 distinction. `analyzed` is the natural fleet
   // weight (exact for the analyzed-denominated rates; a volume proxy for reviewed/governed whose exact
   // sub-denominators aren't persisted per repo). (fleet-rollups-insights #3)
-  const weightedRate = (pick: (s: PrStats) => number | null): number | null => {
+  //
+  // WHAT CHANGED (and what deliberately did not): the arithmetic is untouched — every published
+  // fleet percentage is the same number it was. What is new is that each rate now REPORTS the weight
+  // and the repo count it was actually computed over, plus its own summed denominator, into
+  // `rateBasis`. `repos` / `totalPrs` describe the fleet, not any one rate, and the gap between them
+  // was silent: a coverage figure resting on 2 of 40 repos rendered beside "40 repos, 5,000 PRs".
+  const rateBasis = {} as Record<FleetRateId, FleetRateBasis>;
+  const weightedRate = (id: FleetRateId, pick: (s: PrStats) => number | null): number | null => {
     let wsum = 0;
     let sum = 0;
-    for (const s of stats) {
+    let contributors = 0;
+    // The rate's own denominator, summed over the CONTRIBUTING repos only. It stays a number only
+    // while every contributor persisted one; the first that didn't turns it null, because a sum
+    // missing a term is a smaller denominator that still looks complete.
+    let population: number | null = 0;
+    for (const [i, s] of stats.entries()) {
       const v = pick(s);
       if (v == null) continue; // "no sample" — not a measured 0
       wsum += s.analyzed;
       sum += v * s.analyzed;
+      contributors += 1;
+      const p = pops[i]?.[id];
+      population = p == null || population == null ? null : population + p;
     }
+    rateBasis[id] = { weight: wsum, repos: contributors, population: contributors ? population : null };
     return wsum > 0 ? Math.round(sum / wsum) : null;
   };
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
@@ -138,23 +258,26 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     repos: stats.length,
     totalPrs: stats.reduce((a, s) => a + s.analyzed, 0),
     // Always-present rates: `stats` is non-empty and every row has analyzed > 0, so wsum > 0 ⇒ never null.
-    avgMergeRate: weightedRate((s) => s.mergeRate) ?? 0,
-    avgReviewedRate: weightedRate((s) => s.reviewedRate),
-    avgSmallPrRate: weightedRate((s) => s.smallPrRate) ?? 0,
-    avgAiInvolvedRate: weightedRate((s) => s.aiInvolvedRate) ?? 0,
-    avgAiGovernedRate: weightedRate((s) => s.aiGovernedRate),
+    avgMergeRate: weightedRate("merge", (s) => s.mergeRate) ?? 0,
+    avgReviewedRate: weightedRate("reviewed", (s) => s.reviewedRate),
+    avgSmallPrRate: weightedRate("smallPr", (s) => s.smallPrRate) ?? 0,
+    avgAiInvolvedRate: weightedRate("aiInvolved", (s) => s.aiInvolvedRate) ?? 0,
+    avgAiGovernedRate: weightedRate("aiGoverned", (s) => s.aiGovernedRate),
     // W1a: revertRate is analyzed-denominated (like mergeRate), but stays nullable because a
     // pre-field historical blob has no measurement to contribute — absence, not a measured 0.
-    avgRevertRate: weightedRate((s) => num(s.revertRate)),
+    avgRevertRate: weightedRate("revert", (s) => num(s.revertRate)),
     // W2: merged-PR-denominated rates ride the same analyzed-weighted machinery (analyzed is the
     // persisted volume proxy — see the weighting note above); a pre-W2 blob or a below-floor sample
     // is null and contributes no weight, never a fabricated 0.
-    avgAiTrailerRate: weightedRate((s) => num(s.aiTrailerRate)),
-    avgAiPreReviewedRate: weightedRate((s) => num(s.aiPreReviewedRate)),
+    avgAiTrailerRate: weightedRate("aiTrailer", (s) => num(s.aiTrailerRate)),
+    avgAiPreReviewedRate: weightedRate("aiPreReviewed", (s) => num(s.aiPreReviewedRate)),
     typicalHoursToMerge: meanTenth(ttm),
     typicalHoursToFirstReview: meanTenth(ttfr),
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     perRepo,
+    // Filled in by the `weightedRate` calls above — every one of them writes its basis — so this
+    // reads the completed record. Listing it last keeps that dependency visible in source order.
+    rateBasis,
   };
 }
 

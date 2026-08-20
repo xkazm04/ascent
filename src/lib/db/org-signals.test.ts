@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { PrStats } from "@/lib/types";
+import { qualifiedRate } from "@/lib/analyze/pr-thresholds";
 
 const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
@@ -840,5 +841,98 @@ describe("getOrgActivity — canonical-zone week grid", () => {
     expect(res!.oldestWeekIso).toBe("2026-02-22");
     const WK = 7 * 86_400_000;
     expect((Date.parse(res!.latestWeekIso) - Date.parse(res!.oldestWeekIso)) / WK).toBe(3);
+  });
+});
+
+// ── getOrgPrSignals: each fleet rate carries the basis that produced it ───────
+//
+// `repos` and `totalPrs` describe the FLEET, and are the denominator of none of the eight `avg*Rate`
+// percentages beside them: `weightedRate` skips every repo whose rate is null, and even a
+// contributing repo's `analyzed` is the whole scanned window rather than the rate's own denominator
+// (reviewedRate is over human-authored MERGED PRs). `rateBasis` states, per rate, the weight and the
+// repo count actually behind it plus the rate's own summed denominator — the number a reader may
+// legitimately divide by. The arithmetic of the percentages themselves is unchanged.
+
+describe("getOrgPrSignals rateBasis (each rate's own weight, repos and denominator)", () => {
+  it("reports the weight and repo count behind a rate only some repos measured", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, reviewedRate: 80 }),
+        prStats({ analyzed: 100, reviewedRate: null }), // huge, but no sample → no weight
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.repos).toBe(2);
+    expect(res!.totalPrs).toBe(110);
+    expect(res!.avgReviewedRate).toBe(80);
+    // The fleet coverage figure rests on ONE repo and 10 PRs, not on the "2 repos / 110 PRs" beside it.
+    expect(res!.rateBasis.reviewed).toMatchObject({ weight: 10, repos: 1 });
+    // An analyzed-denominated rate every repo measured does span the whole fleet.
+    expect(res!.rateBasis.smallPr).toMatchObject({ weight: 110, repos: 2, population: 110 });
+  });
+
+  it("sums a sub-denominated rate's OWN population from the persisted rate book", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 40, reviewedRate: 80, rates: { reviewed: qualifiedRate("reviewed", 18, 22) } }),
+        prStats({ analyzed: 20, reviewedRate: 50, rates: { reviewed: qualifiedRate("reviewed", 5, 10) } }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // 32 human-merged PRs — NOT the 60 analyzed PRs the fleet volume would suggest.
+    expect(res!.rateBasis.reviewed).toMatchObject({ weight: 60, repos: 2, population: 32 });
+  });
+
+  it("leaves the population null when a contributing repo never persisted one (pre-contract blob)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 40, reviewedRate: 80, rates: { reviewed: qualifiedRate("reviewed", 18, 22) } }),
+        prStats({ analyzed: 20, reviewedRate: 50 }), // pre-contract: no rate book at all
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // A partial sum (22) would be a smaller denominator masquerading as a complete one.
+    expect(res!.rateBasis.reviewed.population).toBeNull();
+    expect(res!.rateBasis.reviewed.repos).toBe(2);
+  });
+
+  it("denominates the merge rate on DECIDED PRs, not on the analyzed window", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", [prStats({ analyzed: 12, open: 2, merged: 8, closedUnmerged: 2 })]));
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.rateBasis.merge).toMatchObject({ weight: 12, repos: 1, population: 10 }); // the 2 open PRs are not in it
+    expect(res!.totalPrs).toBe(12);
+  });
+
+  it("a rate NO repo measured reports zero weight, zero repos and a null population", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", [preW2PrStats({ analyzed: 10 })]));
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgAiTrailerRate).toBeNull();
+    expect(res!.rateBasis.aiTrailer).toEqual({ weight: 0, repos: 0, population: null });
+  });
+
+  it("perRepo rows carry their own per-rate denominators", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "prStats",
+        [prStats({ analyzed: 12, open: 2, merged: 8, closedUnmerged: 2, rates: { aiGoverned: qualifiedRate("aiGoverned", 4, 6) } })],
+        { extra: () => ({ fullName: "acme/api", name: "api" }) },
+      ),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.perRepo[0]!.population).toMatchObject({ smallPr: 12, merge: 10, aiTrailer: 8, aiGoverned: 6 });
+    // `reviewed` was never persisted by this blob, so the key is ABSENT — not `analyzed` standing in.
+    expect(res!.perRepo[0]!.population.reviewed).toBeUndefined();
   });
 });
