@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
-import { PaceChip, type GoalProgressView } from "@/components/org/shared/goalView";
+import { PaceChip, goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
@@ -41,6 +41,7 @@ export function GoalBanner({
 }) {
   const countdown = daysUntil(goal.targetDate);
   const toGoal = Math.max(0, goal.target - goal.current);
+  const basisMarker = goalBasisMarker(goal);
   return (
     <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -53,15 +54,20 @@ export function GoalBanner({
           briefing →
         </Link>
       </div>
+      {/* This wall is PROJECTED: nobody hovers a tooltip and nobody reads the aria label off a
+          screen reader, so a goal that can only report attainment says so in VISIBLE text below —
+          the aria label carries the same wording for the authenticated in-browser reader. */}
       <Meter
         className="mt-2.5"
         value={goal.current}
         threshold={goal.target}
         color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
+        ariaLabel={goalMeterAriaLabel(goal)}
       />
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
         <span>
           {goal.metricLabel} {goal.current}/{goal.target}
+          {basisMarker ? <span className="text-slate-500"> · {basisMarker}</span> : null}
           {goal.achieved ? " · reached 🎉" : ` · ${toGoal} to goal`}
         </span>
         {campaignDelta != null && (

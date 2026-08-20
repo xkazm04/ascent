@@ -17,6 +17,35 @@ export const GOAL_PACE_TONE: Record<GoalPace, { label: string; color: string }> 
 
 export const rate = (n: number) => `${n > 0 ? "+" : ""}${n}/wk`;
 
+/** The short VISIBLE marker for a goal whose percentage can only be attainment (current over target),
+ *  because it was created before baselines were recorded. Wording matches the executive briefing card
+ *  (`briefingCardsMovement.tsx`) so the same goal reads the same on every surface. There is deliberately
+ *  no marker for the `"progress"` basis: a bar that measures what a progress bar claims to measure needs
+ *  no disclaimer, and marking both would turn the signal into decoration nobody reads. */
+export const GOAL_ATTAINMENT_MARKER = "of target";
+
+/** `GOAL_ATTAINMENT_MARKER` when the goal can only report attainment, else null — so a call site is a
+ *  single `{marker && …}` rather than four copies of the basis test. */
+export function goalBasisMarker(g: Pick<GoalProgressView, "pctBasis">): string | null {
+  return g.pctBasis === "attainment" ? GOAL_ATTAINMENT_MARKER : null;
+}
+
+/**
+ * The accessible name for a goal meter: the numbers the bar draws, plus the basis caption.
+ *
+ * Note what these meters plot — `value={current} threshold={target}`, i.e. STANDING with the target
+ * marked, not `pct`. That is why the caption is appended rather than substituted: it tells the reader
+ * which question this goal's percentage answers everywhere else (the briefing card, the API), so the
+ * near-full bar of a fresh no-baseline goal is not mistaken for work already done. A goal from an older
+ * payload carries no `pctLabel`; we then state the numbers alone rather than guess a basis.
+ */
+export function goalMeterAriaLabel(
+  g: Pick<GoalProgressView, "label" | "current" | "target" | "pctLabel">,
+): string {
+  const head = `${g.label}: ${g.current} of ${g.target}`;
+  return g.pctLabel ? `${head} — ${g.pctLabel}` : head;
+}
+
 /** One-line, leader-facing read of a goal's pace — the detail under the progress meter. */
 export function readout(g: GoalProgressView): string {
   if (g.pace === "reached") return `Target met: holding at or above ${g.target}.`;

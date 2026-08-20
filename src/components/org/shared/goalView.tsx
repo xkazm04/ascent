@@ -10,11 +10,11 @@ import { Meter } from "@/components/org/shared/ui";
 import { GoalTrend } from "@/components/org/shared/GoalTrend";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { GOAL_PACE_TONE, readout, INIT_STATUS_LABEL } from "./goalViewLogic";
+import { GOAL_PACE_TONE, goalBasisMarker, goalMeterAriaLabel, readout, INIT_STATUS_LABEL } from "./goalViewLogic";
 import type { GoalProgressView, LinkedInitiative } from "./GoalViewTypes";
 
 export type { GoalProgressView, LinkedInitiative } from "./GoalViewTypes";
-export { GOAL_PACE_TONE } from "./goalViewLogic";
+export { GOAL_PACE_TONE, GOAL_ATTAINMENT_MARKER, goalBasisMarker, goalMeterAriaLabel } from "./goalViewLogic";
 
 export function PaceChip({ pace }: { pace: GoalProgressView["pace"] }) {
   const p = GOAL_PACE_TONE[pace];
@@ -49,6 +49,7 @@ export function GoalCard({
 }) {
   const pace = GOAL_PACE_TONE[goal.pace];
   const shown = goal.laggards.slice(0, compact ? 3 : 8);
+  const basisMarker = goalBasisMarker(goal);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
       <div className="flex items-start justify-between gap-2">
@@ -68,17 +69,21 @@ export function GoalCard({
           </div>
           <div className="mt-0.5 font-mono text-sm text-slate-500">
             {goal.metricLabel} · {goal.current}/{goal.target}
+            {basisMarker && <span className="text-slate-600"> · {basisMarker}</span>}
             {goal.targetDate && <span className="text-slate-600"> · by {goal.targetDate}</span>}
           </div>
         </div>
         {action}
       </div>
 
+      {/* The basis rides in the meter's accessible name (see goalMeterAriaLabel), with the visible
+          "of target" marker above for the attainment case — the one that opens near-full. */}
       <Meter
         className="mt-2.5"
         value={goal.current}
         threshold={goal.target}
         color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
+        ariaLabel={goalMeterAriaLabel(goal)}
       />
       {/* The trajectory toward the target — the meter shows standing, this shows TRAVEL (the pct
           field's documented blind spot). Same series the pace verdict was fitted on. */}
