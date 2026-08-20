@@ -10,6 +10,16 @@
 //                expose the negotiated per-seat price through any API, so no cost figure exists to
 //                report and none is invented). W3c retired the old "simulated" tier entirely.
 
+// ONE CONCEPT, TWO VIEWS — and the mapping between them is typed (D32). `Fidelity` here describes what
+// a CONNECTOR can do; `ModelFidelity` (src/features/bought/delivery/ai/aiDeliveryTypes.ts) describes what
+// the delivery model ended up WITH. They are not the same statement: `seats-only` is a capability ("this
+// vendor reports seats but never spend") while `none` is an outcome ("no cost source is connected at
+// all"), and collapsing them would lose the distinction the split exists to protect. What was missing was
+// any enforced link — the two member sets were kept aligned by hand, so a fourth tier added here would
+// have silently mis-mapped into the money columns. `modelFidelityOfConnector` in aiDeliveryTypes.ts is a
+// total `Record<Fidelity, …>`: adding a member to THIS type is now a compile error until it is mapped.
+// (A third, narrower vocabulary exists at src/lib/db/integrations.ts — `UsageFidelity = measured |
+// allocated`, the two tiers a stored usage RECORD may claim. It is a subset of this one by construction.)
 export type Fidelity = "measured" | "allocated" | "seats-only";
 export type ProviderStatus = "available" | "planned";
 export type ConnectKind = "otel-push" | "admin-pull";
@@ -40,6 +50,10 @@ export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note:
     note: "reports seats and engagement, not spend, so no cost figure exists to report",
   },
 };
+
+/** Every connector tier, derived from the (type-exhaustive) meta table so it cannot fall behind the
+ *  union. Iterate this rather than re-listing the members at a call site. */
+export const FIDELITY_TIERS = Object.keys(FIDELITY_META) as Fidelity[];
 
 export const PROVIDERS: ProviderDef[] = [
   {

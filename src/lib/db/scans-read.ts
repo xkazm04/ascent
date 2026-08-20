@@ -277,6 +277,12 @@ export interface HistoryPoint {
    *  "mock" for a deterministic-floor scan. Surfaced so the audit CSV is model-level, not just
    *  provider-level — an auditor can tell which model graded which quarter. [Tiger P1-5] */
   engineModel: string;
+  /** Rubric revision this snapshot was scored under, when stamped. Rides along because a
+   *  before/after comparison across a rubric bump is a comparison between two different
+   *  instruments — see `skill-outcomes.ts`, which refuses to publish a delta unless both
+   *  sides agree. Null for legacy scans predating the stamp; unknown provenance is not
+   *  evidence of comparability, so null reads as not-comparable rather than as a match. */
+  rubricVersion: string | null;
   scannedAt: string;
   dimensions: { dimId: string; score: number }[];
 }
@@ -297,6 +303,7 @@ const HISTORY_POINT_SELECT = {
   confidence: true,
   engineProvider: true,
   engineModel: true,
+  rubricVersion: true,
   scannedAt: true,
 } as const;
 
@@ -310,6 +317,7 @@ function historyPointFrom(s: {
   confidence: number;
   engineProvider: string;
   engineModel: string;
+  rubricVersion?: string | null;
   scannedAt: Date;
   dimensions?: { dimId: string; score: number }[];
 }): HistoryPoint {
@@ -322,6 +330,7 @@ function historyPointFrom(s: {
     confidence: s.confidence,
     engineProvider: s.engineProvider,
     engineModel: s.engineModel,
+    rubricVersion: s.rubricVersion ?? null,
     scannedAt: s.scannedAt.toISOString(),
     dimensions: s.dimensions ?? [],
   };

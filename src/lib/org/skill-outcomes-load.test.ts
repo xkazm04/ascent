@@ -20,6 +20,11 @@ import { getOrgSkillOutcomes, HISTORY_CONCURRENCY } from "./skill-outcomes-load"
 
 const T = (iso: string) => new Date(iso).toISOString();
 
+/** Points default to one matching instrument (same rubric revision, same engine family) so these
+ *  pooling tests exercise the pooling. A pair whose instruments differ — or are unknown — is
+ *  refused a delta by `skillOutcomesFor`, which is asserted directly in skill-outcomes.test.ts. */
+const INSTRUMENT = { rubricVersion: "r6", engineProvider: "anthropic" } as const;
+
 /** A history reader that records peak in-flight depth and resolves on the microtask queue. */
 function trackingHistory(scansFor: (fullName: string) => { id: string; scannedAt: string; overallScore: number }[] = () => []) {
   const state = { inFlight: 0, peak: 0, calls: [] as string[] };
@@ -32,7 +37,7 @@ function trackingHistory(scansFor: (fullName: string) => { id: string; scannedAt
     await Promise.resolve();
     await Promise.resolve();
     state.inFlight -= 1;
-    return { repo: { owner, name, fullName }, scans: scansFor(fullName) };
+    return { repo: { owner, name, fullName }, scans: scansFor(fullName).map((p) => ({ ...p, ...INSTRUMENT })) };
   });
   return state;
 }
@@ -112,8 +117,8 @@ describe("getOrgSkillOutcomes — results are unchanged by the bound", () => {
       return {
         repo: { owner, name, fullName: `${owner}/${name}` },
         scans: [
-          { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40 },
-          { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55 },
+          { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40, ...INSTRUMENT },
+          { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55, ...INSTRUMENT },
         ],
       };
     });

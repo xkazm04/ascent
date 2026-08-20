@@ -22,12 +22,13 @@
 
 import type { OrgPrSignals, OrgUsageRollup } from "@/lib/db";
 import type { AiDeliveryModel, AiRepoRoi, ModelFidelity, Verdict } from "./aiDeliveryTypes";
+import { provenanceOf } from "./aiDeliveryTypes";
 import { classify, VERDICT_ORDER } from "./aiDeliveryVerdict";
 
 // The model's shape lives in ./aiDeliveryTypes and its verdict rules in ./aiDeliveryVerdict (200-line
 // cap); both are re-exported here so this file stays the one import path every call site knows.
-export { VERDICT_META } from "./aiDeliveryTypes";
-export type { AiDeliveryModel, AiDeliverySummary, AiRepoRoi, ModelFidelity, Verdict } from "./aiDeliveryTypes";
+export { FIGURE_GROUP_META, FIGURE_GROUP_OF, modelFidelityOfConnector, provenanceOf, provenanceOfFigure, VERDICT_META } from "./aiDeliveryTypes";
+export type { AiDeliveryModel, AiDeliverySummary, AiRepoRoi, FigureGroup, FigureProvenance, ModelFidelity, ProvenanceMap, Verdict } from "./aiDeliveryTypes";
 
 /** Provider source id → display name for the tool column. */
 const SOURCE_NAME: Record<string, string> = { "claude-code": "Claude Code", copilot: "Copilot", openai: "Codex" };
@@ -141,6 +142,11 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
 
   return {
     fidelity,
+    // D31: the scalar above badges the SPEND layer only. `provenance` carries the tier per figure group
+    // so the git-measured adoption columns keep their own (always real) provenance instead of inheriting
+    // the spend layer's, and cost-per-AI-PR is badged at its weaker half. Derived from the same value,
+    // so the two can never disagree.
+    provenance: provenanceOf(fidelity),
     tools: pr.tools,
     repos,
     summary: {
