@@ -76,7 +76,7 @@ describe("indexRegistry over the reference layout", () => {
     const entry = result.catalog!.skills.find((s) => s.name === "test-before-commit")!;
     expect(entry.lessons).toBe(3);
     expect(entry.lessonsPath).toBe("skills/test-before-commit/LESSONS.md");
-    expect(entry.contentHash).toMatch(/^sha256:[0-9a-f]{16}$/);
+    expect(entry.contentHash).toMatch(/^sha256-n1:[0-9a-f]{16}$/);
   });
 
   it("indexes a skill with NO frontmatter under its directory name, with a warning", async () => {

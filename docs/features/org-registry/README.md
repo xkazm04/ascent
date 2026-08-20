@@ -28,7 +28,7 @@ read their source of truth from it once it is mapped.
 | `src/app/org/[slug]/registry/page.tsx` | permanent redirect stub into `?tab=registry` |
 | `src/lib/registry/layout.ts` | v1 file layout constants + the deterministic `buildScaffoldFiles(org)` |
 | `src/lib/registry/policy.ts` | `.ascent/registry.yaml` parse + serialize (small YAML subset) |
-| `src/lib/registry/catalog.ts` | the `catalog.json` envelope (build / parse / `sha256:<16 hex>` short hash) |
+| `src/lib/registry/catalog.ts` | the `catalog.json` envelope (build / parse) + the content digest's FORMAT (`sha256-n1:<16 hex>`, legacy detection, `digestVerdict`) |
 | `src/lib/registry/scaffold.ts` | `openScaffoldPr` (branch `ascent/registry-scaffold`) + `createRegistryRepo` |
 | `src/lib/registry/index-registry.ts` (+ `index-walk.ts`, `read.ts`, `parse.ts`) | the indexer |
 | `src/lib/registry/migrate.ts` | hosted rows to registry layout, one draft PR per artifact type |
@@ -128,8 +128,29 @@ deleted repo, rate limit) returns a typed error and leaves the previous index re
 
 `catalog.json` is an **envelope object**, not a bare array — `{schema, schemaVersion, generatedAt,
 generatedBy, registry, skills[], practices[], memory[], counts}` with `contentHash` as
-`sha256:<first 16 hex>` — matching the reference registry. The scaffold seeds the same envelope, empty,
-with `generatedAt: null` so re-running it is a byte-identical no-op.
+`sha256-n1:<first 16 hex>`. The scaffold seeds the same envelope, empty, with `generatedAt: null` so
+re-running it is a byte-identical no-op.
+
+### The content digest (schemaVersion 1.1.0)
+
+`contentHash` is the ONLY thing a fleet repo needs to answer "am I in sync, stale, or diverged?", so it
+is produced in exactly **one** place — `contentDigest` in `src/lib/registry/parse.ts` — and consumed by
+all three surfaces that publish one: the catalog entries, the mirror rows' `contentHash` column, and
+the skill sync manifest (`GET /api/org/skills/manifest`). Those last two used to hash different, capped
+spans, so the digest a CLI compared against the catalog was never comparable with it.
+
+- **Span:** the artifact's **full text**, uncapped, frontmatter included.
+- **Normalization:** CRLF/CR folded to LF, and **nothing else**. Raw-byte hashing made a checkout that
+  rewrites line endings report every artifact permanently diverged; trimming whitespace or folding
+  unicode would go too far the other way and hide a real divergence silently.
+- **Version tag:** `n1` = normalization revision 1. Every stored digest changed when this landed, so an
+  untagged (pre-1.1.0) digest stays identifiable: `digestVerdict(stored, fresh)` returns
+  `"reformatted"`, not `"changed"`, and a consumer recomputes instead of reporting an edit. On the
+  hosted side, `pushOrgSkill` recognizes a legacy key, re-keys the row in place and returns
+  `unchanged` — no version bump, no fleet-wide "everything diverged" event.
+- **Accepted trade-offs:** a frontmatter-only edit (e.g. a tag) reads as a content change, and two
+  bodies differing only past the 50KB storage cap read as different. Both are loud false positives,
+  chosen over the silent false "in sync" the capped/stripped spans produced.
 
 ## Known gaps
 

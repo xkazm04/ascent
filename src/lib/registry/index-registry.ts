@@ -13,10 +13,10 @@
 import type { OrgRegistryRow } from "@/lib/db/org-registry";
 import { archiveVanishedRegistryRows, recordIndexError, recordIndexResult } from "@/lib/db/org-registry-write";
 import { upsertRegistryMemory, upsertRegistryPractice, upsertRegistrySkill } from "@/lib/db/org-registry-mirror";
-import { buildCatalog, shortHash, type RegistryCatalog } from "./catalog";
+import { buildCatalog, shortDigest, type RegistryCatalog } from "./catalog";
 import { REGISTRY_CATALOG_PATH, REGISTRY_LESSONS_FILE, REGISTRY_SKILL_FILE, REGISTRY_SPINE_PATH } from "./layout";
 import { cappedReader, countLessons, selectArtifacts, type RegistrySource } from "./index-walk";
-import { hashFile, parseRegistryMemory, parseRegistryPractice, parseRegistrySkill } from "./parse";
+import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistrySkill } from "./parse";
 import { modeToYaml, parseRegistryYaml, type RegistryDeclaration } from "./policy";
 import type { RegistryTree } from "./read";
 
@@ -103,7 +103,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
       const lessonText = await read(lessonsEntry);
       if (lessonText) {
         lessonCount = countLessons(lessonText);
-        lessonsHash = shortHash(hashFile(lessonText));
+        lessonsHash = shortDigest(contentDigest(lessonText));
         lessons += lessonCount;
       }
     }
@@ -115,7 +115,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
       version: parsed.value.version,
       category: parsed.value.category,
       path: entry.path,
-      contentHash: shortHash(parsed.value.hash),
+      contentHash: shortDigest(parsed.value.hash),
       lessons: lessonCount,
       ...(lessonsEntry ? { lessonsPath: lessonsEntry.path, lessonsHash } : {}),
     });
@@ -138,7 +138,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
       id: parsed.value.practiceId || parsed.value.slug,
       dimension: parsed.value.dimension,
       path: entry.path,
-      contentHash: shortHash(parsed.value.hash),
+      contentHash: shortDigest(parsed.value.hash),
       starter: picked.blobs.filter((b) => b.path.startsWith(`${dir}/starter/`)).map((b) => b.path),
     });
   }
@@ -159,7 +159,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
       kind: parsed.value.kind,
       slug: entry.path.split("/").pop()!.replace(/\.md$/, ""),
       path: entry.path,
-      contentHash: shortHash(parsed.value.hash),
+      contentHash: shortDigest(parsed.value.hash),
       confidence: parsed.value.confidence,
       namespace: parsed.value.namespace,
       source: parsed.value.source,

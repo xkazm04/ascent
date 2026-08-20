@@ -12,7 +12,6 @@
 //   2. Vanished paths are ARCHIVED, never deleted: a bad merge that removes a skill must be
 //      recoverable, and the adoption/telemetry rows hanging off the id must survive.
 
-import { createHash } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 
 export interface MirrorSkillInput {
@@ -48,8 +47,24 @@ export interface MirrorPracticeInput {
   content: string;
 }
 
-const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const cap = (s: string, n: number) => s.slice(0, n);
+
+/**
+ * The row's `contentHash` IS the file's canonical digest (`input.hash`, from `contentDigest` in
+ * `@/lib/registry/parse`) — the same string the catalog entry for this path carries.
+ *
+ * WHAT THIS REPLACES: `sha256(cap(content, 50_000))` computed here, over the frontmatter-stripped and
+ * capped body. That made this row a THIRD digest span beside the catalog's whole-file hash and
+ * `org-skills`' capped-stored-content hash — and since `listOrgSkillManifest` publishes this very
+ * column as the sync manifest's change key, the two surfaces a consumer compares (catalog vs manifest)
+ * were never comparable. Equality across them meant nothing; inequality explained nothing.
+ *
+ * TRADE-OFF ACCEPTED: the digest no longer describes the stored/served body, it describes the SOURCE
+ * FILE. For a registry-origin row that is the right referent — the registry repo is the source of
+ * truth and the file is what a consumer re-pulls — but it does mean a frontmatter-only edit changes
+ * the manifest key even though the mirrored body is byte-identical. A loud re-pull, not a silent miss.
+ */
+const rowDigest = (input: { hash: string }) => input.hash;
 
 /** The row this (registryId, registryPath) already indexed, if any. */
 async function findByPath(
@@ -80,7 +95,7 @@ export async function upsertRegistrySkill(
     content,
     category: input.category,
     tags: JSON.stringify((input.tags ?? []).slice(0, 20)),
-    contentHash: sha(content),
+    contentHash: rowDigest(input),
     archived: false,
     origin: "registry",
     registryId,
@@ -151,7 +166,7 @@ export async function upsertRegistryPractice(
     title: cap(input.title, 200),
     appliesWhen: cap(input.appliesWhen, 1000),
     content,
-    contentHash: sha(content),
+    contentHash: rowDigest(input),
     archived: false,
     origin: "registry",
     registryId,

@@ -4,12 +4,13 @@
 // JSON string[]; this module is the single place skill fields are (de)serialized + bounded. DISTINCT
 // from src/lib/db/skill-history.ts (the per-repo onboarding-SKILL.md generation log) — no coupling.
 
-import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
 import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
+import { isLegacyDigest } from "@/lib/registry/catalog";
+import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
 export type SkillSort = "name" | "recent" | "downloads";
@@ -29,7 +30,11 @@ export interface SkillRow {
   frontmatter: SkillFrontmatter;
   /** Bumped on each content edit — the change-history anchor. */
   version: number;
-  /** sha256 hex of `content` — the sync-manifest change key (diff without shipping the body). */
+  /**
+   * The canonical content digest — the sync-manifest change key (diff without shipping the body).
+   * `sha256-n1:<hex>`; a bare-hex value is a row written before the digest was versioned and means
+   * "not comparable, recompute", never "diverged". See `hashContent` below.
+   */
   contentHash: string;
   /** Denormalized rolling download/use tally (the sort key). */
   downloadCount: number;
@@ -87,8 +92,32 @@ function cleanTags(tags: string[] | undefined): string {
 const cleanName = (s: string) => s.trim().slice(0, 200);
 const cleanDescription = (s: string | undefined) => (s ?? "").trim().slice(0, 1000);
 const cleanContent = (s: string) => s.slice(0, MAX_CONTENT);
-/** Manifest change key — hash the STORED (already-capped) content so it matches what a client downloads. */
-const hashContent = (s: string) => createHash("sha256").update(cleanContent(s)).digest("hex");
+/**
+ * Manifest change key. ONE function, shared with the registry catalog and the mirror rows:
+ * `contentDigest` (`@/lib/registry/parse`) — sha256 over the FULL submitted body, line endings folded
+ * to LF, tagged `sha256-n1:`. The scope and both trade-offs are pinned in that function's doc; a
+ * second copy of the arithmetic here is what created the defect below, so there is deliberately none.
+ *
+ * WHAT THIS REPLACES: `sha256(cleanContent(s))` — the STORED, `MAX_CONTENT`-capped body, hashed raw.
+ * One defect seen twice. (1) It was a third span: the catalog hashed whole files, the mirror hashed
+ * capped bodies, and this hashed capped stored content — yet this column is what
+ * `listOrgSkillManifest` publishes, so the manifest digest a CLI compares against a catalog digest was
+ * computed over different input and their (in)equality said nothing either way. (2) Raw bytes made a
+ * CRLF checkout report every artifact diverged forever.
+ *
+ * TRADE-OFF ACCEPTED HERE SPECIFICALLY: hashing UNCAPPED means two bodies differing only past
+ * `MAX_CONTENT` now push as `updated` although the stored bytes are identical — a wasted version bump
+ * on a >50KB skill. Hashing the capped span instead would report them `unchanged` and silently drop a
+ * real edit, which is the strictly worse failure.
+ */
+const hashContent = (s: string) => contentDigest(s);
+
+/**
+ * The pre-`n1` recipe for THIS column, reproduced exactly (raw bytes over the capped stored content)
+ * so a digest written before the change can be recognized rather than mistaken for an edit. See the
+ * transition branch in `pushOrgSkill`. Never used to write a new value.
+ */
+const legacyHashContent = (s: string) => legacyRawDigest(cleanContent(s));
 
 function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { adoptions: true } } } }>): SkillRow {
   const tags = parseTags(s.tags);
@@ -435,7 +464,20 @@ export async function pushOrgSkill(
   if (opts.baseVersion !== undefined && opts.baseVersion !== existing.version) {
     return { status: "conflict", id: existing.id, version: existing.version };
   }
-  if (hashContent(input.content) === existing.contentHash) {
+  const digest = hashContent(input.content);
+  if (digest === existing.contentHash) {
+    return { status: "unchanged", id: existing.id, version: existing.version };
+  }
+  // ── the digest-version transition ──
+  // Versioning the digest changed EVERY stored value at once. Without this branch the first push after
+  // the change would report `updated` for every skill in every library and bump every version — a
+  // fleet-wide "everything diverged" event for content nobody touched, which is the exact failure the
+  // normalization was introduced to stop. So: when the stored key predates the `sha256-n1:` tag,
+  // re-derive it with the OLD recipe. A match means the body is unchanged; the row is silently
+  // re-keyed to the new digest (no version bump, no `updated`) and every row migrates on its own next
+  // push. A mismatch falls through to the real update path below, as it should.
+  if (isLegacyDigest(existing.contentHash) && legacyHashContent(input.content) === existing.contentHash) {
+    await prisma.orgSkill.update({ where: { id: existing.id }, data: { contentHash: digest } });
     return { status: "unchanged", id: existing.id, version: existing.version };
   }
   const updated = await prisma.orgSkill.update({
@@ -443,7 +485,7 @@ export async function pushOrgSkill(
     data: {
       description: cleanDescription(input.description),
       content: cleanContent(input.content),
-      contentHash: hashContent(input.content),
+      contentHash: digest,
       category: normalizeSkillCategory(input.category),
       tags: cleanTags(input.tags),
       version: { increment: 1 },
