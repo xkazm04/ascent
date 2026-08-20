@@ -280,6 +280,21 @@ own first gap when the model gave one, else the catalog template — lowest scor
 model's own entries. Before this, 3-5 roadmap entries over nine dimensions left most mediocre
 dimensions with an empty "Next steps", which the drill-in read as "not a current gap".
 
+**Ranking includes effort (2026-08-20).** The fallback roadmap ranks by `weight × headroom ×
+effort`, where effort discounts the weighted upside by 10% per ordinal (low ×1.0, medium ×0.9,
+high ×0.8, off the shared `IMPACT_RANK`). Effort was previously displayed but absent from the
+ordering, so the first thing a team was told to do could be the most expensive item on the board.
+The discount is deliberately gentle: it only reorders gaps already within ~20% of each other, so a
+dominant high-effort gap still leads.
+
+**Framing lint (2026-08-20).** The invitational-framing rules — an observation not an imperative,
+no supervisory voice, a title that does not contradict its own rationale — are checked
+deterministically by `lintRoadmapFraming` (`recommendations.ts`) on every roadmap that passes
+through `buildDimensionFollowUps`, model-written and synthesised entries alike. Violations are
+reported (`console.warn`) and the entry ships **unchanged**: rejecting on phrasing would lose an
+evidence-grounded finding to the fallback template, and rewriting it would put words in the model's
+mouth that no longer match the evidence it cited. No model judges the model here.
+
 If the LLM fails or returns an unusable result (`isAssessmentUsable()` requires ≥ 50% of
 dimensions), `scanRepository` automatically falls back to `MockProvider` and adds a
 warning. Provider selection and the abstraction are documented in
@@ -444,7 +459,7 @@ cancelled only when the last interested caller disconnects.
 | `src/lib/github/governance.ts` | Branch protection / rulesets / commit activity. |
 | `src/lib/scoring/engine.ts` | `assembleReport()`: guardband, blend, rollup, axes, posture. |
 | `src/lib/scoring/prompt.ts` | `buildAssessmentPrompt()`: renders the LLM prompt. |
-| `src/lib/scoring/recommendations.ts` | Deterministic fallback roadmap (per-dimension templates ranked by upside). |
+| `src/lib/scoring/recommendations.ts` | Deterministic fallback roadmap (per-dimension templates ranked by weight × headroom × effort), the follow-up guarantee, and the invitational-framing lint. |
 | `src/lib/maturity/model.ts` | `LEVELS`, `DIMENSIONS`, `ARCHETYPE_WEIGHTS`, `levelForScore`, `postureFor`, constants. |
 | `src/lib/maturity/forecast.ts` | Trend projection + ETA to next level. |
 | `src/lib/cache.ts` / `src/lib/scan-cache.ts` | In-memory LRU + tiered cache orchestration (incl. `lookupScopedScan`). |

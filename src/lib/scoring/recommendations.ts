@@ -5,6 +5,7 @@
 
 import type { DimensionId, DimensionSignals, LlmRoadmapItem, RepoArchetype } from "@/lib/types";
 import { DIMENSION_BY_ID, FOLLOW_UP_BELOW, levelForScore, nextLevel, weightsFor } from "@/lib/maturity/model";
+import { IMPACT_RANK } from "@/lib/scoring/impact";
 
 interface RecTemplate {
   title: string;
@@ -119,6 +120,32 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
   },
 };
 
+/**
+ * How much one step of EFFORT discounts a step's weighted upside in the roadmap ranking: 10% per
+ * ordinal, so low = ×1.0, medium = ×0.9, high = ×0.8 (the ordinal is IMPACT_RANK, the repo's single
+ * authority for high/medium/low → 3/2/1; effort shares that scale).
+ *
+ * WHAT IT REPLACED. The key was `weight × headroom` alone — effort was carried to display and never
+ * entered the ordering. Two gaps of comparable upside therefore ranked by a coin-flip of rounding,
+ * and the first thing a team was told to do could be the most expensive thing on the board. A cheap
+ * item and an expensive item with equal upside are not equally "next"; the roadmap is a recommendation
+ * about what to do FIRST, and cost is half of that judgment.
+ *
+ * WHY 10% AND NOT A DIVISION. Dividing by effort (or anything near it) over-rewards trivia and would
+ * push a genuinely dominant high-effort gap off a three-item list entirely — the roadmap becomes a
+ * chore list and the real problem goes unsaid. At 10%/ordinal the discount only reorders items already
+ * within ~20% of each other, which is exactly the "comparable upside" case it is meant to settle; a
+ * gap that leads by more than that still leads. The trade-off accepted: two dimensions whose upside
+ * differs by under a fifth now rank by cost, which is a deliberate judgment, not a measurement.
+ */
+const EFFORT_DISCOUNT_PER_RANK = 0.1;
+
+/** Ranking multiplier for a step's effort — low 1.0, medium 0.9, high 0.8. An unknown/absent effort
+ *  is treated as `medium` so a drifted catalog value is neither rewarded nor punished. */
+function effortFactor(effort: string): number {
+  return 1 - EFFORT_DISCOUNT_PER_RANK * ((IMPACT_RANK[effort] ?? IMPACT_RANK.medium!) - 1);
+}
+
 /** Build a prioritized fallback roadmap, ranked by weighted upside under the archetype.
  *
  *  `blended` is the report's actual POST-BLEND dimension scores (e.g. engine.ts's `dimensions`), keyed
@@ -154,7 +181,10 @@ export function buildFallbackRoadmap(
       console.warn(`[recommendations] skipped unknown dimension id "${s.id}" (no catalog entry).`);
       return false;
     })
-    .map((s) => ({ s, upside: (w[s.id] ?? 0) * (100 - scoreFor(s)) }))
+    // weight × headroom × effort — priority is the product of all three (see EFFORT_DISCOUNT_PER_RANK);
+    // ranking on the first two alone recommended the mountain whenever a molehill scored within a
+    // rounding error of it.
+    .map((s) => ({ s, upside: (w[s.id] ?? 0) * (100 - scoreFor(s)) * effortFactor(CATALOG[s.id].effort) }))
     .sort((a, b) => b.upside - a.upside)
     .slice(0, 3)
     .map(({ s }) => {
@@ -186,7 +216,8 @@ export function buildFallbackRoadmap(
  * before and a partly-covered one grows at the tail. Each synthesised entry is grounded in the
  * dimension's OWN gaps when the model supplied them (the first gap becomes the title, in the
  * catalog's invitational voice), falling back to the catalog template only when it did not.
- * Pure; the caller supplies the blended scores. Exported for the tests.
+ * Pure in its RESULT (the caller supplies the blended scores); its one side effect is the
+ * invitational-framing lint, which reports what it finds and changes nothing. Exported for the tests.
  */
 export function buildDimensionFollowUps(
   roadmap: LlmRoadmapItem[],
@@ -200,8 +231,14 @@ export function buildDimensionFollowUps(
   const missing = dimensions
     .filter((d) => d.score < FOLLOW_UP_BELOW && !covered.has(d.id) && CATALOG[d.id] && DIMENSION_BY_ID[d.id])
     .sort((a, b) => a.score - b.score);
-  if (missing.length === 0) return roadmap;
-  return [
+  // Framing lint runs HERE because this is the one funnel every roadmap passes through — the model's
+  // entries and the synthesised ones alike (engine.ts calls it on both branches). Violations are
+  // recorded, never rewritten or dropped; see reportFramingViolations.
+  if (missing.length === 0) {
+    reportFramingViolations(roadmap);
+    return roadmap;
+  }
+  const out = [
     ...roadmap,
     ...missing.map((d) => {
       const t = CATALOG[d.id];
@@ -219,4 +256,105 @@ export function buildDimensionFollowUps(
       };
     }),
   ];
+  reportFramingViolations(out);
+  return out;
+}
+
+// ---- Invitational-framing lint ------------------------------------------------------------------
+//
+// The framing rules for a roadmap entry (an OBSERVATION about a gap in trust, never an order; no
+// supervisory voice; a title that does not contradict its own rationale) were written down in the
+// assessment prompt and enforced NOWHERE. The hand-reviewed CATALOG above stays compliant because a
+// human wrote it; the live-LLM path — the one that produces most of what a reader actually sees —
+// had nothing checking it, and the roadmap is precisely the surface where "You must add CI"
+// turns a companion into a compliance nag. The cost lands on adoption, not on correctness.
+//
+// DETERMINISTIC ON PURPOSE. This is a lint, not a second model: a model judging a model's tone adds
+// a call, a failure mode, and a non-reproducible verdict to a check that has to run on every scan.
+// The rules below are word-level and testable, seeded with the catalog as positive fixtures.
+//
+// RECORDED, NEVER REWRITTEN. A violation is reported and the entry SHIPS UNCHANGED. Rejecting on
+// phrasing would send an otherwise-useful, evidence-grounded roadmap item to the fallback template
+// (losing the finding to protect the tone), and silently rewriting a model's sentence would put words
+// in its mouth that no longer match the evidence it cited. So the entry stands and the violation is
+// observable — the lint's job is to make drift visible, not to launder it.
+
+export type FramingRule = "imperative-title" | "supervisory-tone" | "title-contradicts-rationale";
+
+export interface FramingViolation {
+  dimension: string;
+  title: string;
+  rule: FramingRule;
+  /** The phrase that tripped the rule, so the report reads as evidence rather than a verdict. */
+  detail: string;
+}
+
+// Bare imperative openers: a title starting with one of these is an ORDER ("Add a CI gate"), not the
+// observation the roadmap promises ("Little gates what reaches main"). Only the FIRST word is
+// checked — "Few tests vouch for behavior" legitimately contains "vouch", and a mid-sentence verb is
+// description, not instruction.
+const IMPERATIVE_OPENERS = new Set([
+  "add", "adopt", "build", "configure", "create", "define", "document", "enable", "enforce",
+  "ensure", "establish", "fix", "implement", "improve", "install", "introduce", "make", "migrate",
+  "move", "replace", "run", "set", "start", "switch", "update", "use", "write",
+]);
+
+// Supervisory voice, checked in title AND rationale: the roadmap reports to the team, it does not
+// manage them. Deadline-pressure words are here for the same reason — the scan does not know the
+// team's quarter and must never imply it does.
+const SUPERVISORY_PATTERNS: { re: RegExp; label: string }[] = [
+  { re: /\byou (?:must|should|need to|have to|are required to)\b/i, label: "you must/should/need to" },
+  { re: /\bmake sure\b/i, label: "make sure" },
+  { re: /\bbe sure to\b/i, label: "be sure to" },
+  { re: /\bit is (?:mandatory|required)\b/i, label: "it is required/mandatory" },
+  { re: /\bfailure to\b/i, label: "failure to" },
+  { re: /\b(?:immediately|as soon as possible)\b/i, label: "immediately / as soon as possible" },
+];
+
+/** Title vocabulary that asserts a gap — the voice every catalog entry uses. */
+const GAP_CLAIM = /\b(?:no|not|n't|few|little|sparse|thin|missing|lacks?|lacking|ad hoc|nothing|rarely|hard to|isn't)\b/i;
+
+/** Rationale vocabulary that asserts the same capability is ALREADY there. Paired with a gap-claiming
+ *  title this is a self-contradicting entry: the reader is told a thing is both absent and handled. */
+const PRESENCE_CLAIM =
+  /\b(?:already (?:in place|covered|handled|enforced|exists)|well[- ]covered|comprehensive coverage|nothing to (?:improve|fix)|no gap here|strong coverage)\b/i;
+
+/**
+ * Check roadmap entries against the invitational-framing rules. Pure and allocation-cheap; returns
+ * one violation per (entry, rule) so a single badly-framed entry can report every way it drifted.
+ * Exported for the tests and for any surface that wants to show the drift rather than only log it.
+ */
+export function lintRoadmapFraming(items: Pick<LlmRoadmapItem, "title" | "dimension" | "rationale">[]): FramingViolation[] {
+  const out: FramingViolation[] = [];
+  for (const item of items) {
+    const title = item.title ?? "";
+    const rationale = item.rationale ?? "";
+    const at = (rule: FramingRule, detail: string) =>
+      out.push({ dimension: String(item.dimension), title, rule, detail });
+
+    const firstWord = title.trim().split(/[\s,:;.]+/, 1)[0]?.toLowerCase() ?? "";
+    if (IMPERATIVE_OPENERS.has(firstWord)) {
+      at("imperative-title", `title opens with the imperative "${firstWord}"`);
+    }
+    for (const { re, label } of SUPERVISORY_PATTERNS) {
+      if (re.test(title)) at("supervisory-tone", `title uses supervisory phrasing ("${label}")`);
+      else if (re.test(rationale)) at("supervisory-tone", `rationale uses supervisory phrasing ("${label}")`);
+    }
+    const presence = PRESENCE_CLAIM.exec(rationale);
+    if (presence && GAP_CLAIM.test(title)) {
+      at("title-contradicts-rationale", `title states a gap while the rationale says "${presence[0]}"`);
+    }
+  }
+  return out;
+}
+
+/** Run the lint and record what it found. Console, deliberately: it is the same channel the unknown-
+ *  dimension drift warning above uses, it costs nothing on the happy path, and it keeps the entry
+ *  itself untouched. Returns the violations so a caller can surface them instead. */
+export function reportFramingViolations(items: Pick<LlmRoadmapItem, "title" | "dimension" | "rationale">[]): FramingViolation[] {
+  const violations = lintRoadmapFraming(items);
+  for (const v of violations) {
+    console.warn(`[recommendations] framing violation (${v.rule}) on ${v.dimension}: ${v.detail} — "${v.title}"`);
+  }
+  return violations;
 }

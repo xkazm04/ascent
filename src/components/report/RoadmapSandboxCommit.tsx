@@ -5,16 +5,23 @@
 // that just modeled its path lost it on unmount. This bar persists the sandbox's APPLIED roadmap
 // items (the ones the user clicked "Try it" on) as `in_progress` recommendations via the EXISTING
 // PATCH path (/api/recommendations/:id), stamping an event-trail note — no new API, no new schema.
-// Items are joined to their persisted rec by dimension+title (the same key the persist layer writes),
-// so a static-fallback roadmap (no persisted recs) simply has nothing to commit and the bar disables.
+// Items are joined to their persisted rec by the MINTED recommendation identity
+// (`recommendationMatchKey`), so a static-fallback roadmap (no persisted recs) simply has nothing to
+// commit and the bar disables.
 
 import { useState } from "react";
 import type { LlmRoadmapItem, PersistedRecommendation } from "@/lib/types";
+import { recommendationMatchKey } from "@/lib/report/rec-identity";
 import { Kicker } from "@/components/ui";
 
 /**
- * The applied roadmap items joined to their persisted, still-OPEN recommendations (by dimension+title,
- * the key scans-persist.ts writes). Only "open" recs are candidates: re-committing an already
+ * The applied roadmap items joined to their persisted, still-OPEN recommendations. The join key is
+ * `recommendationMatchKey` — the repo's ONE minted recommendation identity (dimension + a hash over
+ * the normalized title), the same derivation behind dismissal decisions and saved sandbox scenarios.
+ * It replaced a raw `` `${dimension}\0${title}` `` string join: the rendered title is display text,
+ * not identity, so a live-LLM rephrasing of case/punctuation/whitespace between persist and render
+ * matched nothing and the bar reported "already tracked" for a plan it had simply failed to join.
+ * Only "open" recs are candidates: re-committing an already
  * in_progress/done/dismissed rec would either no-op or regress it. Deduped by rec id (two roadmap
  * items can name the same dimension). Empty when tracking is off (recs null) or nothing matches.
  */
@@ -24,13 +31,13 @@ export function committableRecs(
   appliedItems: Set<number>,
 ): PersistedRecommendation[] {
   if (!recs || recs.length === 0) return [];
-  const byKey = new Map(recs.map((r) => [`${r.dimension}\u0000${r.title}`, r]));
+  const byKey = new Map(recs.map((r) => [recommendationMatchKey(r.dimension, r.title), r]));
   const seen = new Set<string>();
   const out: PersistedRecommendation[] = [];
   for (const i of appliedItems) {
     const item = roadmap[i];
     if (!item) continue;
-    const rec = byKey.get(`${item.dimension}\u0000${item.title}`);
+    const rec = byKey.get(recommendationMatchKey(item.dimension, item.title));
     if (rec && rec.status === "open" && !seen.has(rec.id)) {
       seen.add(rec.id);
       out.push(rec);
