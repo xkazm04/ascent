@@ -3,7 +3,8 @@
 // engine (which enforces it).
 //
 // Why a budget exists at all (G3-02 + G3-06, one path): repo file content enters the prompt, and a
-// `discrepancies` entry DOUBLES that dimension's guardband (±25 → ±50) with no independent
+// `discrepancies` entry DOUBLES that dimension's guardband (±LLM_GUARDBAND → ±2·LLM_GUARDBAND, i.e.
+// ±6 → ±12 since the r8 narrowing; it was ±25 → ±50, which spanned two published levels) with no independent
 // corroboration. Together those are a repo-authored channel into how far the model may move the
 // number about that same repo. The prompt boundary (scoring/prompt.ts) removes the *authority* of
 // repo text; this budget removes the *payoff* of getting an extra discrepancy emitted anyway:

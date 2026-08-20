@@ -25,7 +25,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { listGoals, isGoalMetric, metricLabel, createGoal, updateGoal } from "./plan";
+import { listGoals, isGoalMetric, metricLabel, createGoal, updateGoal, GOAL_PCT_LABEL } from "./plan";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 
 const ORG_ID = "org_1";
@@ -40,6 +40,9 @@ interface GoalSeed {
   targetDate?: Date | null;
   label?: string;
   createdAt?: Date;
+  /** The metric's value when the goal was created. Omit to model a pre-baseline (legacy) goal. */
+  baselineValue?: number | null;
+  baselineAt?: Date | null;
 }
 
 interface RepoSeed {
@@ -72,6 +75,8 @@ function fakePrisma(opts: { goals: GoalSeed[]; repos?: RepoSeed[] }) {
     status: g.status ?? "active",
     achievedAt: g.achievedAt ?? null,
     createdAt: g.createdAt ?? new Date("2026-01-01T00:00:00.000Z"),
+    baselineValue: g.baselineValue ?? null,
+    baselineAt: g.baselineAt ?? null,
   }));
 
   const repoRows = repos.map((r) => ({
@@ -290,6 +295,109 @@ describe("listGoals progress / laggard / pct derivation", () => {
   });
 });
 
+// ── The goal meter: progress vs attainment (goal-meter-no-baseline) ──────────
+// `pct` used to be current/target unconditionally — ATTAINMENT wearing a progress bar's clothes. A
+// team setting a target of 70 while the fleet sat at 63 saw a 90%-full bar the moment they created
+// the goal, and it barely moved as they did the work, so every goal report to leadership was
+// inflated by the distance the fleet had already travelled before anyone decided to travel it.
+// Progress needs the value at creation, which is not recoverable afterwards, hence Goal.baselineValue.
+//
+// The other half is the one that is easy to skip: goals created BEFORE the column existed have no
+// baseline and never will. They keep the old ratio — but `pctBasis`/`pctLabel` now say so, because a
+// back-derived baseline would be a fabrication that also reads as a regression for an in-flight goal.
+describe("listGoals pct — progress from a stored baseline, attainment (labelled) without one", () => {
+  it("the headline case: a goal set at the fleet's current value reads 0%, not 90%", async () => {
+    // Fleet avg = 63, target 70, baseline 63 (captured at creation) → nothing travelled yet.
+    // The pre-fix meter showed round(63/70·100) = 90.
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", target: 70, status: "active", baselineValue: 63 }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 63 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.current).toBe(63);
+    expect(g.pct).toBe(0);
+    expect(g.pctBasis).toBe("progress");
+    expect(g.pct).not.toBe(90); // the defect, pinned so it cannot come back
+  });
+
+  it("fills as the fleet moves: (current − baseline) / (target − baseline)", async () => {
+    // baseline 40, target 80, fleet now 60 → half the journey.
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", target: 80, status: "active", baselineValue: 40, baselineAt: new Date("2026-02-01T00:00:00.000Z") }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 60 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.pct).toBe(50); // attainment would have said 75
+    expect(g.pctBasis).toBe("progress");
+    expect(g.baselineValue).toBe(40);
+    expect(g.baselineAt).toBe("2026-02-01T00:00:00.000Z");
+    expect(g.pctLabel).toBe(GOAL_PCT_LABEL.progress);
+  });
+
+  it("a goal with NO baseline keeps the old ratio and is LABELLED attainment (never back-derived)", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g_legacy", target: 80, status: "active" }], // pre-baseline goal
+      repos: [{ fullName: "acme/a", name: "a", overall: 60 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.pct).toBe(75); // unchanged for old goals — no silent re-interpretation of stored data
+    expect(g.pctBasis).toBe("attainment");
+    expect(g.pctLabel).toBe(GOAL_PCT_LABEL.attainment);
+    expect(g.pctLabel).toMatch(/not progress/i);
+    expect(g.baselineValue).toBeNull();
+    expect(g.baselineAt).toBeNull();
+  });
+
+  it("a fleet that regressed below its baseline clamps to 0 rather than going negative", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", target: 80, status: "active", baselineValue: 50 }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 30 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.pct).toBe(0);
+    expect(g.pctBasis).toBe("progress");
+  });
+
+  it("a target retargeted at or below the baseline has no journey → falls back to attainment", async () => {
+    // target 40 <= baseline 50: (current-50)/(40-50) would be a negative-length journey.
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", target: 40, status: "active", baselineValue: 50 }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 30 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.pctBasis).toBe("attainment");
+    expect(g.pct).toBe(75); // round(30/40 * 100)
+  });
+
+  it("target === 0 still yields 100 on the attainment fallback even with a baseline", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g0", target: 0, status: "active", baselineValue: 10 }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 50 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.pct).toBe(100);
+    expect(g.pctBasis).toBe("attainment");
+  });
+});
+
 // ── What-if simulator orchestration (finding #2, High) ───────────────────────
 // simulateOrgFixes / rankOrgInvestments read fleetSnapshot from Prisma then run the PURE
 // simulateFleet / rankFleetInvestments. We mock the readers (resolveOrgId + repository.findMany)
@@ -388,7 +496,7 @@ describe("parseTargetDate (via createGoal write) — valid ⇒ Date, junk ⇒ nu
   /** createGoal upserts the org, reads the fleet snapshot (already-met guard), then creates the goal;
    *  capture the `targetDate` value it writes. `repos` seeds the snapshot (default: scan-less fleet). */
   function fakeCreateGoalPrisma(repos: RepoSeed[] = []) {
-    const created: Array<{ targetDate: unknown }> = [];
+    const created: Array<{ targetDate: unknown; baselineValue?: unknown; baselineAt?: unknown }> = [];
     const repoRows = repos.map((r) => ({
       fullName: r.fullName,
       name: r.name,
@@ -408,8 +516,8 @@ describe("parseTargetDate (via createGoal write) — valid ⇒ Date, junk ⇒ nu
         organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
         repository: { findMany: vi.fn(async () => repoRows) },
         goal: {
-          create: vi.fn(async ({ data }: { data: { targetDate: unknown } }) => {
-            created.push({ targetDate: data.targetDate });
+          create: vi.fn(async ({ data }: { data: { targetDate: unknown; baselineValue?: unknown; baselineAt?: unknown } }) => {
+            created.push({ targetDate: data.targetDate, baselineValue: data.baselineValue, baselineAt: data.baselineAt });
             return { id: "g_new" };
           }),
         },
@@ -463,6 +571,36 @@ describe("parseTargetDate (via createGoal write) — valid ⇒ Date, junk ⇒ nu
       const empty = fakeCreateGoalPrisma();
       mockGetPrisma.mockReturnValue(empty.prisma);
       await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 10 })).resolves.toEqual({ id: "g_new" });
+    });
+  });
+
+  // goal-meter-no-baseline: creation is the ONLY moment the metric's starting value is knowable, so
+  // it is captured on the row rather than reconstructed later from scan history (which would invent
+  // a number and could make an in-flight goal read as regressed).
+  describe("createGoal baseline capture", () => {
+    it("stamps baselineValue with the fleet's current value on the metric, plus baselineAt", async () => {
+      const { prisma, created } = fakeCreateGoalPrisma([
+        { fullName: "acme/a", name: "a", overall: 40 },
+        { fullName: "acme/b", name: "b", overall: 60 },
+      ]);
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 80 });
+
+      expect(created[0]!.baselineValue).toBe(50); // round((40+60)/2) — the same read the guard used
+      expect(created[0]!.baselineAt).toBeInstanceOf(Date);
+    });
+
+    it("stores NO baseline on a scan-less fleet (0 there is a placeholder, not a measurement)", async () => {
+      const { prisma, created } = fakeCreateGoalPrisma();
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 70 });
+
+      // Absent rather than 0: a stored 0 would be indistinguishable from a real measurement for the
+      // rest of the goal's life, and listGoals would render fabricated progress from it.
+      expect(created[0]!.baselineValue).toBeUndefined();
+      expect(created[0]!.baselineAt).toBeUndefined();
     });
   });
 

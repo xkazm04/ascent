@@ -71,7 +71,16 @@ import type {
 // supply-chain App); default-branch Actions health folds into D3 (+8/+4); the already-computed
 // aiPreReviewedRate folds into D4 (≤20). Anonymous scans are byte-identical; token scans of the same
 // commit can move UP, so a cached r6 score is no longer comparable with a fresh one.
-export const SCORING_RUBRIC_VERSION = "r7";
+// r8 (2026-08-20): LLM_GUARDBAND narrowed 25 → 6. The old band equalled a full maturity level, so a
+// model judgment at the band's edge could move a repository's published LEVEL by itself (and two
+// levels on a dimension whose band was doubled by a discrepancy claim). Every blended dimension's
+// score can now differ from its r7 value by up to ±15 points (SCORE_BLEND · 19, the shrinkage in the
+// band), most visibly on repos where the model had argued furthest from the detectors. This is a
+// change of INSTRUMENT, not a correction: an r7 score was not wrong under r7, it is simply not
+// comparable with an r8 one, which is the whole reason this token exists. Because it is folded into
+// the cache key, the bump re-derives every cached score fleet-wide rather than serving pre-bump
+// numbers for up to the 7-day cache age. See the reasoning on LLM_GUARDBAND below.
+export const SCORING_RUBRIC_VERSION = "r8";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -80,8 +89,32 @@ export const SCORE_BLEND = 0.6;
  * Guardband: the LLM's per-dimension score is clamped to within this many points
  * of the deterministic signal score, so it can nuance but never hallucinate an
  * extreme that the evidence doesn't support.
+ *
+ * WAS 25, WHICH WAS THE VERDICT AND NOT A NUANCE BUDGET. The published levels below are 25, 20, 20,
+ * 20 and 16 points wide, so a band of 25 let model influence ALONE carry a repository across a level
+ * boundary — and a dimension whose band is doubled by a `discrepancies` entry (see
+ * scoring/discrepancy-policy.ts) could cross two. The level is the number that reaches badges, gates
+ * and executive briefings, so at ±25 the level was model-controlled and every upstream protection
+ * (the prompt boundary, the discrepancy budget) was decoration. The size of a guardband is settled
+ * against the width of the tiers it feeds, not against how far the model usually wants to move.
+ *
+ * WHY 6 SPECIFICALLY. The doubled band (12) must stay clear of the NARROWEST level band (L5 is 16
+ * wide), so neither an ordinary nor a widened correction can move a dimension a full level on its
+ * own; 6 is three-eighths of that narrowest band and under a third of the interior ones. It is also
+ * above the model's MEASURED appetite: the control-arm study (docs/BACKLOG.md C1) found the LLM used
+ * at most 24% of the old ±25 band — about 6 points — and moved the headline roughly ±2. So this
+ * bound removes the level jump while leaving the nuance the model actually exercises intact.
+ *
+ * THE TRADE-OFF ACCEPTED: the clamp now binds on the outlier runs where the model genuinely
+ * disagreed with a detector by more than 6 points, and those scores get blunter. That is the
+ * deliberate answer — a clamp that binds is information (it shows up in scoreIntegrity), and the
+ * remedy for a detector the model keeps out-arguing is to fix the detector, not to loosen a bound
+ * that also protects the other eight dimensions. docs/BACKLOG.md G5 forbids the widening answer.
+ *
+ * Pinned against LEVELS by model.test.ts ("a widened guardband cannot span a level"), so a future
+ * band edit or a re-banding of LEVELS fails the suite rather than silently re-opening the gap.
  */
-export const LLM_GUARDBAND = 25;
+export const LLM_GUARDBAND = 6;
 
 export const LEVELS: MaturityLevel[] = [
   {

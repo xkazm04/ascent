@@ -18,8 +18,8 @@ Everything below is what still exists in this area and what it is for.
 A goal is a fleet-level target. Its progress is **live**: recomputed from the latest scan
 per repo, never stored as a snapshot.
 
-- **Model:** `Goal { id, orgId, label, metric, target (0–100), status, createdAt }`, where
-  `metric` ∈ `overall | adoption | rigor | D1…D9` (validated by `isGoalMetric`).
+- **Model:** `Goal { id, orgId, label, metric, target (0–100), status, createdAt, baselineValue?,
+  baselineAt? }`, where `metric` ∈ `overall | adoption | rigor | D1…D9` (validated by `isGoalMetric`).
 - **API** (`src/app/api/org/goals/route.ts`, `…/goals/[id]/route.ts`):
   - `GET ?org=` → `{ goals: GoalProgress[] }` (with current value per goal).
   - `POST { org, label, metric, target }` → `{ id }`.
@@ -29,6 +29,25 @@ per repo, never stored as a snapshot.
   progress meter) and a create form, refreshing via the GET after each change.
 - **DB:** `createGoal`, `listGoals` (computes progress through `currentFor(metric, snap)`),
   `updateGoal`, `deleteGoal`.
+
+### The meter: progress or attainment, and it says which
+
+`GoalProgress.pct` used to be `current / target` unconditionally — **attainment**, not progress. A
+goal set at 70 while the fleet already sat at 63 rendered a 90%-full bar the moment it was created
+and barely moved as the work happened, so goal reporting to leadership was inflated by the distance
+travelled *before* anyone committed to travelling it.
+
+Progress needs the metric's value at creation, which is not recoverable afterwards, so `createGoal`
+captures it: `Goal.baselineValue` / `baselineAt`, stamped from the same fleet read the already-met
+guard uses. `pct` is then `(current − baseline) / (target − baseline)` and `pctBasis` is `"progress"`.
+
+Goals created **before** that column existed have no baseline and never will. They keep the old
+ratio and report `pctBasis: "attainment"` with a `pctLabel` that says so — a back-derived baseline
+(the earliest scan on record, say) would be a fabrication indistinguishable from a measurement, and
+could make an in-flight goal read as having regressed. Same for a goal created against a fleet with
+no scans, where the metric reads 0 as a placeholder rather than an observation: no baseline is
+stored. **Any surface rendering `pct` must render `pctLabel` (or its own wording for `pctBasis`)** —
+an unlabelled attainment ratio in a progress bar is the original defect.
 
 
 **Goals are READ, not managed, since 2026-08-17.** The GoalsPanel retired with the Plan tab, so

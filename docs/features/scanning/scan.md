@@ -322,7 +322,8 @@ These are running all-time totals, not a time series, so the rate is a lifetime 
 
 `assembleReport()` produces the final `ScanReport`:
 
-- **Per-dimension blend**: the LLM score is guardbanded to within `LLM_GUARDBAND` (±25)
+- **Per-dimension blend**: the LLM score is guardbanded to within `LLM_GUARDBAND` (±6 since
+  the `r8` rubric — sized below the narrowest maturity band so the model cannot move a level)
   of the signal score, then blended: `final = SCORE_BLEND·guarded + (1−SCORE_BLEND)·signal`
   with `SCORE_BLEND = 0.6` (60% LLM / 40% deterministic). This keeps the LLM honest while
   still letting it add nuance.

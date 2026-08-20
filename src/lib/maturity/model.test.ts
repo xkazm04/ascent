@@ -159,7 +159,12 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     //
     // Re-pinned 2026-08-17 WITH the r6 bump: the TASK block's summary format + ROADMAP COVERAGE
     // instructions changed the assessment prompt (see the r6 note on the constant).
-    const EXPECTED_RUBRIC_HASH = "ad1daf53479415ef8d75c056aba2b7a75d52db7c311a6c57114e42d091e6d366";
+    //
+    // Re-pinned 2026-08-20 WITH the r8 bump: LLM_GUARDBAND narrowed 25 → 6 because the old band was
+    // exactly as wide as a maturity level, so model influence alone could move a repo's published
+    // level (see the r8 note and the guardband's own comment). This is the case the backstop was
+    // built for — a score-moving knob, so the bump is the remedy and the re-pin only records it.
+    const EXPECTED_RUBRIC_HASH = "68736375014d04334722ac933038ba1d94e466aec598d4a924df5f514d9224c8";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +
@@ -185,6 +190,38 @@ describe("LEVELS rubric shape — the bands these tests pin", () => {
     for (let i = 1; i < ordered.length; i++) {
       expect(ordered[i].band[0]).toBe(ordered[i - 1].band[1] + 1);
     }
+  });
+});
+
+describe("LLM_GUARDBAND is sized against the tier width, not against taste", () => {
+  // The deviation this pins (`guardband-equals-tier-width`): the band shipped at 25 on a scale whose
+  // levels are 25/20/20/20/16 points wide, so an LLM judgment at the band's edge could move a
+  // repository's PUBLISHED LEVEL — the number that reaches badges, gates and executive briefings —
+  // with no deterministic support, and a dimension whose band the engine doubles for a flagged
+  // detector discrepancy (engine.ts, `LLM_GUARDBAND * 2`) could cross two. The band is now 6.
+  //
+  // These assertions are the actual rule, expressed against LEVELS rather than against the literal,
+  // so RE-BANDING the levels re-checks the guardband too: whichever side moves, the pair must still
+  // hold, and the diff that breaks it also carries the SCORING_RUBRIC_VERSION decision.
+  const widths = LEVELS.map((l) => l.band[1] - l.band[0] + 1);
+  const narrowest = Math.min(...widths);
+
+  it("an ordinary correction cannot span a level (band < the narrowest band's width)", () => {
+    expect(LLM_GUARDBAND).toBeLessThan(narrowest);
+    // "well below", not merely "below": at most half the narrowest tier, so the band is a nuance
+    // budget rather than a verdict.
+    expect(LLM_GUARDBAND * 2).toBeLessThanOrEqual(narrowest);
+  });
+
+  it("a WIDENED correction (2x, for a flagged detector discrepancy) still cannot span a level", () => {
+    // The widening factor lives in engine.ts; this restates it so the two cannot drift apart
+    // unnoticed — the engine has its own pin on the arithmetic.
+    expect(LLM_GUARDBAND * 2).toBeLessThan(narrowest);
+  });
+
+  it("pins the chosen value so a change lands with the rubric-version decision", () => {
+    expect(LLM_GUARDBAND).toBe(6);
+    expect(narrowest).toBe(16); // L5 = [85,100]
   });
 });
 
