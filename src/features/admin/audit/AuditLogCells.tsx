@@ -41,6 +41,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // read affordances rather than mutations, hence the neutral sky/slate treatment rather than red.
   { value: "briefing.share.minted", label: "Briefing shared", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "briefing.share.opened", label: "Briefing opened", cls: "border-slate-500/40 bg-slate-500/10 text-slate-300" },
+  // Revoking is the one act in this trio that TAKES a capability away, so it reads like the other
+  // revocations in this list (amber) rather than like its own siblings.
+  { value: "briefing.share.revoked", label: "Briefing link revoked", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.llm_provider.updated", label: "LLM provider updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org.llm_provider.disabled", label: "LLM provider disabled", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "integrations.token.rotate", label: "Ingest token rotated", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
