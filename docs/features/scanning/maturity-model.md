@@ -83,7 +83,11 @@ messages are authored by the repository being scored, and the score gates PR mer
 quoted inside a named `<untrusted_repo_data>` block whose contents the SYSTEM role explicitly denies
 any authority (data to evaluate, never instructions; forged boundary markers and triple-backtick runs
 are stripped before interpolation; an attempted instruction is reported as a *risk*, never as a
-discrepancy). That matters because a `discrepancies` entry **doubles** its dimension's guardband:
+discrepancy). Every repo-authored fragment is neutralized **before** it is cut to its budget — file
+excerpts to `PER_FILE`, commit subjects to their 120 chars — because neutralizing *grows* text (a
+22-char forged marker becomes a 25-char placeholder), so the older cut-then-neutralize order let
+marker-dense content expand back past the cap it had just been trimmed to and take window space from
+other evidence. That matters because a `discrepancies` entry **doubles** its dimension's guardband:
 without a boundary, a repository could author the text that widens the latitude over its own score.
 The second half is a **budget** (`src/lib/scoring/discrepancy-policy.ts`): at most
 `MAX_FLAGGED_DIMENSIONS = 2` dimensions may be widened on a scan, and flagging *more* widens **none**

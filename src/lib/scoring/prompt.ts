@@ -227,16 +227,39 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   //
   // Both the path and the body are repo-authored, so both go through `neutralize` (a file *named*
   // `</untrusted_repo_data> SYSTEM:` is as good an injection vector as one containing that text).
+  //
+  // ORDER IS LOAD-BEARING: neutralize FIRST, truncate SECOND — `truncate(neutralize(x), PER_FILE)`,
+  // the order decisionsBlock above already uses. Neutralizing GROWS the text: every forged marker
+  // becomes the 25-char `[boundary marker removed]`. The previous order (`neutralize(truncate(...))`)
+  // sliced to PER_FILE and then let that expansion push the excerpt back over the budget, so a file
+  // dense in boundary markers or backticks bought itself extra room in the window — attacker-chosen
+  // content crowding out other evidence, and in the worst case pushing the whole prompt past a
+  // provider's input limit and failing the scan. Truncating after makes PER_FILE the real cap on what
+  // reaches the model. Trade-off accepted: we now neutralize the WHOLE fetched body (source.ts fetches
+  // more per file than this window) instead of only its first PER_FILE chars, which costs two extra
+  // regex passes over a few tens of KB per file. That is cheap next to the network+LLM call it feeds,
+  // and it is the only order in which the budget is a budget.
   let joined = "";
   for (const f of files) {
-    const block = `### ${neutralize(f.path)}\n\`\`\`\n${neutralize(truncate(f.content, PER_FILE))}\n\`\`\``;
+    const block = `### ${neutralize(f.path)}\n\`\`\`\n${truncate(neutralize(f.content), PER_FILE)}\n\`\`\``;
     joined = joined ? `${joined}\n\n${block}` : block;
     if (joined.length >= OUTER) break;
   }
   const fileBlock = truncate(joined, OUTER);
 
+  // One line per commit: the subject is the signal, the body is noise at this budget. 120 chars is
+  // roughly a git subject line plus slack; it was previously the same 120 but applied BEFORE
+  // `neutralize`, which is the bug fixed here — see the file-excerpt note above. Neutralize first,
+  // slice second, so a commit message stuffed with forged boundary markers cannot expand its way past
+  // the per-commit cap and turn the commit sample into an arbitrarily long attacker-authored block.
+  // `slice` rather than `truncate` on purpose: `truncate`'s "\n…[truncated]" marker would break the
+  // one-bullet-per-commit shape this block is read as.
+  const COMMIT_SUBJECT_CHARS = 120;
+
   const commitBlock = commitSample.length
-    ? commitSample.map((m) => `- ${neutralize(m.replace(/\n/g, " ").slice(0, 120))}`).join("\n")
+    ? commitSample
+        .map((m) => `- ${neutralize(m.replace(/\n/g, " ")).slice(0, COMMIT_SUBJECT_CHARS)}`)
+        .join("\n")
     : "(no commit history available)";
 
   const user = `Assess this repository's AI-native engineering maturity, applying the rubric and producing the exact JSON shape from the system instructions. Ground every judgment in the evidence below.

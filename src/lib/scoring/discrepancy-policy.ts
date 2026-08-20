@@ -17,6 +17,12 @@
 // model can steer (ordering), and a partially-honoured blanket claim is the worst of both.
 // Corroboration by re-running the detector — the ideal fix — is not available here: the engine
 // receives already-computed signals, so the budget is the enforceable half.
+//
+// This budget is why `discrepancies` is classified `consequential` in REPO_OUTPUT_PAYOFF
+// (src/lib/llm/untrusted.ts) — the machine-readable record of which output channel an injection would
+// actually want, kept beside the boundary prose that steers attempts away from this one and into the
+// inert `risks` channel. If a change here alters what a discrepancy can buy, that classification (and
+// the boundary prose promising `risks` is harmless) is the other half to re-read.
 export const MAX_FLAGGED_DIMENSIONS = 2;
 
 /** The dimensions a discrepancy may actually widen, after the budget. */
