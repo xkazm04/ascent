@@ -18,8 +18,18 @@
 //   4. kind ≠ procedural      — runbooks are the longest-lived thing in the store and the most expensive
 //                               to lose. They are exempt from automatic forgetting, full stop.
 //
-// Note what conditions 1+3 imply together: an old, low-confidence memory that is still RECALLED often
-// keeps a score above the floor via the usage term, and survives. Usage is a veto on forgetting.
+// Note what conditions 1+3 imply together: an old, low-confidence memory that is still being DELIVERED
+// keeps a score above the floor via the value model's delivery term, and survives a while longer.
+//
+// That reprieve is BOUNDED, and the bound is the point. `accessCount` counts times a memory was packed
+// into a recall result — deliveries, not proven uses (recall.ts's header says so plainly). A memory that
+// is injected into every prompt and helped with none of them accrues the identical signal, and it accrues
+// it for free. While the delivery term was uncapped, that made retrieval a permanent veto on forgetting:
+// the store could keep its own worst rows alive by continuing to send them. recall.ts now caps the term
+// at MAX_DELIVERY_BONUS (2×), so the arithmetic terminates — a confidence-0.3 memory falls under
+// DECAY_SCORE_FLOOR once its decay factor drops below 0.15/(0.3·2) = 0.25, i.e. after two half-lives,
+// however many times it has been delivered. Delivery buys a stay of execution, never an exemption; the
+// three real exemptions are the ones listed above, and each is a deliberate policy.
 //
 // Pure and framework-agnostic like recall.ts/reflection.ts: `now` is injected, and the actual write is
 // an injected archiver so the policy can be unit-tested without a database.

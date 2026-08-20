@@ -4,7 +4,11 @@
 // The load-bearing guarantees pinned here:
 //   - the half-life is per KIND (an episodic memory rots ~6x faster than a semantic one);
 //   - a memory at exactly one half-life scores exactly half its confidence;
-//   - accessCount helps sub-linearly and can never fabricate value out of a 0-confidence memory;
+//   - accessCount (a DELIVERY count, not a usefulness measure) helps sub-linearly, is CAPPED so a
+//     memory can never rank itself up without bound by being retrieved, and can never fabricate value
+//     out of a 0-confidence memory;
+//   - only the PACKED rows are countable as delivered (`deliveredMemoryIds`), which is what keeps
+//     accessCount from degenerating into "how often was this store queried";
 //   - packing NEVER truncates an item and never stops at the first item that doesn't fit;
 //   - superseded / archived / expired rows can never reach an agent's context;
 //   - the ordering is total and stable (ties break on id), so two identical calls agree.
@@ -16,6 +20,8 @@ import {
   halfLifeDays,
   isRecallable,
   KIND_HALF_LIFE_DAYS,
+  MAX_DELIVERY_BONUS,
+  deliveredMemoryIds,
   memoryValue,
   normalizeCharBudget,
   packByBudget,
@@ -75,12 +81,31 @@ describe("memoryValue", () => {
     expect(ep).toBeLessThan(se);
   });
 
-  it("adds a sub-linear usage bonus (0.25·ln(1+n))", () => {
+  it("adds a sub-linear delivery bonus (0.25·ln(1+n))", () => {
     const one = memoryValue(mem({ id: "a", accessCount: 1 }), NOW);
     const ten = memoryValue(mem({ id: "b", accessCount: 10 }), NOW);
     expect(one).toBeCloseTo(1 + 0.25 * Math.log(2), 4);
-    // Sub-linear: 10x the recalls is far from 10x the bonus.
+    // Sub-linear: 10x the deliveries is far from 10x the bonus.
     expect(ten - 1).toBeLessThan(10 * (one - 1));
+  });
+
+  // accessCount counts DELIVERIES (times packed into a recall result), not proven uses — a memory
+  // injected into a thousand prompts and ignored in all of them accrues the same signal as one that
+  // answered the question, and it accrues it for free. Uncapped, that let a memory buy unbounded
+  // rank (and, via decay.ts, unbounded survival) purely by being retrieved.
+  it("caps the delivery bonus, so retrieval alone can at most double a memory's value", () => {
+    const capped = memoryValue(mem({ id: "a", accessCount: 1_000_000 }), NOW);
+    expect(capped).toBe(MAX_DELIVERY_BONUS); // confidence 1, age 0 → the bonus IS the score
+    // The cap binds at n = e⁴ − 1 ≈ 53.6 and never yields more thereafter.
+    expect(memoryValue(mem({ id: "b", accessCount: 54 }), NOW)).toBe(MAX_DELIVERY_BONUS);
+    expect(memoryValue(mem({ id: "c", accessCount: 53 }), NOW)).toBeLessThan(MAX_DELIVERY_BONUS);
+  });
+
+  it("still discriminates below the cap — the bonus is bounded, not disabled", () => {
+    const cold = memoryValue(mem({ id: "a", accessCount: 0 }), NOW);
+    const warm = memoryValue(mem({ id: "b", accessCount: 20 }), NOW);
+    expect(warm).toBeGreaterThan(cold);
+    expect(warm).toBeLessThan(MAX_DELIVERY_BONUS);
   });
 
   it("cannot fabricate value from a zero-confidence memory", () => {
@@ -201,5 +226,26 @@ describe("recallMemories", () => {
     const one = recallMemories(items, { now: NOW, charBudget: 700 });
     const two = recallMemories([...items].reverse(), { now: NOW, charBudget: 700 });
     expect(one.selected.map((s) => s.memory.id)).toEqual(two.selected.map((s) => s.memory.id));
+  });
+});
+
+describe("deliveredMemoryIds", () => {
+  // The accessCount bump used to be governed by a NOTE telling adapters to use `selected` and not
+  // `omitted`. This pins it as behaviour instead: what LOST the budget race never reached the agent,
+  // so counting it would turn the delivery term into "how often was this store queried" — a number
+  // that rises for every row at once and therefore ranks nothing, while also propping rows nobody saw
+  // above decay.ts's forget floor.
+  it("names the packed rows only — never one that lost the budget race", () => {
+    const items = [
+      mem({ id: "in", confidence: 1, content: "a".repeat(150) }),
+      mem({ id: "out", confidence: 0.2, content: "b".repeat(150) }),
+    ];
+    const out = recallMemories(items, { now: NOW, charBudget: 200 });
+    expect(out.omitted.map((s) => s.memory.id)).toEqual(["out"]);
+    expect(deliveredMemoryIds(out)).toEqual(["in"]);
+  });
+
+  it("is empty when nothing was delivered", () => {
+    expect(deliveredMemoryIds(recallMemories([], { now: NOW }))).toEqual([]);
   });
 });

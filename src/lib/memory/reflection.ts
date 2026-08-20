@@ -79,7 +79,9 @@ export const CLUSTER_THRESHOLD = 0.3;
 export const MIN_CLUSTER_SIZE = 3;
 /** Hard cap on clusters sent to the model — bounds cost + latency regardless of store size. */
 export const MAX_CLUSTERS = 4;
-/** Per-member excerpt in the prompt, so one huge memory can't crowd out its own cluster. */
+/** Per-member excerpt in the prompt, so one huge memory can't crowd out its own cluster.
+ *
+ *  The cap is applied to the NEUTRALIZED text, never to the raw content — see buildReflectionPrompt. */
 const MEMBER_EXCERPT = 800;
 /** Summary bodies the model returns are capped well under the 20KB column: a rollup that long isn't one. */
 const MAX_SUMMARY_CHARS = 2000;
@@ -205,8 +207,19 @@ export function buildReflectionPrompt(
       const members = c.memberIds
         .map((id) => {
           const m = byId.get(id)!;
-          const excerpt = neutralize(m.content.slice(0, MEMBER_EXCERPT));
-          const clipped = m.content.length > MEMBER_EXCERPT ? " …[truncated]" : "";
+          // ORDER IS LOAD-BEARING: neutralize FIRST, cap SECOND — the same order scoring/prompt.ts
+          // uses for repo file excerpts and commit subjects. Neutralizing GROWS the text: every forged
+          // boundary marker becomes the 25-char `[boundary marker removed]`. The previous order
+          // (`neutralize(m.content.slice(0, MEMBER_EXCERPT))`) sliced first and then let that expansion
+          // push the excerpt back over the budget, so a memory stuffed with forged markers bought
+          // itself extra room in a prompt whose output names the ids that get superseded — and the
+          // memories in this store are written by AGENTS reading scanned repos, with no human in the
+          // loop. Capping after neutralization is what makes MEMBER_EXCERPT the real cap on what
+          // reaches the model. The `clipped` marker is likewise decided on the neutralized length,
+          // because that is the string actually being cut.
+          const safe = neutralize(m.content);
+          const excerpt = safe.slice(0, MEMBER_EXCERPT);
+          const clipped = safe.length > MEMBER_EXCERPT ? " …[truncated]" : "";
           return `  - id=${id} kind=${neutralize(m.kind)} confidence=${m.confidence}\n    ${excerpt}${clipped}`;
         })
         .join("\n");

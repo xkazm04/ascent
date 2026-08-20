@@ -265,15 +265,19 @@ private scratch. The route fetches the org's active, visible memories
 scores each one:
 
 ```
-score = confidence × 0.5^(ageDays / halfLife(kind)) × (1 + 0.25·ln(1 + accessCount))
+score = confidence × 0.5^(ageDays / halfLife(kind)) × min(2, 1 + 0.25·ln(1 + accessCount))
 ```
 
 - **Half-life by kind** (days until the decay term halves): `episodic` 30,
   `semantic` 180, `procedural` 365, `summary` 120; an unrecognized kind falls
   back to 180.
-- **Access bonus** is sub-linear (natural log), so repeated recall raises a
-  score but can't dominate it: the code's own estimate is roughly +60% at 10
-  recalls and +115% at 100.
+- **Delivery bonus** is sub-linear (natural log) *and capped at ×2*, reached at
+  about 54 deliveries. It counts **deliveries, not uses**: a memory packed into
+  fifty prompts and ignored scores exactly like one that answered fifty
+  questions, because nothing flows back from the agent to say which happened.
+  The cap exists because the term otherwise feeds its own input — rank high, get
+  delivered, rank higher — and `decay` scores with the same function, so an
+  uncapped bonus is an unbounded stay of execution.
 - Age is computed from `updatedAt` against an injected "now" (never read from
   the system clock inside the scoring function itself), clamped to zero so a
   future timestamp can't inflate a score.
@@ -332,9 +336,11 @@ memory is archived only if **all four** hold:
 3. confidence ≤ 0.3 (the "low" band only)
 4. kind is not `procedural` (procedural memories are never auto-forgotten)
 
-Because the access-count term is part of the same score, a low-confidence
-memory that is still recalled often can stay above the floor: usage acts as
-a veto on forgetting. Each pass is capped at 50 archived rows. Decay is not
+Because the delivery term is part of the same score, a low-confidence memory
+that is still delivered often stays above the floor for longer — but only for
+longer. The bonus is capped at ×2, so the arithmetic terminates: a
+confidence-0.3 memory falls under the floor after two half-lives no matter how
+many times it was delivered. Delivery buys a bounded reprieve, not a veto. Each pass is capped at 50 archived rows. Decay is not
 its own route; it only runs as part of `POST /api/org/memory/reflect` when
 `decay: true` is passed. I did not find a scheduled/cron trigger for it in
 the files read; whether it also runs unattended on a schedule, versus only
