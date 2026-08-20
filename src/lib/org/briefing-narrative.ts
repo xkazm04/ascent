@@ -8,10 +8,16 @@
 //   1. GROUNDED BY CONSTRUCTION. The only thing the model ever sees is `narrativeFacts(b)` — the
 //      briefing's own markdown serialization, i.e. exactly the figures already printed elsewhere in
 //      the same document. No DB access, no repo contents, no history.
-//   2. NO NEW NUMBERS. Every numeric token in the returned prose must already appear in that facts
-//      payload (`isGrounded`). A single invented figure — a percentage, a repo count, a projected
-//      gain — discards the whole narrative. This is the check that makes an LLM sentence safe on a
-//      board document: the model may choose emphasis and wording, never a quantity.
+//   2. NO NEW NUMBERS, AND NO BORROWED ONES. Every numeric token in the returned prose must already
+//      appear in that facts payload (`isGrounded`) — a single invented figure discards the whole
+//      narrative. Membership alone, though, is not referential integrity: "security scored 62" passes
+//      it when 62 is the OVERALL score, because 62 is somewhere in the briefing. Every number true,
+//      the sentence false — the hardest error class for a reader to catch, and the one a board reader
+//      is least equipped to. So a second gate (`referentGrounded`) binds a figure to the subject it is
+//      standing next to: when a dimension, "overall", "adoption", "rigor" or "percentile" is named
+//      within a few words of a figure that HAS a home elsewhere in the briefing, the figure must be
+//      one of THAT subject's. The model may choose emphasis and wording, never a quantity and never
+//      which quantity belongs to whom.
 //   3. DEGRADES TO DETERMINISTIC COPY. Unconfigured, disabled, timed out, refused, malformed, or
 //      ungrounded ⇒ `deterministicNarrative(b)`, assembled from the same figures by template. The
 //      caller cannot tell the difference structurally, and there is no error state to render — the
@@ -84,6 +90,110 @@ export function isGrounded(text: string, allowed: Set<string>): boolean {
 }
 
 /**
+ * How far from a figure a subject may be named and still be taken as ITS subject, in words.
+ *
+ * Three is "the name and the number in the same breath": `security scored 62`, `security fell to 62`,
+ * `AI Adoption at 58`, `62/100 overall`. It replaced no number at all — the referent check did not
+ * exist, and membership in the allowed set was the whole gate. Wider (a clause, a sentence) starts
+ * binding a figure to a dimension merely MENTIONED near it — "the fleet is strongest on Testing (80)
+ * and its corpus average is 54" — which rejects valid prose and pushes the narrative onto the
+ * deterministic fallback most of the time, quietly deleting the feature. The trade-off accepted is
+ * therefore in the safe direction: a figure attached to a subject named further away is left
+ * unchecked (isGrounded still applies to it), rather than a true sentence being thrown away.
+ */
+const REFERENT_WORD_WINDOW = 3;
+
+/** Referent terms that are not dimension names: the headline quantities a narrative names by word. */
+function lastWord(label: string): string {
+  return (label.trim().split(/\s+/).pop() ?? "").toLowerCase();
+}
+
+/**
+ * Which figures legitimately belong to which named subject. Keys are single lowercase words as prose
+ * writes them ("security", "adoption", "percentile", and a dimension's id "d9"); values are every
+ * figure that subject legitimately carries in THIS briefing — current, prior and delta alike, by
+ * absolute value, because prose writes a −4 delta as "down 4". Sets are unioned on a key collision
+ * (a dimension whose label ends in "Adoption" shares the maturity term's key), which can only ever
+ * widen what is allowed — the gate never invents a violation out of an ambiguous word.
+ */
+export function figuresByReferent(b: ExecBriefing): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  const add = (term: string, ...vals: (number | null | undefined)[]) => {
+    const key = term.trim().toLowerCase();
+    if (!key) return;
+    const set = m.get(key) ?? new Set<string>();
+    for (const v of vals) if (v != null && Number.isFinite(v)) set.add(String(Math.abs(v)));
+    if (set.size > 0) m.set(key, set);
+  };
+  const prior = b.priorPeriod;
+  add("overall", b.maturity.overall, prior?.overall, prior?.dOverall);
+  add("adoption", b.maturity.adoption, b.adoptionRate, prior?.adoption, prior?.dAdoption);
+  add("rigor", b.maturity.rigor, prior?.rigor, prior?.dRigor);
+  add("percentile", b.benchmark?.percentile, b.benchmark?.cohort?.overallPercentile, b.benchmark?.cohort?.adoptionPercentile);
+  for (const d of [...b.strengths, ...b.risks, ...(b.security ? [b.security] : [])]) {
+    add(lastWord(d.label), d.avg);
+    add(d.dimId, d.avg);
+  }
+  for (const d of prior?.dims ?? []) {
+    add(lastWord(d.label), d.now, d.prior, d.delta);
+    add(d.dimId, d.now, d.prior, d.delta);
+  }
+  return m;
+}
+
+/** Figures as prose writes them, EXCLUDING any digit run glued to a letter — "L3" is a level id and
+ *  "D9" a dimension id, not quantities, and treating them as such binds a stray 3 to whatever subject
+ *  happens to sit beside it. */
+function standaloneNumbers(word: string): string[] {
+  return word.match(/(?<![A-Za-z])\d+(?:\.\d+)?/g) ?? [];
+}
+
+/** The nearest referent term to word `i`, searching outward and never across a sentence boundary. */
+function nearestReferent(terms: (string | null)[], sentenceEnd: boolean[], i: number): string | null {
+  for (let d = 1; d <= REFERENT_WORD_WINDOW; d++) {
+    const left = i - d;
+    // A word that ENDS a sentence belongs to the previous one when we are walking left, so stop
+    // before it; walking right it is still part of this sentence, so it is the last word considered.
+    const l = left >= 0 && !sentenceEnd.slice(left, i).some(Boolean) ? terms[left] : null;
+    if (l) return l;
+    const right = i + d;
+    const r = right < terms.length && !sentenceEnd.slice(i, right).some(Boolean) ? terms[right] : null;
+    if (r) return r;
+  }
+  return null;
+}
+
+/**
+ * The referent gate: a figure standing next to a named subject must be one of THAT subject's figures.
+ *
+ * Only figures with a HOME are judged — a number that belongs to no subject in the briefing (a repo
+ * count, a corpus size, a forecast horizon) is left to `isGrounded`, because a violation can only be
+ * claimed when we know where the number actually lives. `/100` is dropped first: it is the scale
+ * denominator this document writes scores against, not a figure of its own.
+ */
+export function referentGrounded(text: string, b: ExecBriefing): boolean {
+  const byReferent = figuresByReferent(b);
+  if (byReferent.size === 0) return true;
+  const homed = new Set<string>();
+  for (const set of byReferent.values()) for (const n of set) homed.add(n);
+  const words = text.replace(/\/100\b/g, "").split(/\s+/);
+  const terms = words.map((w) => {
+    const key = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return byReferent.has(key) ? key : null;
+  });
+  const sentenceEnd = words.map((w) => /[.!?][")'\]]?$/.test(w));
+  for (let i = 0; i < words.length; i++) {
+    const nums = standaloneNumbers(words[i] ?? "");
+    if (nums.length === 0) continue;
+    const referent = nearestReferent(terms, sentenceEnd, i);
+    if (!referent) continue;
+    const allowed = byReferent.get(referent)!;
+    if (nums.some((n) => homed.has(n) && !allowed.has(n))) return false;
+  }
+  return true;
+}
+
+/**
  * Shape/safety checks that run before the grounding gate. Rejects empty or runaway output, markdown
  * structure (the renderers print this as plain prose), and any angle bracket — the cheap tell for
  * leaked internal tags or injected markup.
@@ -148,6 +258,8 @@ const SYSTEM_PROMPT = [
   "- Use ONLY figures that appear verbatim in the FACTS block. Never state a number, percentage,",
   "  count, or date that is not in it, and never compute a new one (no ratios, averages, or",
   "  differences of your own).",
+  "- Attach every figure to the SUBJECT it is reported against in the FACTS block. Never state one",
+  "  dimension's score against another, and never state the overall score as a dimension's.",
   "- Do not speculate about causes, name people, or recommend anything the FACTS block does not.",
   "- Write 2 to 3 short paragraphs of plain prose for an executive reader: where the fleet stands,",
   "  how it moved, and what the single widest gap is.",
@@ -221,8 +333,11 @@ export async function writeBriefingNarrative(b: ExecBriefing, opts: { signal?: A
   const text = await requestNarrative(facts, opts.signal);
   if (!text) return fallback;
   if (!isWellFormedNarrative(text)) return fallback;
-  // The load-bearing gate: no figure the briefing itself doesn't already contain.
+  // The load-bearing gate: no figure the briefing itself doesn't already contain...
   if (!isGrounded(text, allowedNumbers(b))) return fallback;
+  // ...and no figure of ANOTHER subject's presented as this one's. Membership is not referential
+  // integrity (see guarantee 2 in the header): both gates have to hold for the prose to be true.
+  if (!referentGrounded(text, b)) return fallback;
   return text.trim();
 }
 

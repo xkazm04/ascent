@@ -658,6 +658,27 @@ Briefing tab (`src/app/org/[slug]/executive/page.tsx`), the board PDF
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
 
+**Share links are per-grant, and say whether their figures still hold.** Every mint stamps a random
+`jti` (`signBriefingShareToken`, returned by `POST /api/org/briefing/share`), so one leaked link can
+be killed on its own by bumping `briefingShareRevocationKey(jti)` in the permanent SessionRevocation
+ledger — the pre-existing lever (demote the minter) revoked that person's *entire* set. The shared
+page enforces it on read and fails closed. The mint and every open are recorded as
+`briefing.share.minted` / `briefing.share.opened` audit rows carrying the `jti`, so "does this grant
+exist, and was it read" is answerable; the revocation state deliberately does **not** live in
+`AuditLog`, because `retentionAuditDays` purging a revocation row would silently un-revoke a link.
+The owner-gated revoke *endpoint* is not built yet — the primitive and the namespace are.
+
+The page is a **live re-render of a frozen period, not a stored document**, and now says so. The
+token carries `briefingFigureDigest(b)`, a fingerprint of the figures the sender saw; the page
+recomputes it and renders "figures unchanged since this link was created" or a "Figures moved"
+banner above the numbers. A snapshot was considered and rejected: it would be a new stored artifact
+holding fleet-wide posture that both the retention floor and the erasure path would have to reach,
+and it goes stale invisibly. Now that the window is frozen as absolute instants, a re-scan is already
+excluded from the rollup — what still moves under a recipient is the benchmark corpus, goals,
+recommendations, the practice proof, the repo set, and retention deleting scans inside the window.
+The digest catches all of those; a pinned scan set would catch none of them. A token minted before
+this change carries no fingerprint and reads as *unverifiable*, never as "unchanged".
+
 **One ranked source for "what to do next" (G5-02).** The briefing carries
 `recommendations: OrgRec[]`, the top-5 `getOrgRecommendations` rows, fetched once inside
 `buildExecBriefing` under the same segment/stack scope as everything else. Read it through
@@ -722,6 +743,16 @@ are enforced in code:
    object with the ones the markdown prints. One invented figure (including one the model *derived*,
    like a coverage percentage) discards the whole narrative. The model chooses emphasis and wording;
    never a quantity.
+
+   **No borrowed numbers either.** Membership is not referential integrity: "security scored 62"
+   cleared that check when 62 was the *overall* score, because 62 is somewhere in the briefing — every
+   number true and the sentence false. `referentGrounded(text, b)` adds the binding: `figuresByReferent(b)`
+   maps each named subject (a dimension by label or id, plus `overall` / `adoption` / `rigor` /
+   `percentile`) to the figures it legitimately carries, and a figure standing within
+   `REFERENT_WORD_WINDOW` (3) words of a named subject must be one of *that* subject's. Deliberately
+   narrow: a figure with no home in the briefing (repo counts, corpus size, a forecast horizon) and one
+   whose subject is named further away are left to the membership check alone, because a wider window
+   rejects valid prose and would push the feature onto the fallback permanently.
 3. **Degrades to deterministic copy.** Unconfigured, disabled, non-2xx, refusal, timeout, malformed,
    markdown-structured, tag-leaking, or ungrounded ⇒ `deterministicNarrative(b)`, assembled from the
    same figures by template. There is no error state to render.

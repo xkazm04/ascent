@@ -29,7 +29,9 @@ import {
   attachBriefingNarrative,
   briefingNarrativeEnabled,
   deterministicNarrative,
+  figuresByReferent,
   isGrounded,
+  referentGrounded,
   isWellFormedNarrative,
   narrativeFacts,
   numericTokens,
@@ -327,5 +329,76 @@ describe("attachBriefingNarrative — the deliverable opt-in", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("provider down"));
     const attached = await attachBriefingNarrative(briefing);
     expect(attached.narrative).toBeTruthy();
+  });
+});
+
+// ── Referent integrity (grounded-number-referent #16) ──────────────────────────────────────────
+// Membership in the allowed set was the WHOLE gate: a figure that genuinely appears in the briefing
+// but is attached to the wrong dimension passed it. Overall is 62 and Security is 41 in this fixture,
+// so "security scored 62" is the exact defect — every number true, the sentence false.
+
+describe("referentGrounded — a figure must belong to the subject it stands next to", () => {
+  const pad = (s: string) => `${s} ${"The fleet continues to be reviewed by its platform group. ".repeat(2)}`;
+
+  it("rejects one dimension's prose carrying another subject's figure (the #16 defect)", () => {
+    const swapped = "Security scored 62 across the fleet this period.";
+    // It passes the old gate — which is precisely why the old gate was not enough.
+    expect(isGrounded(swapped, allowedNumbers(briefing))).toBe(true);
+    expect(referentGrounded(swapped, briefing)).toBe(false);
+  });
+
+  it("rejects the swap in either direction and at either side of the figure", () => {
+    expect(referentGrounded("Security fell to 62 this period.", briefing)).toBe(false);
+    expect(referentGrounded("A reading of 62 on security is the fleet's weakest.", briefing)).toBe(false);
+    expect(referentGrounded("Adoption stands at 66 for the period.", briefing)).toBe(false); // 66 is rigor
+  });
+
+  it("accepts the same sentences with each figure on its own subject", () => {
+    expect(referentGrounded("Security scored 41 across the fleet this period.", briefing)).toBe(true);
+    expect(referentGrounded("The fleet stands at 62/100 overall, with AI Adoption at 58 and Engineering Rigor at 66.", briefing)).toBe(true);
+    expect(referentGrounded("Testing leads the fleet at 80/100.", briefing)).toBe(true);
+    expect(referentGrounded("That is the 71th percentile against 240 benchmarked repositories.", briefing)).toBe(true);
+  });
+
+  it("leaves un-homed figures (repo counts, corpus size, forecast horizon) to the membership gate", () => {
+    // 240 and 12 belong to no subject in figuresByReferent, so the referent gate says nothing about
+    // them — isGrounded is what vouches for those.
+    expect(referentGrounded("Across 8 of 12 repositories the corpus average is 54.", briefing)).toBe(true);
+    expect(figuresByReferent(briefing).has("security")).toBe(true);
+    expect([...(figuresByReferent(briefing).get("overall") ?? [])]).toContain("62");
+  });
+
+  it("does not read a level or dimension id as a quantity", () => {
+    // "L3" beside "overall" must not bind a stray 3 to the overall score, and D9 likewise.
+    expect(referentGrounded("The fleet is L3 Managed on overall standing.", briefing)).toBe(true);
+    expect(referentGrounded("D9 Security sits at 41 this period.", briefing)).toBe(true);
+  });
+
+  it("does not bind a figure across a sentence boundary", () => {
+    expect(referentGrounded("Nothing changed for security. 62 repositories remain in scope.", briefing)).toBe(true);
+  });
+
+  it("keeps the deterministic fallback clean — the safe path must clear the new gate", () => {
+    expect(referentGrounded(deterministicNarrative(briefing), briefing)).toBe(true);
+  });
+
+  it("says nothing about a subject the briefing does not report on", () => {
+    // Drop every dimension: "security" is no longer a known subject, so the gate has no opinion about
+    // a figure standing beside it. Silence, not a guess — the same posture as an un-homed figure.
+    const noDims = { ...briefing, strengths: [], risks: [], security: null } as ExecBriefing;
+    expect(figuresByReferent(noDims).has("security")).toBe(false);
+    expect(referentGrounded("Security scored 62.", noDims)).toBe(true);
+  });
+
+  it("falls back when the model returns a referent-swapped narrative, and keeps a correct one", async () => {
+    enable();
+    const swapped = pad("Security scored 62 across the fleet, its weakest reading of the period.");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(ok(swapped));
+    expect(await writeBriefingNarrative(briefing)).toBe(deterministicNarrative(briefing));
+
+    vi.restoreAllMocks();
+    const correct = pad("Security scored 41 across the fleet, its weakest reading of the period.");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(ok(correct));
+    expect(await writeBriefingNarrative(briefing)).toBe(correct.trim());
   });
 });
