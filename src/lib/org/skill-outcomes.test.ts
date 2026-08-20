@@ -9,19 +9,34 @@ vi.mock("@/lib/db", () => ({ getRepositoryHistory: mockHistory, listOrgSkillAdop
 
 import { getOrgSkillOutcomes } from "./skill-outcomes-load";
 import {
+  aggregateOutcomes,
+  coverageLabel,
+  meanDeltaLine,
   measuredOutcomes,
   outcomeStatusLabel,
   pairScansAroundAdoption,
+  PAIRING_MAX_DISTANCE_DAYS,
   skillOutcomeFor,
   skillOutcomesFor,
   type OutcomeScan,
 } from "./skill-outcomes";
 
-const scan = (id: string, day: string, overall: number, dims?: Record<string, number>): OutcomeScan => ({
+// Every fixture scan declares its instrument, because after D11 a scan that DOESN'T is not comparable
+// with anything (see the "instrument identity" block below for the cases that exercise silence).
+const scan = (
+  id: string,
+  day: string,
+  overall: number,
+  dims?: Record<string, number>,
+  instrument?: Partial<Pick<OutcomeScan, "rubricVersion" | "engineProvider">>,
+): OutcomeScan => ({
   id,
   scannedAt: `2026-0${day}T00:00:00.000Z`,
   overallScore: overall,
   dimensions: dims ? Object.entries(dims).map(([dimId, score]) => ({ dimId, score })) : undefined,
+  rubricVersion: "r7",
+  engineProvider: "anthropic",
+  ...instrument,
 });
 
 const ADOPTED = "2026-04-10T00:00:00.000Z";
@@ -122,8 +137,125 @@ describe("skillOutcomesFor / measuredOutcomes", () => {
   });
 
   it("labels each status distinctly", () => {
-    const labels = ["measured", "no-before-scan", "no-after-scan"] as const;
-    expect(new Set(labels.map(outcomeStatusLabel)).size).toBe(3);
+    const labels = ["measured", "no-before-scan", "no-after-scan", "instrument-mismatch", "instrument-unknown"] as const;
+    expect(new Set(labels.map(outcomeStatusLabel)).size).toBe(5);
+  });
+});
+
+// ── D11: the two sides must have been produced by the same instrument ────────────────────────────
+describe("instrument identity", () => {
+  it("REGRESSION: a rubric bump between the two scans never publishes a delta", () => {
+    const o = skillOutcomeFor(adoption, [
+      scan("b", "4-01", 60, { D1: 50 }, { rubricVersion: "r6" }),
+      scan("a", "5-01", 68, { D1: 58 }, { rubricVersion: "r7" }),
+    ]);
+    // Before the fix this read "+8 since adoption" — some or all of it a re-weighting, not the practice.
+    expect(o.status).toBe("instrument-mismatch");
+    expect(o.overallDelta).toBeNull();
+    expect(o.dimensionDeltas).toEqual([]);
+    expect(outcomeStatusLabel(o.status)).toMatch(/not comparable/);
+  });
+
+  it("a different scoring engine is a mismatch too (mock floor vs a live model)", () => {
+    const o = skillOutcomeFor(adoption, [
+      scan("b", "4-01", 60, undefined, { engineProvider: "mock" }),
+      scan("a", "5-01", 68, undefined, { engineProvider: "anthropic" }),
+    ]);
+    expect(o.status).toBe("instrument-mismatch");
+    expect(o.overallDelta).toBeNull();
+  });
+
+  it("SILENCE IS NOT SAMENESS: an undeclared instrument on either side is `instrument-unknown`", () => {
+    const undeclared = { rubricVersion: null, engineProvider: null };
+    const beforeSilent = skillOutcomeFor(adoption, [scan("b", "4-01", 60, undefined, undeclared), scan("a", "5-01", 68)]);
+    const afterSilent = skillOutcomeFor(adoption, [scan("b", "4-01", 60), scan("a", "5-01", 68, undefined, undeclared)]);
+    const bothSilent = skillOutcomeFor(adoption, [
+      scan("b", "4-01", 60, undefined, undeclared),
+      scan("a", "5-01", 68, undefined, undeclared),
+    ]);
+    for (const o of [beforeSilent, afterSilent, bothSilent]) {
+      expect(o.status).toBe("instrument-unknown");
+      expect(o.overallDelta).toBeNull();
+    }
+  });
+
+  it("a matching instrument measures, and travels with the outcome", () => {
+    const o = skillOutcomeFor(adoption, [scan("b", "4-01", 60), scan("a", "5-01", 68)]);
+    expect(o.status).toBe("measured");
+    expect(o.overallDelta).toBe(8);
+    expect(o.instrument).toEqual({ rubricVersion: "r7", engineProvider: "anthropic" });
+  });
+});
+
+// ── D33: how far each side sits from the adoption instant ────────────────────────────────────────
+describe("pairing distance", () => {
+  it("carries both gaps and flags a pair that straddles the bound", () => {
+    const far = skillOutcomeFor({ ...adoption, adoptedAt: "2026-06-10T00:00:00.000Z" }, [
+      { id: "old", scannedAt: "2024-12-01T00:00:00.000Z", overallScore: 50, rubricVersion: "r7", engineProvider: "anthropic" },
+      scan("a", "7-01", 70),
+    ]);
+    expect(far.beforeGapDays).toBeGreaterThan(PAIRING_MAX_DISTANCE_DAYS);
+    expect(far.withinPairingBound).toBe(false);
+    // Flagged, NOT filtered: the delta is still reported so the view does not empty overnight.
+    expect(far.overallDelta).toBe(20);
+  });
+
+  it("a tight pair is within the bound, and the bound is overridable", () => {
+    const o = skillOutcomeFor(adoption, [scan("b", "4-01", 60), scan("a", "4-20", 64)]);
+    expect(o.withinPairingBound).toBe(true);
+    expect([o.beforeGapDays, o.afterGapDays]).toEqual([9, 10]);
+    expect(skillOutcomeFor(adoption, [scan("b", "4-01", 60), scan("a", "4-20", 64)], { maxPairingDistanceDays: 5 })
+      .withinPairingBound).toBe(false);
+  });
+
+  it("leaves the flag null when there is no pair to measure", () => {
+    expect(skillOutcomeFor(adoption, [scan("a", "5-01", 64)]).withinPairingBound).toBeNull();
+  });
+});
+
+// ── D34: a mean delta may not travel without the population it excluded ──────────────────────────
+describe("aggregateOutcomes", () => {
+  const outcomes = () =>
+    skillOutcomesFor(
+      [
+        { skillId: "s", repoFullName: "a", adoptedAt: ADOPTED },
+        { skillId: "s", repoFullName: "b", adoptedAt: ADOPTED },
+        { skillId: "s", repoFullName: "c", adoptedAt: ADOPTED },
+        { skillId: "s", repoFullName: "d", adoptedAt: ADOPTED },
+      ],
+      new Map<string, OutcomeScan[]>([
+        ["a", [scan("b1", "4-01", 60), scan("a1", "5-01", 66)]],
+        ["b", [scan("b2", "4-01", 50), scan("a2", "5-01", 54)]],
+        ["c", [scan("only", "5-01", 40)]], // no before
+        ["d", [scan("b4", "4-01", 60), scan("a4", "5-01", 70, undefined, { rubricVersion: "r6" })]],
+      ]),
+    ).s!;
+
+  it("reports the mean beside the population it could not measure", () => {
+    const agg = aggregateOutcomes(outcomes());
+    expect(agg.meanDelta).toBe(5);
+    expect([agg.measured, agg.unpaired, agg.total]).toEqual([2, 2, 4]);
+    expect(agg.byStatus["no-before-scan"]).toBe(1);
+    expect(agg.byStatus["instrument-mismatch"]).toBe(1);
+  });
+
+  it("the coverage sentence names every excluded group", () => {
+    const line = coverageLabel(aggregateOutcomes(outcomes()));
+    expect(line).toContain("2 of 4 adoptions measured");
+    expect(line).toContain("1 with no scan before it");
+    expect(line).toContain("1 not comparable");
+  });
+
+  it("meanDeltaLine cannot render the number without the coverage", () => {
+    expect(meanDeltaLine(aggregateOutcomes(outcomes()))).toBe(
+      "+5 pts mean · 2 of 4 adoptions measured — 1 with no scan before it, 1 not comparable across rubric versions",
+    );
+  });
+
+  it("null mean — never 0 — when nothing is comparable", () => {
+    const agg = aggregateOutcomes([]);
+    expect(agg.meanDelta).toBeNull();
+    expect(meanDeltaLine(agg)).toBe("No comparable before/after pair · No adoptions to measure yet");
   });
 });
 
@@ -142,8 +274,17 @@ describe("getOrgSkillOutcomes", () => {
     });
     const out = await getOrgSkillOutcomes("acme");
     expect(mockHistory).toHaveBeenCalledTimes(1);
-    expect(out.s1[0].overallDelta).toBe(6);
-    expect(out.s2[0].overallDelta).toBe(6);
+    // The fold still runs once per distinct repo and pairs both adoptions…
+    expect(out.s1[0].before?.id).toBe("b");
+    expect(out.s1[0].after?.id).toBe("a");
+    // …but a HistoryPoint carries no `rubricVersion` today, so the pair is honestly NOT COMPARABLE.
+    // This is the D11 contract, and it pins the remaining wiring: once HistoryPoint carries the scan's
+    // rubric version (Scan.rubricVersion is already persisted — prisma/schema.prisma) and
+    // skill-outcomes-load's toOutcomeScan passes it through, these become `measured` again. Until then,
+    // no number is published for a pair whose comparability nobody can assert.
+    expect(out.s1[0].status).toBe("instrument-unknown");
+    expect(out.s1[0].overallDelta).toBeNull();
+    expect(out.s2[0].overallDelta).toBeNull();
   });
 
   it("returns {} when nothing has been adopted", async () => {

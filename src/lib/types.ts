@@ -1,6 +1,8 @@
 // Shared domain types for Ascent — the AI-native maturity index.
 // See docs/features/scanning/maturity-model.md for the conceptual model behind these types.
 
+import type { PrRateBook } from "@/lib/analyze/pr-thresholds";
+
 export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
 export type Impact = "high" | "medium" | "low";
@@ -266,6 +268,42 @@ export type Lifecycle = "prototype" | "alpha" | "beta" | "ga" | "maintenance" | 
  *  governed = curated PLUS observable process (supersede links, a registry, or a CI check). */
 export type ArtifactGrade = "none" | "adhoc" | "curated" | "governed";
 
+/** 0.4.0 — how strongly a single passport field is evidenced. Four FIXED rungs (never a free-form
+ *  number), because a scale without a stated meaning is decorative and consumers threshold on it
+ *  inconsistently:
+ *    observed   1.0  the artifact itself was read (file CONTENT fetched, command present)
+ *    declared   0.8  a dependency/config declaration names it; nothing shows it running
+ *    inferred   0.5  derived from a path/name heuristic over the tree index
+ *    unobserved 0    the evidence needed was not in the snapshot — the field reads `unknown`
+ *  See UNKNOWN_CAPABILITY and FIELD_EVIDENCE in src/lib/analyze/passport.ts. */
+export type EvidenceBasis = "observed" | "declared" | "inferred" | "unobserved";
+
+export interface FieldEvidence {
+  /** 0..1 detection strength for THIS field alone (the rung's fixed value, not a judgement call). */
+  confidence: number;
+  /** Which rung, so a reader sees the REASON the number is what it is, not just the number. */
+  basis: EvidenceBasis;
+}
+
+/** 0.4.0 — ordinal severity of a passport finding. `critical` is not emitted by the builder: it is
+ *  the ESCALATED reading of a `block` finding once an owner marks the repo business/mission-critical
+ *  or GA, which is exactly the change of circumstance that must re-open an old decline. */
+export type FindingSeverity = "info" | "warn" | "block" | "critical";
+
+/** 0.4.0 — a blocker with a MINTED IDENTITY. `automationReadiness.blockers` / `productionReadiness.
+ *  blockers` remain the rendered sentences (unchanged, for 0.3.0-era readers); `findings[]` is the
+ *  machine list those sentences are projected from. Everything that must survive a rewording — the
+ *  decline join, the fleet rollup bucket — keys on `id`, never on `text`. */
+export interface PassportFinding {
+  /** Stable minted id: axis-scoped CAUSE code, e.g. "prod.zero-observability". Never the wording. */
+  id: string;
+  /** The cause code without its axis prefix, e.g. "zero-observability" — the rollup bucket key. */
+  code: string;
+  /** The rendered sentence AS OF this generation. Payload, never a join key. */
+  text: string;
+  severity: FindingSeverity;
+}
+
 /** An owner's "I've seen this gap and I'm opting out" annotation, projected onto the passport by the
  *  read-time override overlay. Never a scan output — always owner intent. */
 export interface DeclinedByChoice {
@@ -277,6 +315,17 @@ export interface DeclinedByChoice {
   reason?: string;
   /** The blocker line this decline retired, preserved so the choice stays auditable. */
   blocker?: string;
+  /** 0.4.0: the minted id of the finding this decline stands against — the join key that survives a
+   *  rewording of `blocker`. Absent on declines recorded before 0.4.0. */
+  findingId?: string;
+  /** 0.4.0: YYYY-MM-DD the choice was made, carried through so the reader can age it. */
+  at?: string;
+  /** 0.4.0: set when the accepted gap has CHANGED since it was accepted (the finding hardened, its
+   *  kind changed, or the decision aged past the re-confirmation window). The blocker then STAYS in
+   *  the blocker list — an accepted risk about a different repo is not an accepted risk. */
+  needsReconfirm?: boolean;
+  /** The sentence telling the owner what changed and why they are being asked again. */
+  reconfirmReason?: string;
 }
 
 export interface AppPassport {
@@ -310,7 +359,13 @@ export interface AppPassport {
     frameworks: string[];
     packageManager?: string;
     persistence: { kind: string; engine?: string; orm?: string | null; migrations?: string; required?: boolean }[];
+    /** NAMED capability fields. Three-valued since 0.4.0, because `null` used to carry two different
+     *  facts and a portfolio query could not tell them apart: a vendor NAME = observed; `null` = the
+     *  scan looked and found nothing; UNKNOWN_CAPABILITY ("unknown") = the scan could not look at all
+     *  (e.g. package.json was outside the snapshot), which is a scan-coverage problem and must never
+     *  be reported as a real gap in the customer's stack. `evidence.fields` carries the rung. */
     monitoring: { errorTracking: string | null; logs: string | null; metrics: string | null; tracing: string | null; uptime: string | null };
+    /** Named + three-valued, same rule as `monitoring` above. */
     hosting: string | null;
     integrations: { name: string; kind: string; direction?: string }[];
     secretsFrom?: string;
@@ -337,7 +392,11 @@ export interface AppPassport {
     };
     selfVerify: { build: boolean; test: boolean; lint: boolean; typecheck: boolean };
     aiInWorkflow: boolean;
+    /** Rendered sentences (kept verbatim for pre-0.4.0 readers). Projected from `findings`. */
     blockers: string[];
+    /** 0.4.0: the same blockers WITH minted ids. Optional so a stored pre-0.4.0 blob still parses;
+     *  upgradePassport back-fills it read-time from `blockers`. */
+    findings?: PassportFinding[];
   };
   productionReadiness: {
     band: ProductionBand;
@@ -347,10 +406,20 @@ export interface AppPassport {
     security: { level: "none" | "policy" | "scanning" | "gated" | "supply-chain"; tools: string[] };
     observability: { level: "none" | "logs" | "errors" | "metrics" | "tracing" };
     delivery: { migrations: "none" | "scripted" | "versioned"; iac: boolean; rollback: boolean };
+    /** Rendered sentences (kept verbatim for pre-0.4.0 readers). Projected from `findings`. */
     blockers: string[];
+    /** 0.4.0: the same blockers WITH minted ids — see PassportFinding. */
+    findings?: PassportFinding[];
   };
   links: { report?: string; contextMap?: string; manifest?: string };
-  evidence: { confidence: number; source: string; files: string[]; notes?: string[] };
+  /** `confidence` is the WHOLE-ARTIFACT figure (how much of the app could be inspected at all).
+   *  0.4.0 adds `fields`: per-field detection strength keyed by dotted passport path, so a vendor
+   *  guessed from a dependency list and one read off a fetched command stop looking equally
+   *  authoritative. A reader filtering on strength MUST prefer `fields[path]` and fall back to
+   *  `confidence` only when the path is absent (pre-0.4.0 rows, or fields the builder does not
+   *  rate). Deliberately NOT exhaustive: only the named/heuristic fields are rated, which keeps the
+   *  artifact one screen long instead of doubling it. */
+  evidence: { confidence: number; source: string; files: string[]; notes?: string[]; fields?: Record<string, FieldEvidence> };
   /** 0.3.0: per-repo autonomy tier — "what can you safely hand an agent in this repo?" Derived
    *  (never authored) by passport-autonomy.ts from the fields above + scan governance. Optional so
    *  a pre-0.3.0 blob parses; upgradePassport fills it read-time. */
@@ -610,6 +679,23 @@ export interface PrStats {
    * the outcome model reports as attribution coverage rather than silently narrowing a denominator.
    */
   mergedShas?: { s: string; a: 0 | 1 }[];
+  /**
+   * The same rates as the scalars above, in the qualified form that carries its own denominator,
+   * exclusions, sample floor and (for `aiInvolved`) per-channel precision — see
+   * `src/lib/analyze/pr-thresholds.ts`. A reader-facing surface must take its number from here
+   * through `rateReading`, never from the bare scalar beside it.
+   *
+   * It lives ON `PrStats` rather than on an analyzer-only return-type extension because the blob is
+   * persisted wholesale: a consumer typed as plain `PrStats` (every DB read — `org-signals.ts`, the
+   * rollups, the report page) could not SEE the field otherwise, so the qualified form existed in
+   * the database and nowhere in the type system that reads it. Declaring it here is behaviourally
+   * identical; what changes is who can reach it.
+   *
+   * OPTIONAL on purpose: a scan written before the contract genuinely has no rate book, and an
+   * absent population must be rendered as unknown, never fabricated into an empty one (`{}` would
+   * read as "eight rates, all with a zero denominator", which is a different and false claim).
+   */
+  rates?: PrRateBook;
 }
 
 /** Default-branch governance — from the branch `protected` flag + the (read-only) rulesets API.

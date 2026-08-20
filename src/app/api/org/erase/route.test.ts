@@ -16,7 +16,13 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-login") }));
-vi.mock("@/lib/db/retention", () => ({ eraseOrgData: vi.fn() }));
+// Mock the erase itself, but keep the REAL ERASE_AUDIT_FORCE_ENV: the 409 body names that flag as the
+// operator's way forward, so a stubbed value would let the route advertise an env var that isn't the
+// one retention.ts actually reads.
+vi.mock("@/lib/db/retention", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db/retention")>();
+  return { ERASE_AUDIT_FORCE_ENV: actual.ERASE_AUDIT_FORCE_ENV, eraseOrgData: vi.fn() };
+});
 
 import { POST, maxDuration } from "./route";
 import { requireOrgRole } from "@/lib/authz";
@@ -45,9 +51,12 @@ const CLEAN = {
   recommendationsDeleted: 4,
   recommendationEventsDeleted: 1,
   auditDeleted: 0,
+  auditRedacted: 0,
+  auditDisposition: "keep" as const,
   stoppedEarly: false,
   complete: true,
   audited: true,
+  dryRun: false,
 };
 
 beforeEach(() => {
@@ -122,6 +131,7 @@ describe("POST /api/org/erase — happy path + honest status mapping", () => {
       orgSlug: "acme",
       repoFullName: undefined,
       includeAudit: true,
+      auditDisposition: undefined,
       actorId: "owner-login",
     });
     const json = await res.json();
@@ -154,10 +164,74 @@ describe("POST /api/org/erase — happy path + honest status mapping", () => {
     expect((await POST(req({ org: "acme", repo: "acme/api", confirm: "acme/api" }))).status).toBe(404);
   });
 
+  it("maps the destructive-override floor to 409, naming BOTH ways forward (data-retention 07-16 #4)", async () => {
+    mockErase.mockResolvedValue({ ok: false, reason: "audit-delete-refused" });
+    const res = await POST(req({ org: "acme", confirm: "acme", auditDisposition: "delete" }));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    // A refusal with no next step on a compelled-erasure path is how someone ends up in the DB by hand.
+    expect(json.error).toMatch(/redact/);
+    expect(json.error).toMatch(/ERASE_AUDIT_FORCE=1/);
+    expect(json.error).toMatch(/Nothing was erased/);
+  });
+
+  it("rejects an UNRECOGNISED auditDisposition with 400 rather than falling back to one", async () => {
+    // A silent fallback would make the destructive choice depend on an unvalidated string.
+    const res = await POST(req({ org: "acme", confirm: "acme", auditDisposition: "delete " }));
+    expect(res.status).toBe(400);
+    expect(mockErase).not.toHaveBeenCalled();
+  });
+
+  it("forwards an explicit auditDisposition verbatim (the route does not decide the policy)", async () => {
+    await POST(req({ org: "acme", confirm: "acme", auditDisposition: "delete" }));
+    expect(mockErase).toHaveBeenCalledWith(expect.objectContaining({ auditDisposition: "delete" }));
+  });
+
   it("COUPLED CONSTANT: the route's declared maxDuration equals ERASE_MAX_DURATION_S", async () => {
     // The module mock above replaces the real export, so read the GENUINE constant for this pin —
     // Next.js requires maxDuration to be a literal, so this test is what keeps the two from drifting.
     const actual = await vi.importActual<typeof import("@/lib/db/retention")>("@/lib/db/retention");
     expect(maxDuration).toBe(actual.ERASE_MAX_DURATION_S);
+  });
+});
+
+describe("POST /api/org/erase — preview (data-retention 07-16 #20)", () => {
+  const PREVIEW = { ...CLEAN, dryRun: true, scansDeleted: 412, reposProcessed: 37 };
+
+  it("previews WITHOUT a typed confirmation — the count is what makes the confirmation informed", async () => {
+    mockErase.mockResolvedValue(PREVIEW);
+    const res = await POST(req({ org: "acme", preview: true }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.dryRun).toBe(true);
+    expect(json.scansDeleted).toBe(412);
+    expect(json.reposProcessed).toBe(37);
+    expect(mockErase).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
+  });
+
+  it("a preview is still OWNER-gated and still CSRF-gated — the counts describe the tenant", async () => {
+    const denial = new Response(JSON.stringify({ error: "owner only" }), { status: 403 });
+    mockRole.mockResolvedValue(denial as never);
+    expect(await POST(req({ org: "acme", preview: true }))).toBe(denial);
+    expect(mockErase).not.toHaveBeenCalled();
+
+    mockRole.mockResolvedValue(null);
+    const xo = new Response(JSON.stringify({ error: "cross-origin" }), { status: 403 });
+    mockSameOrigin.mockReturnValue(xo as never);
+    expect(await POST(req({ org: "acme", preview: true }))).toBe(xo);
+    expect(mockErase).not.toHaveBeenCalled();
+  });
+
+  it("carries the audit disposition into the preview, so the count matches what will actually run", async () => {
+    mockErase.mockResolvedValue({ ...PREVIEW, auditDisposition: "redact", auditRedacted: 88 });
+    const res = await POST(req({ org: "acme", preview: true, includeAudit: true }));
+    expect(mockErase).toHaveBeenCalledWith(expect.objectContaining({ includeAudit: true, dryRun: true }));
+    expect((await res.json()).auditRedacted).toBe(88);
+  });
+
+  it("a preview NEVER reports a degraded 207 for an unwritten trace — it owes no trace", async () => {
+    // The 207 branch keys off `audited`; a preview writes nothing, so it must not fall into it.
+    mockErase.mockResolvedValue({ ...PREVIEW, audited: true });
+    expect((await POST(req({ org: "acme", preview: true }))).status).toBe(200);
   });
 });

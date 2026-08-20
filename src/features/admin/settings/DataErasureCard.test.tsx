@@ -5,6 +5,7 @@
 //   • submit armed by anything other than the org's name typed back exactly;
 //   • a 207 `resumable` partial rendered as either success or failure (it is neither — run it again);
 //   • `audited: false` rendered as a clean success (the deletes stand, the compliance trace is gone).
+// The blast-radius preview that arms the field has its own file: DataErasurePreview.test.tsx.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -12,6 +13,25 @@ import { DataErasureCard } from "./DataErasureCard";
 import { confirmMatches } from "./DataErasureDialog";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
+/** The `preview: true` body the dialog fetches on open. The confirm button is dead until this lands,
+ *  so every test here has to get past it before it can exercise anything else. */
+const PREVIEW = {
+  orgSlug: "acme",
+  scope: "org" as const,
+  reposProcessed: 3,
+  scansDeleted: 120,
+  dimensionsDeleted: 1080,
+  recommendationsDeleted: 340,
+  recommendationEventsDeleted: 12,
+  auditDeleted: 0,
+  auditRedacted: 0,
+  auditDisposition: "keep" as const,
+  stoppedEarly: false,
+  complete: true,
+  audited: true,
+  dryRun: true,
+};
 
 const OK = {
   orgSlug: "acme",
@@ -41,9 +61,13 @@ const eraseButton = () => screen.getByRole("button", { name: /erase organization
 const confirmInput = () => screen.getByPlaceholderText("acme") as HTMLInputElement;
 const submit = () => screen.getByRole("button", { name: /^erase acme$/i }) as HTMLButtonElement;
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The preview is answered first; each test then re-stubs fetch for the erase itself, so the
+  // per-test fetch mocks below count ONLY erase calls.
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => PREVIEW })));
   render(<DataErasureCard slug="acme" />);
   fireEvent.click(eraseButton());
+  await screen.findByText(/Would be erased now/i);
 });
 
 afterEach(() => {

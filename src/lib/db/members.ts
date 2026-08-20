@@ -8,7 +8,7 @@
 // read by src/lib/authz.ts (requireOrgRole). A future invite/SSO flow populates members/viewers.
 
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
@@ -310,18 +310,29 @@ export async function listOrgsForLogin(login: string): Promise<ViewerOrg[]> {
   if (!isDbConfigured()) return [];
   const gh = normalizeLogin(login);
   if (!gh) return [];
-  const prisma = getPrisma();
-  const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
-  if (!user) return [];
-  const rows = await prisma.membership.findMany({
-    where: { userId: user.id },
-    select: { role: true, createdAt: true, org: { select: { slug: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-  return rows
-    .filter((r) => r.org && r.org.slug !== PUBLIC_ORG)
-    .map((r) => ({ slug: r.org.slug, name: r.org.name, role: isOrgRole(r.role) ? r.role : "member" }))
-    .sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role]);
+  // dbReadSafe, not a raw read: this renders in the SITE HEADER (Brand.tsx OrgEntryLink), which the
+  // root layout puts on EVERY page. Unwrapped, a database that is configured but down (local Postgres
+  // not started, a prod outage) turned the landing page — and every keyless MVP route that needs no
+  // database at all — into a 500. The empty fallback is exactly the !isDbConfigured() path above: the
+  // header keeps its neutral "Org demo" link.
+  return dbReadSafe(async () => {
+    const prisma = getPrisma();
+    const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
+    if (!user) return [];
+    const rows = await prisma.membership.findMany({
+      where: { userId: user.id },
+      select: { role: true, createdAt: true, org: { select: { slug: true, name: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows
+      .filter((r) => r.org && r.org.slug !== PUBLIC_ORG)
+      .map((r) => ({
+        slug: r.org.slug,
+        name: r.org.name,
+        role: isOrgRole(r.role) ? r.role : "member",
+      }))
+      .sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role]);
+  }, [] as ViewerOrg[]);
 }
 
 /** All members of an org (owner-gated view). */

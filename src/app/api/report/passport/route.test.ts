@@ -28,7 +28,9 @@ import { GET } from "./route";
 const req = (qs: string) => new Request(`http://t/api/report/passport${qs}`);
 const samplePassport = {
   passport: "app-passport",
-  passportVersion: "0.3.0",
+  // Current PASSPORT_VERSION, so the export path is a pass-through here and the migration behaviour is
+  // pinned by the 0.1.0 case below instead.
+  passportVersion: "0.4.0",
   identity: { name: "web" },
   automationReadiness: { level: "L4", artifacts: { memory: "curated", skills: "none" } },
   productionReadiness: { band: "beta" },
@@ -90,12 +92,14 @@ describe("GET /api/report/passport", () => {
       evidence: { notes?: string[] };
       autonomy?: { tier: string };
     };
-    expect(body.passportVersion).toBe("0.3.0");
+    expect(body.passportVersion).toBe("0.4.0");
     expect(body.migratedFrom).toBe("0.1.0");
     expect(body.automationReadiness.artifacts).toEqual({ memory: "adhoc", skills: "none" });
     expect(body.evidence.notes?.length).toBeGreaterThan(0);
     // 0.3.0 lift: old rows get an autonomy tier read-time, without a rescan.
     expect(body.autonomy?.tier).toBe("T0");
+    // 0.4.0 lift: blockers gain minted ids (this row had none, so the lists are empty, not fabricated).
+    expect((body as unknown as { productionReadiness: { findings?: unknown[] } }).productionReadiness.findings).toEqual([]);
   });
 
   it("sets a sanitized download filename with ?download", async () => {

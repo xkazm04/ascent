@@ -36,7 +36,11 @@ export async function POST(request: Request) {
   if (xo) return xo;
 
   const rl = await rateLimitRequestShared(request, CONTACT_RATE_LIMIT);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  // Whole result: a human filling this form deserves to know whether THEY submitted too often
+  // (scope `ip`, with the actual budget and window) or the shared contact budget is exhausted by
+  // other traffic (scope `global`, deliberately unquantified so the form can't be used to measure
+  // fleet capacity). The old numeric call collapsed both into the same unactionable prose.
+  if (!rl.ok) return tooManyRequests(rl);
 
   let body: unknown;
   try {

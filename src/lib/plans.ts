@@ -7,16 +7,21 @@
 // below are DISPLAY-ONLY duplicates of those Polar prices for the static /pricing page and SEO copy;
 // a price change in the Polar dashboard MUST be mirrored here in lockstep or /pricing advertises a
 // stale number and buyers are charged something else at checkout. (The old header claimed "no dollar
-// amounts are invented here", which hid this hazard.) An automated reconciliation now exists:
-// src/lib/price-drift.ts fetches the live Polar prices and reports any mismatch on the operator KPI
-// route (GET /api/kpi → `priceDrift`) — a detector, not a fixer; the mirror edit here is still manual.
+// amounts are invented here", which hid this hazard.) Two reconciliations enforce the mirror:
+//   1. RECORDED_PRICE_BOOK in src/lib/price-drift.ts — a dated transcript of the Polar price book in
+//      Polar's own units (cents), asserted against `monthlyPrice` by a unit test. Editing a display
+//      price alone now FAILS THE BUILD, so the price book has to be looked at, not assumed.
+//   2. checkPriceDrift() — the live pull against Polar, reported on the operator KPI route
+//      (GET /api/kpi → `priceDrift`). A detector, not a fixer; the mirror edit here is still manual.
 //
-// SELF-HOSTED DEPLOYMENTS. Ascent is AGPL software whose cloud sells OPERATION, not features. Every
-// `planAllows*` gate below therefore short-circuits to "allowed" when `selfHosted()` is true, scans
-// are unmetered, and retention is unbounded — see src/lib/env.ts for how that mode is detected. The
-// tier model still exists on a self-hosted box (it is the same code the cloud runs); it is simply
-// not enforced. Keep this discipline when adding a gate: a new `planAllows*` that forgets the
-// short-circuit silently makes the open-source build worse than the cloud one.
+// SELF-HOSTED DEPLOYMENTS. Ascent is AGPL software whose cloud sells OPERATION, not features. Gated
+// capabilities therefore all resolve through the ONE `planAllows()` gate below, which short-circuits
+// to "allowed" when `selfHosted()` is true; scans are unmetered and retention is unbounded — see
+// src/lib/env.ts for how that mode is detected. The tier model still exists on a self-hosted box (it
+// is the same code the cloud runs); it is simply not enforced. This used to be a rule to remember —
+// five hand-written predicates each repeating the short-circuit, where a sixth that forgot it would
+// silently make the open-source build worse than the cloud one. A new capability is now a row in
+// PLAN_CAPABILITIES, not a new function, so there is no longer a place to forget it.
 
 // TIER ID vs TIER LABEL. `enterprise` is the STORED id — it is written to `Organization.plan`, appears
 // in the POLAR_PLAN_PRODUCTS env mapping, and is compared by the webhook's downgrade-guard rank. The
@@ -29,8 +34,109 @@ import { selfHosted } from "@/lib/env";
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
+/** Display / upgrade order, cheapest → richest. Also the rank the webhook's downgrade guard compares
+ *  on, and the ladder capability inclusion is computed against (see PLAN_CAPABILITIES). */
+export const PLAN_ORDER: PlanId[] = ["free", "pro", "team", "enterprise"];
+
 /** How a plan is billed: free (no charge), a fixed monthly subscription, or a bespoke contract. */
 export type PlanBilling = "free" | "subscription" | "custom";
+
+/** A capability that a tier either includes or doesn't, and that some call site actually REFUSES when
+ *  it doesn't. Only gated things belong here: the pricing page also lists capabilities no code checks
+ *  (the fleet dashboard, autoscans, segments, playbooks — see the "advertises but nothing enforces"
+ *  table in docs/features/billing/billing.md), and those stay hand-written `extras` precisely so this
+ *  union means "enforced" rather than "mentioned". */
+export type PlanCapability = "whiteLabel" | "skillsLibrary" | "memory" | "byom" | "pdfExport";
+
+export interface PlanCapabilityMeta {
+  id: PlanCapability;
+  /** Cheapest tier that includes it. Capabilities are CUMULATIVE up PLAN_ORDER: every richer tier
+   *  includes it too, which is what the ladder on /pricing already promises. */
+  minPlan: PlanId;
+  /** Customer-facing name — the plan card's bullet AND the credit-matrix row label, one string so the
+   *  card and the matrix on the same page cannot name the same capability two different ways. */
+  label: string;
+  /** One-line explanation, for the credit-matrix row. */
+  detail: string;
+}
+
+/**
+ * The capability model: what a tier INCLUDES, in one table that both the gate and the page read.
+ *
+ * Before this, each capability was a hand-written predicate re-opening the tier vocabulary inline
+ * (`id === "team" || id === "enterprise"`, five times) while /pricing sold the same capabilities as
+ * typed prose no gate read. Two sources that agreed only by hand: a capability could move tiers in
+ * code and the card would keep advertising the old tier, so a buyer paid for a tier and hit a wall
+ * the card promised was included — and adding a tier meant editing five predicates, where missing one
+ * is a silent entitlement bug. The trade-off accepted: capabilities must be expressible as "this tier
+ * and up". Anything genuinely non-monotonic (a capability at Team but not Custom) would need its own
+ * shape; nothing in the catalogue is, and the pricing ladder would be lying if one were.
+ *
+ * Order here is the order bullets and matrix rows render in.
+ */
+export const PLAN_CAPABILITIES: Record<PlanCapability, PlanCapabilityMeta> = {
+  // Was Custom-only; opened to Team so a Team-tier reseller can brand the reports they hand to clients.
+  whiteLabel: {
+    id: "whiteLabel",
+    minPlan: "team",
+    label: "White-label briefings",
+    detail: "Board-ready briefings under your own brand.",
+  },
+  // Authoring the Org Skills Library (Feature 2). Reads stay open to every member; only
+  // create/edit/archive is gated (§8.6, parity with Playbooks/Segments).
+  skillsLibrary: {
+    id: "skillsLibrary",
+    minPlan: "team",
+    label: "Skills library",
+    detail: "Author and roll out your own agent-skill catalog.",
+  },
+  // WRITING to the Shared Org Memory (Memory-as-a-Service MVP). Reads stay open for the same reason
+  // as the Skills Library: a memory nobody can read is worthless.
+  memory: {
+    id: "memory",
+    minPlan: "team",
+    label: "Shared org memory",
+    detail: "Author the durable org knowledge store every member reads.",
+  },
+  // Team and up since 2026-08-19; Custom-only before that (§8.4). It was the marquee enterprise unlock
+  // when there was no alternative to the hosted product. Under open-source-first there is one: a
+  // self-hoster points Ascent at any model, including a local one, for free. BYOM is therefore the
+  // exact concession that keeps a customer who COULD self-host on the cloud — "keep your model and
+  // your inference bill, let us run everything else" — and pricing it out of reach of everyone below
+  // Custom pushed that customer toward `git clone` instead. What stays genuinely Custom-tier is
+  // operational, not capability: SSO, VPC/on-prem hosting, an SLA. A downgrade dormants any saved
+  // config (the provider resolver + settings route both gate on this).
+  byom: {
+    id: "byom",
+    minPlan: "team",
+    label: "Connect your own model (BYOM)",
+    detail: "Run scoring on your own Bedrock or OpenRouter account.",
+  },
+  // The PRD's legacy "Private" tier (paid, usage-based private-repo scanning) is what originally
+  // bundled PDF export; today's nearest equivalent is the lowest PAID plan, since Free is a real usage
+  // tier now and gating any lower would mean no plan could ever unlock it (g1-02).
+  pdfExport: {
+    id: "pdfExport",
+    minPlan: "pro",
+    label: "PDF export",
+    detail: "Download any saved report as a PDF.",
+  },
+};
+
+/** Render/iteration order for capabilities — the declaration order of the table above. */
+export const PLAN_CAPABILITY_ORDER: PlanCapability[] = Object.keys(PLAN_CAPABILITIES) as PlanCapability[];
+
+/** Capabilities a tier includes: everything whose `minPlan` is at or below it on PLAN_ORDER. */
+function capabilitiesOf(plan: PlanId): PlanCapability[] {
+  const rank = PLAN_ORDER.indexOf(plan);
+  return PLAN_CAPABILITY_ORDER.filter((c) => rank >= PLAN_ORDER.indexOf(PLAN_CAPABILITIES[c].minPlan));
+}
+
+/** Capabilities a tier is the FIRST to include — what its plan card advertises as new at this step of
+ *  the ladder. The cards have always listed what a tier adds rather than restating the tier below. */
+export function newCapabilitiesAt(plan: PlanId): PlanCapability[] {
+  return PLAN_CAPABILITY_ORDER.filter((c) => PLAN_CAPABILITIES[c].minPlan === plan);
+}
 
 export interface PlanFeature {
   id: PlanId;
@@ -53,13 +159,26 @@ export interface PlanFeature {
   /** Scan-history retention in days; null = unlimited/inherit the deployment default. */
   retentionDays: number | null;
   blurb: string;
+  /** Gated capabilities this tier includes — DERIVED from PLAN_CAPABILITIES, never hand-listed. This
+   *  is the array `planAllows()` indexes, and the array the credit matrix ticks its cells from. */
+  capabilities: readonly PlanCapability[];
   /** Bullets BESIDE the headline scan volume — never restating it. The monthly scan number is rendered
    *  once per card, in its own typography, from `planScanLine()`; repeating it here as a bullet was the
-   *  same sentence twice in one card. Keep this list to what the volume line does NOT already say. */
+   *  same sentence twice in one card. Keep this list to what the volume line does NOT already say.
+   *  DERIVED: the gated capabilities this tier is first to include, then the tier's `extras`. */
   features: string[];
 }
 
-export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
+/** How a tier is WRITTEN below: everything except the two derived fields, plus the ungated prose
+ *  bullets. `extras` is the hand-typed half of a card — real selling points with no code gate behind
+ *  them (fleet dashboard, autoscans, seat counts, history windows). Keeping them separate from
+ *  capabilities is the point: a bullet in `extras` is a promise, a bullet from PLAN_CAPABILITIES is
+ *  enforced, and the split makes which is which visible instead of a matter of memory. */
+interface PlanSpec extends Omit<PlanFeature, "features" | "capabilities"> {
+  extras: string[];
+}
+
+const PLAN_SPECS: Record<PlanId, PlanSpec> = {
   free: {
     id: "free",
     label: "Free",
@@ -75,7 +194,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 1,
     retentionDays: 30,
     blurb: "Private scans every month, and public scans are always free, with the full report and badge.",
-    features: ["Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
+    extras: ["Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
   },
   // Stored id `pro`, shown as "Starter" — the same display-only rename as `enterprise`/"Custom" (see
   // the TIER ID vs TIER LABEL note atop this file). The id is on Organization.plan and in the
@@ -90,7 +209,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 3,
     retentionDays: 180,
     blurb: "A monthly subscription with the org fleet dashboard for a small team.",
-    features: ["Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
+    extras: ["Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
   },
   team: {
     id: "team",
@@ -102,15 +221,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: [
-      "Segments + comparisons",
-      "White-label briefings",
-      "Connect your own model (BYOM)",
-      "Playbooks + planning",
-      "Buy extra scans anytime",
-      "10 members",
-      "1-year history",
-    ],
+    extras: ["Segments + comparisons", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
   },
   // Stored id `enterprise` (see the TIER ID vs TIER LABEL note atop this file); shown as "Custom".
   // Its bullets describe the DIMENSIONS that get scoped in the conversation, not a list of unlimited
@@ -126,7 +237,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: null,
     retentionDays: null,
     blurb: "Every line adjustable: hosting, scans, support, customization and sign-on.",
-    features: [
+    extras: [
       "Hosting: shared cloud, your VPC, or on-prem",
       "Scans: volume set to your fleet, not a tier",
       "Support: response times and an SLA you pick",
@@ -136,8 +247,27 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
   },
 };
 
-/** Display / upgrade order, cheapest → richest. */
-export const PLAN_ORDER: PlanId[] = ["free", "pro", "team", "enterprise"];
+/**
+ * The plan model every surface reads: the written spec above, plus the two DERIVED fields.
+ *
+ * `capabilities` is what the gate indexes; `features` is what a plan card prints — the capabilities
+ * this tier is the first to include, named by the capability table, followed by the tier's ungated
+ * `extras`. The card can therefore no longer advertise a capability the gate refuses, or stay silent
+ * about one the gate allows (PDF export was gated at Starter and sold on no card at all; the Skills
+ * Library and Shared Org Memory were gated at Team and missing from the Team card).
+ */
+export const PLAN_FEATURES: Record<PlanId, PlanFeature> = (() => {
+  const built = {} as Record<PlanId, PlanFeature>;
+  for (const id of PLAN_ORDER) {
+    const { extras, ...spec } = PLAN_SPECS[id];
+    built[id] = {
+      ...spec,
+      capabilities: capabilitiesOf(id),
+      features: [...newCapabilitiesAt(id).map((c) => PLAN_CAPABILITIES[c].label), ...extras],
+    };
+  }
+  return built;
+})();
 
 /** Customer-facing name of the tier whose private scans are never metered — what the "Credits ·
  *  Unlimited" chips name when they explain themselves. Derived from the model (not re-typed per chip)
@@ -232,59 +362,53 @@ export function resolveScanCharge(opts: { plan: string | null | undefined; usage
   });
 }
 
-/** Plans that include white-label briefing branding — Team and up (was Enterprise-only; opened up so a
- *  Team-tier reseller can brand the reports they hand to clients). */
-export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
-  if (selfHosted()) return true;
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "team" || id === "enterprise";
-}
-
-/** Plans that may author + manage the Org Skills Library (Feature 2) — Team and up, for parity with
- *  Playbooks/Segments (§8.6). Reads stay open to all members; only create/edit/archive is gated. */
-export function planAllowsSkillsLibrary(plan: string | null | undefined): boolean {
-  if (selfHosted()) return true;
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "team" || id === "enterprise";
-}
-
-/** Plans that may WRITE to the Shared Org Memory (Memory-as-a-Service MVP) — Team and up, for parity
- *  with the Skills Library: the durable org knowledge store is a team asset, so authoring is the gated
- *  capability while reads stay open to every member (a memory nobody can read is worthless). */
-export function planAllowsMemory(plan: string | null | undefined): boolean {
-  if (selfHosted()) return true;
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "team" || id === "enterprise";
-}
-
 /**
- * Plans that may connect their own LLM (BYOM — Bedrock or OpenRouter) — **Team and up** since
- * 2026-08-19; Enterprise-only before that (§8.4).
+ * THE capability gate. Every gated capability resolves here, so there is exactly one place the
+ * self-hosted short-circuit lives and exactly one place the tier vocabulary is read.
  *
- * It was the marquee enterprise unlock when there was no alternative to the hosted product. Under
- * open-source-first there is one: a self-hoster points Ascent at any model, including a local one,
- * for free. BYOM is therefore the exact concession that keeps a customer who *could* self-host on
- * the cloud — "keep your model and your inference bill, let us run everything else" — and pricing it
- * out of reach of everyone below Enterprise pushed that customer toward `git clone` instead. What
- * stays genuinely Enterprise is operational, not capability: SSO, VPC/on-prem hosting, an SLA.
- *
- * A downgrade dormants any saved config (the provider resolver + settings route both gate on this).
+ * TWO UNKNOWNS, OPPOSITE SAFE DEFAULTS — do not collapse them:
+ *  - an unrecognised TIER value (a typo, a tier removed from the model, a hand-edited DB row) floors
+ *    to `free` via planFeatures(). Under-granting is the safe direction: the customer sees an upsell
+ *    and complains, which is recoverable; over-granting hands out paid capability silently.
+ *  - an unknown TENANT is a different question with the opposite answer — a slug that matched no org
+ *    row must be REFUSED, not floored, because flooring would grant it the free tier's entitlements.
+ *    That refusal lives with the tenant lookup, in src/lib/entitlement.ts (`orgExists`), because that
+ *    is where the org's existence is actually known; this function is only ever handed a plan string.
  */
-export function planAllowsByom(plan: string | null | undefined): boolean {
-  if (selfHosted()) return true; // the operator already owns the keys — gating them is theatre
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "team" || id === "enterprise";
+export function planAllows(capability: PlanCapability, plan: string | null | undefined): boolean {
+  // Self-hosted sells operation, not capability — see the SELF-HOSTED note atop this file. This is
+  // the only copy of that short-circuit, which is why a new capability cannot forget it.
+  if (selfHosted()) return true;
+  return planFeatures(plan).capabilities.includes(capability);
 }
 
-/** Plans that may export a saved report as a PDF — Starter (`pro`) and up. The PRD's legacy "Private" tier (paid,
- *  usage-based private-repo scanning) is what originally bundled PDF export; today's nearest equivalent
- *  is the lowest PAID plan (Pro), since Free is a real usage tier now (5 private scans/month) and
- *  gating any lower would mean no plan at all could ever unlock it. Least-breaking reading of an
- *  otherwise-stale "Private tier" label (g1-02). */
+// The five named gates below are thin, stable aliases of `planAllows` — they keep ~15 call sites and
+// their tests reading in domain terms rather than passing a capability id around, while the tier
+// decision itself lives only in PLAN_CAPABILITIES. Each is now a lookup, not a predicate.
+
+/** Plans that include white-label briefing branding. */
+export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
+  return planAllows("whiteLabel", plan);
+}
+
+/** Plans that may author + manage the Org Skills Library (Feature 2); reads stay open to all members. */
+export function planAllowsSkillsLibrary(plan: string | null | undefined): boolean {
+  return planAllows("skillsLibrary", plan);
+}
+
+/** Plans that may WRITE to the Shared Org Memory (Memory-as-a-Service MVP); reads stay open. */
+export function planAllowsMemory(plan: string | null | undefined): boolean {
+  return planAllows("memory", plan);
+}
+
+/** Plans that may connect their own LLM (BYOM — Bedrock or OpenRouter). */
+export function planAllowsByom(plan: string | null | undefined): boolean {
+  return planAllows("byom", plan);
+}
+
+/** Plans that may export a saved report as a PDF. */
 export function planAllowsPdfExport(plan: string | null | undefined): boolean {
-  if (selfHosted()) return true;
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "pro" || id === "team" || id === "enterprise";
+  return planAllows("pdfExport", plan);
 }
 
 /**

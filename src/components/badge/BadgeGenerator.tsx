@@ -6,7 +6,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BADGE_STYLES, type BadgeStyle, badgeReportHref, validRepoNamePart } from "@/lib/badge";
+import { BADGE_RUBRIC_PARAM, BADGE_STYLES, type BadgeStyle, badgeReportHref, validRepoNamePart } from "@/lib/badge";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { attemptCopy, nextCopyState } from "@/components/copy-for-llm.logic";
 import { GateSection } from "@/components/badge/GateSection";
 
@@ -75,6 +76,15 @@ export function BadgeGenerator({ gate }: { gate?: { yaml: string; query: string 
       qs.set("min_level", minLevel);
     }
     if (kind === "score") qs.set("metric", "score");
+    // Pin the RUBRIC the visitor is copying under — the same discipline as min_level above, applied to
+    // the bar behind a level/score verdict rather than the bar behind a gate verdict. A level badge
+    // pasted under r7 keeps rendering the repo's CURRENT verdict after a rubric revision (freezing it
+    // would leave a permanently stale README badge, the opposite dishonesty), but the pin lets the
+    // endpoint DISCLOSE the change in the badge value (`· rubric r7→r8`) instead of silently restating
+    // the owner's claim under a bar they never saw. Pinned LAST so it reads as provenance, and pinned
+    // to the CURRENT rubric — which the endpoint keeps canonical (CDN-cacheable and countable), so this
+    // does not turn every real README badge into a private, uncounted origin hit.
+    qs.set(BADGE_RUBRIC_PARAM, SCORING_RUBRIC_VERSION);
     const q = qs.toString();
     return `${origin}/api/badge/${parsed.owner}/${parsed.repo}${q ? `?${q}` : ""}`;
   }, [parsed, style, kind, minLevel, origin]);
@@ -231,6 +241,16 @@ export function BadgeGenerator({ gate }: { gate?: { yaml: string; query: string 
           </p>
         )}
       </div>
+
+      <p className="text-sm text-slate-500">
+        This snippet is pinned to scoring rubric{" "}
+        <span className="font-mono text-slate-300">{SCORING_RUBRIC_VERSION}</span> — the bar this verdict
+        was measured against. The badge keeps showing your repo&apos;s current verdict; if the rubric is
+        revised later, the badge says so in its value (e.g.{" "}
+        <span className="font-mono text-slate-300">{`· rubric ${SCORING_RUBRIC_VERSION}→r99`}</span>)
+        rather than silently re-asserting your badge under a bar you never chose. Re-copy the snippet to
+        pin the new rubric.
+      </p>
 
       <p className="text-sm text-slate-500">
         Tip: the badge runs a fast deterministic scan on first request, then caches. For a full

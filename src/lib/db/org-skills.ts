@@ -4,12 +4,13 @@
 // JSON string[]; this module is the single place skill fields are (de)serialized + bounded. DISTINCT
 // from src/lib/db/skill-history.ts (the per-repo onboarding-SKILL.md generation log) — no coupling.
 
-import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
 import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
+import { digestVerdict, isLegacyDigest } from "@/lib/registry/catalog";
+import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
 export type SkillSort = "name" | "recent" | "downloads";
@@ -29,7 +30,11 @@ export interface SkillRow {
   frontmatter: SkillFrontmatter;
   /** Bumped on each content edit — the change-history anchor. */
   version: number;
-  /** sha256 hex of `content` — the sync-manifest change key (diff without shipping the body). */
+  /**
+   * The canonical content digest — the sync-manifest change key (diff without shipping the body).
+   * `sha256-n1:<hex>`; a bare-hex value is a row written before the digest was versioned and means
+   * "not comparable, recompute", never "diverged". See `hashContent` below.
+   */
   contentHash: string;
   /** Denormalized rolling download/use tally (the sort key). */
   downloadCount: number;
@@ -87,8 +92,32 @@ function cleanTags(tags: string[] | undefined): string {
 const cleanName = (s: string) => s.trim().slice(0, 200);
 const cleanDescription = (s: string | undefined) => (s ?? "").trim().slice(0, 1000);
 const cleanContent = (s: string) => s.slice(0, MAX_CONTENT);
-/** Manifest change key — hash the STORED (already-capped) content so it matches what a client downloads. */
-const hashContent = (s: string) => createHash("sha256").update(cleanContent(s)).digest("hex");
+/**
+ * Manifest change key. ONE function, shared with the registry catalog and the mirror rows:
+ * `contentDigest` (`@/lib/registry/parse`) — sha256 over the FULL submitted body, line endings folded
+ * to LF, tagged `sha256-n1:`. The scope and both trade-offs are pinned in that function's doc; a
+ * second copy of the arithmetic here is what created the defect below, so there is deliberately none.
+ *
+ * WHAT THIS REPLACES: `sha256(cleanContent(s))` — the STORED, `MAX_CONTENT`-capped body, hashed raw.
+ * One defect seen twice. (1) It was a third span: the catalog hashed whole files, the mirror hashed
+ * capped bodies, and this hashed capped stored content — yet this column is what
+ * `listOrgSkillManifest` publishes, so the manifest digest a CLI compares against a catalog digest was
+ * computed over different input and their (in)equality said nothing either way. (2) Raw bytes made a
+ * CRLF checkout report every artifact diverged forever.
+ *
+ * TRADE-OFF ACCEPTED HERE SPECIFICALLY: hashing UNCAPPED means two bodies differing only past
+ * `MAX_CONTENT` now push as `updated` although the stored bytes are identical — a wasted version bump
+ * on a >50KB skill. Hashing the capped span instead would report them `unchanged` and silently drop a
+ * real edit, which is the strictly worse failure.
+ */
+const hashContent = (s: string) => contentDigest(s);
+
+/**
+ * The pre-`n1` recipe for THIS column, reproduced exactly (raw bytes over the capped stored content)
+ * so a digest written before the change can be recognized rather than mistaken for an edit. See the
+ * transition branch in `pushOrgSkill`. Never used to write a new value.
+ */
+const legacyHashContent = (s: string) => legacyRawDigest(cleanContent(s));
 
 function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { adoptions: true } } } }>): SkillRow {
   const tags = parseTags(s.tags);
@@ -202,28 +231,58 @@ export async function createOrgSkill(
   });
 }
 
-/** Edit a skill. A CONTENT change (name/description/content/category/tags) bumps the version; an
- *  archive-only toggle does not (mirror updatePlaybook). */
+/**
+ * Edit a skill.
+ *
+ * THE DIGEST IS AUTHORITATIVE; `version` FOLLOWS IT. `version` and `contentHash` both ride in the sync
+ * manifest, and a client diffing that manifest picks one of them to answer "am I stale?" — so they must
+ * describe the same event or the answer depends on which field the client happened to read.
+ * `contentHash` is the one that can be checked: it is produced by the ONE shared `contentDigest`, so it
+ * is comparable against a registry catalog entry and against the client's own copy. `version` is a
+ * human-facing label with nothing behind it. `pushOrgSkill` already resolves the pair this way (equal
+ * digest ⇒ `unchanged`, no bump), so this path now matches it instead of contradicting it.
+ *
+ * WHAT THIS REPLACES: a `contentEdit` flag over name|description|content|category|tags that bumped
+ * `version` while `contentHash` was rewritten only when `content` was present. A tags-only edit
+ * therefore published version 4 beside the digest of version 3: a hash-diffing client saw nothing to
+ * pull, a version-diffing client re-downloaded a byte-identical body, and re-pushing that same body
+ * afterwards came back `unchanged` at a version the server had already moved. Two fields, two stories.
+ * The reverse — rewriting the digest on a tags edit — was never available: the digest's span is the
+ * artifact's full text, fixed by the function it shares with the catalog, and widening it here would
+ * make the manifest incomparable with the catalog again, the precise defect `hashContent` documents.
+ *
+ * RESIDUE ACCEPTED: a metadata-only edit (description/tags/category/name) now moves neither field, so
+ * a syncing client will not re-pull for it. That is the honest reading of a body-scoped digest — the
+ * body it holds is unchanged — and `updatedAt` still moves for the browse/sort surfaces. An
+ * archive-only toggle bumps nothing, as before (mirror updatePlaybook).
+ */
 export async function updateOrgSkill(
   id: string,
   patch: Partial<SkillInput> & { archived?: boolean },
 ): Promise<void> {
   if (!isDbConfigured()) return;
+  const prisma = getPrisma();
   const data: Prisma.OrgSkillUpdateInput = {};
   if (patch.name !== undefined) data.name = cleanName(patch.name);
   if (patch.description !== undefined) data.description = cleanDescription(patch.description);
-  if (patch.content !== undefined) {
-    data.content = cleanContent(patch.content);
-    data.contentHash = hashContent(patch.content); // keep the manifest key in lockstep with the body
-  }
   if (patch.category !== undefined) data.category = normalizeSkillCategory(patch.category);
   if (patch.tags !== undefined) data.tags = cleanTags(patch.tags);
   if (patch.archived !== undefined) data.archived = patch.archived;
-  const contentEdit = ["name", "description", "content", "category", "tags"].some(
-    (k) => patch[k as keyof typeof patch] !== undefined,
-  );
-  if (contentEdit) data.version = { increment: 1 };
-  await getPrisma().orgSkill.update({ where: { id }, data });
+  if (patch.content !== undefined) {
+    data.content = cleanContent(patch.content);
+    const stored = (await prisma.orgSkill.findUnique({ where: { id }, select: { contentHash: true } }))?.contentHash ?? "";
+    const digest = hashContent(patch.content);
+    if (digest !== stored) data.contentHash = digest; // the key always ends up current
+    // Read the difference with the shared vocabulary rather than a bare `!==`. `unknown` (no stored
+    // key at all) and `reformatted` (the stored key predates `sha256-n1:`) do not mean "edited" — a
+    // pre-tag row is re-keyed in place, and only a legacy recompute that ALSO disagrees is a real
+    // edit. Same transition rule as pushOrgSkill, so neither path invents a version nobody asked for.
+    const verdict = digestVerdict(stored, digest);
+    const bodyChanged =
+      verdict === "changed" || (verdict === "reformatted" && legacyHashContent(patch.content) !== stored);
+    if (bodyChanged) data.version = { increment: 1 };
+  }
+  await prisma.orgSkill.update({ where: { id }, data });
 }
 
 /** Soft-archive a skill (DELETE route) — never a hard delete, so adoption history survives. */
@@ -435,7 +494,20 @@ export async function pushOrgSkill(
   if (opts.baseVersion !== undefined && opts.baseVersion !== existing.version) {
     return { status: "conflict", id: existing.id, version: existing.version };
   }
-  if (hashContent(input.content) === existing.contentHash) {
+  const digest = hashContent(input.content);
+  if (digest === existing.contentHash) {
+    return { status: "unchanged", id: existing.id, version: existing.version };
+  }
+  // ── the digest-version transition ──
+  // Versioning the digest changed EVERY stored value at once. Without this branch the first push after
+  // the change would report `updated` for every skill in every library and bump every version — a
+  // fleet-wide "everything diverged" event for content nobody touched, which is the exact failure the
+  // normalization was introduced to stop. So: when the stored key predates the `sha256-n1:` tag,
+  // re-derive it with the OLD recipe. A match means the body is unchanged; the row is silently
+  // re-keyed to the new digest (no version bump, no `updated`) and every row migrates on its own next
+  // push. A mismatch falls through to the real update path below, as it should.
+  if (isLegacyDigest(existing.contentHash) && legacyHashContent(input.content) === existing.contentHash) {
+    await prisma.orgSkill.update({ where: { id: existing.id }, data: { contentHash: digest } });
     return { status: "unchanged", id: existing.id, version: existing.version };
   }
   const updated = await prisma.orgSkill.update({
@@ -443,7 +515,7 @@ export async function pushOrgSkill(
     data: {
       description: cleanDescription(input.description),
       content: cleanContent(input.content),
-      contentHash: hashContent(input.content),
+      contentHash: digest,
       category: normalizeSkillCategory(input.category),
       tags: cleanTags(input.tags),
       version: { increment: 1 },

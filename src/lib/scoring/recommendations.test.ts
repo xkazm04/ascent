@@ -36,7 +36,10 @@ describe("buildFallbackRoadmap — ranks/cites the blended score when supplied (
     const blended = [{ id: "D9" as const, score: 90 }];
     const blendedRoadmap = buildFallbackRoadmap(s, 50, "org", blended);
     expect(blendedRoadmap.find((r) => r.dimension === "D9")).toBeUndefined();
-    expect(blendedRoadmap.map((r) => r.dimension)).toEqual(["D1", "D2", "D3"]);
+    // D1 (0.15*50=7.50, low effort ×1.0 = 7.50), D3 (0.14*50=7.00, low ×1.0 = 7.00),
+    // D2 (0.15*50=7.50, MEDIUM ×0.9 = 6.75). D3 now precedes D2: two near-identical upsides, and the
+    // cheaper one is the honest "do this first". Before the effort term this read ["D1","D2","D3"].
+    expect(blendedRoadmap.map((r) => r.dimension)).toEqual(["D1", "D3", "D2"]);
   });
 
   it("falls back to signalScore for an id missing from the blended list", () => {
@@ -113,5 +116,88 @@ describe("buildDimensionFollowUps — the follow-up guarantee", () => {
     const out = buildDimensionFollowUps([], [{ id: "D4" as const, score: 10 }], 30);
     expect(out[0]!.explore.length).toBeGreaterThan(0);
     expect(out[0]!.levelUnlock).toBe("L2->L3");
+  });
+});
+
+// Item 25 (`effort-not-in-sort-key`): priority is weight x headroom x EFFORT. Effort used to be
+// carried to display only, so the roadmap could open with the most expensive item on the board.
+describe("buildFallbackRoadmap - effort is part of the ranking, gently", () => {
+  it("puts the cheaper of two comparable gaps first", () => {
+    // Equal scores everywhere: D2 (weight .15, effort medium) vs D3 (weight .14, effort low). On
+    // weight x headroom alone D2 leads (7.50 > 7.00); with the effort discount D2 is 6.75 and the
+    // low-effort D3 leads. That is the whole point: near-identical upside, materially different cost.
+    const roadmap = buildFallbackRoadmap(signals({ D1: 100, D9: 100 }), 50, "org");
+    const dims = roadmap.map((r) => r.dimension);
+    expect(dims.indexOf("D3")).toBeLessThan(dims.indexOf("D2"));
+  });
+
+  it("still leads with a dominant high-effort gap - the discount is 10% per rank, not a division", () => {
+    // D2 (tests, effort medium) at 0 vs D3 (CI, effort low) at 50: 0.15*100*0.9 = 13.5 beats
+    // 0.14*50*1.0 = 7.0 by far more than the discount can bridge. A genuinely dominant gap must not
+    // be pushed off the list by cheapness, or the roadmap becomes a chore list.
+    const roadmap = buildFallbackRoadmap(signals({ D2: 0 }), 50, "org");
+    expect(roadmap[0]!.dimension).toBe("D2");
+  });
+});
+
+// Item 40 (`framing-rules-unenforced`): the invitational-framing rules are lintable, deterministic,
+// and reported rather than applied. The hand-reviewed catalog is the positive fixture set.
+import { lintRoadmapFraming } from "./recommendations";
+
+const framed = (title: string, rationale = "Some grounded reason.") => ({
+  title,
+  dimension: "D1" as const,
+  rationale,
+});
+
+describe("lintRoadmapFraming - the framing rules, enforced", () => {
+  it("passes every entry the catalog produces (the hand-reviewed positive fixtures)", () => {
+    // Every catalog title + rationale, via the two builders that emit them.
+    const fallback = buildFallbackRoadmap(signals({}), 50, "org");
+    const followUps = buildDimensionFollowUps(
+      [],
+      (["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"] as const).map((id) => ({ id, score: 10 })),
+      30,
+    );
+    expect(lintRoadmapFraming([...fallback, ...followUps])).toEqual([]);
+  });
+
+  it("flags a title that opens with a bare imperative", () => {
+    const v = lintRoadmapFraming([framed("Add a CI gate to every pull request")]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.rule).toBe("imperative-title");
+  });
+
+  it("does not flag a mid-sentence verb - only the opening word is an order", () => {
+    expect(lintRoadmapFraming([framed("Few tests vouch for behavior: little catches a bad change")])).toEqual([]);
+  });
+
+  it("flags supervisory phrasing in the title or the rationale", () => {
+    const title = lintRoadmapFraming([framed("You must fix the missing CI gate")]);
+    expect(title.map((x) => x.rule)).toContain("supervisory-tone");
+    const rationale = lintRoadmapFraming([framed("Little gates what reaches main", "Make sure a check runs.")]);
+    expect(rationale.map((x) => x.rule)).toContain("supervisory-tone");
+  });
+
+  it("flags a title that contradicts its own rationale", () => {
+    const v = lintRoadmapFraming([
+      framed("No tests vouch for behavior", "Coverage here is already in place across the suite."),
+    ]);
+    expect(v.map((x) => x.rule)).toContain("title-contradicts-rationale");
+  });
+
+  it("records the violation and leaves the entry untouched - never rewritten, never dropped", () => {
+    const offending = {
+      title: "Add a CI gate",
+      dimension: "D3" as const,
+      impact: "high" as const,
+      effort: "low" as const,
+      rationale: "r",
+      explore: ["q?"],
+    };
+    const out = buildDimensionFollowUps([offending], [{ id: "D3" as const, score: 20 }], 30);
+    // The model's entry ships byte-identical (D3 is covered, so nothing is appended either).
+    expect(out[0]).toBe(offending);
+    expect(lintRoadmapFraming(out)).toHaveLength(1);
   });
 });

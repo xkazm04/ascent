@@ -22,3 +22,19 @@ export async function resolveOrgWindow(
   const remembered = sp.range ? null : parsePeriodCookie((await cookies()).get(PERIOD_COOKIE)?.value);
   return resolveWindow(remembered ?? sp);
 }
+
+/**
+ * The window as the HALF-OPEN bounds the db layer queries with — `{ start, endExclusive }`, one
+ * closure convention, no inclusive alias.
+ *
+ * Every org tab hand-wrote `{ start: period.start, end: period.end }` when handing the period to an
+ * aggregate, which is how the inclusive dialect spread from one deprecated field to a dozen query
+ * builders: a row in the final millisecond of the window is matched by `lt: endExclusive` and missed
+ * by `lte: end`, so two tabs on the same period could disagree about a boundary row. This is the one
+ * shape to pass instead (`upperBound()` in `src/lib/db/org-shared.ts` prefers `endExclusive`), and
+ * the named migration target `ResolvedWindow.end`'s deprecation points at. A caller that genuinely
+ * cannot express `lt` calls `inclusiveEnd()` at its own edge rather than carrying both bounds.
+ */
+export function orgWindowBounds(w: ResolvedWindow): { start: Date | null; endExclusive: Date | null } {
+  return { start: w.start, endExclusive: w.endExclusive };
+}

@@ -435,3 +435,47 @@ describe("buildDeliveryRateFit — gated by the SHARED forecast insufficiency fl
     expect(fit.perWeek).toBe(0);
   });
 });
+
+// ── The per-rate basis ────────────────────────────────────────────────────────
+//
+// A point publishes `prs` beside a row of percentages, which reads as their denominator. It is not:
+// a nullable rate contributes only where a scan carried it, so a review-coverage figure on a
+// 300-PR day can rest on 40 of them. The denominator has to travel WITH each rate.
+
+describe("buildDeliveryTrend — each rate carries the sample that produced it", () => {
+  it("reports the weight and scan count behind a rate, not the day total", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 40, reviewedRate: 90 }) }),
+        scan({ scannedAt: new Date("2026-05-01T02:00:00Z"), prStats: prStats({ analyzed: 260, reviewedRate: null }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    const p = points[0]!;
+    expect(p.prs).toBe(300); // the day's analyzed PRs…
+    expect(p.reviewedRate).toBe(90);
+    expect(p.basis.reviewedRate).toEqual({ prs: 40, scans: 1 }); // …but 40 of them produced this rate
+    expect(p.basis.mergeRate).toEqual({ prs: 300, scans: 2 }); // a rate both scans carried
+  });
+
+  it("gives a rate no scan carried an empty basis, matching its null", () => {
+    const points = buildDeliveryTrend(
+      [scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: legacyPrStats({ analyzed: 20 }) })],
+      TZ,
+    );
+    expect(points[0]!.smallPrRate).toBeNull();
+    expect(points[0]!.basis.smallPrRate).toEqual({ prs: 0, scans: 0 });
+  });
+
+  it("denominates protectedRate in readable scans, and says so rather than implying a PR count", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 40 }), governance: gov() }),
+        scan({ scannedAt: new Date("2026-05-01T02:00:00Z"), governance: gov({ readable: false }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    // The unreadable scan is in neither half of the governance rate.
+    expect(points[0]!.basis.protectedRate).toEqual({ prs: null, scans: 1 });
+  });
+});

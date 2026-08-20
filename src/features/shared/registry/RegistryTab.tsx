@@ -9,17 +9,23 @@
 //
 // It takes NO `sp`: the tab reads nothing from the URL. Selecting a shaped example state used to be
 // `?demo=`, which made a preview shareable and bookmarkable; it is React state inside
-// `RegistryPreviewShell` now, offered only while the real registry is unmapped. The real panel below
-// stays server-rendered — it is passed as `children`, so the preview branch is the only client cost.
+// `RegistryPreviewShell` now. The real panel below stays server-rendered — it is passed as
+// `children`, so the preview branch is the only client cost.
+//
+// The switcher is a DEVELOPMENT affordance and is gated as one (`registryPreviewEnabled()`, opt-in via
+// `ASCENT_REGISTRY_PREVIEW` and hard-off in production): on a real deployment the first thing an
+// operator meets on an empty tab should be their own registry's invitation, not someone else's shaped
+// example. The `unmapped` condition stays on top of it — a mapped registry is never painted over.
 
 import { RegistryPanel } from "./RegistryPanel";
 import { RegistryPreviewShell } from "./RegistryPreviewShell";
+import { registryPreviewEnabled } from "@/lib/env";
 import { getRegistryView } from "@/lib/org/registry-view";
 
 export async function RegistryTab({ slug }: { slug: string }) {
   const view = await getRegistryView(slug);
   return (
-    <RegistryPreviewShell slug={slug} enabled={view.status === "unmapped"}>
+    <RegistryPreviewShell slug={slug} enabled={registryPreviewEnabled() && view.status === "unmapped"}>
       <RegistryPanel view={view} slug={slug} />
     </RegistryPreviewShell>
   );

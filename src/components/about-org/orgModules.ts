@@ -38,6 +38,7 @@ const BLURBS: Record<OrgTabId, string> = {
   registry:
     "Put your skills, practices and org memory in a git repo you own; ascent onboards it, indexes it, and shows which repos are in sync.",
   skills: "A versioned SKILL.md library your org authors, adopts against repos, and syncs with CLI and CI.",
+  knowledge: "The Reference Knowledge Bundles your registry publishes, counted by domain across the three layers that ship — golden paths, techniques and applications — so you can see where the org's written knowledge is concentrated.",
   memory: "Durable org knowledge (decisions, incidents and conventions) recalled by value, corrected by supersede. Your agents can read it too, over scoped API tokens.",
   developer: "Your own page, not the org's view of you: your commits and AI-attributed share, the open gaps of the repos you touch, and the care loop you keep — private by default, and only ever aggregated above a floor.",
   members: "Who is in the org and what they can do.",

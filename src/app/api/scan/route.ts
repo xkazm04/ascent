@@ -118,7 +118,10 @@ async function runScan(
     const rl = rateLimitRequest(opts.req, PEEK_RATE_LIMIT);
     if (!rl.ok) {
       void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // observability on the throttled peek path
-      return tooManyRequests(rl.retryAfterSec);
+      // Whole result: the peek limiter is per-IP and in-memory, so the refusal can honestly state
+      // the caller's own budget and window — the client meter polling this path can then back off
+      // to a rate that fits instead of guessing from a bare Retry-After.
+      return tooManyRequests(rl);
     }
   }
 
@@ -247,7 +250,7 @@ async function runScan(
   // route's JSON 429. Stays BEFORE the quota consume below so throttled traffic can't burn a free slot.
   if (opts.req) {
     const rl = await scanRateLimitGate(opts.req);
-    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+    if (!rl.ok) return tooManyRequests(rl.rl); // the whole result: these two are the only routes on the shared scan budget, so a global refusal must say so
   }
 
   // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,

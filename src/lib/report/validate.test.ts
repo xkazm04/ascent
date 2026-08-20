@@ -205,6 +205,7 @@ function validHistoryPoint(): Record<string, unknown> {
     confidence: 0.8,
     engineProvider: "anthropic",
     engineModel: "claude-3-7",
+    rubricVersion: "r6",
     scannedAt: "2026-06-18T00:00:00.000Z",
     dimensions: [{ dimId: "D1", score: 70 }],
   };
@@ -253,6 +254,7 @@ describe("parseRepositoryHistory — junk input is coerced, never throws", () =>
       confidence: 0.8,
       engineProvider: "anthropic",
       engineModel: "claude-3-7",
+      rubricVersion: "r6",
       scannedAt: "2026-06-18T00:00:00.000Z",
       dimensions: [{ dimId: "D1", score: 70 }],
     });
@@ -322,6 +324,8 @@ describe("parseRepositoryHistory — junk input is coerced, never throws", () =>
       confidence: 0,
       engineProvider: "",
       engineModel: "",
+      // null, not "": two points both carrying "" would compare EQUAL as instruments.
+      rubricVersion: null,
       scannedAt: "2026-06-18T00:00:00.000Z",
       dimensions: [],
     });

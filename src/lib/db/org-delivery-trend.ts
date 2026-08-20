@@ -13,7 +13,9 @@
 // `org-rollup.ts` — and, exactly like it, the honest fix is disclosure, not a fabricated "as of that
 // day the whole fleet looked like…" reconstruction (which would need a latest-scan-per-repo-as-of-day
 // query per day and would silently carry a stale repo's rates forward for months). Each point
-// therefore carries its own `scans` / `repos` / `prs` sample size so the UI can show what is behind it.
+// therefore carries its own `scans` / `repos` / `prs` sample size so the UI can show what is behind it —
+// and, since a nullable rate contributes only where present, its own PER-RATE `basis` (see
+// `DeliveryRateSample`): the day's `prs` is the day's total, never the denominator of a given rate.
 //
 // WEIGHTING mirrors `getOrgPrSignals` exactly: rates are weighted by each scan's `analyzed` PR count,
 // so a 500-PR flagship outweighs a 1-PR toy repo. A nullable rate ("no sample" — `reviewedRate`,
@@ -61,6 +63,24 @@ export type DeliveryRateKey =
 /** Every metric the trend emits — the rates plus the duration metrics (hours, their own axis). */
 export type DeliveryMetricKey = DeliveryRateKey | "hoursToMerge" | "hoursToFirstReview";
 
+/**
+ * The sample actually behind ONE rate on ONE point.
+ *
+ * The point already carries `scans` / `repos` / `prs`, and that reads like the denominator of every
+ * rate beside it — but it is not. A nullable rate ("no sample") contributes only where present, so
+ * on a day with five scans of 300 PRs where exactly one scan carried `reviewedRate`, the point says
+ * `prs: 300` and publishes a review-coverage figure resting on 40 of them. The denominator has to
+ * travel WITH the rate, not next to it: `basis[metric]` is the weight and the scan count that
+ * actually produced that metric's number.
+ */
+export interface DeliveryRateSample {
+  /** Analyzed PRs behind this rate (its weight), NOT the day's total. Null for a rate denominated in
+   *  scans rather than PRs (`protectedRate`). */
+  prs: number | null;
+  /** Scans that carried this rate at all. 0 means the rate is null on this point. */
+  scans: number;
+}
+
 /** One calendar day of delivery signal, aggregated over the scans that ran that day. */
 export interface DeliveryTrendPoint {
   /** `yyyy-mm-dd` in the canonical org zone. */
@@ -106,6 +126,9 @@ export interface DeliveryTrendPoint {
   /** True when EVERY scan behind this point came from the deterministic mock engine. Such a point is
    *  not comparable to a live-scored one, and the chart draws it hollow rather than asserting it is. */
   mock: boolean;
+  /** Per-rate sample — the denominator of each rate above, which is NOT the point's `prs`. See
+   *  `DeliveryRateSample`. Present for every rate key, including the ones that are null today. */
+  basis: Record<DeliveryRateKey, DeliveryRateSample>;
 }
 
 /**
@@ -186,6 +209,10 @@ interface DayAcc {
   analyzed: number;
   sum: Record<PrRateField, number>;
   weight: Record<PrRateField, number>;
+  /** Scans that carried each rate — the sample-size half of the rate's basis (`weight` is the other,
+   *  PR-count half). A rate present on one scan of five is a different claim from one present on all
+   *  five, and the point must be able to say which. */
+  carried: Record<PrRateField, number>;
   ttm: number[];
   ttfr: number[];
   govReadable: number;
@@ -201,6 +228,7 @@ function emptyDay(): DayAcc {
     analyzed: 0,
     sum: zeros(),
     weight: zeros(),
+    carried: zeros(),
     ttm: [],
     ttfr: [],
     govReadable: 0,
@@ -259,6 +287,7 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         if (v === null) continue; // "no sample" — not a measured 0
         acc.sum[k] += v * analyzed;
         acc.weight[k] += analyzed;
+        acc.carried[k] += 1;
       }
       const ttm = num(pr.medianHoursToMerge);
       if (ttm !== null) acc.ttm.push(ttm);
@@ -295,6 +324,14 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         aiPreReviewedRate: rate("aiPreReviewedRate"),
         reworkRate: rate("reworkRate"),
         protectedRate: a.govReadable > 0 ? Math.round((a.govProtected / a.govReadable) * 100) : null,
+        basis: {
+          ...(Object.fromEntries(
+            PR_RATES.map((k) => [k, { prs: a.weight[k], scans: a.carried[k] } satisfies DeliveryRateSample]),
+          ) as Record<PrRateField, DeliveryRateSample>),
+          // Governance is denominated in READABLE scans, not PRs — "couldn't read governance" was
+          // never in the denominator, and `prs: null` says so instead of implying a PR count.
+          protectedRate: { prs: null, scans: a.govReadable },
+        },
         // Hollow only when the day has NO live scan at all — one live scan makes the day's aggregate
         // a real (if mixed) measurement, and the note under the chart explains the mix.
         mock: a.live === 0,

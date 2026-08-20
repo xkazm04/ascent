@@ -25,13 +25,21 @@ import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
 import { recordBadgeImpression, recordQuotaEvent } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
-import { badgeReportHref, validRepoNamePart } from "@/lib/badge";
+import {
+  BADGE_RUBRIC_PARAM,
+  badgeReportHref,
+  rubricPinState,
+  rubricQualifier,
+  validRepoNamePart,
+} from "@/lib/badge";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import {
   BADGE_NEUTRAL,
   CACHE_CUSTOM,
   CACHE_NEUTRAL,
   CACHE_TRANSIENT,
   CACHE_RESOLVED,
+  CACHE_UNPINNED,
   badgeResponse,
   badgeSvg,
   parseStyle,
@@ -142,10 +150,28 @@ export async function GET(
   const defaultLabel = gateMode ? "Ascent gate" : "Ascent";
   const label = customLabel ?? defaultLabel;
 
+  // The rubric this snippet was generated under (`?rubric=r7`). The generator pins it on every
+  // snippet it emits so a later rubric revision can be DISCLOSED instead of silently restating the
+  // owner's badge under a new bar — see the contract note in @/lib/badge.
+  const rubricPin = searchParams.get(BADGE_RUBRIC_PARAM);
+  const pinState = rubricPinState(rubricPin, SCORING_RUBRIC_VERSION);
+  // Appended to the VALUE (not just the label), like `· demo` — a cropped badge keeps only the value.
+  const rubricSuffix = rubricQualifier(rubricPin, SCORING_RUBRIC_VERSION);
+
   // Any query param customizes the body (style/label/color/logo/gate/policy), so a shared CDN
   // keying on path alone could serve one consumer's variant to another. Only the bare canonical
-  // badge (no query) is shared-cacheable; customized variants are marked private.
-  const customized = [...searchParams.keys()].length > 0;
+  // badge is shared-cacheable; customized variants are marked private.
+  //
+  // ONE exception, and only one: `?rubric=` pinned to the CURRENT rubric. That request renders
+  // byte-identical bytes to the bare canonical badge (rubricSuffix is empty), so there is no variant
+  // for a path-keyed CDN to mix up, and it is the URL every freshly-copied snippet now carries — if it
+  // counted as customized, pinning would have quietly turned every real README badge into a `private`,
+  // origin-hitting, untallied request (killing both the CDN collapse and the /usage badge-reach panel).
+  // A SUPERSEDED or MALFORMED pin gets no such exception: its body differs (or its value is caller
+  // junk), so it stays private and untallied — which also keeps the set of canonical, publicly-cached
+  // badge URLs at exactly two per repo, closing the `?rubric=<rand>` version of the `?x=<rand>` flood.
+  const customized =
+    [...searchParams.keys()].some((k) => k !== BADGE_RUBRIC_PARAM) || (rubricPin != null && pinState !== "current");
 
   // 1. Normalize BEFORE validating or keying. GitHub names are case-insensitive and a route
   //    segment can arrive percent-encoded, so `Facebook/React`, `facebook/react`, and
@@ -183,7 +209,7 @@ export async function GET(
     // head lookup) is keyed by the un-pinned owner/repo::mode form and is best-effort/possibly stale —
     // don't let a CDN pin it for the full 10-min resolved TTL for every README viewer. Downgrade to the
     // short neutral TTL so the next hit re-resolves the head once the blip clears.
-    const resolvedCache = sha ? CACHE_RESOLVED : CACHE_NEUTRAL;
+    const resolvedCache = sha ? CACHE_RESOLVED : CACHE_UNPINNED;
     // One key scheme shared with the scan/cache layer (makeCacheKey), so the badge reflects a
     // real LLM scan when one exists instead of resolving to a duplicate mock entry.
     const mockKey = makeCacheKey(ownerN, repoN, false, sha);
@@ -260,7 +286,9 @@ export async function GET(
         badgeSvg({
           label: verdictLabel,
           // ✓/✗ so the pass/fail verdict survives without color (red/green collapses for CVD viewers).
-          value: gate.pass ? "✓ pass" : "✗ fail",
+          // The rubric qualifier rides in the VALUE for the same reason `· demo` does: a gate verdict is
+          // a level comparison, so a rubric revision can flip pass↔fail under a bar the author pinned.
+          value: `${gate.pass ? "✓ pass" : "✗ fail"}${rubricSuffix}`,
           // Semantic verdict color ONLY — `?color=` must not let "✗ fail" wear green (see resolveColor).
           color: gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1,
           style,
@@ -280,7 +308,10 @@ export async function GET(
     // can crop/restyle a badge so only the value half survives (or a screenshot shows just the value
     // chip), and a bare "63/100" / "L3 Established" is exactly as credible-looking as a real LLM-scored
     // verdict — so the value string itself must carry the qualifier too, not just the label next to it.
-    const valueSuffix = isMock ? " · demo" : "";
+    // ...and the rubric pin rides in the same place, for the same reason: if the snippet was pasted
+    // under an older rubric, the value says so (`· rubric r7→r8`) rather than silently re-asserting
+    // the owner's claim under today's bar. Empty whenever the pin is current — the common case.
+    const valueSuffix = `${isMock ? " · demo" : ""}${rubricSuffix}`;
     // Score variant (USE-2): the numeric headline (with the level glyph + colour) instead of the level name.
     if (scoreMode) {
       return respond(

@@ -26,11 +26,17 @@ const HISTORY_LIMIT = 100;
  */
 export const HISTORY_CONCURRENCY = 6;
 
+// The instrument fields ride along deliberately: `skillOutcomesFor` refuses to publish a delta
+// unless the before and after sides were scored under the same rubric revision AND the same engine
+// family. Dropping them here would silence that check by making every production pair read
+// "instrument-unknown" — the gate would be present in the code and absent in the product.
 const toOutcomeScan = (p: HistoryPoint): OutcomeScan => ({
   id: p.id,
   scannedAt: p.scannedAt,
   overallScore: p.overallScore,
   dimensions: p.dimensions,
+  rubricVersion: p.rubricVersion,
+  engineProvider: p.engineProvider,
 });
 
 /**

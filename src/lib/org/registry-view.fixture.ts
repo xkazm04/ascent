@@ -108,6 +108,7 @@ function indexedBase(slug: string): RegistryView {
       adoption: { inSync: 19, stale: 6, diverged: 2, localOnly: 7 },
     },
     activity: ACTIVITY,
+    bundles: [{ name: "software-engineering", subjects: 105, techniques: 624, applications: 236, laws: 9, categories: ["ui-surfaces"], useWhenCoverage: "0/624" }],
     telemetry: { invokes30d: 1_284, reposReporting: 19, sink: "api" },
     howTo: registryHowTo(fullName),
     capabilities: CAPABLE,
@@ -133,6 +134,7 @@ function unmappedBase(slug: string, contentsWrite: boolean): RegistryView {
     },
     fleet: { reposTotal: 34, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
     activity: [],
+    bundles: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
     howTo: registryHowTo(fullName),
     capabilities: contentsWrite ? CAPABLE : NOT_PERMITTED,
@@ -190,6 +192,7 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
         memory: { state: "not-started", moved: 0, total: 38 },
       },
       fleet: { reposTotal: 34, reposPointing: 6, reposSynced30d: 4, adoption: { inSync: 4, stale: 2, diverged: 0, localOnly: 11 } },
+      bundles: [{ name: "software-engineering", subjects: 105, techniques: 624, applications: 236, laws: 9, categories: ["ui-surfaces"], useWhenCoverage: "0/624" }],
       telemetry: { invokes30d: 62, reposReporting: 3, sink: "api" },
       activity: ACTIVITY.slice(0, 5),
     };
@@ -224,6 +227,7 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
       memory: { state: "n/a", moved: 0, total: 38 },
     },
     fleet: { reposTotal: 34, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
+    bundles: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
     activity: ACTIVITY.filter((a) => a.kind === "catalog" || a.kind === "index").slice(0, 3),
   };

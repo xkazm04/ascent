@@ -7,6 +7,7 @@ import { OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { DecisionControl } from "@/components/org/DecisionControl";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { ContributorInsights } from "@/lib/db";
+import { topContributorLabel } from "@/components/org/shared/champions";
 import { AiBar } from "./AiBar";
 
 export function ContributorsConcentrationTable({
@@ -54,7 +55,11 @@ export function ContributorsConcentrationTable({
               )}
             </td>
             <td className="px-3 py-2 text-right font-mono tabular-nums">{r.contributorCount}</td>
-            <td className="px-3 py-2 font-mono text-sm text-slate-400">{r.topLogin}</td>
+            {/* topContributorLabel, not r.topLogin: below the naming floor the producer replaces the
+                login with a neutral placeholder, and rendering it raw makes "name withheld to
+                protect a small population" and "we have no contributor data" the same cell. The
+                typed state carries the distinction; this is the reader that shows it. */}
+            <td className="px-3 py-2 font-mono text-sm text-slate-400">{topContributorLabel(r)}</td>
             <td className="px-3 py-2">
               <AiBar pct={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : undefined} />
             </td>

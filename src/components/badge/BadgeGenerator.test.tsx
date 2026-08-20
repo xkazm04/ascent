@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { BadgeGenerator } from "./BadgeGenerator";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
 function setClipboard(value: { writeText?: (t: string) => Promise<void> } | undefined) {
   Object.defineProperty(navigator, "clipboard", { value, configurable: true });
@@ -145,5 +146,29 @@ describe("BadgeGenerator copy button (no success theater)", () => {
 
     expect(await screen.findByRole("button", { name: "Copy failed" })).toBeInTheDocument();
     expect(screen.getByText(/copy it manually/i)).toBeInTheDocument();
+  });
+});
+
+// embed-snippet-unpinned-rubric: the snippet must pin the RUBRIC it was copied under, exactly as it
+// already pins the gate's min_level. Unpinned, a later rubric revision makes the badge in someone's
+// README restate a verdict under a bar its author never saw — a claim they never made, and are never
+// told about. The pin is what lets the endpoint disclose the change instead of silently restating it.
+describe("BadgeGenerator rubric pin (the snippet's meaning contract)", () => {
+  it("pins the current rubric on every snippet kind, and says what the pin does", () => {
+    render(<BadgeGenerator />);
+    typeRepo("facebook/react");
+
+    const snippetOf = () => document.querySelector("pre")?.textContent ?? "";
+    expect(snippetOf()).toContain(`rubric=${SCORING_RUBRIC_VERSION}`); // level (the default)
+
+    fireEvent.click(screen.getByRole("button", { name: "score" }));
+    expect(snippetOf()).toContain(`rubric=${SCORING_RUBRIC_VERSION}`);
+
+    fireEvent.click(screen.getByRole("button", { name: "gate" }));
+    expect(snippetOf()).toContain(`rubric=${SCORING_RUBRIC_VERSION}`);
+    expect(snippetOf()).toContain("min_level=L3"); // the pre-existing pin is untouched
+
+    // The visitor is told what they are pasting, in the same place they copy it.
+    expect(screen.getByText(/pinned to scoring rubric/i)).toBeInTheDocument();
   });
 });

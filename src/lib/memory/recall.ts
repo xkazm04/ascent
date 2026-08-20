@@ -5,13 +5,30 @@
 // the same as the most VALUABLE one; ordering by confidence hands it a year-old certainty. So recall
 // scores every eligible memory on three axes and packs the winners into a character budget:
 //
-//   score = confidence × 0.5^(ageDays / halfLife(kind)) × (1 + 0.25·ln(1 + accessCount))
-//           └ trust ──┘  └──── exponential decay ─────┘  └──── proven usefulness ─────┘
+//   score = confidence × 0.5^(ageDays / halfLife(kind)) × min(MAX_DELIVERY_BONUS, 1 + 0.25·ln(1 + accessCount))
+//           └ trust ──┘  └──── exponential decay ─────┘  └──── times DELIVERED, capped ──────────────┘
 //
 // The decay is per-KIND because kinds age at wildly different rates: what happened last sprint
 // (episodic) is stale in a month, a runbook step (procedural) is good for a year. Half-lives, not a
-// hard cutoff, so nothing ever falls off a cliff — an old memory that is still recalled weekly keeps
-// earning its place via the accessCount term, which is sub-linear (ln) so a hot memory can't dominate.
+// hard cutoff, so nothing ever falls off a cliff — an old memory that keeps being delivered gets a
+// bounded stay of execution via the accessCount term, which is sub-linear (ln) AND capped so a hot
+// memory can neither dominate the ranking nor keep itself alive forever.
+//
+// WHAT THE THIRD TERM ACTUALLY MEASURES — read this before tuning it. `accessCount` counts DELIVERIES:
+// times this memory was packed into a recall result and handed to an agent. It does NOT measure whether
+// the agent read it, used it, or was helped by it. A memory injected into fifty prompts and ignored in
+// all fifty scores exactly like one that answered the question fifty times.
+//
+// That gap is not a bug we are hiding — it is the honest limit of the evidence available at the call
+// site, and it is stated here so nobody reads this term as "usefulness". The delivering adapter learns
+// nothing about the agent's subsequent reasoning; there is no citation, no acceptance, no outcome
+// flowing back. The two ways to close it would be (a) a distinct, evidence-bearing counter fed only by
+// an act that PROVES use — the "Copy" click behind POST /api/org/memory/:id/recall is one such act, a
+// tool-call citation would be another — which needs a schema column this module cannot add, or (b) an
+// LLM judging usefulness after the fact, which would be a fabricated signal dressed as a measurement.
+// Neither is done here. What IS done: the term is named for what it measures, its influence is bounded
+// (MAX_DELIVERY_BONUS), and the "delivered" contract it depends on is expressed as an API the adapter
+// must call rather than a sentence the adapter must remember (see `deliveredMemoryIds`).
 //
 // This module is FRAMEWORK-AGNOSTIC AND PURE, exactly like consolidation.ts: no Prisma, no Next, and —
 // load-bearing for the tests — NO `Date.now()`. `now` is always injected, so a scoring assertion is a
@@ -74,8 +91,36 @@ export const KIND_HALF_LIFE_DAYS: Record<string, number> = {
 /** Fallback half-life for a legacy/unknown kind — the semantic default the schema itself uses. */
 export const DEFAULT_HALF_LIFE_DAYS = 180;
 
-/** Weight of the (sub-linear) usage bonus. 0.25·ln(1+n): 10 recalls ≈ +60%, 100 ≈ +115%. */
+/** Weight of the (sub-linear) DELIVERY bonus. 0.25·ln(1+n): 10 deliveries ≈ +60%, 100 ≈ +115%. */
 export const ACCESS_BONUS_WEIGHT = 0.25;
+
+/**
+ * Ceiling on that bonus: being delivered may at most DOUBLE a memory's value, never more. Reached at
+ * 1 + 0.25·ln(1+n) = 2, i.e. n = e⁴ − 1 ≈ 54 deliveries.
+ *
+ * It replaces no ceiling at all, and the uncapped version was the real defect. `accessCount` counts
+ * deliveries, not uses (see the header), and delivery is something a memory earns simply by ranking
+ * well — so the term fed its own input: rank high → get delivered → rank higher. Two consequences,
+ * both observed in the value model rather than hypothetical:
+ *
+ *  1. RANKING. A memory that has been shipped into a thousand prompts and helped with none of them
+ *     carried a 2.7× multiplier over a newly written, precisely relevant one. The ranking drifted from
+ *     "what is worth this agent's context" toward "what this store has been in the habit of sending".
+ *  2. FORGETTING. decay.ts scores with this same function and archives below DECAY_SCORE_FLOOR, so an
+ *     unbounded bonus made repeated retrieval an unbounded stay of execution: a stale, low-confidence
+ *     memory could hold itself above the floor by being retrieved and ignored, and the retrievals were
+ *     free. With the cap, the arithmetic terminates — a confidence-0.3 memory needs its decay factor
+ *     to fall below 0.15/(0.3·2) = 0.25, i.e. two half-lives, and then it is archived no matter how
+ *     often it has been delivered. Delivery buys a bounded reprieve; it is no longer a veto.
+ *
+ * 2.0 rather than a tighter cap because the bonus must still be able to outrank an ordinary confidence
+ * gap (0.5 vs 0.9) between two memories of the same age — that discrimination is the reason the term
+ * exists. The trade-off accepted: past ~54 deliveries the term stops discriminating at all, so two
+ * heavily delivered memories are separated by confidence and age alone. That is the intended
+ * behaviour, not a rounding artefact — beyond that point the delivery count is measuring the store's
+ * own habits, and we would rather rank on the two axes that mean something.
+ */
+export const MAX_DELIVERY_BONUS = 2;
 
 /** Default context budget in characters — roughly 1.5k tokens, a polite slice of any agent's window. */
 export const DEFAULT_CHAR_BUDGET = 6000;
@@ -108,9 +153,14 @@ export function ageInDays(updatedAt: string, nowMs: number): number {
 export function memoryValue(m: RecallCandidate, nowMs: number): number {
   const age = ageInDays(m.updatedAt, nowMs);
   const decay = Math.pow(0.5, age / halfLifeDays(m.kind));
-  const usage = 1 + ACCESS_BONUS_WEIGHT * Math.log(1 + Math.max(0, m.accessCount));
+  // DELIVERY, not usefulness — and capped, so a memory can never keep itself alive (or at the top)
+  // purely by having been retrieved often. See MAX_DELIVERY_BONUS.
+  const delivery = Math.min(
+    MAX_DELIVERY_BONUS,
+    1 + ACCESS_BONUS_WEIGHT * Math.log(1 + Math.max(0, m.accessCount)),
+  );
   const confidence = Math.min(1, Math.max(0, m.confidence));
-  return Number((confidence * decay * usage).toFixed(4));
+  return Number((confidence * decay * delivery).toFixed(4));
 }
 
 /**
@@ -189,9 +239,8 @@ export function normalizeCharBudget(v: unknown): number {
  * The recall entry point every adapter (REST route today, MCP `memory_recall` tomorrow) calls: filter →
  * score → pack. Pure and total — an empty store yields an empty, well-formed result, never a throw.
  *
- * NOTE the caller's remaining duty: only the memories in `selected` may have their accessCount bumped.
- * "Recalled" means "actually reached the agent", otherwise the usage term in the value model degenerates
- * into a count of how often the store was queried, and every memory drifts upward together.
+ * The caller's remaining duty — bumping accessCount for what was delivered — has an API rather than a
+ * sentence: `deliveredMemoryIds` below. Do not derive that set by hand.
  */
 export function recallMemories(items: RecallCandidate[], opts: RecallOptions): RecallResult {
   const charBudget = normalizeCharBudget(opts.charBudget);
@@ -208,4 +257,22 @@ export function recallMemories(items: RecallCandidate[], opts: RecallOptions): R
   const scored = scoreMemories(eligible, opts.now);
   const { selected, omitted, usedChars } = packByBudget(scored, charBudget);
   return { selected, omitted, usedChars, charBudget, consideredCount: eligible.length };
+}
+
+/**
+ * The ids a caller may count as DELIVERED — the only supported input to an accessCount bump.
+ *
+ * This is a one-liner with a doc comment on purpose. The rule it encodes ("only what was packed
+ * reaches the agent, so only what was packed may be counted") used to live as a NOTE on
+ * `recallMemories`, and a note is not a contract: every adapter — the REST route today, an MCP
+ * `memory_recall` verb tomorrow — re-derived the set by hand from a `RecallResult` that also carries
+ * `omitted`, a field one plausible slip away (`[...selected, ...omitted]`) from turning accessCount
+ * into "how many times was this store queried". That number rises for every memory at once and
+ * therefore ranks nothing, while also feeding decay.ts's forget floor for rows nobody ever saw.
+ *
+ * It does NOT — and cannot, from here — assert that a delivered memory was USED. Delivery is the
+ * strongest evidence this layer has; see the header for why we don't manufacture more.
+ */
+export function deliveredMemoryIds(result: RecallResult): string[] {
+  return result.selected.map((s) => s.memory.id);
 }

@@ -30,6 +30,7 @@ import { PassportsTab } from "@/features/standing/passports/PassportsTab";
 import { SkillsTab } from "@/features/shared/skills/SkillsTab";
 import { MemoryTab } from "@/features/shared/memory/MemoryTab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
+import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
 import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
 import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
 import { TeamsTab } from "@/features/bought/teams/TeamsTab";
@@ -133,6 +134,13 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         {tab === "registry" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
             <RegistryTab slug={slug} />
+          </Suspense>
+        ) : null}
+
+        {/* The registry's knowledge lane, overview only — takes no `sp`, offers no drill-down. */}
+        {tab === "knowledge" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
+            <KnowledgeTab slug={slug} />
           </Suspense>
         ) : null}
 

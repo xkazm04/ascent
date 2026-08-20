@@ -195,6 +195,20 @@ export interface GoalLaggard {
   gap: number;
 }
 
+/**
+ * What a goal's `pct` measures. Two goals on the same board can differ: a goal created since
+ * `Goal.baselineValue` exists reports real progress; one created before it can only report standing.
+ * The distinction is data, not a footnote — a consumer that renders `pct` without it is republishing
+ * an attainment ratio as a progress bar, which is the defect this pair of fields exists to end.
+ */
+export type GoalPctBasis = "progress" | "attainment";
+
+/** Meter captions, single-sourced so every surface says the same thing about the same number. */
+export const GOAL_PCT_LABEL: Record<GoalPctBasis, string> = {
+  progress: "Progress since this goal was set",
+  attainment: "Current standing vs target (set before baselines were recorded — not progress)",
+};
+
 export interface GoalProgress {
   id: string;
   label: string;
@@ -203,14 +217,34 @@ export interface GoalProgress {
   target: number;
   current: number;
   /**
-   * 0..100 RATIO of current standing to target (`current / target`), NOT distance travelled from a
-   * creation-time baseline — goals don't record the metric's value at creation, so "progress since we
-   * set this goal" is not computable (a fleet at 45 targeting 50 shows a 90%-full meter on day one).
-   * The trade-off is documented here on purpose: the pace/ETA fields ARE trend-derived, so trust them
-   * (not the meter) for "how much work remains". createGoal rejects already-met targets so a goal can
-   * at least never be BORN achieved (ambiguity-ui 07-16 goals #5).
+   * The meter, 0..100 — and `pctBasis` says WHICH QUESTION it answers, because two goals on one board
+   * can legitimately answer different ones.
+   *
+   * `"progress"` (a goal created with a baseline): distance travelled from the baseline toward the
+   * target, `(current − baseline) / (target − baseline)`. This is what a progress bar claims to mean.
+   * A fresh goal reads 0 and fills as the fleet moves.
+   *
+   * `"attainment"` (a goal with NO stored baseline — created before Goal.baselineValue existed, or on
+   * a scan-less fleet): current standing against the target, `current / target`. This is what the
+   * meter ALWAYS meant before, and it is why the field is now labelled: a fleet at 45 targeting 50
+   * shows a 90%-full bar on day one, which reads as "nearly done" and is systematically inflating
+   * every goal report that reaches leadership. Old goals keep this number because a baseline invented
+   * after the fact (the earliest scan on record, say) is a fabrication that can also make an in-flight
+   * goal look regressed — a clearly-labelled true number beats a plausible false one. Render the label.
+   *
+   * Either way the pace/ETA fields are trend-derived and independent of the meter, so they remain the
+   * better answer to "how much work remains". createGoal still rejects an already-met target so a goal
+   * can never be BORN achieved (ambiguity-ui 07-16 goals #5).
    */
   pct: number;
+  /** Which question `pct` answers — see above. Never omit this when rendering the meter. */
+  pctBasis: GoalPctBasis;
+  /** Ready-to-render caption for the meter, matching `pctBasis`. */
+  pctLabel: string;
+  /** The metric's fleet value when the goal was created, or null for a goal with no baseline. */
+  baselineValue: number | null;
+  /** When that baseline was captured (ISO), or null. */
+  baselineAt: string | null;
   achieved: boolean;
   status: string;
   /** When the goal first reached its target (ISO date), or null while it's still in progress. */
@@ -244,6 +278,37 @@ export interface GoalProgress {
   series: SeriesPoint[];
 }
 
+/**
+ * The goal meter, and the honest statement of which question it answers.
+ *
+ * PROGRESS needs three numbers — where we started, where we are, where we're going — and the first
+ * one is only knowable at creation time. With a stored baseline the meter is the fraction of the
+ * intended journey actually travelled; without one the best available answer is standing against the
+ * target, which is a DIFFERENT question and must be labelled as such rather than dressed up as
+ * progress (see GoalProgress.pct).
+ *
+ * Edges, all deliberate:
+ * - `target <= baseline` — reachable by retargeting an existing goal downward past its baseline.
+ *   The journey has no length, so progress is undefined; fall back to attainment rather than divide
+ *   by zero or claim 100%.
+ * - `current < baseline` (the fleet regressed below where it started) — clamped to 0. A negative
+ *   meter has no rendering, and "no progress yet" is true; the pace/trajectory fields carry the
+ *   backslide, and `achieved`/`status` still revert on a regression below target.
+ * - `target === 0` — the pre-existing attainment edge, kept: everything is at or above 0, so 100.
+ */
+function goalMeter(
+  current: number,
+  target: number,
+  baseline: number | null,
+): { pct: number; basis: GoalPctBasis } {
+  if (baseline !== null && target > baseline) {
+    const travelled = (current - baseline) / (target - baseline);
+    return { pct: Math.max(0, Math.min(100, Math.round(travelled * 100))), basis: "progress" };
+  }
+  const pct = target > 0 ? Math.max(0, Math.min(100, Math.round((current / target) * 100))) : 100;
+  return { pct, basis: "attainment" };
+}
+
 export async function createGoal(
   orgSlug: string,
   input: { label: string; metric: GoalMetric; target: number; targetDate?: string | null },
@@ -251,11 +316,12 @@ export async function createGoal(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await ensureOrg(orgSlug);
-  // `pct` measures absolute standing (current/target) — there is no stored baseline, so a target at or
-  // below today's fleet value would be stamped "achieved" on the very next listGoals pass, polluting
-  // the Met 🎉 history with a milestone that represents zero movement. Reject it at the source with the
-  // number the user needs to pick better (ambiguity-ui 07-16 goals #5). Skipped for a scan-less fleet,
-  // where every metric reads 0 and the guard would be meaningless.
+  // A target at or below today's fleet value would be stamped "achieved" on the very next listGoals
+  // pass, polluting the Met 🎉 history with a milestone that represents zero movement. Reject it at the
+  // source with the number the user needs to pick better (ambiguity-ui 07-16 goals #5). Skipped for a
+  // scan-less fleet, where every metric reads 0 and the guard would be meaningless.
+  // The same read is also THE BASELINE: this is the one moment the metric's starting value is
+  // knowable, so it is captured here (below) rather than reconstructed later from scan history.
   const snap = await fleetSnapshot(org.id);
   const current = currentFor(input.metric, snap);
   if (snap.repos.length > 0 && Math.round(input.target) <= current) {
@@ -264,6 +330,11 @@ export async function createGoal(
       { code: "GOAL_ALREADY_MET" },
     );
   }
+  // Baseline ONLY when the fleet has actually been measured. On a scan-less fleet `currentFor` returns
+  // 0 as a placeholder, not as an observation, and storing that 0 would mint a fabricated measurement
+  // that is indistinguishable from a real one for the rest of the goal's life. Null instead: the meter
+  // renders as labelled attainment until — and only if — someone sets a goal against a measured fleet.
+  const measured = snap.repos.length > 0;
   const goal = await prisma.goal.create({
     data: {
       orgId: org.id,
@@ -271,6 +342,7 @@ export async function createGoal(
       metric: input.metric,
       target: Math.max(0, Math.min(100, Math.round(input.target))),
       targetDate: parseTargetDate(input.targetDate),
+      ...(measured ? { baselineValue: current, baselineAt: new Date() } : {}),
     },
     select: { id: true },
   });
@@ -333,6 +405,11 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
         : g.achievedAt
           ? g.achievedAt.toISOString()
           : null;
+    // `baselineValue` is nullable on Goal (see prisma/schema.prisma): null = created before baselines
+    // existed, or on a fleet with no scans. `?? null` normalizes the undefined a partial select /
+    // pre-migration client can hand back, so the basis is decided on one value with one meaning.
+    const baseline = g.baselineValue ?? null;
+    const meter = goalMeter(current, g.target, baseline);
     return {
       id: g.id,
       label: g.label,
@@ -340,7 +417,11 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       metricLabel: metricLabel(g.metric),
       target: g.target,
       current,
-      pct: g.target > 0 ? Math.max(0, Math.min(100, Math.round((current / g.target) * 100))) : 100,
+      pct: meter.pct,
+      pctBasis: meter.basis,
+      pctLabel: GOAL_PCT_LABEL[meter.basis],
+      baselineValue: baseline,
+      baselineAt: g.baselineAt ? g.baselineAt.toISOString() : null,
       achieved: reached,
       status,
       achievedAt,

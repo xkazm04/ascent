@@ -72,6 +72,7 @@ import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { recordBadgeImpression } from "@/lib/db";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
 const mockScan = vi.mocked(scanRepository);
 const mockCacheGet = vi.mocked(cacheGet);
@@ -691,5 +692,101 @@ describe("GET /api/badge — gate mode honors the ORG policy (agrees with /api/g
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("pass");
     expect(mockPolicyFromParams).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- RUBRIC PINNING (embed-snippet meaning contract) --------------------------
+// The generator now pins `?rubric=<SCORING_RUBRIC_VERSION>` on every snippet it emits. The endpoint
+// must (a) render the CURRENT verdict regardless — a frozen README badge is its own dishonesty — while
+// DISCLOSING in the value that the bar moved, and (b) keep a current-rubric pin canonical: byte-identical
+// bytes, the long shared CDN TTL, and countable as a real README impression. If (b) regressed, pinning
+// would have silently turned every real README badge into a `private`, origin-hitting, untallied request.
+describe("GET /api/badge — rubric pin: disclose a moved bar, never silently restate it", () => {
+  const CURRENT = SCORING_RUBRIC_VERSION;
+  const OLDER = "r1"; // any valid id that is not the live one
+
+  function valueTextOf(body: string): string {
+    const texts = [...body.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+    return texts[1] ?? "";
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveHead.mockResolvedValue("sha123" as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+    mockCacheGet.mockReturnValue(reportWith(false)); // public, L4 Autonomous, 87
+  });
+
+  it("qualifies the level VALUE (not just the label) when the snippet's rubric was superseded", async () => {
+    const body = await (await get(`?rubric=${OLDER}`)).text();
+    const value = valueTextOf(body);
+    expect(value).toContain("Autonomous"); // still the CURRENT verdict — not frozen at the old rubric
+    expect(value).toContain(`rubric ${OLDER}→${CURRENT}`); // ...and it says the bar moved
+  });
+
+  it("qualifies the SCORE value too (the number is a rubric output as much as the level is)", async () => {
+    const value = valueTextOf(await (await get(`?metric=score&rubric=${OLDER}`)).text());
+    expect(value).toContain("87/100");
+    expect(value).toContain(`rubric ${OLDER}→${CURRENT}`);
+  });
+
+  it("qualifies the GATE value — a rubric revision can flip pass/fail under the pinned bar", async () => {
+    const value = valueTextOf(await (await get(`?gate=1&min_level=L3&rubric=${OLDER}`)).text());
+    expect(value).toContain("✓ pass");
+    expect(value).toContain(`rubric ${OLDER}→${CURRENT}`);
+  });
+
+  it("says NOTHING when the pin is current — the badge means exactly what its author pasted", async () => {
+    const body = await (await get(`?rubric=${CURRENT}`)).text();
+    expect(body).not.toContain("rubric");
+    expect(valueTextOf(body)).toContain("Autonomous");
+  });
+
+  it("renders a current-rubric pin BYTE-IDENTICALLY to the bare canonical badge", async () => {
+    const pinned = await (await get(`?rubric=${CURRENT}`)).text();
+    const bare = await (await get()).text();
+    expect(pinned).toBe(bare); // the premise the canonical-cache exception below rests on
+  });
+
+  it("never echoes a malformed pin into the SVG (unauthenticated caller-supplied text)", async () => {
+    const body = await (await get(`?rubric=${encodeURIComponent("<script>x")}`)).text();
+    expect(body).not.toContain("script");
+    expect(body).not.toContain("rubric");
+    expect(valueTextOf(body)).toContain("Autonomous"); // still a working badge, never broken
+  });
+
+  it("keeps a CURRENT-rubric pin shared-cacheable and countable (it is the URL real READMEs carry)", async () => {
+    const res = await get(`?rubric=${CURRENT}`);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=600, s-maxage=600");
+    expect(mockRecordImpression).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a SUPERSEDED pin private and untallied (its body differs from the canonical badge)", async () => {
+    const res = await get(`?rubric=${OLDER}`);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=600");
+    expect(mockRecordImpression).not.toHaveBeenCalled();
+  });
+
+  it("marks a MALFORMED pin private and untallied (closes the ?rubric=<rand> flood lever)", async () => {
+    // Without this, `?rubric=<rand>` would be a canonical, publicly-cached, impression-minting URL —
+    // exactly the `?x=<rand>` + forged-Referer lever the impression tally is restricted to prevent.
+    const res = await get("?rubric=zzz");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=600");
+    expect(mockRecordImpression).not.toHaveBeenCalled();
+  });
+
+  it("still marks any OTHER param customized even alongside a current pin", async () => {
+    const res = await get(`?rubric=${CURRENT}&label=hi`);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=600");
+    expect(mockRecordImpression).not.toHaveBeenCalled();
+  });
+
+  it("leaves the neutral PRIVATE-repo badge unqualified (there is no verdict to date-stamp)", async () => {
+    mockCacheGet.mockReturnValue(reportWith(true));
+    const body = await (await get(`?rubric=${OLDER}`)).text();
+    expect(body).toContain("private");
+    expect(body).not.toContain("rubric");
+    expectNoVerdictLeak(body);
   });
 });

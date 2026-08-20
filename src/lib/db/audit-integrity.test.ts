@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { signAudit, withAuditSignature, verifyAudit, sha256Hex } from "./audit-integrity";
+import {
+  signAudit,
+  withAuditSignature,
+  verifyAudit,
+  sha256Hex,
+  redactAuditIdentity,
+  AUDIT_REDACTED_META_KEY,
+} from "./audit-integrity";
 
 const ROW = {
   action: "org.plan",
@@ -98,5 +105,49 @@ describe("audit-integrity — export checksum (sha256Hex)", () => {
     expect(sha256Hex(body)).toMatch(/^[0-9a-f]{64}$/);
     expect(sha256Hex(body)).toBe(sha256Hex(body));
     expect(sha256Hex(body)).not.toBe(sha256Hex(body + "2026-06-21,org.member.removed\n"));
+  });
+});
+
+describe("audit-integrity — identifier-only redaction (redactAuditIdentity)", () => {
+  beforeEach(() => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+  });
+  afterEach(() => {
+    delete process.env.AUDIT_SIGNING_SECRET;
+  });
+
+  it("keeps what happened / when / which tenant, and drops the actor and the whole meta payload", () => {
+    const redacted = redactAuditIdentity(ROW, "2026-08-20T12:00:00.000Z");
+    expect(redacted.actorId).toBeNull();
+    // `plan` and `org` were the identifying payload — they are gone, not merely masked.
+    expect(redacted.meta.plan).toBeUndefined();
+    expect(redacted.meta.org).toBeUndefined();
+    expect(redacted.meta[AUDIT_REDACTED_META_KEY]).toBe("2026-08-20T12:00:00.000Z");
+  });
+
+  it("RE-SIGNS the remainder, so the surviving row still verifies as ok", () => {
+    const redacted = redactAuditIdentity(ROW, "2026-08-20T12:00:00.000Z");
+    // The old signature would (correctly) read `tampered` forever — the content legitimately changed.
+    expect(verifyAudit({ ...ROW, actorId: null, meta: redacted.meta })).toBe("ok");
+  });
+
+  it("the redaction marker is inside the signed content — it cannot be edited away undetected", () => {
+    const redacted = redactAuditIdentity(ROW, "2026-08-20T12:00:00.000Z");
+    const stripped = { ...redacted.meta };
+    delete stripped[AUDIT_REDACTED_META_KEY];
+    expect(verifyAudit({ ...ROW, actorId: null, meta: stripped })).toBe("tampered");
+  });
+
+  it("is inert-but-safe with no signing secret: still redacts, just unsigned like every other row", () => {
+    delete process.env.AUDIT_SIGNING_SECRET;
+    const authSecret = process.env.AUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      const redacted = redactAuditIdentity(ROW, "2026-08-20T12:00:00.000Z");
+      expect(redacted.actorId).toBeNull();
+      expect(Object.keys(redacted.meta)).toEqual([AUDIT_REDACTED_META_KEY]);
+    } finally {
+      if (authSecret !== undefined) process.env.AUTH_SECRET = authSecret;
+    }
   });
 });

@@ -75,7 +75,7 @@ close a gap, delete the sentence that described it.**
 | Doc | Verdict | Key evidence |
 | --- | --- | --- |
 | `onboarding/wizard.md` | STALE | Flow still works as described; key-files table omits `scanGate.ts` + `OnboardingGateStep.tsx`, `personalWatch.ts` + `OnboardingGatePersonal.tsx`, `OnboardingInvitePanel.tsx`, `retryRepo.ts`, `scanMode.ts`. |
-| `onboarding/ai-manifest-spec.md` | CURRENT | `schemaVersion 0.1.0` matches `MANIFEST_SCHEMA_VERSION`; every manifest field present 1:1; doctor checks 1–7 and the 180s timeout match `doctor.ts`. |
+| `onboarding/ai-manifest-spec.md` | CURRENT | `schemaVersion 0.2.0` matches `MANIFEST_SCHEMA_VERSION`; every manifest field present 1:1; doctor checks 1–7 and the 180s timeout match `doctor.ts`. |
 
 ### Org Scanning & Fleet Rollups
 

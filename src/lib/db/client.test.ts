@@ -289,6 +289,33 @@ describe("isDbUnavailableError", () => {
     expect(isDbUnavailableError({ code: "P1002" })).toBe(false);
     expect(isDbUnavailableError(new Error("The database server was reached but timed out"))).toBe(false);
   });
+
+  it("matches the driver-adapter shape: bare socket errno, empty message", () => {
+    // @prisma/adapter-pg (and PGlite) have no query engine to translate a failed connect into
+    // P1001 + "Can't reach database server". The raw Node errno arrives as `.code` on a
+    // PrismaClientKnownRequestError whose message is only the invocation header — so neither the
+    // SQLSTATE nor the message matcher can see it, and every DB-reading page 500s instead of
+    // degrading. This is the real error object observed with the local Postgres stopped.
+    const err = Object.assign(
+      new Error("\nInvalid `prisma.user.findUnique()` invocation:\n\n\n"),
+      {
+        name: "PrismaClientKnownRequestError",
+        code: "ECONNREFUSED",
+        meta: { modelName: "User" },
+      },
+    );
+    expect(isDbUnavailableError(err)).toBe(true);
+    for (const code of ["ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "ECONNRESET", "EPIPE"]) {
+      expect(isDbUnavailableError({ code, message: "" })).toBe(true);
+    }
+  });
+
+  it("does NOT classify the socket TIMEOUT errnos as unavailable", () => {
+    // Same reasoning as P1008/P1002 above: a slow-but-live server must surface its error rather
+    // than degrade to a plausible-but-wrong empty result.
+    expect(isDbUnavailableError({ code: "ETIMEDOUT", message: "" })).toBe(false);
+    expect(isDbUnavailableError({ code: "ECONNABORTED", message: "" })).toBe(false);
+  });
 });
 
 describe("dbReadSafe", () => {

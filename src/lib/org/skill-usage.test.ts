@@ -15,8 +15,12 @@ vi.mock("@/lib/db", () => ({ getOrgSkillUsageRows: mockRows }));
 import { getOrgSkillUsage } from "./skill-usage-load";
 import {
   DORMANCY_WINDOW_DAYS,
+  DORMANCY_WINDOW_MAX_DAYS,
+  dormancyWindowFor,
+  isPruneCandidate,
   skillUsage,
   skillUsageMap,
+  usageStateLabel,
   usageSummary,
   usageVerdictLabel,
 } from "./skill-usage";
@@ -154,8 +158,25 @@ describe("skillUsageMap / usageSummary", () => {
     expect(map.a.eventCount).toBe(0);
   });
 
-  it("summarizes the fleet", () => {
-    expect(usageSummary(skillUsageMap(rows, NOW))).toEqual({ total: 3, new: 1, active: 1, dormant: 1 });
+  it("summarizes the fleet, splitting the dormant bucket by what is actually known", () => {
+    expect(usageSummary(skillUsageMap(rows, NOW))).toEqual({
+      total: 3,
+      new: 1,
+      active: 1,
+      dormant: 1,
+      abandoned: 1, // …and the one dormant skill is a REAL prune candidate: it was used, then dropped
+      unused: 0,
+      unmeasured: 0,
+    });
+  });
+
+  it("an org whose event pathway has NEVER emitted marks its silent skills `unmeasured`", () => {
+    const silent = { ...rows, events: [] };
+    const map = skillUsageMap(silent, NOW);
+    expect(map.b.state).toBe("unmeasured");
+    expect(map.b.verdict).toBe("dormant"); // the badge is unchanged…
+    expect(isPruneCandidate(map.b)).toBe(false); // …but nothing may be pruned on absent data
+    expect(usageSummary(map)).toMatchObject({ dormant: 2, unmeasured: 2, abandoned: 0, unused: 0 });
   });
 
   it("getOrgSkillUsage returns {} when persistence is off", async () => {
@@ -171,5 +192,80 @@ describe("skillUsageMap / usageSummary", () => {
       "Active",
       "Dormant",
     ]);
+  });
+
+  it("labels each state distinctly — three remedies, three sentences", () => {
+    const states = ["new", "active", "abandoned", "unused", "unmeasured"] as const;
+    expect(new Set(states.map(usageStateLabel)).size).toBe(5);
+  });
+});
+
+// ── D24: `dormant` is a badge, not a decision ────────────────────────────────────────────────────
+describe("the three states inside dormant", () => {
+  const old = (over: Partial<Parameters<typeof skillUsage>[0]> = {}) =>
+    skillUsage({ skillId: "s", createdAt: daysAgo(300), events: [], ...over }, NOW);
+
+  it("`abandoned` — really used once, then silence: the honest prune candidate", () => {
+    const u = old({ events: [ev("download", 200)] });
+    expect(u.state).toBe("abandoned");
+    expect(u.verdict).toBe("dormant");
+    expect(isPruneCandidate(u)).toBe(true);
+  });
+
+  it("`unused` — never touched but the pathway works: a DISCOVERY problem, not a prune candidate", () => {
+    const u = old({ orgHasTelemetry: true });
+    expect(u.state).toBe("unused");
+    expect(u.verdict).toBe("dormant");
+    expect(isPruneCandidate(u)).toBe(false);
+  });
+
+  it("REGRESSION: an uninstrumented pathway can no longer nominate a skill for deletion", () => {
+    // The whole point: before the split, this skill sat in the same `dormant` bucket as the abandoned
+    // one above, so a library with NO telemetry at all proposed deleting everything in it.
+    const u = old({ orgHasTelemetry: false });
+    expect(u.state).toBe("unmeasured");
+    expect(isPruneCandidate(u)).toBe(false);
+  });
+
+  it("a sync-only skill is still abandoned-by-silence, never `unused`", () => {
+    // `sync` is a pull, not a use — but it does prove the pathway emits, so this is not `unmeasured`.
+    const u = old({ events: [ev("sync", 1, 40)], orgHasTelemetry: false });
+    expect(u.state).toBe("unused");
+  });
+});
+
+// ── D44: the window is derived from the artifact's own cadence ───────────────────────────────────
+describe("dormancyWindowFor", () => {
+  it("falls back to the constant when there is no cadence to derive one from", () => {
+    expect(dormancyWindowFor({ ageDays: 300, useCount: 0 })).toBe(DORMANCY_WINDOW_DAYS);
+    expect(dormancyWindowFor({ ageDays: 300, useCount: 1 })).toBe(DORMANCY_WINDOW_DAYS); // one use is not a cadence
+  });
+
+  it("derives a longer window from the observed rhythm, and never a shorter one", () => {
+    expect(dormancyWindowFor({ ageDays: 200, useCount: 5 })).toBe(80); // a 40-day rhythm ⇒ 2 cycles
+    expect(dormancyWindowFor({ ageDays: 30, useCount: 10 })).toBe(DORMANCY_WINDOW_DAYS); // floor holds
+  });
+
+  it("a declared cadence wins, and the derivation is clamped at the ceiling", () => {
+    expect(dormancyWindowFor({ cadenceDays: 90, ageDays: 30, useCount: 10 })).toBe(DORMANCY_WINDOW_MAX_DAYS);
+    expect(dormancyWindowFor({ cadenceDays: 45, ageDays: 300, useCount: 0 })).toBe(90);
+  });
+
+  it("REGRESSION: a quarterly skill used exactly as intended is not branded dormant", () => {
+    // A release checklist pulled once a quarter: 4 uses over a year, last used 70 days ago. Under the
+    // flat 30-day window this read `dormant` for two months of every three and became a prune candidate.
+    const u = skillUsage({ skillId: "s", createdAt: daysAgo(365), events: [ev("download", 70, 4)] }, NOW);
+    // 4 uses over a year ⇒ a ~91-day rhythm, 2 cycles = 182, clamped to the 120-day ceiling.
+    expect(u.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
+    expect(u.verdict).toBe("active");
+  });
+
+  it("the SAME window governs the age guard, so nothing can be new and dormant at once", () => {
+    // A declared-quarterly skill 100 days old with no uses: the age guard must use the derived 180-day
+    // window too, or it would be `dormant` (>30 days silent) and `new` (<180 days old) simultaneously.
+    const u = skillUsage({ skillId: "s", createdAt: daysAgo(100), events: [], cadenceDays: 90 }, NOW);
+    expect(u.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
+    expect(u.verdict).toBe("new");
+    expect(u.state).toBe("new");
   });
 });

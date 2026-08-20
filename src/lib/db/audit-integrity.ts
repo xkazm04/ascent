@@ -87,6 +87,50 @@ export function verifyAudit(f: AuditFields): AuditVerdict {
 }
 
 /**
+ * Meta key marking a row that was reduced to IDENTIFIER-ONLY form by an erasure. Its value is the ISO
+ * instant of the redaction. It lives INSIDE the signed payload, so a redacted row is still per-row
+ * tamper-evident and an examiner can tell "redacted on 2026-08-20" apart from "this row never had meta".
+ */
+export const AUDIT_REDACTED_META_KEY = "_redacted";
+
+/** The identity-bearing columns of an audit row after redaction, ready to write back. */
+export interface RedactedAuditRow {
+  /** Always null — the actor is the person the erasure request is about. */
+  actorId: null;
+  /** The identifier-only meta, re-signed (JSON-stringify this into AuditLog.meta). */
+  meta: Record<string, unknown>;
+}
+
+/**
+ * Reduce one audit row to IDENTIFIER-ONLY form: keep WHAT happened (`action`), WHEN (`at`) and to which
+ * TENANT (`orgId`); drop the actor and the entire meta payload, which is where personal identifiers
+ * (logins, emails, repo paths, free text) actually live.
+ *
+ * This is the third option between the two bad ones an org-wide erasure otherwise has to choose from:
+ * keeping a trail that still names the subject, or deleting the trail and losing the historical account
+ * along with it (and, for an audit product, the compliance evidence the export depends on). The
+ * surviving row says an action of this kind happened at this time in this tenant, and its subject
+ * reference no longer resolves to a person.
+ *
+ * The row is RE-SIGNED rather than left carrying its old `_sig`: the content legitimately changed, so
+ * the old signature would (correctly) read as `tampered` forever. The `_redacted` marker is part of the
+ * newly signed content, so the redaction itself cannot be edited away undetected. The trade-off,
+ * accepted deliberately: re-signing means the signature no longer attests to the ORIGINAL meta — only
+ * to the identifier-only remainder. That is inherent to erasure; the alternative (an unverifiable row)
+ * is worse.
+ */
+export function redactAuditIdentity(
+  f: Pick<AuditFields, "action" | "orgId" | "createdAt">,
+  redactedAt: string,
+): RedactedAuditRow {
+  const meta: Record<string, unknown> = { [AUDIT_REDACTED_META_KEY]: redactedAt };
+  return {
+    actorId: null,
+    meta: withAuditSignature({ action: f.action, orgId: f.orgId, actorId: null, createdAt: f.createdAt, meta }),
+  };
+}
+
+/**
  * SHA-256 (hex) of an export's content — sent in the `x-ascent-content-sha256` response header so a
  * downloaded compliance file can be proven unaltered (recompute over the bytes, compare). A header
  * keeps the CSV itself pure data; per-row HMAC `_sig`s give the rows their own at-rest tamper-evidence.

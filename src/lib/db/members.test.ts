@@ -3,14 +3,25 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
+const { mockIsDbConfigured, mockGetPrisma, mockDbReadSafe } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetPrisma: vi.fn(),
+  // Stand-in for the real best-effort read wrapper, whose own behavior client.test.ts owns: run the
+  // read, and degrade to the fallback when the database is configured but unreachable.
+  mockDbReadSafe: vi.fn(async (fn: () => Promise<unknown>, fallback: unknown) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === "ECONNREFUSED") return fallback;
+      throw err;
+    }
+  }),
 }));
 
 vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
   isDbConfigured: mockIsDbConfigured,
+  dbReadSafe: mockDbReadSafe,
 }));
 
 import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin } from "./members";
@@ -200,6 +211,25 @@ describe("listOrgsForLogin", () => {
     );
     const orgs = await listOrgsForLogin("bob");
     expect(orgs).toEqual([{ slug: "acme", name: "Acme", role: "member" }]);
+  });
+
+  it("degrades to [] when the DB is configured but UNREACHABLE (it renders in the site header)", async () => {
+    // Brand.tsx renders this in the header of EVERY page via the root layout. Read unwrapped, a
+    // local Postgres that simply is not running turned the landing page — and every keyless MVP
+    // route that needs no database at all — into a 500. The read must go through dbReadSafe so a
+    // dead DB is indistinguishable from an unconfigured one: no org, so the neutral demo link.
+    mockGetPrisma.mockImplementation(() => {
+      throw Object.assign(new Error(""), { code: "ECONNREFUSED" });
+    });
+    await expect(listOrgsForLogin("alice")).resolves.toEqual([]);
+    expect(mockDbReadSafe).toHaveBeenCalled();
+  });
+
+  it("still propagates a LIVE-database query error rather than hiding it as 'no orgs'", async () => {
+    mockGetPrisma.mockImplementation(() => {
+      throw Object.assign(new Error("column does not exist"), { code: "P2022" });
+    });
+    await expect(listOrgsForLogin("alice")).rejects.toThrow(/column does not exist/);
   });
 });
 

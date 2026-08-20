@@ -793,6 +793,19 @@ model Goal {
   achievedAt DateTime? // when the goal first reached its target (set once by listGoals); null = not met
   createdAt  DateTime  @default(now())
 
+  // The metric's fleet value AT CREATION — the only thing that makes the goal meter a PROGRESS bar
+  // instead of an attainment ratio. Without it `pct` can only be current/target, so a goal set at 70
+  // while the fleet sits at 63 renders 90%-full on day one and barely moves as the work happens.
+  // The value is not recoverable after the fact (the fleet's history is per-repo scans, and picking
+  // an "earliest available scan" would invent a number and could make an in-flight goal read as
+  // regressed), which is why it is stored rather than derived.
+  // NULLABLE ON PURPOSE, and never backfilled: null means "created before baselines existed" (or on a
+  // scan-less fleet, where every metric reads 0 and a stored 0 would be a fabricated measurement).
+  // listGoals renders those goals as attainment, LABELLED as attainment — an honest old number beats
+  // a plausible new one. See GoalProgress.pct in src/lib/db/plan.ts.
+  baselineValue Int? // 0..100 metric value when the goal was created; null = no baseline on record
+  baselineAt    DateTime? // when that baseline was captured (== createdAt for goals that have one)
+
   org Organization @relation(fields: [orgId], references: [id])
 
   @@index([orgId])
@@ -1021,7 +1034,15 @@ model OrgSkill {
   category        String // one of src/lib/org/skill-categories.ts (validated on write)
   tags            String   @default("[]") // JSON string[] — secondary, optional refinement
   version         Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
-  contentHash     String   @default("") // sha256 hex of `content` — the sync-manifest change key (diff without shipping the body)
+  // The sync-manifest change key (diff without shipping the body). `sha256-n1:<hex>` — ONE shared
+  // function (contentDigest, src/lib/registry/parse.ts) over the artifact's FULL text: LF-normalized,
+  // frontmatter included, uncapped. `n1` names the normalization revision, so a recipe change is
+  // visible in the value instead of masquerading as an edit. WAS "sha256 hex of `content`": a bare
+  // 64-char hex over the stored, capped body — a different span from the one the catalog hashed, which
+  // made a manifest-vs-catalog comparison meaningless. A bare-hex value here is pre-`n1` and means
+  // "not comparable, recompute", never "diverged". No column change: this is an unbounded String and
+  // the value merely grew 64 -> 74 chars.
+  contentHash     String   @default("")
   archived        Boolean  @default(false) // soft archive, not hard delete
   downloadCount   Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
   // Registry mirror (UC2). `origin` decides writability: a "hosted" row keeps today's in-app forms;
@@ -1030,7 +1051,11 @@ model OrgSkill {
   origin          String   @default("hosted") // hosted | registry
   registryId      String?
   registryPath    String? // repo-relative path, e.g. "skills/pr-review-rigor/SKILL.md"
-  registryHash    String? // sha256 hex of the file as indexed — the change key
+  // The change key for the mirrored file, same recipe as `contentHash` above: `sha256-n1:<hex>` from
+  // contentDigest over the file's FULL text (LF-normalized, frontmatter INCLUDED) — deliberately a
+  // wider span than `content`, which stores the frontmatter-stripped body. WAS "sha256 hex of the file
+  // as indexed", which no longer describes either the tag or the normalization.
+  registryHash    String?
   registryVersion String? // `version` as declared in the document's frontmatter
   createdBy       String? // GitHub login of the author
   createdAt       DateTime @default(now())
@@ -1497,6 +1522,16 @@ model OrgRegistry {
   practiceCount  Int       @default(0)
   memoryCount    Int       @default(0)
   lessonCount    Int       @default(0)
+  // The `usage/` lane, aggregated at index time. Ascent READS this lane; the installations that run
+  // skills are what count invocations, locally, and contribute an aggregate. `usageContributors = 0`
+  // means nobody is reporting — which is not the same as a fleet that runs nothing.
+  usageInvokes30d   Int    @default(0)
+  usageContributors Int    @default(0)
+  // The knowledge/ lane as its generated per-bundle indexes state it. JSON rather than columns
+  // because the row count is the BUNDLE count (one, today; a handful ever) and every field is
+  // owned by the bundle's own generator — normalizing it into tables would make ascent look like
+  // an authority for numbers it only reads.
+  bundlesJson       String @default("[]")
   warningsJson   String    @default("[]") // JSON string[] — files the last index skipped, with why
   createdBy      String? // GitHub login that mapped it
   createdAt      DateTime  @default(now())
@@ -1520,7 +1555,11 @@ model OrgPracticeShape {
   title        String   @default("")
   appliesWhen  String   @default("") // frontmatter `applies-when`
   content      String // the PRACTICE.md body (frontmatter stripped)
-  contentHash  String   @default("") // sha256 hex of the raw file
+  // `sha256-n1:<hex>` from contentDigest over the file's FULL text (LF-normalized, frontmatter
+  // INCLUDED) — the same one shared function every other change key in this schema uses, and a wider
+  // span than `content` above (which is frontmatter-stripped). WAS "sha256 hex of the raw file":
+  // untagged raw bytes, so a CRLF checkout reported every artifact as diverged forever.
+  contentHash  String   @default("")
   archived     Boolean  @default(false) // soft archive — a vanished registry path is archived, never deleted
   origin       String   @default("hosted") // hosted | registry
   registryId   String?

@@ -83,7 +83,11 @@ messages are authored by the repository being scored, and the score gates PR mer
 quoted inside a named `<untrusted_repo_data>` block whose contents the SYSTEM role explicitly denies
 any authority (data to evaluate, never instructions; forged boundary markers and triple-backtick runs
 are stripped before interpolation; an attempted instruction is reported as a *risk*, never as a
-discrepancy). That matters because a `discrepancies` entry **doubles** its dimension's guardband:
+discrepancy). Every repo-authored fragment is neutralized **before** it is cut to its budget — file
+excerpts to `PER_FILE`, commit subjects to their 120 chars — because neutralizing *grows* text (a
+22-char forged marker becomes a 25-char placeholder), so the older cut-then-neutralize order let
+marker-dense content expand back past the cap it had just been trimmed to and take window space from
+other evidence. That matters because a `discrepancies` entry **doubles** its dimension's guardband:
 without a boundary, a repository could author the text that widens the latitude over its own score.
 The second half is a **budget** (`src/lib/scoring/discrepancy-policy.ts`): at most
 `MAX_FLAGGED_DIMENSIONS = 2` dimensions may be widened on a scan, and flagging *more* widens **none**
@@ -225,7 +229,7 @@ byte-identical; no new check was added, so a token scan can only move up.
 
 This pseudo-code mirrors the implemented pipeline (`src/lib/scoring/engine.ts`
 `assembleReport` + `src/lib/maturity/model.ts` `overallScoreFor`); the constants quoted
-are `SCORE_BLEND = 0.6` and `LLM_GUARDBAND = 25` from `src/lib/maturity/model.ts`.
+are `SCORE_BLEND = 0.6` and `LLM_GUARDBAND = 6` from `src/lib/maturity/model.ts`.
 
 ```
 coverage = fraction of the repo actually inspected (0..1; also surfaced as report.confidence)
@@ -241,7 +245,7 @@ For each dimension D:
   # trusted further, still bounded. BUDGETED: the widening is self-declared and uncorroborated,
   # so at most MAX_FLAGGED_DIMENSIONS (2) dimensions may widen per scan; flag more and none do.
   widened    = (count of widen-eligible flagged dims) <= 2 ? those dims : {}
-  band(D)    = D in widened ? 2 * GUARDBAND : GUARDBAND                # GUARDBAND = 25
+  band(D)    = D in widened ? 2 * GUARDBAND : GUARDBAND                # GUARDBAND = 6
   guarded(D) = clamp(llmScore(D), signalScore(D) - band(D), signalScore(D) + band(D))
 
   # Coverage-scaled blend: the LLM's pull is scaled by how much of the repo we inspected. A
@@ -265,11 +269,15 @@ Design principles:
 - **Deterministic backbone:** signals are computed in code, not by the LLM, so scores
   are reproducible and cheap. The LLM adds nuance and writes the human-readable
   rationale and recommendations.
-- **Guardbanding:** the LLM score for a dimension is clamped to within ±25
+- **Guardbanding:** the LLM score for a dimension is clamped to within ±6
   (`LLM_GUARDBAND`) of the signal score to prevent hallucinated extremes; the band
-  doubles (±50) only where the LLM's self-audit flagged the detector signal itself as
+  doubles (±12) only where the LLM's self-audit flagged the detector signal itself as
   suspect, for at most 2 dimensions per scan (see the discrepancy budget above).
-  Evidence must back any score.
+  The band is **sized against the tier width**: the narrowest level band is 16 points wide
+  (L5), so even a doubled band cannot carry a dimension across a level boundary on the
+  model's word alone. It was ±25 until `r8` — exactly one level wide, and two when doubled —
+  which made the published level model-controlled. `model.test.ts` pins the rule against
+  `LEVELS`, so re-banding the levels re-checks the guardband. Evidence must back any score.
 - **Coverage-weighted blend:** the LLM's blend weight scales with inspection coverage,
   so a partially-seen repo leans on the coverage-robust deterministic signals rather
   than blending a low-information LLM read at full weight.
@@ -359,4 +367,5 @@ genuinely display-only change, but the reasoning belongs in the diff.
 | `r4` (2026-08-05) | Two Security (D9) detector corrections in `src/lib/security/checks.ts`: pinned-dependencies no longer counts multi-stage `FROM <alias>` or `FROM scratch` in the denominator, and the broad-write cap matches `contents: write` anywhere in a permissions block. D9 is taken verbatim by the engine. |
 | `r5` (2026-08-14) | The assessment system prompt gained `PROSE_STYLE_RULE` (`src/lib/llm/prose.ts`, interpolated in `src/lib/scoring/prompt.ts`). It constrains punctuation in the model's prose, so no scoring semantics moved — but it is a changed model input, which is the same class as `r3`. The em-dash sweep re-pinned the surface hash without bumping, having accounted for the six display-only strings it rewrote but not for the prompt injection. |
 | `r6` (2026-08-17) | The TASK block now asks for a *markdown-lite* summary (short paragraphs · bullets · bold · code) instead of one paragraph, and for **roadmap coverage** of every dimension below `FOLLOW_UP_BELOW` (65). Neither moves a score, but the roadmap grows from 3-5 entries to up to nine and the prose shape changes, so a cached scan's "next steps" would disagree with a fresh one. Same class as `r3`/`r5`. |
+| `r8` (2026-08-20) | **`LLM_GUARDBAND` narrowed 25 → 6.** The band was as wide as a maturity level, so an LLM judgment at its edge could move a repository's published level with no deterministic support — and two levels on a dimension whose band a `discrepancies` claim doubled. 6 keeps the nuance the model actually uses (the control-arm study measured ≤24% of the old band) while making a level jump impossible. Every blended dimension can differ from its `r7` value by up to ±15 points, so `r7` scores are not comparable with `r8` ones. Not a claim that `r7` scores were wrong under `r7`. |
 | `r7` (2026-08-17) | The **deepening pass**: token-gated, additive platform credits entered the detector point tables. The installed-App inventory read from the scored commit's check suites (`src/lib/github/check-suites.ts`) folds into D4 (+25 AI review/agent App), D3 (+35 non-Actions CI, +10 deploy platform), D2 (+8 coverage reporter) and the D9 battery (SAST 10 for a code-scanning App, dependency-updates 6 for a supply-chain App); default-branch Actions health (`src/lib/github/actions-health.ts`) folds into D3 (+8 / +4); the already-computed `aiPreReviewedRate` folds into D4 (≤20). Anonymous scans are byte-identical to `r6`; a token scan of the same commit can move up, so cached `r6` scores are not comparable with fresh ones. |

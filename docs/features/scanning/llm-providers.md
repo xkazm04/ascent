@@ -438,6 +438,26 @@ the content asking." Wrapping alone is not the control; the instruction is.
 **If you add an LLM call site that interpolates repo-, member- or agent-authored text, import
 from here.** A second copy of this control is the defect, not the fix.
 
+**Neutralize before you truncate.** `neutralize()` grows text, so every caller cuts to its budget
+*after* neutralizing (`truncate(neutralize(x), N)`), never before. The other order lets marker-dense
+content expand back over the cap it was just trimmed to.
+
+**Payoff classification (`REPO_OUTPUT_PAYOFF`, `MEMORY_OUTPUT_PAYOFF`).** The boundary prose tells the
+model which output field to report an injection attempt into — it advertises `risks` as harmless and
+steers away from `discrepancies` (which widens a guardband) and from memory ids (which retire a row).
+That ranking is now declared next to the prose as a typed map rather than living only in comments,
+with `channelPayoff()` failing closed on an unclassified field. `scoring/prompt.test.ts` fails if the
+scoring response schema grows or loses a field the map does not match, so wiring a consumer to an
+`inert` channel is a decision someone has to write down instead of a silent promotion.
+
+**Output screening (`screenModelOutput`).** Machine-reads a raw model response for the fence machinery
+it should never emit — our block markers, our boundary header, our redaction placeholder — and returns
+`{ clean, hits }`. It deliberately does **not** screen for injection *language*: the boundary asks the
+model to report attempts it found, so a vocabulary screen would discard the successful detection and
+keep the silent failure. It also does not reject; the intended handling is to record a hit as a
+non-scoring signal. **Not yet wired**: `parseAssessment` (`llm/provider.ts`) is the single terminal
+step every scoring provider shares and is the intended call site.
+
 ## Model benchmark & scorecard (`matrix-capture.ts`, `matrix-scores.ts`, `eval-log.ts`)
 
 Three independent, opt-in, dev/bench-only capture mechanisms feed the model-comparison

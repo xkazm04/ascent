@@ -69,10 +69,16 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       </div>
 
       <div className={TILE_GRID}>
-        <Tile label="Gate pass rate" value={`${g.passRate}%`} color={passColor} sub={`${g.passing}/${g.scanned} repos`} />
+        {/* Denominator is `assessed`, matching passRate: a repo that scored nothing was never
+            judged, and counting it here would state a rate over a population the number is not
+            measured across. The unjudged bucket gets its own tile rather than being absorbed. */}
+        <Tile label="Gate pass rate" value={`${g.passRate}%`} color={passColor} sub={`${g.passing}/${g.assessed} judged`} />
         <Tile label="Passing" value={String(g.passing)} color="#16a34a" sub="clear the gate" />
         <Tile label="Failing" value={String(g.failing)} color={g.failing ? "#ef4444" : "#16a34a"} sub="below the bar" />
         <Tile label="Repos scanned" value={String(g.scanned)} sub="in the fleet" />
+        {g.incomplete > 0 && (
+          <Tile label="Not judged" value={String(g.incomplete)} color="#f59e0b" sub="scored nothing" />
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

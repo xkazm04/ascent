@@ -4,8 +4,57 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { parseStringArray } from "@/lib/db/scans-shared";
 import type { PrStats } from "@/lib/types";
+
+/**
+ * The fleet rates `OrgPrSignals` publishes, keyed so a rate and the basis that produced it cannot
+ * drift apart. Deliberately NOT `RateBasisId` (pr-thresholds.ts): that enumerates what the ANALYZER
+ * publishes per scan, this enumerates what the FLEET rollup publishes, and the two sets differ
+ * (`merge`, `aiTrailer`, `aiPreReviewed` are rolled up but have no per-scan qualified rate;
+ * `botAuthored`, `selfApproved`, `fastApproval` are the reverse). Naming them the same type would
+ * force one list to carry the other's members as permanent holes.
+ */
+export type FleetRateId =
+  | "merge"
+  | "reviewed"
+  | "smallPr"
+  | "aiInvolved"
+  | "aiGoverned"
+  | "revert"
+  | "aiTrailer"
+  | "aiPreReviewed";
+
+/**
+ * What actually produced one fleet rate.
+ *
+ * The defect this closes: `repos` and `totalPrs` sit beside eight `avg*Rate` percentages and are the
+ * denominator of NONE of them. `weightedRate` skips every repo whose rate is null ("no sample"), so
+ * a fleet review-coverage figure could rest on 2 of 40 repos while "40 repos / 5,000 PRs" was
+ * printed next to it — and even for a repo that DID contribute, `analyzed` is the whole scanned
+ * window, not the rate's own denominator (reviewedRate is over human-authored MERGED PRs, which may
+ * be a tenth of it). A reader who divides the headline by the volume beside it gets a number the
+ * data never supported.
+ */
+export interface FleetRateBasis {
+  /**
+   * The weight the mean actually used, summed over contributing repos: analyzed PRs, the persisted
+   * volume proxy the weighting has always run on. Kept as the weight (rather than switching to
+   * `population`) so no published fleet number moves in this change — what changes is that the
+   * weight is now stated instead of implied by the `totalPrs` beside it.
+   */
+  weight: number;
+  /** Repos that contributed a measurement — never the fleet's repo count when some were null. */
+  repos: number;
+  /**
+   * The rate's OWN denominator, summed across the contributing repos — the number a reader may
+   * legitimately divide the percentage by. Null when at least one contributor did not persist it
+   * (a scan predating the qualified-rate book), because a partial sum is a smaller denominator
+   * masquerading as a complete one. Null means "not persisted", never zero.
+   */
+  population: number | null;
+}
 
 /** One repo's PR-signal row for the delivery drill-down table. */
 export interface PrRepoRow {
@@ -29,11 +78,24 @@ export interface PrRepoRow {
   aiTrailerRate: number | null;
   /** % of merged PRs with an AI/bot review before the first human review (W2). Same null semantics. */
   aiPreReviewedRate: number | null;
+  /**
+   * The denominator behind each rate ABOVE, for this repo — the same defect as the fleet one, one
+   * level down: `analyzed` is printed in the row next to a `reviewedRate` measured over human-merged
+   * PRs and an `aiGovernedRate` measured over AI-involved ones, so the table invited a division that
+   * was never valid. A key is present only when the scan actually persisted that denominator (the
+   * sub-denominated ones arrive with the qualified-rate book, `PrStats.rates`); an absent key means
+   * "not persisted by this scan", which a render must show as unknown rather than fall back to
+   * `analyzed`. This is also what lets the fleet sum its denominators honestly.
+   */
+  population: Partial<Record<FleetRateId, number>>;
 }
 
 export interface OrgPrSignals {
-  repos: number; // repos that have PR data
-  totalPrs: number; // PRs analyzed across the fleet
+  /** Repos with PR data. The fleet's COVERAGE, not any rate's repo count — a rate whose sample only
+   *  a few of them carry is weighted over those few; `rateBasis[id].repos` is that number. */
+  repos: number;
+  /** PRs analyzed across the fleet. Fleet VOLUME, not any rate's denominator — see `rateBasis`. */
+  totalPrs: number;
   avgMergeRate: number; // analyzed-PR-weighted fleet merge rate (a large repo outweighs a toy one)
   avgReviewedRate: number | null; // analyzed-weighted repo reviewedRate (null when NO repo has a human-merged sample)
   avgSmallPrRate: number; // analyzed-weighted
@@ -46,6 +108,44 @@ export interface OrgPrSignals {
   typicalHoursToFirstReview: number | null; // mean of per-repo first-review medians (same shape as above)
   tools: { name: string; count: number }[];
   perRepo: PrRepoRow[]; // sorted riskiest first: lowest review coverage, then slowest merges
+  /** Per-rate weight, contributing repo count and true denominator — the basis every `avg*Rate`
+   *  above must be read with. Always present for all eight ids (a rate no repo measured reports
+   *  zero weight, zero repos, and a null population). */
+  rateBasis: Record<FleetRateId, FleetRateBasis>;
+}
+
+/**
+ * The true denominator of each of a repo's rates, taken from what the scan actually persisted.
+ *
+ * Three sources, all persisted, none recomputed here:
+ *  - the analyzed-denominated rates (smallPr / aiInvolved / revert) are over `analyzed` itself;
+ *  - `merge` is over the DECIDED PRs (merged + closed-unmerged) — an open PR is in `analyzed` but is
+ *    not in the merge rate's denominator, which is exactly the kind of gap this map exists to state;
+ *  - `aiTrailer` / `aiPreReviewed` are over merged PRs;
+ *  - `reviewed` / `aiGoverned` have sub-denominators (human-authored merged PRs; AI-involved PRs)
+ *    that NO scan persisted until the qualified-rate book (`PrStats.rates`, pr-thresholds.ts) — so
+ *    they are read from there and are simply absent for an older blob, which is the honest answer.
+ *
+ * A key is omitted rather than defaulted: an absent denominator is unknown, and `analyzed` standing
+ * in for it is the precise misreading this whole change removes.
+ */
+function ratePopulations(p: PrStats, num: (v: unknown) => number | null): Partial<Record<FleetRateId, number>> {
+  const pop: Partial<Record<FleetRateId, number>> = {};
+  const put = (id: FleetRateId, v: number | null) => {
+    if (v != null && v >= 0) pop[id] = v;
+  };
+  const analyzed = num(p.analyzed);
+  put("smallPr", analyzed);
+  put("aiInvolved", analyzed);
+  put("revert", analyzed);
+  const merged = num(p.merged);
+  const closedUnmerged = num(p.closedUnmerged);
+  if (merged != null && closedUnmerged != null) put("merge", merged + closedUnmerged);
+  put("aiTrailer", merged);
+  put("aiPreReviewed", merged);
+  put("reviewed", num(p.rates?.reviewed?.population));
+  put("aiGoverned", num(p.rates?.aiGoverned?.population));
+  return pop;
 }
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */
@@ -69,6 +169,8 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
   const stats: PrStats[] = [];
+  /** Index-aligned with `stats`: each repo's per-rate denominators (see ratePopulations). */
+  const pops: Partial<Record<FleetRateId, number>>[] = [];
   const perRepo: PrRepoRow[] = [];
   for (const r of repos) {
     const raw = r.scans[0]?.prStats;
@@ -76,8 +178,11 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     try {
       const p = JSON.parse(raw) as PrStats;
       if (p.analyzed > 0) {
+        const population = ratePopulations(p, num);
         stats.push(p);
+        pops.push(population);
         perRepo.push({
+          population,
           fullName: r.fullName,
           name: r.name,
           analyzed: p.analyzed,
@@ -116,15 +221,31 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   // repo carries it, preserving the null-vs-measured-0 distinction. `analyzed` is the natural fleet
   // weight (exact for the analyzed-denominated rates; a volume proxy for reviewed/governed whose exact
   // sub-denominators aren't persisted per repo). (fleet-rollups-insights #3)
-  const weightedRate = (pick: (s: PrStats) => number | null): number | null => {
+  //
+  // WHAT CHANGED (and what deliberately did not): the arithmetic is untouched — every published
+  // fleet percentage is the same number it was. What is new is that each rate now REPORTS the weight
+  // and the repo count it was actually computed over, plus its own summed denominator, into
+  // `rateBasis`. `repos` / `totalPrs` describe the fleet, not any one rate, and the gap between them
+  // was silent: a coverage figure resting on 2 of 40 repos rendered beside "40 repos, 5,000 PRs".
+  const rateBasis = {} as Record<FleetRateId, FleetRateBasis>;
+  const weightedRate = (id: FleetRateId, pick: (s: PrStats) => number | null): number | null => {
     let wsum = 0;
     let sum = 0;
-    for (const s of stats) {
+    let contributors = 0;
+    // The rate's own denominator, summed over the CONTRIBUTING repos only. It stays a number only
+    // while every contributor persisted one; the first that didn't turns it null, because a sum
+    // missing a term is a smaller denominator that still looks complete.
+    let population: number | null = 0;
+    for (const [i, s] of stats.entries()) {
       const v = pick(s);
       if (v == null) continue; // "no sample" — not a measured 0
       wsum += s.analyzed;
       sum += v * s.analyzed;
+      contributors += 1;
+      const p = pops[i]?.[id];
+      population = p == null || population == null ? null : population + p;
     }
+    rateBasis[id] = { weight: wsum, repos: contributors, population: contributors ? population : null };
     return wsum > 0 ? Math.round(sum / wsum) : null;
   };
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
@@ -137,23 +258,26 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     repos: stats.length,
     totalPrs: stats.reduce((a, s) => a + s.analyzed, 0),
     // Always-present rates: `stats` is non-empty and every row has analyzed > 0, so wsum > 0 ⇒ never null.
-    avgMergeRate: weightedRate((s) => s.mergeRate) ?? 0,
-    avgReviewedRate: weightedRate((s) => s.reviewedRate),
-    avgSmallPrRate: weightedRate((s) => s.smallPrRate) ?? 0,
-    avgAiInvolvedRate: weightedRate((s) => s.aiInvolvedRate) ?? 0,
-    avgAiGovernedRate: weightedRate((s) => s.aiGovernedRate),
+    avgMergeRate: weightedRate("merge", (s) => s.mergeRate) ?? 0,
+    avgReviewedRate: weightedRate("reviewed", (s) => s.reviewedRate),
+    avgSmallPrRate: weightedRate("smallPr", (s) => s.smallPrRate) ?? 0,
+    avgAiInvolvedRate: weightedRate("aiInvolved", (s) => s.aiInvolvedRate) ?? 0,
+    avgAiGovernedRate: weightedRate("aiGoverned", (s) => s.aiGovernedRate),
     // W1a: revertRate is analyzed-denominated (like mergeRate), but stays nullable because a
     // pre-field historical blob has no measurement to contribute — absence, not a measured 0.
-    avgRevertRate: weightedRate((s) => num(s.revertRate)),
+    avgRevertRate: weightedRate("revert", (s) => num(s.revertRate)),
     // W2: merged-PR-denominated rates ride the same analyzed-weighted machinery (analyzed is the
     // persisted volume proxy — see the weighting note above); a pre-W2 blob or a below-floor sample
     // is null and contributes no weight, never a fabricated 0.
-    avgAiTrailerRate: weightedRate((s) => num(s.aiTrailerRate)),
-    avgAiPreReviewedRate: weightedRate((s) => num(s.aiPreReviewedRate)),
+    avgAiTrailerRate: weightedRate("aiTrailer", (s) => num(s.aiTrailerRate)),
+    avgAiPreReviewedRate: weightedRate("aiPreReviewed", (s) => num(s.aiPreReviewedRate)),
     typicalHoursToMerge: meanTenth(ttm),
     typicalHoursToFirstReview: meanTenth(ttfr),
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     perRepo,
+    // Filled in by the `weightedRate` calls above — every one of them writes its basis — so this
+    // reads the completed record. Listing it last keeps that dependency visible in source order.
+    rateBasis,
   };
 }
 
@@ -295,8 +419,12 @@ export interface OrgActivity {
   series: number[]; // fleet weekly commit totals (sum across repos), oldest→newest
   total: number;
   repos: number;
-  /** UTC ms of the Sunday that starts the NEWEST bucket (series[series.length - 1]); each earlier
-   *  element is exactly one WEEK_MS before it. Lets the chart label buckets with real dates. */
+  /** The CALENDAR DATE of the Sunday starting the NEWEST bucket (series[series.length - 1]),
+   *  expressed as midnight UTC. A DATE LITERAL, not an instant (canonical policy note 5): the week
+   *  boundary itself is a canonical-zone Sunday midnight, but what a chart axis needs is the date,
+   *  and rendering that date is only zone-stable if the value carries no time-of-day. Each earlier
+   *  element is exactly one WEEK_MS before it, so a consumer can step the axis with flat arithmetic
+   *  and format in UTC. */
   endWeekStartMs: number;
   /** ISO date (YYYY-MM-DD) of the start of the most-recent / oldest week in `series`. The grid is
    *  anchored to the most recent SCAN (not the current calendar week) and zero-fills gaps, so axis
@@ -315,24 +443,74 @@ const WEEK_MS = 7 * DAY_MS;
  *  whose latest activity is a year+ old. (fleet-rollups-insights #4) */
 const ACTIVITY_HORIZON_WEEKS = 26;
 
-/** Sunday-aligned whole-week index of an instant. GitHub's commit_activity buckets are Sunday-aligned
- *  weeks, so two repos' series elements only belong in the same fleet bucket if they fall in the same
- *  Sunday–Saturday week. A naive `floor(ms / WEEK_MS)` bins on the Unix-epoch 7-day grid, which is
- *  anchored on a THURSDAY — so two scans on opposite sides of a Thursday-00:00-UTC boundary WITHIN the
- *  same GitHub week land one bucket apart and their series sum out of phase. Instead, floor the instant
- *  to its Sunday 00:00 UTC first, then index; consecutive Sundays are 7 days apart, so the result stays
- *  a clean incrementing integer that different-cadence repos can be summed by. */
-function weekIndex(ms: number): number {
-  const d = new Date(ms);
-  const utcMidnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  const sundayMs = utcMidnight - d.getUTCDay() * DAY_MS; // getUTCDay(): 0 = Sunday
-  return Math.floor(sundayMs / WEEK_MS);
+/** The Unix epoch day (1970-01-01) as a day key — the origin every week index counts from. */
+const EPOCH_DAY_KEY = "1970-01-01";
+
+/** 1970-01-01 was a THURSDAY, so the epoch's first Sunday is day 3. The epoch 7-day grid is therefore
+ *  THURSDAY-anchored, and a naive `floor(ms / WEEK_MS)` bins on Thursdays: two scans on opposite sides
+ *  of a Thursday boundary WITHIN the same Sunday-Saturday week land one bucket apart and their series
+ *  sum out of phase. Floor to the named weekday FIRST, then index. */
+const EPOCH_FIRST_SUNDAY_DAY = 3;
+
+/**
+ * Sunday-aligned whole-week index of an instant, IN THE CANONICAL ORG ZONE.
+ *
+ * This used to floor to Sunday with `getUTCDay()` / `Date.UTC`, which was correct only by coincidence
+ * of the canonical zone defaulting to UTC (`src/lib/org/timezone.ts`). The dashboard window snaps in
+ * the org's canonical zone (`src/lib/window.ts`), so the moment an org sets a non-UTC zone the trend
+ * grid kept UTC weeks while the window moved: one local day landed in two different buckets and the
+ * trend chart disagreed with the tile deltas above it by up to a day's activity at each end. All
+ * boundary arithmetic in one product resolves through ONE zone; this is that zone.
+ *
+ * Indexing goes through DAY KEYS rather than ms arithmetic on purpose. A zoned week is 167 or 169
+ * hours across a DST transition, so `floor(ms / WEEK_MS)` has no clean inverse once the grid is zoned
+ * — but whole calendar days between two day keys is exact integer arithmetic with no DST in it.
+ */
+function weekIndexInZone(d: Date, tz: string): number {
+  const dayNo = daysBetweenDayKeys(EPOCH_DAY_KEY, dayKeyInZone(d, tz));
+  return Math.floor((dayNo - EPOCH_FIRST_SUNDAY_DAY) / 7);
 }
 
-/** Inverse of `weekIndex`: the UTC ms of the Sunday that starts week `wk`. Every Sunday-midnight
- *  since the epoch is (3 + 7k) days (Jan 1 1970 was a Thursday; the first Sunday was Jan 4 = day 3),
- *  so `weekIndex` maps it to k and this exact offset recovers the Sunday, not the epoch-grid Thursday. */
-const SUNDAY_EPOCH_OFFSET_MS = 3 * DAY_MS;
+/**
+ * The provider's own bucket boundary: the Sunday 00:00 **UTC** that starts the GitHub commit_activity
+ * week containing `ms`. GitHub's series is genuinely Sunday-UTC-aligned, and re-binning an aggregate
+ * we did not collect is not possible — so the SOURCE frame stays the source's, and only the placement
+ * of those buckets on the canonical grid is converted (`seriesWeekIndex`). Converting the grid without
+ * converting through the source bucket would reintroduce exactly the phase bug this pair exists to fix.
+ */
+function providerWeekStartMs(ms: number): number {
+  const d = new Date(ms);
+  const utcMidnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return utcMidnight - d.getUTCDay() * DAY_MS; // getUTCDay(): 0 = Sunday
+}
+
+/**
+ * Where the LAST element of a repo's weekly series sits on the canonical grid: the zoned week that the
+ * provider bucket containing `scannedAtMs` MOSTLY covers.
+ *
+ * "Mostly" is the whole design, and it is implemented as the bucket's MIDPOINT (Wednesday 12:00 UTC).
+ * A provider bucket runs Sun 00:00 UTC → Sat 24:00 UTC; a zoned week runs Sun 00:00 → Sat 24:00 local,
+ * so the two are offset by at most the zone offset (−12h…+14h) and overlap on six of seven days. The
+ * naive conversion — index the bucket's START instant in the zone — attributes a whole week of activity
+ * to the zoned week it overlaps by a few hours whenever the zone is west of Greenwich: an off-by-one
+ * week on every bar of the chart. The midpoint is more than 14 hours clear of both boundaries, so it
+ * always names the majority week, in every IANA zone, in either DST state.
+ *
+ * The consequence, worth stating because it is what makes the grid trustworthy: for a provider-frame
+ * series the result is the zoned week beginning on the bucket's own Sunday DATE, in any zone. The
+ * arithmetic is zoned, and it PROVES the stability the old UTC code merely assumed — which is the
+ * point, since the old code was only right while the canonical zone happened to be UTC. A first-party
+ * series (instants we collect ourselves) would feed `weekIndexInZone` directly and genuinely move.
+ */
+function seriesWeekIndex(scannedAtMs: number, tz: string): number {
+  return weekIndexInZone(new Date(providerWeekStartMs(scannedAtMs) + WEEK_MS / 2), tz);
+}
+
+/** Inverse of the week index, as a DATE LITERAL at midnight UTC (see `endWeekStartMs`): week `wk`
+ *  starts on epoch day `wk * 7 + 3`. Consecutive Sundays are exactly 7 days apart on the date axis,
+ *  which is what keeps the axis steppable by a flat WEEK_MS even when the zoned weeks themselves are
+ *  167 or 169 hours long. */
+const SUNDAY_EPOCH_OFFSET_MS = EPOCH_FIRST_SUNDAY_DAY * DAY_MS;
 function weekStartMs(wk: number): number {
   return wk * WEEK_MS + SUNDAY_EPOCH_OFFSET_MS;
 }
@@ -342,11 +520,15 @@ function weekStartMs(wk: number): number {
 export async function getOrgActivity(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  // Needs the full org row: the week grid is bucketed in the org's canonical zone (its stored column,
+  // else ASCENT_ORG_TZ, else UTC - resolveOrgTimeZone owns that order), the SAME zone the dashboard
+  // window snaps in. Routed through the cached full-row resolver rather than getOrgId (id only).
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+  const tz = resolveOrgTimeZone(org.timezone);
 
   const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
     // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true, scannedAt: true } } },
@@ -369,7 +551,7 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
     try {
       const arr = JSON.parse(raw) as unknown;
       if (!Array.isArray(arr) || !arr.length) continue;
-      const lastWeek = weekIndex(scan!.scannedAt.getTime()); // the scan's own week = the series' last element
+      const lastWeek = seriesWeekIndex(scan!.scannedAt.getTime(), tz); // the scan's provider bucket = the series' last element
       parsed.push({ lastWeek, arr: arr as number[] });
       if (lastWeek > newestScanWk) newestScanWk = lastWeek;
     } catch {
@@ -410,8 +592,8 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   const series: number[] = [];
   for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
   // Week index → ISO date of that week's start (via weekStartMs, the Sunday-anchored inverse of
-  // weekIndex), so the chart can label the real span instead of a literal "this week" (the grid's
-  // right edge is the latest SCAN week, possibly stale).
+  // weekIndexInZone), so the chart can label the real span instead of a literal "this week" (the
+  // grid's right edge is the latest SCAN week, possibly stale).
   const weekStartIso = (wk: number) => new Date(weekStartMs(wk)).toISOString().slice(0, 10);
   return {
     weeks: series.length,

@@ -13,15 +13,34 @@
 // caller's import path changes: passport-grades.ts (the 0.2.0 memory/skills ladders), passport-score.ts
 // (the derived production score), passport-overlay.ts (owner overrides + declined-by-choice), and
 // passport-migrate.ts (PASSPORT_VERSION + the stored-passport upgrade applied in parsePassportJson).
+//
+// 0.4.0 adds three things this file owns, all of them about NOT CONFLATING two facts:
+//   - UNKNOWN_CAPABILITY on the named fields: `null` used to mean both "the app has no error tracking"
+//     and "the scan could not tell", so a fleet query reported a scan-coverage hole as a real gap.
+//   - `findings[]`: every blocker gets a MINTED id (its cause code). Declines and fleet rollup buckets
+//     join on that id; the sentence is payload. Rewording a blocker no longer orphans a decision.
+//   - `evidence.fields`: per-field detection strength, so a vendor read out of a dependency list stops
+//     looking as authoritative as one read off a fetched command.
 
-import type { AppPassport, AutomationLevel, Governance, PrStats, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
+import type {
+  AppPassport,
+  AutomationLevel,
+  EvidenceBasis,
+  FieldEvidence,
+  Governance,
+  PassportFinding,
+  PrStats,
+  RepoSnapshot,
+  ScanReport,
+  TechStack,
+} from "@/lib/types";
 import { AI_TOOL_ALT } from "./ai-tools";
 import { gradeMemory, gradeSkills } from "./passport-grades";
 import { deriveProductionScore } from "./passport-score";
 import { deriveAutonomyTier } from "./passport-autonomy";
 import { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 
-export type { AppPassport, ArtifactGrade, AutomationLevel, DeclinedByChoice, ProductionBand } from "@/lib/types";
+export type { AppPassport, ArtifactGrade, AutomationLevel, DeclinedByChoice, FieldEvidence, FindingSeverity, PassportFinding, ProductionBand } from "@/lib/types";
 // Barrel: the themed sub-modules stay the implementation, this file stays the one import path callers use.
 export { GRADE_RANK, gradeMemory, gradeSkills } from "./passport-grades";
 export { deriveProductionScore } from "./passport-score";
@@ -29,6 +48,7 @@ export { TOKENLESS_MISSING, deriveAutonomyForStored, deriveAutonomyTier } from "
 export { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 export {
   DECLINABLE_PATHS,
+  DECLINE_MAX_AGE_DAYS,
   applyPassportOverrides,
   isDeclinablePath,
   parseDeclined,
@@ -67,7 +87,63 @@ function probes(snap: Snap) {
     .join("\n")
     .toLowerCase();
   const scripts = (pkg?.scripts && typeof pkg.scripts === "object" ? (pkg.scripts as Record<string, string>) : {}) ?? {};
-  return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts };
+  // The two evidence sources a named field can be classified FROM. When one is missing the detectors
+  // below must say `unknown`, not `null` — see UNKNOWN_CAPABILITY.
+  const depsObservable = pkg !== null;
+  const treeObservable = lowerPaths.length > 0;
+  return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts, depsObservable, treeObservable };
+}
+
+/** The third value of every NAMED capability field (0.4.0). `null` means "the scan looked and this app
+ *  has none"; UNKNOWN_CAPABILITY means "the scan could not look" — package.json or the tree index was
+ *  outside the snapshot. Before 0.4.0 both collapsed to `null`, so a portfolio query answered "43 repos
+ *  have no error tracking" when the truthful answer was "38 have none and 5 were never inspected", and
+ *  a coverage problem in OUR scan was reported as a real gap in the customer's stack. It is an in-band
+ *  string rather than an omitted key on purpose: the distinction has to survive the query, and an
+ *  omitted key does not. Trade-off accepted: a vendor literally named "unknown" would be ambiguous. */
+export const UNKNOWN_CAPABILITY = "unknown";
+
+/** True for a named field that carries an actual vendor — i.e. not absent AND not unclassifiable.
+ *  Every consumer that derives a rung from a named field must go through this, or an `unknown` reads
+ *  as a truthy vendor name and fabricates a level nothing observed. */
+export const isNamed = (v: string | null | undefined): v is string => typeof v === "string" && v !== UNKNOWN_CAPABILITY && v.length > 0;
+
+/** The four fixed evidence rungs (0.4.0, item `passport-confidence-coarse`). Fixed VALUES, not a
+ *  judgement per call site: a scale whose meaning is not stated becomes decorative, and consumers
+ *  threshold on it inconsistently. See EvidenceBasis in src/lib/types.ts for what each rung claims. */
+export const FIELD_EVIDENCE: Record<EvidenceBasis, FieldEvidence> = {
+  observed: { confidence: 1, basis: "observed" },
+  declared: { confidence: 0.8, basis: "declared" },
+  inferred: { confidence: 0.5, basis: "inferred" },
+  unobserved: { confidence: 0, basis: "unobserved" },
+};
+
+/** Per-field detection strength for the fields whose value is a GUESS of some kind. Deliberately not
+ *  exhaustive: rating every field roughly doubles the artifact, which is the stated cost of per-field
+ *  confidence, so only the named/heuristic fields are rated and a reader falls back to the
+ *  whole-artifact `evidence.confidence` for the rest. Keys are the dotted paths DECLINABLE_PATHS uses,
+ *  so the two vocabularies stay one vocabulary. */
+function fieldEvidence(p: ReturnType<typeof probes>): Record<string, FieldEvidence> {
+  // A dependency declaration NAMES a vendor; it never shows it running — that is the `declared` rung.
+  const fromDeps = p.depsObservable ? FIELD_EVIDENCE.declared : FIELD_EVIDENCE.unobserved;
+  // Path-shape heuristics over the tree index are weaker still.
+  const fromTree = p.treeObservable ? FIELD_EVIDENCE.inferred : FIELD_EVIDENCE.unobserved;
+  // CI is the one place we read fetched CONTENT (the workflow bodies), which is the `observed` rung;
+  // a workflow file present in the tree but not fetched only supports `inferred`.
+  const ci = p.workflowText.length > 0
+    ? FIELD_EVIDENCE.observed
+    : p.hasPath((x) => /^\.github\/workflows\/.+\.ya?ml$/.test(x))
+      ? FIELD_EVIDENCE.inferred
+      : fromTree;
+  return {
+    "stack.monitoring.errorTracking": fromDeps,
+    "stack.monitoring.logs": fromDeps,
+    "stack.monitoring.metrics": fromDeps,
+    "stack.monitoring.tracing": fromDeps,
+    "stack.monitoring.uptime": fromTree,
+    "stack.hosting": fromTree,
+    "productionReadiness.ci": ci,
+  };
 }
 
 function detectStackBlock(snap: Snap, techStack: TechStack | undefined, p: ReturnType<typeof probes>): AppPassport["stack"] {
@@ -94,13 +170,18 @@ function detectStackBlock(snap: Snap, techStack: TechStack | undefined, p: Retur
   }
   if (p.hasDep("redis") || p.hasDep("ioredis")) persistence.push({ kind: "cache", engine: "redis", orm: null, required: false });
 
-  const errorTracking = p.hasDepPrefix("@sentry/") ? "sentry" : p.hasDep("rollbar") ? "rollbar" : p.hasDep("@bugsnag/js") ? "bugsnag" : null;
-  const logs = p.hasDep("pino") ? "pino" : p.hasDep("winston") ? "winston" : null;
-  const metrics = p.hasDep("prom-client") ? "prometheus" : p.hasDep("dd-trace") || p.hasDepPrefix("@datadog/") ? "datadog" : null;
-  const tracing = p.hasDepPrefix("@opentelemetry/") ? "otel" : null;
-  const uptime = p.hasPath((x) => /(^|\/)api\/health(\/|\.|$)/.test(x)) ? "/api/health" : null;
+  // 0.4.0: every named field is three-valued. These four are read off the DEPENDENCY list, so with no
+  // readable package.json we have not looked — `unknown`, never a `null` that reads as "app has none".
+  const U = p.depsObservable ? null : UNKNOWN_CAPABILITY;
+  const errorTracking = U ?? (p.hasDepPrefix("@sentry/") ? "sentry" : p.hasDep("rollbar") ? "rollbar" : p.hasDep("@bugsnag/js") ? "bugsnag" : null);
+  const logs = U ?? (p.hasDep("pino") ? "pino" : p.hasDep("winston") ? "winston" : null);
+  const metrics = U ?? (p.hasDep("prom-client") ? "prometheus" : p.hasDep("dd-trace") || p.hasDepPrefix("@datadog/") ? "datadog" : null);
+  const tracing = U ?? (p.hasDepPrefix("@opentelemetry/") ? "otel" : null);
+  // uptime + hosting are read off the TREE INDEX instead, so they turn unknown on an empty tree.
+  const T = p.treeObservable ? null : UNKNOWN_CAPABILITY;
+  const uptime = T ?? (p.hasPath((x) => /(^|\/)api\/health(\/|\.|$)/.test(x)) ? "/api/health" : null);
 
-  const hosting = p.get("vercel.json") !== undefined || p.hasPath((x) => x === ".vercel" || x.startsWith(".vercel/"))
+  const hosting = T ?? (p.get("vercel.json") !== undefined || p.hasPath((x) => x === ".vercel" || x.startsWith(".vercel/"))
     ? "vercel"
     : p.hasPath((x) => x.endsWith("fly.toml"))
       ? "fly"
@@ -108,7 +189,7 @@ function detectStackBlock(snap: Snap, techStack: TechStack | undefined, p: Retur
         ? "netlify"
         : p.hasPath((x) => x === "dockerfile" || x.endsWith("/dockerfile"))
           ? "container"
-          : null;
+          : null);
 
   // dep → integration vendor map. `kind` is the comparable axis; `name` is the vendor read after.
   const INTEG: { match: (has: typeof p.hasDep, pre: typeof p.hasDepPrefix) => boolean; name: string; kind: string; direction: string }[] = [
@@ -305,14 +386,18 @@ function detectSecurity(p: ReturnType<typeof probes>, gov: Governance | null | u
   return { level, tools };
 }
 
+/** 0.4.0: goes through isNamed, NOT truthiness. `unknown` is a truthy string, so the old test would
+ *  have promoted an un-inspected repo straight to "tracing" — the exact fabrication the three-valued
+ *  encoding exists to prevent. When the monitoring evidence is unknown the rung stays at its floor and
+ *  buildPassport emits the evidence-limit finding instead of the "zero observability" one. */
 function detectObservability(monitoring: AppPassport["stack"]["monitoring"]): AppPassport["productionReadiness"]["observability"] {
-  const level = monitoring.tracing
+  const level = isNamed(monitoring.tracing)
     ? "tracing"
-    : monitoring.metrics
+    : isNamed(monitoring.metrics)
       ? "metrics"
-      : monitoring.errorTracking
+      : isNamed(monitoring.errorTracking)
         ? "errors"
-        : monitoring.logs
+        : isNamed(monitoring.logs)
           ? "logs"
           : "none";
   return { level };
@@ -328,6 +413,17 @@ function detectDelivery(p: ReturnType<typeof probes>, persistence: AppPassport["
   return { migrations, iac, rollback: false };
 }
 
+/** Mint a finding id. The id is the CAUSE, never the wording: `prod.zero-observability` stays the same
+ *  id after the sentence is rewritten, which is the whole point — an owner decline and a fleet rollup
+ *  bucket both join on it, and before 0.4.0 they joined on the prose instead, so a copy edit silently
+ *  detached every decline made against a blocker and split one rollup bucket into two. */
+const mint = (axis: "auto" | "prod", code: string, severity: PassportFinding["severity"], text: string): PassportFinding => ({
+  id: `${axis}.${code}`,
+  code,
+  text,
+  severity,
+});
+
 /**
  * Build the App Readiness Passport for a finished scan. Pure + deterministic over (report, snapshot).
  */
@@ -342,14 +438,16 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   const aiInWorkflow = detectAiInWorkflow(snap, report.prStats);
 
   // automationReadiness reuses the L1–L5 maturity ladder directly (design §2a).
-  const autoBlockers: string[] = [];
-  if (!artifacts.manifest) autoBlockers.push("No in-repo .ai/manifest.yaml (agent-facing capability contract).");
-  if (artifacts.contextGraph === "none") autoBlockers.push("No machine-readable context graph (context-map.json / CONTEXT.md).");
-  if (artifacts.memory === "none") autoBlockers.push("No agent memory (.ai/memory): decisions and gotchas aren't carried between sessions.");
-  if (artifacts.skills === "none") autoBlockers.push("No reusable agent skills library (.claude/skills), so repeated work is re-prompted each time.");
-  if (!aiInWorkflow) autoBlockers.push("No evidence AI is actually used (no AI co-author trailers / agent PRs).");
+  const autoFindings: PassportFinding[] = [];
+  const auto = (code: string, severity: PassportFinding["severity"], text: string) => autoFindings.push(mint("auto", code, severity, text));
+  if (!artifacts.manifest) auto("no-manifest", "warn", "No in-repo .ai/manifest.yaml (agent-facing capability contract).");
+  if (artifacts.contextGraph === "none") auto("no-context-graph", "warn", "No machine-readable context graph (context-map.json / CONTEXT.md).");
+  if (artifacts.memory === "none") auto("no-memory", "warn", "No agent memory (.ai/memory): decisions and gotchas aren't carried between sessions.");
+  if (artifacts.skills === "none") auto("no-skills", "info", "No reusable agent skills library (.claude/skills), so repeated work is re-prompted each time.");
+  if (!aiInWorkflow) auto("no-ai-in-workflow", "info", "No evidence AI is actually used (no AI co-author trailers / agent PRs).");
   const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
-  if (selfVerifyGaps.length) autoBlockers.push(`Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
+  // block, not warn: without a self-check an agent cannot tell a working change from a broken one.
+  if (selfVerifyGaps.length) auto("self-verify-gaps", "block", `Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
 
   const ci = detectCi(p, gov);
   const tests = detectTests(report, p);
@@ -358,11 +456,18 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   const delivery = detectDelivery(p, stack.persistence);
   const { score: prodScore, band } = deriveProductionScore({ ci, tests, security, observability, delivery });
 
-  const prodBlockers: string[] = [];
-  if (observability.level === "none") prodBlockers.push("Zero observability: no error tracking, structured logs, metrics, or tracing.");
-  if (ci.level === "checks" || ci.level === "build" || ci.level === "none") prodBlockers.push("CI does not gate merges (no enforced required checks).");
-  if (security.level === "none" || security.level === "policy") prodBlockers.push("No dependency/secret/SAST scanning wired in.");
-  if (tokenless) prodBlockers.push("Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung.");
+  const prodFindings: PassportFinding[] = [];
+  const prod = (code: string, severity: PassportFinding["severity"], text: string) => prodFindings.push(mint("prod", code, severity, text));
+  // 0.4.0: "we looked and found nothing" and "we could not look" are different findings with different
+  // severities. Claiming the first when the second is true reports OUR coverage hole as THEIR gap.
+  if (stack.monitoring.errorTracking === UNKNOWN_CAPABILITY) {
+    prod("observability-unassessable", "info", "Observability could not be assessed: no readable package.json on this scan, so monitoring dependencies were never inspected.");
+  } else if (observability.level === "none") {
+    prod("zero-observability", "block", "Zero observability: no error tracking, structured logs, metrics, or tracing.");
+  }
+  if (ci.level === "checks" || ci.level === "build" || ci.level === "none") prod("ci-not-gating", "block", "CI does not gate merges (no enforced required checks).");
+  if (security.level === "none" || security.level === "policy") prod("no-security-scanning", "block", "No dependency/secret/SAST scanning wired in.");
+  if (tokenless) prod("enforcement-not-observable", "info", "Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung.");
 
   const pp: AppPassport = {
     passport: "app-passport",
@@ -387,20 +492,36 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       artifacts,
       selfVerify,
       aiInWorkflow,
-      blockers: autoBlockers,
+      // `blockers` stays the rendered projection so every pre-0.4.0 reader is untouched; `findings`
+      // is the machine list, and it is what a decline or a rollup bucket must key on.
+      blockers: autoFindings.map((f) => f.text),
+      findings: autoFindings,
     },
-    productionReadiness: { band, score: prodScore, ci, tests, security, observability, delivery, blockers: prodBlockers },
+    productionReadiness: {
+      band,
+      score: prodScore,
+      ci,
+      tests,
+      security,
+      observability,
+      delivery,
+      blockers: prodFindings.map((f) => f.text),
+      findings: prodFindings,
+    },
     links: {
       report: `/report?repo=${encodeURIComponent(`${report.repo.owner}/${report.repo.name}`)}`,
       ...(artifacts.contextGraph === "full" ? { contextMap: "context-map.json" } : {}),
       ...(artifacts.manifest ? { manifest: ".ai/manifest.yaml" } : {}),
     },
     evidence: {
+      // Whole-artifact: "how much of the app could be inspected at all". Unchanged.
       confidence: report.confidence,
       source: tokenless ? "static-scan (no branch-protection visibility)" : "static-scan",
       files: ["package.json", ".github/workflows/", "prisma/schema.prisma"].filter((f) =>
         f.endsWith("/") ? p.hasPath((x) => x.startsWith(f.toLowerCase())) : p.get(f) !== undefined,
       ),
+      // 0.4.0: per-field, so a guessed field and an observed one stop looking equally authoritative.
+      fields: fieldEvidence(p),
     },
   };
   // 0.3.0: the autonomy tier is a projection OF the passport (+ live governance), derived last so

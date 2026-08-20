@@ -11,13 +11,41 @@
 // single place the decision lives. Day arithmetic here is CALENDAR arithmetic (`addDaysInZone`), not
 // `n × 86.4M ms`, so a lookback that straddles a DST transition still lands on a clean day boundary.
 //
-// INTERVALS ARE HALF-OPEN: a window means `[start, endExclusive)`. `end` is kept as the last
-// representable instant of that same interval (endExclusive − 1ms) purely for callers whose query
-// builders still say `lte`; prefer `endExclusive` with `lt`. (G4-07)
+// INTERVALS ARE HALF-OPEN: a window means `[start, endExclusive)`. That is the ONE closure convention
+// this value carries. The inclusive last instant is no longer arithmetic each consumer re-derives —
+// it is produced by exactly one adapter, `inclusiveEnd()` below, at the edge that needs it. (G4-07)
 
 import { addDaysInZone, dayKeyInZone, parseDayKey, startOfQuarterInZone } from "@/lib/org/timezone";
 
 export type RangeKey = "30d" | "90d" | "quarter" | "all" | "custom";
+
+/**
+ * A bound that closes an interval INCLUSIVELY (`lte`) — the foreign convention. The alias exists so
+ * the deprecated `ResolvedWindow.end` is marked at the TYPE level, not only in prose: a reader (and a
+ * `grep`) can see which values in this codebase still speak the inclusive dialect, and the alias is
+ * the marker that has to disappear when the last `lte` call site migrates. Values of this type must
+ * only ever be produced by {@link inclusiveEnd}.
+ */
+export type InclusiveEndBound = Date | null;
+
+/**
+ * THE edge adapter between the half-open window and a query builder that can only say `lte`.
+ *
+ * Interval closure is converted in exactly ONE place, here, at the boundary that needs it — it used
+ * to be an `endExclusive − 1ms` alias riding inside the window value, so every consumer holding a
+ * window held two bounds in two conventions and picked whichever its query builder happened to want.
+ * Two surfaces reading the SAME window could then disagree about a boundary row.
+ *
+ * The 1ms is a real precision hazard, and that is precisely why it is confined here: the store keeps
+ * timestamps at MICROSECOND resolution, so a row stamped inside the final millisecond of a window is
+ * matched by `lt: endExclusive` and missed by `lte: inclusiveEnd(...)`. The trade-off accepted is a
+ * bounded, documented, single-site inaccuracy for callers that cannot express `lt` — never a second
+ * closure convention stored on the value. Prefer `lt: endExclusive`; reach for this only at a `lte`
+ * edge, and only until that edge migrates. (G4-07)
+ */
+export function inclusiveEnd(endExclusive: Date | null): InclusiveEndBound {
+  return endExclusive ? new Date(endExclusive.getTime() - 1) : null;
+}
 
 export interface RangeOption {
   key: RangeKey;
@@ -60,10 +88,13 @@ export interface ResolvedWindow {
   /** Window start — also the baseline date for deltas. null = all-time (no baseline / no deltas). */
   start: Date | null;
   /**
-   * Window end as the LAST REPRESENTABLE INSTANT of the period (`endExclusive − 1ms`), for callers
-   * whose Prisma filter is `lte`. null = now (open-ended). Prefer `endExclusive` + `lt`.
+   * @deprecated COMPAT ONLY — the inclusive dialect, kept while the remaining `lte` call sites move.
+   * It is `inclusiveEnd(endExclusive)` and nothing else; do not re-derive it, do not add consumers.
+   * New code takes `endExclusive` with `lt`, or calls {@link inclusiveEnd} at its own `lte` edge
+   * ({@link orgWindowBounds} in `src/lib/org/period.ts` is the half-open shape to hand the db layer).
+   * The field disappears when the last `lte` consumer migrates; the type alias marks who is left.
    */
-  end: Date | null;
+  end: InclusiveEndBound;
   /**
    * The canonical HALF-OPEN upper bound: the window is `[start, endExclusive)`. For a custom range
    * this is the zoned midnight STARTING the day after `to`. null = open-ended.
@@ -143,10 +174,11 @@ export function resolveWindow(
         [from, to] = [to, from];
       }
       // `to` names a whole calendar day, so the half-open upper bound is the START of the NEXT day in
-      // the canonical zone (calendar arithmetic, so a DST day is still one whole day). `end` is that
-      // bound minus 1ms for the remaining `lte` call sites. An absent `to` leaves both null (open to now).
+      // the canonical zone (calendar arithmetic, so a DST day is still one whole day). The inclusive
+      // compat bound goes through the one adapter — the subtraction is not repeated here. An absent
+      // `to` leaves both null (open to now).
       const endExclusive = toDay ? addDaysInZone(toDay, 1) : null;
-      const end = endExclusive ? new Date(endExclusive.getTime() - 1) : null;
+      const end = inclusiveEnd(endExclusive);
       // Echo the RESOLVED bounds in the title. Custom is the one period whose parameters aren't
       // implied by its name: a shared ?range=custom link, a remembered cookie, or the silent
       // reversed-range swap above would otherwise render "Custom range" while every number on the

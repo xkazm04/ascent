@@ -5,7 +5,8 @@
 //   - all FOUR conditions are required; each boundary is tested from both sides;
 //   - procedural memory is never archived automatically, whatever it scores;
 //   - a confident memory is never archived by age alone;
-//   - a frequently recalled memory survives (usage is a veto on forgetting);
+//   - a frequently DELIVERED memory survives a while longer, but only a while: the delivery bonus is
+//     capped, so retrieval buys a bounded stay of execution and never an exemption;
 //   - dryRun performs no write at all;
 //   - one pass is capped (DECAY_MAX_PER_PASS) so a bad policy edit can't empty a store in one call.
 
@@ -83,10 +84,26 @@ describe("decayVerdict", () => {
     expect(decayVerdict(rotten({ updatedAt: daysAgo(181) }), NOW).archive).toBe(true);
   });
 
-  it("spares an old, low-confidence memory that is still being recalled — usage vetoes forgetting", () => {
+  it("spares an old, low-confidence memory that is still being delivered", () => {
     const hot = decayVerdict(rotten({ updatedAt: daysAgo(200), accessCount: 200 }), NOW);
     expect(hot.score).toBeGreaterThanOrEqual(DECAY_SCORE_FLOOR);
     expect(hot.archive).toBe(false);
+  });
+
+  // The reprieve above is BOUNDED, and that bound is the fix. accessCount counts DELIVERIES, not proven
+  // uses: a memory injected into every prompt and helped with by none accrues it identically, and for
+  // free. While recall.ts's delivery term was uncapped, retrieval was a permanent veto — the store could
+  // keep its own worst rows alive forever simply by continuing to send them. With the cap at 2×, a
+  // confidence-0.3 memory drops under the floor after two half-lives (0.15/(0.3·2) = 0.25) no matter how
+  // often it was delivered.
+  it("archives it anyway once it is old enough — delivery is a stay of execution, not an exemption", () => {
+    const forever = rotten({ updatedAt: daysAgo(400), accessCount: 10_000_000 });
+    const v = decayVerdict(forever, NOW);
+    expect(v.score).toBeLessThan(DECAY_SCORE_FLOOR);
+    expect(v.archive).toBe(true);
+    // The boundary is two half-lives (360d for semantic), and it does not move with the count.
+    expect(decayVerdict(rotten({ updatedAt: daysAgo(359), accessCount: 10_000_000 }), NOW).archive).toBe(false);
+    expect(decayVerdict(rotten({ updatedAt: daysAgo(361), accessCount: 10_000_000 }), NOW).archive).toBe(true);
   });
 });
 

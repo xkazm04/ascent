@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { contentDigest } from "@/lib/registry/parse";
 
 const { mockGetPrisma } = vi.hoisted(() => ({ mockGetPrisma: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: () => true }));
@@ -14,7 +15,10 @@ vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: async (slug: string) => (slug 
 
 import { pushOrgSkill, recordSkillEvents } from "@/lib/db/org-skills";
 
-const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+/** The canonical digest a row carries today — one shared function with the registry catalog. */
+const hash = (s: string) => contentDigest(s);
+/** The pre-`sha256-n1:` recipe: raw bytes, untagged. Only a row written before the change has one. */
+const legacyHash = (s: string) => createHash("sha256").update(s).digest("hex");
 
 function pushPrisma(existing: { id: string; version: number; contentHash: string } | null) {
   const calls = { create: 0, update: [] as { where: unknown; data: Record<string, unknown> }[] };
@@ -46,6 +50,33 @@ describe("pushOrgSkill", () => {
   it("is idempotent: identical body → unchanged, no write", async () => {
     const calls = pushPrisma({ id: "s1", version: 3, contentHash: hash("the body") });
     const r = await pushOrgSkill("acme", input);
+    expect(r).toEqual({ status: "unchanged", id: "s1", version: 3 });
+    expect(calls.update).toHaveLength(0);
+  });
+
+  it("re-keys a pre-versioning digest as `unchanged` — no mass diverge, no version bump", async () => {
+    // THE MIGRATION DECISION. Versioning the digest changed every stored value at once; without the
+    // legacy-recognition branch the first push after the change would report `updated` for every skill
+    // in every library, bumping versions for content nobody touched — the fleet-wide false "diverged"
+    // the normalization exists to prevent. The row is silently re-keyed instead.
+    const calls = pushPrisma({ id: "s1", version: 3, contentHash: legacyHash("the body") });
+    const r = await pushOrgSkill("acme", input);
+    expect(r).toEqual({ status: "unchanged", id: "s1", version: 3 });
+    expect(calls.update).toHaveLength(1);
+    expect(calls.update[0]!.data).toEqual({ contentHash: hash("the body") });
+    expect(calls.update[0]!.data.version).toBeUndefined();
+  });
+
+  it("still reports a REAL edit as updated when the stored digest is a legacy one", async () => {
+    const calls = pushPrisma({ id: "s1", version: 5, contentHash: legacyHash("some older body") });
+    const r = await pushOrgSkill("acme", input, { baseVersion: 5 });
+    expect(r).toEqual({ status: "updated", id: "s1", version: 6 });
+    expect(calls.update[0]!.data.version).toEqual({ increment: 1 });
+  });
+
+  it("treats a CRLF re-push of the same body as unchanged (the platform-clone case)", async () => {
+    const calls = pushPrisma({ id: "s1", version: 3, contentHash: hash("line one\nline two") });
+    const r = await pushOrgSkill("acme", { ...input, content: "line one\r\nline two" });
     expect(r).toEqual({ status: "unchanged", id: "s1", version: 3 });
     expect(calls.update).toHaveLength(0);
   });

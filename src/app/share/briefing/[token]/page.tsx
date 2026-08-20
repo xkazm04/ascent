@@ -15,9 +15,10 @@ import {
 } from "@/features/bought/executive/briefingCards";
 import { TokenNotice } from "@/components/TokenNotice";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
-import { verifyBriefingShareToken } from "@/lib/briefing-share";
+import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
-import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
+import { isBriefingShareRevoked } from "@/lib/db/org-share";
 import type { OrgBranding } from "@/lib/db/branding";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { planAllowsWhiteLabel } from "@/lib/plans";
@@ -111,6 +112,15 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
       );
     }
   }
+  // #13: the PER-GRANT kill switch, enforced on read like the live war-room's shared page does. The
+  // check above revokes the minter's WHOLE set; this one kills a single leaked link. Only a token
+  // carrying a `jti` has a handle (legacy ones keep the prior TTL-only behavior). Fails closed on a
+  // lookup error — a shared briefing this page cannot vouch for is not shown.
+  // Through the shared lookup, not an inlined ledger read: it fails closed BY CONSTRUCTION, so
+  // this page cannot be the caller that forgets the .catch and quietly serves a revoked link.
+  if (verified.jti && (await isBriefingShareRevoked(verified.jti))) {
+    return <Notice title="Link revoked" body="This shared briefing link has been revoked. Ask an org owner for a fresh one." />;
+  }
 
   const period = resolveWindow({ range: verified.range, from: verified.from, to: verified.to });
   // Finding B (clock-drift): use the ABSOLUTE window the owner froze at mint time, not one recomputed
@@ -157,6 +167,16 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }
   const { maturity, benchmark, priorPeriod } = briefing;
+  // #26: compare the figures the sender saw (fingerprint carried in the signed token) against the ones
+  // just rendered. This page is a LIVE RE-RENDER of a frozen period, not a stored document — the full
+  // reasoning, and why a snapshot was NOT chosen, is in lib/briefing-share.ts (briefingFigureDigest).
+  const integrity = shareIntegrity(verified.fig, briefingFigureDigest(briefing));
+  // #13: the record that this grant was opened — the "was the briefing read, and how many times"
+  // answer a stateless token could never give. Swallowed on failure by recordAudit; never blocks the read.
+  if (verified.jti) {
+    const orgId = await getOrgId(verified.org).catch(() => null);
+    await recordAudit("briefing.share.opened", { jti: verified.jti, integrity }, { orgId: orgId ?? undefined });
+  }
 
   return (
     <>
@@ -165,7 +185,19 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2 font-mono text-sm text-slate-500">
           Read-only shared briefing · {briefing.periodTitle}
           {asOf && <> · data as of {asOf}</>}
+          {integrity === "unchanged" && <> · figures unchanged since this link was created</>}
         </div>
+        {/* #26: say plainly which of the two this is. A recipient must never be shown different numbers
+            in silence — when the fingerprint the sender's link carries no longer matches what this
+            period now produces, that is stated here, above the figures, not left to be discovered. */}
+        {integrity === "changed" && (
+          <div className="mb-4 rounded-lg border border-warn/40 bg-warn/[0.08] px-4 py-3 text-sm text-slate-200">
+            <span className="font-mono uppercase tracking-widest text-warn">⚠ Figures moved</span> — the period below is the
+            one that was shared and is frozen, but its numbers are no longer the ones the sender saw (a benchmark, goal,
+            repository set or retained scan changed underneath it). These are current. Ask the sender for a fresh link before
+            quoting a figure back to them.
+          </div>
+        )}
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title={`${verified.org}: executive briefing`}

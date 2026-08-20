@@ -184,8 +184,11 @@ describe("deriveAutonomyTier — tokenless cap (governance null)", () => {
 
 // ── migration derivation (0.x → 0.3.0 read-time) ──────────────────────────────────────────────────
 describe("upgradePassport — 0.3.0 autonomy lift (old rows get tiers WITHOUT rescans)", () => {
-  it("PASSPORT_VERSION bumped to 0.3.0 (version-bump discipline)", () => {
-    expect(PASSPORT_VERSION).toBe("0.3.0");
+  // The version-bump discipline: any change to what the artifact STORES moves PASSPORT_VERSION and the
+  // migrate-on-read path together, so a stored row is always lifted exactly once at deserialization.
+  // 0.4.0 = minted finding ids + three-valued named fields + per-field evidence.
+  it("PASSPORT_VERSION is 0.4.0 (version-bump discipline)", () => {
+    expect(PASSPORT_VERSION).toBe("0.4.0");
   });
 
   it("derives autonomy for a stored 0.2.0 row and tags migratedFrom 0.2.0", () => {

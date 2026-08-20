@@ -7,9 +7,10 @@
 // registry. Same call as the Developer route (`DeveloperHome`): the server hands down ONE real view,
 // the switching lives here, and nothing about it survives a copied link.
 //
-// It is offered ONLY while the real status is `unmapped` — the state that has nothing of the user's own
-// to be confused with. The moment a registry is mapped the control disappears rather than offering to
-// paint fiction over real data, and every previewed state is stamped as a preview.
+// It is offered ONLY in development (`registryPreviewEnabled()` — see the RegistryTab call site) and
+// only while the real status is `unmapped`, the state that has nothing of the user's own to be
+// confused with. The moment a registry is mapped the control disappears rather than offering to paint
+// fiction over real data, and every previewed state is stamped as a preview.
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
@@ -25,7 +26,7 @@ export function RegistryPreviewShell({
   children,
 }: {
   slug: string;
-  /** True only when the REAL view is `unmapped`. False renders `children` untouched. */
+  /** True only in development AND when the REAL view is `unmapped`. False renders `children` untouched. */
   enabled: boolean;
   children: React.ReactNode;
 }) {

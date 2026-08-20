@@ -3,7 +3,8 @@
 // engine (which enforces it).
 //
 // Why a budget exists at all (G3-02 + G3-06, one path): repo file content enters the prompt, and a
-// `discrepancies` entry DOUBLES that dimension's guardband (±25 → ±50) with no independent
+// `discrepancies` entry DOUBLES that dimension's guardband (±LLM_GUARDBAND → ±2·LLM_GUARDBAND, i.e.
+// ±6 → ±12 since the r8 narrowing; it was ±25 → ±50, which spanned two published levels) with no independent
 // corroboration. Together those are a repo-authored channel into how far the model may move the
 // number about that same repo. The prompt boundary (scoring/prompt.ts) removes the *authority* of
 // repo text; this budget removes the *payoff* of getting an extra discrepancy emitted anyway:
@@ -17,6 +18,12 @@
 // model can steer (ordering), and a partially-honoured blanket claim is the worst of both.
 // Corroboration by re-running the detector — the ideal fix — is not available here: the engine
 // receives already-computed signals, so the budget is the enforceable half.
+//
+// This budget is why `discrepancies` is classified `consequential` in REPO_OUTPUT_PAYOFF
+// (src/lib/llm/untrusted.ts) — the machine-readable record of which output channel an injection would
+// actually want, kept beside the boundary prose that steers attempts away from this one and into the
+// inert `risks` channel. If a change here alters what a discrepancy can buy, that classification (and
+// the boundary prose promising `risks` is harmless) is the other half to re-read.
 export const MAX_FLAGGED_DIMENSIONS = 2;
 
 /** The dimensions a discrepancy may actually widen, after the budget. */

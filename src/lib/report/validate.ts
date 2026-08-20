@@ -136,6 +136,10 @@ export function parseRepositoryHistory(data: unknown): RepositoryHistory {
         confidence: isNum(s.confidence) ? s.confidence : 0,
         engineProvider: isStr(s.engineProvider) ? s.engineProvider : "",
         engineModel: isStr(s.engineModel) ? s.engineModel : "",
+        // Missing coerces to null, NOT to "" — an empty string is a value two points could
+        // both carry and so would compare EQUAL, which is the silent instrument-mismatch this
+        // field exists to prevent. Unknown provenance is not evidence of comparability.
+        rubricVersion: isStr(s.rubricVersion) ? s.rubricVersion : null,
         scannedAt: isStr(s.scannedAt) ? s.scannedAt : "",
         dimensions: dims.flatMap((d) =>
           isObj(d) && isStr(d.dimId) && isNum(d.score) ? [{ dimId: d.dimId, score: d.score }] : [],

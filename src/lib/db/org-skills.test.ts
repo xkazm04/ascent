@@ -18,7 +18,9 @@ import {
   createOrgSkill,
   listOrgSkills,
   recordSkillDownload,
+  updateOrgSkill,
 } from "@/lib/db/org-skills";
+import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
 
 function fakePrisma(opts: {
   slugToId?: Record<string, string>;
@@ -215,5 +217,59 @@ describe("adoptOrgSkill — org tenant boundary", () => {
     mockGetPrisma.mockReturnValue(prisma);
     expect(await adoptOrgSkill("acme", "s1", "acme/repo", "alice")).toBe(false);
     expect(calls.adoptionUpsert).toHaveLength(0);
+  });
+});
+
+describe("updateOrgSkill — version and contentHash tell ONE story", () => {
+  // The manifest publishes both fields; a client diffing it picks one to answer "am I stale?". The
+  // digest is authoritative (it is the shared, comparable key), so `version` must move exactly when
+  // the digest moves. Before the fix, a tags-only edit bumped version and left the digest alone.
+  function updatePrisma(stored: string) {
+    const updates: { where: unknown; data: Record<string, unknown> }[] = [];
+    const prisma = {
+      orgSkill: {
+        findUnique: vi.fn(async () => ({ contentHash: stored })),
+        update: vi.fn(async (args: { where: unknown; data: Record<string, unknown> }) => {
+          updates.push(args);
+          return { id: "s1" };
+        }),
+      },
+    };
+    return { prisma, updates };
+  }
+
+  it("bumps version and rewrites the key together when the body really changed", async () => {
+    const { prisma, updates } = updatePrisma(contentDigest("old body"));
+    mockGetPrisma.mockReturnValue(prisma);
+    await updateOrgSkill("s1", { content: "new body" });
+    expect(updates[0].data.contentHash).toBe(contentDigest("new body"));
+    expect(updates[0].data.version).toEqual({ increment: 1 });
+  });
+
+  it("re-pushing an identical body moves neither field (no churn)", async () => {
+    const { prisma, updates } = updatePrisma(contentDigest("same body"));
+    mockGetPrisma.mockReturnValue(prisma);
+    await updateOrgSkill("s1", { content: "same body" });
+    expect(updates[0].data.contentHash).toBeUndefined();
+    expect(updates[0].data.version).toBeUndefined();
+  });
+
+  it("a tags/description-only edit bumps NO version, because it rewrites no key", async () => {
+    const { prisma, updates } = updatePrisma(contentDigest("body"));
+    mockGetPrisma.mockReturnValue(prisma);
+    await updateOrgSkill("s1", { tags: ["a"], description: "new blurb" });
+    expect(updates[0].data.tags).toBe(JSON.stringify(["a"]));
+    expect(updates[0].data.version).toBeUndefined();
+    expect(updates[0].data.contentHash).toBeUndefined();
+    // The body was never read: a metadata edit must not cost a round-trip.
+    expect(prisma.orgSkill.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("a pre-`n1` key over an unchanged body is silently re-keyed, never versioned", async () => {
+    const { prisma, updates } = updatePrisma(legacyRawDigest("body"));
+    mockGetPrisma.mockReturnValue(prisma);
+    await updateOrgSkill("s1", { content: "body" });
+    expect(updates[0].data.contentHash).toBe(contentDigest("body"));
+    expect(updates[0].data.version).toBeUndefined();
   });
 });

@@ -7,6 +7,25 @@ versioned for release.
 ## [Unreleased]
 
 ### Changed
+- **Scoring rubric `r7` → `r8`: the LLM guardband narrowed 25 → 6.** The band bounding how far the
+  model may move a dimension from its deterministic signal was exactly as wide as a maturity level
+  (the bands are 25/20/20/20/16 points), so a model judgment at the band's edge could move a
+  repository's **published level** — the number on badges, gates and executive briefings — with no
+  deterministic support, and twice that on a dimension whose band a self-reported detector
+  discrepancy doubled. 6 sits below the narrowest level band even when doubled, and above the
+  model's measured appetite (the control-arm study found it used ≤24% of the old band). **Scores
+  will move without any repository changing**, most on repos where the model had argued furthest
+  from the detectors; the rubric-version bump busts every cached score so the whole fleet re-derives
+  under one instrument. An `r7` score was not wrong under `r7` — it is simply not comparable with an
+  `r8` one, which is what the version token exists to state.
+- **Goal meters report progress, not attainment.** `pct` was `current / target`, so a goal set at 70
+  while the fleet already sat at 63 rendered a 90%-full progress bar on the day it was created and
+  barely moved as the work happened. Goals now store the metric's value at creation
+  (`Goal.baselineValue` / `baselineAt`, additive and nullable) and the meter is the fraction of the
+  intended journey actually travelled. Goals created before the column exists have no baseline and
+  are **not** back-filled from scan history — an invented starting point is indistinguishable from a
+  measured one and can make an in-flight goal read as regressed — so they keep the old ratio and now
+  carry `pctBasis: "attainment"` and a label saying so.
 - **Ascent is now open source.** Relicensed from BUSL-1.1 (source-available) to
   **AGPL-3.0-only**, so the product can be run, forked and commercially self-hosted by anyone,
   and the marketing copy can say "open source" and mean it. A modified Ascent offered as a

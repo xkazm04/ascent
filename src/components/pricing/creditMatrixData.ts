@@ -5,7 +5,7 @@
 // beyond the monthly allowance (see src/lib/entitlement.ts, src/lib/db/credits.ts, src/lib/plans.ts).
 // Public scans, cached re-scans, and every capability below are never metered.
 
-import { PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
+import { PLAN_CAPABILITIES, PLAN_CAPABILITY_ORDER, PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
 
 export type { PlanId };
 
@@ -88,6 +88,17 @@ const from = (tier: PlanId): Record<PlanId, Cell> => {
   return Object.fromEntries(ORDER.map((p, j) => [p, j >= i])) as Record<PlanId, Cell>;
 };
 
+/** One matrix row per gated capability, in PLAN_CAPABILITY_ORDER. The cells read
+ *  `PLAN_FEATURES[id].capabilities` rather than re-deriving a tier threshold, so a cell is a ✓ exactly
+ *  when `planAllows()` would say yes for that tier — the page and the gate cannot disagree. */
+const capabilityRows = (): MatrixRow[] =>
+  PLAN_CAPABILITY_ORDER.map((c) => ({
+    label: PLAN_CAPABILITIES[c].label,
+    detail: PLAN_CAPABILITIES[c].detail,
+    tag: "plan" as const,
+    cells: Object.fromEntries(PLAN_ORDER.map((id) => [id, PLAN_FEATURES[id].capabilities.includes(c)])) as Record<PlanId, Cell>,
+  }));
+
 export const MATRIX_GROUPS: MatrixGroup[] = [
   {
     key: "scanning",
@@ -133,12 +144,11 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       { label: "Scan history", detail: "Progress trends over your retention window.", tag: "plan", cells: { free: "30 days", pro: "180 days", team: "1 year", enterprise: "Custom" } },
       { label: "Segments + comparisons", detail: "Slice the fleet by business unit and compare side by side.", tag: "plan", cells: from("team") },
       { label: "Playbooks + planning", detail: "Turn gaps into tracked initiatives and goals.", tag: "plan", cells: from("team") },
-      { label: "White-label briefings", detail: "Board-ready PDF briefings under your own brand.", tag: "plan", cells: from("team") },
-      { label: "Skills library", detail: "Author and roll out your own agent-skill catalog.", tag: "plan", cells: from("team") },
-      // BYOM ships today and is genuinely gated at this tier (planAllowsByom) — Team and up since the
-      // open-source transition: it is the concession that keeps a customer who COULD self-host on the
-      // cloud, so pricing it at Enterprise pushed exactly that customer toward `git clone`.
-      { label: "Connect your own model", detail: "Run scoring on your own Bedrock or OpenRouter account (bring-your-own-model).", tag: "plan", cells: from("team") },
+      // The GATED capabilities, ticked from the very array the entitlement gate indexes. These rows
+      // used to be hand-typed with hand-typed `from(tier)` cells, so the matrix could promise a tier a
+      // capability the gate refused (and it silently omitted Shared org memory and PDF export, both
+      // gated and both unsold). Ungated selling points stay hand-written above and below.
+      ...capabilityRows(),
       // Roles and the audit trail ship today; SAML/OIDC sign-in does NOT — the login is GitHub OAuth via
       // Supabase (src/lib/auth.ts). A ✓ here claimed a shipped capability. Under the Custom tier's
       // "adjustable, scoped with you" framing the honest cell is "Scoped", which is what the enquiry

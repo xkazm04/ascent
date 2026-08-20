@@ -307,7 +307,9 @@ describe("upgradePassport — 0.1.0 → current on read", () => {
 // ── 0.2.0: declined by choice ─────────────────────────────────────────────────────────────────────
 describe("applyPassportOverrides — declined by choice", () => {
   // A bare repo: carries the observability / CI / memory / skills blockers a decline stands down.
-  const base = buildPassport(report({ governance: null }), snap({}));
+  // The package.json is load-bearing since 0.4.0 — WITHOUT it the monitoring deps are unobservable, so
+  // the honest finding is "could not assess", not "zero observability" (see the three-valued tests).
+  const base = buildPassport(report({ governance: null }), snap({ tree: ["package.json"], files: { "package.json": "{}" } }));
 
   it("retires the matching blocker and re-renders it as an annotated decision", () => {
     expect(base.productionReadiness.blockers.some((b) => /^Zero observability/.test(b))).toBe(true);
@@ -321,6 +323,8 @@ describe("applyPassportOverrides — declined by choice", () => {
         label: "Error tracking",
         reason: "Internal cron worker; platform pages on failure.",
         blocker: expect.stringMatching(/^Zero observability/),
+        // 0.4.0: the minted id is what the decision is attached to; `blocker` is now only payload.
+        findingId: "prod.zero-observability",
       },
     ]);
   });

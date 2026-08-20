@@ -28,7 +28,7 @@ import { bumpMemoryAccessCounts, isDbConfigured, lifecycleWorkingSet } from "@/l
 import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isMemoryKind } from "@/lib/org/memory-kinds";
-import { isRecallable, normalizeCharBudget, recallMemories } from "@/lib/memory/recall";
+import { deliveredMemoryIds, isRecallable, normalizeCharBudget, recallMemories } from "@/lib/memory/recall";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,10 +79,12 @@ async function handle(request: Request, params: RecallParams) {
   // ONLY what was returned gets its tally bumped. A memory that lost the budget race was not recalled,
   // and counting it would turn accessCount into "how often was this store queried" — a number that rises
   // uniformly and therefore ranks nothing. One batched, best-effort update.
-  await bumpMemoryAccessCounts(
-    params.org,
-    result.selected.map((s) => s.memory.id),
-  );
+  //
+  // The delivered set comes from `deliveredMemoryIds`, not from a local `.map` over `result.selected`.
+  // That rule has ONE owner in the core precisely so each adapter (this route today, an MCP
+  // `memory_recall` verb tomorrow) cannot quietly re-derive it — `result` also carries `omitted`, one
+  // plausible slip away from counting rows that never reached the agent.
+  await bumpMemoryAccessCounts(params.org, deliveredMemoryIds(result));
 
   // WHAT LOST, AND WHY. Reporting only a COUNT of omissions is the same defect as reporting only the
   // winners: a caller can see that something was left out but not whether it lost the budget race (raise

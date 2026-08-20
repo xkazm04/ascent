@@ -22,10 +22,14 @@ const DOCTOR = `#!/usr/bin/env node
 //           In CI, gate --run/reporting to trusted events (push, or same-repo PRs) only.
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
-// Score semantics: the percentage is a weighted pass ratio over the findings THIS run emitted
-//   (pass=1, warn=0.5, fail=0) — --run adds one finding per capability, so only compare scores from
-//   same-shaped runs; "fails"/"warns" are the stable headline numbers. --run gives each capability
-//   command 180 seconds before it is killed and reported as FAIL. Details: .ai/SPEC.md.
+// Score semantics: the percentage is a weighted pass ratio over the SCORABLE findings THIS run
+//   emitted (pass=1, warn=0.5, fail=0) — --run adds one finding per capability, so only compare
+//   scores from same-shaped runs; "fails"/"warns" are the stable headline numbers. A clause the
+//   runner could not judge (no git history, for one) is emitted as level 'unchecked': counted in
+//   "unchecked", excluded from BOTH halves of the ratio, and never a fail. That is what makes the
+//   "same-shaped runs" rule checkable from the output instead of merely stated — an unable-to-check
+//   outcome is a result, not an absence. --run gives each capability command 180 seconds before it
+//   is killed and reported as FAIL. Details: .ai/SPEC.md.
 // Contract: .ai/SPEC.md. Reimplement freely; the checks are what matter, not this runner.
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -33,6 +37,10 @@ import { execSync } from 'node:child_process';
 const ROOT = process.cwd();
 const RUN = process.argv.includes('--run');
 const findings = [];
+// Levels: 'pass' | 'warn' | 'fail' | 'unchecked'. 'unchecked' is a FIRST-CLASS outcome, not a
+// silence: a clause this runner declined to judge (its evidence was unavailable here) is reported
+// so the reader can tell "everything passed" from "we only looked at half of it". It carries no
+// weight and is not in the score's denominator, so declining to judge can neither reward nor punish.
 const add = (level, msg) => findings.push({ level, msg });
 const check = (ok, label, miss) => add(ok ? 'pass' : miss, (ok ? '' : 'missing ') + label);
 
@@ -121,12 +129,16 @@ if (!existsSync(path)) {
   if (gPath && existsSync(gPath)) {
     const never = flow(readFileSync(gPath, 'utf8'), 'neverCommit');
     if (never.length) {
-      let tracked = null; // null = git unavailable (shallow tarball, no repo) -> report nothing
+      let tracked = null; // null = git unavailable (shallow tarball, no repo)
       try {
         tracked = execSync('git ls-files -- ' + never.map((p) => JSON.stringify(p)).join(' '), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
       } catch { tracked = null; }
       if (tracked) add('fail', 'GUARDRAIL VIOLATION: git tracks never-commit file(s): ' + tracked.split('\\n').slice(0, 5).join(', '));
       else if (tracked !== null) add('pass', 'no never-commit secret files are tracked (' + never.length + ' patterns)');
+      // Git unavailable: this used to emit NOTHING, so a tarball run and a run that positively cleared
+      // the hardest guardrail in the standard produced the same output. Say so instead - the reader is
+      // entitled to know the secret check did not happen.
+      else add('unchecked', 'never-commit guardrail NOT checked (' + never.length + ' patterns): git is unavailable here (shallow tarball or no repository), so nothing could be compared against the index');
     }
   }
 
@@ -196,12 +208,21 @@ if (!existsSync(path)) {
   // rather than false-warn.
   const gen = kv(text, 'generatedAt');
   const commitDate = (f) => { try { return execSync('git log -1 --format=%cs -- "' + f + '"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
+  // Files present but NOT comparable (no generatedAt to compare to, or no commit date available).
+  // Skipping them silently made a shallow CI clone read exactly like a repo whose manifest was proven
+  // fresh - drift detection is check 5 of the contract, and a run that could not perform it must say
+  // so. Reported as ONE aggregated 'unchecked' finding, not one per file: it is a single fact about
+  // the run's environment, and a per-file wall would bury the findings that are about the repo.
+  const uncomparable = [];
   for (const f of flow(text, 'generatedFrom')) {
-    if (!existsSync(f) || !gen) continue;
-    const cd = commitDate(f);
-    if (cd && cd > gen)
+    if (!existsSync(f)) continue;
+    const cd = gen ? commitDate(f) : '';
+    if (!cd) { uncomparable.push(f); continue; }
+    if (cd > gen)
       add('warn', 'manifest may be stale: ' + f + ' changed after generatedAt (' + gen + ') - regenerate');
   }
+  if (uncomparable.length)
+    add('unchecked', 'freshness NOT checked for ' + uncomparable.length + ' generatedFrom file(s) (' + (gen ? 'no commit date available - shallow clone or no git history' : 'manifest declares no generatedAt') + '): ' + uncomparable.slice(0, 5).join(', '));
   if (existsSync(ctxIndex)) {
     try {
       for (const m of (JSON.parse(readFileSync(ctxIndex, 'utf8')).modules || [])) {
@@ -221,17 +242,28 @@ if (!existsSync(path)) {
   if (/TODO/.test(text)) add('warn', 'manifest still has TODO placeholders (purpose / secretsFrom / boundaries / agents)');
 }
 
-// Weighted pass ratio over the findings THIS run emitted — the denominator varies with --run and
-// with which optional surfaces (hooks, CI) exist, so treat fails/warns as the stable numbers and
-// only compare percentages between same-shaped runs (documented in docs/features/onboarding/ai-manifest-spec.md).
+// Weighted pass ratio over the SCORABLE findings this run emitted — the denominator varies with
+// --run and with which optional surfaces (hooks, CI) exist, so treat fails/warns as the stable
+// numbers and only compare percentages between same-shaped runs (documented in
+// docs/features/onboarding/ai-manifest-spec.md).
+//
+// 'unchecked' findings are excluded from BOTH halves of the ratio. They are not a fourth weight: a
+// clause the runner declined to judge is not half-true, and folding it in at any weight would let
+// the ABSENCE of evidence move the score. Excluded and COUNTED is the honest pair - the percentage
+// stays a ratio over what was actually judged, and 'unchecked' publishes how much wasn't, so the
+// spec's "only compare same-shaped runs" rule is checkable from the payload rather than trusted.
 const weight = { pass: 1, warn: 0.5, fail: 0 };
-const score = findings.length ? Math.round(100 * findings.reduce((a, f) => a + weight[f.level], 0) / findings.length) : 0;
-const icon = { pass: 'OK  ', warn: 'WARN', fail: 'FAIL' };
+const scored = findings.filter(f => f.level !== 'unchecked');
+const score = scored.length ? Math.round(100 * scored.reduce((a, f) => a + weight[f.level], 0) / scored.length) : 0;
+const icon = { pass: 'OK  ', warn: 'WARN', fail: 'FAIL', unchecked: 'SKIP' };
 console.log('\\n.ai conformance - ' + ROOT);
 for (const f of findings) console.log('  [' + icon[f.level] + '] ' + f.msg);
 const fails = findings.filter(f => f.level === 'fail').length;
 const warns = findings.filter(f => f.level === 'warn').length;
-console.log('\\nConformance: ' + score + '%  (' + fails + ' fail, ' + warns + ' warn)');
+const unchecked = findings.length - scored.length;
+// 'unchecked' prints even at 0: "0 unchecked" is the statement that this run judged every clause it
+// knows about, which is exactly what a reader comparing two percentages needs to establish.
+console.log('\\nConformance: ' + score + '%  (' + fails + ' fail, ' + warns + ' warn, ' + unchecked + ' unchecked over ' + scored.length + ' scored)');
 if (!RUN) console.log('Tip: re-run with --run to execute and verify capability commands.');
 console.log('Then re-scan in Ascent to confirm the maturity delta.');
 
@@ -245,7 +277,12 @@ if (process.argv.includes('--json')) {
   // adopt->verify->re-score loop looked closed while Ascent never heard a thing. Additive field -
   // consumers of { score, fails, warns, findings } are unaffected.
   const missing = [!reportUrl && 'ASCENT_CONFORMANCE_URL', !reportTok && 'ASCENT_CONFORMANCE_TOKEN', !reportRepo && 'GITHUB_REPOSITORY'].filter(Boolean);
-  const summary = { score: score, fails: fails, warns: warns, findings: findings };
+  // 'unchecked' + 'scored' make the run's SHAPE machine-readable: the score is round(100*Sum/scored),
+  // so a consumer can now verify two percentages were computed over the same denominator instead of
+  // taking the spec's comparability caveat on faith. Additive per the spec's versioning rule
+  // (unknown fields MUST be ignored) - { score, fails, warns, findings } consumers are unaffected,
+  // and the exit code below still keys on 'fails' alone, so no adopter's gate changes behaviour.
+  const summary = { score: score, fails: fails, warns: warns, unchecked: unchecked, scored: scored.length, findings: findings };
   if (missing.length) summary.reportSkipped = 'not reported to Ascent - set ' + missing.join(' + ') + ' (e.g. in CI)';
   process.stdout.write(JSON.stringify(summary) + '\\n');
   if (reportUrl && reportTok && reportRepo && typeof fetch === 'function') {
@@ -253,7 +290,10 @@ if (process.argv.includes('--json')) {
       const res = await fetch(reportUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + reportTok },
-        body: JSON.stringify({ repo: reportRepo, headSha: process.env.GITHUB_SHA || null, score: score, fails: fails, warns: warns }),
+        // 'unchecked' travels with the score for the same reason it prints: a receiver storing a
+        // percentage without its shape cannot compare two of them. Additive - a receiver that does
+        // not know the field ignores it (spec rule 3), so older Ascent deployments keep working.
+        body: JSON.stringify({ repo: reportRepo, headSha: process.env.GITHUB_SHA || null, score: score, fails: fails, warns: warns, unchecked: unchecked }),
       });
       // fetch only rejects on a network error, never on an HTTP error status - so inspect res.ok and
       // the body. A 401 (bad token), 503 (Ascent DB off), or a 200 with { recorded:false } (repo not

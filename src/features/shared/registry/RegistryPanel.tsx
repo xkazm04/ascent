@@ -4,9 +4,10 @@
 // Two shapes over the same `RegistryView`, chosen by whether a registry is identified:
 //
 //   NOT identified (`unmapped`, incl. the no-permission case) — the editorial invitation. A `Dateline`
-//   masthead, the honest verdict, the three artifacts as they sit in ascent's tables today, and
-//   onboarding as a numbered CONTENTS PAGE ("setting up the registry") you complete in any order.
-//   Nothing is drawn, because there is no machine yet to draw.
+//   masthead, the honest verdict, and onboarding as a numbered CONTENTS PAGE ("setting up the
+//   registry") you complete in any order. Nothing is DRAWN and nothing is COUNTED, because there is no
+//   machine yet to draw and no registry yet to count against — the artifact ledger belongs to the
+//   identified shape only.
 //
 //   IDENTIFIED (`scaffold_pr_open` · `indexed` · `migrating` · `error` · hosted mirror) — the
 //   engineering drawing on top: the repo as a mono file map with counts and hashes, the artifact
@@ -97,11 +98,14 @@ function UnmappedPanel({ view, slug }: { view: RegistryView; slug: string }) {
 
       <ErrorLine view={view} />
 
-      <RegistryArtifactLedger view={view} slug={slug} />
+      {/* No artifact ledger here. The three Stat cards read `n in the registry / +m hosted only` —
+          a reading of a registry that does not exist yet, so every cell was a zero with a migrate
+          action that could only answer "map a registry first". The identified panel below renders
+          the same ledger the moment there IS something for it to count. */}
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        {/* Step 1's real answers (create · map) render inside the active entry; "stay hosted" is
-            stated there as prose, because it has no endpoint and needs none. */}
+        {/* Step 1's real answers (create · map, the map path with a picker of the repos ascent can
+            already see) render inside the active entry. */}
         <RegistryStepperIndex view={view} slug={slug} />
         <div className="space-y-6">
           <RegistryTreeMap view={view} />

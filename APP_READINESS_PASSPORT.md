@@ -1,4 +1,4 @@
-# The App Readiness Passport: design document (v0.2.0)
+# The App Readiness Passport: design document (v0.4.0)
 
 > A small, **descriptive, tool-naming** JSON fingerprint you drop into every app so you can
 > cross-compare a whole portfolio **on first sight**: what the app *is*, what it's *built on*, how
@@ -144,6 +144,105 @@ The rules that make this decision *memory* rather than decoration:
   and the automation artifacts. Deliberately **not** declinable: the tokenless "enforcement not observable"
   caveat. That is a limitation of the *evidence*, and letting an owner silence it would let a trade-off
   annotation launder a blind spot.
+- **It joins on a minted id, never on the rendered sentence** (0.4.0 — see §2e).
+- **It expires** (0.4.0 — see §2f).
+
+### 2e. Findings: every blocker carries a minted id (0.4.0)
+
+Through 0.3.0 the blocker lists were bare strings, and *everything that had to point at a blocker pointed
+at its prose*: a decline matched the builder's sentence with a regex, and the fleet rollup grouped by exact
+string with one hand-written normalization for the single blocker whose wording varies. That is a join key
+a copy edit can change. Rewording one sentence silently detached every decline made against it — the
+accepted gap reappeared as an open blocker, the owner's stated reason was orphaned, and nothing anywhere
+noticed — and split one portfolio bucket into two, so the Pareto under-reported the org's most common
+structural problem.
+
+0.4.0 adds `automationReadiness.findings[]` / `productionReadiness.findings[]`:
+
+```jsonc
+{ "id": "prod.zero-observability",  // the CAUSE, axis-scoped. The join key. Stable across rewordings.
+  "code": "zero-observability",     // the id without its axis - the fleet rollup bucket key
+  "text": "Zero observability: no error tracking, structured logs, metrics, or tracing.",
+  "severity": "block" }             // info | warn | block | critical (ordinal)
+```
+
+**`blockers[]` is unchanged** - it is now the rendered projection `findings.map(f => f.text)`, kept
+verbatim so every pre-0.4.0 reader keeps working. The rule the two express together:
+
+> **A persisted judgment attaches to a minted id; the rendered string is payload.**
+
+`severity` is what makes 2f possible. `critical` is never emitted by a scan: it is what a `block` finding
+*becomes* once the owner marks the repo business/mission-critical or GA (the P4 fields in section 4).
+
+### 2f. A decline expires (0.4.0)
+
+Before 0.4.0 a decline persisted by field path indefinitely and `at` was display-only. A team declines
+"no dependency/secret/SAST scanning" while the repo is an internal prototype; the repo later starts
+handling customer data and the decline still silently suppresses the blocker. The accepted risk was
+accepted about a *different repo than the one that exists now*.
+
+A decline is therefore re-surfaced - the blocker **stays in `blockers[]`** and the decision is rendered
+with `needsReconfirm: true` plus a `reconfirmReason` - on exactly three triggers:
+
+| Trigger | Test | Why this one |
+|---|---|---|
+| **Kind changed** | the stored `code` differs from the current finding's `code` | the same field path is now reporting a different gap |
+| **Severity rose** | the current (escalated) severity outranks the stored one | the prototype -> GA / business-critical transition |
+| **Aged out** | `at` is more than `DECLINE_MAX_AGE_DAYS` (**365**) before `generatedAt` | an accepted risk deserves one look a year |
+
+And on **nothing else** - emphatically not on a rewording, and not on score jitter. That restraint is the
+whole design: re-surfacing eagerly trains owners to re-decline reflexively, which destroys the signal
+value of a decline entirely. Minted ids (2e) are what make "ignore rewordings" implementable at all.
+
+Ageing is measured against the passport's own `generatedAt`, never a clock, so the overlay stays pure and
+two readers of the same stored pair always agree.
+
+A decline recorded *before* 0.4.0 carries no `code`/`severity` baseline. That absence reads as **unknown**:
+those two comparisons are skipped rather than resolved to a fabricated "unchanged" (which would let a real
+escalation ride) or a fabricated "changed" (which would re-open every decision in the fleet at once). The
+age rule still applies, because `at` was always recorded.
+
+### 2g. Named vs. capability, and per-field evidence (0.4.0)
+
+Two more conflations - one in `stack`, one in `evidence` - fixed the same way: give each fact its own
+encoding instead of overloading one slot.
+
+**Three-valued named fields.** `stack.monitoring.*` and `stack.hosting` used `null` for two different
+facts: "this app has no error tracking" and "the scan could not determine whether it has error tracking".
+The difference lived in a whole-artifact `evidence.notes[]` caveat, which does not survive a portfolio
+query - so a fleet statement like "43 repos have no error tracking" was built on a conflation, and a
+coverage problem in *our* scan was reported as a real gap in the *customer's* stack. Since 0.4.0:
+
+| Value | Means |
+|---|---|
+| a vendor name (`"sentry"`) | observed |
+| `null` | the scan looked, and the app has none |
+| `"unknown"` | the scan **could not look** - the evidence (a readable `package.json`, a tree index) was outside the snapshot |
+
+It is an in-band string rather than an omitted key on purpose: the distinction has to survive the query,
+and an omitted key does not. Every consumer that derives a rung from a named field goes through
+`isNamed()` - a bare truthiness test reads `"unknown"` as a vendor and fabricates a level nothing
+observed. When monitoring is unclassifiable the builder emits `prod.observability-unassessable` (severity
+`info`, an evidence limitation) *instead of* `prod.zero-observability` (severity `block`, a real gap).
+
+**Per-field evidence.** `evidence.confidence` is one 0..1 figure for the whole artifact, so a stack entry
+inferred from a dependency declaration and one inferred from an observed command carried identical
+apparent authority, and portfolio filtering on confidence filtered whole passports rather than weak
+fields. 0.4.0 adds `evidence.fields`, keyed by the same dotted paths `declined[]` uses - one vocabulary,
+not two - with **four fixed rungs**, because a scale whose meaning is not stated becomes decorative and
+consumers threshold on it inconsistently:
+
+| Basis | Confidence | Claims |
+|---|---|---|
+| `observed` | 1.0 | the artifact itself was read (file **content** fetched, command present) |
+| `declared` | 0.8 | a dependency/config declaration names it; nothing shows it running |
+| `inferred` | 0.5 | derived from a path/name heuristic over the tree index |
+| `unobserved` | 0 | the evidence was not in the snapshot - the field reads `"unknown"` |
+
+`fields` is **deliberately not exhaustive**: rating every field roughly doubles the artifact, which is the
+stated cost of per-field confidence, so only the named/heuristic fields are rated. A reader filtering on
+strength MUST prefer `fields[path]` and fall back to `evidence.confidence` only when the path is absent
+(a pre-0.4.0 row, or a field the builder does not rate).
 
 ---
 
@@ -201,6 +300,20 @@ Two deliberate modelling choices:
    drift set: when those change, the passport is stale and should be regenerated.
 5. **Ordinal-first.** Every comparable dimension is a short ordinal enum, not free text, so a portfolio
    table is `sort()`-able and a dashboard can render it without parsing prose.
+6. **No consumer branches on a vendor name.** The passport *names* tools (section 3) - that is the point
+   of the metadata block - but **nothing downstream may make a decision because of the name**. Concretely:
+   no rung criterion, no score, no band, no tier predicate may test for `"sentry"`, `"vercel"`,
+   `"github-actions"` or any other product. Score on the **ordinal rung**; the vendor is read *after*, by
+   a human. The moment one score pays out for a named tool, a repo scores differently for choosing a
+   different tool that does the same job, and the artifact stops being portable across stacks - which is
+   its entire premise. Through 0.3.0 this held only because `src/lib/analyze/passport-score.ts` happened
+   to behave, and was stated nowhere, so the next contributor wanting a vendor-keyed criterion had nothing
+   to be refused by. It is now stated here and enforced by `passport-score.test.ts`, which reads that
+   module's source. The guard is scoped to the **scoring** module, not the repo: the detection layer in
+   `passport.ts` legitimately must know vendor names - naming is its job, scoring on the name is not.
+7. **Two facts never share one encoding.** Absent is not unclassified (2g); an unread finding is not an
+   accepted one (2d); a rendered string is not an identity (2e). Every time this design has been wrong, it
+   has been because one slot carried two meanings and the reader could not tell which one they had.
 
 ---
 
@@ -265,6 +378,43 @@ and the gaps surfaced as explicit `blockers` you can sort and act on.
 ---
 
 ## 9. Version history
+
+### 0.4.0: identity, and the end of two-facts-in-one-slot
+
+| Change | Through 0.3.0 | 0.4.0 |
+|---|---|---|
+| Blocker identity | the rendered string was the join key | `findings[]` with a minted `id`/`code`/`severity`; `blockers[]` is its text projection (2e) |
+| Decline lifetime | forever; `at` display-only | re-confirmed on kind change / severity rise / `DECLINE_MAX_AGE_DAYS` (2f) |
+| Named stack fields | `null` meant absent **or** unclassifiable | three-valued: name / `null` / `"unknown"` (2g) |
+| Detection strength | one whole-artifact `evidence.confidence` | plus `evidence.fields[path]` on four fixed rungs (2g) |
+| Vendor-name branching | held by convention, stated nowhere | design principle 6, enforced by a source-reading test |
+| New optional fields | - | `findings[]`, `evidence.fields`, `declined[].findingId`/`.at`/`.needsReconfirm`/`.reconfirmReason` |
+| Schema `$id` | `app-passport-0.2.json` | `app-passport-0.4.json` |
+
+**Why ids.** Everything the passport persists a *judgment* against - an owner's decline, a fleet rollup
+bucket - was pointed at a sentence a copy edit could change. The fix is the general rule in 2e, not a
+better regex.
+
+**Why an expiry.** A decline is a decision about the repo as it was. Left permanent it keeps suppressing a
+finding about the repo as it now is. The three triggers, and the deliberate refusal to add a fourth, are in
+2f.
+
+**Migration (automatic, no action needed).** `upgradePassport()` mints ids for a stored row's blockers by
+matching each line back to the cause that produced it, and stops there. It does **not** rewrite named
+`null`s to `"unknown"` (the stored value is ambiguous and rewriting it would erase every genuine "no error
+tracking" finding in the fleet - the `null` floor is the honest read), and it does **not** synthesize
+`evidence.fields` (that scan never rated a field; absent reads as unknown, and a reader falls back to the
+whole-artifact confidence exactly as before). A legacy blocker line matching no known cause gets an id
+marked `unclassified` and suffixed by position - **intentionally not durable**, because inventing a stable
+identity for prose we cannot classify is the very defect ids exist to fix. Existing declines are keyed by
+field path and are therefore not orphaned by any of this.
+
+### 0.3.0: the autonomy tier
+
+Structured `artifacts.sandbox` / `artifacts.hooks` booleans and a derived `autonomy` block (T0-T3 ladder
+with per-tier unlock checklists), documented in `docs/features/scanning/scan.md`. Migration honesty rule
+established here and reused by 0.4.0: a detector that postdates a stored row leaves its field **absent**
+(unknown) rather than writing a fabricated `false`.
 
 ### 0.2.0: from display artifact to **decision memory**
 

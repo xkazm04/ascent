@@ -4,6 +4,9 @@
 // see the header comment in briefingCards.tsx.
 
 import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
+// From goalViewLogic (the pure module), not the goalView barrel: this card also renders on the
+// public share page, and the wording must have one source across every goal surface.
+import { GOAL_ATTAINMENT_MARKER } from "@/components/org/shared/goalViewLogic";
 import { MoveRow } from "./briefingShared";
 import { scoreHex } from "@/lib/ui";
 import type { BriefingGoal, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
@@ -98,9 +101,21 @@ export function BriefingGoalsCard({
           {goals.map((g) => (
             <div key={g.label} className="flex items-center gap-3 text-base">
               <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
-              <Meter className="w-32 shrink-0" value={g.pct} color={scoreHex(g.pct)} />
-              <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400">
+              {/* The meter's basis rides in the tooltip and, when a goal can only report
+                  attainment, as a visible marker: an attainment bar opens near-full and a
+                  progress bar opens empty, so two goals side by side are not comparable
+                  unless the reader is told which is which. */}
+              <Meter
+                className="w-32 shrink-0"
+                value={g.pct}
+                color={scoreHex(g.pct)}
+                ariaLabel={`${g.label}: ${g.pct}% — ${g.pctLabel}`}
+              />
+              <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400" title={g.pctLabel}>
                 {g.current}/{g.target}
+                {g.pctBasis === "attainment" ? (
+                  <span className="text-slate-500"> · {GOAL_ATTAINMENT_MARKER}</span>
+                ) : null}
                 {g.etaDays != null ? ` · ~${g.etaDays}d` : ""}
               </span>
             </div>

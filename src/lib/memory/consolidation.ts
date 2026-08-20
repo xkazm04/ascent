@@ -83,8 +83,13 @@ export type RunPrompt = (prompt: string, signal?: AbortSignal) => Promise<string
 const OVERLAP_FLOOR = 0.12;
 /** Hard cap on how many candidates reach the prompt — bounds cost + latency regardless of store size. */
 const SHORTLIST_MAX = 6;
-/** Each candidate is truncated to this many chars in the prompt, so one huge memory can't crowd it out. */
+/** Each candidate is truncated to this many chars in the prompt, so one huge memory can't crowd it out.
+ *  Applied to the NEUTRALIZED text, never to the raw content — see buildConsolidationPrompt. */
 const CANDIDATE_EXCERPT = 600;
+/** The same cap for the memory being PROPOSED. Was an unnamed `4000` inline; it is the single largest
+ *  attacker-controlled span in this prompt (one write, quoted whole), so it gets a name and the same
+ *  neutralize-then-cut order as the candidates. */
+const PROPOSED_EXCERPT = 4000;
 /** Heuristic thresholds, used only when no model is reachable. */
 const HEURISTIC_DUPLICATE = 0.75;
 const HEURISTIC_SIMILAR = 0.35;
@@ -155,7 +160,9 @@ export function heuristicVerdict(matches: DuplicateMatch[]): ConsolidationVerdic
 /**
  * Build the write-intelligence prompt. Only the SHORTLIST reaches the model (never the whole store), and
  * each excerpt is truncated — so prompt size is bounded by SHORTLIST_MAX · CANDIDATE_EXCERPT no matter
- * how large the org's memory grows. Asks for strict JSON; parseVerdict re-validates everything anyway.
+ * how large the org's memory grows. That bound only HOLDS because the cut is applied after
+ * `neutralize`, not before it (see the note at the excerpt below). Asks for strict JSON; parseVerdict
+ * re-validates everything anyway.
  *
  * EVERY foreign-authored fragment (the proposed content, the stored excerpts, and the caller-supplied
  * kind/namespace) goes through the shared untrusted-content boundary — @/lib/llm/untrusted, the same
@@ -169,8 +176,16 @@ export function buildConsolidationPrompt(input: AnalyzeInput, matches: Duplicate
   const candidateBlock = matches
     .map((m, i) => {
       const c = byId.get(m.id)!;
-      const excerpt = neutralize(c.content.slice(0, CANDIDATE_EXCERPT));
-      const clipped = c.content.length > CANDIDATE_EXCERPT ? " …[truncated]" : "";
+      // ORDER IS LOAD-BEARING: neutralize FIRST, cut SECOND — the order scoring/prompt.ts uses for
+      // repo excerpts. Neutralizing GROWS the text (a forged `</untrusted_repo_data>` becomes the
+      // 25-char `[boundary marker removed]`), so cutting first and neutralizing after let a memory
+      // dense in forged markers expand back past CANDIDATE_EXCERPT and crowd the prompt with
+      // attacker-chosen text — in a pass whose verdict names the ids that get superseded. Cutting
+      // after neutralization is what makes the budget a budget. `clipped` is decided on the
+      // neutralized length because that is the string being cut.
+      const safe = neutralize(c.content);
+      const excerpt = safe.slice(0, CANDIDATE_EXCERPT);
+      const clipped = safe.length > CANDIDATE_EXCERPT ? " …[truncated]" : "";
       return `[${i + 1}] id=${c.id} kind=${neutralize(c.kind)} confidence=${c.confidence}\n${excerpt}${clipped}`;
     })
     .join("\n\n");
@@ -179,7 +194,7 @@ export function buildConsolidationPrompt(input: AnalyzeInput, matches: Duplicate
 kind: ${neutralize(input.kind)}
 namespace: ${input.namespace ? neutralize(input.namespace) : "(org-wide)"}
 content:
-${neutralize(input.content.slice(0, 4000))}
+${neutralize(input.content).slice(0, PROPOSED_EXCERPT)}
 
 EXISTING MEMORIES (the only ids you may reference)
 ${candidateBlock || "(none)"}`);

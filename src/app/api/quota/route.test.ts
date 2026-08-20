@@ -45,4 +45,18 @@ describe("GET /api/quota — rate limit on the public peek", () => {
     // The 61st request must be rejected BEFORE the quota/DB read — 60 admitted reads, not 61.
     expect(mockPeek).toHaveBeenCalledTimes(60);
   });
+
+  it("names the scope of the refusal — per-IP, with the budget and window the caller must fit", async () => {
+    let last: Response | null = null;
+    for (let i = 0; i < 61; i++) last = await GET(req("10.0.0.3"));
+    expect(last!.status).toBe(429);
+    // The route passes the whole RateLimitResult, so the refusal is self-describing: the caller can
+    // tell "you are calling too often" from "the fleet budget is spent" without reading our logs.
+    expect(last!.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    const body = await last!.json();
+    expect(body).toMatchObject({ code: "rate_limited", scope: "ip" });
+    expect(body.limiter).toBeTruthy();
+    expect(body.limit).toBeGreaterThan(0);
+    expect(body.windowSec).toBeGreaterThan(0);
+  });
 });

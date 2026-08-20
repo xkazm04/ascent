@@ -552,7 +552,17 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
   function runDoctor(dir: string): {
     status: number;
     stdout: string;
-    json: { score: number; fails: number; warns: number; findings: { level: string; msg: string }[] };
+    json: {
+      score: number;
+      fails: number;
+      warns: number;
+      /** Clauses the runner declined to judge — excluded from the score, counted beside it. */
+      unchecked: number;
+      /** The score's denominator (findings minus `unchecked`), published so it can be compared. */
+      scored: number;
+      findings: { level: string; msg: string }[];
+      reportSkipped?: string;
+    };
   } {
     const doctorPath = join(dir, ".ai", "doctor.mjs");
     mkdirSync(dirname(doctorPath), { recursive: true });
@@ -788,28 +798,72 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     expect(after).toContain('command: "node -e \\"process.exit(0)\\""');
   });
 
-  it("the --json payload has exactly the {score,fails,warns,findings} shape conformance/route.ts ingests", () => {
-    // The doctor auto-POSTs { repo, headSha, score, fails, warns } and prints { score, fails, warns,
-    // findings }. The route reads score/fails/warns as numbers — pin those keys + types so a payload
-    // rename can't silently break ingestion (the route would then 400 on missing numerics).
-    // `reportSkipped` is the one documented OPTIONAL addition (present only when report-back env is
-    // missing — which it is in this spawn); anything else appearing here is contract drift.
+  it("the --json payload has exactly the {score,fails,warns,unchecked,scored,findings} shape conformance/route.ts ingests", () => {
+    // The doctor auto-POSTs { repo, headSha, score, fails, warns, unchecked } and prints { score,
+    // fails, warns, unchecked, scored, findings }. The route reads score/fails/warns as numbers — pin
+    // those keys + types so a payload rename can't silently break ingestion (the route would then 400
+    // on missing numerics). `reportSkipped` is present only when report-back env is missing (it is in
+    // this spawn); `unchecked`/`scored` are the ADDITIVE shape fields (spec v0.2.0) a v0.1.0 reader
+    // ignores. Anything else appearing here is contract drift.
     writeConformantRepo(tmp);
     const { json } = runDoctor(tmp);
-    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "score", "warns"]);
+    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "score", "scored", "unchecked", "warns"]);
     expect(typeof json.score).toBe("number");
     expect(typeof json.fails).toBe("number");
     expect(typeof json.warns).toBe("number");
+    expect(typeof json.unchecked).toBe("number");
+    expect(typeof json.scored).toBe("number");
     expect(Array.isArray(json.findings)).toBe(true);
-    // Every finding is a {level,msg} with a level the score's weight map knows.
+    // Every finding is a {level,msg} with a level the runner knows — the three scorable ones plus
+    // `unchecked`, the declined-to-judge outcome that carries no weight.
     for (const f of json.findings) {
-      expect(["pass", "warn", "fail"]).toContain(f.level);
+      expect(["pass", "warn", "fail", "unchecked"]).toContain(f.level);
       expect(typeof f.msg).toBe("string");
     }
     // The reported counts agree with the findings array (the numbers the route trusts are derived,
     // not free-floating).
     expect(json.fails).toBe(json.findings.filter((f) => f.level === "fail").length);
     expect(json.warns).toBe(json.findings.filter((f) => f.level === "warn").length);
+    expect(json.unchecked).toBe(json.findings.filter((f) => f.level === "unchecked").length);
+    // `scored` IS the score's denominator — that is the whole point of publishing it, so pin the
+    // identity rather than just the type: a reader must be able to recompute the ratio.
+    expect(json.scored).toBe(json.findings.length - json.unchecked);
+  });
+
+  // ── the unchecked bucket (conformance-no-unchecked-bucket) ──────────────────────────────────
+  // A clause the runner DECLINES to judge used to emit no finding at all, so the score's denominator
+  // silently shrank: a repo scanned without git history and a repo that genuinely passed those
+  // clauses produced the same summary. The temp fixture dirs are not git repositories, so both
+  // decline points (the never-commit guardrail, which needs `git ls-files`) are live here.
+
+  it("emits an `unchecked` finding when git is unavailable instead of silently skipping the guardrail", () => {
+    writeConformantRepo(tmp);
+    const { json, stdout, status } = runDoctor(tmp);
+
+    const skipped = json.findings.filter((f) => f.level === "unchecked");
+    expect(skipped.length, "expected the never-commit guardrail to report itself as unchecked").toBeGreaterThanOrEqual(1);
+    expect(skipped.some((f) => /never-commit guardrail NOT checked/.test(f.msg))).toBe(true);
+    // It is NOT a failure — declining to judge must never turn an adopter's gate red.
+    expect(json.fails).toBe(0);
+    expect(status).toBe(0);
+    // The human report names the run's shape too, so a terminal reader sees it without --json.
+    expect(stdout).toMatch(/\d+ unchecked over \d+ scored/);
+    expect(stdout).toContain("[SKIP]");
+  });
+
+  it("excludes `unchecked` from BOTH halves of the score — absent evidence cannot move the percentage", () => {
+    writeConformantRepo(tmp);
+    const { json } = runDoctor(tmp);
+
+    const weight = { pass: 1, warn: 0.5, fail: 0 };
+    const scorable = json.findings.filter((f) => f.level !== "unchecked");
+    const expected = Math.round((100 * scorable.reduce((a, f) => a + weight[f.level as "pass" | "warn" | "fail"], 0)) / scorable.length);
+    expect(json.score).toBe(expected);
+    // Folding the unchecked findings in at ANY weight would give a different number — proving they
+    // are excluded rather than merely coincidentally neutral.
+    expect(json.unchecked).toBeGreaterThan(0);
+    const asWarns = Math.round((100 * (scorable.reduce((a, f) => a + weight[f.level as "pass" | "warn" | "fail"], 0) + 0.5 * json.unchecked)) / json.findings.length);
+    expect(json.score).not.toBe(asWarns);
   });
 });
 

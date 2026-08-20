@@ -37,6 +37,8 @@ vi.mock("@/lib/db", () => ({
   // and org-id lookup don't crash on a bare `vi.fn()` (which returns undefined). Salvage tests still
   // override the return where they assert against it.
   getScanReportByCommit: vi.fn(async () => null),
+  // Fired (fire-and-forget) when the peek limiter refuses — undefined here would throw before the 429.
+  recordQuotaEvent: vi.fn(async () => {}),
   getOrgId: vi.fn(async () => null),
 }));
 
@@ -57,13 +59,18 @@ vi.mock("@/lib/public-scan-quota", () => ({
   refundPublicScanQuota: vi.fn(async () => {}),
   monthlyQuotaExceeded: () => new Response(JSON.stringify({ code: "monthly_quota" }), { status: 429 }),
 }));
-vi.mock("@/lib/rate-limit", () => ({
-  rateLimitRequest: vi.fn(() => ({ ok: true })),
-  rateLimitRequestShared: vi.fn(async () => ({ ok: true })),
-  tooManyRequests: () => new Response(null, { status: 429 }),
-  SCAN_RATE_LIMIT: {},
-  PEEK_RATE_LIMIT: {},
-}));
+// The REAL `tooManyRequests` (not a status-only stub): the peek gate now hands it the whole
+// RateLimitResult, and the refusal body/headers it builds are the thing worth asserting.
+vi.mock("@/lib/rate-limit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
+  return {
+    rateLimitRequest: vi.fn(() => ({ ok: true })),
+    rateLimitRequestShared: vi.fn(async () => ({ ok: true })),
+    tooManyRequests: actual.tooManyRequests,
+    SCAN_RATE_LIMIT: {},
+    PEEK_RATE_LIMIT: {},
+  };
+});
 vi.mock("@/lib/scan-alerts", () => ({
   maybeAlertLowCredits: vi.fn(async () => {}),
   // cacheAndPersistScan fires the interactive regression check after a new authoritative persist.
@@ -355,6 +362,38 @@ describe("GET /api/scan — restricted to peek/mock (scan-pipeline-ingestion #5)
     mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
     const res = await GET(new Request("http://x/api/scan?url=o%2Fr&peek=1"));
     expect(res.status).toBe(204);
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+});
+
+// The peek probe is polled by the client meter, so its refusal has to be self-describing: a bare
+// Retry-After told the meter when to try again but never whether backing off would help at all.
+describe("GET /api/scan?peek=1 — the 429 names the scope that refused", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installNeutralDefaults();
+    mockAuth.mockResolvedValue({ token: undefined, orgSlug: "public" } as never);
+  });
+
+  it("states scope, limiter, budget and window — and refuses before the cache/head lookup", async () => {
+    vi.mocked(rateLimitRequest).mockReturnValue({
+      ok: false,
+      retryAfterSec: 7,
+      scope: "ip",
+      limiter: "peek",
+      limit: 120,
+      windowSec: 60,
+      evaluated: true,
+    } as never);
+
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr&peek=1"));
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    expect(res.headers.get("retry-after")).toBe("7");
+    expect(await res.json()).toMatchObject({ code: "rate_limited", scope: "ip", limiter: "peek", limit: 120, windowSec: 60 });
+    // The whole point of this gate: the GitHub head request it protects never runs.
+    expect(mockLookup).not.toHaveBeenCalled();
     expect(mockScan).not.toHaveBeenCalled();
   });
 });

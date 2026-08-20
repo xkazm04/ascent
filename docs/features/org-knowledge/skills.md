@@ -184,7 +184,28 @@ contract is unaffected (it never sent `invoke`).
    later, since re-adopting an old skill into a new repo restarts its chance to
    prove itself) → **new**, so a brand-new skill isn't punished for having
    no uses yet.
-3. Otherwise → **dormant**.
+3. Otherwise → **dormant**, which splits into three *states* (2026-08-20):
+   **abandoned** (really used at least once, then silence), **unused** (never
+   used, but this org's event pathway demonstrably works) and **unmeasured**
+   (no skill event of any kind has ever been recorded for this org, so nothing
+   is known about any skill's use). `SkillUsage.state` carries the split;
+   `verdict` stays the coarse three-value badge vocabulary, so the badge is
+   unchanged. Only **abandoned** is a prune candidate (`isPruneCandidate`) —
+   deleting a skill because its telemetry pathway is uninstrumented is an
+   unrecoverable action taken on absent data, and `unused` is a discovery
+   problem whose remedy is surfacing the skill, not removing it.
+   `usageSummary` reports the three counts beside `dormant`.
+
+The 30-day window is now a **floor, not a constant** (2026-08-20): a skill's
+own cadence derives its window (`dormancyWindowFor`) — a declared
+`cadenceDays` if the skill has one, else its observed rhythm
+(`ageDays / useCount`, needing at least two uses) — times two, clamped to
+`[DORMANCY_WINDOW_DAYS, DORMANCY_WINDOW_MAX_DAYS]` (30…120). A
+release-checklist skill used correctly once a quarter used to read `dormant`
+for two months of every three and become a prune candidate for being used
+exactly as intended. Both halves of the rule (the silence threshold and the
+"still new" age guard) read the same derived `windowDays`, so a skill can
+never be `new` and `dormant` at once.
 
 `SkillDormancyBadge` renders this with `active` in emerald, `dormant` in
 amber, and `new` deliberately neutral (slate) rather than green, since it
@@ -200,7 +221,38 @@ and reports the overall-score delta and the largest-moving dimension delta
 between them. If either side of the pair is missing, the status is
 `no-before-scan` or `no-after-scan` rather than a fabricated delta: the code
 explicitly treats inventing one as turning the library into "a lie
-generator." `SkillOutcomes` renders this with an explicit disclaimer that the
+generator."
+
+**Instrument identity (2026-08-20).** A delta is only a statement about the
+practice if both scores came off the same instrument, so the pair must now
+agree on `rubricVersion` **and** `engineProvider`. Two further statuses carry
+the cases where it cannot: `instrument-mismatch` (both sides declare an
+instrument and they differ — `SCORING_RUBRIC_VERSION` has already moved
+r6→r7, so part of any cross-version delta is re-weighting, not the practice)
+and `instrument-unknown` (at least one side records no instrument at all —
+silence about provenance is not evidence of comparability). Both null out
+`overallDelta` *and* `dimensionDeltas`. `COMPARABLE_RUBRIC_GROUPS` is the
+declared equivalence table and is deliberately **empty**: an unjustified
+entry would restore the silent error under a legitimising label.
+
+*Known gap:* `HistoryPoint` does not yet carry `rubricVersion` (the column
+`Scan.rubricVersion` is persisted), so `skill-outcomes-load.ts` cannot pass
+it and every production pair currently reads `instrument-unknown`. Threading
+that one field through `getRepositoryHistory` → `toOutcomeScan` restores the
+`measured` status for same-rubric pairs.
+
+**Pairing distance and coverage (2026-08-20).** Each outcome carries
+`beforeGapDays` / `afterGapDays` and `withinPairingBound`
+(`PAIRING_MAX_DISTANCE_DAYS = 180`, overridable per call): an eighteen-month-old
+"before" scan used to be selected as readily as last week's. The bound
+**flags, it does not filter** — filtering on an uncalibrated bound would empty
+the view in one commit. `aggregateOutcomes` returns the mean delta *inside* an
+object that also carries `measured` / `unpaired` / `byStatus`, and
+`meanDeltaLine` renders both as one string, so a mean cannot be published
+without the population it excluded ("+5 pts mean · 2 of 4 adoptions
+measured…") — the point where selection bias would otherwise enter silently.
+
+`SkillOutcomes` renders this with an explicit disclaimer that the
 movement is correlational, not causal ("Movement in the same window as the
 adoption: correlation, not proof of cause").
 

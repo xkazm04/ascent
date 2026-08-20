@@ -193,8 +193,10 @@ export {
   getGoalOrgSlug,
   isGoalMetric,
   metricLabel,
+  GOAL_PCT_LABEL,
   type GoalProgress,
   type GoalMetric,
+  type GoalPctBasis,
 } from "@/lib/db/plan";
 export {
   listPlaybooks,

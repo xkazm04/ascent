@@ -76,6 +76,55 @@ against a sliding window with **two halves**:
 | `ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN` | unset (fail **closed**) | When the shared store is unreachable, `1` degrades to the in-memory ceiling (availability) instead of returning 429 (safety). |
 | `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,BADGE,CONTACT}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
 
+### What a 429 tells the caller
+
+A refusal names the layer that refused, because the three cases need opposite responses. Routes that
+pass the whole `RateLimitResult` to `tooManyRequests()` — the ingest guard plus every JSON API route
+that rate-limits (`/api/scan`'s peek gate, `/api/gate/[owner]/[repo]`, `/api/mcp`, `/api/quota`,
+`/api/org/import`, `/api/plan-enquiry`) — get:
+
+| `scope` | body `code` | Headers | What the caller should do |
+| --- | --- | --- | --- |
+| `ip` | `rate_limited` | `retry-after`, `x-ascent-ratelimit-scope: ip`, `x-ascent-ratelimit-limit`, `x-ascent-ratelimit-window` | Slow down — this is *your* budget, and the limit + window are stated. |
+| `global` | `rate_limited` | `retry-after`, `x-ascent-ratelimit-scope: global` | Nothing, directly: the service-wide budget is exhausted by aggregate traffic. **The ceiling and the remaining headroom are deliberately withheld** — publishing them hands an attacker the size of the instance budget and a live "how close am I" meter. |
+| `unavailable` | `rate_limit_unavailable` | `retry-after` (the store breaker's re-probe delay), `x-ascent-ratelimit-scope: unavailable` | Retry shortly. **No limit was evaluated** (`evaluated: false`): the shared store was unreachable and the request was refused fail-closed, so no budget was consumed or exceeded — and there is no draining window to estimate from, which is why Retry-After is the breaker delay rather than a full window. |
+
+Two callers still emit the bare body (`error` + `code: "rate_limited"` + `retry-after`), for reasons
+that are not "not migrated yet":
+
+- **The expensive scan path** on `/api/scan` and `/api/scan/stream`. Both route their refusal through
+  `scanRateLimitGate()` (`src/lib/scan-gates.ts`), whose `ScanRateLimitRejection` carries only
+  `retryAfterSec` — the scope is discarded inside the gate, before either route sees it. Enriching
+  these means widening that gate's rejection type, not editing the routes.
+- **The badge endpoint** (`/api/badge/[owner]/[repo]`) never used this helper and must not start: it
+  answers a throttle with a *rate limited* SVG so a README embed keeps rendering an image. A JSON
+  body there would break every embed that renders it as `<img>`.
+
+### Where a limit's number comes from
+
+Every `RateLimitConfig` declares a required `basis`:
+
+- **`derived`** — computed from a stated client cadence, with the multiplication written above the
+  entry so it can be re-run when the client changes. Only `INGEST_RATE_LIMIT`
+  (`src/lib/integrations/ingest-guard.ts`) qualifies: 13 pushes/min/machine × 200 seats behind one
+  egress IP ≈ 2,600/min → `perIp` 3,000.
+- **`inherited`** — chosen, or matched to a previous bespoke limit, and never computed. Every budget
+  in `src/lib/rate-limit.ts` is inherited today (`BADGE_RATE_LIMIT` most explicitly: it was matched
+  to the badge route's old 60/min/IP). Their comments now state what call pattern each number
+  *clears*, which is a headroom check, not a derivation. An operator tuning under load should move
+  these before a derived one — and promoting one to `derived` means measuring the client and
+  rewriting the number, not reverse-engineering arithmetic that lands on the value already there.
+
+### Reclaiming limiter memory
+
+The in-process window map is swept on a **declared cadence with a bounded budget**: at most one sweep
+per 10s (1s once over 10,000 keys), inspecting at most 256 entries (4,096 under pressure) and
+resuming where the last sweep stopped, so no request pays an O(n) scan — the previous
+"scan everything, on every request, while the map is over 10,000 keys" turned the limiter's own
+memory pressure into request latency exactly during an attack. Only **fully-aged** keys are evicted
+(a key whose window still holds hits would have its limit reset by eviction, which is an attack).
+`rateLimiterStats()` exposes keys, peak keys, sweeps, entries scanned, evictions and completed passes.
+
 `CONTACT_RATE_LIMIT` (3/min/IP, 30/min global) is the tightest budget here and the only one guarding a
 non-inference cost: `POST /api/plan-enquiry` (the `/pricing` Custom-plan form) writes a row and sends
 mail through the operator's provider on every accepted call, so an unthrottled loop is both a spam cannon

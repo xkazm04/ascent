@@ -161,6 +161,15 @@ export const CACHE_RESOLVED = "public, max-age=600, s-maxage=600"; // a real, un
 export const CACHE_CUSTOM = "private, max-age=600"; //               body varies by caller params → not shared
 export const CACHE_NEUTRAL = "public, max-age=30, s-maxage=30"; //   unknown / private — may change soon
 export const CACHE_TRANSIENT = "no-store"; //                        429 / upstream blip — never cache
+// The FIFTH outcome, previously an unnamed inline ternary in the repo badge route: a verdict we
+// RESOLVED but could not PIN to a head commit (head resolution failed — a transient blip, no
+// GITHUB_TOKEN, or a rate-limited head lookup), so it is keyed by the un-pinned owner/repo form and is
+// best-effort/possibly stale. It deliberately carries the SAME string as CACHE_NEUTRAL (the short TTL,
+// so the next hit re-resolves the head once the blip clears) — aliasing rather than re-typing the value
+// is what guarantees a rename can never drift the emitted `Cache-Control` byte string that CDN
+// behaviour depends on. It is named separately because the REASON differs from "unknown / private":
+// here we DID produce a real verdict, we just could not tie it to a commit.
+export const CACHE_UNPINNED = CACHE_NEUTRAL;
 
 /** An `image/svg+xml` Response with the outcome-appropriate cache policy. */
 export function badgeResponse(

@@ -4,7 +4,13 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { aiShareOf, isBot, pickChampions, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { CHAMPION_LIMIT, MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
+import {
+  CHAMPION_LIMIT,
+  MIN_CHAMPION_COMMITS,
+  TOP_CONTRIBUTOR_PLACEHOLDER,
+  canNameIndividuals,
+  type TopContributorState,
+} from "@/components/org/shared/champions";
 
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
@@ -39,7 +45,14 @@ export interface RepoConcentration {
   name: string;
   contributorCount: number;
   totalCommits: number;
+  /** The top contributor's login when — and ONLY when — `topLoginState` is `"named"`. In the other
+   *  two states this is the neutral `TOP_CONTRIBUTOR_PLACEHOLDER`; read `topLoginState` (or
+   *  `topContributorLabel`) to say WHY, never this string. */
   topLogin: string;
+  /** Whether `topLogin` is a name, a withheld name, or nobody — see `TopContributorState`. This is
+   *  the field that makes the privacy floor verifiable from the payload: `"withheld"` proves the
+   *  producer suppressed an identity here, which a bare "—" could never distinguish from "no data". */
+  topLoginState: TopContributorState;
   topShare: number; // 0..100, the top contributor's share of commits
   busFactor: number; // # contributors needed to cover >50% of commits
   soloMaintainer: boolean; // 1 contributor, or top contributor owns ≥80%
@@ -69,16 +82,24 @@ export interface ContributorInsights {
   contributors: ContributorInsight[];
   /** Top by championScore — EMPTY when `namingAllowed` is false. */
   champions: ContributorInsight[];
-  /** Per repo, sorted by topShare desc. Counts/shares are aggregates and always present; `topLogin`
-   *  is a named individual and is redacted to "—" when `namingAllowed` is false. */
+  /** Per repo, sorted by topShare desc. EVERY repo is present at every population size — counts,
+   *  shares and bus factors are aggregates and are never dropped (a two-person org is the most
+   *  key-person-exposed org there is; withholding its rows would hide the finding, not the person).
+   *  Only the identity is suppressed: below the floor `topLogin` becomes the placeholder and
+   *  `topLoginState` becomes `"withheld"`. */
   concentration: RepoConcentration[];
   /** Fleet key-person exposure rolled up from `concentration` (G7-18). Names NO individual at any
    *  population size — see the note above `computeOrgResilience`. Null when no repo has commit data. */
   resilience: OrgResilience | null;
 }
 
-/** What `topLogin` reads when the population is below the naming floor (same sentinel as "no data"). */
-const REDACTED_LOGIN = "—";
+/** Fold one concentration row into its withheld form: the identity goes, every number stays. */
+function withholdTopContributor(row: RepoConcentration): RepoConcentration {
+  // A row with nobody to name stays `"unknown"` — calling it "withheld" would claim a suppression
+  // that never happened, which is the same class of lie this state exists to end.
+  if (row.topLoginState !== "named") return row;
+  return { ...row, topLogin: TOP_CONTRIBUTOR_PLACEHOLDER, topLoginState: "withheld" };
+}
 
 // ── ORG RESILIENCE (G7-18) ───────────────────────────────────────────────────
 //
@@ -272,7 +293,7 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
     .sort((a, b) => b.commits - a.commits);
 
   const concentration: RepoConcentration[] = [...repos.entries()]
-    .map(([fullName, { name, entries }]) => {
+    .map(([fullName, { name, entries }]): RepoConcentration => {
       const sorted = [...entries].sort((a, b) => b.commits - a.commits);
       const total = sorted.reduce((s, e) => s + e.commits, 0);
       let acc = 0;
@@ -288,7 +309,8 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
         name,
         contributorCount: sorted.length,
         totalCommits: total,
-        topLogin: sorted[0]?.login ?? "—",
+        topLogin: sorted[0]?.login ?? TOP_CONTRIBUTOR_PLACEHOLDER,
+        topLoginState: sorted[0] ? "named" : "unknown",
         topShare,
         busFactor,
         soloMaintainer: sorted.length === 1 || topShare >= 80,
@@ -338,9 +360,11 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
     namingAllowed,
     contributors: namingAllowed ? contributors : [],
     champions,
-    // The per-repo top contributor is a named individual too — redact it below the floor while
-    // keeping the concentration/bus-factor numbers the key-person-risk view is actually built on.
-    concentration: namingAllowed ? concentration : concentration.map((r) => ({ ...r, topLogin: REDACTED_LOGIN })),
+    // The per-repo top contributor is a named individual too — withhold the NAME below the floor
+    // while keeping every row and every number the key-person-risk view is actually built on. The
+    // withheld state is typed (`topLoginState`), not just a blanked string, so a consumer can render
+    // "name withheld — population below the naming floor" instead of the "—" it shows for no data.
+    concentration: namingAllowed ? concentration : concentration.map(withholdTopContributor),
     // Computed from the concentration rows, which are population-independent aggregates — so the
     // resilience read survives the naming floor intact (that is the point: a 2-person org is the MOST
     // key-person-exposed org there is, and withholding its risk read would hide the finding, not a

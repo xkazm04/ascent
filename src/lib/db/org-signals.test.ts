@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { PrStats } from "@/lib/types";
+import { qualifiedRate } from "@/lib/analyze/pr-thresholds";
 
 const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
@@ -33,9 +34,11 @@ import { getOrgPrSignals, getOrgGovernance, getOrgActivity } from "./org-signals
 function fakePrisma(
   column: "prStats" | "governance" | "commitActivity",
   repoBlobs: Array<string | null>,
-  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown>; scannedAt?: (i: number) => Date } = {},
+  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown>; scannedAt?: (i: number) => Date; timezone?: string | null } = {},
 ) {
-  const orgRow = opts.org === false ? null : { id: "org_1", slug: "acme" };
+  // `timezone` is the org's CANONICAL ZONE column (Organization.timezone): null = inherit the
+  // deployment default (UTC here), which is what every org row looked like before the column existed.
+  const orgRow = opts.org === false ? null : { id: "org_1", slug: "acme", timezone: opts.timezone ?? null };
   // getOrgActivity reads scannedAt to anchor each commit series to a calendar week. Default every
   // repo to the SAME fixed week so the legacy tests describe the same-cadence (right-aligned) case;
   // a test can override per-repo via opts.scannedAt to exercise heterogeneous cadences.
@@ -759,5 +762,177 @@ describe("DB-not-configured and missing-org short-circuits", () => {
 
     mockGetPrisma.mockReturnValue(fakePrisma("commitActivity", [JSON.stringify([1])], { org: false }));
     await expect(getOrgActivity("acme")).resolves.toBeNull();
+  });
+});
+
+// ── getOrgActivity: the week grid resolves in the CANONICAL ORG ZONE ───────────────────────────────
+//
+// The dashboard window snaps its boundaries in the org's canonical zone (src/lib/window.ts). The trend
+// grid used to bin in UTC with `getUTCDay()`, which was right only while the canonical zone happened to
+// default to UTC — set an org's zone and the trend chart and the tile deltas above it would be computed
+// over different periods, disagreeing by up to a day's activity at each end.
+//
+// These tests drive an EXPLICIT non-UTC zone in both directions from Greenwich, so a future change to
+// the default zone cannot silently restore the bug: whatever the zone, the grid must stay phase-locked
+// to the provider's Sunday weeks (GitHub's commit_activity buckets are genuinely Sunday-UTC-aligned —
+// converting the grid without converting through the source bucket is an off-by-one week on every bar).
+describe("getOrgActivity — canonical-zone week grid", () => {
+  const SERIES = JSON.stringify([1, 2, 3]);
+  // A scan at Sun 2026-06-14 02:00 UTC: the WORST case for the boundary. In New York it is still
+  // Saturday the 13th (the previous local week); in Tokyo it is already Sunday afternoon. A naive
+  // "floor the scan instant in the org zone" fix moves the whole series a week west of Greenwich.
+  const BOUNDARY_SCAN = new Date("2026-06-14T02:00:00Z");
+
+  it.each(["UTC", "America/New_York", "Asia/Tokyo", "Pacific/Kiritimati"])(
+    "bins the provider's Sunday week identically in %s — the grid cannot drift off the window's weeks",
+    async (tz) => {
+      mockGetPrisma.mockReturnValue(
+        fakePrisma("commitActivity", [SERIES], { scannedAt: () => BOUNDARY_SCAN, timezone: tz }),
+      );
+
+      const res = await getOrgActivity("acme");
+
+      // The provider bucket containing the scan starts Sun 2026-06-14, and that is the week the newest
+      // bar belongs to in every zone — the bucket overlaps that zoned week on six of its seven days.
+      expect(res!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
+      expect(res!.latestWeekIso).toBe("2026-06-14");
+      expect(res!.oldestWeekIso).toBe("2026-05-31"); // three buckets back, contiguous
+      expect(res!.series).toEqual([1, 2, 3]);
+    },
+  );
+
+  it("keeps different-cadence repos in phase under a shifted zone (no half-week drift between them)", async () => {
+    // Repo A scanned Wed 2026-06-17, repo B two provider weeks earlier — but B's scan sits on the far
+    // side of a local midnight from A's. If the two were floored in different frames their series would
+    // sum one bucket apart, which is the phase bug the Sunday floor exists to prevent.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "commitActivity",
+        [JSON.stringify([5, 6, 7]), JSON.stringify([100, 200])],
+        {
+          scannedAt: (i) => (i === 0 ? new Date("2026-06-17T00:00:00Z") : new Date("2026-06-03T23:30:00Z")),
+          timezone: "America/New_York",
+        },
+      ),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    // Identical to the UTC expectation of the same fixture: W-3:100, W-2:200+5, W-1:6, W:7.
+    expect(res!.series).toEqual([100, 205, 6, 7]);
+    expect(res!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
+  });
+
+  it("a DST-transition week is still exactly one bucket wide (calendar weeks, not 168h of ms)", async () => {
+    // US DST began Sun 2026-03-08. A 167-hour local week must not fold two provider buckets into one
+    // (or leave a phantom empty one): consecutive buckets stay consecutive indices, so a 4-element
+    // series spanning the transition emits exactly 4 weeks, 7 calendar days apart.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("commitActivity", [JSON.stringify([1, 2, 3, 4])], {
+        scannedAt: () => new Date("2026-03-18T12:00:00Z"),
+        timezone: "America/New_York",
+      }),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    expect(res!.weeks).toBe(4);
+    expect(res!.latestWeekIso).toBe("2026-03-15");
+    expect(res!.oldestWeekIso).toBe("2026-02-22");
+    const WK = 7 * 86_400_000;
+    expect((Date.parse(res!.latestWeekIso) - Date.parse(res!.oldestWeekIso)) / WK).toBe(3);
+  });
+});
+
+// ── getOrgPrSignals: each fleet rate carries the basis that produced it ───────
+//
+// `repos` and `totalPrs` describe the FLEET, and are the denominator of none of the eight `avg*Rate`
+// percentages beside them: `weightedRate` skips every repo whose rate is null, and even a
+// contributing repo's `analyzed` is the whole scanned window rather than the rate's own denominator
+// (reviewedRate is over human-authored MERGED PRs). `rateBasis` states, per rate, the weight and the
+// repo count actually behind it plus the rate's own summed denominator — the number a reader may
+// legitimately divide by. The arithmetic of the percentages themselves is unchanged.
+
+describe("getOrgPrSignals rateBasis (each rate's own weight, repos and denominator)", () => {
+  it("reports the weight and repo count behind a rate only some repos measured", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, reviewedRate: 80 }),
+        prStats({ analyzed: 100, reviewedRate: null }), // huge, but no sample → no weight
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.repos).toBe(2);
+    expect(res!.totalPrs).toBe(110);
+    expect(res!.avgReviewedRate).toBe(80);
+    // The fleet coverage figure rests on ONE repo and 10 PRs, not on the "2 repos / 110 PRs" beside it.
+    expect(res!.rateBasis.reviewed).toMatchObject({ weight: 10, repos: 1 });
+    // An analyzed-denominated rate every repo measured does span the whole fleet.
+    expect(res!.rateBasis.smallPr).toMatchObject({ weight: 110, repos: 2, population: 110 });
+  });
+
+  it("sums a sub-denominated rate's OWN population from the persisted rate book", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 40, reviewedRate: 80, rates: { reviewed: qualifiedRate("reviewed", 18, 22) } }),
+        prStats({ analyzed: 20, reviewedRate: 50, rates: { reviewed: qualifiedRate("reviewed", 5, 10) } }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // 32 human-merged PRs — NOT the 60 analyzed PRs the fleet volume would suggest.
+    expect(res!.rateBasis.reviewed).toMatchObject({ weight: 60, repos: 2, population: 32 });
+  });
+
+  it("leaves the population null when a contributing repo never persisted one (pre-contract blob)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 40, reviewedRate: 80, rates: { reviewed: qualifiedRate("reviewed", 18, 22) } }),
+        prStats({ analyzed: 20, reviewedRate: 50 }), // pre-contract: no rate book at all
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // A partial sum (22) would be a smaller denominator masquerading as a complete one.
+    expect(res!.rateBasis.reviewed.population).toBeNull();
+    expect(res!.rateBasis.reviewed.repos).toBe(2);
+  });
+
+  it("denominates the merge rate on DECIDED PRs, not on the analyzed window", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", [prStats({ analyzed: 12, open: 2, merged: 8, closedUnmerged: 2 })]));
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.rateBasis.merge).toMatchObject({ weight: 12, repos: 1, population: 10 }); // the 2 open PRs are not in it
+    expect(res!.totalPrs).toBe(12);
+  });
+
+  it("a rate NO repo measured reports zero weight, zero repos and a null population", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", [preW2PrStats({ analyzed: 10 })]));
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.avgAiTrailerRate).toBeNull();
+    expect(res!.rateBasis.aiTrailer).toEqual({ weight: 0, repos: 0, population: null });
+  });
+
+  it("perRepo rows carry their own per-rate denominators", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "prStats",
+        [prStats({ analyzed: 12, open: 2, merged: 8, closedUnmerged: 2, rates: { aiGoverned: qualifiedRate("aiGoverned", 4, 6) } })],
+        { extra: () => ({ fullName: "acme/api", name: "api" }) },
+      ),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.perRepo[0]!.population).toMatchObject({ smallPr: 12, merge: 10, aiTrailer: 8, aiGoverned: 6 });
+    // `reviewed` was never persisted by this blob, so the key is ABSENT — not `analyzed` standing in.
+    expect(res!.perRepo[0]!.population.reviewed).toBeUndefined();
   });
 });
