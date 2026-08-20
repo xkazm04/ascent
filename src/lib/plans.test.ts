@@ -1,7 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   retentionCutoff,
   planFeatures,
+  planAllows,
+  planAllowsByom,
+  planAllowsMemory,
+  planAllowsSkillsLibrary,
+  PLAN_CAPABILITIES,
+  PLAN_CAPABILITY_ORDER,
+  type PlanCapability,
   planAllowsWhiteLabel,
   planAllowsPdfExport,
   planPriceLabel,
@@ -178,5 +185,118 @@ describe("planScanLine — the single statement of scan volume", () => {
         expect(bullet).not.toMatch(/private scans \/ mo|scans \/ month included/i);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The capability model (item 15). Capabilities used to be five hand-written predicates each
+// re-opening the tier vocabulary inline, with the pricing card's bullets typed as prose no gate
+// read — two sources that agreed only by hand. They are one table now. The hazard of that
+// conversion is TRANSCRIPTION: one flag wrong on one tier silently grants or removes a paid
+// capability for every customer on it. This block pins the matrix as it stood before the change,
+// value by value, so the conversion is checkable rather than trusted.
+// ---------------------------------------------------------------------------------------------
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+/** The entitlement matrix, written out longhand ON PURPOSE — deriving it from PLAN_CAPABILITIES
+ *  would just assert the table equals itself. Rows are capabilities, columns free/pro/team/custom. */
+const EXPECTED: Record<PlanCapability, Record<string, boolean>> = {
+  whiteLabel: { free: false, pro: false, team: true, enterprise: true },
+  skillsLibrary: { free: false, pro: false, team: true, enterprise: true },
+  memory: { free: false, pro: false, team: true, enterprise: true },
+  byom: { free: false, pro: false, team: true, enterprise: true },
+  pdfExport: { free: false, pro: true, team: true, enterprise: true },
+};
+
+describe("capability gates — the matrix, unchanged by the move to a table", () => {
+  it.each(Object.keys(EXPECTED) as PlanCapability[])("%s matches the pre-conversion tiers", (cap) => {
+    for (const [plan, allowed] of Object.entries(EXPECTED[cap])) {
+      expect(planAllows(cap, plan), `${cap} @ ${plan}`).toBe(allowed);
+    }
+  });
+
+  it("covers every capability in the model — a new one cannot be added without a pinned row", () => {
+    expect(PLAN_CAPABILITY_ORDER.slice().sort()).toEqual(Object.keys(EXPECTED).sort());
+  });
+
+  it("the named gates are aliases of the same lookup, not a second opinion", () => {
+    for (const plan of PLAN_ORDER) {
+      expect(planAllowsByom(plan)).toBe(planAllows("byom", plan));
+      expect(planAllowsMemory(plan)).toBe(planAllows("memory", plan));
+      expect(planAllowsSkillsLibrary(plan)).toBe(planAllows("skillsLibrary", plan));
+    }
+  });
+});
+
+// The two unknowns have OPPOSITE safe defaults and must not collapse into one rule. An unknown TIER
+// floors to free (under-granting is recoverable; over-granting hands out paid capability silently).
+// An unknown TENANT is refused rather than floored — that half lives in entitlement.ts, where the
+// org's existence is actually known, and is pinned in entitlement.test.ts.
+describe("an unrecognised tier floors to free, and free grants nothing gated", () => {
+  it.each(["bogus", "", "TEAM", "team ", "enterprise-plus"])("%o is treated as free", (plan) => {
+    for (const cap of PLAN_CAPABILITY_ORDER) expect(planAllows(cap, plan), cap).toBe(planAllows(cap, "free"));
+  });
+
+  it("null/undefined float down to free too, never up", () => {
+    for (const cap of PLAN_CAPABILITY_ORDER) {
+      expect(planAllows(cap, null), cap).toBe(false);
+      expect(planAllows(cap, undefined), cap).toBe(false);
+    }
+  });
+});
+
+// The self-hosted short-circuit lives in exactly one place now, which is what makes this test able to
+// enumerate the MODEL rather than a hand-maintained list of predicates: a capability added tomorrow is
+// covered here the moment it is declared. (src/lib/self-host.test.ts pins the same promise through the
+// five named gates; this is the version that cannot go stale.)
+describe("self-hosted: the one gate short-circuits every capability, present and future", () => {
+  it.each(PLAN_CAPABILITY_ORDER)("%s is open on a self-hosted deployment", (cap) => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    expect(planAllows(cap, "free")).toBe(true);
+    expect(planAllows(cap, null)).toBe(true);
+    expect(planAllows(cap, "nonsense-plan")).toBe(true);
+  });
+
+  it.each(PLAN_CAPABILITY_ORDER)("%s is still gated in cloud mode (the paired negative)", (cap) => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "0");
+    expect(planAllows(cap, "free")).toBe(false);
+  });
+});
+
+// What the page sells and what the gate enforces are now one source. These assert the JOIN, i.e. that
+// the derivation actually reached the card: a buyer reading a bullet is reading the gate.
+describe("plan cards advertise exactly the capabilities their tier is gated for", () => {
+  it("every capability is sold on the card of the tier that first includes it", () => {
+    for (const cap of PLAN_CAPABILITY_ORDER) {
+      const meta = PLAN_CAPABILITIES[cap];
+      expect(PLAN_FEATURES[meta.minPlan].features, `${cap} on ${meta.minPlan}`).toContain(meta.label);
+    }
+  });
+
+  it("no card sells a capability its tier is refused", () => {
+    for (const plan of PLAN_ORDER) {
+      for (const cap of PLAN_CAPABILITY_ORDER) {
+        const sold = PLAN_FEATURES[plan].features.includes(PLAN_CAPABILITIES[cap].label);
+        if (sold) expect(planAllows(cap, plan), `${plan} sells ${cap}`).toBe(true);
+      }
+    }
+  });
+
+  it("a tier's `capabilities` array is what the gate reads, and is cumulative up the ladder", () => {
+    expect(PLAN_FEATURES.free.capabilities).toEqual([]);
+    expect(PLAN_FEATURES.pro.capabilities).toEqual(["pdfExport"]);
+    expect(PLAN_FEATURES.team.capabilities).toEqual(["whiteLabel", "skillsLibrary", "memory", "byom", "pdfExport"]);
+    expect(PLAN_FEATURES.enterprise.capabilities).toEqual(PLAN_FEATURES.team.capabilities);
+  });
+
+  it("keeps the ungated selling points as prose — they are promises, not entitlements", () => {
+    // Deliberately NOT capabilities: nothing in the codebase refuses these (see the "advertises but
+    // nothing enforces" table in docs/features/billing/billing.md). Pinned so a future edit doesn't
+    // quietly promote one into the gated union without adding the call site that enforces it.
+    expect(PLAN_FEATURES.pro.features).toContain("Org fleet dashboard");
+    expect(PLAN_FEATURES.team.features).toContain("Segments + comparisons");
   });
 });

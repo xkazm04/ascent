@@ -6,7 +6,12 @@
 //   • custom-priced tiers (the Custom tier, monthlyPrice null) are exempt — "Flexible" can't drift;
 //   • unset Polar env → null ("not configured"), distinct from {checked, no mismatches};
 //   • one product's fetch failure lands in `errors` (NOT `mismatches` — a network blip is not a
-//     price change) and never aborts the remaining products.
+//     price change) and never aborts the remaining products, and the report's `status` reads
+//     "unknown" rather than "ok" whenever anything failed to fetch;
+//   • the OFFLINE half — the advertised prices still match RECORDED_PRICE_BOOK, the dated transcript
+//     of what Polar charged when someone last looked. That assertion is the one that runs on every
+//     build, which is what turned this module from a detector nobody watched into a check that fails
+//     in front of whoever changed the price.
 // @/lib/polar is mocked so the catalog and client are driven per-test with no network.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -21,8 +26,15 @@ vi.mock("@/lib/polar", () => ({
   planProducts: mockPlanProducts,
 }));
 
-import { checkPriceDrift, comparePlanPrice, productMonthlyUsd, type PriceSource } from "./price-drift";
-import { PLAN_FEATURES } from "./plans";
+import {
+  checkPriceDrift,
+  checkRecordedPriceBook,
+  comparePlanPrice,
+  productMonthlyUsd,
+  RECORDED_PRICE_BOOK,
+  type PriceSource,
+} from "./price-drift";
+import { PLAN_FEATURES, PLAN_ORDER } from "./plans";
 
 /** A stub client whose product map is driven per-test. */
 function stubClient(products: Record<string, { prices?: unknown[] }>, failFor: string[] = []): PriceSource {
@@ -132,7 +144,7 @@ describe("checkPriceDrift — the operational sweep", () => {
       prod_pro: { prices: [fixedUsd(lockstepCents("pro"))] },
       prod_team: { prices: [fixedUsd(lockstepCents("team"))] },
     });
-    await expect(checkPriceDrift(client)).resolves.toEqual({ checked: 2, mismatches: [], errors: [] });
+    await expect(checkPriceDrift(client)).resolves.toEqual({ checked: 2, mismatches: [], errors: [], status: "ok" });
   });
 
   it("reports only the drifted product; in-lockstep ones stay silent", async () => {
@@ -164,5 +176,93 @@ describe("checkPriceDrift — the operational sweep", () => {
     expect(report!.mismatches).toEqual([]);
     expect(report!.errors).toHaveLength(1);
     expect(report!.errors[0]).toContain("prod_pro");
+  });
+});
+
+// The build-time half of the PRICE CONTRACT. The live sweep above only runs where Polar is reachable
+// — never in CI — so on its own it was a safeguard nobody watched: a display price could be edited
+// (or a Polar price changed and not mirrored) and nothing would object until an operator happened to
+// open GET /api/kpi. THIS is the assertion that fails in front of someone, on every build, offline.
+describe("the recorded price book — the check that actually runs (item 14)", () => {
+  it("every advertised price matches the last price recorded off Polar", () => {
+    // If this fails: someone changed an advertised price without recording what the price book says.
+    // Fix by verifying the Polar dashboard and updating RECORDED_PRICE_BOOK (cents + recordedAt) —
+    // NOT by copying `monthlyPrice` into it, which would defeat the whole point.
+    expect(checkRecordedPriceBook()).toEqual([]);
+  });
+
+  it("covers every tier, so a NEW tier cannot slip in unpriced", () => {
+    expect(Object.keys(RECORDED_PRICE_BOOK).sort()).toEqual([...PLAN_ORDER].sort());
+  });
+
+  it("records cents (Polar's unit) and a date, so the evidence carries its own age", () => {
+    for (const plan of PLAN_ORDER) {
+      const rec = RECORDED_PRICE_BOOK[plan];
+      expect(rec.recordedAt, plan).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      if (rec.cents != null) expect(Number.isInteger(rec.cents), plan).toBe(true);
+    }
+  });
+
+  it("catches a one-sided edit: a display price moved without re-reading the price book", () => {
+    // The exact failure this check exists for. The advertised side is injected, so the assertion
+    // exercises the FAILING path of the same function CI runs in its passing state.
+    const drifted = checkRecordedPriceBook((plan) =>
+      plan === "team" ? (PLAN_FEATURES.team.monthlyPrice ?? 0) + 7 : PLAN_FEATURES[plan].monthlyPrice,
+    );
+    expect(drifted).toEqual([
+      {
+        plan: "team",
+        displayUsd: PLAN_FEATURES.team.monthlyPrice! + 7,
+        recordedUsd: RECORDED_PRICE_BOOK.team.cents! / 100,
+        recordedAt: RECORDED_PRICE_BOOK.team.recordedAt,
+      },
+    ]);
+  });
+
+  it("catches the Custom tier growing a price it cannot have (recorded: no fixed price)", () => {
+    const drifted = checkRecordedPriceBook((plan) => (plan === "enterprise" ? 999 : PLAN_FEATURES[plan].monthlyPrice));
+    expect(drifted.map((m) => m.plan)).toEqual(["enterprise"]);
+    expect(drifted[0].recordedUsd).toBeNull();
+  });
+});
+
+// A failed fetch must never read as "no drift". `mismatches.length === 0` is TRUE during a total
+// outage, so any consumer keying on it alone reports a healthy price book while knowing nothing.
+describe("checkPriceDrift status — an outage is 'unknown', not 'ok'", () => {
+  it("a clean, complete sweep is 'ok'", async () => {
+    mockPlanProducts.mockReturnValue([{ productId: "prod_pro", plan: "pro" }]);
+    const report = await checkPriceDrift(stubClient({ prod_pro: { prices: [fixedUsd(lockstepCents("pro"))] } }));
+    expect(report!.status).toBe("ok");
+  });
+
+  it("a total outage is 'unknown' even though mismatches is empty", async () => {
+    mockPlanProducts.mockReturnValue([
+      { productId: "prod_pro", plan: "pro" },
+      { productId: "prod_team", plan: "team" },
+    ]);
+    const report = await checkPriceDrift(stubClient({}, ["prod_pro", "prod_team"]));
+    expect(report!.mismatches).toEqual([]); // the trap
+    expect(report!.checked).toBe(0);
+    expect(report!.status).toBe("unknown");
+  });
+
+  it("a partial outage with no mismatch among the fetched products is still 'unknown'", async () => {
+    mockPlanProducts.mockReturnValue([
+      { productId: "prod_pro", plan: "pro" },
+      { productId: "prod_team", plan: "team" },
+    ]);
+    const report = await checkPriceDrift(stubClient({ prod_team: { prices: [fixedUsd(lockstepCents("team"))] } }, ["prod_pro"]));
+    expect(report!.status).toBe("unknown");
+  });
+
+  it("a confirmed mismatch outranks an outage — 'drift' is the actionable answer", async () => {
+    mockPlanProducts.mockReturnValue([
+      { productId: "prod_pro", plan: "pro" },
+      { productId: "prod_team", plan: "team" },
+    ]);
+    const client = stubClient({ prod_team: { prices: [fixedUsd((advertised("team") + 3) * 100)] } }, ["prod_pro"]);
+    const report = await checkPriceDrift(client);
+    expect(report!.errors).toHaveLength(1);
+    expect(report!.status).toBe("drift");
   });
 });

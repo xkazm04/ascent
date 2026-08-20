@@ -5,6 +5,14 @@
 // metered scan when the org is out of credits and isn't on an unlimited plan; the debit itself happens
 // AFTER the scan actually produces real inference (so a cache/dedup or a degraded-to-mock run is free).
 // See src/lib/db/credits.ts for the accounting and docs/features/billing/billing.md for the purchase flow.
+//
+// UNKNOWN TENANT vs UNKNOWN TIER — two unknowns, opposite safe defaults, deliberately not one rule.
+// An unrecognised PLAN string floors to `free` in src/lib/plans.ts (planFeatures/planAllows): the
+// customer sees an upsell they can complain about, which is recoverable, where over-granting is not.
+// An unknown ORG is the opposite: a slug that matched no row must be REFUSED, because "floor it to
+// free" would GRANT a phantom tenant the free tier's monthly allowance. The floor is safe only where
+// something is known to exist. That refusal lives here (`orgExists` below) rather than in plans.ts,
+// because this is the layer that actually looks the org up — plans.ts is only ever handed a string.
 
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";

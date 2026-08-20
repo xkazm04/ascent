@@ -62,22 +62,45 @@ Notes, all read directly from the model:
 
 - `monthlyPrice` on each tier is **display-only**: a duplicate of the Polar product's price for the
   `/pricing` page. A price change in the Polar dashboard must still be mirrored in `PLAN_FEATURES` by
-  hand, but drift is now **detected**: `src/lib/price-drift.ts` fetches the live price of every
-  `POLAR_PLAN_PRODUCTS`-mapped product and reports mismatches on the operator KPI route
-  (`GET /api/kpi` → `priceDrift`, gated by `ASCENT_OPS_SECRET`; null when Polar is unconfigured).
+  hand, and **two** checks keep the mirror honest:
+  - **Offline, every build**: `RECORDED_PRICE_BOOK` in `src/lib/price-drift.ts` is a dated transcript
+    of the price book in Polar's own units (cents), and `checkRecordedPriceBook()` is asserted empty by
+    `price-drift.test.ts`. An advertised price edited *alone* fails CI with both numbers side by side.
+    The transcript does not know today's true price — it records the price someone last read off
+    Polar, with the date they read it, which is what makes a one-sided edit impossible to land quietly.
+    When a price changes: change it in Polar, mirror `monthlyPrice`, update `cents` + `recordedAt`,
+    then confirm against the live account with the check below.
+  - **Live, on demand**: `checkPriceDrift()` fetches the price of every `POLAR_PLAN_PRODUCTS`-mapped
+    product and reports mismatches on the operator KPI route (`GET /api/kpi` → `priceDrift`, gated by
+    `ASCENT_OPS_SECRET`; null when Polar is unconfigured). Its `status` is three-valued — `ok`,
+    `drift`, or **`unknown`** when any product failed to fetch. A network outage never reads as
+    "no drift": `mismatches: []` is true during a total outage, so nothing may key on it alone.
 - `includedCredits` is the monthly **metered-scan allowance** (private/org scans only; anonymous public
   scans are never metered and don't touch this). `null` means unmetered (the Custom tier).
-- Feature gates are individual predicates, each defaulting unknown/blank plans to `free`:
-  - `planAllowsWhiteLabel(plan)`: Team and Custom.
-  - `planAllowsSkillsLibrary(plan)`: Team and Custom (authoring the Org Skills Library; reads stay
-    open to all members).
-  - `planAllowsMemory(plan)`: Team and Custom (writing to Shared Org Memory; reads stay open).
-  - `planAllowsByom(plan)`: **Team and Custom** since 2026-08-19 (connect the org's own Bedrock or
-    OpenRouter account); Custom-only before that.
-  - `planAllowsPdfExport(plan)`: Starter and up.
-  - **Every one of these returns `true` on a self-hosted deployment.** When adding a gate, add the
-    `selfHosted()` short-circuit with it — one that forgets it silently makes the open-source build
-    worse than the hosted one, which is the opposite of the stated position.
+- Feature gates are **one lookup over one table**. `PLAN_CAPABILITIES` declares each gated capability
+  with the cheapest tier that includes it (`minPlan`, cumulative up `PLAN_ORDER`) and its
+  customer-facing label; `PLAN_FEATURES[tier].capabilities` is derived from it, and
+  `planAllows(capability, plan)` is the only gate. The five named predicates
+  (`planAllowsWhiteLabel`, `planAllowsSkillsLibrary`, `planAllowsMemory`, `planAllowsByom`,
+  `planAllowsPdfExport`) are thin aliases kept so call sites read in domain terms.
+  - Current matrix: white-label briefings, skills library, shared org memory and BYOM at **Team and
+    up** (BYOM since 2026-08-19, Custom-only before that); PDF export at **Starter and up**.
+  - Adding a capability is a **row in the table**, not a new predicate — which is what removed the
+    chance of forgetting the self-hosted short-circuit. **Every capability is open on a self-hosted
+    deployment**, because that build sells operation, not features; the short-circuit now exists in
+    exactly one place (`planAllows`), and `plans.test.ts` enumerates the model rather than a
+    hand-kept list of gates, so a capability added tomorrow is covered the moment it is declared.
+  - **The pricing page reads the same table.** Plan-card bullets are the capabilities a tier is first
+    to include (`PLAN_FEATURES[tier].features` = those labels + the tier's hand-written ungated
+    `extras`), and the credit matrix's capability rows tick their cells from
+    `PLAN_FEATURES[tier].capabilities`. The page can no longer advertise a capability the gate
+    refuses, nor stay silent about one it allows — which it was doing: PDF export was gated at
+    Starter and sold on no card, and the Team card omitted the skills library and shared org memory.
+  - **Two unknowns, opposite safe defaults, deliberately not one rule.** An unrecognised **tier**
+    string floors to `free` (under-granting is recoverable; over-granting is silent). An unknown
+    **tenant** — a slug matching no org row — is *refused*, since flooring it would grant a phantom
+    org the free tier's allowance; that half lives in `src/lib/entitlement.ts` (`orgExists`), the
+    layer that actually looks the org up.
 - `retentionCutoff(plan, nowMs)` gives the earliest scan date a plan's retention window includes (`null`
   for the Custom tier). It's a **non-destructive read floor**: history/trend/trajectory reads are
   clamped to it; nothing is ever deleted.
@@ -385,9 +408,12 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
 
 ## Known gaps
 
-- **Price drift is detected, not fixed**: `src/lib/price-drift.ts` reconciles `monthlyPrice` against the
-  live Polar prices on demand (`GET /api/kpi` → `priceDrift`), but the correction is still a manual edit
-  to `PLAN_FEATURES`, and nothing pushes the alert: an operator has to pull the KPI route to see it.
+- **Price drift is detected, not fixed**: the correction is still a manual edit to `PLAN_FEATURES`.
+  A one-sided edit inside the repo now fails CI against `RECORDED_PRICE_BOOK`, but a price changed in
+  the Polar dashboard and mirrored nowhere is only caught by the *live* check, and nothing pushes that
+  alert — an operator has to pull `GET /api/kpi` (where it now reads `ok` / `drift` / `unknown`) or
+  re-verify the recorded book. A scheduled push would need a non-tenant sink; see the wiring comment
+  in `src/app/api/kpi/route.ts` for why the weekly digest cron was the wrong home for it.
 - **Allowance boundary is a soft gate**: `countMeteredScansThisMonth` is a non-atomic read, so concurrent
   scans crossing the monthly-allowance boundary can overshoot the free allowance by a small, bounded
   amount (never paid credits, which are hard-gated). A fully atomic bound would need a monthly-usage
@@ -397,9 +423,10 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   snapshot would still apply. The revoke/refund handlers are the authoritative correction for this case.
 - **What `/pricing` advertises but nothing enforces** (audited 2026-08-14 against every `planAllows*`
   predicate and every plan comparison in the codebase). The **metered** half of the pricing page is real
-  (allowance, credits, unlimited tier, retention), and so are four capability gates
-  (`planAllowsWhiteLabel`, `planAllowsSkillsLibrary`, `planAllowsMemory`, `planAllowsByom`, plus the
-  undocumented `planAllowsPdfExport` at Pro+). These are the claims with **no code gate behind them**:
+  (allowance, credits, unlimited tier, retention), and so is every capability in `PLAN_CAPABILITIES`
+  (white-label, skills library, shared org memory, BYOM, PDF export) — those are now *derived* onto
+  the page from the gate itself, so this table can only ever list ungated claims. These are the claims
+  with **no code gate behind them**:
 
   | Claim on `/pricing` | Reality |
   | --- | --- |
