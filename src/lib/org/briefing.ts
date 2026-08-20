@@ -12,6 +12,7 @@ import {
   type OrgRec,
   type OrgWindow,
   type RepoMove,
+  type GoalPctBasis,
 } from "@/lib/db";
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
@@ -134,7 +135,13 @@ export interface BriefingGoal {
   label: string;
   current: number;
   target: number;
+  /** The meter, 0..100. `pctBasis` says WHICH QUESTION it answers and must travel with it:
+   *  a goal created before baselines were stored can only report attainment (current/target),
+   *  which opens near-full, while a goal with a baseline reports progress since it was set.
+   *  Rendering the two side by side unlabelled invites a reader to compare them. */
   pct: number;
+  pctBasis: GoalPctBasis;
+  pctLabel: string;
   pace: string;
   etaDays: number | null;
 }
@@ -400,6 +407,8 @@ export async function buildExecBriefing(
       current: g.current,
       target: g.target,
       pct: g.pct,
+      pctBasis: g.pctBasis,
+      pctLabel: g.pctLabel,
       pace: g.pace,
       etaDays: g.etaDays,
     })),

@@ -98,9 +98,19 @@ export function BriefingGoalsCard({
           {goals.map((g) => (
             <div key={g.label} className="flex items-center gap-3 text-base">
               <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
-              <Meter className="w-32 shrink-0" value={g.pct} color={scoreHex(g.pct)} />
-              <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400">
+              {/* The meter's basis rides in the tooltip and, when a goal can only report
+                  attainment, as a visible marker: an attainment bar opens near-full and a
+                  progress bar opens empty, so two goals side by side are not comparable
+                  unless the reader is told which is which. */}
+              <Meter
+                className="w-32 shrink-0"
+                value={g.pct}
+                color={scoreHex(g.pct)}
+                ariaLabel={`${g.label}: ${g.pct}% — ${g.pctLabel}`}
+              />
+              <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400" title={g.pctLabel}>
                 {g.current}/{g.target}
+                {g.pctBasis === "attainment" ? <span className="text-slate-500"> · of target</span> : null}
                 {g.etaDays != null ? ` · ~${g.etaDays}d` : ""}
               </span>
             </div>
