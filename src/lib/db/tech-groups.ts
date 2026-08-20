@@ -6,13 +6,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId, getOrgRollup } from "@/lib/db/org-rollup";
-import {
-  buildSegmentComparison,
-  summarizeScopedRepos,
-  summarizeScopedRollup,
-  type SegmentComparison,
-  type SegmentSummary,
-} from "@/lib/db/segments";
+import { summarizeScopedRepos, type SegmentSummary } from "@/lib/db/segments";
 import { techGroupsFor } from "@/lib/org/tech-stack";
 import type { TechStack } from "@/lib/types";
 
@@ -107,21 +101,6 @@ export async function listTechStackGroups(orgSlug: string): Promise<TechGroupSum
     .sort((a, b) => groupSortRank(a.key) - groupSortRank(b.key) || a.label.localeCompare(b.label));
 }
 
-// ── Side-by-side stack comparison (3b-P2 — the optional /tech-stacks page) ─────────────────────────
-// Mirrors compareSegments: reuses getOrgRollup's scoped averages + the pure buildSegmentComparison, so
-// the stack comparison stays a single source of truth with every other scoped view. SegmentSummary.id
-// here carries the stack KEY (or null = whole fleet); name carries the display label.
-
-/** Reduce a tech-stack group (or the whole fleet, when `group` is null) to its headline summary.
- *  Shares the rollup→summary reduction with summarizeSegment; here the summary id carries the stack
- *  KEY (the stable `?stack=` value) and the name carries the display label. */
-function summarizeTechStack(
-  orgSlug: string,
-  group: { id: string; key: string; label: string } | null,
-): Promise<SegmentSummary | null> {
-  return summarizeScopedRollup(orgSlug, { groupId: group?.id ?? null, id: group?.key ?? null, name: group?.label ?? "Whole fleet" });
-}
-
 /**
  * groupId → set of member repo fullNames for the whole org, in ONE query. The in-memory equivalent of
  * `techGroupScope`'s where-fragment (`techGroups: { some: { groupId } }`), read from the same join
@@ -154,7 +133,8 @@ async function getTechGroupMemberMap(orgSlug: string): Promise<Map<string, Set<s
  *  filtering the already-loaded rows — previously this ran a full getOrgRollup PER GROUP, sequentially
  *  ("Sequential since N is small"), so `/tech-stacks` cost `groups × whole-fleet-rollup` and grew with
  *  exactly the stack diversity the page exists to analyse. Same fix, same shape, as listSegmentSummaries.
- *  The single A/B comparison (compareTechStacks) still uses the scoped getOrgRollup — it is bounded at 2. */
+ *  Since the A/B comparison was deleted (tombstone at the foot of this file) this is the tab's ONLY
+ *  per-stack read. */
 export async function listTechStackSummaries(
   orgSlug: string,
   opts?: { includeFleet?: boolean },
@@ -178,23 +158,10 @@ export async function listTechStackSummaries(
   return out;
 }
 
-/**
- * Compare two tech-stack groups side by side (e.g. Frontend vs Backend·Python). `keyB` may be null to
- * compare a stack against the whole fleet. Reuses getOrgRollup's scoped averages + buildSegmentComparison.
- * Null when off, the org is unknown, or `keyA` isn't a (non-empty) group of the org. A bogus `keyB`
- * falls back to the whole-fleet baseline (mirrors compareSegments).
- */
-export async function compareTechStacks(
-  orgSlug: string,
-  keyA: string,
-  keyB: string | null,
-): Promise<SegmentComparison | null> {
-  if (!isDbConfigured()) return null;
-  const groups = await listTechStackGroups(orgSlug);
-  const a = groups.find((g) => g.key === keyA);
-  if (!a) return null;
-  const b = keyB ? groups.find((g) => g.key === keyB) ?? null : null;
-  const [sumA, sumB] = await Promise.all([summarizeTechStack(orgSlug, a), summarizeTechStack(orgSlug, b)]);
-  if (!sumA || !sumB) return null;
-  return buildSegmentComparison(sumA, sumB);
-}
+// The side-by-side A-vs-B stack comparison (3b-P2) lived here — `compareTechStacks` plus its
+// `summarizeTechStack` helper (a `summarizeScopedRollup` wrapper), mirroring compareSegments over tech
+// groups, and `tech-groups-compare.test.ts`. Deleted 2026-08-19 with the "Compare stacks" panel that
+// was its only caller: the Tech Stacks tab's dimension-analysis board already diagnoses every
+// dimension across every stack, with a transformation playbook attached, so a hand-picked pair was a
+// strictly narrower read of the same numbers. Segments keep their comparison (compareSegments,
+// src/lib/db/segments.ts) — that surface still exists, and still uses summarizeScopedRollup.

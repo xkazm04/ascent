@@ -106,8 +106,9 @@ describe("POST /api/org/llm-provider/test — gate chain", () => {
     noProviderCalled();
   });
 
-  it("403 on a non-Enterprise plan", async () => {
-    h.getCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
+  // BYOM is Team-and-up since 2026-08-19 (planAllowsByom); Starter is the tier below the gate.
+  it("403 on a plan below the BYOM tier", async () => {
+    h.getCreditState.mockResolvedValue({ plan: "pro", balance: 0, unlimited: false });
     expect((await POST(post({ org: "acme" }))).status).toBe(403);
     noProviderCalled();
   });

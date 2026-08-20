@@ -60,12 +60,15 @@ describe("planAllowsPdfExport — the lowest paid tier and up (g1-02)", () => {
 });
 
 describe("scanAllowance — monthly metered-scan allowance per tier", () => {
-  it("is 5 / 50 / 150, and null (unlimited) for the bespoke tier", () => {
-    expect(scanAllowance("free")).toBe(5);
+  it("is 20 / 50 / 150, and null (unlimited) for the bespoke tier", () => {
+    // Free was 5 until 2026-08-19. It was raised with the open-source transition: the Free tier now
+    // competes with an unlimited, ungated `git clone`, so five scans a month was an argument FOR
+    // self-hosting rather than a trial of the cloud. See the note on PLAN_FEATURES.free.
+    expect(scanAllowance("free")).toBe(20);
     expect(scanAllowance("pro")).toBe(50);
     expect(scanAllowance("team")).toBe(150);
     expect(scanAllowance("enterprise")).toBeNull();
-    expect(scanAllowance(null)).toBe(5); // unknown → free
+    expect(scanAllowance(null)).toBe(20); // unknown → free
   });
 });
 
@@ -160,7 +163,7 @@ describe("planScanLine — the single statement of scan volume", () => {
     // Short by design — it renders as mono type in a narrow price column, and the longer
     // "… / mo included" wrapped in every cell, stair-stepping each card's hairline rule. The card
     // supplies "Included" as the label above it.
-    expect(planScanLine("free")).toBe("5 private scans / mo");
+    expect(planScanLine("free")).toBe("20 private scans / mo");
     expect(planScanLine("pro")).toBe("50 private scans / mo");
     expect(planScanLine("team")).toBe("150 private scans / mo");
   });

@@ -18,7 +18,10 @@ import { LiveWarRoom } from "./LiveWarRoom";
 import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
 import { buildFleetTimetable } from "./fleetTimetable";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRepoHistories, getOrgRollup, listGoals, listOpsState } from "@/lib/db";
+import { getOrgRepoHistories, getOrgRollup, listGoals, listLocalPairings, listOpsState } from "@/lib/db";
+import { selfHosted } from "@/lib/env";
+import { autopilotEnabled } from "@/lib/local/agent";
+import { AutopilotBand } from "./AutopilotBand";
 import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
@@ -63,8 +66,16 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
     .filter((r) => r.watched && r.lastScanStatus === "error")
     .map((r) => ({ fullName: r.fullName, name: r.name, error: r.lastScanError }));
 
+  // LOCAL MODE: the paired repos the autopilot band can dispatch into. Empty everywhere but a
+  // self-hosted deployment with pairings, and the band renders only then — the wall is unchanged on
+  // managed cloud and on unpaired self-hosts.
+  const pairedRepos = selfHosted()
+    ? (await listLocalPairings(slug).catch(() => [])).filter((r) => r.localPath != null).map((r) => r.fullName)
+    : [];
+
   return (
     <div className="space-y-4">
+      {pairedRepos.length > 0 && <AutopilotBand org={slug} pairedRepos={pairedRepos} enabled={autopilotEnabled()} />}
       {techGroups.length > 0 && (
         <div className="flex justify-end">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />

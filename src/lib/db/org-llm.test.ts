@@ -108,11 +108,21 @@ describe("isByomActive — fail-closed gating", () => {
     mockGetPrisma.mockReturnValue(prisma);
     expect(await isByomActive("acme")).toBe(true);
   });
-  it("false on a non-Enterprise plan", async () => {
+  // BYOM moved to Team-and-up on 2026-08-19 (see planAllowsByom): under open-core it is the
+  // concession that keeps a customer who could self-host on the cloud, so pricing it at Enterprise
+  // pushed exactly that customer toward `git clone`. Starter is now the tier below the gate.
+  it("false on a plan below the BYOM tier", async () => {
+    const { prisma } = fakePrisma(activeRow);
+    mockGetPrisma.mockReturnValue(prisma);
+    mockGetCreditState.mockResolvedValue({ plan: "pro", balance: 0, unlimited: false });
+    expect(await isByomActive("acme")).toBe(false);
+  });
+
+  it("true on Team, the lowest tier the gate now admits", async () => {
     const { prisma } = fakePrisma(activeRow);
     mockGetPrisma.mockReturnValue(prisma);
     mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
-    expect(await isByomActive("acme")).toBe(false);
+    expect(await isByomActive("acme")).toBe(true);
   });
   it("false when not enabled or no creds", async () => {
     mockGetPrisma.mockReturnValue(fakePrisma({ enabled: false, credentialsEncrypted: "v1:x" }).prisma);

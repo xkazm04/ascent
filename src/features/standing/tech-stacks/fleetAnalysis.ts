@@ -6,7 +6,6 @@
 
 import type { SegmentSummary } from "@/lib/db";
 import { DIMENSION_SHORT } from "@/lib/ui";
-import { orgTabHref } from "@/lib/org/orgTabs";
 
 export type DimClass = "divergent" | "gap" | "strength" | "consistent";
 
@@ -163,9 +162,6 @@ export function computeFleetInsights(
   };
 }
 
-/** Deep-link to the Compare panel with a given A/B pair loaded (the primary "act on this" followup). */
-export function insightCompareHref(org: string, aId: string, bId: string): string {
-  const base = orgTabHref(org, "tech-stacks");
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}a=${encodeURIComponent(aId)}&b=${encodeURIComponent(bId)}#compare`;
-}
+// `insightCompareHref` lived here — a deep link to the tab's A/B "Compare stacks" panel with a given
+// pair preloaded. Both it and the panel were deleted 2026-08-19 (see TechStacksTab): the analysis
+// board already diagnoses every dimension across every stack, so a hand-picked pair added nothing.

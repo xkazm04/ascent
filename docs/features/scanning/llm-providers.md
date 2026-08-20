@@ -2,16 +2,21 @@
 
 The scoring step calls an LLM only to **calibrate and explain** deterministic signals,
 never to invent scores from scratch. That call goes through a single interface,
-`LLMProvider`, so the model behind it is a config change, not a rewrite. Six providers
-ship today (`gemini`, `bedrock`, `openai`, `openrouter`, `claude-cli`, `mock`); an org can
-also connect its own Bedrock or OpenRouter account (BYOM), and every real LLM call is
-optionally mirrored to a local Tracklight instance for observability.
+`LLMProvider`, so the model behind it is a config change, not a rewrite. Seven providers
+ship today (`gemini`, `bedrock`, `openai`, `openrouter`, `local`, `claude-cli`, `mock`); an
+org can also connect its own Bedrock or OpenRouter account (BYOM), and every real LLM call
+is optionally mirrored to a local Tracklight instance for observability.
+
+**Two of them cost nothing and keep your source on hardware you control** — `local` (an
+Ollama / vLLM / LM Studio server) and `claude-cli` (the `claude` binary under a Pro/Max
+subscription). They are the reference path for a self-hosted Ascent; see
+[docs/SELF-HOSTING.md](../../SELF-HOSTING.md).
 
 ## The interface (`src/lib/llm/provider.ts`)
 
 ```ts
 interface LLMProvider {
-  readonly name: ProviderName;        // "gemini" | "bedrock" | "openai" | "openrouter" | "claude-cli" | "mock"
+  readonly name: ProviderName;        // "gemini" | "bedrock" | "openai" | "openrouter" | "local" | "claude-cli" | "mock"
   readonly model: string;             // e.g. "gemini-3-flash-preview"
   assess(input: LlmScoreInput, opts?: AssessOptions): Promise<LlmAssessment>;
 }
@@ -48,46 +53,99 @@ the boundary:
 
 Chosen at runtime by the `LLM_PROVIDER` env flag, resolved by `resolveProviderChoice()`
 against a fixed `PROVIDER_CHOICES` list: `"auto" | "gemini" | "bedrock" | "openai" |
-"openrouter" | "mock" | "claude-cli"`.
+"openrouter" | "local" | "mock" | "claude-cli"`.
 
 **An unrecognized, non-empty `LLM_PROVIDER` value throws** rather than being coerced to
 `"auto"`. A typo like `LLM_PROVIDER=bedrok` on an enterprise-privacy deploy used to fall
 through to `auto` (Gemini-or-mock) with zero signal, silently routing private source to a
 provider the operator never chose. `resolveProviderChoice()` refuses to guess: it throws
 `Unknown LLM_PROVIDER "…" — expected one of auto, gemini, bedrock, openai, openrouter,
-mock, claude-cli. Refusing to fall back to "auto": …`. An unset/blank `LLM_PROVIDER`
+local, mock, claude-cli. Refusing to fall back to "auto": …`. An unset/blank `LLM_PROVIDER`
 still resolves to `"auto"`; only a misspelled *non-empty* value fails loudly.
 
 | `LLM_PROVIDER` | Provider | When |
 | --- | --- | --- |
-| `auto` (default) | Gemini if `GEMINI_API_KEY`/`GOOGLE_API_KEY` is set, else `MockProvider` | Never silently selects Bedrock; that's opt-in via the flag. |
+| `auto` (default) | Gemini if `GEMINI_API_KEY`/`GOOGLE_API_KEY` is set, else `LocalProvider` if `LOCAL_LLM_BASE_URL` **and** `LOCAL_LLM_MODEL` are both set, else `MockProvider` | Never silently selects Bedrock; that's opt-in via the flag. The `local` rung is config-driven, not probe-driven: `getProvider()` is synchronous and on the scan hot path, so it cannot make a network call to sniff for a listening Ollama. |
 | `gemini` | `GeminiProvider` | Local dev & public-repo scanning (fast, cheap, generous free tier). Constructed unconditionally on explicit selection; a missing key fails loudly at `assess()` rather than silently degrading to mock. |
 | `bedrock` | `BedrockProvider` | Enterprise / private repos: in-account, KMS, VPC, no training on data. Opt-in. |
 | `openai` | `OpenAiProvider` | OpenAI, Azure OpenAI, or any OpenAI-compatible Chat Completions endpoint (vLLM, Ollama, LM Studio). |
 | `openrouter` | `OpenRouterProvider` | One key, any vendor's model: the fleet/benchmark path (`scripts/matrix/run.mts`). |
-| `claude-cli` | `LazyClaudeCliProvider` → `ClaudeCliProvider` | Local-dev-only: shells out to a locally-installed `claude` binary under your Pro/Max subscription. **Throws in any production build** (`NODE_ENV === "production"`); see below. |
+| `local` | `LocalProvider` (extends `OpenAiProvider`) | A local OpenAI-compatible server: Ollama, vLLM, LM Studio, `llama.cpp`. Requires `LOCAL_LLM_BASE_URL` **and** `LOCAL_LLM_MODEL`; `LOCAL_LLM_API_KEY` is optional. **$0 cost class** and nothing leaves the machine; see below. |
+| `claude-cli` | `LazyClaudeCliProvider` → `ClaudeCliProvider` | Shells out to a locally-installed `claude` binary under your Pro/Max subscription (not per-token API credits). Available in dev **and on a self-hosted production deployment**; refused on managed cloud; see below. |
 | `mock` | `MockProvider` | Keyless demo / CI / deterministic tests. |
 
 `hasLlmKey()` reports whether `GEMINI_API_KEY`/`GOOGLE_API_KEY` is set (used by surfaces
 that want to know if the `auto` default will resolve to a real model). `providerAvailable(name)`
 is a cheap, synchronous prerequisite check: bedrock sniffs for any AWS-wiring signal
 (`BEDROCK_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_PROFILE`,
-role/container-credential env vars), `claude-cli` gates on `NODE_ENV !== "production"`
-(mirroring the throw below), and it lets `getProvider()`'s implicit failover chain and
+role/container-credential env vars), `local` requires BOTH of its variables, `claude-cli`
+gates on `cliProviderAllowed()` (mirroring the throw below), and it lets `getProvider()`'s implicit failover chain and
 `providerByName()` skip a doomed provider instead of wasting a round trip proving the
 obvious.
 
-### `claude-cli` is local-dev-only, by construction
+### `local` — your own inference server
 
-`LazyClaudeCliProvider` is a lazy proxy: its `assess()` dynamically imports the real
-`ClaudeCliProvider` **only** inside an `if (process.env.NODE_ENV !== "production")` block.
-In a production build, `NODE_ENV` is statically inlined and the condition folds to `false`,
-so the whole block, including the `import("@/lib/llm/claude-cli")`, is dead-code-pruned
-by the bundler. That's not just a runtime guard: it drops `claude-cli.ts` (and its
-`child_process.spawn`) from the Node File Trace entirely, the same trick
-`src/instrumentation.ts` uses for the dev-only PGlite boot. In dev the import runs
-normally. If reached in production anyway, `assess()` throws `"claude-cli is a local-dev-
-only provider and is not available in production builds"`.
+`LocalProvider` (`src/lib/llm/local.ts`) **extends** `OpenAiProvider` rather than wrapping or
+copying it, because a local Ollama / vLLM / LM Studio server speaks exactly the OpenAI Chat
+Completions protocol. Everything that differs is a constructor option (`name`, `label`,
+`requireApiKey`, `missingKeyMessage`), so the strict-`json_schema` decode with its one-shot
+`json_object` retry, the `max_tokens` floor that Ollama's tiny `num_predict` default needs,
+the assessment shape guard and the timeout/abort composition all apply here without being
+restated — and a fix to any of them lands on both providers at once.
+
+**This is new identity, not new capability.** A local server was already reachable via
+`LLM_PROVIDER=openai` + `OPENAI_BASE_URL`. What that path got wrong is everything downstream
+of the call:
+
+- **Provenance.** Runs persisted as `engineProvider: "openai"`, so `/usage`'s "By inference
+  engine" bars and the executive briefing's "Scored by" line told a self-hoster their scores
+  came from a vendor no byte had reached.
+- **Cost.** `MODEL_PRICES` matches on model-id *prefixes*, so a local tag sharing a prefix
+  with a hosted model was invoiced at that vendor's rate for tokens that cost nothing.
+  `local` is now a **$0 cost class** (`isZeroCostProvider`, `src/lib/llm/config.ts`), and
+  `estimateLlmCostFromTable` prices those rows at exactly zero rather than skipping them — so
+  a local-only period reads `$0.00`, which is the answer, instead of "no estimate", which
+  reads as a broken panel. This required grouping usage by `(engineProvider, engineModel)`
+  rather than by model alone: a model id by itself cannot say who served it.
+- **Privacy disclosure.** `/connect`'s "where your code goes" notice names the local endpoint
+  and suppresses the "upgrade to Bedrock for an in-your-cloud guarantee" nudge — advising a
+  self-hoster to send their source to a third party *for privacy reasons* was backwards.
+
+**No default model, deliberately.** Both `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL` are
+required. Ports differ per runtime (Ollama `:11434/v1`, LM Studio `:1234/v1`, vLLM
+`:8000/v1`), and an invented model default would 404 on a machine that never pulled it — a
+404 naming a model the operator never chose is a worse first run than an error naming the
+variable to set. `Authorization` is omitted entirely when no key is configured, since a bare
+`Bearer ` is a malformed header some servers reject.
+
+Use a **14B-class coder model or better**. The assessment is a multi-KB structured JSON; a
+small model routinely scores under half the rubric, at which point `isAssessmentUsable` drops
+the scan to its deterministic floor. The inherited coverage warning names the model, so the
+remedy is discoverable from the logs.
+
+### `claude-cli` — dev, and self-hosted production
+
+`LazyClaudeCliProvider` is a lazy proxy whose `assess()` dynamically imports the real
+`ClaudeCliProvider` behind `cliProviderAllowed()`: **`NODE_ENV !== "production"` OR
+`selfHosted()`**. On managed cloud it still refuses, with an error naming
+`ASCENT_SELF_HOSTED`, so a stray selection fails fast instead of hanging for the 10-minute
+CLI timeout on a host with no `claude` binary. `providerAvailable("claude-cli")` reads the
+same predicate, so availability and the provider's own refusal cannot disagree.
+
+**Why this changed.** The gate used to be `NODE_ENV !== "production"` alone, which was right
+when the only production deployment was Ascent Cloud on Vercel. It is wrong now that
+self-hosting is a first-class path: a self-hoster runs `npm run build && npm start` (or the
+Docker image), which sets `NODE_ENV=production`, so the flagship "score your fleet on the
+Claude subscription you already pay for, zero API spend" story died exactly where it was
+meant to work.
+
+**What it cost.** The old guard folded to a compile-time `false` in production, which made
+the dynamic import dead code and dropped `claude-cli.ts` (and its `child_process.spawn`, a
+"very dynamic require") out of the Node File Trace. A runtime predicate cannot fold, so the
+module now joins the production trace and adds an NFT warning beside the existing ones — a
+few KB in the cloud bundle, traded for the provider working on the deployments this project
+now exists to serve. A build-time flag could restore the pruning, but only by making
+self-hosters set a variable before `npm run build`.
 
 ### `getProvider()`
 
@@ -125,7 +183,7 @@ entry point the scan pipeline calls in place of `getProvider()`:
 3. Otherwise, `resolveByomProvider(orgSlug)` (from `org-llm.ts`) is called. It returns
    `null` unless BYOM is **active** for the org: `isByomActive()` requires a stored
    config row with `enabled: true` **and** a non-null `credentialsEncrypted` blob, the
-   org's plan allowing BYOM (`planAllowsByom`, Enterprise), and `isEncryptionConfigured()`
+   org's plan allowing BYOM (`planAllowsByom`, **Team and up** since 2026-08-19), and `isEncryptionConfigured()`
    (an `ENCRYPTION_KEY` is set on the deployment). If active, the stored secret is
    decrypted and a real provider is built:
    - `kind: "bedrock"` → `new BedrockProvider({ model, region, credentials })`: inference
@@ -204,7 +262,8 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 | Bedrock | `src/lib/llm/bedrock.ts` | `BEDROCK_MODEL_ID` (default `us.anthropic.claude-sonnet-4-6`) | `@aws-sdk/client-bedrock-runtime`, **lazy-imported** so non-Bedrock paths never pull the SDK. Region via `BEDROCK_REGION`/`AWS_REGION` (default `us-east-1`). Forces JSON via the Converse API's required-tool (function-calling) `inputSchema`; caches the stable system prefix with a `cachePoint`. Supports an optional extended-thinking budget (`LLM_THINKING_BUDGET`) and BYOM-injected static AWS credentials. Also exports `testBedrockConnection()` for the settings UI. |
 | OpenAI | `src/lib/llm/openai.ts` | `OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (default `https://api.openai.com/v1`) | Fetch-based, no SDK. Requires `OPENAI_API_KEY`. Also serves Azure OpenAI and self-hosted OpenAI-compatible endpoints (vLLM, Ollama, LM Studio) via `OPENAI_BASE_URL`. Decodes against the strict `json_schema` derived from `ASSESSMENT_JSON_SCHEMA`, with a one-shot fallback to `json_object` when the target rejects strict schemas. `OPENAI_MAX_TOKENS` guards against small default completion caps (e.g. Ollama's `num_predict`) truncating the assessment JSON. |
 | OpenRouter | `src/lib/llm/openrouter.ts` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`, always a `vendor/model` slug) | Fetch-based, same OpenAI-compatible `/chat/completions` contract, one key routes to any vendor's model. Requires `OPENROUTER_API_KEY`. This is the fleet/benchmark path `scripts/matrix/run.mts` measures. Same strict-schema-then-`json_object` fallback and `OPENROUTER_MAX_TOKENS` guard as OpenAI. Sends `HTTP-Referer`/`X-Title` attribution headers. Also exports `testOpenRouterConnection()`. |
-| Claude CLI | `src/lib/llm/claude-cli.ts` | `CLAUDE_MODEL` (default `sonnet`), `CLAUDE_CLI_PATH` | Shells out to a local `claude` binary (`claude -p --output-format json --model <id>`) under your Pro/Max **subscription** (not pay-per-token; `ANTHROPIC_API_KEY` is stripped from the child env). Local-dev/eval only; throws in production builds (see above). Timeout via `CLAUDE_CLI_TIMEOUT_MS` (default 10 min; a full CLI session is ~6 min median). Output is capped (4 MB stdout / 16 KB stderr) against a runaway subprocess. Also exposes `runClaudePrompt()`, a generic prompt-in/text-out call used by other local-dev surfaces (e.g. Shared Org Memory's write-intelligence pass); it carries its own `NODE_ENV === "production"` guard now too, so it fails the same way even if a future caller reaches it without going through the documented `providerAvailable("claude-cli")` + dynamic-import convention. |
+| Local | `src/lib/llm/local.ts` | `LOCAL_LLM_MODEL` (required), `LOCAL_LLM_BASE_URL` (required), `LOCAL_LLM_API_KEY` (optional) | `LocalProvider extends OpenAiProvider` — same protocol, own identity and $0 cost class. `localLlmConfigured()` requires both variables; `assess()` throws naming them rather than letting an empty base URL fall through to `api.openai.com`. `Authorization` is omitted when no key is set (a bare `Bearer ` is malformed and some servers 401 on it). |
+| Claude CLI | `src/lib/llm/claude-cli.ts` | `CLAUDE_MODEL` (default `sonnet`), `CLAUDE_CLI_PATH` | Shells out to a local `claude` binary (`claude -p --output-format json --model <id>`) under your Pro/Max **subscription** (not pay-per-token; `ANTHROPIC_API_KEY` is stripped from the child env). Available in dev and on a self-hosted production deployment; refused on managed cloud (see above). Timeout via `CLAUDE_CLI_TIMEOUT_MS` (default 10 min; a full CLI session is ~6 min median). Output is capped (4 MB stdout / 16 KB stderr) against a runaway subprocess. Also exposes `runClaudePrompt()`, a generic prompt-in/text-out call used by other surfaces (e.g. Shared Org Memory's write-intelligence pass); it reads the **same** `cliProviderAllowed()` predicate, which is why that predicate lives in the leaf `config.ts` rather than in `index.ts` — two copies of "is the CLI usable here?" would have left the memory pass dead on exactly the self-hosted deployments that had just gained a working CLI. |
 | Mock | `src/lib/llm/mock.ts` | — | Deterministic, no network, no key. Derives the assessment directly from the signal scores (`overallScoreFor`, `levelForScore`) and a fallback roadmap. Memoized (bounded LRU, deep-frozen results) so repeated keyless/degraded scans of the same commit+signals reuse the prior result. The keyless-demo + CI floor, and the terminal step of every degrade chain. |
 
 ## `LLM_PROVIDER` selection knobs (`src/lib/llm/config.ts`)
@@ -461,8 +520,15 @@ default**:
   non-conforming JSON (handled by `validateAssessment`'s defensive coercion + the
   `isAssessmentUsable` coverage gate); either way the resulting assessment can be thinner
   than a native-structured-output provider's.
-- **`claude-cli` cannot run in any production build**, by design (dead-code-pruned from
-  the file trace); it exists solely for local dev/eval against a Pro/Max subscription.
+- **`claude-cli` is refused on managed cloud** (no `claude` binary on the host), and its
+  module now joins the production file trace because the gate is a runtime predicate rather
+  than a compile-time constant — see "`claude-cli` — dev, and self-hosted production" above.
+- **`local` availability is config-driven, not probed.** A running Ollama with the env vars
+  unset is invisible to `auto`; `getProvider()` is synchronous and on the scan hot path, so
+  it cannot make a network call to discover one.
+- **A local model's `temperature` obeys `LLM_TEMPERATURE` (default 0), but small models are
+  still less reproducible than a hosted one** at the same setting; treat a local-model score
+  as directional rather than as an anchor for a filed briefing.
 - **The model benchmark (`matrix-scores.data.ts`) is a baked snapshot, not a live
   measurement**: it self-flags staleness past 45 days (`isMatrixStale`) but does not
   re-run automatically; see [llm-model-matrix.md](llm-model-matrix.md) for the bench

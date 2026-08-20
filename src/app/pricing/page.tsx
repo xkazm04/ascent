@@ -12,6 +12,7 @@ import { HairlineGrid, Kicker } from "@/components/ui";
 import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, planScanLine, type PlanId } from "@/lib/plans";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 import { PlanEnquiryCta } from "@/components/pricing/PlanEnquiryCta";
+import { SelfHostBand } from "@/components/pricing/SelfHostBand";
 import { DEMO_ORG_SLUG, demoOrgHref } from "@/lib/site";
 import { planProducts, polarEnabled } from "@/lib/polar";
 import { getSession } from "@/lib/auth";
@@ -95,7 +96,7 @@ const priced = (id: PlanId) => `${PLAN_FEATURES[id].label} ${planPriceLabel(id).
 
 export const metadata = {
   title: "Plans & credits · Ascent",
-  description: `Public scans are always free. Every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
+  description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. On the hosted cloud, public scans are always free and every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
 };
 
 export default async function PricingPage() {
@@ -114,8 +115,8 @@ export default async function PricingPage() {
           <Kicker>Plans &amp; credits</Kicker>
           <h1 className="deck-h2 mt-3 text-3xl font-bold text-white sm:text-4xl">Pick the tier that fits your fleet</h1>
           <p className="deck-lede mt-4 text-lg leading-relaxed text-slate-300">
-            Public scans are always free; every plan adds a monthly private-scan allowance. Start with a scan, or see a
-            whole fleet already scored.
+            Ascent is open source and free to run yourself, with everything switched on. These plans are for
+            when you would rather we ran it.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <Link
@@ -138,10 +139,18 @@ export default async function PricingPage() {
           </p>
         </header>
 
+        {/* The free-forever path FIRST. A pricing page that never mentions the software is AGPL and
+            free to self-host is one a visitor discovers is incomplete the moment they find the
+            repository — and then trusts less about everything else on it. Above the cards, not below,
+            because burying it would be the same omission with extra steps. */}
+        <div className="mt-12">
+          <SelfHostBand />
+        </div>
+
         {/* The brand's editorial cluster (BRAND.md names pricing as a HairlineGrid case): ONE framed
             ledger with 1px rules between tiers, not four floating cards. Cells set their own bg so the
             gap reads as a rule. */}
-        <HairlineGrid className="tick-corners mt-12 sm:grid-cols-2 lg:grid-cols-4">
+        <HairlineGrid className="tick-corners mt-8 sm:grid-cols-2 lg:grid-cols-4">
           {PLAN_ORDER.map((id) => {
             const p = PLAN_FEATURES[id];
             const price = planPriceLabel(id);

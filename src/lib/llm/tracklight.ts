@@ -102,6 +102,10 @@ const TRACKLIGHT_PROVIDER: Record<ProviderName, string> = {
   // OpenRouter is a PROXY, not a vendor — the real provider is resolved per-model below, and this is
   // only the fallback for a slug whose vendor tracklight doesn't price.
   openrouter: "openrouter",
+  // A local Ollama / vLLM / LM Studio server. Keyed as "local" rather than "openai" (whose wire
+  // protocol it borrows) so tracklight's cost book never prices self-hosted GPU tokens at a vendor's
+  // API rate — the same reasoning as isZeroCostProvider in config.ts.
+  local: "local",
   mock: "mock",
 };
 

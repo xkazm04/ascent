@@ -1,21 +1,26 @@
-// Org dashboard "Tech Stacks" tab — the stack × dimension heat matrix plus the A-vs-B comparison
-// panel. Migrated from src/app/org/[slug]/tech-stacks/page.tsx (docs/ORG-TABS-REFACTOR.md).
+// Org dashboard "Tech Stacks" tab — the stack × dimension heat matrix and the dimension analysis
+// board. Migrated from src/app/org/[slug]/tech-stacks/page.tsx (docs/ORG-TABS-REFACTOR.md).
 //
 // SERVER component, filename PINNED as TechStacksTab.tsx. No auth work here — the org layout's
-// canReadOrg gate already ran. Two independent reads (the analysis matrix, the A/B comparison) each
-// get their own <Suspense> so a slow comparison query can't hold the matrix, and vice versa.
+// canReadOrg gate already ran.
+//
+// The A-vs-B "Compare stacks" panel that used to sit under the analysis was DELETED (2026-08-19),
+// root and branch: TechStacksComparePanel / StackComparePanel / TechStackComparePicker, the
+// `insightCompareHref` deep link into it, and its data read (`compareTechStacks` + `summarizeTechStack`
+// in src/lib/db/tech-groups.ts, with their unit test). Everything it answered — which stack leads,
+// which lags, by how much, on which dimension — the analysis board above it already answers for ALL
+// stacks at once, per dimension, with a transformation playbook attached. Picking two stacks by hand
+// was a strictly narrower read of the same numbers.
 
 import { Suspense } from "react";
 import Link from "next/link";
 import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
-import { TechStacksComparePanel } from "./TechStacksComparePanel";
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { listTechStackGroups } from "@/lib/db";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import type { OrgSearchParams } from "@/components/org/shell/OrgTabChunks";
 
-export async function TechStacksTab({ slug, sp }: { slug: string; sp: OrgSearchParams }) {
+export async function TechStacksTab({ slug }: { slug: string }) {
   const groups = await listTechStackGroups(slug);
 
   if (groups.length === 0) {
@@ -36,12 +41,6 @@ export async function TechStacksTab({ slug, sp }: { slug: string; sp: OrgSearchP
         />
         <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
           <TechStacksAnalysisPanel slug={slug} />
-        </Suspense>
-      </div>
-
-      <div id="compare">
-        <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
-          <TechStacksComparePanel slug={slug} groups={groups} sp={sp} />
         </Suspense>
       </div>
     </div>

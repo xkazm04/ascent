@@ -5,11 +5,13 @@
 //   LLM_PROVIDER=openai     -> OpenAI / Azure-OpenAI / OpenAI-compatible (vLLM, Ollama, …).
 //   LLM_PROVIDER=openrouter -> OpenRouter (one key, any vendor's model — the fleet/bench path).
 //   LLM_PROVIDER=bedrock    -> AWS Bedrock / Claude Sonnet (Phase 2, enterprise privacy).
-//   LLM_PROVIDER=claude-cli -> local `claude` CLI under your subscription (LOCAL-DEV-ONLY;
-//                              throws in production builds).
+//   LLM_PROVIDER=local      -> a local OpenAI-compatible server: Ollama / vLLM / LM Studio. Nothing
+//                              leaves the machine and the tokens cost $0.
+//   LLM_PROVIDER=claude-cli -> the local `claude` CLI under your subscription. Available in dev, and
+//                              on a SELF-HOSTED production build (see LazyClaudeCliProvider).
 //   LLM_PROVIDER=mock       -> deterministic, keyless.
-//   LLM_PROVIDER=auto       -> (default) Gemini if a key is present, else mock. Never
-//                              silently selects Bedrock — that's opt-in via the flag.
+//   LLM_PROVIDER=auto       -> (default) Gemini if a key is present, else a configured LOCAL server,
+//                              else mock. Never silently selects Bedrock — that's opt-in via the flag.
 //
 // Keep Gemini local: set LLM_PROVIDER=gemini in .env.local. Switch to Bedrock in
 // production by setting LLM_PROVIDER=bedrock + AWS credentials/region.
@@ -21,21 +23,21 @@ import { BedrockProvider } from "@/lib/llm/bedrock";
 import { OpenAiProvider } from "@/lib/llm/openai";
 import { OpenRouterProvider } from "@/lib/llm/openrouter";
 import { MockProvider } from "@/lib/llm/mock";
+import { LocalProvider, localLlmConfigured } from "@/lib/llm/local";
+import { cliProviderAllowed } from "@/lib/llm/config";
+
+// Re-exported from its leaf home in config.ts so `@/lib/llm` stays the one import surface callers use.
+export { cliProviderAllowed };
 
 export type ProviderChoice = "auto" | ProviderName;
 
+
 /**
- * Lazy proxy for the claude-cli provider. It shells out via child_process to a local `claude` binary
- * (LOCAL-DEV-ONLY — assess() throws in any production build, which providerAvailable mirrors by gating
- * on NODE_ENV !== "production" so the failover skips it instead of selecting a guaranteed-throw provider).
- * Two things matter here:
- *  1. The dynamic import defers loading claude-cli.ts until a scan actually runs under it.
- *  2. The `NODE_ENV === "production"` guard is statically inlined and folded by the production build, so
- *     the `await import` below becomes UNREACHABLE dead code — which drops claude-cli.ts (and its
- *     child_process.spawn, a "very dynamic require") from the Node File Trace. A plain dynamic import with
- *     a literal specifier is still followed by the tracer; only making it dead code removes it, the same
- *     trick src/instrumentation.ts uses for the dev-only PGlite boot. In dev it imports and runs normally.
- * name/model resolve synchronously so the scan pipeline can read them before the (lazy) assess().
+ * Lazy proxy for the claude-cli provider. It shells out via child_process to a local `claude` binary.
+ * The dynamic import defers loading claude-cli.ts until a scan actually runs under it; `name`/`model`
+ * resolve synchronously so the scan pipeline can read them before the (lazy) assess().
+ * `providerAvailable` gates on the same {@link cliProviderAllowed} predicate, so the failover skips
+ * this provider rather than selecting a guaranteed-throw one.
  */
 class LazyClaudeCliProvider implements LLMProvider {
   readonly name = "claude-cli" as const;
@@ -46,17 +48,16 @@ class LazyClaudeCliProvider implements LLMProvider {
     this.model = model || process.env.CLAUDE_MODEL || "sonnet";
   }
   async assess(input: LlmScoreInput, opts?: AssessOptions): Promise<LlmAssessment> {
-    // The dynamic import lives INSIDE this NODE_ENV !== "production" block (not after a guard `throw`)
-    // on purpose: the production build inlines NODE_ENV, folds the condition to `false`, and prunes the
-    // whole `if (false) { … }` block — import included — as dead code, dropping claude-cli.ts from the
-    // file trace. An import placed after a `throw` is NOT pruned (Turbopack still follows it); only the
-    // dead `if`-block form removes it. Same pattern as the PGlite gate in src/instrumentation.ts.
-    if (process.env.NODE_ENV !== "production") {
+    if (cliProviderAllowed()) {
       const { ClaudeCliProvider } = await import("@/lib/llm/claude-cli");
       return new ClaudeCliProvider(this.model).assess(input, opts);
     }
-    // Dev-only by design; on Vercel the `claude` binary doesn't exist and the scan's failover → mock.
-    throw new Error("claude-cli is a local-dev-only provider and is not available in production builds");
+    // Managed cloud: no `claude` binary on the host, so refuse rather than hang for the CLI timeout.
+    throw new Error(
+      "claude-cli needs a local `claude` binary and is not available on this managed deployment. " +
+        "Set ASCENT_SELF_HOSTED=1 if you are running Ascent on your own machine, or choose another " +
+        "LLM_PROVIDER.",
+    );
   }
 }
 
@@ -64,7 +65,7 @@ export function hasLlmKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
-const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"] as const;
+const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli"] as const;
 
 export function resolveProviderChoice(): ProviderChoice {
   const raw = (process.env.LLM_PROVIDER ?? "").trim();
@@ -88,6 +89,26 @@ export function resolveProviderChoice(): ProviderChoice {
 function geminiOrMock(): LLMProvider {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   return key ? new GeminiProvider(key) : new MockProvider();
+}
+
+/**
+ * The `auto` ladder: Gemini if a key is present, else a fully-configured LOCAL server, else mock.
+ *
+ * The local rung is what makes a keyless self-hosted install worth running. Before it, someone who
+ * had Ollama up and both LOCAL_LLM_* variables set still got the deterministic mock floor from the
+ * default config — the worst possible first run for an open-source product, because it looks like the
+ * app works while every score is a rubric floor.
+ *
+ * It sits BELOW Gemini so no existing deployment changes behaviour, and it is config-driven rather
+ * than probe-driven: `getProvider()` is synchronous and on the scan hot path, so it cannot make a
+ * network call to sniff for a listening Ollama. `localLlmConfigured()` requires BOTH variables, so
+ * `auto` only takes this rung once the operator has said what to talk to and which model to use.
+ */
+function autoProvider(): LLMProvider {
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (key) return new GeminiProvider(key);
+  if (localLlmConfigured()) return new LocalProvider();
+  return new MockProvider();
 }
 
 /**
@@ -124,12 +145,14 @@ export function providerAvailable(name: ProviderName): boolean {
           process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
           process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
       );
+    case "local":
+      // BOTH knobs, matching LocalProvider's own guard: an endpoint with no model (or the reverse)
+      // cannot complete a call, and reporting it available would put a doomed step in the failover.
+      return localLlmConfigured();
     case "claude-cli":
-      // Mirror LazyClaudeCliProvider.assess(): it throws whenever NODE_ENV === "production" (the
-      // dynamic import is dead-code-pruned by the prod build), so availability must gate on the SAME
-      // NODE_ENV signal — not VERCEL, which false-positived non-Vercel prod hosts (Docker/ECS/plain
-      // `next start`) into selecting a guaranteed-throw provider that silently degraded every scan to mock.
-      return process.env.NODE_ENV !== "production";
+      // Mirror LazyClaudeCliProvider.assess() exactly — same predicate, so availability and the
+      // provider's own refusal can never disagree and put a guaranteed-throw step in the failover.
+      return cliProviderAllowed();
     case "mock":
       return true;
     default:
@@ -146,6 +169,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
     case "bedrock":
     case "openai":
     case "openrouter":
+    case "local":
     case "claude-cli":
       // Trust the operator's EXPLICIT LLM_PROVIDER selection. Pre-degrading a selected-but-unavailable
       // real provider to mock HERE set intendedProvider="mock" downstream, which suppressed the
@@ -157,6 +181,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       if (choice === "bedrock") return new BedrockProvider();
       if (choice === "openai") return new OpenAiProvider();
       if (choice === "openrouter") return new OpenRouterProvider();
+      if (choice === "local") return new LocalProvider();
       return new LazyClaudeCliProvider();
     case "gemini":
       // EXPLICIT gemini selection: construct the REAL provider unconditionally, mirroring the
@@ -169,8 +194,9 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       return new GeminiProvider(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "");
     case "auto":
     default:
-      // AUTO/default: absent config → mock is CORRECT here (not "broken config"), so keep geminiOrMock().
-      return geminiOrMock();
+      // AUTO/default: absent config → mock is CORRECT here (not "broken config"). autoProvider() adds
+      // one rung below Gemini for a configured local server; with neither, it is still mock.
+      return autoProvider();
   }
 }
 
@@ -196,6 +222,8 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
       return providerAvailable("openai") ? new OpenAiProvider() : null;
     case "openrouter":
       return providerAvailable("openrouter") ? new OpenRouterProvider() : null;
+    case "local":
+      return providerAvailable("local") ? new LocalProvider() : null;
     case "claude-cli":
       return providerAvailable("claude-cli") ? new LazyClaudeCliProvider() : null;
     default:

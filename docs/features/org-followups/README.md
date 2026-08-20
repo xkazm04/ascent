@@ -62,6 +62,11 @@ view. The resolved archive is the same rows filtered, never a second round-trip.
 `N open · M handed off · +P pts on the table` (projected points = engine-true gain if the gap
 closes, from the backlog read).
 
+The header intro is **one line** — *"Every gap the scans left open, in one ledger."* (shortened
+2026-08-19). It used to spell out the whole hand-off contract, `Ascent-Resolves: <id>` included, in
+a paragraph every visit had to scroll past to reach the table. That contract now appears where it is
+acted on: inside `FollowupsPromptModal`, on the prompt you are about to paste into an agent.
+
 Shared client model (`followupsModel.ts`, pure): sort by value (points desc, impact, effort),
 filters (Repo · Dimension · Impact · Status · search; empty status = the working set open +
 handed off), selection arithmetic (count · repos · +pts), the org-wide dimension spread.

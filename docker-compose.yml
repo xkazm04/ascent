@@ -1,4 +1,11 @@
-# Local development database for Phase 2.
+# Ascent — local database, and the full self-hosted stack.
+#
+#   docker compose up -d                  # Postgres only (the dev-loop default; unchanged)
+#   docker compose --profile app up -d    # Postgres + Ascent on http://localhost:3000
+#
+# The `app` service sits behind a profile so the long-standing dev flow above keeps working
+# untouched: contributors run the app with `npm run dev` against this database, and only a
+# self-hoster wants the container. See docs/SELF-HOSTING.md.
 #
 # Aurora DSQL has no downloadable local emulator (unlike DynamoDB Local). DSQL speaks
 # the PostgreSQL wire protocol, so for fast, free, offline dev we run plain Postgres
@@ -28,6 +35,44 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # The app itself — profile-gated, so `docker compose up -d` still means "just the database".
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ascent-app
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Reach the database over the compose network, not localhost.
+      DATABASE_URL: postgres://ascent:ascent@db:5432/ascent
+      # This is a self-hosted deployment: every plan gate off, scans unmetered, retention unbounded.
+      ASCENT_SELF_HOSTED: "1"
+      # Ascent runs with NOTHING else configured — it scores deterministically in mock mode, which is
+      # fully functional, just without LLM-written nuance. Uncomment a provider to get real scores.
+      # A local model keeps your source on this machine and costs nothing per token:
+      #   LLM_PROVIDER: local
+      #   LOCAL_LLM_BASE_URL: http://host.docker.internal:11434/v1   # Ollama on the host
+      #   LOCAL_LLM_MODEL: qwen2.5-coder:14b
+      # Or a hosted key:
+      #   LLM_PROVIDER: gemini
+      #   GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Anything in .env.example works here; nothing is required.
+    env_file:
+      # Optional: drop a .env next to this file and it is picked up. `required: false` keeps
+      # `docker compose --profile app up` working when there is no .env at all.
+      - path: .env
+        required: false
+    # Ollama (and any other host service) is reachable at host.docker.internal from inside the
+    # container. Docker Desktop provides this automatically; on Linux this mapping is what makes it work.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
 volumes:
   ascent_pgdata:

@@ -275,6 +275,7 @@
       "sourceGlobs": [
         "src/lib/plans.ts",
         "src/lib/polar.ts",
+        "src/lib/env.ts",
         "src/lib/entitlement.ts",
         "src/lib/credit-estimate.ts",
         "src/lib/db/credits.ts",
@@ -341,6 +342,20 @@
         "src/components/about/**",
         "src/app/about-org/**",
         "src/components/about-org/**"
+      ]
+    },
+    {
+      "area": "local-mode",
+      "doc": "docs/features/local-mode/README.md",
+      "sourceGlobs": [
+        "src/lib/local/**",
+        "src/lib/db/org-local.ts",
+        "src/lib/api/self-host.ts",
+        "src/features/admin/pairing/**",
+        "src/app/api/org/local/**",
+        "src/components/org/followups/LocalRescanButton.tsx",
+        "src/features/inflight/live/AutopilotBand.tsx",
+        "src/features/inflight/live/AutopilotBandParts.tsx"
       ]
     }
   ]

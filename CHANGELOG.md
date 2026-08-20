@@ -6,7 +6,34 @@ versioned for release.
 
 ## [Unreleased]
 
+### Changed
+- **Ascent is now open source.** Relicensed from BUSL-1.1 (source-available) to
+  **AGPL-3.0-only**, so the product can be run, forked and commercially self-hosted by anyone,
+  and the marketing copy can say "open source" and mean it. A modified Ascent offered as a
+  network service must publish its modifications (§13); dual-licensing is available for
+  embedders who cannot take copyleft. `CONTRIBUTING.md` now asks for a DCO sign-off
+  (`git commit -s`) plus a relicensing grant.
+- **The cloud sells operation, not features.** `selfHosted()` (`src/lib/env.ts`) turns every
+  plan gate off on a self-hosted deployment: BYOM, white-label briefings, the skills library,
+  shared org memory and PDF export are all on, scans are unmetered (no allowance, no credits,
+  no 402), and history has no retention floor. Self-hosted is the default whenever billing is
+  unconfigured, so a fresh clone gets the whole product with no flags.
+- **Pricing.** BYOM moved from Enterprise to **Team and up** — it is the concession that keeps a
+  customer who could self-host on the cloud. The **Free** tier's monthly private-scan allowance
+  went **5 → 20**, because it now competes with an unlimited self-hosted alternative rather than
+  with nothing. No Polar product or price changed.
+
 ### Added
+- **`local` LLM provider** — a first-class provider for Ollama / vLLM / LM Studio
+  (`LOCAL_LLM_BASE_URL` + `LOCAL_LLM_MODEL`), with its own provenance and a **$0 cost class**, so
+  `/usage` stops attributing local runs to OpenAI and stops invoicing tokens that cost nothing.
+  `auto` now prefers a configured local server over the deterministic mock.
+- **`claude-cli` in production** — available on self-hosted builds instead of throwing whenever
+  `NODE_ENV=production`, which had killed the "run it on the Claude subscription you already pay
+  for" path exactly where it was meant to work.
+- **Self-hosting** — a `Dockerfile` (multi-stage, non-root, no build-time secrets), an `app`
+  service in `docker-compose.yml` behind a profile, and
+  [`docs/SELF-HOSTING.md`](./docs/SELF-HOSTING.md).
 - **Legal & feedback** — `/privacy` and `/terms` pages, and a footer feedback channel.
 - **Observability** — Sentry error reporting + LightTrack first-party analytics (operator
   `/api/kpi` route + `landing_view` counter); security headers.

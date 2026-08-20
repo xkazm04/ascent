@@ -36,9 +36,9 @@ export function SegmentChips({
             {s.name}
           </span>
           {/* G4-08: this is the TAGGED count (every repo ever added to the segment, watched or not,
-              scanned or not) — a different universe than the "N/M scanned" count on the Segments tab
-              below, which only counts watched-or-scanned repos. The title spells that out so the two
-              screens' numbers don't read as disagreeing. */}
+              scanned or not) — a different universe than the "N/M scanned" count on the segment
+              maturity cards below, which only counts watched-or-scanned repos. The title spells that
+              out so the two counts don't read as disagreeing. */}
           <span className="font-mono text-sm text-slate-500" title={`${s.repoCount} repo${s.repoCount === 1 ? "" : "s"} tagged`}>
             {s.repoCount}
           </span>

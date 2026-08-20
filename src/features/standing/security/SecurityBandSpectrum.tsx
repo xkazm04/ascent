@@ -1,6 +1,15 @@
 // The fleet security spectrum — the D9 band distribution as ONE proportional bar with an inline
 // legend, replacing the Security tab's former card-of-four-cards (same numbers, a fraction of the
 // vertical space, and the fleet's shape is readable at a glance). Server-safe: pure render.
+//
+// It is no longer a section of its own. It renders as the LAST CELL of the tab's summary-tile ledger
+// (`col-span-full`, so the ledger's `gap-px` bed puts it flush under the four tiles as their bottom
+// edge): the thin coloured bar takes the place of the frame's plain bottom border, so the shape of the
+// fleet reads as part of the same instrument as the numbers above it rather than as a floating strip
+// below. It must therefore be a DIRECT child of the TILE_GRID element, and it paints `bg-ink` like
+// every other cell so the hairline bed shows only as a rule.
+//
+// The legend stays. The bar alone would be a colour-only signal, and the counts are the point.
 
 const BANDS = [
   { key: "critical", label: "critical", range: "<40", color: "#dc2626" },
@@ -16,10 +25,11 @@ export function SecurityBandSpectrum({
   band: { critical: number; weak: number; ok: number; strong: number };
   scanned: number;
 }) {
+  // Nothing scanned: render no cell at all, and the ledger closes with its own bottom border as usual.
   if (scanned === 0) return null;
   return (
-    <div>
-      <div className="flex h-3 overflow-hidden rounded-full bg-slate-800" role="img" aria-label={aria(band, scanned)}>
+    <div className="col-span-full bg-ink">
+      <div className="flex h-1.5" role="img" aria-label={aria(band, scanned)}>
         {BANDS.filter((b) => band[b.key] > 0).map((b) => (
           <div
             key={b.key}
@@ -29,7 +39,7 @@ export function SecurityBandSpectrum({
           />
         ))}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-2 font-mono text-xs text-slate-400">
         {BANDS.map((b) => (
           <span key={b.key} className="inline-flex items-center gap-1.5">
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: band[b.key] > 0 ? b.color : "#334155" }} />

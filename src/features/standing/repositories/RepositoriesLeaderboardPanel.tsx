@@ -1,15 +1,19 @@
 // The Repositories tab's leaderboard data region — moved from the old page.tsx body
 // (docs/ORG-TABS-REFACTOR.md), minus the personal-org guard and the Segments branch (both now live
 // in RepositoriesTab, the orchestrator).
+//
+// The segment MANAGER (RepoSegmentsPanel — create/recolor/delete a segment, tag repos into it) used
+// to sit here, above the leaderboard. It now lives on the Segments view (SegmentsSection), which is
+// where a user goes to think about segments and where its absence left an empty state that could only
+// point back here. `listSegments` still runs: the leaderboard's per-row segment chips need it.
 
 import Link from "next/link";
 import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
-import { RepoSegmentsPanel } from "./RepoSegmentsPanel";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import { MissingReposPanel } from "./MissingReposPanel";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRollup, getRepoSegmentMap, listMissingRepos, listSegments } from "@/lib/db";
+import { getOrgRollup, listMissingRepos, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -60,11 +64,10 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
     return p ? `${base}${sep}posture=${p}${stackQs}` : stackQs ? `${base}${sep}${stackQs.slice(1)}` : base;
   };
 
-  // Segment tagging surface: existing segments + which segments each repo is tagged into.
+  // The segments the leaderboard's bulk bar can tag a selection into (POST /api/org/segments/:id/
+  // repos/bulk). Still read here after the segment MANAGER moved to the Segments view: this is a
+  // different affordance — tag what you just filtered, without leaving the table.
   const segments = (await listSegments(slug)) ?? [];
-  const segmentMap = await getRepoSegmentMap(slug);
-  const membership: Record<string, string[]> = {};
-  for (const r of rollup.repos) membership[r.fullName] = (segmentMap[r.fullName] ?? []).map((s) => s.id);
 
   // Watched repos GitHub's last COMPLETE listing didn't contain (renamed/transferred/deleted/private).
   // Renders nothing when the list is empty, so the tab is unchanged for a healthy fleet.
@@ -73,12 +76,6 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
   return (
     <div className="space-y-6">
       <MissingReposPanel org={slug} repos={missing} />
-      <RepoSegmentsPanel
-        slug={slug}
-        repos={rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage }))}
-        segments={segments}
-        membership={membership}
-      />
       {/* Leaderboard */}
       <div>
         <SectionHeader

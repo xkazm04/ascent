@@ -90,4 +90,13 @@ if (process.env.DEV_INSPECT === "1") {
   };
 }
 
+// Self-hosted container builds emit a `standalone` server bundle (.next/standalone) so the Docker
+// image can run `node server.js` without shipping node_modules. Gated on ASCENT_DOCKER_BUILD, which
+// only the Dockerfile sets, because Vercel does its own tracing and output-mode selection — flipping
+// this on unconditionally would change how every cloud deploy is packaged for the benefit of a build
+// target Vercel never runs. See Dockerfile and docs/SELF-HOSTING.md.
+if (process.env.ASCENT_DOCKER_BUILD === "1") {
+  nextConfig.output = "standalone";
+}
+
 export default nextConfig;

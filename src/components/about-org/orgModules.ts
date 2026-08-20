@@ -44,6 +44,8 @@ const BLURBS: Record<OrgTabId, string> = {
   members: "Who is in the org and what they can do.",
   governance: "Branch protection, review gates and rulesets, audited across every repository.",
   integrations: "Connect your AI coding providers so measured usage lands beside the git-side signals.",
+  pairing:
+    "Self-hosted only: pair each repo with its working copy on your machine, so scans read from disk and your local agent's commits close follow-ups before they are even pushed.",
   audit: "A searchable, paginated trail of every consequential action taken in the org.",
   settings: "Org-level configuration: alert thresholds, gate policy, retention, LLM provider.",
 };

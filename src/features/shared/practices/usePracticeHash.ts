@@ -2,13 +2,15 @@
 
 // The receiving end of the `/org/<slug>/practices#practice-<id>` deep link.
 //
-// FIVE surfaces route here — governance's "cheapest path to green" chips (the flagship
-// governance→practice handoff), the executive briefing, plan initiatives, the overview's fix-first
-// list and its posture dimensions — and after the ledger redesign dropped the old card anchor, every
-// one of them landed at the top of an undifferentiated table. Restoring the anchor alone would only
-// fix HALF the handoff: those links are sent by a surface that just told the lead "this is the
-// cheapest gap to close", so the right destination is the APPLY flow, not a highlighted list row.
-// This hook therefore scrolls the row into view AND opens its detail modal.
+// FOUR surfaces route here — the executive briefing, plan initiatives, the overview's fix-first list
+// and its posture dimensions — and after the ledger redesign dropped the old card anchor, every one
+// of them landed at the top of an undifferentiated table. Restoring the anchor alone would only fix
+// HALF the handoff: those links are sent by a surface that just told the lead "this is the cheapest
+// gap to close", so the right destination is the APPLY flow, not a highlighted list row. This hook
+// therefore scrolls the row into view AND opens its detail modal.
+//
+// (A fifth was governance's "cheapest path to green" chips — the original flagship
+// governance→practice handoff. That card was deleted 2026-08-19; the contract below is unchanged.)
 //
 // Only MINED practices are addressable: every call site interpolates a catalogued practice id.
 

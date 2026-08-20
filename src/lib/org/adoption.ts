@@ -70,6 +70,36 @@ const ENABLEMENT_MIN_COMMITS = 3;
 const ENABLEMENT_LIMIT = 8;
 const TOOLS_LIMIT = 10;
 
+/**
+ * The zero-AI enablement cohort: contributors carrying real recent volume with no AI-attributed
+ * commits — where enablement moves the org's AI share fastest.
+ *
+ * Exported because TWO surfaces need it and the cohort must be defined once. The adoption brief
+ * (adoptionMarkdown, via buildAdoptionOverview) still carries it into the LLM prompt, while the
+ * on-screen "Who to enable next" table moved to the Contributors tab (2026-08-19), which already has
+ * `getContributorInsights` in hand and must not run a whole second buildAdoptionOverview to read a
+ * list it can derive. Duplicating the two thresholds at the second call site is exactly what let
+ * three adoption surfaces drift apart before.
+ *
+ * `namingAllowed` is the CHAMPION_MIN_POP privacy guard. Below the floor, naming 1–2 identifiable
+ * people is a surveillance-y ranking, so the cohort is empty and every caller inherits the
+ * suppression — which is also why an empty list IS the render guard; no call site re-checks the
+ * population.
+ *
+ * Pure. Takes the narrow slice of ContributorInsights it reads, so a caller can pass either producer's
+ * result. `contributors` arrives sorted by commits desc, so filter order = volume order = leverage order.
+ */
+export function enablementTargets(insights: {
+  namingAllowed: boolean;
+  contributors: { login: string; name: string | null; aiShare: number; commits: number; repos: number; lastActiveAt: string | null }[];
+}): EnablementTarget[] {
+  if (!insights.namingAllowed) return [];
+  return insights.contributors
+    .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS)
+    .slice(0, ENABLEMENT_LIMIT)
+    .map((c) => ({ login: c.login, name: c.name, commits: c.commits, repos: c.repos, lastActiveAt: c.lastActiveAt }));
+}
+
 export async function buildAdoptionOverview(
   orgSlug: string,
   segmentId?: string | null,
@@ -90,18 +120,15 @@ export async function buildAdoptionOverview(
 
   // CHAMPION_MIN_POP privacy guard. It is now enforced by getContributorInsights / rollupTeams
   // themselves (champions, per-person rows and the team knowledge leader all arrive already
-  // suppressed), so this flag only decides whether THIS builder names people in lists it derives
-  // itself — the zero-AI enablement cohort. Below the floor, naming 1–2 identifiable people is a
-  // surveillance-y ranking, and adoptionMarkdown would carry it into an LLM prompt.
+  // suppressed), so this flag only decides whether THIS builder names people in the lists it derives
+  // itself. Below the floor, naming 1–2 identifiable people is a surveillance-y ranking, and
+  // adoptionMarkdown would carry it into an LLM prompt.
   const namingAllowed = insights.namingAllowed;
 
-  // insights.contributors is sorted by commits desc, so filter order = volume order (leverage order).
-  const enablement: EnablementTarget[] = !namingAllowed
-    ? []
-    : insights.contributors
-        .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS)
-        .slice(0, ENABLEMENT_LIMIT)
-        .map((c) => ({ login: c.login, name: c.name, commits: c.commits, repos: c.repos, lastActiveAt: c.lastActiveAt }));
+  // The zero-AI cohort, through the shared helper (see enablementTargets — it applies the same
+  // `namingAllowed` guard internally). Still built here because adoptionMarkdown puts it in the LLM
+  // brief's enablement ASK; the on-screen table now lives on the Contributors tab.
+  const enablement = enablementTargets(insights);
 
   const adoptionTeams: AdoptionTeam[] = (teams?.teams ?? [])
     .map((t) => ({

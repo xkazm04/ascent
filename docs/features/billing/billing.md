@@ -6,14 +6,34 @@ a signature-verified, idempotent fulfilment webhook), and a refund/clawback flow
 downgrades a plan on a full refund. The accounting layer stays provider-agnostic: anything that calls
 `grantCredits`/`setOrgPlan` moves the org's entitlement, and the scan code never imports the billing SDK._
 
+> **None of this runs on a self-hosted deployment.** Ascent is AGPL-3.0 software whose cloud sells
+> operation, not features: when `selfHosted()` is true (`src/lib/env.ts`), `isMeteredScan` returns
+> false — no allowance count, no credit debit, no 402 — and every `planAllows*` gate short-circuits
+> to allowed. Polar also self-disables without `POLAR_ACCESS_TOKEN` (`polarEnabled()`), which is the
+> same signal `selfHosted()` sniffs when the flag is unset. See
+> [`docs/SELF-HOSTING.md`](../../SELF-HOSTING.md).
+
 ## Plan tiers (`PLAN_FEATURES` in `src/lib/plans.ts`)
 
 | Plan id | Shown as | Monthly price | Included scans/mo | Seats | Retention | Extra gates |
 | --- | --- | --- | --- | --- | --- | --- |
-| `free` | Free | $0 | 5 | 1 | 30 days | — |
-| `pro` | **Starter** | $5 | 50 | 3 | 180 days | — |
-| `team` | Team | $10 | 150 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes |
-| `enterprise` | **Custom** | **Flexible** | Unmetered (`unlimited: true`) | Unlimited | Unlimited | Everything in Team, plus BYOM (bring-your-own-model) |
+| _(self-hosted)_ | — | Free | **Unmetered** | Unlimited | Unlimited | **Everything** — not a tier; the same code with every gate off |
+| `free` | Free | $0 | 20 | 1 | 30 days | — |
+| `pro` | **Starter** | $5 | 50 | 3 | 180 days | PDF export |
+| `team` | Team | $10 | 150 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes, **BYOM** |
+| `enterprise` | **Custom** | **Flexible** | Unmetered (`unlimited: true`) | Unlimited | Unlimited | Everything in Team; SSO, VPC/on-prem hosting and an SLA are scoped in the conversation |
+
+Two numbers moved on **2026-08-19**, with the open-source transition:
+
+- **Free: 5 → 20 scans/mo.** The Free tier's job changed. It used to be a trial of a product with no
+  alternative; it now competes with `git clone` — an unlimited, ungated, self-hosted Ascent. Five
+  scans a month was an argument *for* self-hosting rather than a trial of the cloud. This is the one
+  number to tune if hosted COGS runs ahead of conversion: it is the entire cloud free-tier bill.
+- **BYOM: Enterprise → Team and up.** It was the marquee enterprise unlock when there was no
+  alternative to the hosted product. Under open-core it is the exact concession that keeps a customer
+  who *could* self-host on the cloud ("keep your model and your inference bill, let us run everything
+  else"), and pricing it out of reach below Enterprise pushed that customer toward the repository.
+  What stays genuinely Enterprise is operational — SSO, VPC/on-prem, an SLA — not capability.
 
 ### Tier id vs tier label
 
@@ -52,7 +72,12 @@ Notes, all read directly from the model:
   - `planAllowsSkillsLibrary(plan)`: Team and Custom (authoring the Org Skills Library; reads stay
     open to all members).
   - `planAllowsMemory(plan)`: Team and Custom (writing to Shared Org Memory; reads stay open).
-  - `planAllowsByom(plan)`: Custom only (connect the org's own LLM/Bedrock).
+  - `planAllowsByom(plan)`: **Team and Custom** since 2026-08-19 (connect the org's own Bedrock or
+    OpenRouter account); Custom-only before that.
+  - `planAllowsPdfExport(plan)`: Starter and up.
+  - **Every one of these returns `true` on a self-hosted deployment.** When adding a gate, add the
+    `selfHosted()` short-circuit with it — one that forgets it silently makes the open-source build
+    worse than the hosted one, which is the opposite of the stated position.
 - `retentionCutoff(plan, nowMs)` gives the earliest scan date a plan's retention window includes (`null`
   for the Custom tier). It's a **non-destructive read floor**: history/trend/trajectory reads are
   clamped to it; nothing is ever deleted.

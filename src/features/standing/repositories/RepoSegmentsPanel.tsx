@@ -1,6 +1,6 @@
 "use client";
 
-// The segment manager on the Repositories tab. Create named segments (platform, mobile, legacy,
+// The segment manager on the Segments view (`?tab=segments`). Create named segments (platform, mobile, legacy,
 // acquisitions), recolor/remove them, and tag each repo into any number of them. Tagging is
 // optimistic — the chip flips immediately and the POST reconciles in the background. The tags drive
 // the Overview's segment filter and the segment-vs-segment comparison; all state lives server-side
@@ -48,9 +48,12 @@ export function RepoSegmentsPanel({
 
   return (
     <Card>
+      {/* Titled "Create & tag", not "Segments": this card now leads the Segments view, where the
+          rollup strip below it owns the plain "Segment maturity" heading. Two sections both called
+          "Segments" on one screen said nothing about which one does what. */}
       <SectionHeader
         size="sm"
-        title="Segments"
+        title="Create & tag"
         description="Group repos into named slices (platform, mobile, legacy…). Tags scope the Overview filter and power segment-vs-segment comparison."
       />
 

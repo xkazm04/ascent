@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
-// Pins the five `#practice-<id>` deep links (governance's "cheapest path to green" chips, the
-// executive briefing, plan initiatives, the overview's fix-first list + posture dimensions). The
+// Pins the `#practice-<id>` deep links from the four surfaces that emit them (the executive briefing,
+// plan initiatives, the overview's fix-first list + posture dimensions; governance's "cheapest path to
+// green" chips were a fifth until that card was deleted 2026-08-19). The
 // ledger redesign dropped the old card anchor, so every one of them silently landed at the top of an
 // undifferentiated table. The contract restored here is BOTH halves of the handoff: the row carries
 // the anchor and is scrolled into view, and its detail modal — the apply flow those surfaces were

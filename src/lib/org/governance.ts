@@ -5,10 +5,7 @@
 // @/lib/scoring/gate (no re-scan). Powers /org/[slug]/governance + its Copy-for-LLM brief.
 
 import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
-import { defaultGatePolicy, describeGatePolicy, effectiveFloor, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
-import { DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { PRACTICES } from "@/lib/practices";
-import type { DimensionId } from "@/lib/types";
+import { defaultGatePolicy, describeGatePolicy, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
 
 export interface GovernanceFailure {
   name: string;
@@ -18,31 +15,13 @@ export interface GovernanceFailure {
   reasons: string[];
 }
 
-/** One dimension a repo must lift to clear the gate, with the practice that addresses it (PRAC-6). */
-export interface GreenPathDim {
-  dimId: string;
-  name: string;
-  score: number;
-  floor: number;
-  /** Points to raise this dimension to the floor. */
-  gap: number;
-  /** The reusable practice for this dimension (deep-linkable on the Practice Library), or null. */
-  practiceId: string | null;
-}
-
-/** A failing repo ranked by how close it is to passing — the "cheapest path to green" worklist. */
-export interface GreenPathItem {
-  name: string;
-  fullName: string;
-  /** Distinct failing gate conditions. */
-  failCount: number;
-  /** Total points needed to clear the numeric conditions (overall + dimension floors); lower = closer. */
-  gap: number;
-  /** Dimensions below their floor, each with the practice to apply. */
-  dims: GreenPathDim[];
-  /** Non-numeric blockers (level / posture) that also need addressing. */
-  blockers: string[];
-}
+// `GreenPathItem` / `GreenPathDim` and the `closestToGreen` field lived here — the per-repo closeness
+// math (points to each dimension floor, the practice that clears it, non-numeric blockers) behind the
+// governance tab's "Cheapest path to green" card (PRAC-6). Card and data deleted 2026-08-19: the card
+// re-listed the failing repos `GovernanceFailingReposCard` already shows, re-sorted, and nothing else
+// ever read the field — `governanceMarkdown`'s cheapest-path ASK is prose the model answers from the
+// failing-repo list it is given. Going with it: this module's imports of `effectiveFloor`,
+// `DIMENSION_BY_ID`, `PRACTICES` and `DimensionId`, which nothing else here needed.
 
 export interface GovernanceOverview {
   org: string;
@@ -57,8 +36,6 @@ export interface GovernanceOverview {
   /** Failing-condition tally. Keyed off GateFailure["code"] so a new code cannot be silently dropped. */
   byReason: Record<GateFailure["code"], number>;
   failures: GovernanceFailure[]; // worst first (most failing conditions, then lowest overall)
-  /** Failing repos CLOSEST to passing — single-condition + smallest gap first (PRAC-6). */
-  closestToGreen: GreenPathItem[];
   /** Query string that reproduces this policy on the gate API/badge. */
   gateQuery: string;
   /** GitHub Action `with:` lines that enforce the SAME policy in CI. */
@@ -122,16 +99,7 @@ export async function buildGovernanceOverview(
     level: 0, overall: 0, dimension: 0, posture: 0, governance: 0, provenance: 0, incomplete: 0,
   };
   const failures: GovernanceFailure[] = [];
-  const greenPath: GreenPathItem[] = [];
   let passing = 0;
-
-  // The effective floor for a dimension = the stricter of the global minimum and any per-dim floor
-  // (shared with the gate verdict + PR-comment table via effectiveFloor). Note the green-path filter
-  // below deliberately keeps the plain `<` (NOT the fail-closed failsFloor): an UNSCORED dim already
-  // fails the gate via evaluateGateLite, but it has no quantifiable point-gap, so it is intentionally
-  // excluded from this "closeness" math (a NaN gap would poison the per-repo total).
-  const practiceForDim = new Map(PRACTICES.map((p) => [p.dimId as string, p.id]));
-  const floorFor = (dimId: string) => effectiveFloor(policy, dimId);
 
   for (const r of scannedRepos) {
     const s = r.latest!; // safe: filtered to r.latest above
@@ -170,38 +138,9 @@ export async function buildGovernanceOverview(
       }
     }
     failures.push({ name: r.name, fullName: r.fullName, level: s.level, overall: s.overall, reasons: result.failures.map((f) => f.message) });
-
-    // PRAC-6: quantify closeness — the points + practices needed to clear each numeric condition.
-    const dims: GreenPathDim[] = s.dims
-      .filter((d) => d.score < floorFor(d.dimId))
-      .map((d) => ({
-        dimId: d.dimId,
-        name: DIMENSION_BY_ID[d.dimId as DimensionId]?.name ?? d.dimId,
-        score: d.score,
-        floor: floorFor(d.dimId),
-        gap: floorFor(d.dimId) - d.score,
-        practiceId: practiceForDim.get(d.dimId) ?? null,
-      }))
-      .sort((a, b) => a.gap - b.gap);
-    const overallGap = typeof policy.minOverall === "number" && s.overall < policy.minOverall ? policy.minOverall - s.overall : 0;
-    // Non-numeric blockers a repo must address (no point-gap to quantify): level, posture, and the
-    // protected-branch governance condition (now that the fleet view actually evaluates it).
-    const blockers = result.failures
-      .filter((f) => f.code === "level" || f.code === "posture" || f.code === "governance")
-      .map((f) => f.message);
-    greenPath.push({
-      name: r.name,
-      fullName: r.fullName,
-      failCount: result.failures.length,
-      gap: overallGap + dims.reduce((a, d) => a + d.gap, 0),
-      dims,
-      blockers,
-    });
   }
 
   failures.sort((a, b) => b.reasons.length - a.reasons.length || a.overall - b.overall);
-  // Closest to green: fewest conditions first, then smallest point-gap — the cheapest repos to flip.
-  greenPath.sort((a, b) => a.failCount - b.failCount || a.gap - b.gap);
   const scanned = scannedRepos.length;
 
   return {
@@ -214,7 +153,6 @@ export async function buildGovernanceOverview(
     passRate: scanned ? Math.round((passing / scanned) * 100) : 0,
     byReason,
     failures: failures.slice(0, 12),
-    closestToGreen: greenPath.slice(0, 8),
     gateQuery: gateQuery(policy),
     ciWith: ciWith(policy),
     savedPolicy,

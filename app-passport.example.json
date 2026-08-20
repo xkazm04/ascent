@@ -15,7 +15,7 @@
     "archetype": "team",
     "lifecycle": "beta",
     "visibility": "private",
-    "license": "BUSL-1.1",
+    "license": "AGPL-3.0-only",
     "criticality": "business"
   },
 

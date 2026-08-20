@@ -6,7 +6,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { priceForModel } from "@/lib/llm/config";
+import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
 
 export interface ProviderUsage {
   provider: string;
@@ -198,8 +198,10 @@ export async function getUsageSummary(
       // beside Claude Sonnet dollars/MTok); a single global rate can't price that correctly. byRepo
       // is scoped by billableScanWhere (the same predicate as the headline count above) so the "by
       // metered scans" attribution can't mix free scans into "which repos drove the bill".
+      // Grouped by (provider, model), not model alone: the price fold needs the PROVIDER to recognize
+      // a $0 engine (a local Ollama/vLLM run), and a model id by itself cannot say who served it.
       prisma.scan.groupBy({
-        by: ["engineModel"],
+        by: ["engineProvider", "engineModel"],
         where: periodWhere,
         _sum: { inputTokens: true, outputTokens: true },
       }),
@@ -215,6 +217,7 @@ export async function getUsageSummary(
 
   const modelUsage: ModelTokenUsage[] = modelGroups.map((g) => ({
     model: g.engineModel,
+    provider: g.engineProvider,
     inputTokens: g._sum.inputTokens ?? 0,
     outputTokens: g._sum.outputTokens ?? 0,
   }));
@@ -297,9 +300,12 @@ export function estimateLlmCostUsd(
   return (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate;
 }
 
-/** One model's token totals within the period — the input to the per-model cost fold. */
+/** One (provider, model) pair's token totals within the period — the input to the per-model cost fold. */
 export interface ModelTokenUsage {
   model: string | null;
+  /** Persisted `Scan.engineProvider`. Optional so older callers/mocks still typecheck, but supplying
+   *  it is what lets the fold recognize a $0 provider — see {@link estimateLlmCostFromTable}. */
+  provider?: string | null;
   inputTokens: number;
   outputTokens: number;
 }
@@ -316,6 +322,15 @@ export function estimateLlmCostFromTable(usage: ModelTokenUsage[]): number | nul
   let pricedAny = false;
   for (const m of usage) {
     if (m.inputTokens + m.outputTokens === 0) continue; // token-less rows (mock) price as nothing
+    // Local inference bills nothing per token: it ran on the operator's own GPU. Priced at exactly
+    // zero rather than skipped, so a self-hosted org whose ONLY engine is local reads "$0.00" instead
+    // of "no estimate" — and, more importantly, so a local model tag that happens to prefix-match a
+    // hosted one in MODEL_PRICES can't invoice it at that vendor's rate. `pricedAny` is set because
+    // the row IS priced; zero is the price. (See isZeroCostProvider in src/lib/llm/config.ts.)
+    if (isZeroCostProvider(m.provider)) {
+      pricedAny = true;
+      continue;
+    }
     const price = priceForModel(m.model);
     if (!price) return null;
     cost += (m.inputTokens / 1_000_000) * price.inPerMTok + (m.outputTokens / 1_000_000) * price.outPerMTok;

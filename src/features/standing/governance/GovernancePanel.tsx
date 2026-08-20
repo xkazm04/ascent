@@ -14,7 +14,6 @@ import { scoreHex } from "@/lib/ui";
 import { GovernancePolicyCard } from "./GovernancePolicyCard";
 import { GovernanceFailReasonsCard } from "./GovernanceFailReasonsCard";
 import { GovernanceFailingReposCard } from "./GovernanceFailingReposCard";
-import { GovernanceClosestToGreenCard } from "./GovernanceClosestToGreenCard";
 import { GovernanceCiCard } from "./GovernanceCiCard";
 import { EvidencePackCard } from "./EvidencePackCard";
 // W3: the AI-stance prototype switcher is retired — the Perimeter is a real section below the gate
@@ -60,11 +59,9 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <SectionHeader
-          descriptionClassName="max-w-3xl"
-          title="Governance"
-          description="One maturity gate, applied as policy-as-code to every repo in the fleet. See who clears the bar, where the rest fall short, and copy the snippet that enforces the exact same gate in CI."
-        />
+        {/* Title only — the standfirst it carried restated what the policy card, the fail-reasons
+            card and the CI card each say at the point of use, one screen above any of them. */}
+        <SectionHeader title="Governance" />
         <div className="flex flex-wrap items-center gap-2">
           {filterBar}
           <CopyForLlm text={md} label="Copy governance brief for LLM" />
@@ -84,7 +81,10 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       </div>
 
       <GovernanceFailingReposCard slug={slug} g={g} />
-      <GovernanceClosestToGreenCard slug={slug} g={g} />
+      {/* "Cheapest path to green" (GovernanceClosestToGreenCard) sat here and was deleted 2026-08-19.
+          It re-listed the failing repos the card above already lists, re-sorted. `GovernanceOverview.
+          closestToGreen` (and the greenPath walk that builds it in src/lib/org/governance.ts) is now
+          UI-less — still computed, still unit-tested, read by nothing. */}
       <GovernanceCiCard gateQuery={g.gateQuery} snippet={snippet} />
 
       {/* W2 — the evidence pack sits with the stance and the gate policy on purpose: this is where an

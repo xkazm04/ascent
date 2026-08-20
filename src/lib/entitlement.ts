@@ -9,11 +9,19 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isDbConfigured } from "@/lib/db/client";
+import { selfHosted } from "@/lib/env";
 import { getCreditState, countMeteredScansThisMonth } from "@/lib/db/credits";
 import { resolveScanCharge, scanAllowance } from "@/lib/plans";
 
-/** True when this scan should draw on the org's prepaid credits. */
+/** True when this scan should draw on the org's prepaid credits.
+ *
+ *  Never on a SELF-HOSTED deployment: metering exists to recover Ascent Cloud's own LLM/infra cost,
+ *  and on someone else's box that cost is already theirs. Short-circuiting HERE (rather than only in
+ *  `checkScanEntitlement`) turns the whole billing path off at its root — no allowance count, no
+ *  credit debit, no 402 — instead of relying on every downstream gate to independently notice.
+ *  `isUnlimitedPlan`/`scanAllowance` also self-host short-circuit, so the two agree either way. */
 export function isMeteredScan(orgSlug: string, mock: boolean): boolean {
+  if (selfHosted()) return false;
   return isDbConfigured() && !mock && orgSlug !== PUBLIC_ORG;
 }
 
