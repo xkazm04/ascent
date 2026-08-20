@@ -4,6 +4,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { parseStringArray } from "@/lib/db/scans-shared";
 import type { PrStats } from "@/lib/types";
 
@@ -295,8 +296,12 @@ export interface OrgActivity {
   series: number[]; // fleet weekly commit totals (sum across repos), oldest→newest
   total: number;
   repos: number;
-  /** UTC ms of the Sunday that starts the NEWEST bucket (series[series.length - 1]); each earlier
-   *  element is exactly one WEEK_MS before it. Lets the chart label buckets with real dates. */
+  /** The CALENDAR DATE of the Sunday starting the NEWEST bucket (series[series.length - 1]),
+   *  expressed as midnight UTC. A DATE LITERAL, not an instant (canonical policy note 5): the week
+   *  boundary itself is a canonical-zone Sunday midnight, but what a chart axis needs is the date,
+   *  and rendering that date is only zone-stable if the value carries no time-of-day. Each earlier
+   *  element is exactly one WEEK_MS before it, so a consumer can step the axis with flat arithmetic
+   *  and format in UTC. */
   endWeekStartMs: number;
   /** ISO date (YYYY-MM-DD) of the start of the most-recent / oldest week in `series`. The grid is
    *  anchored to the most recent SCAN (not the current calendar week) and zero-fills gaps, so axis
@@ -315,24 +320,74 @@ const WEEK_MS = 7 * DAY_MS;
  *  whose latest activity is a year+ old. (fleet-rollups-insights #4) */
 const ACTIVITY_HORIZON_WEEKS = 26;
 
-/** Sunday-aligned whole-week index of an instant. GitHub's commit_activity buckets are Sunday-aligned
- *  weeks, so two repos' series elements only belong in the same fleet bucket if they fall in the same
- *  Sunday–Saturday week. A naive `floor(ms / WEEK_MS)` bins on the Unix-epoch 7-day grid, which is
- *  anchored on a THURSDAY — so two scans on opposite sides of a Thursday-00:00-UTC boundary WITHIN the
- *  same GitHub week land one bucket apart and their series sum out of phase. Instead, floor the instant
- *  to its Sunday 00:00 UTC first, then index; consecutive Sundays are 7 days apart, so the result stays
- *  a clean incrementing integer that different-cadence repos can be summed by. */
-function weekIndex(ms: number): number {
-  const d = new Date(ms);
-  const utcMidnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  const sundayMs = utcMidnight - d.getUTCDay() * DAY_MS; // getUTCDay(): 0 = Sunday
-  return Math.floor(sundayMs / WEEK_MS);
+/** The Unix epoch day (1970-01-01) as a day key — the origin every week index counts from. */
+const EPOCH_DAY_KEY = "1970-01-01";
+
+/** 1970-01-01 was a THURSDAY, so the epoch's first Sunday is day 3. The epoch 7-day grid is therefore
+ *  THURSDAY-anchored, and a naive `floor(ms / WEEK_MS)` bins on Thursdays: two scans on opposite sides
+ *  of a Thursday boundary WITHIN the same Sunday-Saturday week land one bucket apart and their series
+ *  sum out of phase. Floor to the named weekday FIRST, then index. */
+const EPOCH_FIRST_SUNDAY_DAY = 3;
+
+/**
+ * Sunday-aligned whole-week index of an instant, IN THE CANONICAL ORG ZONE.
+ *
+ * This used to floor to Sunday with `getUTCDay()` / `Date.UTC`, which was correct only by coincidence
+ * of the canonical zone defaulting to UTC (`src/lib/org/timezone.ts`). The dashboard window snaps in
+ * the org's canonical zone (`src/lib/window.ts`), so the moment an org sets a non-UTC zone the trend
+ * grid kept UTC weeks while the window moved: one local day landed in two different buckets and the
+ * trend chart disagreed with the tile deltas above it by up to a day's activity at each end. All
+ * boundary arithmetic in one product resolves through ONE zone; this is that zone.
+ *
+ * Indexing goes through DAY KEYS rather than ms arithmetic on purpose. A zoned week is 167 or 169
+ * hours across a DST transition, so `floor(ms / WEEK_MS)` has no clean inverse once the grid is zoned
+ * — but whole calendar days between two day keys is exact integer arithmetic with no DST in it.
+ */
+function weekIndexInZone(d: Date, tz: string): number {
+  const dayNo = daysBetweenDayKeys(EPOCH_DAY_KEY, dayKeyInZone(d, tz));
+  return Math.floor((dayNo - EPOCH_FIRST_SUNDAY_DAY) / 7);
 }
 
-/** Inverse of `weekIndex`: the UTC ms of the Sunday that starts week `wk`. Every Sunday-midnight
- *  since the epoch is (3 + 7k) days (Jan 1 1970 was a Thursday; the first Sunday was Jan 4 = day 3),
- *  so `weekIndex` maps it to k and this exact offset recovers the Sunday, not the epoch-grid Thursday. */
-const SUNDAY_EPOCH_OFFSET_MS = 3 * DAY_MS;
+/**
+ * The provider's own bucket boundary: the Sunday 00:00 **UTC** that starts the GitHub commit_activity
+ * week containing `ms`. GitHub's series is genuinely Sunday-UTC-aligned, and re-binning an aggregate
+ * we did not collect is not possible — so the SOURCE frame stays the source's, and only the placement
+ * of those buckets on the canonical grid is converted (`seriesWeekIndex`). Converting the grid without
+ * converting through the source bucket would reintroduce exactly the phase bug this pair exists to fix.
+ */
+function providerWeekStartMs(ms: number): number {
+  const d = new Date(ms);
+  const utcMidnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return utcMidnight - d.getUTCDay() * DAY_MS; // getUTCDay(): 0 = Sunday
+}
+
+/**
+ * Where the LAST element of a repo's weekly series sits on the canonical grid: the zoned week that the
+ * provider bucket containing `scannedAtMs` MOSTLY covers.
+ *
+ * "Mostly" is the whole design, and it is implemented as the bucket's MIDPOINT (Wednesday 12:00 UTC).
+ * A provider bucket runs Sun 00:00 UTC → Sat 24:00 UTC; a zoned week runs Sun 00:00 → Sat 24:00 local,
+ * so the two are offset by at most the zone offset (−12h…+14h) and overlap on six of seven days. The
+ * naive conversion — index the bucket's START instant in the zone — attributes a whole week of activity
+ * to the zoned week it overlaps by a few hours whenever the zone is west of Greenwich: an off-by-one
+ * week on every bar of the chart. The midpoint is more than 14 hours clear of both boundaries, so it
+ * always names the majority week, in every IANA zone, in either DST state.
+ *
+ * The consequence, worth stating because it is what makes the grid trustworthy: for a provider-frame
+ * series the result is the zoned week beginning on the bucket's own Sunday DATE, in any zone. The
+ * arithmetic is zoned, and it PROVES the stability the old UTC code merely assumed — which is the
+ * point, since the old code was only right while the canonical zone happened to be UTC. A first-party
+ * series (instants we collect ourselves) would feed `weekIndexInZone` directly and genuinely move.
+ */
+function seriesWeekIndex(scannedAtMs: number, tz: string): number {
+  return weekIndexInZone(new Date(providerWeekStartMs(scannedAtMs) + WEEK_MS / 2), tz);
+}
+
+/** Inverse of the week index, as a DATE LITERAL at midnight UTC (see `endWeekStartMs`): week `wk`
+ *  starts on epoch day `wk * 7 + 3`. Consecutive Sundays are exactly 7 days apart on the date axis,
+ *  which is what keeps the axis steppable by a flat WEEK_MS even when the zoned weeks themselves are
+ *  167 or 169 hours long. */
+const SUNDAY_EPOCH_OFFSET_MS = EPOCH_FIRST_SUNDAY_DAY * DAY_MS;
 function weekStartMs(wk: number): number {
   return wk * WEEK_MS + SUNDAY_EPOCH_OFFSET_MS;
 }
@@ -342,11 +397,15 @@ function weekStartMs(wk: number): number {
 export async function getOrgActivity(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  // Needs the full org row: the week grid is bucketed in the org's canonical zone (its stored column,
+  // else ASCENT_ORG_TZ, else UTC - resolveOrgTimeZone owns that order), the SAME zone the dashboard
+  // window snaps in. Routed through the cached full-row resolver rather than getOrgId (id only).
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+  const tz = resolveOrgTimeZone(org.timezone);
 
   const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
     // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true, scannedAt: true } } },
@@ -369,7 +428,7 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
     try {
       const arr = JSON.parse(raw) as unknown;
       if (!Array.isArray(arr) || !arr.length) continue;
-      const lastWeek = weekIndex(scan!.scannedAt.getTime()); // the scan's own week = the series' last element
+      const lastWeek = seriesWeekIndex(scan!.scannedAt.getTime(), tz); // the scan's provider bucket = the series' last element
       parsed.push({ lastWeek, arr: arr as number[] });
       if (lastWeek > newestScanWk) newestScanWk = lastWeek;
     } catch {
@@ -410,8 +469,8 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   const series: number[] = [];
   for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
   // Week index → ISO date of that week's start (via weekStartMs, the Sunday-anchored inverse of
-  // weekIndex), so the chart can label the real span instead of a literal "this week" (the grid's
-  // right edge is the latest SCAN week, possibly stale).
+  // weekIndexInZone), so the chart can label the real span instead of a literal "this week" (the
+  // grid's right edge is the latest SCAN week, possibly stale).
   const weekStartIso = (wk: number) => new Date(weekStartMs(wk)).toISOString().slice(0, 10);
   return {
     weeks: series.length,

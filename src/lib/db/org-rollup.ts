@@ -257,8 +257,14 @@ export interface OrgRollup {
   } | null;
   /** Cohort-matched current-minus-baseline for the headline metrics — the per-tile period delta.
    * Measured only over repos present on BOTH sides of the window, so onboarding repos mid-period
-   * reads as growth, not fabricated score movement. Null without a baseline (or no overlap). */
+   * reads as growth, not fabricated score movement. Null without a baseline (or no overlap).
+   * @deprecated Read {@link movement} instead — same three numbers, plus the cohort size they were
+   * measured over. A delta rendered without its denominator can't be read. */
   deltas: { overall: number; adoption: number; rigor: number } | null;
+  /** The same movement WITH its qualifiers: `cohortSize` (the matched denominator) and the excluded
+   * composition change (`onboarded` / `departed`). Null on the same conditions as `deltas`. Any
+   * surface rendering a period delta should render the cohort size beside it. */
+  movement: CohortMovement | null;
   /** Cohort-matched per-dimension movement over the window (computeDimDeltas) — e.g. the Security
    * tab's "D9 vs 90d ago" tile delta. Null without a baseline (or no overlap). */
   dimDeltas: { dimId: string; delta: number }[] | null;
@@ -273,17 +279,41 @@ export interface RepoScoreSnap {
 }
 
 /**
- * Cohort-matched period deltas: movement is measured ONLY over repos present on BOTH sides of the
- * window. Averaging the whole current fleet against the baseline cohort folds composition change
- * into what is presented as score movement — onboarding 5 low-scoring repos mid-quarter used to
- * read as the fleet "slipping" 25 points no repo experienced (and onboarding strong repos
- * manufactured a fake climb), while the movers panel below correctly showed zero regressions.
- * Returns null when the cohorts don't overlap.
+ * Cohort-matched period movement: the three deltas TOGETHER WITH the size of the cohort they were
+ * measured over and the composition change that was excluded from them.
+ *
+ * A count travels with its predicate. "−4 points" over 4 matched repos out of 60 renders identically
+ * to "−4 points" over 58 unless the cohort size ships with the number, so a reader cannot tell a
+ * fleet trend from a rounding artifact on a tiny cohort. And the composition change the matching
+ * correctly EXCLUDES is itself information ("5 repos onboarded this quarter") — reporting it beside
+ * the delta is what makes the exclusion legible instead of silent.
  */
-export function computeWindowDeltas(
+export interface CohortMovement {
+  overall: number;
+  adoption: number;
+  rigor: number;
+  /** Repos present on BOTH sides of the window — the denominator every delta above was measured over. */
+  cohortSize: number;
+  /** Repos scanned now with no baseline scan: onboarded (or first-scanned) inside the window. */
+  onboarded: number;
+  /** Repos in the baseline with no current scan: gone dark or removed inside the window. */
+  departed: number;
+}
+
+/**
+ * Cohort-matched period movement: measured ONLY over repos present on BOTH sides of the window.
+ * Averaging the whole current fleet against the baseline cohort folds composition change into what is
+ * presented as score movement — onboarding 5 low-scoring repos mid-quarter used to read as the fleet
+ * "slipping" 25 points no repo experienced (and onboarding strong repos manufactured a fake climb),
+ * while the movers panel below correctly showed zero regressions.
+ *
+ * Returns null when the cohorts don't overlap — there is no movement to qualify, and a 0-size cohort
+ * reported as "0 repos, delta 0" would read as "no change" rather than "nothing measurable".
+ */
+export function computeCohortMovement(
   current: readonly RepoScoreSnap[],
   baseline: readonly RepoScoreSnap[],
-): { overall: number; adoption: number; rigor: number } | null {
+): CohortMovement | null {
   const currentIds = new Set(current.map((c) => c.repoId));
   const before = baseline.filter((b) => currentIds.has(b.repoId));
   const beforeIds = new Set(before.map((b) => b.repoId));
@@ -294,7 +324,27 @@ export function computeWindowDeltas(
     overall: avg(now.map((c) => c.overall)) - avg(before.map((b) => b.overall)),
     adoption: avg(now.map((c) => c.adoption)) - avg(before.map((b) => b.adoption)),
     rigor: avg(now.map((c) => c.rigor)) - avg(before.map((b) => b.rigor)),
+    // The intersection is already computed above, so the qualifiers are free — the reason they were
+    // missing was never cost. `now.length === before.length` by construction (both are the same repo
+    // set, one snapshot each side), so either is the cohort size.
+    cohortSize: now.length,
+    onboarded: current.length - now.length,
+    departed: baseline.length - before.length,
   };
+}
+
+/**
+ * @deprecated The bare triple — movement with its denominator stripped off. Use
+ * {@link computeCohortMovement} (same numbers, plus `cohortSize` / `onboarded` / `departed`) so the
+ * count travels with the delta. Kept as a narrow projection while the callers that assert on the
+ * exact three-key shape migrate.
+ */
+export function computeWindowDeltas(
+  current: readonly RepoScoreSnap[],
+  baseline: readonly RepoScoreSnap[],
+): { overall: number; adoption: number; rigor: number } | null {
+  const m = computeCohortMovement(current, baseline);
+  return m && { overall: m.overall, adoption: m.adoption, rigor: m.rigor };
 }
 
 /** One repo's per-dimension scores on one side of the window — input to `computeDimDeltas`. */
@@ -480,7 +530,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // (computeWindowDeltas): the tiles keep the fleet-wide averages as their main values, but the
   // movement number compares only repos that exist on both sides of the window.
   let baseline: OrgRollup["baseline"] = null;
-  let deltas: OrgRollup["deltas"] = null;
+  let movement: OrgRollup["movement"] = null;
   let dimDeltas: OrgRollup["dimDeltas"] = null;
   if (start) {
     // The retention floor applies to the BASELINE too (fleet-rollups-insights #1): period-over-period
@@ -532,7 +582,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
           adoption: r.scans[0]!.adoptionScore,
           rigor: r.scans[0]!.rigorScore,
         }));
-      deltas = computeWindowDeltas(
+      movement = computeCohortMovement(
         currentSnaps,
         latestPerRepo.map((s) => ({ repoId: s.repoId, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore })),
       );
@@ -568,7 +618,10 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     trend,
     forecast,
     baseline,
-    deltas,
+    // `deltas` is the deprecated narrow projection of the same value — one source, so the two can
+    // never disagree while consumers migrate to `movement`.
+    deltas: movement && { overall: movement.overall, adoption: movement.adoption, rigor: movement.rigor },
+    movement,
     dimDeltas,
   };
 }

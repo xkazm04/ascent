@@ -9,7 +9,7 @@
 // box and a CET laptop while meaning two different windows.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resolveWindow, parsePeriodCookie, serializePeriodCookie, DEFAULT_RANGE } from "./window";
+import { resolveWindow, parsePeriodCookie, serializePeriodCookie, inclusiveEnd, DEFAULT_RANGE } from "./window";
 import { addDaysInZone, dayKeyInZone, orgTimeZone, partsInZone, zonedMidnight } from "./org/timezone";
 
 // resolveOrgWindow (src/lib/org/period.ts) is server-only: it reads the period cookie via
@@ -316,5 +316,71 @@ describe("resolveOrgWindow — precedence: ?range > cookie > default", () => {
     // sp.range is a non-empty array (truthy) ⇒ cookie skipped; resolveWindow reads its first element.
     const w = await resolveOrgWindow({ range: ["quarter", "90d"] });
     expect(w.key).toBe("quarter");
+  });
+});
+
+// ── The inclusive bound has exactly ONE producer (G4-07 / inclusive-end-alias) ─────────────────────
+//
+// A window value carries ONE closure convention: half-open `[start, endExclusive)`. The inclusive last
+// instant used to be an `endExclusive − 1ms` alias every consumer re-derived, so two surfaces reading
+// the same window could disagree about a boundary row depending on which field their query builder
+// happened to reach for. It is now produced by one adapter at the edge that needs it, and these pin
+// that the adapter is the ONLY conversion: `end` must be exactly `inclusiveEnd(endExclusive)`, never a
+// second, independently-computed bound.
+describe("inclusiveEnd — the single edge adapter between half-open and `lte`", () => {
+  it("the window's compat `end` IS the adapter's output — no second derivation", () => {
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    expect(w.end!.getTime()).toBe(inclusiveEnd(w.endExclusive)!.getTime());
+  });
+
+  it("every preset agrees: `end` is the adapter applied to that preset's `endExclusive`", () => {
+    for (const range of ["30d", "90d", "quarter", "all", "custom"] as const) {
+      const w = resolveWindow({ range, from: "2026-01-01", to: "2026-03-31" }, NOW);
+      expect(w.end).toEqual(inclusiveEnd(w.endExclusive));
+    }
+  });
+
+  it("an open-ended window converts to null, not to an epoch instant", () => {
+    // The failure this guards: `new Date(null - 1)` is 1969-12-31, which as an `lte` bound matches
+    // nothing — an open window would silently render as an empty period rather than "up to now".
+    expect(inclusiveEnd(null)).toBeNull();
+    expect(resolveWindow({ range: "custom", from: "2026-01-01" }, NOW).end).toBeNull();
+  });
+
+  it("the 1ms gap is real and confined to the adapter — a sub-millisecond row is why `lt` is preferred", () => {
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    const end = inclusiveEnd(w.endExclusive)!;
+    // The store keeps MICROSECOND timestamps; JS Date cannot represent one, so model it as the
+    // fractional instant 0.5ms before the exclusive bound. `lt: endExclusive` keeps it; `lte: end`
+    // drops it. That divergence is the whole reason the inclusive dialect lives behind one adapter.
+    const subMs = w.endExclusive!.getTime() - 0.5;
+    expect(subMs < w.endExclusive!.getTime()).toBe(true);
+    expect(subMs <= end.getTime()).toBe(false);
+    expect(w.endExclusive!.getTime() - end.getTime()).toBe(1);
+  });
+});
+
+// ── orgWindowBounds — the half-open shape handed to the db layer ───────────────────────────────────
+// Every org tab hand-wrote `{ start: period.start, end: period.end }`, which is how the inclusive
+// dialect spread from one deprecated field into a dozen query builders. This is the named migration
+// target: it must carry the half-open bound and must NOT carry an inclusive one.
+describe("orgWindowBounds — one closure convention crosses into the db layer", () => {
+  let orgWindowBounds: typeof import("./org/period").orgWindowBounds;
+
+  beforeEach(async () => {
+    ({ orgWindowBounds } = await import("./org/period"));
+  });
+
+  it("carries start + endExclusive and NO inclusive `end` key at all", () => {
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    const bounds = orgWindowBounds(w);
+    expect(bounds).toEqual({ start: w.start, endExclusive: w.endExclusive });
+    expect(Object.keys(bounds).sort()).toEqual(["endExclusive", "start"]);
+    expect("end" in bounds).toBe(false);
+  });
+
+  it("passes an open-ended window through as nulls (no bound invented)", () => {
+    const bounds = orgWindowBounds(resolveWindow({ range: "all" }, NOW));
+    expect(bounds).toEqual({ start: null, endExclusive: null });
   });
 });

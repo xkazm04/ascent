@@ -20,7 +20,7 @@ const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
-import { computeWindowDeltas, computeDimDeltas, getOrgRollup, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
+import { computeCohortMovement, computeWindowDeltas, computeDimDeltas, getOrgRollup, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
 
 /** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
 function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
@@ -266,6 +266,19 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     expect(res!.trend).toEqual(expected); // same-day pair collapses to one point (avg 70)
   });
 
+  it("surfaces `movement` with the cohort size beside the deltas (deltas stays its narrow projection)", async () => {
+    // The rollup is what every dashboard tile actually holds, so the qualifier has to survive the trip
+    // out of the aggregate — not just out of the pure function.
+    const { prisma } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme", { start: new Date("2026-05-01T00:00:00Z") });
+
+    // One repo (r1) on both sides: baseline 50 -> current 70.
+    expect(res!.movement).toEqual({ overall: 20, adoption: 10, rigor: 30, cohortSize: 1, onboarded: 0, departed: 0 });
+    expect(res!.deltas).toEqual({ overall: 20, adoption: 10, rigor: 30 });
+  });
+
   it("carries contextHealth parsed off Repository.contextHealthJson (W4) — null for pre-W4/malformed rows", async () => {
     const ch = {
       version: "1",
@@ -290,5 +303,60 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     // Malformed and absent blobs both degrade to null — the UI's "not assessed" path, never a crash.
     expect(res!.repos.find((r) => r.fullName === "acme/r2")!.contextHealth).toBeNull();
     expect(res!.repos.find((r) => r.fullName === "acme/r3")!.contextHealth).toBeNull();
+  });
+});
+
+// ── computeCohortMovement — the delta travels WITH its denominator (cohort-size-not-returned) ─────
+//
+// A count travels with its predicate. "−4 points" measured over 4 matched repos out of 60 renders
+// identically to one measured over 58 unless the cohort size ships with the number, so a reader cannot
+// separate a fleet trend from a rounding artifact on a tiny cohort. And the composition change the
+// matching correctly EXCLUDES (repos onboarded or gone dark inside the window) is itself information —
+// it was previously computed inside the function and thrown away.
+describe("computeCohortMovement — cohort size and excluded composition travel with the deltas", () => {
+  it("reports the matched cohort size — the denominator every delta was measured over", () => {
+    // 2 of the 3 current repos have a baseline; the deltas are that pair's movement, over 2 repos.
+    const current = [snap("A", 80), snap("B", 90), snap("C", 40)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    const m = computeCohortMovement(current, baseline)!;
+    expect(m.overall).toBe(10);
+    expect(m.cohortSize).toBe(2);
+  });
+
+  it("a tiny cohort is DISTINGUISHABLE from a fleet-wide one at the same delta (the whole point)", () => {
+    // Both movements are −10. Before the cohort size travelled with them they were indistinguishable
+    // to every consumer, so a 1-repo artifact rendered exactly like a 20-repo fleet regression.
+    const tiny = computeCohortMovement([snap("A", 60)], [snap("A", 70), ...Array.from({ length: 19 }, (_, i) => snap(`x${i}`, 70))])!;
+    const fleet = computeCohortMovement(
+      Array.from({ length: 20 }, (_, i) => snap(`x${i}`, 60)),
+      Array.from({ length: 20 }, (_, i) => snap(`x${i}`, 70)),
+    )!;
+    expect(tiny.overall).toBe(fleet.overall); // -10 either way…
+    expect(tiny.cohortSize).toBe(1); // …and only the qualifier tells them apart
+    expect(fleet.cohortSize).toBe(20);
+  });
+
+  it("reports the EXCLUDED composition change: onboarded (no baseline) and departed (no current scan)", () => {
+    // C and D onboarded inside the window; E was in the baseline and has no current scan. None of the
+    // four move the deltas — that exclusion is correct, and reporting it is what makes it legible.
+    const current = [snap("A", 80), snap("C", 20), snap("D", 20)];
+    const baseline = [snap("A", 70), snap("E", 99)];
+    const m = computeCohortMovement(current, baseline)!;
+    expect(m).toEqual({ overall: 10, adoption: 10, rigor: 10, cohortSize: 1, onboarded: 2, departed: 1 });
+  });
+
+  it("no overlap ⇒ null, NOT a zero delta over a zero cohort", () => {
+    // "0 over 0 repos" would render as "no change"; null is "nothing measurable", which is the truth.
+    expect(computeCohortMovement([snap("A", 80)], [snap("B", 70)])).toBeNull();
+    expect(computeCohortMovement([], [snap("B", 70)])).toBeNull();
+    expect(computeCohortMovement([snap("A", 80)], [])).toBeNull();
+  });
+
+  it("the deprecated computeWindowDeltas is exactly the narrow projection — the two can never disagree", () => {
+    const current = [snap("A", 80), snap("B", 90), snap("C", 40)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    const m = computeCohortMovement(current, baseline)!;
+    expect(computeWindowDeltas(current, baseline)).toEqual({ overall: m.overall, adoption: m.adoption, rigor: m.rigor });
+    expect(computeWindowDeltas([snap("A", 80)], [snap("B", 70)])).toBeNull();
   });
 });

@@ -81,6 +81,11 @@ export function rollup(over: {
     forecast: null,
     baseline: over.baseline,
     deltas: over.deltas,
+    // The qualified form of the same movement (cohort size + excluded composition change). The banner
+    // reads `deltas`; this is filler that keeps the fixture a valid OrgRollup, and derives from the
+    // same input so the two can't disagree — a cohort of 1 is the neutral stand-in for a fixture that
+    // never asserts on the denominator.
+    movement: over.deltas && { ...over.deltas, cohortSize: 1, onboarded: 0, departed: 0 },
     dimDeltas: null, // filler — required by OrgRollup, never read by the banner
   };
 }

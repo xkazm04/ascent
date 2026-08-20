@@ -171,7 +171,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta, plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
+| Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
@@ -412,7 +412,7 @@ barrel) keep an unchanged public surface for callers:
 | `src/lib/db/org-alerts.ts` | `getOrgAlertWebhook`, `setOrgAlertWebhook`, `getOrgAlertThresholds`, `setOrgAlertThresholds`. |
 | `src/lib/db/org-gate.ts` | `getOrgGatePolicy`, `setOrgGatePolicy`. |
 | `src/lib/db/org-contributors.ts` | `getContributorInsights`. |
-| `src/lib/db/org-signals.ts` | `getOrgPrSignals`, `getOrgGovernance`, `getOrgDimensionGaps`, `getOrgActivity`. |
+| `src/lib/db/org-signals.ts` | `getOrgPrSignals`, `getOrgGovernance`, `getOrgDimensionGaps`, `getOrgActivity`. The commit-activity week grid bins in the **canonical org zone** (same zone the window snaps in), flooring to Sunday *before* indexing — the epoch 7-day grid is Thursday-anchored. GitHub's `commit_activity` buckets are Sunday-**UTC**-aligned, so each provider bucket is placed on the zoned grid by its midpoint (the zoned week it mostly covers); converting the grid without converting through the source bucket is an off-by-one week on every bar. |
 | `src/lib/db/org-insights.ts` | `getOrgMovers`, `getOrgRecommendations`, `getOrgBacklog`, `dueBucketFor`, `getOrgBenchmark`, `getOrgPractices`, `getOrgGapAnalysis`, `getOrgDiscrepancies`. |
 | `src/lib/db/org-teams.ts` | `getOrgTeamRollup`, `rollupTeams`. |
 | `src/lib/db/org-nav-counts.ts` | `getOrgNavCounts`, `getOrgPassportBlockers`. |
@@ -553,9 +553,14 @@ inside the window on one surface and outside it on another, and a backlog item c
 3. A deployment may override it with the **`ASCENT_ORG_TZ`** env var (any IANA name, e.g.
    `America/New_York`). An unknown zone degrades to UTC rather than throwing mid-render.
 4. **All intervals are half-open**: `[start, endExclusive)`. `ResolvedWindow.endExclusive`
-   is the canonical upper bound; `ResolvedWindow.end` survives only as its last
-   representable instant (`endExclusive − 1ms`) for call sites whose Prisma filter still
-   says `lte`. New code should use `endExclusive` with `lt`.
+   is the canonical upper bound. The inclusive dialect has exactly **one producer**:
+   `inclusiveEnd()` in `src/lib/window.ts`, the edge adapter for call sites whose Prisma
+   filter still says `lte`. `ResolvedWindow.end` is that adapter's output and nothing else
+   — deprecated, marked at the type level (`InclusiveEndBound`), and gone once the last
+   `lte` consumer moves. Never re-derive `endExclusive − 1ms` at a call site: the window
+   value carries one closure convention, so two surfaces cannot disagree about a boundary
+   row. Hand the db layer `orgWindowBounds(period)` (`src/lib/org/period.ts`) — the
+   half-open `{ start, endExclusive }` shape — instead of `{ start, end }`.
    **`OrgWindow` (the shape the db layer queries with) now carries `endExclusive` too**, and
    `upperBound()` (`src/lib/db/org-shared.ts`) turns a window into `lt: endExclusive`, falling
    back to `lte: end` only for callers that have nothing else. Every fleet aggregate
@@ -889,6 +894,24 @@ allocated branch would divide a zero total across every repository and render th
 /api/integrations/copilot/sync` (owner-only, via the org's App installation) says so in its own
 success response rather than leaving the operator to wonder why no money appeared.
 
+**Two vocabularies, one typed mapping (2026-08-20).** `Fidelity` (above) states what a *connector*
+can do; `ModelFidelity` (`measured | allocated | none`, in `aiDeliveryTypes.ts`) states what the built
+delivery model ended up *with*. They stay separate on purpose — `seats-only` is a capability, `none`
+is an outcome, and `none` is also reachable with nothing connected at all — but the correspondence is
+now a total `Record<Fidelity, ModelFidelity>` (`modelFidelityOfConnector`, with the reverse
+`CONNECTOR_TIERS_BEHIND`), so adding a tier to either vocabulary is a compile error until it is
+mapped. Previously the alignment was maintained by hand, and the money columns depend on it.
+
+**Provenance travels per figure, not per model (2026-08-20).** The delivery model's `fidelity` scalar
+badges the **spend layer only**; `model.provenance` carries a tier per figure group — `adoption`
+(always `git-measured`: PR volume, AI involvement, review coverage), `spend` (the connector tier) and
+`mixed` (cost-per-AI-PR, which takes the *weaker* of its two inputs). `FIGURE_GROUP_OF` names which
+group each published field belongs to and `provenanceOfFigure` answers for one field, so a surface
+showing a measured adoption rate beside an allocated cost figure no longer badges both the same and
+force the reader to either distrust a solid number or trust an estimated one. Grouping (three badges,
+not one per cell) is deliberate: per-field badges get suppressed by the next designer who touches the
+surface.
+
 **The `simulated` tier is gone (W3c).** It filled the spend columns from an FNV hash of the
 repository name: plausible dollars, seat counts and plan assignments no provider ever reported.
 The UI blurred them, but the *model* still produced them, so every derived total (annual spend, idle
@@ -983,7 +1006,7 @@ lives in metrics; folding log events into usage is a later step.
 | `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
 | `src/lib/org/timezone.ts` | **The canonical org time-zone policy**: one reference frame (UTC by default, `ASCENT_ORG_TZ`-overridable) for every calendar-day boundary: zoned midnights, calendar-day arithmetic, day keys, date-literal parsing. See [above](#canonical-time-zone-policy-srcliborgtimezonets). |
-| `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, `end` compat bound, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
+| `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, the deprecated `end` compat bound produced by the single `inclusiveEnd()` adapter, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
 | `src/lib/org/briefing.ts` | `buildExecBriefing` (the one assembly behind page/PDF/markdown/share), `briefingMarkdown`, and the single ranked next move (`briefingNextMove` / `nextMoveLine`). |
 | `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |

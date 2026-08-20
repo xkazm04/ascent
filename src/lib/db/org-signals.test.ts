@@ -33,9 +33,11 @@ import { getOrgPrSignals, getOrgGovernance, getOrgActivity } from "./org-signals
 function fakePrisma(
   column: "prStats" | "governance" | "commitActivity",
   repoBlobs: Array<string | null>,
-  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown>; scannedAt?: (i: number) => Date } = {},
+  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown>; scannedAt?: (i: number) => Date; timezone?: string | null } = {},
 ) {
-  const orgRow = opts.org === false ? null : { id: "org_1", slug: "acme" };
+  // `timezone` is the org's CANONICAL ZONE column (Organization.timezone): null = inherit the
+  // deployment default (UTC here), which is what every org row looked like before the column existed.
+  const orgRow = opts.org === false ? null : { id: "org_1", slug: "acme", timezone: opts.timezone ?? null };
   // getOrgActivity reads scannedAt to anchor each commit series to a calendar week. Default every
   // repo to the SAME fixed week so the legacy tests describe the same-cadence (right-aligned) case;
   // a test can override per-repo via opts.scannedAt to exercise heterogeneous cadences.
@@ -759,5 +761,84 @@ describe("DB-not-configured and missing-org short-circuits", () => {
 
     mockGetPrisma.mockReturnValue(fakePrisma("commitActivity", [JSON.stringify([1])], { org: false }));
     await expect(getOrgActivity("acme")).resolves.toBeNull();
+  });
+});
+
+// ── getOrgActivity: the week grid resolves in the CANONICAL ORG ZONE ───────────────────────────────
+//
+// The dashboard window snaps its boundaries in the org's canonical zone (src/lib/window.ts). The trend
+// grid used to bin in UTC with `getUTCDay()`, which was right only while the canonical zone happened to
+// default to UTC — set an org's zone and the trend chart and the tile deltas above it would be computed
+// over different periods, disagreeing by up to a day's activity at each end.
+//
+// These tests drive an EXPLICIT non-UTC zone in both directions from Greenwich, so a future change to
+// the default zone cannot silently restore the bug: whatever the zone, the grid must stay phase-locked
+// to the provider's Sunday weeks (GitHub's commit_activity buckets are genuinely Sunday-UTC-aligned —
+// converting the grid without converting through the source bucket is an off-by-one week on every bar).
+describe("getOrgActivity — canonical-zone week grid", () => {
+  const SERIES = JSON.stringify([1, 2, 3]);
+  // A scan at Sun 2026-06-14 02:00 UTC: the WORST case for the boundary. In New York it is still
+  // Saturday the 13th (the previous local week); in Tokyo it is already Sunday afternoon. A naive
+  // "floor the scan instant in the org zone" fix moves the whole series a week west of Greenwich.
+  const BOUNDARY_SCAN = new Date("2026-06-14T02:00:00Z");
+
+  it.each(["UTC", "America/New_York", "Asia/Tokyo", "Pacific/Kiritimati"])(
+    "bins the provider's Sunday week identically in %s — the grid cannot drift off the window's weeks",
+    async (tz) => {
+      mockGetPrisma.mockReturnValue(
+        fakePrisma("commitActivity", [SERIES], { scannedAt: () => BOUNDARY_SCAN, timezone: tz }),
+      );
+
+      const res = await getOrgActivity("acme");
+
+      // The provider bucket containing the scan starts Sun 2026-06-14, and that is the week the newest
+      // bar belongs to in every zone — the bucket overlaps that zoned week on six of its seven days.
+      expect(res!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
+      expect(res!.latestWeekIso).toBe("2026-06-14");
+      expect(res!.oldestWeekIso).toBe("2026-05-31"); // three buckets back, contiguous
+      expect(res!.series).toEqual([1, 2, 3]);
+    },
+  );
+
+  it("keeps different-cadence repos in phase under a shifted zone (no half-week drift between them)", async () => {
+    // Repo A scanned Wed 2026-06-17, repo B two provider weeks earlier — but B's scan sits on the far
+    // side of a local midnight from A's. If the two were floored in different frames their series would
+    // sum one bucket apart, which is the phase bug the Sunday floor exists to prevent.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "commitActivity",
+        [JSON.stringify([5, 6, 7]), JSON.stringify([100, 200])],
+        {
+          scannedAt: (i) => (i === 0 ? new Date("2026-06-17T00:00:00Z") : new Date("2026-06-03T23:30:00Z")),
+          timezone: "America/New_York",
+        },
+      ),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    // Identical to the UTC expectation of the same fixture: W-3:100, W-2:200+5, W-1:6, W:7.
+    expect(res!.series).toEqual([100, 205, 6, 7]);
+    expect(res!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
+  });
+
+  it("a DST-transition week is still exactly one bucket wide (calendar weeks, not 168h of ms)", async () => {
+    // US DST began Sun 2026-03-08. A 167-hour local week must not fold two provider buckets into one
+    // (or leave a phantom empty one): consecutive buckets stay consecutive indices, so a 4-element
+    // series spanning the transition emits exactly 4 weeks, 7 calendar days apart.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("commitActivity", [JSON.stringify([1, 2, 3, 4])], {
+        scannedAt: () => new Date("2026-03-18T12:00:00Z"),
+        timezone: "America/New_York",
+      }),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    expect(res!.weeks).toBe(4);
+    expect(res!.latestWeekIso).toBe("2026-03-15");
+    expect(res!.oldestWeekIso).toBe("2026-02-22");
+    const WK = 7 * 86_400_000;
+    expect((Date.parse(res!.latestWeekIso) - Date.parse(res!.oldestWeekIso)) / WK).toBe(3);
   });
 });
