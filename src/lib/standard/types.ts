@@ -89,8 +89,23 @@ export interface ManifestData {
   };
 }
 
-/** The schema version this build of Ascent emits. */
-export const MANIFEST_SCHEMA_VERSION = "0.1.0";
+/**
+ * The schema version this build of Ascent emits — and, by the spec's own field table
+ * ("`schemaVersion` | Semver of this spec."), the SPEC version the emitted manifest declares
+ * conformance to. It is NOT a number that floats free of `spec.ts`: the manifest's `spec` field points
+ * at the `.ai/SPEC.md` this same build writes, so a mismatch means a generated repo carries a manifest
+ * claiming 0.1.0 beside the 0.2.0 document it cites. That is why this is pinned to the SPEC header by
+ * types.test.ts rather than left as a note.
+ *
+ * WAS "0.1.0" after the spec was minor-bumped to 0.2.0 (which added the `unchecked` finding level and
+ * the `unchecked` / `scored` summary fields — changes this build's doctor.mjs actually emits). Nothing
+ * breaks from the understatement, which is exactly why it went unnoticed: the versioning policy makes
+ * 0.x additive, the doctor compares only the MAJOR, and a 0.1.0 reader ignores the new fields. What it
+ * costs is the one thing the field is for — a reader cannot tell which contract it is holding.
+ *
+ * Contrast `GUARDRAILS_SCHEMA_VERSION` below, which is deliberately independent and stays at 0.1.0.
+ */
+export const MANIFEST_SCHEMA_VERSION = "0.2.0";
 
 /** Semver of the `.ai/guardrails.yaml` invariants schema (versioned independently of the spine). */
 export const GUARDRAILS_SCHEMA_VERSION = "0.1.0";

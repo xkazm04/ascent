@@ -9,7 +9,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
 import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
-import { isLegacyDigest } from "@/lib/registry/catalog";
+import { digestVerdict, isLegacyDigest } from "@/lib/registry/catalog";
 import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
@@ -231,28 +231,58 @@ export async function createOrgSkill(
   });
 }
 
-/** Edit a skill. A CONTENT change (name/description/content/category/tags) bumps the version; an
- *  archive-only toggle does not (mirror updatePlaybook). */
+/**
+ * Edit a skill.
+ *
+ * THE DIGEST IS AUTHORITATIVE; `version` FOLLOWS IT. `version` and `contentHash` both ride in the sync
+ * manifest, and a client diffing that manifest picks one of them to answer "am I stale?" — so they must
+ * describe the same event or the answer depends on which field the client happened to read.
+ * `contentHash` is the one that can be checked: it is produced by the ONE shared `contentDigest`, so it
+ * is comparable against a registry catalog entry and against the client's own copy. `version` is a
+ * human-facing label with nothing behind it. `pushOrgSkill` already resolves the pair this way (equal
+ * digest ⇒ `unchanged`, no bump), so this path now matches it instead of contradicting it.
+ *
+ * WHAT THIS REPLACES: a `contentEdit` flag over name|description|content|category|tags that bumped
+ * `version` while `contentHash` was rewritten only when `content` was present. A tags-only edit
+ * therefore published version 4 beside the digest of version 3: a hash-diffing client saw nothing to
+ * pull, a version-diffing client re-downloaded a byte-identical body, and re-pushing that same body
+ * afterwards came back `unchanged` at a version the server had already moved. Two fields, two stories.
+ * The reverse — rewriting the digest on a tags edit — was never available: the digest's span is the
+ * artifact's full text, fixed by the function it shares with the catalog, and widening it here would
+ * make the manifest incomparable with the catalog again, the precise defect `hashContent` documents.
+ *
+ * RESIDUE ACCEPTED: a metadata-only edit (description/tags/category/name) now moves neither field, so
+ * a syncing client will not re-pull for it. That is the honest reading of a body-scoped digest — the
+ * body it holds is unchanged — and `updatedAt` still moves for the browse/sort surfaces. An
+ * archive-only toggle bumps nothing, as before (mirror updatePlaybook).
+ */
 export async function updateOrgSkill(
   id: string,
   patch: Partial<SkillInput> & { archived?: boolean },
 ): Promise<void> {
   if (!isDbConfigured()) return;
+  const prisma = getPrisma();
   const data: Prisma.OrgSkillUpdateInput = {};
   if (patch.name !== undefined) data.name = cleanName(patch.name);
   if (patch.description !== undefined) data.description = cleanDescription(patch.description);
-  if (patch.content !== undefined) {
-    data.content = cleanContent(patch.content);
-    data.contentHash = hashContent(patch.content); // keep the manifest key in lockstep with the body
-  }
   if (patch.category !== undefined) data.category = normalizeSkillCategory(patch.category);
   if (patch.tags !== undefined) data.tags = cleanTags(patch.tags);
   if (patch.archived !== undefined) data.archived = patch.archived;
-  const contentEdit = ["name", "description", "content", "category", "tags"].some(
-    (k) => patch[k as keyof typeof patch] !== undefined,
-  );
-  if (contentEdit) data.version = { increment: 1 };
-  await getPrisma().orgSkill.update({ where: { id }, data });
+  if (patch.content !== undefined) {
+    data.content = cleanContent(patch.content);
+    const stored = (await prisma.orgSkill.findUnique({ where: { id }, select: { contentHash: true } }))?.contentHash ?? "";
+    const digest = hashContent(patch.content);
+    if (digest !== stored) data.contentHash = digest; // the key always ends up current
+    // Read the difference with the shared vocabulary rather than a bare `!==`. `unknown` (no stored
+    // key at all) and `reformatted` (the stored key predates `sha256-n1:`) do not mean "edited" — a
+    // pre-tag row is re-keyed in place, and only a legacy recompute that ALSO disagrees is a real
+    // edit. Same transition rule as pushOrgSkill, so neither path invents a version nobody asked for.
+    const verdict = digestVerdict(stored, digest);
+    const bodyChanged =
+      verdict === "changed" || (verdict === "reformatted" && legacyHashContent(patch.content) !== stored);
+    if (bodyChanged) data.version = { increment: 1 };
+  }
+  await prisma.orgSkill.update({ where: { id }, data });
 }
 
 /** Soft-archive a skill (DELETE route) — never a hard delete, so adoption history survives. */

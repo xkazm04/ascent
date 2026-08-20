@@ -24,9 +24,14 @@ export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
         <div className="mt-3 space-y-2">
           {GOVERNANCE_FAIL_REASONS.map((r) => {
             const n = g.byReason[r.key];
-            // Denominator is the JUDGED population: an unscorable repo never had the chance to
-            // fail this condition, so counting it dilutes every bar toward a friendlier number.
-            const pct = g.assessed ? Math.round((n / g.assessed) * 100) : 0;
+            // Two populations, because the buckets are not measured over the same one. A gate
+            // condition is divided by the JUDGED repos — an unscorable repo never had the chance
+            // to fail it, so counting it dilutes the bar toward a friendlier number. But
+            // `incomplete` counts the repos judging EXCLUDED, so dividing it by `assessed` can
+            // exceed 100% (and reads 0% against an empty denominator when nothing was judged).
+            // It is a share of everything scanned; nothing else is.
+            const denom = r.key === "incomplete" ? g.scanned : g.assessed;
+            const pct = denom ? Math.round((n / denom) * 100) : 0;
             return (
               <div key={r.key} className="flex items-center gap-3 text-sm">
                 <span className="w-44 shrink-0 text-slate-400">{r.label}</span>

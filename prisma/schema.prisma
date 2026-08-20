@@ -1034,7 +1034,15 @@ model OrgSkill {
   category        String // one of src/lib/org/skill-categories.ts (validated on write)
   tags            String   @default("[]") // JSON string[] — secondary, optional refinement
   version         Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
-  contentHash     String   @default("") // sha256 hex of `content` — the sync-manifest change key (diff without shipping the body)
+  // The sync-manifest change key (diff without shipping the body). `sha256-n1:<hex>` — ONE shared
+  // function (contentDigest, src/lib/registry/parse.ts) over the artifact's FULL text: LF-normalized,
+  // frontmatter included, uncapped. `n1` names the normalization revision, so a recipe change is
+  // visible in the value instead of masquerading as an edit. WAS "sha256 hex of `content`": a bare
+  // 64-char hex over the stored, capped body — a different span from the one the catalog hashed, which
+  // made a manifest-vs-catalog comparison meaningless. A bare-hex value here is pre-`n1` and means
+  // "not comparable, recompute", never "diverged". No column change: this is an unbounded String and
+  // the value merely grew 64 -> 74 chars.
+  contentHash     String   @default("")
   archived        Boolean  @default(false) // soft archive, not hard delete
   downloadCount   Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
   // Registry mirror (UC2). `origin` decides writability: a "hosted" row keeps today's in-app forms;
@@ -1043,7 +1051,11 @@ model OrgSkill {
   origin          String   @default("hosted") // hosted | registry
   registryId      String?
   registryPath    String? // repo-relative path, e.g. "skills/pr-review-rigor/SKILL.md"
-  registryHash    String? // sha256 hex of the file as indexed — the change key
+  // The change key for the mirrored file, same recipe as `contentHash` above: `sha256-n1:<hex>` from
+  // contentDigest over the file's FULL text (LF-normalized, frontmatter INCLUDED) — deliberately a
+  // wider span than `content`, which stores the frontmatter-stripped body. WAS "sha256 hex of the file
+  // as indexed", which no longer describes either the tag or the normalization.
+  registryHash    String?
   registryVersion String? // `version` as declared in the document's frontmatter
   createdBy       String? // GitHub login of the author
   createdAt       DateTime @default(now())
@@ -1533,7 +1545,11 @@ model OrgPracticeShape {
   title        String   @default("")
   appliesWhen  String   @default("") // frontmatter `applies-when`
   content      String // the PRACTICE.md body (frontmatter stripped)
-  contentHash  String   @default("") // sha256 hex of the raw file
+  // `sha256-n1:<hex>` from contentDigest over the file's FULL text (LF-normalized, frontmatter
+  // INCLUDED) — the same one shared function every other change key in this schema uses, and a wider
+  // span than `content` above (which is frontmatter-stripped). WAS "sha256 hex of the raw file":
+  // untagged raw bytes, so a CRLF checkout reported every artifact as diverged forever.
+  contentHash  String   @default("")
   archived     Boolean  @default(false) // soft archive — a vanished registry path is archived, never deleted
   origin       String   @default("hosted") // hosted | registry
   registryId   String?
