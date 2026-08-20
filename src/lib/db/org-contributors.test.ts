@@ -31,6 +31,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { getContributorInsights, computeOrgResilience } from "./org-contributors";
+import { topContributorLabel } from "@/components/org/shared/champions";
 
 /** One row as repoContributor.findMany returns it for getContributorInsights. */
 interface Row {
@@ -440,12 +441,69 @@ describe("getContributorInsights small-population privacy floor", () => {
     expect(res.contributors).toEqual([]);
     // The per-repo top contributor is a named individual too.
     expect(conc(res, "r").topLogin).toBe("—");
+    // …and the row SAYS it was withheld. The display string is unchanged on purpose (a new sentinel
+    // would leak through every consumer that renders topLogin raw); the state is what carries it.
+    expect(conc(res, "r").topLoginState).toBe("withheld");
     // …while every AGGREGATE survives: suppression must not look like "no data".
     expect(res.orgAiShare).toBe(100);
     expect(res.aiActive).toBe(2);
     expect(res.distribution).toEqual({ high: 2, some: 0, none: 0 });
     expect(conc(res, "r").contributorCount).toBe(2);
     expect(conc(res, "r").busFactor).toBe(1);
+  });
+
+  // WITHHELD vs NO DATA. Both used to render as the bare string "—", so nothing in the payload could
+  // prove the privacy floor had ever run, and no surface could write "name withheld — population
+  // below the naming floor" instead of the "we have no data" em-dash. `topLoginState` is that proof.
+  it("distinguishes a WITHHELD name from an ABSENT one, and labels each honestly", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "a", commits: 10, aiCommits: 10, repo: "acme/r" },
+        { login: "b", commits: 8, aiCommits: 8, repo: "acme/r" },
+      ]),
+    );
+    const below = (await getContributorInsights("acme"))!;
+    expect(below.namingAllowed).toBe(false);
+    expect(conc(below, "r").topLoginState).toBe("withheld");
+    expect(topContributorLabel(conc(below, "r"))).toMatch(/withheld/);
+    // The two states are NOT the same value, which is the whole defect this closes.
+    expect(topContributorLabel(conc(below, "r"))).not.toBe(
+      topContributorLabel({ topLogin: "—", topLoginState: "unknown" }),
+    );
+
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "a", commits: 10, aiCommits: 10, repo: "acme/r" },
+        { login: "b", commits: 8, aiCommits: 8, repo: "acme/r" },
+        { login: "c", commits: 6, aiCommits: 0, repo: "acme/r" },
+      ]),
+    );
+    const above = (await getContributorInsights("acme"))!;
+    expect(above.namingAllowed).toBe(true);
+    expect(conc(above, "r").topLoginState).toBe("named");
+    expect(topContributorLabel(conc(above, "r"))).toBe("a"); // the label IS the login when named
+  });
+
+  it("withholding the identity does not drop the row: every repo still reports its exposure", async () => {
+    // Suppression removes IDENTITIES, not FINDINGS. A fix that started filtering rows below the floor
+    // would hide a two-person org's key-person risk — the most exposed org there is.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "a", commits: 10, aiCommits: 10, repo: "acme/one" },
+        { login: "b", commits: 8, aiCommits: 8, repo: "acme/two" },
+      ]),
+    );
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.namingAllowed).toBe(false);
+    expect(res.concentration.map((r) => r.name).sort()).toEqual(["one", "two"]);
+    for (const r of res.concentration) {
+      expect(r.topLoginState).toBe("withheld");
+      expect(r.contributorCount).toBe(1);
+      expect(r.busFactor).toBe(1);
+      expect(r.soloMaintainer).toBe(true);
+    }
+    expect(res.soloMaintainerCount).toBe(2);
+    expect(res.resilience!.repos).toBe(2);
   });
 
   it("no login string survives anywhere in the payload below the floor (serialization-level check)", async () => {
@@ -580,8 +638,8 @@ describe("getContributorInsights staleness horizon", () => {
 describe("computeOrgResilience — the exposure math", () => {
   it("scores a solo-maintained repo as critical and a well-spread one as low", () => {
     const res = computeOrgResilience([
-      { fullName: "acme/solo", name: "solo", contributorCount: 1, totalCommits: 100, topLogin: "a", topShare: 100, busFactor: 1, soloMaintainer: true },
-      { fullName: "acme/spread", name: "spread", contributorCount: 10, totalCommits: 100, topLogin: "b", topShare: 20, busFactor: 4, soloMaintainer: false },
+      { fullName: "acme/solo", name: "solo", contributorCount: 1, totalCommits: 100, topLogin: "a", topLoginState: "named", topShare: 100, busFactor: 1, soloMaintainer: true },
+      { fullName: "acme/spread", name: "spread", contributorCount: 10, totalCommits: 100, topLogin: "b", topLoginState: "named", topShare: 20, busFactor: 4, soloMaintainer: false },
     ])!;
     const bands = Object.fromEntries(res.topRisks.map((r) => [r.name, r.band]));
     expect(bands.solo).toBe("critical");
@@ -592,8 +650,8 @@ describe("computeOrgResilience — the exposure math", () => {
 
   it("weights the fleet score by commits, so a dormant one-author repo can't dominate", () => {
     const heavyHealthy = computeOrgResilience([
-      { fullName: "acme/busy", name: "busy", contributorCount: 12, totalCommits: 10_000, topLogin: "a", topShare: 15, busFactor: 5, soloMaintainer: false },
-      { fullName: "acme/attic", name: "attic", contributorCount: 1, totalCommits: 3, topLogin: "b", topShare: 100, busFactor: 1, soloMaintainer: true },
+      { fullName: "acme/busy", name: "busy", contributorCount: 12, totalCommits: 10_000, topLogin: "a", topLoginState: "named", topShare: 15, busFactor: 5, soloMaintainer: false },
+      { fullName: "acme/attic", name: "attic", contributorCount: 1, totalCommits: 3, topLogin: "b", topLoginState: "named", topShare: 100, busFactor: 1, soloMaintainer: true },
     ])!;
     expect(heavyHealthy.score).toBeGreaterThan(70);
     // The finding is still COUNTED — it's just not allowed to define the fleet's headline.
@@ -604,8 +662,8 @@ describe("computeOrgResilience — the exposure math", () => {
 
   it("exposedCommitShare answers 'is the risk on the archive or on the work?'", () => {
     const res = computeOrgResilience([
-      { fullName: "acme/core", name: "core", contributorCount: 1, totalCommits: 700, topLogin: "a", topShare: 100, busFactor: 1, soloMaintainer: true },
-      { fullName: "acme/side", name: "side", contributorCount: 8, totalCommits: 300, topLogin: "b", topShare: 20, busFactor: 4, soloMaintainer: false },
+      { fullName: "acme/core", name: "core", contributorCount: 1, totalCommits: 700, topLogin: "a", topLoginState: "named", topShare: 100, busFactor: 1, soloMaintainer: true },
+      { fullName: "acme/side", name: "side", contributorCount: 8, totalCommits: 300, topLogin: "b", topLoginState: "named", topShare: 20, busFactor: 4, soloMaintainer: false },
     ])!;
     expect(res.exposedCommitShare).toBe(70);
   });
@@ -613,7 +671,7 @@ describe("computeOrgResilience — the exposure math", () => {
   it("returns null for a fleet with no repo data, and never divides by zero on a zero-commit fleet", () => {
     expect(computeOrgResilience([])).toBeNull();
     const zero = computeOrgResilience([
-      { fullName: "acme/empty", name: "empty", contributorCount: 1, totalCommits: 0, topLogin: "—", topShare: 0, busFactor: 0, soloMaintainer: true },
+      { fullName: "acme/empty", name: "empty", contributorCount: 1, totalCommits: 0, topLogin: "—", topLoginState: "unknown", topShare: 0, busFactor: 0, soloMaintainer: true },
     ])!;
     expect(Number.isFinite(zero.score)).toBe(true);
     expect(zero.exposedCommitShare).toBe(0);

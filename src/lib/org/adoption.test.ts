@@ -71,10 +71,14 @@ describe("adoptionMarkdown", () => {
     expect(md).toContain("Suggested pairing: platform (61%) mentors data (12%)");
   });
 
-  it("includes the enablement cohort with the total zero-AI pool for honest scale", () => {
-    expect(md).toContain("## Enablement cohort (no AI-attributed commits yet)");
+  it("frames the enablement list as an invitation, with the total pool for honest scale", () => {
+    // The heading is pinned because this text is pasted into an LLM prompt: "Enablement cohort" reads
+    // as a deficiency list and comes back as remediation copy about named people. The framing IS the
+    // feature here, so a silent rewording back to shortfall language must fail a test.
+    expect(md).toContain("## Who to invite to enablement next (an offer, not a shortfall list)");
     expect(md).toContain("- bob: 45 commits across 3 repos");
-    expect(md).toContain("22 contributors total show no AI-attributed commits");
+    expect(md).toContain("22 contributors show no AI-attributed commits yet");
+    expect(md).toContain("never as people to correct");
   });
 
   it("ends with an enablement ASK", () => {
@@ -90,7 +94,7 @@ describe("adoptionMarkdown", () => {
     const bare = adoptionMarkdown({ ...fixture, tools: [], teams: [], teamPairing: null, enablement: [] });
     expect(bare).not.toContain("AI tooling detected");
     expect(bare).not.toContain("## Team adoption");
-    expect(bare).not.toContain("## Enablement cohort");
+    expect(bare).not.toContain("## Who to invite to enablement next");
   });
 
   it("omits the AI-champions section (no empty header, no names) when the builder withheld it", () => {
@@ -328,7 +332,7 @@ describe("buildAdoptionOverview", () => {
     expect(md).not.toContain("ada");
     expect(md).not.toContain("zed");
     expect(md).not.toContain("## AI champions");
-    expect(md).not.toContain("## Enablement cohort");
+    expect(md).not.toContain("## Who to invite to enablement next");
   });
 
   it("still names champions + enablement at exactly CHAMPION_MIN_POP contributors", async () => {
