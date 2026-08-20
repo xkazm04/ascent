@@ -1,17 +1,46 @@
 // POST /api/org/briefing/share { org, range?, from?, to? } -> { token, path, expiresAt, jti }   (owner)
-// Mint a signed, expiring read-only share link for the org's executive briefing (EXEC-6). Owner-gated
-// + same-origin: only an owner can publish a briefing to someone without an account. The link
-// (/share/briefing/[token]) is read-only and re-runs buildExecBriefing for the carried window.
+// GET  /api/org/briefing/share?org=slug&limit=n   -> { grants: BriefingShareGrant[] }            (owner)
+// Mint a signed, expiring read-only share link for the org's executive briefing (EXEC-6), and list the
+// links already issued. Owner-gated + same-origin: only an owner can publish a briefing to someone
+// without an account. The link (/share/briefing/[token]) is read-only and re-runs buildExecBriefing for
+// the carried window. Killing one link: POST /api/org/briefing/share/revoke.
 
 import { NextResponse } from "next/server";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
+import { requireOrgRole } from "@/lib/authz";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { briefingFigureDigest, briefingShareEnabled, freezeShareWindow, signBriefingShareToken } from "@/lib/briefing-share";
 import { buildExecBriefing } from "@/lib/org/briefing";
-import { getOrgId, getTechGroupIdByKey, recordAudit } from "@/lib/db";
+import { listBriefingShareGrants } from "@/lib/db/org-share";
+import { getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * The grants this org has issued, newest first — the inventory behind "which links exist, minted when
+ * and by whom, and is each one still live". Before it, a stateless token left no owner-visible trace at
+ * all, so the only honest answer to "what have we shared" was "we don't know".
+ *
+ * OWNER-gated, matching mint and revoke rather than the softer read gate used elsewhere: the rows name
+ * who shared the fleet's security posture and with what scope, and each carries the `jti` that IS the
+ * revoke handle. A read that hands every member the handles to a control only owners may use would make
+ * the revoke route's gate decorative.
+ *
+ * Reconstructed from audit rows (see listBriefingShareGrants), so it is bounded by audit retention while
+ * revocation is permanent — an inventory, never the enforcement point.
+ */
+export async function GET(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Share links require a database." }, { status: 503 });
+  const org = new URL(request.url).searchParams.get("org");
+  if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+  const raw = Number(new URL(request.url).searchParams.get("limit"));
+  const limit = Number.isFinite(raw) && raw > 0 ? raw : undefined;
+  const grants = await listBriefingShareGrants(org, { limit });
+  return NextResponse.json({ grants });
+}
 
 export async function POST(request: Request) {
   if (!briefingShareEnabled()) {

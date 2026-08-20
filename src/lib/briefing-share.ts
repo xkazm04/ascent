@@ -101,8 +101,13 @@ export function freezeShareWindow(p: { range?: string; from?: string; to?: strin
  * un-revoke a link), and its arbitrary-string primary key can never collide with a real GitHub login,
  * because logins contain no colon. A version > 0 means "this grant is dead". Revoking one jti touches
  * no session and no other link — which is the whole point: the pre-existing lever revoked the
- * ISSUER's entire set. The owner-gated revoke ENDPOINT that bumps this key is the natural next step
- * and is not in this change; the primitive and the namespace live here so it is a one-route addition.
+ * ISSUER's entire set. The owner-gated revoke endpoint that bumps this key is
+ * POST /api/org/briefing/share/revoke.
+ *
+ * This stays here, in the pure token module, rather than moving into the db layer: the shared page and
+ * this module both need the NAME of a grant's ledger row without doing (or importing) any I/O. The
+ * LOOKUP is the opposite — it has exactly one implementation, `isBriefingShareRevoked` in
+ * lib/db/org-share.ts, which imports this function so the namespace string is never retyped.
  */
 export function briefingShareRevocationKey(jti: string): string {
   return `briefing-share:${jti}`;

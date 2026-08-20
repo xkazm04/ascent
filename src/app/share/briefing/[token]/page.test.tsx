@@ -22,8 +22,11 @@ vi.mock("@/lib/briefing-share", () => ({
   // must render as NO integrity claim at all, never as a reassurance it did not earn.
   briefingFigureDigest: () => "stub-digest",
   shareIntegrity: () => "unverifiable" as const,
-  briefingShareRevocationKey: (jti: string) => `briefing-share:${jti}`,
 }));
+// Explicit, so the revocation path is controlled by the test rather than resolved from a real
+// module that happens to answer "not revoked" when no database is configured. Fails closed in
+// production; these cases are the not-revoked branch.
+vi.mock("@/lib/db/org-share", () => ({ isBriefingShareRevoked: async () => false }));
 vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   engineMixLabel: () => "1 model",

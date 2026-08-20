@@ -666,7 +666,31 @@ page enforces it on read and fails closed. The mint and every open are recorded 
 `briefing.share.minted` / `briefing.share.opened` audit rows carrying the `jti`, so "does this grant
 exist, and was it read" is answerable; the revocation state deliberately does **not** live in
 `AuditLog`, because `retentionAuditDays` purging a revocation row would silently un-revoke a link.
-The owner-gated revoke *endpoint* is not built yet — the primitive and the namespace are.
+
+An owner drives both halves from the API:
+
+| Call | Does |
+| --- | --- |
+| `GET /api/org/briefing/share?org=slug&limit=n` | Lists the grants issued — `jti`, minted-at/by, expiry, frozen window, segment/stack scope, open count, and whether each is `revoked` or `expired`. Reconstructed from the mint/open audit rows (`listBriefingShareGrants`, `src/lib/db/org-share.ts`), not a second store. |
+| `POST /api/org/briefing/share/revoke { org, jti }` | Kills that one grant by bumping its ledger key. Idempotent; 503 without a database and 500 on a failed write, because "revoked" must never be claimed over a write that didn't land. |
+
+Both are gated exactly like the mint route: **any owner**, same-origin. Not members (revoking a
+colleague's live board link is a DoS), and not only the minter (that strands the org the day they
+leave — the situation where a leaked link most needs killing). The list is bounded by audit
+retention while revocation is permanent, so it is the owner's *inventory*, never the enforcement
+point — enforcement is the ledger check on the shared page. That is also why a revoke does **not**
+require its grant to still appear in the list.
+
+The revocation lookup has **one** implementation for both link kinds:
+`isBriefingShareRevoked` / `isLiveShareRevoked` in `src/lib/db/org-share.ts`, differing only by
+namespace prefix, and failing **closed** by construction (an unreachable ledger reads as revoked).
+A second copy of a revocation check is how one surface starts honouring revocations the other
+ignores.
+
+**Known gap:** `src/app/share/briefing/[token]/page.tsx` still performs that lookup inline
+(`getSessionVersion(briefingShareRevocationKey(jti)) > 0`, with its own `.catch(() => true)`)
+instead of calling `isBriefingShareRevoked`. Same result today; it is the copy the consolidation
+exists to remove.
 
 The page is a **live re-render of a frozen period, not a stored document**, and now says so. The
 token carries `briefingFigureDigest(b)`, a fingerprint of the figures the sender saw; the page

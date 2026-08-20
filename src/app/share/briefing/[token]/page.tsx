@@ -15,9 +15,10 @@ import {
 } from "@/features/bought/executive/briefingCards";
 import { TokenNotice } from "@/components/TokenNotice";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
-import { briefingFigureDigest, briefingShareRevocationKey, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
+import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
-import { getCreditState, getOrgBranding, getOrgId, getSessionVersion, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
+import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
+import { isBriefingShareRevoked } from "@/lib/db/org-share";
 import type { OrgBranding } from "@/lib/db/branding";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { planAllowsWhiteLabel } from "@/lib/plans";
@@ -115,7 +116,9 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // check above revokes the minter's WHOLE set; this one kills a single leaked link. Only a token
   // carrying a `jti` has a handle (legacy ones keep the prior TTL-only behavior). Fails closed on a
   // lookup error — a shared briefing this page cannot vouch for is not shown.
-  if (verified.jti && (await getSessionVersion(briefingShareRevocationKey(verified.jti)).catch(() => 1)) > 0) {
+  // Through the shared lookup, not an inlined ledger read: it fails closed BY CONSTRUCTION, so
+  // this page cannot be the caller that forgets the .catch and quietly serves a revoked link.
+  if (verified.jti && (await isBriefingShareRevoked(verified.jti))) {
     return <Notice title="Link revoked" body="This shared briefing link has been revoked. Ask an org owner for a fresh one." />;
   }
 
