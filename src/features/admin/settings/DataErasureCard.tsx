@@ -14,6 +14,9 @@
 // The dialog (DataErasureDialog) owns the arming state: the honest destroyed/kept manifest and the
 // typed confirmation. The result (DataErasureOutcome) owns the three readings of the response —
 // notably the 207 resumable case, whose "Continue erasing" button re-runs this same request.
+// The count the confirmation is armed against comes from DataErasurePreview's hook: the SAME request
+// with `preview: true`, re-run whenever the audit disposition changes because the audit casualties
+// differ between keeping and redacting the trail. Nothing may be confirmed before it has rendered.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -21,6 +24,7 @@ import { Modal } from "@/components/ui";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { DataErasureDialog, confirmMatches } from "./DataErasureDialog";
 import { DataErasureOutcome, ZERO_TOTALS, addPass, type EraseResponse, type EraseTotals } from "./DataErasureOutcome";
+import { useErasePreview } from "./DataErasurePreview";
 
 export function DataErasureCard({ slug }: { slug: string }) {
   const router = useRouter();
@@ -31,6 +35,9 @@ export function DataErasureCard({ slug }: { slug: string }) {
   const [result, setResult] = useState<EraseResponse | null>(null);
   const [totals, setTotals] = useState<EraseTotals>(ZERO_TOTALS);
   const [error, setError] = useState<string | null>(null);
+  // Keyed on `open` so a re-opened dialog re-counts rather than showing the previous session's total,
+  // and on `includeAudit` so the audit row count always describes the request actually staged.
+  const preview = useErasePreview({ slug, open, includeAudit });
 
   function openDialog() {
     setTyped("");
@@ -120,6 +127,7 @@ export function DataErasureCard({ slug }: { slug: string }) {
               onTyped={setTyped}
               includeAudit={includeAudit}
               onIncludeAudit={setIncludeAudit}
+              preview={preview}
               busy={busy}
               onCancel={closeDialog}
               onConfirm={() => void run()}

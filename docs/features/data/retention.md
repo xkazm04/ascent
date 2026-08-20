@@ -139,6 +139,16 @@ conflict retries.
   query is worse than none, because it licenses an irreversible act with a number that can drift.
   Like the cron dry run, the disposition floor is **not** enforced in a preview — seeing what a
   `delete` would cost is the input to that decision, not the decision.
+- **The confirmation shows the count before it asks for the name.** The org-settings dialog fetches
+  the preview when it opens, and **again whenever the audit disposition changes** (the audit
+  casualties differ between keeping the trail and redacting it), then renders scans, repositories and
+  audit rows affected beside the confirm field. The destructive button stays **disabled until a count
+  has actually rendered**: echo-to-confirm only means anything if the operator was told what they are
+  confirming. A preview that FAILS renders **unknown** and leaves the button disabled — it never
+  falls back to zeros, because a failed count displayed as "0 scans" is reassurance that was never
+  received, and is precisely what would talk an owner into an erasure whose size nobody measured. A
+  preview stopped by its own time budget (`complete: false`) is labelled "at least N" rather than
+  presented as a total.
 - **Bounded + resumable.** Never one mega-transaction: every delete is a small batched transaction,
   the repo enumeration is cursor-paged, and a wall-clock budget (`ERASE_MAX_DURATION_S` − headroom,
   mirroring the cron's derivation and pinned to the route's `maxDuration` by a test) is polled
@@ -187,18 +197,15 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
 | `src/app/api/org/erase/route.ts` | On-demand DSR erasure: CSRF + typed-confirmation + owner gates, 207 degraded mapping. |
 | `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`. |
 | `src/lib/db/retention.test.ts` | Policy + purge + erasure tests. |
+| `src/features/admin/settings/DataErasureCard.tsx` | Org-settings entry point: owns the erase request, and the preview hook that arms the confirmation. |
+| `src/features/admin/settings/DataErasureDialog.tsx` | The arming dialog: destroyed/kept manifest, typed confirmation, preview-gated confirm button. |
+| `src/features/admin/settings/DataErasurePreview.tsx` | `preview: true` fetch (re-run on disposition change) + the counts panel; unknown-on-failure, never zeros. |
 | `src/lib/db/audit-integrity.ts` | Per-row HMAC signing, and `redactAuditIdentity` — the identifier-only rewrite an erasure applies. |
 
 ## Known gaps
 
 - **With no retention env set, nothing is deleted**: existing deployments keep all
   history by default (opt-in). On-demand erasure (above) does not depend on a policy.
-- **The erase confirmation UI does not yet show the preview.** `preview: true` exists on the route and
-  is computed by the same code that deletes, but `src/features/admin/settings/DataErasure*.tsx` still
-  arms its typed-confirmation field without fetching it, so an owner types the org name without being
-  shown the casualty count. Wiring: fetch the preview when the dialog opens (and again when the audit
-  checkbox flips), render `scansDeleted` / `reposProcessed` / `auditRedacted` beside the field, and
-  keep the confirm button disabled until a preview has been rendered.
 - **Redaction rewrites `meta` wholesale, not field-by-field.** Identifier-only erasure keeps
   *action + timestamp + tenant* and drops the entire payload, because `AuditLog.meta` is one
   free-form JSON string with no schema separating a subject reference from operational detail.

@@ -3,7 +3,7 @@
 // The ARMING half of the org data-erasure control (G2-34) — the dialog body shown before anything is
 // deleted. Split out of DataErasureCard so each file stays well under the 300-LOC cap.
 //
-// Two design commitments, both load-bearing for a destructive compliance action:
+// Three design commitments, all load-bearing for a destructive compliance action:
 //
 //  1. TYPED CONFIRMATION, not a checkbox. POST /api/org/erase refuses any payload that doesn't echo the
 //     target's own name back (`confirm` must equal the org slug), so the UI asks for exactly that: the
@@ -16,44 +16,21 @@
 //     Membership rows, and resets the scan-DERIVED caches so "erased" is not a lie. A vague "this deletes
 //     your data" would leave the owner unable to form intent, so both columns are enumerated by name —
 //     and the audit column moves from "kept" to "erased" the moment the audit opt-in is ticked.
+//
+//  3. A COUNT BESIDE THE FIELD. The manifest says WHICH kinds of thing die; the preview panel says HOW
+//     MANY. The confirm button stays disabled until that count has actually rendered (`preview.status
+//     === "ready"`) — an operator must not be able to confirm a blast radius they were never shown,
+//     and a preview that FAILED reads "unknown" and keeps the button disabled rather than showing a
+//     zero nobody received. See DataErasurePreview.tsx.
 
 import { ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
+import { DataErasureColumn } from "./DataErasureColumn";
+import { DataErasurePreview, type ErasePreviewState } from "./DataErasurePreview";
 
 /** The typed confirmation gate. Trimmed (a trailing space from a paste is not a different org) but
  *  otherwise EXACT — the owner must reproduce the name as printed. Exported for the card + its tests. */
 export function confirmMatches(typed: string, slug: string): boolean {
   return typed.trim() === slug;
-}
-
-const ITEM = "flex gap-2 text-sm leading-relaxed";
-const MARK = "mt-px shrink-0 font-mono text-xs";
-
-function Column({
-  kicker,
-  tone,
-  items,
-}: {
-  kicker: string;
-  tone: "erased" | "kept";
-  items: React.ReactNode[];
-}) {
-  const color = tone === "erased" ? "text-danger" : "text-emerald-300";
-  const mark = tone === "erased" ? "✕" : "✓";
-  return (
-    <div>
-      <p className={`font-mono text-xs uppercase tracking-widest ${color}`}>{kicker}</p>
-      <ul className="mt-2 space-y-2">
-        {items.map((item, i) => (
-          <li key={i} className={ITEM}>
-            <span aria-hidden className={`${MARK} ${color}`}>
-              {mark}
-            </span>
-            <span className="text-slate-300">{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
 }
 
 export function DataErasureDialog({
@@ -62,6 +39,7 @@ export function DataErasureDialog({
   onTyped,
   includeAudit,
   onIncludeAudit,
+  preview,
   busy,
   onCancel,
   onConfirm,
@@ -71,19 +49,22 @@ export function DataErasureDialog({
   onTyped: (v: string) => void;
   includeAudit: boolean;
   onIncludeAudit: (v: boolean) => void;
+  preview: ErasePreviewState;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const armed = confirmMatches(typed, slug);
-  const mismatch = typed.trim().length > 0 && !armed;
+  const shown = preview.status === "ready";
+  const armed = confirmMatches(typed, slug) && shown;
+  // Mismatch is about the TYPED STRING only — a correct name with a pending preview is not a typo.
+  const mismatch = typed.trim().length > 0 && !confirmMatches(typed, slug);
 
   return (
     <>
       <ModalHeader kicker="Erase organization data" title={`Erase every scan in ${slug}?`} context={slug} />
       <ModalBody className="space-y-5">
         <div className="grid gap-5 sm:grid-cols-2">
-          <Column
+          <DataErasureColumn
             kicker="Erased, permanently"
             tone="erased"
             items={[
@@ -108,7 +89,7 @@ export function DataErasureDialog({
                 : []),
             ]}
           />
-          <Column
+          <DataErasureColumn
             kicker="Kept, untouched"
             tone="kept"
             items={[
@@ -151,6 +132,8 @@ export function DataErasureDialog({
           </span>
         </label>
 
+        <DataErasurePreview state={preview} />
+
         <div>
           <label htmlFor="erase-confirm" className="block text-sm text-slate-300">
             Type <span className="font-mono font-semibold text-white">{slug}</span> to confirm. This cannot be undone.
@@ -175,7 +158,9 @@ export function DataErasureDialog({
         </div>
       </ModalBody>
       <ModalFooter>
-        <span className="font-mono text-xs text-slate-500">Esc or Cancel to back out</span>
+        <span className="font-mono text-xs text-slate-500">
+          {shown ? "Esc or Cancel to back out" : "Waiting for the count before this can be confirmed"}
+        </span>
         <div className="flex items-center gap-2">
           <button
             type="button"
