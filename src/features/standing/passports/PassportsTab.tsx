@@ -54,6 +54,15 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
         purpose: pp.identity.purpose,
         autoBlockers: auto.blockers,
         prodBlockers: prod.blockers,
+        // Passport 0.4.0. `findings` gives every consumer downstream a stable per-cause id to key on
+        // instead of the rendered sentence, and `declined` carries the owner's accepted gaps — which
+        // the read-time overlay has already REMOVED from the two blocker lists above. Without these
+        // two lines an accepted gap is simply invisible in the product: the detail row shows nothing
+        // where the gap was, and the fleet Pareto counts the repo as unaffected. Both are optional on
+        // the row types, so this is purely additive for any other reader of PassportRow.
+        autoFindings: auto.findings,
+        prodFindings: prod.findings,
+        declined: pp.declined,
         selfVerify: auto.selfVerify,
         aiInWorkflow: auto.aiInWorkflow,
         ciProvider: prod.ci.provider,

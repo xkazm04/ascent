@@ -359,10 +359,45 @@ deterministic, display/persist-only projection (never fed back to the prompt or 
   Each unmet predicate emits a human-readable `missing` string in `autonomy.unlocks` (cumulative per
   tier, the checklist that unblocks it), and `autonomy.inputs` records the raw predicates so the
   grant is auditable. **Token honesty**: a tokenless scan (`governance` null) caps the grant at T1
-  and names the limitation in `missing`. **Migration honesty**: `PASSPORT_VERSION` is `0.3.0`;
-  `upgradePassport` (applied read-time via `parsePassportJson`) derives tiers for stored pre-0.3.0
+  and names the limitation in `missing`. **Migration honesty**: `upgradePassport` (applied read-time
+  via `parsePassportJson`) derives tiers for stored pre-0.3.0
   rows *without* a rescan, but leaves `sandbox`/`hooks` absent (unknown, never a fabricated false);
   the T2 checklist then names the re-scan instead of a missing artifact.
+
+Passport **0.4.0** (`PASSPORT_VERSION`; design doc `APP_READINESS_PASSPORT.md` §2e-§2g) ends four
+places where one slot carried two facts:
+
+- **Findings carry a minted id.** `automationReadiness.findings[]` / `productionReadiness.findings[]`
+  each hold `{ id, code, text, severity }` — `id` is the axis-scoped CAUSE (`prod.zero-observability`),
+  `code` the same without its axis, `text` the rendered sentence *as of this generation*, and
+  `severity` one of `info | warn | block | critical`. `blockers[]` is unchanged and is now simply
+  `findings.map(f => f.text)`, so every pre-0.4.0 reader keeps working. Everything that persists a
+  *judgment* — an owner's decline, the fleet Pareto bucket — joins on `id`/`code`; before this it
+  joined on the prose, so a copy edit silently orphaned declines and split rollup buckets. `critical`
+  is never emitted by a scan: it is what a `block` finding *becomes* under the owner's
+  criticality/lifecycle escalation in the overlay.
+- **Three-valued named fields.** `stack.monitoring.*` and `stack.hosting` distinguish a vendor name
+  (observed) from `null` (the scan looked; the app has none) from `"unknown"` (the evidence was
+  outside the snapshot). Consumers deriving a rung go through `isNamed()` — a truthiness test reads
+  `"unknown"` as a vendor. Unclassifiable monitoring emits `prod.observability-unassessable` (`info`,
+  an evidence limitation) instead of `prod.zero-observability` (`block`, a real gap).
+- **Per-field evidence.** `evidence.fields[path]` rates the named/heuristic fields on four fixed
+  rungs — `observed` 1.0, `declared` 0.8, `inferred` 0.5, `unobserved` 0 — keyed by the same dotted
+  paths `declined[]` uses. Deliberately non-exhaustive; a reader prefers `fields[path]` and falls back
+  to the whole-artifact `evidence.confidence` when the path is absent.
+- **A decline expires.** `passport-overlay.ts` re-surfaces an accepted gap — the blocker **stays** in
+  `blockers[]` and the `declined[]` entry gains `needsReconfirm` + `reconfirmReason` — on exactly
+  three triggers: the finding's `code` changed, its (escalated) `severity` outranks the stored one, or
+  `at` is more than `DECLINE_MAX_AGE_DAYS` (**365**) before `generatedAt`. Never on a rewording. A
+  pre-0.4.0 decline carries no `code`/`severity` baseline; that absence reads as **unknown** and skips
+  those two comparisons rather than fabricating either answer.
+
+**Render surface** (`src/features/standing/passports/`): `PassportsTab` copies `findings` and
+`declined` onto each `PassportRow.detail`; `PassportRowDetail` lists the accepted gaps beside — never
+inside — the open blockers, flagging a re-surfaced one as needing re-confirmation (it appears in both
+lists on purpose); and `PassportBlockerPareto` draws `declinedRepos` as hollow marks with their own
+count, because `aggregateBlockers` deliberately stopped subtracting declines from a bucket and the
+display must not put that subtraction back.
 
 ### Context Health (`src/lib/analyze/context-health.ts`) — W4
 

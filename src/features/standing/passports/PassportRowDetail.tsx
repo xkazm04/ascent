@@ -2,18 +2,29 @@
 
 // Expanded-row detail for the fleet passport table (P3) — the actionable depth behind a repo's two
 // readiness numbers, rendered inline so triage never leaves the portfolio: the blockers on each axis
-// (what to fix, verbatim from the passport), the agent self-verify checklist, CI/tests/security/delivery
-// facts, and the named stack. All data ships with the row (cached passport) — no fetch on expand.
+// (what to fix, verbatim from the passport), the gaps the owner has ACCEPTED (passport 0.4.0), the
+// agent self-verify checklist, CI/tests/security/delivery facts, and the named stack. All data ships
+// with the row (cached passport) — no fetch on expand.
+//
+// The list bodies live in PassportDetailLists (200-LOC cap under src/features/**); this file is the
+// layout.
 
 import Link from "next/link";
-import { DecisionControl } from "@/components/org/DecisionControl";
-import { blockerKey } from "@/lib/org/findings";
+import { BlockerList, DeclinedList } from "./PassportDetailLists";
+import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
 import type { DecisionMap } from "@/lib/org/decision-map";
 
 export interface PassportDetail {
   purpose: string;
   autoBlockers: string[];
   prodBlockers: string[];
+  /** 0.4.0: the minted findings behind the two blocker lists — same order, same text. Carried so a
+   *  consumer can join on a stable id instead of the sentence. Absent on a pre-0.4.0 stored passport. */
+  autoFindings?: PassportFinding[];
+  prodFindings?: PassportFinding[];
+  /** 0.4.0: the gaps this repo's owner has declined by choice, as the read-time overlay re-emitted
+   *  them. Absent when the owner has declined nothing. */
+  declined?: DeclinedByChoice[];
   selfVerify: { build: boolean; test: boolean; lint: boolean; typecheck: boolean };
   aiInWorkflow: boolean;
   ciProvider: string | null;
@@ -24,60 +35,6 @@ export interface PassportDetail {
   delivery: { migrations: string; iac: boolean; rollback: boolean };
   stack: string[];
   confidence: number;
-}
-
-// Each blocker is a decidable finding: fix it, or record why it doesn't apply here. Both axes share
-// one key space (blockerKey hashes the repo + the normalized blocker text), so a blocker listed on
-// both automation and production is ONE decision, made once, reflected in both lists.
-function BlockerList({
-  title,
-  items,
-  allClear,
-  org,
-  fullName,
-  decisions,
-}: {
-  title: string;
-  items: string[];
-  allClear: string;
-  org: string;
-  fullName: string;
-  decisions: DecisionMap;
-}) {
-  return (
-    <div>
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{title}</div>
-      {items.length === 0 ? (
-        <p className="mt-1.5 text-sm text-emerald-400/80">{allClear}</p>
-      ) : (
-        <ul className="mt-1.5 space-y-2.5">
-          {items.map((b) => {
-            const key = blockerKey(fullName, b);
-            const decision = decisions[key];
-            return (
-              <li key={b} className={`text-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
-                <span className="flex gap-2">
-                  <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
-                  {b}
-                </span>
-                <div className="ml-4 mt-1.5">
-                  <DecisionControl
-                    org={org}
-                    module="passports"
-                    itemKey={key}
-                    title={b}
-                    status={decision?.status ?? "open"}
-                    rationale={decision?.rationale}
-                    decidedBy={decision?.decidedBy}
-                  />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
 }
 
 /** ✓/✗ chip — one self-verify script or delivery capability. */
@@ -132,6 +89,7 @@ export function PassportRowDetail({
           fullName={fullName}
           decisions={decisions}
         />
+        <DeclinedList items={d.declined ?? []} />
       </div>
 
       {/* Right: the observed facts behind the sub-scale enums */}
