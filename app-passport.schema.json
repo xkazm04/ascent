@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ascent.dev/schemas/app-passport-0.2.json",
+  "$id": "https://ascent.dev/schemas/app-passport-0.4.json",
   "title": "App Readiness Passport",
   "description": "A small, descriptive, tool-naming fingerprint for cross-comparing many apps at a glance: what an app is, what it is built on, how ready it is for LLM-automated development, and how ready it is for production. Sibling to the vendor-neutral .ai/manifest.yaml (which is the agent-facing CONTRACT); the passport is the human/portfolio-facing SCORECARD. Readers MUST ignore fields they do not recognize.",
   "type": "object",
@@ -23,7 +23,11 @@
           "path": { "type": "string", "description": "Dotted passport field path, e.g. 'stack.monitoring.errorTracking'." },
           "label": { "type": "string", "description": "Human label for the declined field." },
           "reason": { "type": "string", "description": "Owner rationale for the choice." },
-          "blocker": { "type": "string", "description": "The blocker line this decline retired, kept so the choice stays auditable." }
+          "blocker": { "type": "string", "description": "The blocker line this decline retired, kept so the choice stays auditable. PAYLOAD ONLY — never a join key; rewording it must not orphan the decline." },
+          "findingId": { "type": "string", "description": "0.4.0: minted id of the finding this decline stands against (e.g. 'prod.zero-observability'). THE join key, because it survives a rewording. Absent on declines recorded before 0.4.0." },
+          "at": { "type": "string", "format": "date", "description": "0.4.0: YYYY-MM-DD the choice was made, so a reader can age it." },
+          "needsReconfirm": { "type": "boolean", "description": "0.4.0: the accepted gap has CHANGED since it was accepted (severity rose, the finding's kind changed, or the decision aged out). The blocker then STAYS in blockers[] — an accepted risk about a different repo is not an accepted risk." },
+          "reconfirmReason": { "type": "string", "description": "What changed, in the sentence the owner is asked to re-decide on." }
         }
       }
     },
@@ -84,7 +88,7 @@
         },
         "monitoring": {
           "type": "object",
-          "description": "Named observability vendors/tools. nulls are meaningful — they say 'this is absent'.",
+          "description": "Named observability vendors/tools. THREE-VALUED since 0.4.0: a vendor name = observed; null = the scan looked and found none; the string 'unknown' = the scan could not look at all (the evidence, e.g. package.json, was outside the snapshot). 'unknown' is a scan-coverage fact and MUST NOT be reported as a real gap in the app's stack. evidence.fields[<path>] carries the rung behind each value.",
           "additionalProperties": true,
           "properties": {
             "errorTracking": { "type": ["string", "null"], "description": "e.g. 'sentry', 'rollbar', or null." },
@@ -94,7 +98,7 @@
             "uptime": { "type": ["string", "null"], "description": "Health/liveness endpoint or external monitor." }
           }
         },
-        "hosting": { "type": ["string", "null"], "description": "Named: 'vercel', 'aws-ecs', 'fly', 'self-hosted'." },
+        "hosting": { "type": ["string", "null"], "description": "Named: 'vercel', 'aws-ecs', 'fly', 'self-hosted'; null when none was found; 'unknown' when the scan could not look (three-valued, see monitoring)." },
         "integrations": {
           "type": "array",
           "description": "Every external service the app talks to. The 'kind' is the comparable axis; 'name' is the vendor.",
@@ -146,7 +150,8 @@
           }
         },
         "aiInWorkflow": { "type": "boolean", "description": "Evidence AI is actually used (AI co-author trailers, agent-authored PRs), not just configured." },
-        "blockers": { "type": "array", "items": { "type": "string" }, "description": "What caps the level — the highest-leverage things to fix next." }
+        "blockers": { "type": "array", "items": { "type": "string" }, "description": "What caps the level — the highest-leverage things to fix next. RENDERED TEXT: a projection of findings[].text, kept for pre-0.4.0 readers." },
+        "findings": { "$ref": "#/$defs/findings" }
       }
     },
 
@@ -201,7 +206,8 @@
             "rollback": { "type": "boolean", "description": "A defined, tested way back (versioned deploys, feature flags)." }
           }
         },
-        "blockers": { "type": "array", "items": { "type": "string" }, "description": "Release-gating issues, highest severity first." }
+        "blockers": { "type": "array", "items": { "type": "string" }, "description": "Release-gating issues, highest severity first. RENDERED TEXT: a projection of findings[].text, kept for pre-0.4.0 readers." },
+        "findings": { "$ref": "#/$defs/findings" }
       }
     },
 
@@ -225,7 +231,37 @@
         "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "0..1 — how much of the app could be inspected." },
         "source": { "type": "string", "description": "How it was produced: 'static-scan', 'manual-audit', 'ci-export'." },
         "files": { "type": "array", "items": { "type": "string" }, "description": "Files the assessment was synthesized from — drift-check these." },
-        "notes": { "type": "array", "items": { "type": "string" }, "description": "Caveats a reader must carry, e.g. the note a version migration leaves when an ordinal was lifted from an older shape instead of assessed." }
+        "notes": { "type": "array", "items": { "type": "string" }, "description": "Caveats a reader must carry, e.g. the note a version migration leaves when an ordinal was lifted from an older shape instead of assessed." },
+        "fields": {
+          "type": "object",
+          "description": "0.4.0: PER-FIELD detection strength, keyed by dotted passport path (the same vocabulary the declined[] paths use). Without it a vendor guessed from a dependency list and one read off a fetched command carry identical apparent authority. Deliberately NOT exhaustive — only the named/heuristic fields are rated, so the passport stays one screen long. A reader filtering on strength MUST prefer fields[path] and fall back to evidence.confidence only when the path is absent.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["confidence", "basis"],
+            "additionalProperties": true,
+            "properties": {
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "The rung's FIXED value — not a judgement call, so two passports are comparable." },
+              "basis": { "enum": ["observed", "declared", "inferred", "unobserved"], "description": "observed (1.0) the artifact itself was read; declared (0.8) a dependency/config declaration names it but nothing shows it running; inferred (0.5) a path/name heuristic over the tree index; unobserved (0) the evidence was not in the snapshot and the field reads 'unknown'." }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "findings": {
+      "type": "array",
+      "description": "0.4.0: the blockers WITH MINTED IDENTITY. A persisted judgment (an owner decline, a fleet rollup bucket) must attach to a stable id with the rendered string as payload — joining on the prose orphans every decline the moment the wording is regenerated, and splits one rollup bucket into two.",
+      "items": {
+        "type": "object",
+        "required": ["id", "code", "text", "severity"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "description": "Axis-scoped CAUSE code, e.g. 'prod.zero-observability'. Stable across rewordings; never derived from the text." },
+          "code": { "type": "string", "description": "The cause code without its axis prefix — the fleet rollup bucket key." },
+          "text": { "type": "string", "description": "The rendered sentence as of this generation. Payload, never a join key." },
+          "severity": { "enum": ["info", "warn", "block", "critical"], "description": "Ordinal. 'critical' is never emitted by a scan: it is the escalated reading of a 'block' once an owner marks the repo business/mission-critical or GA — the change of circumstance that re-opens an old decline." }
+        }
       }
     }
   }
