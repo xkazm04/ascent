@@ -24,6 +24,7 @@
 import type { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans";
+import { redactAuditIdentity } from "@/lib/db/audit-integrity";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
 /** Audit action recorded by the purge job for each org it enforces a policy on. */
@@ -159,11 +160,26 @@ async function pruneRepoScans(
   max: number,
   batchSize: number,
   budgetExceeded?: () => boolean,
+  countOnly = false,
 ): Promise<{ scans: number; dimensions: number; recommendations: number; events: number }> {
   let scans = 0;
   let dimensions = 0;
   let recommendations = 0;
   let events = 0;
+  // ONE definition of "which scans are in scope", used by BOTH the delete selection below and the
+  // preview count (data-retention 07-16 #20). A preview computed from a SECOND, separately-written
+  // predicate is worse than no preview at all: it licenses an irreversible act with a number that can
+  // silently drift from what the delete will actually remove. Keeping the two in the same function,
+  // reading the same `where`, is what makes "the number you were shown is the number that dies" true.
+  const where = { repoId } satisfies Prisma.ScanWhereInput;
+  if (countOnly) {
+    // Preview: how many scans fall OUTSIDE the keep-window (`max`); an erase passes max = 0, so it is
+    // the repo's whole scan count. Dependent dimension/recommendation(-event) rows are NOT enumerated
+    // (reported 0), matching purgeExpiredData's dry run — the scan count is the decision-relevant
+    // number, and counting three more tables per repo would triple a preview's cost for no new decision.
+    const total = await prisma.scan.count({ where });
+    return { scans: Math.max(0, total - max), dimensions: 0, recommendations: 0, events: 0 };
+  }
   // Page the SELECTION too, not just the deletes. The prior code did one UNBOUNDED findMany(skip:max)
   // pulling every stale id into memory before the batched delete loop — on a long-watched repo with a
   // huge per-commit scan history that single read can hit a DSQL statement timeout / memory pressure
@@ -176,7 +192,7 @@ async function pruneRepoScans(
     async () =>
       (
         await prisma.scan.findMany({
-          where: { repoId },
+          where,
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           skip: max,
           take: batchSize,
@@ -689,9 +705,106 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
 // org-scoped audit sweep here has NO date cutoff — it removes every AuditLog row for the org — so an
 // entry written first would be deleted by the very operation it documents, leaving an erasure with no
 // trace. Writing last means the `data.erased` row is the ONLY audit row that survives an
-// audit-including erasure: the trail is emptied, and the record of why is what remains. The trade-off
+// audit-DELETING erasure: the trail is emptied, and the record of why is what remains. The trade-off
 // is that a crash between the deletes and the audit write loses the trace (the deletes still stand);
 // the caller surfaces that as `audited: false` rather than reporting a clean success.
+//
+// AUDIT DISPOSITION — the destructive-override floor on the interactive path (data-retention 07-16 #4).
+// The unattended cron has had a safety floor since 07-16 #2 (RETENTION_MIN_*, escapable only via
+// RETENTION_FORCE=1); the on-demand path, which is INTERACTIVE, IRREVERSIBLE and reaches the very same
+// compliance evidence, had none — one owner-authenticated `includeAudit: true` destroyed the org's
+// entire HMAC-signed trail (see db/audit-integrity.ts) wholesale. That asymmetry was backwards: the
+// guarded path was the one nobody is watching. The floor is now stated as three explicit dispositions:
+//
+//   keep    (default)  the trail is untouched; only scan data is erased.
+//   redact             IDENTIFIER-ONLY erasure: every row for the org survives as action + timestamp +
+//                      tenant, with the actor and the whole meta payload dropped and the row re-signed
+//                      (redactAuditIdentity). The subject reference no longer resolves to a person, and
+//                      the historical account of what happened and when is still there to export.
+//   delete             the old wholesale destruction. REFUSED unless the operator has deliberately set
+//                      ERASE_AUDIT_FORCE=1 on the deployment — the same shape as the purge path's
+//                      RETENTION_FORCE escape, and the reason the refusal is an env flag rather than
+//                      another request field: a caller who can post the request must not also be able
+//                      to authorise the exception in the same click.
+//
+// Why refusal is not prohibition: a genuinely compelled erasure (GDPR Art.17) is the exact scenario the
+// flag exists for, so a hard "never" would break the feature. `redact` satisfies that request WITHOUT
+// destroying the compliance record, and is what the legacy `includeAudit: true` boolean now resolves to
+// — so the existing control keeps working and simply stopped being the more destructive of the two.
+
+/** Env flag that authorises WHOLESALE audit-trail destruction (`auditDisposition: "delete"`). Mirrors
+ *  RETENTION_FORCE on the purge path: deliberate, deployment-level, and stated in the refusal message. */
+export const ERASE_AUDIT_FORCE_ENV = "ERASE_AUDIT_FORCE";
+
+/** What an erase does to the org's audit trail. See the AUDIT DISPOSITION note above. */
+export type AuditDisposition = "keep" | "redact" | "delete";
+
+/**
+ * Resolve the requested disposition, translating the legacy `includeAudit` boolean. `includeAudit: true`
+ * used to mean "delete the whole trail"; it now means "redact it to identifier-only" — the same
+ * user-visible promise (this org's audit trail no longer identifies anyone) minus the irreversible loss
+ * of the record itself. A caller that genuinely means deletion must say `auditDisposition: "delete"`.
+ * Pure — unit-tested.
+ */
+export function resolveAuditDisposition(req: Pick<EraseRequest, "includeAudit" | "auditDisposition">): AuditDisposition {
+  if (req.auditDisposition) return req.auditDisposition;
+  return req.includeAudit === true ? "redact" : "keep";
+}
+
+/** True when the deployment has explicitly opted into wholesale audit destruction. */
+function auditDeleteForced(): boolean {
+  return process.env[ERASE_AUDIT_FORCE_ENV] === "1";
+}
+
+/**
+ * Rewrite every audit row for an org into identifier-only form (see {@link redactAuditIdentity}).
+ * Cursor-paged by id and budget-polled between pages, exactly like the delete loops — the trail of a
+ * long-lived org is unbounded, so this must yield the same way a sweep does. Each page is one committed
+ * transaction wrapped in the shared conflict retry, so a stop leaves whole pages redacted (never half a
+ * row) and the resume call simply continues. Re-running over an already-redacted row is harmless: it is
+ * rewritten with a fresh `_redacted` stamp and re-signed. Returns the number of rows redacted.
+ */
+async function redactOrgAudit(
+  prisma: PrismaLike,
+  orgId: string,
+  batchSize: number,
+  redactedAt: string,
+  budgetExceeded?: () => boolean,
+): Promise<number> {
+  let total = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    if (budgetExceeded?.()) break;
+    const rows = await prisma.auditLog.findMany({
+      where: { orgId },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      select: { id: true, action: true, orgId: true, at: true },
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (rows.length === 0) break;
+    await withRetry(
+      () =>
+        prisma.$transaction(async (tx) => {
+          for (const row of rows) {
+            const redacted = redactAuditIdentity(
+              { action: row.action, orgId: row.orgId, createdAt: new Date(row.at).toISOString() },
+              redactedAt,
+            );
+            await tx.auditLog.update({
+              where: { id: row.id },
+              data: { actorId: redacted.actorId, meta: JSON.stringify(redacted.meta) },
+            });
+          }
+        }),
+      { label: "erase.redact-audit" },
+    );
+    total += rows.length;
+    if (rows.length < batchSize) break;
+    cursor = rows[rows.length - 1]!.id;
+  }
+  return total;
+}
 
 /** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
  *  config to be a literal, so the route can't import this — a route test pins the two together instead
@@ -709,9 +822,17 @@ export interface EraseRequest {
   /** Repo-scoped variant: erase only this `owner/name`'s scans. Audit is never repo-scoped, so an
    *  audit sweep is not available (and not attempted) for this variant. */
   repoFullName?: string;
-  /** Org-scope only: also erase the org's ENTIRE audit trail (no date cutoff). Off by default —
-   *  destroying the compliance trail is a separate, explicit ask from erasing scan data. */
+  /** LEGACY alias for `auditDisposition: "redact"` (org scope only). Off by default. It used to mean
+   *  wholesale deletion; see the AUDIT DISPOSITION note above for why it no longer can. */
   includeAudit?: boolean;
+  /** Org-scope only: what to do with the org's audit trail. Defaults to the `includeAudit` translation
+   *  ("keep" unless that legacy flag is set). `"delete"` is refused without ERASE_AUDIT_FORCE=1. */
+  auditDisposition?: AuditDisposition;
+  /** Preview mode: count what this request WOULD erase, deleting nothing, redacting nothing and writing
+   *  no audit entry (data-retention 07-16 #20). The counts come from the same predicate the delete uses
+   *  (see pruneRepoScans). Like the purge dry run, the audit-disposition floor is not enforced here —
+   *  previewing the blast radius of a `delete` is exactly what an operator needs before asking for one. */
+  dryRun?: boolean;
   actorId?: string;
   /** Rows deleted per batch; clamped through {@link clampBatchSize}. */
   batchSize?: number;
@@ -732,7 +853,12 @@ export interface EraseResult {
   dimensionsDeleted: number;
   recommendationsDeleted: number;
   recommendationEventsDeleted: number;
+  /** Audit rows DESTROYED (only ever non-zero for `auditDisposition: "delete"`). */
   auditDeleted: number;
+  /** Audit rows reduced to identifier-only form — the historical account that SURVIVED the erasure. */
+  auditRedacted: number;
+  /** What this call did (or, in a preview, would do) to the audit trail. */
+  auditDisposition: AuditDisposition;
   /** True when the wall-clock budget stopped this call at a batch boundary — call again to resume. */
   stoppedEarly: boolean;
   /** True when everything in scope was erased in this call (`!stoppedEarly`). */
@@ -740,11 +866,18 @@ export interface EraseResult {
   /** False when the `data.erased` trace could not be written (deletes still stand — see the ordering
    *  note above). Callers must surface this rather than reporting a clean success. */
   audited: boolean;
+  /** True when this was a PREVIEW: nothing was deleted, redacted or audited, and the counts are
+   *  would-erase totals. A preview must never be mistaken for a performed erasure. */
+  dryRun: boolean;
 }
 
-/** Erase outcome: a refusal the caller maps to an HTTP status, or the result of a performed erase. */
+/** Erase outcome: a refusal the caller maps to an HTTP status, or the result of a performed erase.
+ *  `audit-delete-refused` is the destructive-override floor: the request asked to DESTROY the trail
+ *  without ERASE_AUDIT_FORCE=1, so nothing at all was erased (the refusal is checked before any
+ *  delete — a half-done erase that wiped the scans and then declined the audit part would be worse
+ *  than either outcome). */
 export type EraseOutcome =
-  | { ok: false; reason: "no-db" | "unknown-org" | "unknown-repo" }
+  | { ok: false; reason: "no-db" | "unknown-org" | "unknown-repo" | "audit-delete-refused" }
   | ({ ok: true } & EraseResult);
 
 /** Scan-DERIVED caches denormalized onto Repository. Erasing the scans without clearing these would
@@ -774,6 +907,16 @@ const ERASED_REPO_CACHE_RESET = {
 export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   if (!isDbConfigured()) return { ok: false, reason: "no-db" };
   const prisma = getPrisma();
+  const dryRun = req.dryRun === true;
+  // Audit disposition is an ORG-SCOPE concept: a repo-scoped erase never reaches the trail (the trail
+  // has no repo dimension), so it is pinned to "keep" and cannot be refused by the floor below.
+  const auditDisposition = req.repoFullName?.trim() ? "keep" : resolveAuditDisposition(req);
+  // Destructive-override floor, checked BEFORE anything is touched (see the AUDIT DISPOSITION note).
+  // A preview is exempt for the same reason the purge dry run is: seeing what a `delete` would cost is
+  // the input to the decision, not the decision.
+  if (!dryRun && auditDisposition === "delete" && !auditDeleteForced()) {
+    return { ok: false, reason: "audit-delete-refused" };
+  }
   const now = req.now ?? Date.now;
   const startedAt = now();
   const batchSize = clampBatchSize(req.batchSize ?? null);
@@ -793,18 +936,21 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let recommendationsDeleted = 0;
   let recommendationEventsDeleted = 0;
   let auditDeleted = 0;
+  let auditRedacted = 0;
   let stoppedEarly = false;
 
   // Erase ONE repo's scan graph + reset its scan-derived caches. Each batch inside pruneRepoScans is
   // its own committed transaction (bounded); the cache reset follows the deletes so a mid-erase stop
   // never leaves "no scans but a stale passport" — worst case the caches are reset on the resume call.
+  // In a preview, the SAME call counts instead of deleting (countOnly) and the cache reset is skipped.
   const eraseRepo = async (repoId: string) => {
-    const r = await pruneRepoScans(prisma, repoId, 0, batchSize, overBudget);
+    const r = await pruneRepoScans(prisma, repoId, 0, batchSize, overBudget, dryRun);
     scansDeleted += r.scans;
     dimensionsDeleted += r.dimensions;
     recommendationsDeleted += r.recommendations;
     recommendationEventsDeleted += r.events;
     reposProcessed++;
+    if (dryRun) return;
     await withRetry(() => prisma.repository.update({ where: { id: repoId }, data: { ...ERASED_REPO_CACHE_RESET } }), {
       label: "erase.reset-repo-cache",
     });
@@ -843,10 +989,43 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
 
     // Audit trail: org-scoped, NO date cutoff (this is erasure, not retention). Opt-in, and skipped
     // once the budget is spent so the resume call does it instead.
-    if (req.includeAudit && !stoppedEarly) {
-      auditDeleted = await pruneAudit(prisma, { orgId: org.id }, batchSize, overBudget);
+    if (auditDisposition !== "keep" && !stoppedEarly) {
+      if (dryRun) {
+        // Preview: one count over the SAME `{ orgId }` predicate both branches below sweep — the number
+        // shown is the number of rows the confirmed run will destroy or redact.
+        const inScope = await prisma.auditLog.count({ where: { orgId: org.id } });
+        if (auditDisposition === "delete") auditDeleted = inScope;
+        else auditRedacted = inScope;
+      } else if (auditDisposition === "delete") {
+        auditDeleted = await pruneAudit(prisma, { orgId: org.id }, batchSize, overBudget);
+      } else {
+        auditRedacted = await redactOrgAudit(prisma, org.id, batchSize, new Date(now()).toISOString(), overBudget);
+      }
       if (overBudget()) stoppedEarly = true;
     }
+  }
+
+  // A preview writes nothing, so there is nothing to trace: return the would-erase counts and stop
+  // before the `data.erased` write. `audited: true` here means "no trace is owed", not "a trace exists".
+  if (dryRun) {
+    return {
+      ok: true,
+      orgSlug: slug,
+      scope,
+      ...(repoFullName ? { repoFullName } : {}),
+      reposProcessed,
+      scansDeleted,
+      dimensionsDeleted,
+      recommendationsDeleted,
+      recommendationEventsDeleted,
+      auditDeleted,
+      auditRedacted,
+      auditDisposition,
+      stoppedEarly,
+      complete: !stoppedEarly,
+      audited: true,
+      dryRun: true,
+    };
   }
 
   // Written LAST, on purpose — see the AUDIT ORDERING note above. This row is what remains of the
@@ -856,13 +1035,18 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     {
       scope,
       ...(repoFullName ? { repo: repoFullName } : {}),
-      includeAudit: scope === "org" && req.includeAudit === true,
+      // Both are recorded: the disposition is what an examiner needs to read off the surviving row to
+      // know whether the trail beside it was destroyed, redacted, or left alone. `includeAudit` stays
+      // for continuity with entries written before dispositions existed.
+      auditDisposition,
+      includeAudit: auditDisposition !== "keep",
       reposProcessed,
       scansDeleted,
       dimensionsDeleted,
       recommendationsDeleted,
       recommendationEventsDeleted,
       auditDeleted,
+      auditRedacted,
       complete: !stoppedEarly,
     },
     { orgId: org.id, actorId: req.actorId },
@@ -879,8 +1063,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     recommendationsDeleted,
     recommendationEventsDeleted,
     auditDeleted,
+    auditRedacted,
+    auditDisposition,
     stoppedEarly,
     complete: !stoppedEarly,
     audited,
+    dryRun: false,
   };
 }

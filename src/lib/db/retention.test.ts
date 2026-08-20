@@ -5,9 +5,11 @@ import {
   eraseOrgData,
   purgeExpiredData,
   ERASE_ACTION,
+  ERASE_AUDIT_FORCE_ENV,
   ERASE_BUDGET_HEADROOM_MS,
   ERASE_DEFAULT_TIME_BUDGET_MS,
   ERASE_MAX_DURATION_S,
+  resolveAuditDisposition,
   resolveRetention,
   rotateForTick,
   PURGE_MAX_DURATION_S,
@@ -37,6 +39,7 @@ vi.mock("@/lib/db/scans", () => ({ recordAudit: vi.fn(async () => true) }));
 vi.mock("@/lib/public-scan-quota", () => ({ purgeStalePublicScanQuota: vi.fn(async () => 0) }));
 
 import { recordAudit } from "@/lib/db/scans";
+import { AUDIT_REDACTED_META_KEY } from "@/lib/db/audit-integrity";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
 const ENV_KEYS = ["RETENTION_MAX_SCANS_PER_REPO", "RETENTION_AUDIT_DAYS", "RETENTION_BATCH_SIZE"] as const;
@@ -1486,7 +1489,16 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
   const auditRows = [...(seed?.audit ?? ["audit_1", "audit_2", "audit_3"])];
   const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
 
+  /** Rows as the redaction loop reads them back, and what it wrote (so a test can assert the shape). */
+  const auditWrites: { id: string; data: { actorId: unknown; meta: string } }[] = [];
+
   const tx = {
+    auditLog: {
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: { actorId: unknown; meta: string } }) => {
+        auditWrites.push({ id: where.id, data });
+        return { id: where.id };
+      }),
+    },
     recommendation: {
       findMany: vi.fn(async () => [{ id: "rec_1" }]),
       deleteMany: vi.fn(async () => ({ count: 1 })),
@@ -1527,9 +1539,21 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
       findMany: vi.fn(async ({ where, take }: { where: { repoId: string }; take: number }) =>
         (scansByRepo[where.repoId] ?? []).slice(0, take).map((id) => ({ id })),
       ),
+      count: vi.fn(async ({ where }: { where: { repoId: string } }) => (scansByRepo[where.repoId] ?? []).length),
     },
     auditLog: {
-      findMany: vi.fn(async ({ take }: { take: number }) => auditRows.slice(0, take).map((id) => ({ id }))),
+      // Serves BOTH readers: the delete sweep (ids only) and the redaction loop (id/action/orgId/at,
+      // cursor-paged). `skip` is honored so the cursor walk advances instead of re-reading page one.
+      findMany: vi.fn(async ({ take, cursor, skip }: { take: number; cursor?: { id: string }; skip?: number }) => {
+        const from = cursor ? auditRows.indexOf(cursor.id) + (skip ?? 0) : 0;
+        return auditRows.slice(Math.max(0, from), Math.max(0, from) + take).map((id) => ({
+          id,
+          action: `action.${id}`,
+          orgId: "org_1",
+          at: new Date("2026-01-01T00:00:00.000Z"),
+        }));
+      }),
+      count: vi.fn(async () => auditRows.length),
       deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
         let count = 0;
         for (const id of where.id.in) {
@@ -1544,8 +1568,24 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
     },
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  return { prisma, tx, scansByRepo, auditRows, cacheResets };
+  return { prisma, tx, scansByRepo, auditRows, cacheResets, auditWrites };
 }
+
+describe("resolveAuditDisposition — the legacy boolean's new meaning (data-retention 07-16 #4)", () => {
+  it("defaults to keep, and translates includeAudit:true to the NON-destructive redact", () => {
+    expect(resolveAuditDisposition({})).toBe("keep");
+    expect(resolveAuditDisposition({ includeAudit: false })).toBe("keep");
+    // The boolean used to mean "destroy the whole trail". It now means "make it stop identifying
+    // anyone" — the same user-visible promise, without the irreversible loss of the record.
+    expect(resolveAuditDisposition({ includeAudit: true })).toBe("redact");
+  });
+
+  it("an explicit disposition always wins over the legacy flag", () => {
+    expect(resolveAuditDisposition({ includeAudit: true, auditDisposition: "delete" })).toBe("delete");
+    expect(resolveAuditDisposition({ includeAudit: true, auditDisposition: "keep" })).toBe("keep");
+    expect(resolveAuditDisposition({ auditDisposition: "redact" })).toBe("redact");
+  });
+});
 
 describe("eraseOrgData — on-demand DSR erasure", () => {
   beforeEach(() => {
@@ -1553,8 +1593,13 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     mockIsDbConfigured.mockReset();
     mockIsDbConfigured.mockReturnValue(true);
     vi.mocked(recordAudit).mockResolvedValue(true);
+    // The destructive-override escape is OFF unless a test opts in — the whole point of the floor.
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
+    vi.clearAllMocks();
+  });
 
   it("refuses cleanly when persistence is off / the org is unknown (no deletes, no audit)", async () => {
     mockIsDbConfigured.mockReturnValue(false);
@@ -1604,16 +1649,65 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     expect(outcome.ok && outcome.auditDeleted).toBe(0);
   });
 
-  it("includeAudit erases the WHOLE org trail (no date cutoff) and still records data.erased LAST", async () => {
-    const { prisma, auditRows } = fakeErasePrisma();
+  it("includeAudit now REDACTS the trail to identifier-only instead of destroying it (07-16 #4)", async () => {
+    const { prisma, auditRows, auditWrites } = fakeErasePrisma();
     mockGetPrisma.mockReturnValue(prisma);
 
     const outcome = await eraseOrgData({ orgSlug: "acme", includeAudit: true, actorId: "owner-login" });
 
-    expect(auditRows).toHaveLength(0); // the trail is emptied
-    expect(outcome.ok && outcome.auditDeleted).toBe(3);
-    // No `at` cutoff — retention prunes by age, erasure removes everything for the org.
+    // The historical account SURVIVES: every row is still there, none was deleted.
+    expect(prisma.auditLog.deleteMany).not.toHaveBeenCalled();
+    expect(auditRows).toHaveLength(3);
+    expect(outcome.ok && outcome.auditDeleted).toBe(0);
+    expect(outcome.ok && outcome.auditRedacted).toBe(3);
+    expect(outcome.ok && outcome.auditDisposition).toBe("redact");
+    // …in identifier-only form: the actor is gone and the whole meta payload is replaced by the
+    // redaction marker, so the subject reference no longer resolves to a person.
+    expect(auditWrites.map((w) => w.id)).toEqual(["audit_1", "audit_2", "audit_3"]);
+    for (const w of auditWrites) {
+      expect(w.data.actorId).toBeNull();
+      expect(Object.keys(JSON.parse(w.data.meta) as object)).toEqual([AUDIT_REDACTED_META_KEY]);
+    }
+    // Org-scoped, no date cutoff — retention prunes by age, erasure covers everything for the org.
     expect(prisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { orgId: "org_1" } }));
+    expect(recordAudit).toHaveBeenCalledWith(
+      ERASE_ACTION,
+      expect.objectContaining({
+        scope: "org",
+        auditDisposition: "redact",
+        includeAudit: true,
+        scansDeleted: 4,
+        auditRedacted: 3,
+        auditDeleted: 0,
+        complete: true,
+      }),
+      { orgId: "org_1", actorId: "owner-login" },
+    );
+  });
+
+  it('REFUSES auditDisposition:"delete" without the operator override — and erases NOTHING', async () => {
+    const { prisma, scansByRepo, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", auditDisposition: "delete" });
+
+    expect(outcome).toEqual({ ok: false, reason: "audit-delete-refused" });
+    // The floor is checked BEFORE any delete: a refusal must not leave the scans gone and the trail up.
+    expect(scansByRepo).toEqual({ repo_1: ["repo_1_s1", "repo_1_s2"], repo_2: ["repo_2_s1", "repo_2_s2"] });
+    expect(auditRows).toHaveLength(3);
+    expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it('ERASE_AUDIT_FORCE=1 lets a deliberate "delete" through, and data.erased is still written LAST', async () => {
+    const { prisma, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    process.env[ERASE_AUDIT_FORCE_ENV] = "1";
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", auditDisposition: "delete", actorId: "owner-login" });
+
+    expect(auditRows).toHaveLength(0); // the trail is emptied, as explicitly authorised
+    expect(outcome.ok && outcome.auditDeleted).toBe(3);
+    expect(outcome.ok && outcome.auditRedacted).toBe(0);
     // ORDERING TRAP: the data.erased entry is written AFTER the sweep, so it survives the erasure it
     // documents. Written first, the sweep (which has no cutoff) would have deleted it.
     const sweepOrder = prisma.auditLog.deleteMany.mock.invocationCallOrder[0]!;
@@ -1622,9 +1716,68 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     expect(recordAudit).toHaveBeenCalledTimes(1);
     expect(recordAudit).toHaveBeenCalledWith(
       ERASE_ACTION,
-      expect.objectContaining({ scope: "org", includeAudit: true, scansDeleted: 4, auditDeleted: 3, complete: true }),
+      expect.objectContaining({ auditDisposition: "delete", auditDeleted: 3, complete: true }),
       { orgId: "org_1", actorId: "owner-login" },
     );
+  });
+
+  it("PREVIEW counts the casualties without erasing anything, and never writes a trace (07-16 #20)", async () => {
+    const { prisma, scansByRepo, auditRows, cacheResets } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", includeAudit: true, dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.dryRun).toBe(true);
+    expect(preview.scansDeleted).toBe(4); // 2 repos x 2 scans — the number the confirm dialog shows
+    expect(preview.reposProcessed).toBe(2);
+    expect(preview.auditRedacted).toBe(3);
+    // Nothing moved: no deletes, no redaction writes, no cache resets, no data.erased row.
+    expect(scansByRepo).toEqual({ repo_1: ["repo_1_s1", "repo_1_s2"], repo_2: ["repo_2_s1", "repo_2_s2"] });
+    expect(auditRows).toHaveLength(3);
+    expect(cacheResets).toHaveLength(0);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("the preview's scan count comes from the SAME predicate the delete uses (it cannot drift)", async () => {
+    const { prisma } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    // Same `where` object the delete selection pages over — a preview built from a second, separately
+    // written predicate is worse than none: it licenses an irreversible act with the wrong number.
+    expect(prisma.scan.count).toHaveBeenCalledWith({ where: { repoId: "repo_1" } });
+    const previewed = preview.ok ? preview.scansDeleted : -1;
+
+    const { prisma: prisma2 } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma2);
+    const real = await eraseOrgData({ orgSlug: "acme" });
+    expect(real.ok && real.scansDeleted).toBe(previewed);
+  });
+
+  it("a PREVIEW of the destructive disposition is allowed (seeing the cost is the input to the decision)", async () => {
+    const { prisma, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", auditDisposition: "delete", dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.auditDeleted).toBe(3); // what WOULD be destroyed
+    expect(auditRows).toHaveLength(3); // …and still is not
+  });
+
+  it('a repo-scoped erase is pinned to "keep" — the trail has no repo dimension, so the floor can\'t fire', async () => {
+    const { prisma, auditRows } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api", auditDisposition: "delete" });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.ok && outcome.auditDisposition).toBe("keep");
+    expect(auditRows).toHaveLength(3);
   });
 
   it("repo scope erases ONLY that repo (and never touches the audit trail)", async () => {
