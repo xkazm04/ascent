@@ -65,11 +65,14 @@ vi.mock("@/lib/public-scan-quota", () => ({
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true })),
   rateLimitRequestShared: vi.fn(async () => ({ ok: true })),
-  // Mirrors the real helper's shape closely enough to assert on: status + Retry-After.
-  tooManyRequests: (retryAfterSec: number) =>
+  // Mirrors the real helper's shape closely enough to assert on: status + Retry-After. It accepts
+  // EITHER a bare delay or the whole RateLimitResult, because the real helper does — the routes now
+  // pass the result so a global refusal can name its scope, and a stub that only understood a number
+  // stringified the object into the header instead of failing loudly.
+  tooManyRequests: (arg: number | { retryAfterSec: number }) =>
     new Response(JSON.stringify({ error: "rate_limited" }), {
       status: 429,
-      headers: { "retry-after": String(retryAfterSec) },
+      headers: { "retry-after": String(typeof arg === "number" ? arg : arg.retryAfterSec) },
     }),
   SCAN_RATE_LIMIT: {},
   PEEK_RATE_LIMIT: {},

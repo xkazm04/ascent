@@ -68,7 +68,12 @@ export async function POST(req: Request) {
   }
   // Charged before any body handling or token crypto, like the ingest front door.
   const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  // Whole result: this door is driven by MCP clients and agents, which retry on a schedule. Naming
+  // the scope lets one back off correctly — `ip` means its own budget (stated, with the window),
+  // `global` means retrying harder cannot help. Deliberately not the JSON-RPC envelope: the request
+  // is refused before any body parse, so there is no request id to answer, which is why this gate
+  // has always returned a plain JSON 429 rather than an `err(null, ...)` frame.
+  if (!rl.ok) return tooManyRequests(rl);
 
   const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "")?.[1]?.trim();
   if (!bearer) {

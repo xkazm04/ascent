@@ -66,18 +66,19 @@ vi.mock("@/lib/scoring/gate", async (importOriginal) => ({
 }));
 // The persisted org gate policy — null by default (DB-less), overridden per-test for the merge cases.
 vi.mock("@/lib/db/org-gate", () => ({ getOrgGatePolicy: vi.fn(async () => null) }));
-vi.mock("@/lib/rate-limit", () => ({
-  rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
-  rateLimitRequestShared: vi.fn(async () => ({ ok: true, retryAfterSec: 0 })),
-  tooManyRequests: vi.fn((sec: number) =>
-    new Response(JSON.stringify({ error: "Rate limit exceeded." }), {
-      status: 429,
-      headers: { "retry-after": String(sec) },
-    }),
-  ),
-  SCAN_RATE_LIMIT: {},
-  GATE_RATE_LIMIT: {},
-}));
+// `tooManyRequests` is a SPY WRAPPING THE REAL HELPER, not a stand-in: the route now hands it the
+// whole RateLimitResult, and the point of that change is the body/headers it produces, so a stub
+// would assert only that the route calls something.
+vi.mock("@/lib/rate-limit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
+  return {
+    rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
+    rateLimitRequestShared: vi.fn(async () => ({ ok: true, retryAfterSec: 0 })),
+    tooManyRequests: vi.fn(actual.tooManyRequests),
+    SCAN_RATE_LIMIT: {},
+    GATE_RATE_LIMIT: {},
+  };
+});
 
 import { GET } from "./route";
 import { lookupPersistedScanByCommit } from "@/lib/scan-cache";
@@ -264,7 +265,9 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     const res = await get("?mock=0");
 
     expect(mockRateLimitShared).toHaveBeenCalledTimes(1);
-    expect(mockTooManyRequests).toHaveBeenCalledWith(30);
+    // The WHOLE result is handed to the renderer now, not just the delay — that is what lets the
+    // 429 name the layer that refused (asserted in its own suite below).
+    expect(mockTooManyRequests).toHaveBeenCalledWith(expect.objectContaining({ ok: false, retryAfterSec: 30 }));
     expect(res.status).toBe(429);
     // Short-circuited BEFORE scanning/evaluating — no LLM budget spent on a throttled request.
     expect(mockScan).not.toHaveBeenCalled();
@@ -621,5 +624,101 @@ describe("GET /api/gate — warm DB tier (no cold-start re-ingest)", () => {
     expect(res.status).toBe(200);
     expect(mockPersisted).not.toHaveBeenCalled();
     expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: "main", noAmbientToken: true });
+  });
+});
+
+// A CI gate that 429s must say WHY, or the pipeline owner has no move but to retry blind. The three
+// refusals are genuinely different advice: your own budget (slow down, here is the budget), the
+// fleet budget (slowing down may not clear it), and "not evaluated" (the shared limiter never
+// answered — nothing of yours was counted).
+describe("GET /api/gate/[owner]/[repo] — the 429 names the scope that refused", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCacheGet.mockReturnValue(report());
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockRateLimitShared.mockResolvedValue({ ok: true, retryAfterSec: 0 });
+    mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockPolicyFromParams.mockReturnValue({ minLevel: "L3", minDimension: 40 } as never);
+  });
+
+  it("?mock=0 — a per-IP refusal states scope, limiter, budget and window", async () => {
+    mockRateLimitShared.mockResolvedValue({
+      ok: false,
+      retryAfterSec: 30,
+      scope: "ip",
+      limiter: "scan",
+      limit: 5,
+      windowSec: 60,
+      evaluated: true,
+    });
+
+    const res = await get("?mock=0");
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    expect(res.headers.get("x-ascent-ratelimit-limit")).toBe("5");
+    expect(res.headers.get("x-ascent-ratelimit-window")).toBe("60");
+    expect(await res.json()).toMatchObject({ code: "rate_limited", scope: "ip", limiter: "scan", limit: 5, windowSec: 60 });
+  });
+
+  it("?mock=0 — a GLOBAL refusal names the scope but never discloses the fleet ceiling", async () => {
+    mockRateLimitShared.mockResolvedValue({
+      ok: false,
+      retryAfterSec: 20,
+      scope: "global",
+      limiter: "scan",
+      evaluated: true,
+    });
+
+    const res = await get("?mock=0");
+    const body = await res.json();
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("global");
+    expect(body).toMatchObject({ code: "rate_limited", scope: "global" });
+    // Anyone can call this endpoint anonymously; echoing the fleet budget or its headroom would
+    // turn a public CI gate into a capacity meter for whoever is exhausting it.
+    expect(body.limit).toBeUndefined();
+    expect(body.windowSec).toBeUndefined();
+    expect(res.headers.get("x-ascent-ratelimit-limit")).toBeNull();
+    expect(JSON.stringify(body)).not.toMatch(/\b\d{2,}\s*(requests|per)\b/);
+  });
+
+  it("?mock=0 — an UNEVALUATED refusal reports the outage instead of blaming the caller", async () => {
+    mockRateLimitShared.mockResolvedValue({
+      ok: false,
+      retryAfterSec: 5,
+      scope: "unavailable",
+      limiter: "scan",
+      evaluated: false,
+    });
+
+    const res = await get("?mock=0");
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("unavailable");
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect(await res.json()).toMatchObject({ code: "rate_limit_unavailable", scope: "unavailable", evaluated: false });
+  });
+
+  it("the default (mock) INGEST path also names its scope when the in-memory limiter refuses", async () => {
+    mockCacheGet.mockReturnValue(undefined); // both cache tiers miss → the ingest gate is charged
+    mockPersisted.mockResolvedValue(null);
+    mockRateLimit.mockReturnValue({
+      ok: false,
+      retryAfterSec: 15,
+      scope: "ip",
+      limiter: "gate",
+      limit: 30,
+      windowSec: 60,
+      evaluated: true,
+    });
+
+    const res = await get();
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    expect(await res.json()).toMatchObject({ scope: "ip", limiter: "gate", limit: 30, windowSec: 60 });
+    expect(mockScan).not.toHaveBeenCalled(); // refused before the GitHub ingest it protects
   });
 });

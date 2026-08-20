@@ -79,7 +79,9 @@ against a sliding window with **two halves**:
 ### What a 429 tells the caller
 
 A refusal names the layer that refused, because the three cases need opposite responses. Routes that
-pass the whole `RateLimitResult` to `tooManyRequests()` (today: the ingest guard) get:
+pass the whole `RateLimitResult` to `tooManyRequests()` — the ingest guard plus every JSON API route
+that rate-limits (`/api/scan`'s peek gate, `/api/gate/[owner]/[repo]`, `/api/mcp`, `/api/quota`,
+`/api/org/import`, `/api/plan-enquiry`) — get:
 
 | `scope` | body `code` | Headers | What the caller should do |
 | --- | --- | --- | --- |
@@ -87,8 +89,16 @@ pass the whole `RateLimitResult` to `tooManyRequests()` (today: the ingest guard
 | `global` | `rate_limited` | `retry-after`, `x-ascent-ratelimit-scope: global` | Nothing, directly: the service-wide budget is exhausted by aggregate traffic. **The ceiling and the remaining headroom are deliberately withheld** — publishing them hands an attacker the size of the instance budget and a live "how close am I" meter. |
 | `unavailable` | `rate_limit_unavailable` | `retry-after` (the store breaker's re-probe delay), `x-ascent-ratelimit-scope: unavailable` | Retry shortly. **No limit was evaluated** (`evaluated: false`): the shared store was unreachable and the request was refused fail-closed, so no budget was consumed or exceeded — and there is no draining window to estimate from, which is why Retry-After is the breaker delay rather than a full window. |
 
-Routes that still pass only `rl.retryAfterSec` keep the previous bare body (`error` + `code:
-"rate_limited"` + `retry-after`); switching one is a one-argument change at its call site.
+Two callers still emit the bare body (`error` + `code: "rate_limited"` + `retry-after`), for reasons
+that are not "not migrated yet":
+
+- **The expensive scan path** on `/api/scan` and `/api/scan/stream`. Both route their refusal through
+  `scanRateLimitGate()` (`src/lib/scan-gates.ts`), whose `ScanRateLimitRejection` carries only
+  `retryAfterSec` — the scope is discarded inside the gate, before either route sees it. Enriching
+  these means widening that gate's rejection type, not editing the routes.
+- **The badge endpoint** (`/api/badge/[owner]/[repo]`) never used this helper and must not start: it
+  answers a throttle with a *rate limited* SVG so a README embed keeps rendering an image. A JSON
+  body there would break every embed that renders it as `<img>`.
 
 ### Where a limit's number comes from
 

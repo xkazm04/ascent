@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   // rejected here, before the SSE stream opens, so it renders as a plain JSON 429. Stays BEFORE the
   // quota consume below.
   const rl = await scanRateLimitGate(request);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  if (!rl.ok) return tooManyRequests(rl.rl); // the whole result: these two are the only routes on the shared scan budget, so a global refusal must say so
 
   const url = body.url;
   const mock = Boolean(body.mock);

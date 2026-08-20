@@ -18,7 +18,11 @@ export async function GET(request: Request) {
   // without this. Generous budget (see QUOTA_PEEK_RATE_LIMIT); the QuotaMeter tolerates a non-OK
   // response (keeps its last state), so a 429 is safe client-side.
   const rl = rateLimitRequest(request, QUOTA_PEEK_RATE_LIMIT);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  // Pass the whole result, not just `retryAfterSec`: the refusal then names its own scope
+  // (`ip` = your budget, slow down / `global` = the fleet budget, slowing down may not help /
+  // `unavailable` = nothing was counted), which is the one fact that changes what the caller
+  // should do next. The helper withholds the global ceiling's value on purpose.
+  if (!rl.ok) return tooManyRequests(rl);
   const viewer = await getViewer().catch(() => null);
   const quota = await peekPublicScanQuota(request, { viewerId: viewer?.id });
   return NextResponse.json(quota, { headers: { "cache-control": "no-store" } });

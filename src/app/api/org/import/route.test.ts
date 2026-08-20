@@ -30,6 +30,7 @@ vi.mock("@/lib/db", () => ({
   persistScanReport: vi.fn(async () => null),
   persistTeamStandings: vi.fn(async () => false),
   reconcileListedRepos: vi.fn(async () => ({ marked: 0, cleared: 0 })),
+  recordQuotaEvent: vi.fn(async () => {}),
   recordScanOutcome: vi.fn(async () => {}),
   setRepoSchedule: vi.fn(async () => {}),
   setRepoWatch: vi.fn(async () => {}),
@@ -62,12 +63,18 @@ vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: true, balance: 0 })),
   paymentRequired: vi.fn(),
 }));
-vi.mock("@/lib/rate-limit", () => ({
-  rateLimitRequest: () => ({ ok: true }),
-  rateLimitRequestShared: async () => ({ ok: true }),
-  tooManyRequests: vi.fn(),
-  ORG_IMPORT_RATE_LIMIT: {},
-}));
+// `rateLimitRequestShared` is a vi.fn so the refusal suite below can make it deny, and
+// `tooManyRequests` is the REAL helper (not a stub) so that suite asserts the response this route
+// actually emits — scope included — rather than a stand-in the test authored itself.
+vi.mock("@/lib/rate-limit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
+  return {
+    rateLimitRequest: () => ({ ok: true }),
+    rateLimitRequestShared: vi.fn(async () => ({ ok: true })),
+    tooManyRequests: actual.tooManyRequests,
+    ORG_IMPORT_RATE_LIMIT: {},
+  };
+});
 // G7-17: the token-less REAL public path is metered by the monthly free public-scan allowance rather
 // than by credits. Default here to the module's own fail-open shape (`enforced: false`) so the token
 // discipline / credit suites below are unaffected; the allowance behaviour has its own suite, which
@@ -96,6 +103,7 @@ import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActiv
 import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
 import { consumePublicScanQuota, peekPublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
+import { rateLimitRequestShared } from "@/lib/rate-limit";
 // Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
 // here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
 import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
@@ -661,5 +669,71 @@ describe("POST /api/org/import — public funnel (real scan, allowance-metered)"
       publicFunnel: true,
     });
     expect(vi.mocked(refundPublicScanQuota)).toHaveBeenCalled();
+  });
+});
+
+// The refusal has to be actionable on its own. A bulk import is driven by an operator or a CI job
+// that cannot read our logs: "you called too often" (fix: slow down), "the fleet budget is spent by
+// someone else" (slowing down may not clear it) and "the shared limiter never answered, nothing was
+// counted" are three different situations that used to render as one identical sentence.
+describe("POST /api/org/import — the 429 names the scope that refused", () => {
+  const post = () =>
+    POST(
+      new Request("http://localhost/api/org/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: "facebook", repos: ["facebook/react"] }),
+      }),
+    );
+
+  it("per-IP refusal states the scope, the limiter, and the budget the caller must fit", async () => {
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({
+      ok: false,
+      retryAfterSec: 30,
+      scope: "ip",
+      limiter: "org-import",
+      limit: 3,
+      windowSec: 60,
+      evaluated: true,
+    });
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    expect(res.headers.get("retry-after")).toBe("30");
+    expect(await res.json()).toMatchObject({ code: "rate_limited", scope: "ip", limiter: "org-import", limit: 3, windowSec: 60 });
+  });
+
+  it("global refusal names the scope but never echoes the fleet ceiling", async () => {
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({
+      ok: false,
+      retryAfterSec: 12,
+      scope: "global",
+      limiter: "org-import",
+      evaluated: true,
+    });
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("global");
+    const body = await res.json();
+    expect(body).toMatchObject({ code: "rate_limited", scope: "global" });
+    // The fleet ceiling and its headroom stay withheld: this endpoint must not double as a
+    // capacity probe for whoever is hammering it.
+    expect(body.limit).toBeUndefined();
+    expect(body.windowSec).toBeUndefined();
+    expect(res.headers.get("x-ascent-ratelimit-limit")).toBeNull();
+  });
+
+  it("an unevaluated refusal says so rather than claiming the caller overspent", async () => {
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({
+      ok: false,
+      retryAfterSec: 5,
+      scope: "unavailable",
+      limiter: "org-import",
+      evaluated: false,
+    });
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("unavailable");
+    expect(await res.json()).toMatchObject({ code: "rate_limit_unavailable", scope: "unavailable", evaluated: false });
   });
 });

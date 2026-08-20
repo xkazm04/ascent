@@ -74,7 +74,10 @@ export async function POST(request: Request) {
   const rl = await rateLimitRequestShared(request, ORG_IMPORT_RATE_LIMIT);
   if (!rl.ok) {
     void recordQuotaEvent("rate_limit", "org-import").catch(() => {}); // QUOTA #2: observability on the bulk-import path
-    return tooManyRequests(rl.retryAfterSec);
+    // Whole result, not just the delay: a bulk import refused by the FLEET ceiling is not the
+    // operator's own overuse, and one refused because the shared store was unreachable counted
+    // nothing at all. The body/headers name that scope so a CI import can tell the three apart.
+    return tooManyRequests(rl);
   }
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;

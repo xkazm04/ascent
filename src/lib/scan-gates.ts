@@ -36,7 +36,7 @@
 // traffic can never burn a monthly free-scan slot.
 
 import { recordQuotaEvent } from "@/lib/db";
-import { rateLimitRequestShared, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitRequestShared, SCAN_RATE_LIMIT, type RateLimitResult } from "@/lib/rate-limit";
 import { authGateEnabled, type Viewer } from "@/lib/access";
 import { publicScanSignInRequired } from "@/lib/env";
 
@@ -46,7 +46,11 @@ import { publicScanSignInRequired } from "@/lib/env";
  */
 export type ScanGatePass = { ok: true };
 /** Over the per-IP / fleet-wide burst budget. `retryAfterSec` feeds the caller's Retry-After. */
-export type ScanRateLimitRejection = { ok: false; reason: "rate_limited"; retryAfterSec: number };
+/** Carries the whole `RateLimitResult`, not just the delay. Flattening it here is what kept the two
+ *  highest-traffic scan endpoints from naming their refusal — and they are the only routes on the
+ *  shared scan budget, so they are the likeliest to hit the GLOBAL ceiling, which is precisely the
+ *  case a caller cannot diagnose from a bare retry-after. `retryAfterSec` stays for existing callers. */
+export type ScanRateLimitRejection = { ok: false; reason: "rate_limited"; retryAfterSec: number; rl: RateLimitResult };
 /** The sign-in wall is on and no viewer is signed in. */
 export type ScanAuthRejection = { ok: false; reason: "auth_required" };
 export type ScanGateDecision = ScanGatePass | ScanRateLimitRejection | ScanAuthRejection;
@@ -63,7 +67,7 @@ export async function scanRateLimitGate(req: Request): Promise<ScanGatePass | Sc
   const rl = await rateLimitRequestShared(req, SCAN_RATE_LIMIT);
   if (rl.ok) return PASS;
   void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // QUOTA #2: observability on the costly scan path
-  return { ok: false, reason: "rate_limited", retryAfterSec: rl.retryAfterSec };
+  return { ok: false, reason: "rate_limited", retryAfterSec: rl.retryAfterSec, rl };
 }
 
 /**

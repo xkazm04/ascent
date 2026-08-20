@@ -57,7 +57,13 @@ export async function GET(
   //    actually ingest from GitHub pay the limiter.
   if (!mock) {
     const rl = await rateLimitRequestShared(req, SCAN_RATE_LIMIT);
-    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+    // Whole result, not just the delay. This endpoint is called by CI, where an unactionable 429 is
+    // a red build nobody can triage: `scope: "ip"` says this pipeline is calling too often (and
+    // states the budget + window it must fit), `scope: "global"` says the fleet budget is spent by
+    // other traffic so a tighter retry loop only makes it worse, and `scope: "unavailable"` says the
+    // shared limiter never answered and nothing was counted. The global ceiling itself is withheld
+    // by the helper — a public CI endpoint must not double as a fleet-capacity probe.
+    if (!rl.ok) return tooManyRequests(rl);
   }
   // The degrade-to-mock predicate, hoisted so the CACHE-WRITE guard below and the honesty guard that
   // sets the 503 (further down) can never disagree about what "degraded" means. Same rule as
@@ -90,7 +96,10 @@ export async function GET(
         // Miss → a full ingest from GitHub; throttle the default path here too (unchanged).
         if (mock) {
           const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
-          if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+          // Whole result (see the ?mock=0 gate above): stating the budget and window is what lets a
+          // CI job correct itself, and naming the scope keeps a fleet-wide refusal from reading as
+          // "your pipeline is too chatty" when it isn't.
+          if (!rl.ok) return tooManyRequests(rl);
         }
         report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
       }
@@ -135,7 +144,8 @@ export async function GET(
         // before spending it.
         if (mock) {
           const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
-          if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+          // Whole result — same reasoning as the ref-scoped ingest gate above.
+          if (!rl.ok) return tooManyRequests(rl);
         }
         report = await scanRepository(`${ownerN}/${repoN}`, { mock, noAmbientToken: true });
         // CACHE-POISONING GUARD: every OTHER cache writer in the codebase (scan-finalize.ts's
