@@ -19,6 +19,13 @@ export const FIXTURE_REGISTRY_YAML = `# The registry's declaration of itself.
 registry: 1
 canonical: true
 mode: git-native
+
+lanes:
+  skills: reader
+  practices: reader
+  memory: reader
+  usage: reader
+
 telemetry: api
 
 policies:

@@ -100,6 +100,16 @@ export interface CatalogMemoryEntry {
 }
 
 export interface RegistryCatalog {
+  /**
+   * Keys this builder does not own, carried through verbatim.
+   *
+   * The registry repo has a SECOND producer: its own `scripts/build-catalog.mjs`
+   * writes a `bundles` array for the knowledge lane and derives each skill's
+   * `invokes30d` from the `usage/` lane. Rebuilding the envelope from scratch
+   * and committing it would erase both. Additive-within-major means a reader
+   * ignores what it does not recognize — it does not mean a WRITER may delete it.
+   */
+  [extra: string]: unknown;
   schema: string;
   schemaVersion: string;
   /** ISO timestamp, or null in the deterministic seed the scaffold commits. */
@@ -119,6 +129,11 @@ export interface RegistryCatalog {
 }
 
 export interface BuildCatalogInput {
+  /**
+   * The catalog currently committed, when one was read. Keys this builder does
+   * not own are copied from it; see `RegistryCatalog`'s index signature.
+   */
+  previous?: RegistryCatalog | null;
   fullName: string;
   defaultBranch: string;
   canonical: boolean;
@@ -142,7 +157,21 @@ export function buildCatalog(input: BuildCatalogInput): RegistryCatalog {
   const skills = input.skills ?? [];
   const practices = input.practices ?? [];
   const memory = input.memory ?? [];
+
+  // Everything the previous catalog carried that this builder has no opinion
+  // about. Spread FIRST so the owned keys below win; a foreign key can never
+  // shadow the schema id or the counts.
+  const OWNED = new Set([
+    "schema", "schemaVersion", "generatedAt", "generatedBy",
+    "registry", "skills", "practices", "memory", "counts",
+  ]);
+  const carried: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input.previous ?? {})) {
+    if (!OWNED.has(k)) carried[k] = v;
+  }
+
   return {
+    ...carried,
     schema: CATALOG_SCHEMA,
     schemaVersion: CATALOG_SCHEMA_VERSION,
     generatedAt: input.generatedAt === undefined ? null : input.generatedAt,

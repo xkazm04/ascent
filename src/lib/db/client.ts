@@ -138,6 +138,21 @@ export function buildDsqlUrl(cfg: DsqlConfig, token: string): string {
 
 // ── Error classification ─────────────────────────────────────────────────────────────────
 
+/**
+ * Socket-level errnos that mean the connection never reached a live database — DNS, TCP, or TLS
+ * failed. Deliberately excludes the timeout errnos (ETIMEDOUT, ECONNABORTED) for the same reason
+ * {@link isDbUnavailableError} excludes P1008/P1002: a slow-but-live database must surface its
+ * error, not degrade to a plausible-but-wrong empty result.
+ */
+const SOCKET_ERRNOS = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ECONNRESET",
+  "EPIPE",
+]);
+
 function errorInfo(err: unknown): { code?: string; message: string } {
   if (err && typeof err === "object") {
     const e = err as { code?: unknown; message?: unknown; meta?: { code?: unknown } };
@@ -211,7 +226,9 @@ export function isSerializationConflictError(err: unknown): boolean {
  * host/port is wrong, or the network is broken — as opposed to a query error against a live DB?
  * This is the gap isDbConfigured() can't see: DATABASE_URL is set (so the read functions never
  * short-circuit to their no-DB fallback), yet the first getPrisma().<model>.<op>() throws a
- * PrismaClientInitializationError at connect time ("Can't reach database server at localhost:5432").
+ * PrismaClientInitializationError at connect time ("Can't reach database server at localhost:5432")
+ * — or, on the driver-adapter path (@prisma/adapter-pg, PGlite), a PrismaClientKnownRequestError
+ * carrying the bare socket errno and an empty message.
  * Left unhandled that crashes every DB-reading page/route the moment the local Postgres (or a prod
  * DB during an outage) isn't up. Matches that error class by name, the Prisma connection SQLSTATEs
  * (P1001 can't-reach, P1011 TLS, P1017 server-closed), and the connection-refused messages. Pure +
@@ -250,6 +267,14 @@ export function isDbUnavailableError(err: unknown): boolean {
   if (code && (code === "P1001" || code === "P1011" || code === "P1017")) {
     return true;
   }
+  // Driver-adapter shape (@prisma/adapter-pg / PGlite). With a driver adapter installed there is no
+  // query engine to translate a failed connect into P1001 + a "Can't reach database server" message:
+  // the raw Node/libpq socket errno reaches us as `.code` on a PrismaClientKnownRequestError whose
+  // message body is EMPTY (just the "Invalid `prisma.user.findUnique()` invocation:" header). Neither the
+  // P1001 check above nor the message matching below can see that, so a local Postgres that is simply
+  // not running 500s every DB-reading page instead of degrading. Matched by errno, which only a
+  // transport failure carries — a live server's query error never does.
+  if (code && SOCKET_ERRNOS.has(code)) return true;
   const m = message.toLowerCase();
   return (
     m.includes("can't reach database server") ||

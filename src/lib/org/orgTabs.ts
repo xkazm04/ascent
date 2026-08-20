@@ -41,6 +41,12 @@ export const ORG_TAB_IDS = [
   "registry",
   "skills",
   "memory",
+  // The registry's fourth lane: Reference Knowledge Bundles under `knowledge/<domain>/`. Overview
+  // only — no drill-down route. Having no pre-refactor page is exactly why it MUST be in
+  // MIGRATED_ORG_TAB_IDS: that set means "renders as a panel in the shell", and a tab outside it
+  // is redirected by /org/[slug]/page.tsx to `/org/<slug>/<id>` — a route this tab never had, so
+  // leaving it out 404s the rail link and blanks `?tab=knowledge`.
+  "knowledge",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
   // developer sees their OWN slice of, so it can't be an org-scoped panel — and its one entry point is
@@ -161,6 +167,10 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
       { id: "memory", label: "Memory" },
+      // Fourth artifact the registry distributes: the Reference Knowledge Bundles under
+      // `knowledge/<domain>/`. LAST in the group because it is the only one with no per-repo
+      // adoption state — reference, not fleet posture.
+      { id: "knowledge", label: "Knowledge base" },
     ],
   },
   {
@@ -222,6 +232,9 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "registry",
   "skills",
   "memory",
+  // Reference published by the registry is the same for a personal workspace as for an org — it
+  // carries no per-repo adoption state, which is what keeps the fleet surfaces org-only.
+  "knowledge",
   // The developer's own home — in a personal workspace this surface is the point of the product. It
   // is in the personal SET (so `PERSONAL_TAB_IDS.has("developer")` stays true for any gate that asks)
   // but no longer renders as a rail item: it is not in ORG_NAV_GROUPS, and the header identity menu
@@ -416,6 +429,7 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   // Born migrated (2026-08-19): pairing never had a legacy route — it exists ONLY as a `?tab=` panel.
   // Omitting it here sent the rail to /org/<slug>/pairing, a page that has never existed.
   "pairing",
+  "knowledge",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

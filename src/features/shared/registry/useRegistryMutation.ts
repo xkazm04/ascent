@@ -59,8 +59,11 @@ export function useRegistryMutation(): RegistryMutation {
     async (action, url, init) => {
       if (pending) return false;
       if (preview) {
+        // Swallowed, not echoed. The preview shell already stamps the whole panel `preview · <state>`
+        // and says the actions are inert there, so a per-button sentence repeated the same fact next
+        // to every control — and, being an OUTCOME line, it read like a result the click produced.
+        setOutcome(null);
         setError(null);
-        setOutcome({ action, message: "Preview — nothing was sent. This action runs for real once a registry is mapped." });
         return false;
       }
       setPending(action);

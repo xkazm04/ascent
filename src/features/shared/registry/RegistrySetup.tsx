@@ -3,16 +3,17 @@
 // Step 1's real answers — CREATE a registry repo, or MAP one that already exists. Both POST to
 // `/api/org/:slug/registry`; which of them renders is `visibleActions`' decision, never this file's.
 //
-// "Stay hosted" is still a first-class answer and is still stated — but as PROSE, because it has no
-// endpoint: staying hosted is precisely what is already happening, so a button would be a no-op
-// dressed as a decision.
+// The map path opens `RegistryMapPanel`, which offers the repos ascent can already see as a picker
+// before it offers a text field — the field is the fallback for a repo outside the installation, not
+// the primary way in.
 
 import { useState } from "react";
 import { TextInput } from "@/components/ui";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
 import type { RegistryView } from "@/lib/org/registry-view";
-import { EXAMPLE_REGISTRY, isFullName, visibleActions } from "./registryActionRules";
+import { visibleActions } from "./registryActionRules";
 import { RegistryButton, RegistryCapabilityNote, RegistryOutcomeLine } from "./RegistryActions";
+import { RegistryMapPanel } from "./RegistryMapPanel";
 import { num, str, useRegistryMutation } from "./useRegistryMutation";
 
 /** Both POSTs return the same body; one reader so create and map can never describe it differently. */
@@ -32,9 +33,7 @@ export function RegistrySetupActions({ view, slug }: { view: RegistryView; slug:
   const m = useRegistryMutation();
   const actions = visibleActions(view.capabilities, { mapped: view.status !== "unmapped" });
   const [name, setName] = useState(DEFAULT_REGISTRY_NAME);
-  const [fullName, setFullName] = useState(`${slug}/${DEFAULT_REGISTRY_NAME}`);
   const [mapping, setMapping] = useState(false);
-  const valid = isFullName(fullName);
 
   if (actions.length === 0 || actions.includes("install-app")) {
     return <RegistryCapabilityNote view={view} slug={slug} />;
@@ -69,35 +68,12 @@ export function RegistrySetupActions({ view, slug }: { view: RegistryView; slug:
       </div>
 
       {mapping && actions.includes("map-existing") ? (
-        <div className="space-y-2 rounded-xl border border-divider bg-surface/40 px-4 py-3">
-          <label className="block font-mono text-xs uppercase tracking-[0.16em] text-slate-500" htmlFor="registry-full-name">
-            owner / repo
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="w-72">
-              <TextInput
-                id="registry-full-name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder={EXAMPLE_REGISTRY}
-                aria-invalid={!valid}
-              />
-            </div>
-            <RegistryButton
-              tone="primary"
-              disabled={!valid || m.pending !== null}
-              onClick={() => post("map", { fullName: fullName.trim() })}
-              title="Maps this repository and opens the scaffold PR if it is not a registry yet"
-            >
-              {m.pending === "map" ? "Mapping…" : "Map repository"}
-            </RegistryButton>
-          </div>
-          <p className="text-xs text-slate-500">
-            {valid
-              ? "Ascent maps it, then opens one PR adding the v1 layout — unless the repo is already a registry, in which case it is mapped as-is."
-              : `Enter it as owner/repo — for example ${EXAMPLE_REGISTRY}.`}
-          </p>
-        </div>
+        <RegistryMapPanel
+          view={view}
+          slug={slug}
+          pending={m.pending}
+          onMap={(fullName) => post("map", { fullName })}
+        />
       ) : null}
 
       {!actions.includes("create-registry") && actions.includes("map-existing") ? (
@@ -106,11 +82,6 @@ export function RegistrySetupActions({ view, slug }: { view: RegistryView; slug:
           <span className="font-mono">administration: write</span> permission. Create it yourself on GitHub and map it above.
         </p>
       ) : null}
-
-      <p className="max-w-2xl text-sm text-slate-400">
-        Staying hosted is a real third answer — and it needs no button, because it is what is happening now: ascent keeps
-        Skills, Practices and Memory in its own tables and stays the writer.
-      </p>
 
       <RegistryOutcomeLine m={m} />
     </div>

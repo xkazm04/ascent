@@ -138,3 +138,18 @@ export function publicScanSignInRequired(): boolean {
 export function authGateEnabled(): boolean {
   return supabaseAuthConfigured() && !authBypassEnabled();
 }
+
+/**
+ * Whether the Registry tab's fixture-state PREVIEW switcher is offered.
+ *
+ * The switcher paints shaped example registries (`indexed`, `migrating`, `error`, …) over the tab so
+ * the states a young org cannot yet produce can be seen. That is a development affordance: on a real
+ * deployment an operator who lands on it sees a registry that is not theirs, stamped `preview` but
+ * still occupying the tab — so it is opt-in via `ASCENT_REGISTRY_PREVIEW` and, like
+ * `authBypassEnabled` / `creditGrantsEnabled`, HARD-DISABLED in production so a stray env var cannot
+ * turn it on for customers.
+ */
+export function registryPreviewEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return envBool("ASCENT_REGISTRY_PREVIEW");
+}

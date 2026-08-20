@@ -11,6 +11,10 @@ export interface IndexResultInput {
   counts: { skills: number; practices: number; memory: number; lessons: number };
   warnings: string[];
   catalogSha?: string | null;
+  /** Aggregate of the registry's `usage/` lane, when the pass read it. */
+  usage?: { invokes30d: number; contributors: number };
+  /** The knowledge/ lane's bundles, when the pass read them. */
+  bundles?: unknown[];
 }
 
 /**
@@ -51,6 +55,14 @@ export async function recordIndexResult(id: string, result: IndexResultInput): P
       warningsJson: JSON.stringify(result.warnings.slice(0, 50)),
       lastError: null,
       ...(result.catalogSha !== undefined ? { catalogSha: result.catalogSha } : {}),
+      // Omitted rather than zeroed when the pass did not read the lane: writing 0
+      // would turn "not measured this pass" into "nobody uses anything".
+      ...(result.usage
+        ? { usageInvokes30d: result.usage.invokes30d, usageContributors: result.usage.contributors }
+        : {}),
+      // Same rule as usage: omitted when the pass did not read the lane, so
+      // "not measured" never overwrites a good reading with an empty one.
+      ...(result.bundles ? { bundlesJson: JSON.stringify(result.bundles) } : {}),
     },
   });
 }
