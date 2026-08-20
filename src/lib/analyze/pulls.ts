@@ -3,10 +3,16 @@
 // (review coverage, PR size, velocity, agent authorship). Feeds the report + org dashboard
 // now, and the maturity score in F4.
 
-import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
+import { fetchPullRequests, type PrNode, type PrReview } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
 import { AI_REVIEW_BOT_ALT, AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT, AI_TRAILER_SOURCE } from "./ai-tools";
-import { SMALL_PR_MAX_LINES } from "./pr-thresholds";
+import {
+  FAST_APPROVAL_MAX_MINUTES,
+  qualifiedRate,
+  SMALL_PR_MAX_LINES,
+  type PrRateBook,
+  type RateChannel,
+} from "./pr-thresholds";
 import type { AiChangeRecord, DimensionSignals, Governance, PrStats } from "@/lib/types";
 
 // AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot"). Derived from the
@@ -82,6 +88,38 @@ function aiPreReviewed(pr: PrNode): boolean {
     }
   }
   return firstAi !== null && (firstHuman === null || firstAi <= firstHuman);
+}
+
+// ── Review integrity (deterministic, zero extra API calls) ───────────────────
+//
+// A review-coverage rate that cannot tell a genuine review from a self-approval is not actionable:
+// an org whose coverage reads 95% because authors approve their own pull requests gets a green
+// number and no signal, and an org that automated its way to 100% coverage with approvals landing
+// seconds after opening is indistinguishable from one doing real review. Both reads come out of the
+// review nodes already fetched (`author.login`, `author.__typename`, `submittedAt`) — no new query,
+// no new ingestion field, no extra page.
+//
+// NEITHER IS A VERDICT. A self-approval is legitimate in a single-maintainer repository and a fast
+// approval can be a correct review of a one-line fix. That is why both ship as `QualifiedRate`s
+// whose basis text says so (RATE_BASIS in pr-thresholds.ts) and behind the same >= 5 sample floor
+// the coverage rates already enforce, rather than as bare percentages a reader can quote at people.
+
+/** A review submitted by a bot / AI review app rather than a person. Same predicate `aiPreReviewed`
+ *  uses, plus any Bot-typed reviewer: an automerge app's approval is not a human review, and — the
+ *  reason this matters for `selfApproved` — a bot approving the bot's own pull request must not be
+ *  counted as a person waving their own work through. A deleted account (null author) counts as
+ *  human, the same conservative read as elsewhere in this file. */
+function isBotReview(r: PrReview): boolean {
+  const login = r.author?.login ?? "";
+  return r.author?.__typename === "Bot" || AI_REVIEWER.test(login);
+}
+
+/** The human approvals on a PR, earliest first. Pending reviews (null `submittedAt`) approved
+ *  nothing and are dropped, exactly as `aiPreReviewed` drops them. */
+function humanApprovals(pr: PrNode): PrReview[] {
+  return pr.reviews.nodes
+    .filter((r) => r.state === "APPROVED" && !!r.submittedAt && !isBotReview(r))
+    .sort((a, b) => (a.submittedAt! < b.submittedAt! ? -1 : a.submittedAt! > b.submittedAt! ? 1 : 0));
 }
 
 // ── Revert linkage (W5, tier A — deterministic, zero extra API calls) ─────────
@@ -188,7 +226,17 @@ const hoursBetween = (later: string, earlier: string): number | null => {
 };
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
-export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: number): PrStats {
+/**
+ * What the analyzer publishes: the historical `PrStats` scalars, PLUS `rates` — the same figures in
+ * the qualified form that cannot be rendered without their predicate (see pr-thresholds.ts). The
+ * scalars stay for the scoring path and for every consumer written before the contract existed; new
+ * READER-FACING surfaces must take the number from `rates` through `rateReading`, never from the
+ * bare scalar, because only the qualified form carries the denominator, exclusions, sample floor and
+ * channel precision along with it.
+ */
+export type QualifiedPrStats = PrStats & { rates: PrRateBook };
+
+export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: number): QualifiedPrStats {
   // A partial GraphQL page (node-level errors) can hand us null array slots for the PRs that failed
   // to resolve; the loop below dereferences every node (`pr.state`, `pr.reviews…`), so drop the
   // nulls up front rather than NPE on one. `analyzed` then reflects the PRs we could summarize.
@@ -217,6 +265,9 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     aiTrailerPrs = 0,
     trailerMerged = 0, // merged PRs carrying an AI trailer, regardless of channel precedence
     preReviewedMerged = 0; // merged PRs with an AI/bot review before the first human review
+  let selfApprovedMerged = 0, // human-authored merged PRs approved by their own author
+    humanApprovedMerged = 0, // …that got a HUMAN approval at all (the fast-approval denominator)
+    fastApprovedMerged = 0; // …whose first human approval landed within FAST_APPROVAL_MAX_MINUTES
   let revertedMerged = 0, // merged PRs later reverted by another merged PR in the window (W5)
     aiInvolvedMerged = 0, // merged PRs that are AI-involved (the aiReworkRate denominator)
     aiRevertedMerged = 0; // …of those, the ones later reverted (its numerator)
@@ -248,6 +299,20 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
       if (!isBotAuthor) {
         mergedHuman++;
         if (approved) reviewedHumanMerged++;
+        // Review integrity, over the SAME population as reviewedRate so the two read side by side.
+        const approvals = humanApprovals(pr);
+        const authorLogin = (pr.author?.login ?? "").toLowerCase();
+        const selfApproved =
+          !!authorLogin && approvals.some((r) => (r.author?.login ?? "").toLowerCase() === authorLogin);
+        if (selfApproved) selfApprovedMerged++;
+        const first = approvals[0]?.submittedAt;
+        if (first) {
+          humanApprovedMerged++;
+          const h = hoursBetween(first, pr.createdAt);
+          // A self-approval is already reported by selfApproved; counting it here too would present
+          // one pull request as two independent pieces of evidence.
+          if (!selfApproved && h != null && h * 60 <= FAST_APPROVAL_MAX_MINUTES) fastApprovedMerged++;
+        }
       }
     }
     const firstReview = pr.reviews.nodes
@@ -338,7 +403,55 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     reworkRate: merged >= 5 ? pct(revertedMerged, merged) : null,
     aiReworkRate: merged >= 5 && aiInvolvedMerged >= 5 ? pct(aiRevertedMerged, aiInvolvedMerged) : null,
     mergedShas: mergeShaIndex(nodes),
+    // The SAME figures, qualified. Every scalar rate above is a bare percentage: it travels out of
+    // this module — into a persisted blob, an org rollup, an executive briefing, a shared link —
+    // with its denominator, its exclusions, its sample size and (for aiInvolved) the precision of
+    // the channel that matched left behind here. A count travels with its predicate or it will be
+    // reused for a claim it does not support, so the qualified form carries all of that and has no
+    // percent field for a consumer to lift out on its own. Nothing is recomputed here: these are the
+    // same numerators and denominators the scalars above divide.
+    rates: {
+      smallPr: qualifiedRate("smallPr", small, analyzed),
+      botAuthored: qualifiedRate("botAuthored", bot, analyzed),
+      aiInvolved: qualifiedRate("aiInvolved", aiInvolved, analyzed, aiChannels(aiAuthoredPrs, aiMarkedPrs, aiTrailerPrs)),
+      revert: qualifiedRate("revert", revert, analyzed),
+      reviewed: qualifiedRate("reviewed", reviewedHumanMerged, mergedHuman),
+      aiGoverned: qualifiedRate("aiGoverned", aiApprovedCount, aiInvolved),
+      selfApproved: qualifiedRate("selfApproved", selfApprovedMerged, mergedHuman),
+      fastApproval: qualifiedRate("fastApproval", fastApprovedMerged, humanApprovedMerged),
+    },
   };
+}
+
+/**
+ * The three AI-involvement channels, with the precision of each — the qualifier that has to travel
+ * with `aiInvolvedRate`. The counts are already computed (they sum to `aiInvolved` exactly, by the
+ * authored > marked > trailer precedence in `readAiInvolvement`); what was missing is that a reader
+ * seeing "31% AI-involved" could not tell how much of it rests on a bare 🤖 in a PR body — which is
+ * the difference between a measurement and an impression.
+ */
+function aiChannels(authored: number, marked: number, trailer: number): RateChannel[] {
+  return [
+    {
+      name: "bot author",
+      count: authored,
+      precision: "exact",
+      matches: "the pull request was opened by a GitHub App whose login is in the AI-tool vocabulary",
+    },
+    {
+      name: "title/body/label marker",
+      count: marked,
+      precision: "heuristic",
+      matches:
+        "a fixed product phrase or a bare 🤖 in the title, the first 1500 characters of the body, or a label — anyone can type these, and plenty of AI-assisted work carries none",
+    },
+    {
+      name: "commit trailer",
+      count: trailer,
+      precision: "exact",
+      matches: "an AI attribution trailer in the merge commit or the pull request's last 15 commits",
+    },
+  ];
 }
 
 /**
