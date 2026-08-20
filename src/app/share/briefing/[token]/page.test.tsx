@@ -15,7 +15,15 @@ const { mockVerify, mockBuildExecBriefing } = vi.hoisted(() => ({
   mockBuildExecBriefing: vi.fn(),
 }));
 
-vi.mock("@/lib/briefing-share", () => ({ verifyBriefingShareToken: mockVerify }));
+vi.mock("@/lib/briefing-share", () => ({
+  verifyBriefingShareToken: mockVerify,
+  // The page asks whether the sender's figures still hold. These cases predate the fingerprint and
+  // exercise unrelated rendering, so they stand in the "nothing to compare" state — which the page
+  // must render as NO integrity claim at all, never as a reassurance it did not earn.
+  briefingFigureDigest: () => "stub-digest",
+  shareIntegrity: () => "unverifiable" as const,
+  briefingShareRevocationKey: (jti: string) => `briefing-share:${jti}`,
+}));
 vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   engineMixLabel: () => "1 model",

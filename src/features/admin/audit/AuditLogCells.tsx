@@ -36,6 +36,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.member.invite_accepted", label: "Invite accepted", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  // A briefing share link is a per-grant capability: minting one is the act that lets a document
+  // leave the org, and opening one is the only record a stateless token could never give. Both are
+  // read affordances rather than mutations, hence the neutral sky/slate treatment rather than red.
+  { value: "briefing.share.minted", label: "Briefing shared", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "briefing.share.opened", label: "Briefing opened", cls: "border-slate-500/40 bg-slate-500/10 text-slate-300" },
   { value: "org.llm_provider.updated", label: "LLM provider updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org.llm_provider.disabled", label: "LLM provider disabled", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "integrations.token.rotate", label: "Ingest token rotated", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
