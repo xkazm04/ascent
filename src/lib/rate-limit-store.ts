@@ -45,8 +45,14 @@ const STORE_TIMEOUT_MS = 1_500;
  * STORE_TIMEOUT_MS wait and the pile-up of in-flight checks becomes its own outage. Kept SHORT
  * because under the default (fail-closed) policy an open breaker rejects traffic — a few seconds of
  * over-rejection is the price of not stalling, and recovery is automatic.
+ *
+ * EXPORTED because it is the only honest Retry-After the fail-closed path has: when the store is
+ * unreachable no limit was evaluated, so there is no draining window to estimate from — the one
+ * thing that IS known is when the limiter can next get a real answer, which is when this breaker
+ * closes. See the fail-closed branch of `rateLimitRequestShared` in rate-limit.ts.
  */
-const BREAKER_MS = 3_000;
+export const SHARED_STORE_BREAKER_MS = 3_000;
+const BREAKER_MS = SHARED_STORE_BREAKER_MS;
 
 function upstashConfig(): { url: string; token: string } | null {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim();

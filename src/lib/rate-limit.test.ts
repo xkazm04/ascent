@@ -4,12 +4,22 @@ import {
   rateLimitRequest,
   rateLimitRequestShared,
   tooManyRequests,
+  rateLimiterStats,
+  __resetRateLimiterState,
+  SCAN_RATE_LIMIT,
+  PEEK_RATE_LIMIT,
+  QUOTA_PEEK_RATE_LIMIT,
+  ORG_IMPORT_RATE_LIMIT,
+  GATE_RATE_LIMIT,
+  CONTACT_RATE_LIMIT,
+  BADGE_RATE_LIMIT,
   type RateLimitConfig,
 } from "./rate-limit";
 import {
   createUpstashStore,
   sharedWindowStore,
   __setSharedWindowStore,
+  SHARED_STORE_BREAKER_MS,
   type SharedWindowStore,
 } from "./rate-limit-store";
 
@@ -31,6 +41,7 @@ function makeConfig(over: Partial<RateLimitConfig> = {}): RateLimitConfig {
     perIp: 3,
     global: 100, // high so per-IP trips first unless a test overrides it
     windowMs: WINDOW_MS,
+    basis: "inherited", // test fixtures are not derived from any client cadence; say so
     ...over,
   };
 }
@@ -608,7 +619,13 @@ describe("shared store unreachable — the deliberate FAIL-CLOSED choice", () =>
     const cfg = makeConfig({ perIp: 50, global: 100 });
     const r = await rateLimitRequestShared(reqFromIp("198.51.101.1"), cfg);
     expect(r.ok).toBe(false);
-    expect(r.retryAfterSec).toBe(60); // one window
+    // A refusal that never EVALUATED a limit says so, and its Retry-After is the breaker's re-probe
+    // delay (when a real answer becomes possible) — not the one-full-window figure it used to give,
+    // which is the shape of a drain estimate for a window that was never counted.
+    expect(r.scope).toBe("unavailable");
+    expect(r.evaluated).toBe(false);
+    expect(r.retryAfterSec).toBe(Math.ceil(SHARED_STORE_BREAKER_MS / 1000));
+    expect(r.limit).toBeUndefined(); // nothing was measured, so no ceiling may be quoted
   });
 
   it("ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN=1 degrades to the in-memory ceiling instead", async () => {
@@ -649,3 +666,186 @@ describe("tooManyRequests response helper", () => {
     expect(body.error.length).toBeGreaterThan(0);
   });
 });
+
+describe("a refusal names the limit, the window and the layer that refused (naked-429)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-01T00:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    __setSharedWindowStore(undefined);
+  });
+
+  it("a PER-IP refusal carries scope, limiter, limit and window â€” the caller can act on it", async () => {
+    const cfg = makeConfig({ name: freshName("mine"), perIp: 1, global: 100 });
+    const req = reqFromIp("192.0.2.77");
+    expect(rateLimitRequest(req, cfg).ok).toBe(true);
+    const r = rateLimitRequest(req, cfg);
+
+    expect(r.ok).toBe(false);
+    expect(r.scope).toBe("ip");
+    expect(r.limiter).toBe(cfg.name);
+    expect(r.limit).toBe(1);
+    expect(r.windowSec).toBe(60);
+    expect(r.evaluated).toBe(true);
+
+    const res = tooManyRequests(r);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    expect(res.headers.get("x-ascent-ratelimit-limit")).toBe("1");
+    expect(res.headers.get("x-ascent-ratelimit-window")).toBe("60");
+    const body = (await res.json()) as { error: string; scope: string; limit: number; code: string };
+    expect(body.scope).toBe("ip");
+    expect(body.code).toBe("rate_limited");
+    expect(body.limit).toBe(1);
+    expect(body.error).toContain("1 request per 60s"); // the limit and window are IN the prose too
+  });
+
+  it("a GLOBAL refusal is distinguishable from a per-IP one but does NOT publish the ceiling", async () => {
+    const cfg = makeConfig({ name: freshName("theirs"), perIp: 50, global: 1 });
+    expect(rateLimitRequest(reqFromIp("192.0.2.80"), cfg).ok).toBe(true); // fills the global
+    const r = rateLimitRequest(reqFromIp("192.0.2.81"), cfg); // a DIFFERENT, innocent caller
+
+    expect(r.ok).toBe(false);
+    expect(r.scope).toBe("global");
+    // The risk this guards: echoing the global ceiling (or the headroom left) tells an attacker
+    // exactly how much traffic exhausts the instance budget and how close they are to it.
+    expect(r.limit).toBeUndefined();
+    expect(r.windowSec).toBeUndefined();
+
+    const res = tooManyRequests(r);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("global");
+    expect(res.headers.get("x-ascent-ratelimit-limit")).toBeNull();
+    const text = await res.text();
+    expect(text).toContain("service-wide");
+    expect(text).toContain("not caused by your traffic alone");
+    expect(text).not.toContain('"limit"');
+  });
+
+  it("an UNEVALUATED refusal (store unreachable) says no limit was evaluated", async () => {
+    __setSharedWindowStore({ kind: "dead", hit: async () => null });
+    const cfg = makeConfig({ name: freshName("dead"), perIp: 50, global: 100 });
+    const r = await rateLimitRequestShared(reqFromIp("192.0.2.90"), cfg);
+
+    const res = tooManyRequests(r);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("unavailable");
+    expect(res.headers.get("retry-after")).toBe(String(Math.ceil(SHARED_STORE_BREAKER_MS / 1000)));
+    const body = (await res.json()) as { code: string; evaluated: boolean };
+    expect(body.code).toBe("rate_limit_unavailable");
+    expect(body.evaluated).toBe(false);
+  });
+
+  it("the legacy numeric call shape still returns the old prose (routes not yet switched)", async () => {
+    const res = tooManyRequests(42);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBeNull();
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Please slow down");
+  });
+});
+
+describe("every limit declares how its number was arrived at (limit-derivation)", () => {
+  // The point of the field: an operator tuning under load must be able to tell a load-bearing,
+  // recomputable ceiling from one that was merely carried forward. If a future entry is genuinely
+  // derived, this list changes AND the comment above it must show the arithmetic.
+  const inThisModule = [
+    SCAN_RATE_LIMIT,
+    PEEK_RATE_LIMIT,
+    QUOTA_PEEK_RATE_LIMIT,
+    ORG_IMPORT_RATE_LIMIT,
+    GATE_RATE_LIMIT,
+    CONTACT_RATE_LIMIT,
+    BADGE_RATE_LIMIT,
+  ];
+
+  it("declares a basis on every exported budget", () => {
+    for (const cfg of inThisModule) {
+      expect(["derived", "inherited"], `${cfg.name} must declare a basis`).toContain(cfg.basis);
+    }
+  });
+
+  it("labels the budgets in this module INHERITED â€” none was computed from a measured cadence", () => {
+    for (const cfg of inThisModule) {
+      expect(cfg.basis, `${cfg.name} claims to be derived; show the arithmetic above it`).toBe("inherited");
+    }
+  });
+
+  it("BADGE is inherited by record, not by omission (it was matched to a previous bespoke limit)", () => {
+    expect(BADGE_RATE_LIMIT.basis).toBe("inherited");
+    expect(BADGE_RATE_LIMIT.perIp).toBe(60); // the value it inherited from the badge route
+  });
+});
+
+describe("the reaper: a declared cadence, a bounded sweep and a metric (reaper-opportunistic)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
+    __resetRateLimiterState();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    __resetRateLimiterState();
+  });
+
+  const cfg = () => makeConfig({ perIp: 5, global: 1_000_000, windowMs: WINDOW_MS });
+
+  it("sweeps on a cadence, not on every request", () => {
+    const c = cfg();
+    for (let i = 0; i < 50; i += 1) rateLimitRequest(reqFromIp(`10.1.0.${i}`), c);
+    // 50 requests inside the same instant â†’ the cadence gate allows at most the first sweep.
+    expect(rateLimiterStats().sweeps).toBe(1);
+
+    vi.advanceTimersByTime(10_000); // one SWEEP_INTERVAL_MS
+    rateLimitRequest(reqFromIp("10.1.1.1"), c);
+    expect(rateLimiterStats().sweeps).toBe(2);
+  });
+
+  it("reclaims fully-aged keys, and reports what it reclaimed", () => {
+    const c = cfg();
+    for (let i = 1; i <= 20; i += 1) rateLimitRequest(reqFromIp(`10.2.0.${i}`), c);
+    expect(rateLimiterStats().keys).toBeGreaterThanOrEqual(20);
+
+    // Past the window, every one of those keys is fully aged. Drive enough ticks to complete a pass.
+    for (let t = 0; t < 12; t += 1) {
+      vi.advanceTimersByTime(10_000);
+      rateLimitRequest(reqFromIp("10.2.9.9"), c);
+    }
+    const s = rateLimiterStats();
+    expect(s.evicted).toBeGreaterThanOrEqual(20);
+    expect(s.passes).toBeGreaterThanOrEqual(1);
+    expect(s.scanned).toBeGreaterThan(0);
+    expect(s.peakKeys).toBeGreaterThanOrEqual(20);
+  });
+
+  it("NEVER evicts a key whose window still holds hits â€” an eviction would reset the limit", () => {
+    // The trap: a bounded reaper that drops not-fully-aged keys hands an attacker a way to exceed
+    // the limit by forcing evictions. A live key must survive any number of sweeps.
+    const c = makeConfig({ perIp: 2, global: 1_000_000 });
+    const victim = reqFromIp("10.3.0.1");
+    expect(rateLimitRequest(victim, c).ok).toBe(true);
+    expect(rateLimitRequest(victim, c).ok).toBe(true); // per-IP window now full
+
+    // Half a window of sweeps, with plenty of unrelated churn to keep the reaper busy.
+    for (let t = 0; t < 3; t += 1) {
+      vi.advanceTimersByTime(10_000);
+      for (let i = 0; i < 20; i += 1) rateLimitRequest(reqFromIp(`10.3.${t + 1}.${i}`), c);
+    }
+    expect(rateLimiterStats().sweeps).toBeGreaterThan(1);
+    // Still refused: the window survived the sweeps rather than being reset by them.
+    expect(rateLimitRequest(victim, c).ok).toBe(false);
+  });
+
+  it("a sweep is bounded â€” a huge map costs a bounded number of inspections per tick", () => {
+    const c = cfg();
+    for (let i = 0; i < 600; i += 1) rateLimitRequest(reqFromIp(`10.4.${Math.floor(i / 250)}.${i % 250}`), c);
+    const before = rateLimiterStats().scanned;
+    vi.advanceTimersByTime(10_000);
+    rateLimitRequest(reqFromIp("10.4.9.9"), c);
+    const inspected = rateLimiterStats().scanned - before;
+    expect(inspected).toBeLessThanOrEqual(256); // SWEEP_BUDGET, not windows.size
+    expect(inspected).toBeGreaterThan(0);
+  });
+});
+

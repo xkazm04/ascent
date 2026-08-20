@@ -47,12 +47,21 @@ function envInt(name: string, fallback: number): number {
  * which still bounds a flood (each request costs a JSON parse plus a small upsert batch) without
  * capping a plausible multi-tenant instance. Both env-overridable so an operator with an unusual
  * fan-in shape can raise them without a deploy.
+ *
+ * The arithmetic, written out so it can be RE-RUN rather than re-argued:
+ *   per machine  = 60s/60s metrics + 60s/5s logs  = 1 + 12 = 13 pushes/min
+ *   per egress IP = 13 x 200 seats                 = 2,600 requests/min  -> perIp 3,000 (~15% headroom)
+ *   per instance  = 3,000 x ~6-7 such orgs         ~ 20,000 requests/min -> global 20,000
+ * Change any input (a shorter OTEL_METRIC_EXPORT_INTERVAL, a larger office, a collector fanning in
+ * more machines) and the floor is recomputable in one line. This is what `basis: "derived"` asserts,
+ * and it is the only limit in the codebase entitled to it; see LimitBasis in src/lib/rate-limit.ts.
  */
 export const INGEST_RATE_LIMIT: RateLimitConfig = {
   name: "integrations-ingest",
   perIp: envInt("RATE_LIMIT_INGEST_PER_IP", 3_000),
   global: envInt("RATE_LIMIT_INGEST_GLOBAL", 20_000),
   windowMs: 60_000,
+  basis: "derived",
 };
 
 /**
@@ -134,8 +143,13 @@ export function revokedIngest(): Response {
  * Returns a `Response` to send back, or the authorized org slug to proceed with.
  */
 export async function guardIngest(req: Request): Promise<{ deny: Response } | { deny?: undefined; slug: string }> {
+  // Pass the whole result, not just the seconds: an exporter refused here needs to know WHICH limit
+  // refused. "You exceeded your own 3,000/min" tells a collector operator to raise the export
+  // interval or split the egress; "the instance-wide budget is exhausted" is not fixable by them at
+  // all, and "the limiter could not be evaluated" is somebody else's outage. Same 429, three
+  // different actions. (See tooManyRequests for what is deliberately withheld about the global.)
   const rl = await rateLimitRequestShared(req, INGEST_RATE_LIMIT);
-  if (!rl.ok) return { deny: tooManyRequests(rl.retryAfterSec) };
+  if (!rl.ok) return { deny: tooManyRequests(rl) };
 
   const token = bearerToken(req.headers.get("authorization"), req.headers.get("x-ascent-ingest-token"));
   const parsed = token ? parseIngestToken(token) : null;

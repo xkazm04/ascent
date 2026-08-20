@@ -39,6 +39,15 @@ function mkReq(opts: { body?: string; auth?: string | null; contentLength?: stri
   return new Request("http://localhost/api/integrations/ingest/v1/metrics", { method: "POST", headers, body: opts.body });
 }
 
+describe("INGEST_RATE_LIMIT — the one DERIVED limit in the codebase", () => {
+  it("declares basis 'derived', which asserts the comment above it shows the arithmetic", () => {
+    // Every budget in src/lib/rate-limit.ts is 'inherited'; this one is computed from Claude Code's
+    // real push cadence (13 pushes/min/machine x 200 seats = 2,600/min -> perIp 3,000). Flipping
+    // this to a plain number without redoing that multiplication is the regression this guards.
+    expect(guard.INGEST_RATE_LIMIT.basis).toBe("derived");
+  });
+});
+
 describe("readCappedBody", () => {
   it("returns the whole body when it is under the cap", async () => {
     const res = await guard.readCappedBody(mkReq({ body: '{"resourceMetrics":[]}' }));
@@ -103,6 +112,25 @@ describe("guardIngest — rate limit runs before token verification", () => {
     expect(statuses).toEqual(["ok", "ok", "ok", 429, 429]);
     const last = await guard.guardIngest(mkReq({ auth, ip }));
     expect(last.deny?.headers.get("retry-after")).toBeTruthy();
+  });
+
+  it("the 429 NAMES the limit, the window and the layer that refused", async () => {
+    // A naked 429 leaves an exporter unable to tell "you exceeded YOUR budget" (raise the export
+    // interval / split the egress) from "the instance-wide budget is exhausted" (not fixable here).
+    const ip = "10.0.0.97";
+    const auth = `Bearer ${tokens.ingestToken("acme")}`;
+    for (let i = 0; i < 3; i++) await guard.guardIngest(mkReq({ auth, ip }));
+    const res = (await guard.guardIngest(mkReq({ auth, ip }))).deny!;
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
+    expect(res.headers.get("x-ascent-ratelimit-limit")).toBe("3"); // the per-IP cap for this run
+    expect(res.headers.get("x-ascent-ratelimit-window")).toBe("60");
+    const body = (await res.json()) as { code: string; scope: string; limiter: string; limit: number };
+    expect(body.code).toBe("rate_limited");
+    expect(body.scope).toBe("ip");
+    expect(body.limiter).toBe("integrations-ingest");
+    expect(body.limit).toBe(3);
   });
 
   it("refuses an over-limit caller with 429 even when the token is bad (limit precedes crypto)", async () => {
