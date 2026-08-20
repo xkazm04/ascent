@@ -1,4 +1,4 @@
-# The AI-Native Repo Standard: `.ai/` (spec v0.1.0)
+# The AI-Native Repo Standard: `.ai/` (spec v0.2.0)
 
 > A small, **vendor-neutral** standard for making a codebase *legible, verifiable, and
 > self-maintaining* for coding agents. Ascent authors and versions it; any agent or tool can read
@@ -104,10 +104,16 @@ hard failure:
 7. **Score**: prints a conformance percentage and the projected maturity delta, so the agent gets a
    tight local feedback loop instead of waiting for a remote scan.
 
+Every check above has **four** possible outcomes, not three: `pass`, `warn`, `fail`, and
+`unchecked` — the clause could not be judged in this environment (checks 5 and 6 both need git
+history, which a shallow clone or a source tarball does not have). `unchecked` is a **result, not an
+absence**: a conformant runner emits it as a finding rather than staying silent, because a run that
+skipped a clause and a run that cleared it must not produce the same output.
+
 ### Score semantics (read before comparing scores)
 
-The score is a **weighted pass ratio over the findings the run happened to emit**, not a fixed
-rubric: `score = round(100 × Σ weight / findings)` with weights `pass = 1`, `warn = 0.5`,
+The score is a **weighted pass ratio over the SCORABLE findings the run happened to emit**, not a
+fixed rubric: `score = round(100 × Σ weight / scored)` with weights `pass = 1`, `warn = 0.5`,
 `fail = 0`. Because the denominator is the emitted finding list, the score is only comparable
 **between runs with the same shape**:
 
@@ -115,18 +121,30 @@ rubric: `score = round(100 × Σ weight / findings)` with weights `pass = 1`, `w
   without `--run`. Pick one mode for CI and keep it.
 - Repos with no hooks/CI skip the per-control wiring findings entirely; a missing manifest is a
   single finding (score 0) while one fail among many passes scores high.
+- `unchecked` findings are excluded from **both halves** of the ratio — they are not a fourth
+  weight. A clause nobody could judge is not half-true, and giving absent evidence any weight would
+  let the environment move the score. They never affect the exit code either.
 - Treat `fails` / `warns` as the headline numbers for trends; the percentage is a display heuristic.
+
+**The run's shape is part of its output.** A conformant runner publishes `unchecked` (how many
+clauses it declined to judge) and `scored` (the score's actual denominator) beside `score`, `fails`
+and `warns`, so the comparability rule above is *checkable* from the payload rather than taken on
+trust: two percentages are comparable when their `scored` denominators and `unchecked` counts match.
+The reference runner emits them in `--json` and includes `unchecked` in its report-back body.
 
 `--run` executes each capability with a **180-second timeout**, so a legitimately slower command is
 reported as FAIL (the reference runner names the timeout in the finding). Split or wrap such
 commands, or run them in CI only.
 
-A reimplementation in another language is conformant if it performs checks 1–6 against this spec.
+A reimplementation in another language is conformant if it performs checks 1–6 against this spec
+and reports each one as `pass` / `warn` / `fail` / `unchecked`.
 The check *contract* is language-neutral; `doctor.mjs` is just the reference runner.
 
 ## Versioning policy
 
-- Adding an optional field or capability name → **patch/minor**, no reader changes.
+- Adding an optional field, capability name, or finding level → **patch/minor**, no reader changes.
+  (v0.2.0 added the `unchecked` finding level and the `unchecked` / `scored` summary fields; a v0.1.0
+  reader ignores both and reads the same `score` / `fails` / `warns` it always did.)
 - Renaming/removing a field or changing a field's type → **major**, and only then.
 - A reader at version `X.y` MUST parse any `X.*` manifest by ignoring unknown fields.
 

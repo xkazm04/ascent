@@ -304,6 +304,26 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     expect(res!.repos.find((r) => r.fullName === "acme/r2")!.contextHealth).toBeNull();
     expect(res!.repos.find((r) => r.fullName === "acme/r3")!.contextHealth).toBeNull();
   });
+
+  it("flags a scan that scored NOTHING as latest.incomplete (incomplete-invisible-in-rollup)", async () => {
+    // The fleet gate scores from these persisted numbers alone, so an ingestion failure (0 / L1 with
+    // no dimension rows) is indistinguishable from a genuinely bad repo unless the shape travels with
+    // the score. `dimensions.length === 0` is the same predicate the engine stamps ScanReport.
+    // incomplete from, so the fleet reading and the per-repo gate agree.
+    const { prisma } = fakePrisma([]);
+    const broken = repoRow("broken", new Date("2026-05-12T12:00:00Z"));
+    broken.scans[0]!.dimensions = [];
+    broken.scans[0]!.level = "L1";
+    broken.scans[0]!.overallScore = 0;
+    prisma.repository.findMany = vi.fn(async () => [repoRow("ok", new Date("2026-05-12T12:00:00Z")), broken]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/broken")!.latest!.incomplete).toBe(true);
+    // A repo with real dimension rows is never flagged — the bucket must not swallow measured repos.
+    expect(res!.repos.find((r) => r.fullName === "acme/ok")!.latest!.incomplete).toBe(false);
+  });
 });
 
 // ── computeCohortMovement — the delta travels WITH its denominator (cohort-size-not-returned) ─────

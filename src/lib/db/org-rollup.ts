@@ -197,6 +197,19 @@ export interface OrgRepoRow {
      *  a real graded scan); anything else is a live model. Surfaced so the UI can flag mock provenance. */
     engine: string;
     dims: { dimId: string; score: number }[];
+    /**
+     * This scan scored NOTHING — no dimension row was persisted, so `overall`/`level` are the
+     * renormalized floor (0 / L1) rather than a measurement. Carried because the FLEET path scores
+     * from these persisted numbers alone (evaluateGateLite), and without this flag it could not tell
+     * an ingestion failure apart from a genuinely bad repo: the governance rollup's `incomplete`
+     * tally was structurally pinned at 0, i.e. a count that could only ever read "none occurred".
+     *
+     * Derived, not stored: there is no `incomplete` column. `dimensions.length === 0` is the SAME
+     * predicate the engine stamps the report's `incomplete` flag from (scoring/engine.ts:266) and the
+     * same second arm `isIncompleteReport` (scoring/gate.ts) accepts for persisted/reconstructed
+     * reports, so the fleet reading and the per-repo gate agree on what "unscorable" means.
+     */
+    incomplete: boolean;
     /** Whether a token saw the default branch's protection rules (governance.readable). Undefined
      *  when no governance blob was persisted. Lets the fleet gate enforce `requireProtectedBranch`
      *  with the SAME readable-gated semantics as the CI gate (evaluateGate). */
@@ -474,6 +487,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
             scannedAt: s.scannedAt.toISOString(),
             engine: s.engineProvider,
             dims: s.dimensions,
+            // See `incomplete` on OrgRepoRow["latest"]: no dimension row means nothing was scored,
+            // which is the same predicate the engine and the per-repo gate use.
+            incomplete: s.dimensions.length === 0,
             govReadable: gov?.readable,
             protected: gov?.protected,
             aiGovernedRate: prov?.aiGovernedRate ?? null,

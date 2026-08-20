@@ -45,10 +45,12 @@ const fixture: GovernanceOverview = {
   generatedOn: "2026-06-09",
   policyText: ["Minimum overall level L3", "Every dimension ≥ 40", 'No "ungoverned" posture'],
   scanned: 10,
+  incomplete: 0,
+  assessed: 10,
   passing: 7,
   failing: 3,
   passRate: 70,
-  byReason: { level: 2, overall: 0, dimension: 3, posture: 1, governance: 0 },
+  byReason: { level: 2, overall: 0, dimension: 3, posture: 1, governance: 0, provenance: 0, incomplete: 0 },
   failures: [
     {
       name: "web",
@@ -68,8 +70,20 @@ describe("governanceMarkdown", () => {
   it("states the policy and fleet status", () => {
     expect(md).toContain("## Policy (applied to every repo)");
     expect(md).toContain("- Minimum overall level L3");
-    expect(md).toContain("7/10 repos PASS the gate (70%)");
+    expect(md).toContain("7/10 judged repos PASS the gate (70%)");
     expect(md).toContain("Failing on: 2 below level · 3 dimension floor · 1 posture");
+  });
+
+  it("says nothing about unscorable scans when there are none, and names them when there are", () => {
+    // Silent on a healthy fleet — an always-present "0 not judged" line is noise.
+    expect(md).not.toContain("NOT JUDGED");
+
+    // With an unscorable bucket the brief must state the denominator the rate is built on, OUTSIDE
+    // the failing-on list (nobody failed a gate condition; the fleet simply wasn't fully measured).
+    const partial = governanceMarkdown({ ...fixture, scanned: 10, incomplete: 4, assessed: 6, passing: 6, failing: 0, passRate: 100 });
+    expect(partial).toContain("6/6 judged repos PASS the gate (100%)");
+    expect(partial).toContain("NOT JUDGED: 4 of 10 scanned repos scored nothing");
+    expect(partial).not.toMatch(/Failing on:.*incomplete/);
   });
 
   it("lists failing repos with their specific conditions", () => {
@@ -98,7 +112,7 @@ describe("governanceMarkdown", () => {
 type RepoRow = {
   name: string;
   fullName: string;
-  latest: { level: string; overall: number; posture: string; dims: { dimId: string; score: number }[] } | null;
+  latest: { level: string; overall: number; posture: string; dims: { dimId: string; score: number }[]; incomplete?: boolean } | null;
 };
 
 // Only the fields buildGovernanceOverview reads off the rollup. Cast through unknown so we don't have
@@ -201,6 +215,72 @@ describe("buildGovernanceOverview", () => {
     expect(ov.scanned).toBe(1); // the latest-less repo is filtered out
     expect(ov.passing).toBe(1);
     expect(ov.passRate).toBe(100);
+  });
+
+  // ── the unscorable bucket (incomplete-invisible-in-rollup) ────────────────────────────────────
+  // A scan that scored NOTHING persists 0 / L1 with no dimension rows. Before the rollup carried
+  // `latest.incomplete`, those numbers went straight into evaluateGateLite and the repo landed in
+  // `failures` with three findings that described the ingestion, not the repository — while
+  // `byReason.incomplete` sat at 0, telling the reader no such scan existed.
+
+  /** A repo whose latest scan scored nothing: the renormalized floor, zero dimensions. */
+  const UNSCORABLE = (name: string): RepoRow => ({
+    name,
+    fullName: `acme/${name}`,
+    latest: { level: "L1", overall: 0, posture: "ungoverned", dims: [], incomplete: true },
+  });
+
+  it("counts an unscorable scan in its own bucket — never as a gate failure, never as a pass", async () => {
+    mockGetOrgRollup.mockResolvedValue(rollupOf(2, [PASS("ok"), UNSCORABLE("broken")]));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    // The tally that used to be pinned at 0 now reports the real count.
+    expect(ov.byReason.incomplete).toBe(1);
+    expect(ov.incomplete).toBe(1);
+    // It is NOT a failure: no entry in `failures`, and none of its 0/L1 numbers produced a reason.
+    expect(ov.failing).toBe(0);
+    expect(ov.failures.map((f) => f.name)).toEqual([]);
+    expect(ov.byReason.level).toBe(0);
+    expect(ov.byReason.overall).toBe(0);
+    expect(ov.byReason.posture).toBe(0);
+    // …and it is NOT a pass either: excluded from both halves of the ratio.
+    expect(ov.scanned).toBe(2);
+    expect(ov.assessed).toBe(1);
+    expect(ov.passing).toBe(1);
+    expect(ov.passRate).toBe(100);
+  });
+
+  it("keeps the pass rate over the repos it could judge (an unscorable repo doesn't drag it down)", async () => {
+    // 3 judged repos, 2 passing → 67%. The two unscorable repos would previously have made this
+    // 2/5 = 40%, a number about the scanner's health masquerading as a number about the fleet's.
+    const fleet: RepoRow[] = [
+      PASS("a"),
+      PASS("b"),
+      { name: "low", fullName: "acme/low", latest: { level: "L2", overall: 80, posture: "governed", dims: dims({ D1: 70, D2: 70, D9: 70 }) } },
+      UNSCORABLE("x"),
+      UNSCORABLE("y"),
+    ];
+    mockGetOrgRollup.mockResolvedValue(rollupOf(5, fleet));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    expect(ov.scanned).toBe(5);
+    expect(ov.incomplete).toBe(2);
+    expect(ov.assessed).toBe(3);
+    expect(ov.passing).toBe(2);
+    expect(ov.failing).toBe(1);
+    expect(ov.passRate).toBe(67);
+  });
+
+  it("a fleet where NOTHING could be scored reports 0% over an empty denominator — no NaN, no false green", async () => {
+    mockGetOrgRollup.mockResolvedValue(rollupOf(2, [UNSCORABLE("x"), UNSCORABLE("y")]));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    expect(ov.assessed).toBe(0);
+    expect(ov.passing).toBe(0);
+    expect(ov.passRate).toBe(0); // guarded division, not NaN
+    expect(ov.incomplete).toBe(2);
+    // The brief must SAY the rate describes nothing, rather than printing a bare 0%.
+    expect(governanceMarkdown(ov)).toContain("NOT JUDGED: 2 of 2 scanned repos scored nothing");
   });
 
   it("returns null (the documented empty overview) for a null or zero-scanned fleet — no NaN, no crash", async () => {
