@@ -177,7 +177,22 @@ export async function POST(request: Request) {
             // later failure still refunds. (BYOM/unmetered orgs never reserved, so refund is a no-op.)
             let inferenceBilled = false;
             try {
-              const report = await scanRepository(repo.fullName, { token, orgSlug: org });
+              // SUB-PROGRESS. The fleet stream used to fall silent for the whole duration of a repo's
+              // scan — which on a live LLM run is minutes, and reads as a hung wall. Forwarding the
+              // scanner's own stages closes that gap WITHOUT changing the run's arithmetic: every
+              // sub-stage frame carries the SAME `index`/`total` as the `stage:"scan"` frame emitted
+              // just above it, so a consumer that assigns `done = index` (all of them do — none
+              // increments) treats these as sub-progress of the current repo and the denominator can
+              // never be inflated by them. `stage:"done"` is dropped: the `repo` frame below is the
+              // authoritative end of this repo, and two "finished" signals would be one too many.
+              const report = await scanRepository(repo.fullName, {
+                token,
+                orgSlug: org,
+                onProgress: (p) => {
+                  if (p.stage === "done") return;
+                  send("progress", { stage: p.stage, repo: repo.fullName, index: done, total: scanList.length, pct: p.pct });
+                },
+              });
               inferenceBilled = report.engine.provider !== "mock";
               const persisted = await persistScanReport(report, { orgSlug: org });
               // Refund the reservation when nothing billable was produced: either the scan degraded to

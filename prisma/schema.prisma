@@ -111,6 +111,7 @@ model Organization {
   program          TransitionProgram?
   techGroups       TechStackGroup[]
   llmConfig        OrgLlmConfig?
+  loopRuns         LoopRun[]
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -1572,4 +1573,72 @@ model OrgPracticeShape {
   @@unique([orgId, slug])
   @@index([orgId, archived])
   @@index([registryId, registryPath])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// LOCAL-MODE LOOP RUNS — the durable spine under the war room's autopilot (self-hosted only).
+//
+// The original autopilot kept its whole state in a process Map: one org, one repo, one branch, and a
+// log that died with the node process. The loop run is the same mechanics (worktree → local Claude
+// agent → rescan) widened on two axes that the in-memory design could not carry:
+//
+//   • A SELECTED SET of repos, worked with bounded parallelism (one LANE per repo per cycle), so a
+//     fleet-wide improvement pass is one reviewable run rather than N sequential arms.
+//   • DURABILITY. The DB is the source of truth for phase, log, branch and outcome ids. A restart
+//     loses only the live process handles — which is why a `running` row with no live handle is
+//     reconciled to `stopped` (see markStaleRunsStopped) instead of being trusted.
+//
+// JSON-in-TEXT (`reposJson`, `batchIdsJson`, `closedIdsJson`) follows this schema's no-jsonb DSQL
+// contract, exactly like `areasJson` / `warningsJson` above. Standalone-ish under
+// relationMode = "prisma": relations are declared for Prisma-side integrity, and (like every other
+// model here) no ON DELETE is emitted — cascades are the application's job.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+model LoopRun {
+  id          String    @id @default(uuid())
+  orgId       String
+  createdBy   String? // GitHub login that armed the run
+  // curating | running | done | stopped | error.  `curating` is the pre-start state a run sits in
+  // while a human edits the proposed batches; `start` writes `running` directly.
+  phase       String    @default("curating")
+  reposJson   String    @default("[]") // JSON string[] of "owner/name", the run's selected set
+  concurrency Int       @default(2) // lanes in flight at once (capped at LOOP_CONCURRENCY_CAP)
+  maxCycles   Int       @default(3)
+  cycle       Int       @default(0) // the cycle currently being worked (0 = none started yet)
+  curated     Boolean   @default(false) // true when the operator approved the batches by hand
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  org   Organization  @relation(fields: [orgId], references: [id])
+  lanes LoopRunLane[]
+
+  @@index([orgId, createdAt])
+}
+
+// One repo's work for one cycle of a run. The unit of parallelism, of retry, and of the UI's row.
+model LoopRunLane {
+  id            String    @id @default(uuid())
+  runId         String
+  repoFullName  String // "owner/name"
+  cycle         Int       @default(1)
+  phase         String    @default("queued") // queued | dispatching | rescanning | done | error
+  branch        String? // ascent/loop-<stamp>-<repo> — the deliverable; survives the run
+  batchIdsJson  String    @default("[]") // JSON string[] of Recommendation ids dispatched
+  closedIdsJson String    @default("[]") // JSON string[] of ids the rescan's trailers closed
+  commits       Int       @default(0)
+  beforeScanId  String? // scan the lane started from (the repo's latest at dispatch time)
+  afterScanId   String? // scan the lane's rescan produced — the two ends of the lane's diff
+  // Live sub-stage of the lane's rescan (fetch | tree | files | analyze | score | compose), so the
+  // wall can show what a long scan is doing instead of a static "rescanning".
+  stage         String?
+  log           String    @default("") // newline-joined, bounded to LANE_LOG_LINES
+  error         String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+
+  run LoopRun @relation(fields: [runId], references: [id])
+
+  @@index([runId])
 }
