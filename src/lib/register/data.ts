@@ -47,6 +47,19 @@ export interface RegisterEntry {
   engineProvider: string;
   /** False when the score came from the deterministic mock rubric — never ranked, always labelled. */
   verified: boolean;
+  /** The scan's own confidence in its judgement (0..1). Carried onto the public surface so a
+   *  weaker read is visibly a weaker read — a register that prints 0.62-confidence and
+   *  0.85-confidence scores in the same column with no marker is overclaiming the first. */
+  confidence: number;
+  /** False when the scan's PR window contains no MERGED pull request (or no PR slice at all).
+   *  Deliberately the measured claim and nothing more: code mirrors produce it (their drive-by PRs
+   *  close unmerged — the canonical embedded-database mirror shows 46 PRs ever, 0 merged), and so
+   *  do push-based workflows. Either way, every PR-shaped process signal — reviews, merge
+   *  governance, AI-PR rates — reads as absent rather than measured, and the surface says so
+   *  instead of letting the depressed score stand bare. Broader "is this a mirror" inference was
+   *  tried against real rows and rejected: total-PR counts and merged counts both misclassify
+   *  (a staging mirror showed 6 merged PRs), so the register labels only what it measured. */
+  hasProcessSignals: boolean;
 }
 
 export interface PublicRegister {
@@ -122,6 +135,8 @@ const REGISTER_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
       adoptionScore: true,
       rigorScore: true,
       engineProvider: true,
+      confidence: true,
+      prStats: true,
       scannedAt: true,
       dimensions: { select: { dimId: true, score: true } },
     },
@@ -161,7 +176,22 @@ export function registerEntryFrom(r: RegisterRepoRow): RegisterEntry | null {
     engineProvider: s.engineProvider,
     // A mock-engine scan means no model contributed a judgement. It is a preview, not a rating.
     verified: s.engineProvider !== "mock",
+    confidence: s.confidence,
+    hasProcessSignals: hasProcessSignalsFrom(s.prStats),
   };
+}
+
+/** True when the scan's PR window contains at least one merged pull request. Malformed or absent
+ *  prStats counts as "no signal" — the honest reading for mirrors, whose windows genuinely hold
+ *  none, and the conservative one for a failed slice (the flag only ever ADDS a caveat). */
+function hasProcessSignalsFrom(prStats: string | null): boolean {
+  if (!prStats) return false;
+  try {
+    const parsed = JSON.parse(prStats) as { merged?: unknown };
+    return typeof parsed.merged === "number" && parsed.merged > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Rank comparator: score desc, then the more recent scan, then a stable name tiebreak. */

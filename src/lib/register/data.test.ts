@@ -55,6 +55,8 @@ function repoRow(
     overall: number;
     engineProvider: string;
     scannedAt: string;
+    confidence: number;
+    prStats: string | null;
   }> = {},
 ): Row {
   const owner = over.owner ?? "acme";
@@ -76,6 +78,8 @@ function repoRow(
         adoptionScore: 60,
         rigorScore: 80,
         engineProvider: over.engineProvider ?? "anthropic",
+        confidence: over.confidence ?? 0.85,
+        prStats: "prStats" in over ? over.prStats : JSON.stringify({ merged: 12 }),
         scannedAt: new Date(over.scannedAt ?? "2026-07-20T00:00:00.000Z"),
         dimensions: [
           { dimId: "D1", score: over.overall ?? 70 },
@@ -91,6 +95,25 @@ beforeEach(() => {
   mockIsDbConfigured.mockReturnValue(true);
   mockResolveOrgId.mockResolvedValue("org-public");
   repoCount.mockResolvedValue(3);
+});
+
+describe("registerEntryFrom — honesty fields for the public surface", () => {
+  it("carries the scan's confidence verbatim", () => {
+    expect(registerEntryFrom(repoRow({ confidence: 0.62 }))?.confidence).toBe(0.62);
+  });
+
+  it("reads a window with merged PRs as having process signals", () => {
+    expect(registerEntryFrom(repoRow())?.hasProcessSignals).toBe(true);
+  });
+
+  it("reads a mirror-shaped window (PRs exist, none merged), an absent slice, and a malformed slice all as no signal", () => {
+    // The real mirror shape: drive-by PRs accumulate and close unmerged (sqlite: 46 total, 0 merged).
+    expect(
+      registerEntryFrom(repoRow({ prStats: JSON.stringify({ totalCount: 46, merged: 0 }) }))?.hasProcessSignals,
+    ).toBe(false);
+    expect(registerEntryFrom(repoRow({ prStats: null }))?.hasProcessSignals).toBe(false);
+    expect(registerEntryFrom(repoRow({ prStats: "{not json" }))?.hasProcessSignals).toBe(false);
+  });
 });
 
 describe("registerEntryFrom — the per-row privacy enforcement point", () => {

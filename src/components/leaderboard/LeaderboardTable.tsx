@@ -113,6 +113,25 @@ export function LeaderboardTable({
                       demo
                     </span>
                   )}
+                  {/* Honesty qualifiers for real scores. Every ranked number here was computed
+                      OUTSIDE-IN, from public artifacts only — these two chips mark the rows where
+                      that limit bites hardest, so a low score reads as "measured less", not "worse". */}
+                  {c.verified && !c.hasProcessSignals && (
+                    <span
+                      className="ml-2 rounded border border-sky-500/40 px-1.5 py-0.5 text-[10px] text-sky-300/90"
+                      title="No merged pull request in the analysis window — typical of code mirrors and push-based workflows. PR-shaped process signals (reviews, merge governance) read as absent rather than measured here, so the overall score can understate the project."
+                    >
+                      no PR signal
+                    </span>
+                  )}
+                  {c.verified && c.confidence > 0 && c.confidence < 0.75 && (
+                    <span
+                      className="ml-2 rounded border border-slate-500/40 px-1.5 py-0.5 text-[10px] text-slate-400"
+                      title={`The scan reported reduced confidence in its own judgement (${c.confidence.toFixed(2)} of 1). Treat the score as a wider interval, not a point.`}
+                    >
+                      conf {c.confidence.toFixed(2)}
+                    </span>
+                  )}
                 </span>
               </span>
 

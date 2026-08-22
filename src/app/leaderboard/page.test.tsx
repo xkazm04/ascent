@@ -47,6 +47,8 @@ function entry(over: Partial<RegisterEntry> = {}): RegisterEntry {
     href: `/report/${fullName}`,
     engineProvider: "anthropic",
     verified: true,
+    confidence: 0.85,
+    hasProcessSignals: true,
     ...over,
   };
 }
@@ -129,5 +131,28 @@ describe("/leaderboard — nothing private, nothing silently ranked", () => {
     expect(screen.queryByText("01")).toBeNull();
     // …and the empty ranked state says WHY, rather than implying nothing was ever scanned.
     expect(screen.getByText(/Nothing model-scored yet/i)).toBeTruthy();
+  });
+
+  it("labels a repo with no merged PR in window `no PR signal` instead of letting its low score stand bare", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({ entries: [entry({ fullName: "big/mirror", hasProcessSignals: false })] }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText("no PR signal")).toBeTruthy();
+  });
+
+  it("marks a reduced-confidence score with its number, and keeps a confident score unmarked", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({
+        entries: [
+          entry({ fullName: "shaky/read", confidence: 0.62 }),
+          entry({ fullName: "solid/read", confidence: 0.85 }),
+        ],
+        totalVerified: 2,
+      }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText("conf 0.62")).toBeTruthy();
+    expect(screen.queryByText("conf 0.85")).toBeNull();
   });
 });

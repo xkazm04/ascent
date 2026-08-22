@@ -24,7 +24,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 
 | Route | What it is |
 | --- | --- |
-| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. |
+| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, and `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows) — plus page copy stating every score is computed outside-in from public artifacts. |
 | `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, its own OG card, and a copy-paste badge embed. |
 | `GET /api/scorecard/[owner]/badge` | The org-level SVG badge (see [badge.md](../billing/badge.md)). |
 

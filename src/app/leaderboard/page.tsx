@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 
 const TITLE = "The AI-native register · Ascent";
 const DESCRIPTION =
-  "Every public repository Ascent has scored, ranked by AI-native maturity with a full per-dimension breakdown. Model-scored entries only; preview scans are listed separately and never ranked.";
+  "Every public repository Ascent has scored, ranked by AI-native maturity with a full per-dimension breakdown. Scores are computed outside-in from public artifacts; model-scored entries only, preview scans listed separately and never ranked.";
 
 function pageParam(v: string | string[] | undefined): number {
   const n = Number(Array.isArray(v) ? v[0] : v);
@@ -79,6 +79,12 @@ export default async function LeaderboardPage({
               across all nine dimensions. Every public scan is open. Click any repo to read its full
               report, or open an owner&apos;s{" "}
               <span className="text-slate-300">public scorecard</span> from its name.
+            </p>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">
+              Every score here is computed <span className="text-slate-400">outside-in</span>, from
+              public artifacts alone — a repository whose reviews, CI or tests live outside its
+              public tree reads lower than the project&apos;s reality, and rows where that limit
+              bites carry a qualifier saying so.
             </p>
           </div>
           {register && (
