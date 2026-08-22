@@ -76,3 +76,6 @@ docs/harness/
 
 # Personas app local state (memory outbox, registered-context list)
 .personas/
+
+# /consult skill log (counts reach the ai-registry signals lane; the log itself stays local)
+.ai/consults.jsonl

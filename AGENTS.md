@@ -164,3 +164,10 @@ nag off for a whole area.
 - `docs/archive/**`: dated, point-in-time artifacts. **Append-only; never edit to
   make them "current."** Their value is being an accurate record of a past moment.
 - `docs/harness/`. Gitignored local scan-run output. Not part of the corpus.
+
+## AI registry (knowledge + skills)
+
+This repo is wired to the organization's AI registry (github:xkazm04/ai-registry; local sibling checkout `../ai-registry`).
+
+- **Knowledge**: this repo consumes the `software-engineering` bundle(s). Before a product, architecture or domain decision in those areas, run `/consult <topic>` - it reads the relevant subjects (golden path + techniques) and logs the consult to `.ai/consults.jsonl` (gitignored).
+- **Skills**: shared skills come from the `ai-registry` plugin marketplace, declared in `.claude/settings.json` (`enabledPlugins`). Do not copy a registry skill into `.claude/skills/` - only project-specific skills live there. Update with `claude plugin update <skill>@ai-registry`. Project-specific configuration for a registry skill lives in its committed overlay (e.g. `.claude/perfect/config.md`).
