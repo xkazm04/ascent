@@ -806,6 +806,62 @@ async function redactOrgAudit(
   return total;
 }
 
+/**
+ * Erase the org's improvement-loop history (`LoopRun` + `LoopRunLane`, src/lib/db/loop-runs.ts).
+ *
+ * A loop run is org-scoped tenant data like any other: it names the repos that were worked, the
+ * branch each lane produced, the follow-up ids it dispatched and closed, and the lane's log — which
+ * is agent output about the tenant's code. Leaving it behind would make an "erasure" that still
+ * reads back the org's recent work, so it goes with the scans.
+ *
+ * Lanes first, then runs: `relationMode = "prisma"` emits no FK cascades, so children are deleted
+ * explicitly before their parent — the same delete-graph convention pruneRepoScans follows. Batched
+ * and budget-polled like every other loop here; a stop leaves whole pages deleted and the resume
+ * call simply continues (deleted rows leave the predicate, so the real path never needs a cursor).
+ * Org scope ONLY: the repo-scoped erase variant does not reach it, since a run is not a repo's row.
+ */
+async function eraseOrgLoopRuns(
+  prisma: PrismaLike,
+  orgId: string,
+  batchSize: number,
+  overBudget: () => boolean,
+  dryRun: boolean,
+): Promise<{ runs: number; lanes: number }> {
+  let runs = 0;
+  let lanes = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    if (overBudget()) break;
+    const page = await prisma.loopRun.findMany({
+      where: { orgId },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      select: { id: true },
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (page.length === 0) break;
+    const ids = page.map((r) => r.id);
+    if (dryRun) {
+      // Preview: count over the SAME predicate the delete uses, and page with a cursor since
+      // nothing leaves the table.
+      lanes += await prisma.loopRunLane.count({ where: { runId: { in: ids } } });
+      runs += ids.length;
+      if (page.length < batchSize) break;
+      cursor = ids[ids.length - 1]!;
+      continue;
+    }
+    await withRetry(
+      () =>
+        prisma.$transaction(async (tx) => {
+          lanes += (await tx.loopRunLane.deleteMany({ where: { runId: { in: ids } } })).count;
+          runs += (await tx.loopRun.deleteMany({ where: { id: { in: ids } } })).count;
+        }),
+      { label: "erase.loop-runs" },
+    );
+  }
+  return { runs, lanes };
+}
+
 /** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
  *  config to be a literal, so the route can't import this — a route test pins the two together instead
  *  (same contract as {@link PURGE_MAX_DURATION_S}). */
@@ -853,6 +909,10 @@ export interface EraseResult {
   dimensionsDeleted: number;
   recommendationsDeleted: number;
   recommendationEventsDeleted: number;
+  /** Loop runs removed (org scope only — a LoopRun belongs to the org, not to a repo). */
+  loopRunsDeleted: number;
+  /** Loop-run lanes removed. Deleted BEFORE their runs: relationMode = "prisma" emits no cascade. */
+  loopLanesDeleted: number;
   /** Audit rows DESTROYED (only ever non-zero for `auditDisposition: "delete"`). */
   auditDeleted: number;
   /** Audit rows reduced to identifier-only form — the historical account that SURVIVED the erasure. */
@@ -937,6 +997,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let recommendationEventsDeleted = 0;
   let auditDeleted = 0;
   let auditRedacted = 0;
+  let loopRunsDeleted = 0;
+  let loopLanesDeleted = 0;
   let stoppedEarly = false;
 
   // Erase ONE repo's scan graph + reset its scan-derived caches. Each batch inside pruneRepoScans is
@@ -987,6 +1049,16 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       repoCursor = repos[repos.length - 1]!.id;
     }
 
+    // Improvement-loop history: org-scoped, always erased (it is tenant data, not compliance
+    // evidence, so there is no disposition to choose). Skipped once the budget is spent, exactly
+    // like the audit sweep below — the resume call does it instead.
+    if (!stoppedEarly) {
+      const loop = await eraseOrgLoopRuns(prisma, org.id, batchSize, overBudget, dryRun);
+      loopRunsDeleted = loop.runs;
+      loopLanesDeleted = loop.lanes;
+      if (overBudget()) stoppedEarly = true;
+    }
+
     // Audit trail: org-scoped, NO date cutoff (this is erasure, not retention). Opt-in, and skipped
     // once the budget is spent so the resume call does it instead.
     if (auditDisposition !== "keep" && !stoppedEarly) {
@@ -1018,6 +1090,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       dimensionsDeleted,
       recommendationsDeleted,
       recommendationEventsDeleted,
+      loopRunsDeleted,
+      loopLanesDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -1045,6 +1119,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       dimensionsDeleted,
       recommendationsDeleted,
       recommendationEventsDeleted,
+      loopRunsDeleted,
+      loopLanesDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -1062,6 +1138,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     dimensionsDeleted,
     recommendationsDeleted,
     recommendationEventsDeleted,
+    loopRunsDeleted,
+    loopLanesDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,

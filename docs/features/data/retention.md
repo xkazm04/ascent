@@ -117,6 +117,15 @@ conflict retries.
   passport. Owner-authored configuration (watch flag, schedule, segment tags, passport overrides) and
   the `Organization` / `Repository` / `Membership` rows themselves are **kept**: erasure removes the
   data, it does not unconfigure or delete the tenant.
+- **Improvement-loop history (org scope only).** `LoopRunLane` then `LoopRun`
+  ([org-planning/live.md](../org-planning/live.md)) — the runs name the repos that were worked, the
+  branch each lane produced, the follow-up ids it dispatched and closed, and the agent's log, so they
+  are tenant data like the scans. Lanes are deleted **before** their runs (`relationMode = "prisma"`
+  emits no cascade, exactly as for the scan graph). Batched and budget-polled like every other loop,
+  so a large history stops at a batch boundary and resumes on the next call. The repo-scoped variant
+  never touches them: a run belongs to the org, not to a repo. Counted as `loopRunsDeleted` /
+  `loopLanesDeleted` on the result (and in the `data.erased` audit entry); a **preview** counts them
+  without deleting.
 - **Audit trail — three dispositions, org scope only** (audit rows are not repo-scoped). The
   interactive path reaches the same HMAC-signed compliance evidence the cron does, so it now carries
   the same kind of destructive-override floor the cron has had (`RETENTION_FORCE`):

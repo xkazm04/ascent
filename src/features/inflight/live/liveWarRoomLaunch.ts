@@ -8,9 +8,13 @@
 
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { readSSE } from "@/lib/sse";
+import { foldProgressFrame, type ScanSubstage } from "@/lib/scan-stage";
 import type { Celebration, Mover, Phase } from "@/components/org/shared/liveWarRoomShared";
 
-export type LiveProgress = { done: number; total: number; current: string };
+// `stage` is the current repo's SUB-progress (fetch → compose), null at a repo boundary. It is
+// additive: `done`/`total` still only ever move on a repo boundary, because foldProgressFrame assigns
+// the frame's index rather than incrementing — a sub-stage can never inflate the denominator.
+export type LiveProgress = { done: number; total: number; current: string; stage: ScanSubstage | null };
 
 export type LiveScanContext = {
   slug: string;
@@ -38,7 +42,7 @@ export async function runLiveScan(ctx: LiveScanContext, reposOverride?: string[]
   setTicker([]);
   setCelebrations([]);
   setPhase("running");
-  setProgress({ done: 0, total: targetRepos?.length || watchedCount, current: "starting…" });
+  setProgress({ done: 0, total: targetRepos?.length || watchedCount, current: "starting…", stage: null });
   const ctrl = new AbortController();
   abortRef.current = ctrl;
   let sawError = false;
@@ -57,8 +61,7 @@ export async function runLiveScan(ctx: LiveScanContext, reposOverride?: string[]
     }
     await readSSE(res.body, ({ event, data }) => {
       if (!data) return;
-      if (event === "progress")
-        setProgress({ done: Number(data.index) || 0, total: Number(data.total) || watchedCount, current: String(data.repo ?? "") });
+      if (event === "progress") setProgress((p) => foldProgressFrame({ ...p, total: p.total || watchedCount }, data));
       else if (event === "repo") onRepo(data);
       else if (event === "notice") {
         // Up-front partial coverage: the prepaid balance can't cover every watched repo, so the
@@ -79,7 +82,7 @@ export async function runLiveScan(ctx: LiveScanContext, reposOverride?: string[]
       }
     });
     if (!ctrl.signal.aborted) {
-      setProgress((p) => ({ ...p, current: "" }));
+      setProgress((p) => ({ ...p, current: "", stage: null }));
       setPhase(sawError ? "error" : "done");
     }
   } catch {

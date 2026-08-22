@@ -1482,17 +1482,49 @@ describe("purgeExpiredData — partial committed counts survive a mid-org throw 
  * paging loops terminate for the same reason they do in production (a short/empty page) rather than
  * because the mock keeps returning the same rows.
  */
-function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
+function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[]; loopRuns?: string[] }) {
   const repoIds = seed?.repos ?? ["repo_1", "repo_2"];
   const scansByRepo: Record<string, string[]> = {};
   for (const r of repoIds) scansByRepo[r] = [`${r}_s1`, `${r}_s2`];
   const auditRows = [...(seed?.audit ?? ["audit_1", "audit_2", "audit_3"])];
+  // Improvement-loop history for the org: two lanes per run, so a test can tell the two counters
+  // apart and can see that lanes are removed with (and before) their run.
+  const loopRuns = [...(seed?.loopRuns ?? ["loop_1", "loop_2"])];
+  const lanesByRun: Record<string, string[]> = {};
+  for (const r of loopRuns) lanesByRun[r] = [`${r}_lane_a`, `${r}_lane_b`];
+  /** Deletes as they were issued, so a test can assert lanes-before-runs (no FK cascade). */
+  const loopDeleteOrder: string[] = [];
   const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
 
   /** Rows as the redaction loop reads them back, and what it wrote (so a test can assert the shape). */
   const auditWrites: { id: string; data: { actorId: unknown; meta: string } }[] = [];
 
   const tx = {
+    loopRunLane: {
+      deleteMany: vi.fn(async ({ where }: { where: { runId: { in: string[] } } }) => {
+        loopDeleteOrder.push("lanes");
+        let count = 0;
+        for (const runId of where.runId.in) {
+          count += (lanesByRun[runId] ?? []).length;
+          delete lanesByRun[runId];
+        }
+        return { count };
+      }),
+    },
+    loopRun: {
+      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+        loopDeleteOrder.push("runs");
+        let count = 0;
+        for (const id of where.id.in) {
+          const at = loopRuns.indexOf(id);
+          if (at >= 0) {
+            loopRuns.splice(at, 1);
+            count++;
+          }
+        }
+        return { count };
+      }),
+    },
     auditLog: {
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: { actorId: unknown; meta: string } }) => {
         auditWrites.push({ id: where.id, data });
@@ -1541,6 +1573,19 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
       ),
       count: vi.fn(async ({ where }: { where: { repoId: string } }) => (scansByRepo[where.repoId] ?? []).length),
     },
+    loopRun: {
+      // Cursor-paged like the real read; deleted runs leave the fixture, so the real path's
+      // cursor-less paging terminates for the same reason it does in production.
+      findMany: vi.fn(async ({ take, cursor, skip }: { take: number; cursor?: { id: string }; skip?: number }) => {
+        const from = cursor ? loopRuns.indexOf(cursor.id) + (skip ?? 0) : 0;
+        return loopRuns.slice(Math.max(0, from), Math.max(0, from) + take).map((id) => ({ id }));
+      }),
+    },
+    loopRunLane: {
+      count: vi.fn(async ({ where }: { where: { runId: { in: string[] } } }) =>
+        where.runId.in.reduce((n, runId) => n + (lanesByRun[runId] ?? []).length, 0),
+      ),
+    },
     auditLog: {
       // Serves BOTH readers: the delete sweep (ids only) and the redaction loop (id/action/orgId/at,
       // cursor-paged). `skip` is honored so the cursor walk advances instead of re-reading page one.
@@ -1568,7 +1613,7 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[] }) {
     },
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  return { prisma, tx, scansByRepo, auditRows, cacheResets, auditWrites };
+  return { prisma, tx, scansByRepo, auditRows, cacheResets, auditWrites, loopRuns, lanesByRun, loopDeleteOrder };
 }
 
 describe("resolveAuditDisposition — the legacy boolean's new meaning (data-retention 07-16 #4)", () => {
@@ -1636,6 +1681,52 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     // cached passport / tech stack on the dashboard.
     expect(cacheResets.map((c) => c.id).sort()).toEqual(["repo_1", "repo_2"]);
     expect(cacheResets[0]!.data).toMatchObject({ techStackJson: null, passportJson: null, lastScanAt: null });
+  });
+
+  // The improvement loop (src/lib/local/loop-engine.ts) writes org-scoped tenant data: which repos
+  // were worked, on which branch, which follow-ups were dispatched and closed, and the agent's log.
+  // An erasure that left it behind would still read back the org's recent work.
+  it("org scope erases the improvement-loop history, lanes BEFORE runs (no FK cascade)", async () => {
+    const { prisma, loopRuns, lanesByRun, loopDeleteOrder } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.loopRunsDeleted).toBe(2);
+    expect(outcome.loopLanesDeleted).toBe(4); // 2 runs x 2 lanes
+    // Gone from the fixture, not merely "deleteMany was called".
+    expect(loopRuns).toEqual([]);
+    expect(lanesByRun).toEqual({});
+    // relationMode = "prisma" emits no cascade, so the children must be deleted first — a run
+    // removed before its lanes would strand the lanes forever.
+    expect(loopDeleteOrder).toEqual(["lanes", "runs"]);
+  });
+
+  it("repo scope never touches loop runs (a run is the org's row, not a repo's)", async () => {
+    const { prisma, loopRuns, tx } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api" });
+
+    expect(outcome.ok && outcome.loopRunsDeleted).toBe(0);
+    expect(outcome.ok && outcome.loopLanesDeleted).toBe(0);
+    expect(tx.loopRun.deleteMany).not.toHaveBeenCalled();
+    expect(loopRuns).toHaveLength(2);
+  });
+
+  it("a preview COUNTS the loop history it would erase and deletes none of it", async () => {
+    const { prisma, loopRuns, tx } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+
+    expect(preview.ok && preview.loopRunsDeleted).toBe(2);
+    expect(preview.ok && preview.loopLanesDeleted).toBe(4);
+    expect(tx.loopRun.deleteMany).not.toHaveBeenCalled();
+    expect(tx.loopRunLane.deleteMany).not.toHaveBeenCalled();
+    expect(loopRuns).toHaveLength(2);
   });
 
   it("org scope leaves the audit trail alone unless includeAudit is set (erasing evidence is a separate ask)", async () => {

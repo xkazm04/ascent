@@ -28,7 +28,7 @@ export async function GET(request: Request) {
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
-  return NextResponse.json({ enabled: autopilotEnabled(), job: getAutopilotJob(org) });
+  return NextResponse.json({ enabled: autopilotEnabled(), job: await getAutopilotJob(org) });
 }
 
 export async function POST(request: Request) {
@@ -50,8 +50,8 @@ export async function POST(request: Request) {
   if (denied) return denied;
 
   if (action === "stop") {
-    const stopped = requestAutopilotStop(org);
-    return NextResponse.json({ ok: stopped, job: getAutopilotJob(org) }, { status: stopped ? 200 : 409 });
+    const stopped = await requestAutopilotStop(org);
+    return NextResponse.json({ ok: stopped, job: await getAutopilotJob(org) }, { status: stopped ? 200 : 409 });
   }
 
   if (!autopilotEnabled()) {

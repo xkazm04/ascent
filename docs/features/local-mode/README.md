@@ -56,7 +56,18 @@ trailers closed.
 
 ## Autopilot (`?tab=live`, self-hosted + paired + `ASCENT_AUTOPILOT=1`)
 
-The war room's dispatch loop (`src/lib/local/autopilot.ts`): per cycle, pick the repo's top open
+**Since 2026-08-22 the autopilot is a thin SHIM** (`src/lib/local/autopilot.ts`) over the durable
+**loop engine** — the same mechanics with the arity widened to a selected *set* of repos worked as
+bounded-parallel lanes, and the state moved out of a process `Map` into `LoopRun`/`LoopRunLane`.
+`startAutopilot` arms a one-repo, one-lane run and projects it back into the `AutopilotJob` shape
+`/api/org/local/autopilot` has always answered with; the accessors are `async` now (the one signature
+change) because the truth lives in the database. Two things are preserved deliberately: the job shape
+is byte-for-byte the same, and the branch stays `ascent/autopilot-<stamp>` rather than the engine's
+`ascent/loop-<stamp>-<repo>`, so an operator's "review the autopilot branch" habit does not break
+because the plumbing moved. Full engine, model, API and gate documentation:
+[org-planning/live.md](../org-planning/live.md).
+
+The dispatch loop itself (now `src/lib/local/loop-lane.ts`): per cycle, pick the repo's top open
 follow-ups (batch of 5, biggest projected gain first) → mark them in-progress (the ledger's hand-off
 claim — `scans-persist` only resolves claimed rows) → spawn one headless `claude -p` session in an
 **isolated worktree** with the batch's fix prompt (`buildFixPrompt` + autopilot context) → count the
@@ -72,10 +83,11 @@ Guardrails, each load-bearing:
   deployment gets an honest 409 naming the fix). The session runs `--permission-mode acceptEdits` —
   not `--dangerously-skip-permissions` — with a 20-min default ceiling
   (`ASCENT_AUTOPILOT_TIMEOUT_MS`).
-- **No-progress stop**: a cycle with zero commits and zero closed rows ends the run early.
-- **One job per org**, in-memory (`Map`): a self-hosted deployment is one long-lived process, and
-  the durable output — commits, persisted scans, closed rows — survives a restart; the ticker log
-  does not need to.
+- **No-progress stop**: a cycle with zero commits and zero closed rows ends the run early (applied
+  per lane by the engine, so in a multi-repo run one stalled repo no longer ends the pass).
+- **One run per org**, enforced against the database, not a process `Map`. Phase, branch, log and
+  outcome ids are durable; a `running` row left behind by a restart is reconciled to `stopped`
+  (`markStaleRunsStopped`) rather than being trusted or resumed.
 
 UI: `AutopilotBand` (+ `AutopilotBandParts`) in `src/features/inflight/live/` — picker, cycle
 count, start/stop, live log; polls the job every 4s only while one runs, and refreshes the wall once
@@ -84,10 +96,8 @@ radius as pairing).
 
 ## Known gaps
 
-- Autopilot works **one repo per run**; a fleet-wide conveyor (queue of paired repos) is the obvious
-  next step once single-repo runs prove out.
 - The agent model rides `CLAUDE_MODEL` (default `sonnet`); no per-run model picker yet.
-- Job state does not survive a server restart mid-run (the worktree branch and any commits do; the
-  run just stops advancing). Durable job rows would fix resume.
+- A run interrupted by a restart is **reconciled, not resumed**: the row is marked `stopped` and its
+  in-flight lanes `error`. The branch and its commits survive; nothing picks the cycle back up.
 - The dirty-tree sha-less scan can't dedup against itself — two identical dirty scans persist two
   rows (bounded by the content-key `dedupKey`, which catches byte-identical reports).

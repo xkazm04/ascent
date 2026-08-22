@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { buildFleetTimetable, columnAverages, shortDate } from "@/features/inflight/live/fleetTimetable";
 import type { OrgRepoHistory } from "@/lib/db/org-rollup";
 
-const pt = (at: string, overall: number) => ({ at, overall, level: "L3", posture: "manual", headSha: null, engine: "mock" });
+const pt = (at: string, overall: number) => ({ at, overall, adoption: overall, rigor: overall, level: "L3", posture: "manual", headSha: null, engine: "mock" });
 const repo = (name: string, points: { at: string; overall: number }[]): OrgRepoHistory => ({
   fullName: `acme/${name}`,
   owner: "acme",
