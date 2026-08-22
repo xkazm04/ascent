@@ -646,6 +646,11 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
 export interface RepoTrajectoryPoint {
   at: string; // ISO scannedAt
   overall: number;
+  /** The two posture axes at this observation. Carried so a consumer can place the point in
+   *  adoption × rigor space (the live tab's observatory trails) instead of back-deriving a position
+   *  from `posture`, which would only ever yield a quadrant centroid the repo was never measured at. */
+  adoption: number;
+  rigor: number;
   level: string; // "L1".."L5"
   posture: string;
   headSha: string | null;
@@ -696,6 +701,8 @@ export async function getOrgRepoHistories(
     },
     select: {
       overallScore: true,
+      adoptionScore: true,
+      rigorScore: true,
       level: true,
       posture: true,
       headSha: true,
@@ -717,6 +724,8 @@ export async function getOrgRepoHistories(
     h.points.push({
       at: s.scannedAt.toISOString(),
       overall: s.overallScore,
+      adoption: s.adoptionScore,
+      rigor: s.rigorScore,
       level: s.level,
       posture: s.posture,
       headSha: s.headSha ?? null,

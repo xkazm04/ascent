@@ -1,24 +1,27 @@
-// Org dashboard "Live" tab — the Fleet Command war-room. Seeds each repo's latest standing from the
-// org rollup, then hands off to a client component that subscribes to the existing /api/org/scan SSE
-// stream and animates the wall (headline tiles, leaderboard, posture mix, movers ticker, AI-Native
-// bursts) as results land. The org layout supplies the auth/DB guards.
+// Org dashboard "Live" tab. TWO views over the same fleet, chosen by `?view=`:
 //
-// Migrated onto the org tab shell (docs/ORG-TABS-REFACTOR.md):
-//   - SERVER component, filename PINNED as `LiveTab.tsx`; takes `slug` + the resolved `sp` as props
-//     since it is no longer a route.
-//   - Its old route (src/app/org/[slug]/live/page.tsx) is now a redirect().
-//   - LiveWarRoom (the client polling surface) is UNCHANGED — same props, same behavior. Its TV/wall
-//     mode is pure component state (`useState` inside LiveWarRoom) plus `document.documentElement.
-//     requestFullscreen()`, which fullscreens the whole viewport regardless of DOM nesting depth, so
-//     it keeps working unmodified nested inside the tab shell. Its wake lock, aria-live announcer
-//     (warRoomAnnounce.ts) and the read-only share view (/live/shared/[token], a separate top-level
-//     route unrelated to this tab) are all untouched — see the migration report for the full verdict.
+//   default    → the LOOP COCKPIT: the observatory sky chart (adoption × rigor) as the dominant
+//                object, a mode-switching right rail (inspect ⇄ run ⇄ outcome), and the run history.
+//   ?view=wall → the original Fleet Command WAR ROOM, unchanged — AutopilotBand + stack selector +
+//                LiveWarRoom, with its SSE fold, TV mode, wake lock and share link all intact.
+//
+// The wall is not deprecated and is not a fallback; it answers "what is the fleet doing right now",
+// which is a different question from "what should we improve next". Keeping it addressable by URL is
+// also what keeps the kiosk route (/live/shared/[token], which renders LiveWarRoom read-only and is
+// deliberately untouched by any of this) honest — it renders the same component this tab does.
+//
+// SERVER component, filename PINNED as `LiveTab.tsx`; takes `slug` + the resolved `sp` as props.
+// Every loop read goes through the db layer directly (getActiveLoopRun / listLoopRuns), never
+// through /api/org/loop: the route exists for the browser's poll, and a server component fetching
+// its own API would pay a round trip to re-do auth it has already done.
 
 import { LiveWarRoom } from "./LiveWarRoom";
+import { LiveCockpit } from "./cockpit";
 import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
 import { buildFleetTimetable } from "./fleetTimetable";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { getOrgRepoHistories, getOrgRollup, listGoals, listLocalPairings, listOpsState } from "@/lib/db";
+import { getActiveLoopRun, listLoopRuns } from "@/lib/db/loop-runs";
 import { selfHosted } from "@/lib/env";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { AutopilotBand } from "./AutopilotBand";
@@ -26,13 +29,29 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
 import type { GoalProgressView } from "@/components/org/shared/goalView";
+import type { ObservatorySeed } from "./observatory";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
+
+/** `?view=wall` with every other param preserved — a view switch must not drop the active stack. */
+function wallHref(sp: SearchParams): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "view") continue;
+    if (Array.isArray(v)) for (const one of v) params.append(k, one);
+    else if (v != null) params.set(k, v);
+  }
+  if (!params.has("tab")) params.set("tab", "live");
+  params.set("view", "wall");
+  return `?${params.toString()}`;
+}
 
 export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   // Optional tech-stack scope (Feature 3b): a stack toggle on the live wall — scopes the seeded
   // standing AND the launched scan to that stack's repos, so "Frontend war room" runs only those.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
+  const view = typeof sp.view === "string" ? sp.view : "";
+  const local = selfHosted();
 
   // The goal the wall rallies around — the first not-yet-achieved goal, else the most recent. Its
   // createdAt doubles as the campaign-start baseline for the "since kickoff" delta (WAR-2).
@@ -41,7 +60,7 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
   const [rollup, isOwner, histories, ops] = await Promise.all([
     getOrgRollup(slug, goal ? { start: new Date(goal.createdAt) } : undefined, null, techGroupId),
     hasOrgRole(slug, "owner"),
-    // Per-repo overall-score history → the fleet-evolution timetable (repos × scan days).
+    // Per-repo history → the fleet-evolution timetable AND the observatory's trails.
     getOrgRepoHistories(slug, undefined, null, techGroupId).catch(() => []),
     // Ship-loop SSR snapshot (triage / in-flight PRs / landed impact); the band's poll advances it.
     listOpsState(slug).catch(() => null),
@@ -66,37 +85,70 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
     .filter((r) => r.watched && r.lastScanStatus === "error")
     .map((r) => ({ fullName: r.fullName, name: r.name, error: r.lastScanError }));
 
-  // LOCAL MODE: the paired repos the autopilot band can dispatch into. Empty everywhere but a
-  // self-hosted deployment with pairings, and the band renders only then — the wall is unchanged on
-  // managed cloud and on unpaired self-hosts.
-  const pairedRepos = selfHosted()
+  // LOCAL MODE: the paired repos a lane can be dispatched into. Empty everywhere but a self-hosted
+  // deployment with pairings — the cockpit turns that into its "pair a checkout first" setup state.
+  const pairedRepos = local
     ? (await listLocalPairings(slug).catch(() => [])).filter((r) => r.localPath != null).map((r) => r.fullName)
     : [];
 
+  if (view === "wall") {
+    return (
+      <div className="space-y-4">
+        {pairedRepos.length > 0 && <AutopilotBand org={slug} pairedRepos={pairedRepos} enabled={autopilotEnabled()} />}
+        {techGroups.length > 0 && (
+          <div className="flex justify-end">
+            <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
+          </div>
+        )}
+        {/* Re-key on the active stack so a toggle remounts the wall with the scoped seed (the SSE fold
+            otherwise owns `repos` and a prop change wouldn't re-seed it). */}
+        <LiveWarRoom
+          key={activeStack?.key ?? "all"}
+          slug={slug}
+          watchedCount={watched}
+          seed={seed}
+          scanRepos={scanRepos}
+          goal={(goal as GoalProgressView | null) ?? null}
+          campaignDeltas={goal ? rollup.deltas ?? null : null}
+          timetable={timetable}
+          ops={ops}
+          trend={rollup.trend}
+          fleetScannedAt={fleetScannedAt}
+          attention={attention}
+          canShare={canShare}
+        />
+      </div>
+    );
+  }
+
+  // The observatory seeds are the wall's seeds plus each repo's freshness — the field captions a body
+  // with when it was last measured, which the SSE-driven wall has no use for.
+  const scannedAt = new Map(rollup.repos.map((r) => [r.fullName, r.latest?.scannedAt ?? null]));
+  const seeds: ObservatorySeed[] = seed.map((s) => ({ ...s, scannedAt: scannedAt.get(s.fullName) ?? null }));
+  // Loop state, read straight from the store. Both degrade to empty without a DB or on managed cloud.
+  const [activeRun, runs] = local
+    ? await Promise.all([getActiveLoopRun(slug).catch(() => null), listLoopRuns(slug, 20).catch(() => [])])
+    : [null, []];
+
   return (
     <div className="space-y-4">
-      {pairedRepos.length > 0 && <AutopilotBand org={slug} pairedRepos={pairedRepos} enabled={autopilotEnabled()} />}
       {techGroups.length > 0 && (
         <div className="flex justify-end">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
         </div>
       )}
-      {/* Re-key on the active stack so a toggle remounts the wall with the scoped seed (the SSE fold
-          otherwise owns `repos` and a prop change wouldn't re-seed it). */}
-      <LiveWarRoom
+      <LiveCockpit
         key={activeStack?.key ?? "all"}
         slug={slug}
-        watchedCount={watched}
-        seed={seed}
-        scanRepos={scanRepos}
-        goal={(goal as GoalProgressView | null) ?? null}
-        campaignDeltas={goal ? rollup.deltas ?? null : null}
-        timetable={timetable}
-        ops={ops}
-        trend={rollup.trend}
-        fleetScannedAt={fleetScannedAt}
-        attention={attention}
-        canShare={canShare}
+        seeds={seeds}
+        histories={histories}
+        pairedRepos={pairedRepos}
+        activeRun={activeRun}
+        runs={runs}
+        loopEnabled={autopilotEnabled()}
+        selfHosted={local}
+        isOwner={isOwner}
+        wallHref={wallHref(sp)}
       />
     </div>
   );

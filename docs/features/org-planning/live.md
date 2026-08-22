@@ -260,23 +260,93 @@ Unchanged by the cockpit rebuild: **TV mode** (`LiveWarRoomTv`, rotating stages,
 `/live/shared/[token]` route (`src/lib/live-share.ts`). The legacy `/org/[slug]/live` route is a
 permanent `redirect()` to `?tab=live`.
 
-<!-- WP3: cockpit UI section to be completed -->
-
 ## The cockpit UI (`?tab=live`)
 
-_Placeholder — WP3 owns this section. Headings below are the agreed shape._
+`LiveTab.tsx` (server) keeps every load it had (stack scope, goals, rollup, repo histories, ops
+snapshot, pairings) and adds, **only when `selfHosted()`**, `getActiveLoopRun(slug)` +
+`listLoopRuns(slug, 20)` straight from the db layer. The default render is `<LiveCockpit>`
+(`src/features/inflight/live/cockpit/`); `?view=wall` renders the previous tree byte-for-byte
+(autopilot band + stack selector + `LiveWarRoom`). Both are `key`-remounted on a stack change.
+
+`LiveCockpit` props: `slug, seeds (ObservatorySeed[] = toLiveRepoSeeds(rollup.repos) + scannedAt),
+histories, pairedRepos, activeRun, runs, loopEnabled, selfHosted, isOwner, wallHref` — `wallHref`
+rebuilds the current query string with `view=wall` so scope params survive the toggle.
+
+Layout: header (`Kicker` "Observatory", LIVE dot while a run is live, `N lanes · cycle c/m`, **Wall**
+link, **Stop**) · the Observatory field (dominant) with the fleet list as a collapsible section below
+it · a right rail whose mode is **derived from the run lifecycle**, not a tab bar: `inspect` (no run)
+⇄ `run` (active run) ⇄ `outcome` (a finished run or a history pick) · the run-history strip. One
+primary CTA at a time: **Run (N repos)** / **Stop after in-flight** / **Replay run**.
 
 ### The Observatory (sky chart)
 
+`src/features/inflight/live/observatory/`. Every scanned repo is a body at (adoption, rigor) in a
+0–100 field, fill = level colour (`LEVEL_HEX`), radius constant unless a `volumes` map is passed,
+carrying a **trail** of its last three observations. The trail needs adoption/rigor per history
+point — `RepoTrajectoryPoint` (`src/lib/db/org-rollup.ts`) now selects `adoptionScore`/`rigorScore`
+for that reason. The **AI-Native frontier** is an L, not a diagonal: `postureFor` needs *both* axes
+≥ `POSTURE_THRESHOLD` (50), and a test pins `OBSERVATORY_THRESHOLD === POSTURE_THRESHOLD`. Quadrant
+captions (Compounding / Adoption-heavy / Rigor-heavy / Laggards) are muted mono SVG text. Never-scanned
+repos appear in the list but are **not plotted** (no invented coordinates). Above 40 bodies the field
+clusters per quadrant cell (count + members; click to expand; the lasso selects a cluster's members).
+
+The SVG is `aria-hidden`; **`ObservatoryList` is the accessible twin** — every body is an
+`aria-pressed` button with roving tabindex, arrow/Home/End navigation, and the same `selected` set.
+
+Motion: bodies of lanes in `dispatching` or `rescanning` pulse with the existing `.live-dot`; the
+outcome **drift** (≤ 900 ms ease-out along a bowed path, fill tween, one `.burst-ring` on a frontier
+crossing) is the only new tween and renders its end state under `prefers-reduced-motion`. No idle loops.
+
 ### Lasso selection and the curated batch
+
+Drag on empty field = rectangle lasso (the meaningful regions are the 50/50 rectangles; the hit-test
+takes any polygon); shift extends; click toggles a body. Selection is cockpit state, seeded from the
+last run's repos. The **Inspector** shows the selection as chips, the **shared-dimension bars** (per
+dimension, how many selected repos have an open follow-up; ≥ half → the org-wide call line "D2 open in
+7 of 12"), and the **proposed batch per repo** from `GET /api/org/loop/propose` — each row a title,
+`ImpactEffort`/`Points` chips and a prune checkbox; a dimension-focus select narrows every repo's
+proposals to one dimension. Concurrency (1–4, default 2) and cycles (1–5) use the `Field` kit.
+**Unpaired repos are skipped, not blocking:** flagged "not paired · skipped" and dropped from the
+batch; the CTA counts paired repos only and disables at zero.
 
 ### Run: lanes with stage travel
 
+`useLoopRun` polls `GET /api/org/loop` **and** the active run's `[id]` detail on one 3-second tick
+while the run is `running` (visibility-gated; the status route returns the run row only, the lanes
+come from detail). `CockpitRunPanel` renders one `LaneRail` per lane: repo, cycle, a rail of stops
+`queued → dispatching → fetch / tree / files / analyze / score / compose → done` with a marker that
+travels between stops (CSS transition, `motion-reduce:transition-none`) and a heartbeat on the active
+stop; commits and closed ids are mono counters beside the rail (there is no `commits` stop — commits
+accumulate during `dispatching`, a stop would park the marker at a state the engine never enters);
+the agent log is a collapsible detail; `error` lanes offer **Retry**; `done` lanes stamp the lift.
+
 ### The outcome ledger (per-dimension delta + attribution)
+
+When the run settles, the rail switches to `CockpitOutcome`: totals (lift, repos improved / flat /
+regressed) and a hairline ledger per repo — before → after overall (`fmtDelta`), dimensions moved
+(`DIMENSION_SHORT` + delta in `deltaHex`), closed gaps, the `diffScans` attribution one-liners,
+follow-ups closed by the `Ascent-Resolves` trailer, commits and branch. **Replay run** re-runs the
+field drift. Drift ends come from the run's own detail, not a client snapshot: `driftFor` overlays
+each lane's `outcome.before` / `outcome.after` scan onto the seed set and lays out both sides, so a
+history pick drifts a run you never watched and the picture cannot disagree with the ledger; a run
+with no measured pair disables Replay. `router.refresh()` fires on settle to re-seed the server
+render.
 
 ### Run history
 
-<!-- /WP3 -->
+`CockpitHistory` lists the last 20 runs (age, repo count, lift, phase); selecting one fetches its
+detail and shows the outcome rail for it.
+
+### Setup states (`CockpitSetup`)
+
+`hosted` (field still rendered read-only; explains loops run where the code is, links to self-hosting
+via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab) · `not-owner`
+· `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a checkout via
+`?tab=pairing` → pick repos → run).
+
+Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
+`useLoopRun.dom.test.tsx`, `CockpitOutcome.dom.test.tsx`, `LiveTabView.dom.test.tsx` (wall mode and
+the kiosk render no cockpit), `observatory/*.test.ts(x)`.
 
 ## Key files
 
@@ -291,6 +361,8 @@ _Placeholder — WP3 owns this section. Headings below are the agreed shape._
 | Routes | `src/app/api/org/loop/{route,propose/route,[id]/route}.ts` |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |
+| Cockpit | `src/features/inflight/live/cockpit/**` |
+| Observatory | `src/features/inflight/live/observatory/**` |
 | Schema | `prisma/schema.prisma`, `prisma/migrations/20260822120000_add_loop_run`, `prisma/init.sql` |
 
 Tests: `loop-runs.test.ts` (row→record parsing, log bound), `loop-engine.test.ts` (happy path,

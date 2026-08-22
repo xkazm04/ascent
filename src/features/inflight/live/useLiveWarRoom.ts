@@ -19,7 +19,7 @@ import {
 import { computeLeaderboard, computeStats, foldRepoEvent, progressPct } from "@/features/inflight/live/liveWarRoomFold";
 import { useLiveWarRoomCelebrations } from "@/features/inflight/live/liveWarRoomCelebrate";
 import { useLiveWarRoomKiosk } from "@/features/inflight/live/liveWarRoomKiosk";
-import { runLiveScan } from "@/features/inflight/live/liveWarRoomLaunch";
+import { runLiveScan, type LiveProgress } from "@/features/inflight/live/liveWarRoomLaunch";
 
 export function useLiveWarRoom({
   slug,
@@ -38,7 +38,7 @@ export function useLiveWarRoom({
     Object.fromEntries(seed.map((r) => [r.fullName, { ...r, updatedAt: 0 }])),
   );
   const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState({ done: 0, total: watchedCount, current: "" });
+  const [progress, setProgress] = useState<LiveProgress>({ done: 0, total: watchedCount, current: "", stage: null });
   const [error, setError] = useState<string | null>(null);
   // Repos the server skipped for lack of prepaid scan credits (`notice` up front, per-repo
   // `skipped` events mid-run, authoritative total on `result`). Surfaced as a warn line so a
@@ -128,7 +128,7 @@ export function useLiveWarRoom({
     abortRef.current?.abort();
     abortRef.current = null;
     setPhase("idle");
-    setProgress((p) => ({ ...p, current: "" }));
+    setProgress((p) => ({ ...p, current: "", stage: null }));
   }, []);
 
   useLiveWarRoomKiosk({ readOnly, seed, reposRef, setRepos });
