@@ -69,7 +69,8 @@ Documented in [org-intelligence.md](../org-dashboard/org-intelligence.md) (W1c).
 
 Unchanged by the retirement and documented where they live: the briefing and its PDF in
 [org-intelligence.md](../org-dashboard/org-intelligence.md); playbooks in
-[practices.md](../org-dashboard/practices.md).
+[practices.md](../org-dashboard/practices.md); the live wall — and the loop cockpit that now fronts
+it at `?tab=live` — in [live.md](live.md).
 
 ## Retired on 2026-08-17 (for the record)
 

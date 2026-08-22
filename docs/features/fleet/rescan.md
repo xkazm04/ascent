@@ -83,6 +83,40 @@ Repos the deadline guard never issued (`remaining`) were never claimed, so their
 `nextScanAt` is untouched; they're still due and picked up by the next cron pass, neither
 failed nor backed off.
 
+## Sub-stage progress frames on `/api/org/scan`
+
+`POST /api/org/scan` streams the fleet run to the Live tab over SSE. Since 2026-08-22 it emits
+**two** kinds of `progress` frame, and the difference matters to every consumer:
+
+```jsonc
+{ "stage": "scan",    "repo": "acme/api", "index": 3, "total": 12 }            // repo BOUNDARY
+{ "stage": "analyze", "repo": "acme/api", "index": 3, "total": 12, "pct": 62 } // SUB-progress
+```
+
+The sub-stages are the scanner's own, in order: `fetch → tree → files → analyze → score → compose`
+(`SCAN_SUBSTAGES`, `src/lib/scan-stage.ts`). They are forwarded straight from `scanRepository`'s
+`onProgress`. The scanner's terminal `done` stage is deliberately **dropped**: the per-repo `repo`
+frame is the authoritative end of a repo, and two "finished" signals would be one too many.
+
+**Why this exists.** The stream used to fall silent for the whole duration of a repo's scan — minutes
+on a live LLM run — which reads as a hung wall.
+
+**The consumer contract.** A sub-stage frame carries the **same `index`/`total`** as the `stage:"scan"`
+boundary frame emitted just before it, because a sub-stage is not a unit of fleet progress. That is
+only safe while every consumer **assigns `done = index` and never increments it**. The rule is folded
+once, for all consumers, by the pure `foldProgressFrame` (`src/lib/scan-stage.ts`), so it has a place
+to be tested instead of living implicitly in four call sites:
+
+- a boundary frame sets `current` and **clears** `stage`;
+- a sub-stage frame sets `stage` and leaves the counters where the boundary put them;
+- a frame that omits or garbles `index`/`total` keeps the previous values — malformed frames are inert
+  rather than destructive (this is also what lets a credit-truncated run *shrink* the denominator);
+- an unknown `stage` string is treated as a boundary, never as sub-progress.
+
+The credit/refund and per-repo `repo` frames below are unchanged. The same stage vocabulary drives the
+`stage` column of a loop run's lane during its rescan — see
+[org-planning/live.md](../org-planning/live.md#fleet-sse-sub-stages).
+
 ## Refund boundary (shared by `/api/cron/rescan`, `/api/org/scan`, `/api/org/import`)
 
 All three fleet-scan routes reserve a credit, then run `scanRepository()` → `persistScanReport()`

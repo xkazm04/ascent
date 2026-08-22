@@ -215,13 +215,26 @@
         "src/lib/pdf/**",
         "src/lib/live-share.ts",
         "src/lib/briefing-share.ts",
-        "src/features/inflight/live/**",
         "src/features/bought/executive/**",
         "src/app/api/org/goals/**",
         "src/app/api/org/playbooks/**",
         "src/app/api/org/briefing/**",
         "src/app/api/org/ops/**",
         "src/app/api/org/live-share/**"
+      ]
+    },
+    {
+      "area": "org-planning",
+      "doc": "docs/features/org-planning/live.md",
+      "sourceGlobs": [
+        "src/features/inflight/live/**",
+        "src/app/api/org/loop/**",
+        "src/lib/local/loop-engine.ts",
+        "src/lib/local/loop-lane.ts",
+        "src/lib/local/loop-worktree.ts",
+        "src/lib/db/loop-runs*.ts",
+        "src/lib/db/loop-tenancy.ts",
+        "src/lib/scan-stage.ts"
       ]
     },
     {
