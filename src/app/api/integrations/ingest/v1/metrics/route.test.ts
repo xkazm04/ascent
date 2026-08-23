@@ -15,6 +15,9 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/integrations/ingest-token", () => ({
   bearerToken: vi.fn((auth: string | null) => (auth ? auth.replace(/^Bearer /i, "") : null)),
   parseIngestToken: vi.fn(),
+  // Wire-format cases assume an authorized caller on a configured deployment; the unconfigured
+  // refusal (503) is covered against the guard, which is where it is decided.
+  isIngestConfigured: vi.fn(() => true),
 }));
 vi.mock("@/lib/integrations/otlp", () => ({ parseOtlpMetrics: vi.fn() }));
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));

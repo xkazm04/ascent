@@ -37,8 +37,14 @@ function mkReq(body: unknown): Request {
   });
 }
 
+// The route now refuses to mint when the server holds no ingest secret — it would be signing under
+// nothing verifiable — so the rotation cases configure one, exactly as a real deployment must. The
+// refusal itself is asserted in its own case at the bottom of this file.
+const INGEST_SECRET = "test-ingest-secret-do-not-use";
+
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.INTEGRATIONS_INGEST_SECRET = INGEST_SECRET;
   mockDbConfigured.mockReturnValue(true);
   mockBump.mockResolvedValue(1);
   mockRole.mockResolvedValue(null);
@@ -109,5 +115,23 @@ describe("guards", () => {
     const res = await POST(mkReq({ org: "ghost", rotate: true }));
     expect(res.status).toBe(404);
     expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("ingest secret", () => {
+  it("503s rather than minting a token nothing could verify", async () => {
+    delete process.env.INTEGRATIONS_INGEST_SECRET;
+    const saved = process.env.ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_KEY;
+    try {
+      const res = await POST(mkReq({ org: "acme", rotate: true }));
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining("INTEGRATIONS_INGEST_SECRET") });
+      // and nothing was bumped or audited: the refusal happens before any state moves
+      expect(mockBump).not.toHaveBeenCalled();
+      expect(mockAudit).not.toHaveBeenCalled();
+    } finally {
+      if (saved !== undefined) process.env.ENCRYPTION_KEY = saved;
+    }
   });
 });

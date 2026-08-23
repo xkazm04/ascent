@@ -21,15 +21,39 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PREFIX = "asc_otel";
-// A stable server secret. Prefer a dedicated var; fall back to ENCRYPTION_KEY, then a clearly-marked
-// dev default so the local demo shows a working token. Rotating the secret rotates every org's token.
-const SECRET = process.env.INTEGRATIONS_INGEST_SECRET || process.env.ENCRYPTION_KEY || "ascent-dev-integrations-secret";
+
+/**
+ * The stable server secret: a dedicated var, or ENCRYPTION_KEY. There is deliberately NO fallback.
+ *
+ * There used to be one — a hardcoded `"ascent-dev-integrations-secret"`, "a clearly-marked dev
+ * default so the local demo shows a working token". It was neither dev-only nor marked at runtime:
+ * there was no NODE_ENV guard, and `.env.example` never named either variable, so the documented way
+ * to deploy this project produced a live internet-facing ingest endpoint whose tokens were signed
+ * under a constant that ships in the source. Anyone who read the repository could mint
+ * `asc_otel.<slug>.<mac>` for any org — and a never-rotated org sits at epoch 0, which the guard
+ * accepts — and write fabricated usage and agent-session rows into that org's delivery data.
+ *
+ * Absence must close the door, not weaken it. Read at CALL time (like `secret-box.ts`), so a test or
+ * a process that sets the var late is not defeated by module-load ordering.
+ */
+function ingestSecret(): string | null {
+  return process.env.INTEGRATIONS_INGEST_SECRET || process.env.ENCRYPTION_KEY || null;
+}
+
+/**
+ * Whether this deployment can sign or verify ingest tokens at all. Callers that would otherwise
+ * present a working-looking token, or refuse with a misleading "invalid token", gate on this and say
+ * "not configured here" instead — the honest refusal, which names something the operator can fix.
+ */
+export function isIngestConfigured(): boolean {
+  return ingestSecret() !== null;
+}
 
 /** Signed material for (slug, epoch). Epoch 0 keeps the original input verbatim — that is what makes
  *  every already-issued token keep verifying. */
-function mac(slug: string, epoch: number): string {
+function mac(slug: string, epoch: number, secret: string): string {
   const material = epoch > 0 ? `otel:${slug}:e${epoch}` : `otel:${slug}`;
-  return createHmac("sha256", SECRET).update(material).digest("hex").slice(0, 32);
+  return createHmac("sha256", secret).update(material).digest("hex").slice(0, 32);
 }
 
 /** Normalize an untrusted epoch to a non-negative integer. */
@@ -40,8 +64,13 @@ function normEpoch(epoch: number | undefined): number {
 /** The org's ingest token at `epoch` — safe to display to an owner and paste into their OTel exporter
  *  headers. Epoch 0 (never rotated) yields the original 3-segment form. */
 export function ingestToken(slug: string, epoch = 0): string {
+  // Symmetric with parseIngestToken's guard, and the same shape as auth.ts's signSession: never mint
+  // a credential nobody can verify, and never hand an owner a token that only appears to work.
+  // Callers on a user-facing path check isIngestConfigured() first; this is the backstop.
+  const secret = ingestSecret();
+  if (!secret) throw new Error("INTEGRATIONS_INGEST_SECRET is not set; refusing to mint an ingest token");
   const e = normEpoch(epoch);
-  return e > 0 ? `${PREFIX}.${slug}.e${e}.${mac(slug, e)}` : `${PREFIX}.${slug}.${mac(slug, 0)}`;
+  return e > 0 ? `${PREFIX}.${slug}.e${e}.${mac(slug, e, secret)}` : `${PREFIX}.${slug}.${mac(slug, 0, secret)}`;
 }
 
 /** Pull the ingest token from an `Authorization: Bearer …` header, falling back to a custom header. */
@@ -62,6 +91,12 @@ export interface IngestClaim {
  * a separate, stateful check — see `authorizeIngest` in ingest-guard.ts. Both must pass.
  */
 export function parseIngestToken(token: string): IngestClaim | null {
+  // No secret ⇒ no signature can be trusted. Fail closed BEFORE any derivation or compare, so an
+  // unconfigured deployment cannot be talked into accepting a token by a caller that skipped
+  // isIngestConfigured(). Exactly the guard decodeSession carries in auth.ts, for the same reason.
+  const secret = ingestSecret();
+  if (!secret) return null;
+
   const parts = token.trim().split(".");
   if (parts[0] !== PREFIX) return null;
 
@@ -81,7 +116,7 @@ export function parseIngestToken(token: string): IngestClaim | null {
   }
   if (!slug || !provided) return null;
 
-  const expected = mac(slug, epoch);
+  const expected = mac(slug, epoch, secret);
   if (provided.length !== expected.length) return null;
   try {
     if (!timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) return null;

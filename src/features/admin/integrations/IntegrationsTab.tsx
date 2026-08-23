@@ -10,7 +10,7 @@
 
 import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { IntegrationsPanel } from "./IntegrationsPanel";
-import { ingestToken } from "@/lib/integrations/ingest-token";
+import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token";
 import { getIngestTokenEpoch, getProviderIngestStatus } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -42,7 +42,14 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
         title="Integrations"
         description="Connect your AI coding providers to replace the simulated spend in AI delivery with real usage, one provider at a time."
       />
-      <IntegrationsPanel slug={slug} ingestToken={ingestToken(slug, epoch)} ingestPath="/api/integrations/ingest" statuses={statuses} />
+      {/* An empty token is the "not configured here" signal: the setup panel renders the operator
+          instruction instead of a credential that could never verify. */}
+      <IntegrationsPanel
+        slug={slug}
+        ingestToken={isIngestConfigured() ? ingestToken(slug, epoch) : ""}
+        ingestPath="/api/integrations/ingest"
+        statuses={statuses}
+      />
     </div>
   );
 }

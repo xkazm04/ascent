@@ -6,7 +6,7 @@
 // Both the limiter config and the token secret are captured at module load, so the module is imported
 // dynamically after the env is stubbed.
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 
 // The ONLY stub in this file is the stored-epoch lookup — it is a DB read, and there is no DB here.
 // The HMAC, the limiter and the cap all run for real, so the revocation cases below prove the actual
@@ -180,5 +180,28 @@ describe("guardIngest — per-org revocation epoch", () => {
     expect(res.deny?.status).toBe(503);
     expect(res.deny?.headers.get("retry-after")).toBe("30");
     db.epoch = 0;
+  });
+});
+
+describe("guardIngest — unconfigured deployment", () => {
+  // The whole point of the fix: with no secret the guard must refuse with a cause the operator can
+  // act on, instead of parseIngestToken failing closed into a 401 that blames the callers token.
+  afterEach(() => {
+    process.env.INTEGRATIONS_INGEST_SECRET = SECRET;
+  });
+
+  it("refuses with 503 naming the variable, not a 401 blaming the callers token", async () => {
+    delete process.env.INTEGRATIONS_INGEST_SECRET;
+    delete process.env.ENCRYPTION_KEY;
+    const req = new Request("http://localhost/api/integrations/ingest", {
+      method: "POST",
+      headers: { authorization: "Bearer asc_otel.acme.deadbeefdeadbeefdeadbeefdeadbeef" },
+    });
+    const out = await guard.guardIngest(req);
+    expect(out.deny).toBeDefined();
+    expect(out.deny.status).toBe(503);
+    await expect(out.deny.json()).resolves.toMatchObject({
+      error: expect.stringContaining("INTEGRATIONS_INGEST_SECRET"),
+    });
   });
 });

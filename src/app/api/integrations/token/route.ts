@@ -15,7 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { bumpIngestTokenEpoch, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { ingestToken } from "@/lib/integrations/ingest-token";
+import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token";
 import { requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
@@ -35,6 +35,16 @@ export async function POST(request: Request) {
 
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
+
+  if (!isIngestConfigured()) {
+    // No server secret means any token minted here would be signed under nothing verifiable, and the
+    // ingest endpoint refuses every push anyway. Say that, rather than hand an owner a string that
+    // looks like a credential and silently never works.
+    return NextResponse.json(
+      { error: "Ingest is not configured on this deployment. Set INTEGRATIONS_INGEST_SECRET on the server." },
+      { status: 503 },
+    );
+  }
 
   if (!isDbConfigured()) {
     // Without persistence there is nowhere to record the bump, so the old token would keep working —

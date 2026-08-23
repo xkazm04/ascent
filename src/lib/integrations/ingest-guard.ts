@@ -18,7 +18,7 @@
 // Server-only (node crypto via ingest-token, and the module-global limiter state).
 
 import { rateLimitRequestShared, tooManyRequests, type RateLimitConfig } from "@/lib/rate-limit";
-import { bearerToken, parseIngestToken } from "@/lib/integrations/ingest-token";
+import { bearerToken, isIngestConfigured, parseIngestToken } from "@/lib/integrations/ingest-token";
 import { getIngestTokenEpoch } from "@/lib/db/integrations";
 
 /**
@@ -119,6 +119,16 @@ export function unauthorizedIngest(): Response {
   });
 }
 
+/** The 503 for a deployment that has no ingest secret, so no token can be signed or verified here.
+ *  Deliberately NOT a 401: nothing is wrong with the caller's token, and telling them it is invalid
+ *  sends them to fix the one thing that is fine. Names the variable so the operator can act. */
+export function ingestNotConfigured(): Response {
+  return new Response(
+    JSON.stringify({ error: "Ingest is not configured on this deployment. Set INTEGRATIONS_INGEST_SECRET on the server." }),
+    { status: 503, headers: { "content-type": "application/json; charset=utf-8" } },
+  );
+}
+
 /** The 401 for a token whose signature is fine but whose epoch has been rotated away. Distinct copy,
  *  same status: the exporter's operator needs to know the fix is "paste the NEW token", not "check
  *  your typing" — but a caller must not be able to distinguish a revoked org from a forged mac by
@@ -134,6 +144,8 @@ export function revokedIngest(): Response {
  * The common front door for every ingest route, in the ONE order that stays honest:
  *   1. rate limit (429) — charged before any crypto or body read, so a flood is cheap to refuse and
  *      the guard covers unauthenticated callers too;
+ *   1b. configured check (503) — an unconfigured deployment cannot verify anything, so every caller
+ *      would otherwise be told its token is invalid. Same refusal, honest cause;
  *   2. signature verification (401) — so wire-format/parse behavior below never leaks to an anonymous
  *      caller (a bad-token protobuf push gets 401, NOT 415);
  *   3. revocation check (401) — the token's minted epoch must be >= the org's stored epoch. A token
@@ -150,6 +162,12 @@ export async function guardIngest(req: Request): Promise<{ deny: Response } | { 
   // different actions. (See tooManyRequests for what is deliberately withheld about the global.)
   const rl = await rateLimitRequestShared(req, INGEST_RATE_LIMIT);
   if (!rl.ok) return { deny: tooManyRequests(rl) };
+
+  // 1b. Not configured (503) — before the signature step, because without a secret parseIngestToken
+  // fails closed and EVERY caller would get 401 "invalid token". That is a true refusal wearing a
+  // misleading cause: it sends an operator to check their exporter's header when the fix is a
+  // variable on the server. Distinct status and copy, naming the thing they can act on.
+  if (!isIngestConfigured()) return { deny: ingestNotConfigured() };
 
   const token = bearerToken(req.headers.get("authorization"), req.headers.get("x-ascent-ingest-token"));
   const parsed = token ? parseIngestToken(token) : null;

@@ -12,6 +12,9 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/integrations/ingest-token", () => ({
   bearerToken: vi.fn((auth: string | null) => (auth ? auth.replace(/^Bearer /i, "") : null)),
   parseIngestToken: vi.fn(),
+  // These cases are about the ROUTE's behaviour once a caller is authorized, so the deployment is
+  // configured. The unconfigured refusal (503) is covered where it belongs, against the guard.
+  isIngestConfigured: vi.fn(() => true),
 }));
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));
 

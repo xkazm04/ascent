@@ -22,6 +22,26 @@ import { RegenerateTokenButton } from "./RegenerateTokenButton";
 import { buildEnvSnippet, maskIngestToken } from "./envSnippet";
 
 export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: string; ingestToken: string; ingestPath: string }) {
+  // An empty token means the server holds no ingest secret, so nothing it could show here would ever
+  // verify. Refuse the capability out loud and name what an operator has to set, rather than render a
+  // masked string, a copy button and a Test button that can only ever fail.
+  if (!ingestToken) return <IngestNotConfigured />;
+  return <ClaudeCodeSetupConfigured slug={slug} ingestToken={ingestToken} ingestPath={ingestPath} />;
+}
+
+function IngestNotConfigured() {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+      <p className="font-medium text-amber-200">Ingest is not configured on this deployment.</p>
+      <p className="mt-1 text-muted-foreground">
+        Set <code className="rounded bg-muted px-1 py-0.5 text-xs">INTEGRATIONS_INGEST_SECRET</code> on the server and
+        restart. Until then no ingest token can be issued or verified, and pushes to this endpoint are refused.
+      </p>
+    </div>
+  );
+}
+
+function ClaudeCodeSetupConfigured({ slug, ingestToken, ingestPath }: { slug: string; ingestToken: string; ingestPath: string }) {
   const [token, setToken] = useState(ingestToken);
   const [rotated, setRotated] = useState(false);
   const [revealed, setRevealed] = useState(false);

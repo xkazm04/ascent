@@ -6,7 +6,7 @@
 // The secret is captured at module load, so the module is imported dynamically AFTER the env is
 // stubbed (a static import would hoist above the assignment and pick up the ambient ENCRYPTION_KEY).
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
 
 const SECRET = "test-ingest-secret-do-not-use";
@@ -124,5 +124,56 @@ describe("bearerToken", () => {
     expect(mod.bearerToken("Basic zzz", "abc123")).toBe("abc123");
     expect(mod.bearerToken(null)).toBeNull();
     expect(mod.bearerToken(null, null)).toBeNull();
+  });
+});
+
+/**
+ * THE FAIL-CLOSED HALF. There used to be a hardcoded fallback secret, so an unconfigured deployment
+ * still verified tokens — under a constant that ships in this repository. These cases pin the
+ * property that replaced it: with no secret, nothing verifies and nothing is minted.
+ *
+ * The secret is read at CALL time, so a fresh import is not required; the env is simply cleared
+ * around each case.
+ */
+describe("with no ingest secret configured", () => {
+  const saved = { dedicated: process.env.INTEGRATIONS_INGEST_SECRET, encryption: process.env.ENCRYPTION_KEY };
+
+  beforeEach(() => {
+    delete process.env.INTEGRATIONS_INGEST_SECRET;
+    delete process.env.ENCRYPTION_KEY;
+  });
+  afterEach(() => {
+    if (saved.dedicated === undefined) delete process.env.INTEGRATIONS_INGEST_SECRET;
+    else process.env.INTEGRATIONS_INGEST_SECRET = saved.dedicated;
+    if (saved.encryption === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = saved.encryption;
+  });
+
+  it("reports itself unconfigured", () => {
+    expect(mod.isIngestConfigured()).toBe(false);
+  });
+
+  it("refuses to mint a token rather than signing one nothing can verify", () => {
+    expect(() => mod.ingestToken("acme")).toThrow(/INTEGRATIONS_INGEST_SECRET/);
+  });
+
+  it("verifies nothing — including a token that was valid while a secret was set", () => {
+    process.env.INTEGRATIONS_INGEST_SECRET = SECRET;
+    const good = mod.ingestToken("acme");
+    expect(mod.parseIngestToken(good)).not.toBeNull();
+
+    delete process.env.INTEGRATIONS_INGEST_SECRET;
+    expect(mod.parseIngestToken(good)).toBeNull();
+  });
+
+  it("does not accept a token forged under the old hardcoded default", () => {
+    const forged = `asc_otel.acme.${createHmac("sha256", "ascent-dev-integrations-secret").update("otel:acme").digest("hex").slice(0, 32)}`;
+    expect(mod.parseIngestToken(forged)).toBeNull();
+  });
+
+  it("becomes configured again from ENCRYPTION_KEY alone", () => {
+    process.env.ENCRYPTION_KEY = "fallback-key-for-this-case";
+    expect(mod.isIngestConfigured()).toBe(true);
+    expect(mod.parseIngestToken(mod.ingestToken("acme"))).toEqual({ slug: "acme", epoch: 0 });
   });
 });
