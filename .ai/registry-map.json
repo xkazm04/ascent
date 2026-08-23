@@ -18,7 +18,9 @@
     "weaklyGoverned": 9,
     "medianTopScore": 579.9,
     "carriedVerdicts": 5,
-    "restoredPairs": 1
+    "restoredPairs": 1,
+    "judged": 5,
+    "deviations": 4
   },
   "subjectIndex": {
     "quality-gates": [
@@ -1852,7 +1854,7 @@
           ],
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "ingest-token.ts:26 falls back to the hardcoded literal \"ascent-dev-integrations-secret\" with no NODE_ENV guard, and .env.example never names the var - an absent secret leaves the public ingest endpoint open, not closed.",
+          "evidence": "SECRET FALLBACK FIXED (ba86700e: fails closed + 503 refusals + documented). Remaining: ingest-guard.ts:32 envInt silently defaults a malformed limit; copilot.ts:109 collapses denied with unreachable; Copilot card advertises a capability with no affordance.",
           "evaluatedAt": "2026-08-23",
           "evaluatedAgainst": "sha256:1117665ec59c1168"
         },
