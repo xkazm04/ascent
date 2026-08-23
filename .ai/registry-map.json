@@ -19,8 +19,8 @@
     "medianTopScore": 579.9,
     "carriedVerdicts": 5,
     "restoredPairs": 1,
-    "judged": 5,
-    "deviations": 4
+    "judged": 8,
+    "deviations": 7
   },
   "subjectIndex": {
     "quality-gates": [
@@ -683,7 +683,10 @@
             "scanning"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "scan-ingest.ts:81 swallows a thrown PR fetch to null; buildScanWarnings warns only when the token is absent, so a failed sensor scores and persists as 'repo has no PRs'.",
+          "evaluatedAt": "2026-08-23",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         },
         {
           "subject": "hash-pinned-translation-pipeline",
@@ -1296,7 +1299,10 @@
             "wizard"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "Silent per-tab resume (useOnboardingFlow.ts:182-189) over server-side commit effects: a mid-scan refresh lands on 'select' with no re-attach, inviting a second import POST.",
+          "evaluatedAt": "2026-08-23",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
       "governance": "governed"
@@ -3211,7 +3217,10 @@
             "embed"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "badge route.ts:280 .catch(()=>null) drops the org bar to the archetype default on a DB blip, rendering a confident pass; the gate endpoint fixed exactly this with a 503.",
+          "evaluatedAt": "2026-08-23",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         },
         {
           "subject": "usage-analytics",
