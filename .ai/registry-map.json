@@ -1650,7 +1650,10 @@
             "trail"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "scans-persist.ts:580 and scans-recommendations.ts:149 write in-tx audit rows without withAuditSignature, so the product's core actions verify as 'unsigned'; scans-audit.ts:139 gives the ledger a delete door (the digest claim marker is a control record in audit clothes); failed writes are logged (scans-audit.ts:41) but never counted or surfaced.",
+          "evaluatedAt": "2026-08-24",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         },
         {
           "subject": "authorization",
@@ -1753,7 +1756,10 @@
             "rollout"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "adoption.ts:48-49 banded distribution with stated cutoffs; :73/:160-169 mentor-learner gap floor under the namingAllowed ethics guard; :4-5 delivery beside adoption 'not a causal claim'; playbooks.ts:254-259 counts lift only when both pair halves exist, null otherwise; governance.ts publishes the assessed-vs-scanned denominator.",
+          "evaluatedAt": "2026-08-24",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
       "governance": "governed"
@@ -1905,9 +1911,9 @@
           "bundle": "software-engineering",
           "source": "conform",
           "confidence": "strong",
-          "state": "unknown",
-          "evidence": "added by /conform: the matcher scored this at zero (repo says provider/integration, subject says connector/catalog/adapter); providers.ts:57-105 is catalog-as-data, otlp.ts+copilot.ts are adapter-normalization.",
-          "evaluatedAt": "2026-08-23",
+          "state": "deviation",
+          "evidence": "IntegrationsPanel.tsx:57 keys the connect affordance on a hard-coded id, so the Copilot row's status:'available'/connectKind:'admin-pull' lights no surface (header :3 still calls it planned) — the row declares but consumers don't derive; ownership/matching/lifecycle are n/a for a code-only catalog, adapter-normalization is realized.",
+          "evaluatedAt": "2026-08-24",
           "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
@@ -2502,7 +2508,10 @@
             "consolidation"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "One value model with one home (recall.ts, imported by decay.ts:27 and coverage.ts); recall/route.ts:87 bumps only delivered ids and :94-108 splits budget-omitted from ineligible; org-memory-lifecycle.ts:150-184 rollups supersede transactionally, never delete; reflect route proposal-gates every apply.",
+          "evaluatedAt": "2026-08-24",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
       "governance": "governed"
@@ -3131,7 +3140,10 @@
             "limiting"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "rate-limit.ts:60-63 trusts x-real-ip under the default hops=1 on the operator's word alone — no runtime witness (cf. the VERCEL gate the technique's exemplar uses) — so an unconfigured self-hosted deploy lets a caller mint a fresh bucket per request; :373-385 also spends per-IP allowance on globally-refused requests. Refusal contract, reaper, and basis labels are all realized.",
+          "evaluatedAt": "2026-08-24",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
       "governance": "governed"
