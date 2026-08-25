@@ -21,6 +21,7 @@
     "test:e2e": "playwright test",
     "test:e2e:org": "playwright test --config playwright.org.config.ts",
     "bench": "node scripts/benchmark.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "gate": "node scripts/maturity-gate.mjs",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",

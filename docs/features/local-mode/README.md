@@ -56,6 +56,10 @@ trailers closed.
 
 ## Autopilot (`?tab=live`, self-hosted + paired + `ASCENT_AUTOPILOT=1`)
 
+`npm run doctor` reports whether this machine meets the prerequisites (the flag, a `claude`
+CLI on PATH, and `cliProviderAllowed()` — i.e. non-production or self-hosted) as its
+"Autopilot" row, alongside the rest of the env → capability matrix.
+
 **Since 2026-08-22 the autopilot is a thin SHIM** (`src/lib/local/autopilot.ts`) over the durable
 **loop engine** — the same mechanics with the arity widened to a selected *set* of repos worked as
 bounded-parallel lanes, and the state moved out of a process `Map` into `LoopRun`/`LoopRunLane`.

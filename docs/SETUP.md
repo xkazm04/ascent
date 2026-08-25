@@ -57,6 +57,10 @@ in [`.env.example`](../.env.example).
 
 ## 3. Recommended order
 
+> Guided path: `/onboarding` in Claude Code walks this whole page (runtime probe → per-capability
+> questions → `.env.local` → boot verify → honest capability matrix); its repo overlay is
+> `.claude/onboarding/config.md`. `npm run doctor` is the read-only preflight it starts from.
+
 1. `npm run dev` → scan a public repo (works with **zero** keys, mock mode).
 2. Add `GEMINI_API_KEY` → live scoring.
 3. **Local DB, no install:** keep the default `PGLITE_DATA_DIR=.pglite/ascent`, an
@@ -88,6 +92,12 @@ in [`.env.example`](../.env.example).
 7. Enterprise (optional): Aurora DSQL (#F) + `LLM_PROVIDER=bedrock` (#G).
 
 ## 4. Degradation map (what works without what)
+
+Run **`npm run doctor`** to see this map evaluated against *your* machine: it loads
+`.env.local`/`.env` the way `next dev` does, probes Node/git/the `claude` CLI/the DB,
+and prints one row per capability (ready / fallback / off) with the single action
+that would change it. It reads env only (no model calls, no secret values printed)
+and always exits 0 — a report, not a gate.
 
 | Missing | Effect |
 |---|---|
