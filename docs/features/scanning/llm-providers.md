@@ -2,21 +2,23 @@
 
 The scoring step calls an LLM only to **calibrate and explain** deterministic signals,
 never to invent scores from scratch. That call goes through a single interface,
-`LLMProvider`, so the model behind it is a config change, not a rewrite. Seven providers
-ship today (`gemini`, `bedrock`, `openai`, `openrouter`, `local`, `claude-cli`, `mock`); an
-org can also connect its own Bedrock or OpenRouter account (BYOM), and every real LLM call
-is optionally mirrored to a local Tracklight instance for observability.
+`LLMProvider`, so the model behind it is a config change, not a rewrite. Eight providers
+ship today (`gemini`, `bedrock`, `openai`, `openrouter`, `local`, `claude-cli`, `codex-cli`,
+`mock`); an org can also connect its own Bedrock or OpenRouter account (BYOM), and every real
+LLM call is optionally mirrored to a local Tracklight instance for observability.
 
 **Two of them cost nothing and keep your source on hardware you control** — `local` (an
 Ollama / vLLM / LM Studio server) and `claude-cli` (the `claude` binary under a Pro/Max
 subscription). They are the reference path for a self-hosted Ascent; see
-[docs/SELF-HOSTING.md](../../SELF-HOSTING.md).
+[docs/SELF-HOSTING.md](../../SELF-HOSTING.md). `codex-cli` (the `codex` binary under a
+ChatGPT plan) is the third zero-API-spend path, but its inference runs at OpenAI — zero
+marginal cost, not on-premises privacy.
 
 ## The interface (`src/lib/llm/provider.ts`)
 
 ```ts
 interface LLMProvider {
-  readonly name: ProviderName;        // "gemini" | "bedrock" | "openai" | "openrouter" | "local" | "claude-cli" | "mock"
+  readonly name: ProviderName;        // "gemini" | "bedrock" | "openai" | "openrouter" | "local" | "claude-cli" | "codex-cli" | "mock"
   readonly model: string;             // e.g. "gemini-3-flash-preview"
   assess(input: LlmScoreInput, opts?: AssessOptions): Promise<LlmAssessment>;
 }
@@ -53,14 +55,14 @@ the boundary:
 
 Chosen at runtime by the `LLM_PROVIDER` env flag, resolved by `resolveProviderChoice()`
 against a fixed `PROVIDER_CHOICES` list: `"auto" | "gemini" | "bedrock" | "openai" |
-"openrouter" | "local" | "mock" | "claude-cli"`.
+"openrouter" | "local" | "mock" | "claude-cli" | "codex-cli"`.
 
 **An unrecognized, non-empty `LLM_PROVIDER` value throws** rather than being coerced to
 `"auto"`. A typo like `LLM_PROVIDER=bedrok` on an enterprise-privacy deploy used to fall
 through to `auto` (Gemini-or-mock) with zero signal, silently routing private source to a
 provider the operator never chose. `resolveProviderChoice()` refuses to guess: it throws
 `Unknown LLM_PROVIDER "…" — expected one of auto, gemini, bedrock, openai, openrouter,
-local, mock, claude-cli. Refusing to fall back to "auto": …`. An unset/blank `LLM_PROVIDER`
+local, mock, claude-cli, codex-cli. Refusing to fall back to "auto": …`. An unset/blank `LLM_PROVIDER`
 still resolves to `"auto"`; only a misspelled *non-empty* value fails loudly.
 
 | `LLM_PROVIDER` | Provider | When |
@@ -72,6 +74,7 @@ still resolves to `"auto"`; only a misspelled *non-empty* value fails loudly.
 | `openrouter` | `OpenRouterProvider` | One key, any vendor's model: the fleet/benchmark path (`scripts/matrix/run.mts`). |
 | `local` | `LocalProvider` (extends `OpenAiProvider`) | A local OpenAI-compatible server: Ollama, vLLM, LM Studio, `llama.cpp`. Requires `LOCAL_LLM_BASE_URL` **and** `LOCAL_LLM_MODEL`; `LOCAL_LLM_API_KEY` is optional. **$0 cost class** and nothing leaves the machine; see below. |
 | `claude-cli` | `LazyClaudeCliProvider` → `ClaudeCliProvider` | Shells out to a locally-installed `claude` binary under your Pro/Max subscription (not per-token API credits). Available in dev **and on a self-hosted production deployment**; refused on managed cloud; see below. |
+| `codex-cli` | `LazyCodexCliProvider` → `CodexCliProvider` | Shells out to a locally-installed `codex` binary (`codex exec --json`) under your ChatGPT plan (`OPENAI_API_KEY` is stripped so a metered key never outbids the seat). Same `cliProviderAllowed()` gate and deployments as `claude-cli`; **explicit-only** — the `auto` ladder never selects a CLI provider. Assessment seam only; see below. |
 | `mock` | `MockProvider` | Keyless demo / CI / deterministic tests. |
 
 `hasLlmKey()` reports whether `GEMINI_API_KEY`/`GOOGLE_API_KEY` is set (used by surfaces
@@ -79,7 +82,7 @@ that want to know if the `auto` default will resolve to a real model). `provider
 is a cheap, synchronous prerequisite check: bedrock sniffs for any AWS-wiring signal
 (`BEDROCK_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_PROFILE`,
 role/container-credential env vars), `local` requires BOTH of its variables, `claude-cli`
-gates on `cliProviderAllowed()` (mirroring the throw below), and it lets `getProvider()`'s implicit failover chain and
+and `codex-cli` gate on the shared `cliProviderAllowed()` (mirroring the throw below), and it lets `getProvider()`'s implicit failover chain and
 `providerByName()` skip a doomed provider instead of wasting a round trip proving the
 obvious.
 
@@ -147,6 +150,35 @@ few KB in the cloud bundle, traded for the provider working on the deployments t
 now exists to serve. A build-time flag could restore the pruning, but only by making
 self-hosters set a variable before `npm run build`.
 
+### `codex-cli` — the ChatGPT-plan twin (assessment seam only)
+
+`LazyCodexCliProvider` (`index.ts`) → `CodexCliProvider` (`src/lib/llm/codex-cli.ts`) is the
+exact shape of the claude-cli pair on the codex transport adapter: same lazy dynamic import,
+same `cliProviderAllowed()` gate (one predicate answers "is a local agent CLI usable on this
+deployment?" for both CLIs), same explicit-only selection — the `auto` ladder never chooses a
+CLI provider. Three deliberate differences:
+
+- **Model identity.** With `CODEX_MODEL` unset the CLI picks its own configured default, an id
+  Ascent cannot know without spending a probe — so the provider persists the honest sentinel
+  `"codex-default"` (`DEFAULT_CODEX_MODEL`) and **omits `-m` entirely** rather than inventing a
+  model name. Set `CODEX_MODEL` to pin (and price) a real id.
+- **Usage.** The JSONL `turn.completed` usage reports `input_tokens`/`output_tokens` to the
+  meter; `cached_input_tokens` is **not** mapped, because its relation to `input_tokens`
+  (subset vs disjoint) is not pinned by a fixture yet and a guessed mapping would flow into
+  `billableInputTokens()`'s cost fold. Unreported means "unknown", never a wrong number. Its
+  models carry no `MODEL_PRICES` rows, so a codex scan reads "no estimate" in `/usage` —
+  unpriced, not free (it runs under a paid ChatGPT plan; deliberately not `isZeroCostProvider`).
+- **Scope.** Assessment scans only. The free-form text seam (`text.ts`) resolves `codex-cli`
+  to `null` (there is no `runCodexPrompt` counterpart), so memory/Athena surfaces honestly
+  report "no engine" under `LLM_PROVIDER=codex-cli`; `supportsToolCalling("codex-cli")` is
+  `false` for the same reason as claude-cli (`codex exec --json` collapses the whole agentic
+  session into a final `agent_message`); and the autopilot's editing seam stays claude-only
+  (the transport's mode `"edit"` is a typed not-supported).
+
+Like claude-cli it gets the generous 15-minute scan LLM budget (`scan-assess.ts`), the
+CLI-class progress estimate on the report page, and an "on this machine? no — inference runs
+at OpenAI" privacy disclosure on `/connect` (`staysOnPremises` is deliberately false).
+
 ### The agent-CLI transport seam (`src/lib/llm/transport/`)
 
 The spawn / parse / env-strip / stdout-cap mechanics behind `claude-cli` live in a dedicated
@@ -194,11 +226,10 @@ construction, and pinned by tests that read the child env the door actually pass
 kill, and the model-token validation that `shell:true` (Windows `.cmd` resolution) makes
 load-bearing.
 
-**`codex-cli` is ready but unrouted**: it is *not* an `LLM_PROVIDER` value. Wiring it into
-provider selection means touching `ProviderName`, `PROVIDER_LABEL`, pricing and the failover
-ladder in one deliberate change; the transport was introduced without it on purpose. Schema-
-constrained output (`--json-schema` / `--output-schema`) exists in both tools but is not yet
-wired through the `shell:true` spawn door (`schemaWired: false` — a typed error today).
+Both adapters are routed: `claude-cli` through `src/lib/llm/claude-cli.ts` and `codex-cli`
+through `src/lib/llm/codex-cli.ts` (see the provider sections above). Schema-constrained
+output (`--json-schema` / `--output-schema`) exists in both tools but is not yet wired
+through the `shell:true` spawn door (`schemaWired: false` — a typed error today).
 
 ### `getProvider()`
 
@@ -317,6 +348,7 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 | OpenRouter | `src/lib/llm/openrouter.ts` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`, always a `vendor/model` slug) | Fetch-based, same OpenAI-compatible `/chat/completions` contract, one key routes to any vendor's model. Requires `OPENROUTER_API_KEY`. This is the fleet/benchmark path `scripts/matrix/run.mts` measures. Same strict-schema-then-`json_object` fallback and `OPENROUTER_MAX_TOKENS` guard as OpenAI. Sends `HTTP-Referer`/`X-Title` attribution headers. Also exports `testOpenRouterConnection()`. |
 | Local | `src/lib/llm/local.ts` | `LOCAL_LLM_MODEL` (required), `LOCAL_LLM_BASE_URL` (required), `LOCAL_LLM_API_KEY` (optional) | `LocalProvider extends OpenAiProvider` — same protocol, own identity and $0 cost class. `localLlmConfigured()` requires both variables; `assess()` throws naming them rather than letting an empty base URL fall through to `api.openai.com`. `Authorization` is omitted when no key is set (a bare `Bearer ` is malformed and some servers 401 on it). |
 | Claude CLI | `src/lib/llm/claude-cli.ts` (spawn/parse mechanics in `src/lib/llm/transport/`) | `CLAUDE_MODEL` (default `sonnet`), `CLAUDE_CLI_PATH` | Shells out to a local `claude` binary (`claude -p --output-format json --model <id>`) under your Pro/Max **subscription** (not pay-per-token; `ANTHROPIC_API_KEY` is stripped from the child env). Available in dev and on a self-hosted production deployment; refused on managed cloud (see above). Timeout via `CLAUDE_CLI_TIMEOUT_MS` (default 10 min; a full CLI session is ~6 min median). Output is capped (4 MB stdout / 16 KB stderr) against a runaway subprocess. Also exposes `runClaudePrompt()`, a generic prompt-in/text-out call used by other surfaces (e.g. Shared Org Memory's write-intelligence pass); it reads the **same** `cliProviderAllowed()` predicate, which is why that predicate lives in the leaf `config.ts` rather than in `index.ts` — two copies of "is the CLI usable here?" would have left the memory pass dead on exactly the self-hosted deployments that had just gained a working CLI. |
+| Codex CLI | `src/lib/llm/codex-cli.ts` (spawn/JSONL mechanics in `src/lib/llm/transport/codex.ts`) | `CODEX_MODEL` (unset → the CLI's own default, persisted as the `codex-default` sentinel), `CODEX_CLI_PATH` | Shells out to a local `codex` binary (`codex exec --json -s read-only`, prompt over stdin) under your ChatGPT plan (`OPENAI_API_KEY` stripped from the child env). Same gate/deployments as Claude CLI. Timeout via `CODEX_CLI_TIMEOUT_MS` (default 10 min). Same 4 MB / 16 KB output caps at the shared spawn door. Assessment seam only — no text-seam runner, no tool loop, not the autopilot. |
 | Mock | `src/lib/llm/mock.ts` | — | Deterministic, no network, no key. Derives the assessment directly from the signal scores (`overallScoreFor`, `levelForScore`) and a fallback roadmap. Memoized (bounded LRU, deep-frozen results) so repeated keyless/degraded scans of the same commit+signals reuse the prior result. The keyless-demo + CI floor, and the terminal step of every degrade chain. |
 
 ## `LLM_PROVIDER` selection knobs (`src/lib/llm/config.ts`)
@@ -695,10 +727,13 @@ default**:
 - **Whether a `local` or OpenRouter-routed model supports tool calling is unknowable up front.**
   `supportsToolCalling()` is a permission to *try*, backed by the one-shot fallback; a model with
   no tool template costs one wasted request per turn before degrading.
-- **The codex adapter is unrouted.** `src/lib/llm/transport/codex.ts` probes and generates
-  (verified live 2026-08-25), but `codex-cli` is not an `LLM_PROVIDER` value, is not in the
-  failover ladder, and is not wired into the autopilot's edit seam; routing it is a separate,
-  deliberate change (see the transport-seam section).
+- **`codex-cli` serves the assessment seam only.** The text seam resolves it to `null` (no
+  `runCodexPrompt` counterpart), so memory/Athena report "no engine" under it; it cannot join
+  a tool loop (same session-collapse as claude-cli); its models are unpriced in
+  `MODEL_PRICES` (a codex period reads "no estimate", not $0.00); and the autopilot's edit
+  seam remains claude-only (the codex transport's mode `"edit"` is a typed not-supported).
+  Its `cached_input_tokens` are not folded into the cost meter until a fixture pins their
+  semantics.
 - **Text-seam token usage still has no write-side ledger.** `TextRunnerOptions.onUsage` now fires
   for the memory passes and the tool loop (and `MemoryRunner.usage` exposes the running total),
   but `src/lib/db/usage.ts` derives `/usage` entirely from `Scan` rows, so non-scan LLM spend is

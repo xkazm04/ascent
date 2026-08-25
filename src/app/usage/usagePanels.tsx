@@ -20,6 +20,7 @@ const PROVIDER_META: Record<string, { label: string; color: string }> = {
   bedrock: { label: "AWS Bedrock", color: "#ff9900" },
   claude: { label: "Claude", color: "#d97757" },
   "claude-cli": { label: "Claude CLI", color: "#d97757" },
+  "codex-cli": { label: "Codex CLI", color: "#10a37f" },
   mock: { label: "Mock (deterministic)", color: "#94a3b8" },
 };
 export function providerMeta(id: string): { label: string; color: string } {

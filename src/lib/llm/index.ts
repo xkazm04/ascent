@@ -9,6 +9,9 @@
 //                              leaves the machine and the tokens cost $0.
 //   LLM_PROVIDER=claude-cli -> the local `claude` CLI under your subscription. Available in dev, and
 //                              on a SELF-HOSTED production build (see LazyClaudeCliProvider).
+//   LLM_PROVIDER=codex-cli  -> the local `codex` CLI under your ChatGPT plan. Same gate and same
+//                              deployments as claude-cli (see LazyCodexCliProvider). Explicit-only,
+//                              like claude-cli: the auto ladder never selects a CLI provider.
 //   LLM_PROVIDER=mock       -> deterministic, keyless.
 //   LLM_PROVIDER=auto       -> (default) Gemini if a key is present, else a configured LOCAL server,
 //                              else mock. Never silently selects Bedrock — that's opt-in via the flag.
@@ -61,11 +64,42 @@ class LazyClaudeCliProvider implements LLMProvider {
   }
 }
 
+/**
+ * Lazy proxy for the codex-cli provider — the exact shape of {@link LazyClaudeCliProvider}, for the
+ * same reason: it shells out to a local `codex` binary, so the dynamic import defers loading
+ * codex-cli.ts (and the transport's child_process path) until a scan actually runs under it, while
+ * `name`/`model` resolve synchronously for the scan pipeline. Gated on the SAME cliProviderAllowed()
+ * predicate as claude-cli, mirrored by providerAvailable("codex-cli") so the failover skips it
+ * rather than selecting a guaranteed-throw provider.
+ */
+class LazyCodexCliProvider implements LLMProvider {
+  readonly name = "codex-cli" as const;
+  readonly model: string;
+  constructor(model?: string) {
+    // Mirror DEFAULT_CODEX_MODEL in codex-cli.ts ("codex-default" — the CLI's own configured
+    // default, an id we can't know without a probe) rather than import it, which would re-introduce
+    // the static dependency this proxy exists to avoid.
+    this.model = model || process.env.CODEX_MODEL || "codex-default";
+  }
+  async assess(input: LlmScoreInput, opts?: AssessOptions): Promise<LlmAssessment> {
+    if (cliProviderAllowed()) {
+      const { CodexCliProvider } = await import("@/lib/llm/codex-cli");
+      return new CodexCliProvider(this.model).assess(input, opts);
+    }
+    // Managed cloud: no `codex` binary on the host, so refuse rather than hang for the CLI timeout.
+    throw new Error(
+      "codex-cli needs a local `codex` binary and is not available on this managed deployment. " +
+        "Set ASCENT_SELF_HOSTED=1 if you are running Ascent on your own machine, or choose another " +
+        "LLM_PROVIDER.",
+    );
+  }
+}
+
 export function hasLlmKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
-const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli"] as const;
+const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli"] as const;
 
 export function resolveProviderChoice(): ProviderChoice {
   const raw = (process.env.LLM_PROVIDER ?? "").trim();
@@ -150,8 +184,10 @@ export function providerAvailable(name: ProviderName): boolean {
       // cannot complete a call, and reporting it available would put a doomed step in the failover.
       return localLlmConfigured();
     case "claude-cli":
-      // Mirror LazyClaudeCliProvider.assess() exactly — same predicate, so availability and the
+    case "codex-cli":
+      // Mirror the lazy CLI providers' assess() exactly — same predicate, so availability and the
       // provider's own refusal can never disagree and put a guaranteed-throw step in the failover.
+      // (Both CLIs share one gate: "is a local agent CLI usable on this deployment?")
       return cliProviderAllowed();
     case "mock":
       return true;
@@ -171,6 +207,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
     case "openrouter":
     case "local":
     case "claude-cli":
+    case "codex-cli":
       // Trust the operator's EXPLICIT LLM_PROVIDER selection. Pre-degrading a selected-but-unavailable
       // real provider to mock HERE set intendedProvider="mock" downstream, which suppressed the
       // llmFailed warning + the fallback SSE event entirely — so a misconfigured (or merely
@@ -182,6 +219,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       if (choice === "openai") return new OpenAiProvider();
       if (choice === "openrouter") return new OpenRouterProvider();
       if (choice === "local") return new LocalProvider();
+      if (choice === "codex-cli") return new LazyCodexCliProvider();
       return new LazyClaudeCliProvider();
     case "gemini":
       // EXPLICIT gemini selection: construct the REAL provider unconditionally, mirroring the
@@ -226,6 +264,8 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
       return providerAvailable("local") ? new LocalProvider() : null;
     case "claude-cli":
       return providerAvailable("claude-cli") ? new LazyClaudeCliProvider() : null;
+    case "codex-cli":
+      return providerAvailable("codex-cli") ? new LazyCodexCliProvider() : null;
     default:
       return null;
   }

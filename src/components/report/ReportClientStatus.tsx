@@ -41,6 +41,8 @@ function scoreLabel(provider?: ProviderName, region?: string): string {
       return "Asking Gemini";
     case "claude-cli":
       return "Asking Claude";
+    case "codex-cli":
+      return "Asking Codex";
     case "bedrock":
       return `Querying Bedrock in ${region ?? "us-east-1"}`;
     case "mock":

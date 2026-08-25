@@ -24,6 +24,7 @@ export const ENGINE_LABEL: Record<ProviderName, string> = {
   openrouter: "OpenRouter",
   bedrock: "Bedrock",
   "claude-cli": "Claude CLI",
+  "codex-cli": "Codex CLI",
   mock: "Mock",
 };
 

@@ -181,6 +181,7 @@ export function techStackPromptEnabled(): boolean {
  */
 export const PROVIDER_LABEL: Record<ProviderName, string> & Record<string, string> = {
   "claude-cli": "Claude CLI",
+  "codex-cli": "Codex CLI",
   claude: "Claude",
   gemini: "Gemini",
   bedrock: "AWS Bedrock",
@@ -207,7 +208,9 @@ export function providerLabel(id: string): string {
  *
  * Deliberately NOT `claude-cli`: that runs under a paid Claude subscription, and MODEL_PRICES prices
  * its aliases at first-party rates on purpose so the /usage figure reflects what those tokens are
- * worth. `mock` needs no entry — it reports no tokens at all, so it never reaches the price fold.
+ * worth. Same for `codex-cli` (a paid ChatGPT plan) — though its models carry no MODEL_PRICES rows,
+ * so a codex scan reads "no estimate" rather than $0.00: unpriced, not free. `mock` needs no entry —
+ * it reports no tokens at all, so it never reaches the price fold.
  */
 const ZERO_COST_PROVIDERS: ReadonlySet<string> = new Set<ProviderName>(["local"]);
 
@@ -238,7 +241,9 @@ export function isZeroCostProvider(provider: string | null | undefined): boolean
  * `--output-format json` blob back (src/lib/llm/claude-cli.ts:175-181), which collapses the CLI's whole
  * agentic session — its own tool use included — into a single final string. There is no seam at which
  * Ascent could offer a tool, see it called, and answer it, so a "tool loop" there would be a fiction.
- * The honest outcome is `grounding: "prefetched"`. `mock` needs no entry: it never reaches this seam.
+ * The honest outcome is `grounding: "prefetched"`. `codex-cli` is excluded for the identical reason:
+ * `codex exec --json` emits its whole agentic session as JSONL and Ascent only reads the final
+ * agent_message. `mock` needs no entry: it never reaches this seam.
  */
 const TOOL_CALLING_PROVIDERS: ReadonlySet<string> = new Set<ProviderName>([
   "bedrock",

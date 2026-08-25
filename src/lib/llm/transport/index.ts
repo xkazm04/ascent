@@ -1,10 +1,10 @@
 // Adapter registry + probe caching for the agent-CLI transport seam. See types.ts for the contract
 // and the registry subject it implements (agent-cli-transport).
 //
-// Routing status: `claude-cli` is consumed through src/lib/llm/claude-cli.ts (the assessment seam,
-// gated by cliProviderAllowed). `codex-cli` is READY BUT UNROUTED — it is not an LLM_PROVIDER value
-// yet; wiring it into provider selection means touching ProviderName, PROVIDER_LABEL, pricing and
-// the failover ladder in one deliberate change, not as a side effect of introducing the seam.
+// Routing status: `claude-cli` is consumed through src/lib/llm/claude-cli.ts and `codex-cli`
+// through src/lib/llm/codex-cli.ts — both assessment-seam providers gated by cliProviderAllowed,
+// selectable via LLM_PROVIDER. Codex remains outside the autopilot's editing seam (mode "edit" is a
+// typed not-supported) and outside the auto ladder (CLI providers are explicit-only).
 
 import { claudeCliTransport } from "@/lib/llm/transport/claude";
 import { codexCliTransport } from "@/lib/llm/transport/codex";

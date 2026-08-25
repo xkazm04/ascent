@@ -184,6 +184,55 @@ describe("providerAvailable('claude-cli') — matches assess()'s throw gate (llm
   });
 });
 
+describe("codex-cli — first-class explicit provider on the SAME CLI gate as claude-cli", () => {
+  // codex-cli mirrors claude-cli's whole selection contract: explicit-only (never chosen by the
+  // `auto` ladder), trusted on explicit selection, and gated by the ONE cliProviderAllowed()
+  // predicate so availability and assess()'s refusal can never disagree.
+  it("resolveProviderChoice accepts LLM_PROVIDER=codex-cli", () => {
+    vi.stubEnv("LLM_PROVIDER", "codex-cli");
+    expect(resolveProviderChoice()).toBe("codex-cli");
+  });
+
+  it("getProvider returns the real (lazy) codex provider on explicit selection — no silent mock", () => {
+    vi.stubEnv("LLM_PROVIDER", "codex-cli");
+    expect(getProvider().name).toBe("codex-cli");
+  });
+
+  it("the auto ladder never selects codex-cli (gemini → local → mock is unchanged)", () => {
+    vi.stubEnv("LLM_PROVIDER", "auto");
+    vi.stubEnv("NODE_ENV", "development"); // codex-cli would be AVAILABLE here — auto must still skip it
+    expect(getProvider().name).toBe("mock");
+  });
+
+  it("is available in non-production, like claude-cli", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(providerAvailable("codex-cli")).toBe(true);
+  });
+
+  it("is UNavailable on a managed production deployment (no `codex` binary on the host)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "");
+    expect(providerAvailable("codex-cli")).toBe(false);
+  });
+
+  it("IS available in production on a self-hosted deployment", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    expect(providerAvailable("codex-cli")).toBe(true);
+  });
+
+  it("failover skips codex-cli on managed production (providerByName returns null)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "");
+    expect(providerByName("codex-cli")).toBeNull();
+  });
+
+  it("failover keeps codex-cli where the CLI gate allows it", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(providerByName("codex-cli")?.name).toBe("codex-cli");
+  });
+});
+
 describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () => {
   it("returns null with no AWS signal (skip the doomed failover attempt)", () => {
     expect(providerByName("bedrock")).toBeNull();

@@ -38,6 +38,7 @@ export const MOCK_ESTIMATE_MS = 8_000;
 export function scanEstimateMs(provider?: ProviderName): number {
   switch (provider) {
     case "claude-cli":
+    case "codex-cli": // same shape: a full local CLI session per call — reuse the measured CLI median
       return CLAUDE_CLI_ESTIMATE_MS;
     case "mock":
       return MOCK_ESTIMATE_MS;

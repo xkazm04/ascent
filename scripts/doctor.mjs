@@ -61,6 +61,7 @@ const probes = {
   nodeVersion: process.version,
   git: probeCmd("git", ["--version"]),
   claudeCli: probeCmd("claude", ["--version"]),
+  codexCli: probeCmd("codex", ["--version"]),
   dockerDb: probeDockerDb(),
   pgliteDir: set(env.PGLITE_DATA_DIR) && existsSync(join(ROOT, env.PGLITE_DATA_DIR)),
 };
@@ -110,7 +111,7 @@ const row = (capability, status, detail, action) => rows.push({ capability, stat
 // --- LLM engine (the resolution ladder) --------------------------------------
 {
   const choice = (env.LLM_PROVIDER ?? "").trim().toLowerCase() || "auto";
-  const known = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli"];
+  const known = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli"];
   if (!known.includes(choice)) {
     row("LLM engine", "off", `LLM_PROVIDER="${env.LLM_PROVIDER}" is unknown — every scan will refuse (fail-loud by design)`,
       `Fix or unset LLM_PROVIDER (one of ${known.join(", ")}).`);
@@ -136,6 +137,12 @@ const row = (capability, status, detail, action) => rows.push({ capability, stat
       "Install Claude Code and log in (`claude /login`).");
     else row("LLM engine", "off", "claude-cli refused: NODE_ENV=production without self-hosted mode (cliProviderAllowed)",
       "Set ASCENT_SELF_HOSTED=1 on a box you own, or pick another LLM_PROVIDER.");
+  } else if (choice === "codex-cli") {
+    if (probes.codexCli && cliAllowed) row("LLM engine", "ready", `codex-cli — ${probes.codexCli}, runs on your ChatGPT plan (model ${env.CODEX_MODEL || "the CLI's own default"})`);
+    else if (!probes.codexCli) row("LLM engine", "off", "LLM_PROVIDER=codex-cli but no `codex` binary on PATH",
+      "Install the OpenAI Codex CLI and log in (`codex login`).");
+    else row("LLM engine", "off", "codex-cli refused: NODE_ENV=production without self-hosted mode (cliProviderAllowed)",
+      "Set ASCENT_SELF_HOSTED=1 on a box you own, or pick another LLM_PROVIDER.");
   } else if (choice === "openai") {
     row("LLM engine", set(env.OPENAI_API_KEY) ? "ready" : "off",
       set(env.OPENAI_API_KEY) ? `openai (${mask(env.OPENAI_API_KEY)} · ${env.OPENAI_MODEL || "gpt-4o-mini"})` : "LLM_PROVIDER=openai but OPENAI_API_KEY unset",
@@ -160,6 +167,14 @@ if (probes.claudeCli) {
 } else {
   row("Claude CLI", "off", "`claude` not found on PATH — claude-cli provider and autopilot unavailable",
     "Install Claude Code and log in; scans still work via the other providers/mock.");
+}
+
+// --- Codex CLI (assessment seam only: usable as LLM_PROVIDER=codex-cli, never the autopilot) ---
+if (probes.codexCli) {
+  row("Codex CLI", "ready", `${probes.codexCli} — usable as LLM_PROVIDER=codex-cli${cliAllowed ? "" : " (but refused: production without ASCENT_SELF_HOSTED=1)"}`);
+} else {
+  row("Codex CLI", "off", "`codex` not found on PATH — codex-cli provider unavailable",
+    "Install the OpenAI Codex CLI and log in; scans still work via the other providers/mock.");
 }
 
 // --- Database / persistence --------------------------------------------------

@@ -216,7 +216,7 @@ describe("providerLabel (provenance vocabulary — /usage bars + briefing 'Score
   it("has a polished (non-raw-id) label for EVERY ProviderName member", () => {
     // openai/openrouter were missing, so their raw lowercase ids rendered next to "AWS Bedrock" on
     // the two provenance surfaces executives read. (llm-provider-abstraction #4)
-    const all: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"];
+    const all: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli"];
     for (const id of all) {
       const label = providerLabel(id);
       expect(label, `PROVIDER_LABEL is missing "${id}"`).not.toBe(id);
@@ -300,8 +300,10 @@ describe("supportsToolCalling", () => {
   // claude-cli is not a chat API: `--output-format json` collapses the whole agentic session into one
   // final string, so there is no seam at which ascent could offer a tool and answer it. A "tool loop"
   // there would be a fiction; the honest outcome is grounding: "prefetched".
-  it("excludes claude-cli and mock, and treats null as unsupported", () => {
+  it("excludes claude-cli, codex-cli and mock, and treats null as unsupported", () => {
     expect(supportsToolCalling("claude-cli")).toBe(false);
+    // codex-cli collapses its session the same way (`codex exec --json` JSONL, final agent_message).
+    expect(supportsToolCalling("codex-cli")).toBe(false);
     expect(supportsToolCalling("mock")).toBe(false);
     expect(supportsToolCalling(null)).toBe(false);
     expect(supportsToolCalling(undefined)).toBe(false);

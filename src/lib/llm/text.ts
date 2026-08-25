@@ -232,6 +232,12 @@ export async function resolveLegRunner(opts: TextRunnerOptions): Promise<Resolve
       }
       return null;
     }
+    case "codex-cli":
+      // The codex CLI serves the ASSESSMENT seam only (src/lib/llm/codex-cli.ts). There is no
+      // runCodexPrompt counterpart yet, so the non-scan surfaces (memory, Athena) honestly report
+      // "no engine" under LLM_PROVIDER=codex-cli rather than silently substituting a provider the
+      // operator never chose — the same rule the header states for an unavailable explicit choice.
+      return null;
     default:
       // "mock" — see the header: there is no honest deterministic text for a judgment call.
       return null;

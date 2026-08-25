@@ -79,6 +79,7 @@ token and keep your source on hardware you control:
 |---|---|
 | **A local model** (Ollama, vLLM, LM Studio): `$0`, nothing leaves the machine | `LLM_PROVIDER=local` + `LOCAL_LLM_BASE_URL=http://localhost:11434/v1` + `LOCAL_LLM_MODEL=qwen2.5-coder:14b` |
 | **Your Claude subscription**: the local `claude` CLI, not per-token API credits | `LLM_PROVIDER=claude-cli` + `CLAUDE_MODEL=sonnet` |
+| **Your ChatGPT plan**: the local `codex` CLI, not per-token API credits | `LLM_PROVIDER=codex-cli` (optional `CODEX_MODEL`) |
 | Google Gemini | `LLM_PROVIDER=gemini` + `GEMINI_API_KEY` |
 | OpenAI / Azure / any compatible endpoint | `LLM_PROVIDER=openai` + `OPENAI_API_KEY` (+ `OPENAI_BASE_URL`) |
 | One key, any vendor's model | `LLM_PROVIDER=openrouter` + `OPENROUTER_API_KEY` |

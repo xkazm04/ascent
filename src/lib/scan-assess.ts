@@ -26,16 +26,16 @@ const LLM_RETRY_MS = 500;
  * PROVIDER-AWARE so a slow provider isn't silently mocked out of the box:
  *   • Fast hosted models (Gemini Flash, Bedrock) → 90s, which sits under a serverless route's
  *     maxDuration so the mock degrade is reached before the platform hard-kills the function.
- *   • `claude-cli` spawns a full local CLI session per call (~6 min median). A 90s budget would abort
- *     EVERY scan into the mock floor before the model ever answered; it runs on a long-lived server
- *     (never serverless), so default it generously (15 min). This makes a stock
- *     `LLM_PROVIDER=claude-cli` deploy stay LIVE with no env tuning, instead of silently mocking.
+ *   • `claude-cli` / `codex-cli` spawn a full local CLI session per call (claude: ~6 min median). A
+ *     90s budget would abort EVERY scan into the mock floor before the model ever answered; they run
+ *     on a long-lived server (never serverless), so default them generously (15 min). This makes a
+ *     stock CLI-provider deploy stay LIVE with no env tuning, instead of silently mocking.
  */
 function llmTotalBudgetMs(providerName: string): number {
   const raw = process.env.LLM_TOTAL_BUDGET_MS;
   const override = raw ? Number(raw) : NaN;
   if (Number.isFinite(override) && override > 0) return override;
-  return providerName === "claude-cli" ? 15 * 60_000 : 90_000;
+  return providerName === "claude-cli" || providerName === "codex-cli" ? 15 * 60_000 : 90_000;
 }
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

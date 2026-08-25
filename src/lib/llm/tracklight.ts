@@ -98,6 +98,10 @@ const TRACKLIGHT_PROVIDER: Record<ProviderName, string> = {
   gemini: "google",
   bedrock: "anthropic",
   "claude-cli": "anthropic",
+  // The codex CLI runs OpenAI models under a ChatGPT-plan seat — same vendor attribution as a
+  // direct OpenAI call so a codex-scored scan lands on OpenAI's price-book rows when the model id
+  // matches one (the "codex-default" sentinel simply stays unpriced).
+  "codex-cli": "openai",
   openai: "openai",
   // OpenRouter is a PROXY, not a vendor — the real provider is resolved per-model below, and this is
   // only the fallback for a slug whose vendor tracklight doesn't price.
