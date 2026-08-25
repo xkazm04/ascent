@@ -16,3 +16,4 @@
 - [ ] Security-relevant code (auth/authz, webhooks, token minting, billing/credits, rate limiting) has tests
 - [ ] Updated `docs/**` and `.env.example` for any new flag, route, or model
 - [ ] No new `any` / `@ts-ignore` / empty catch; matches surrounding style
+- [ ] AI assistance disclosed if this PR is substantially agent-generated (I ran the gate and can explain every line)

@@ -63,6 +63,26 @@ Watch mode while developing: `npm run test:watch`. The auth-off seeded-org e2e s
 - **Docs:** update the relevant `docs/**` and `.env.example` when you add a flag, route, or model.
 - **Style:** match the surrounding code; comments explain *why*, not *what*.
 
+### Local-first invariants
+
+These are explicit review criteria — a PR that breaks one will be asked to change, however good the
+rest of it is:
+
+- Never make a provider mandatory; every external service stays optional.
+- Never remove a deterministic fallback — the `mock` provider floor stays a first-class path.
+- No hosted-only features; nothing phones home by default.
+- If the hosted version is ever better than this repository, that is a bug.
+
+## AI-assisted contributions
+
+AI-assisted PRs are welcome — much of Ascent is built that way. You own what you submit: run the full
+gate locally and be able to explain every line. Disclose substantially agent-generated PRs (there's a
+checkbox in the PR template). Drive-by bulk agent PRs are closed without review.
+
+## Triage
+
+Ascent is maintained by one person plus agents; issues and PRs are triaged weekly.
+
 ## Reporting bugs & vulnerabilities
 
 File functional bugs as GitHub issues. For security issues, **do not** open a public issue; follow

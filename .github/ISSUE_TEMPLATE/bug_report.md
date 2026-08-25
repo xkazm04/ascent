@@ -21,7 +21,12 @@ What you expected, and what happened instead.
 - LLM provider: gemini / bedrock / openai / mock
 - DB: none / local Postgres / Aurora DSQL
 
+**`npm run doctor` output**
+Paste the output of `npm run doctor` here — it checks your environment and masks key values.
+
 **Logs / screenshots**
 Any relevant `console` output or screenshots. Do **not** paste secrets or tokens.
+
+> Ascent is maintained by one person plus agents; issues are triaged weekly.
 
 > Security vulnerability? Do not file it here — see [SECURITY.md](../../SECURITY.md).
