@@ -244,6 +244,7 @@
         "src/lib/memory/**",
         "src/lib/db/org-memory.ts",
         "src/lib/db/org-memory-lifecycle.ts",
+        "src/lib/org/memory-kinds.ts",
         "src/features/shared/memory/Memory*.tsx",
         "src/features/shared/memory/memoryCheck.ts",
         "src/app/api/org/memory/**"
@@ -259,7 +260,17 @@
         "src/lib/api-token-auth.ts",
         "src/features/shared/skills/**",
         "src/app/api/org/skills/**",
-        "src/app/api/org/tokens/**"
+        "src/app/api/org/tokens/**",
+        "src/lib/mcp/**",
+        "src/app/api/mcp/**"
+      ]
+    },
+    {
+      "area": "companion",
+      "doc": "docs/features/companion/README.md",
+      "sourceGlobs": [
+        "src/lib/athena/**",
+        "src/lib/db/athena*.ts"
       ]
     },
     {

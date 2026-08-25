@@ -1338,6 +1338,85 @@ CREATE TABLE "LoopRunLane" (
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");
 
+
+-- ATHENA — the resident, ORG-SCOPED companion. Her EPISODES are NOT here: they are OrgMemory rows
+-- (namespace "athena", kind "episodic", source "athena"). Her IDENTITY needs its own table because
+-- OrgMemory cannot express immutability, a "constitution" kind, or decay exemption. See the schema.
+
+-- CreateTable: one conversation. `title` is DERIVED from the first user message and never typed.
+CREATE TABLE "AthenaThread" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "title" TEXT NOT NULL DEFAULT '',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AthenaThread_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "AthenaThread_orgId_updatedAt_idx" ON "AthenaThread"("orgId", "updatedAt");
+
+-- CreateTable: one message. The token columns are NULLABLE on purpose — a provider that reports no
+-- usage is UNKNOWN, not zero, and a 0 would be summed downstream as if it had been measured.
+CREATE TABLE "AthenaTurn" (
+    "id" TEXT NOT NULL,
+    "threadId" TEXT NOT NULL,
+    "role" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "metaJson" TEXT NOT NULL DEFAULT '{}',
+    "inputTokens" INTEGER,
+    "outputTokens" INTEGER,
+    "legs" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AthenaTurn_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "AthenaTurn_threadId_createdAt_idx" ON "AthenaTurn"("threadId", "createdAt");
+
+-- CreateTable: something she asked for that a human has not answered yet. The resolution OUTCOME is
+-- merged into "payloadJson" rather than given a column of its own — an outcome is kind-shaped.
+CREATE TABLE "AthenaProposal" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "threadId" TEXT NOT NULL,
+    "turnId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "payloadJson" TEXT NOT NULL DEFAULT '{}',
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "resolvedAt" TIMESTAMP(3),
+    "resolvedBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AthenaProposal_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "AthenaProposal_orgId_status_idx" ON "AthenaProposal"("orgId", "status");
+
+-- CreateIndex
+CREATE INDEX "AthenaProposal_threadId_idx" ON "AthenaProposal"("threadId");
+
+-- CreateTable: her identity, two tiers, one row each per org. "content" is markdown with stable
+-- "## " sections so the anchored-diff engine has real anchors to bind to.
+CREATE TABLE "AthenaIdentity" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "tier" TEXT NOT NULL,
+    "content" TEXT NOT NULL DEFAULT '',
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+
+    CONSTRAINT "AthenaIdentity_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: one constitution and one self-model per org — "one mind per organization" as a fact
+-- of the schema, not a convention the read layer hopes for.
+CREATE UNIQUE INDEX "AthenaIdentity_orgId_tier_key" ON "AthenaIdentity"("orgId", "tier");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

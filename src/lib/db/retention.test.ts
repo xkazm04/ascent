@@ -1482,7 +1482,14 @@ describe("purgeExpiredData — partial committed counts survive a mid-org throw 
  * paging loops terminate for the same reason they do in production (a short/empty page) rather than
  * because the mock keeps returning the same rows.
  */
-function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[]; loopRuns?: string[] }) {
+function fakeErasePrisma(seed?: {
+  repos?: string[];
+  audit?: string[];
+  loopRuns?: string[];
+  athenaThreads?: string[];
+  athenaIdentity?: string[];
+  athenaMemories?: string[];
+}) {
   const repoIds = seed?.repos ?? ["repo_1", "repo_2"];
   const scansByRepo: Record<string, string[]> = {};
   for (const r of repoIds) scansByRepo[r] = [`${r}_s1`, `${r}_s2`];
@@ -1494,6 +1501,22 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[]; loopRuns?:
   for (const r of loopRuns) lanesByRun[r] = [`${r}_lane_a`, `${r}_lane_b`];
   /** Deletes as they were issued, so a test can assert lanes-before-runs (no FK cascade). */
   const loopDeleteOrder: string[] = [];
+  // Athena's org-scoped store: threads with turns and proposals under them, two identity rows
+  // (constitution + self-model), and the OrgMemory episodes she wrote (`source: "athena"`). Distinct
+  // per-thread counts so a test can tell the three conversation counters apart.
+  const athenaThreads = [...(seed?.athenaThreads ?? ["ath_1", "ath_2"])];
+  const athenaTurnsByThread: Record<string, string[]> = {};
+  const athenaProposalsByThread: Record<string, string[]> = {};
+  for (const t of athenaThreads) {
+    athenaTurnsByThread[t] = [`${t}_turn_a`, `${t}_turn_b`, `${t}_turn_c`];
+    athenaProposalsByThread[t] = [`${t}_prop`];
+  }
+  const athenaIdentityRows = [...(seed?.athenaIdentity ?? ["ident_constitution", "ident_self_model"])];
+  /** OrgMemory rows SHE wrote. Rows from other sources are deliberately absent from the fixture —
+   *  the sweep's predicate is `source: "athena"`, and this fake only ever serves that predicate. */
+  const athenaMemories = [...(seed?.athenaMemories ?? ["mem_1", "mem_2", "mem_3"])];
+  /** Deletes as issued, so a test can assert proposals→turns→threads (no FK cascade). */
+  const athenaDeleteOrder: string[] = [];
   const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
 
   /** Rows as the redaction loop reads them back, and what it wrote (so a test can assert the shape). */
@@ -1519,6 +1542,42 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[]; loopRuns?:
           const at = loopRuns.indexOf(id);
           if (at >= 0) {
             loopRuns.splice(at, 1);
+            count++;
+          }
+        }
+        return { count };
+      }),
+    },
+    athenaProposal: {
+      deleteMany: vi.fn(async ({ where }: { where: { threadId: { in: string[] } } }) => {
+        athenaDeleteOrder.push("proposals");
+        let count = 0;
+        for (const threadId of where.threadId.in) {
+          count += (athenaProposalsByThread[threadId] ?? []).length;
+          delete athenaProposalsByThread[threadId];
+        }
+        return { count };
+      }),
+    },
+    athenaTurn: {
+      deleteMany: vi.fn(async ({ where }: { where: { threadId: { in: string[] } } }) => {
+        athenaDeleteOrder.push("turns");
+        let count = 0;
+        for (const threadId of where.threadId.in) {
+          count += (athenaTurnsByThread[threadId] ?? []).length;
+          delete athenaTurnsByThread[threadId];
+        }
+        return { count };
+      }),
+    },
+    athenaThread: {
+      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+        athenaDeleteOrder.push("threads");
+        let count = 0;
+        for (const id of where.id.in) {
+          const at = athenaThreads.indexOf(id);
+          if (at >= 0) {
+            athenaThreads.splice(at, 1);
             count++;
           }
         }
@@ -1586,6 +1645,64 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[]; loopRuns?:
         where.runId.in.reduce((n, runId) => n + (lanesByRun[runId] ?? []).length, 0),
       ),
     },
+    athenaThread: {
+      // Cursor-paged like the real read; deleted threads leave the fixture, so the real path's
+      // cursor-less paging terminates for the same reason it does in production.
+      findMany: vi.fn(async ({ take, cursor, skip }: { take: number; cursor?: { id: string }; skip?: number }) => {
+        const from = cursor ? athenaThreads.indexOf(cursor.id) + (skip ?? 0) : 0;
+        return athenaThreads.slice(Math.max(0, from), Math.max(0, from) + take).map((id) => ({ id }));
+      }),
+    },
+    athenaTurn: {
+      count: vi.fn(async ({ where }: { where: { threadId: { in: string[] } } }) =>
+        where.threadId.in.reduce((n, threadId) => n + (athenaTurnsByThread[threadId] ?? []).length, 0),
+      ),
+    },
+    athenaProposal: {
+      // Org-wide: the preview counts here exactly once, and the real path sweeps here for orphans
+      // after the per-thread delete. Both read the same fixture.
+      count: vi.fn(async () => Object.values(athenaProposalsByThread).reduce((n, ids) => n + ids.length, 0)),
+      deleteMany: vi.fn(async () => {
+        athenaDeleteOrder.push("proposals-org");
+        let count = 0;
+        for (const key of Object.keys(athenaProposalsByThread)) {
+          count += athenaProposalsByThread[key]!.length;
+          delete athenaProposalsByThread[key];
+        }
+        return { count };
+      }),
+    },
+    athenaIdentity: {
+      count: vi.fn(async () => athenaIdentityRows.length),
+      deleteMany: vi.fn(async () => {
+        const count = athenaIdentityRows.length;
+        athenaIdentityRows.length = 0;
+        return { count };
+      }),
+    },
+    orgMemory: {
+      // The ONLY predicate this fake serves is the sweep's own `{ orgId, source: "athena" }`; the
+      // assertion below pins it, so a widened predicate fails loudly instead of quietly erasing more.
+      findMany: vi.fn(async ({ where, take }: { where: { source: string }; take: number }) => {
+        expect(where.source).toBe("athena");
+        return athenaMemories.slice(0, take).map((id) => ({ id }));
+      }),
+      count: vi.fn(async ({ where }: { where: { source: string } }) => {
+        expect(where.source).toBe("athena");
+        return athenaMemories.length;
+      }),
+      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+        let count = 0;
+        for (const id of where.id.in) {
+          const at = athenaMemories.indexOf(id);
+          if (at >= 0) {
+            athenaMemories.splice(at, 1);
+            count++;
+          }
+        }
+        return { count };
+      }),
+    },
     auditLog: {
       // Serves BOTH readers: the delete sweep (ids only) and the redaction loop (id/action/orgId/at,
       // cursor-paged). `skip` is honored so the cursor walk advances instead of re-reading page one.
@@ -1613,7 +1730,23 @@ function fakeErasePrisma(seed?: { repos?: string[]; audit?: string[]; loopRuns?:
     },
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  return { prisma, tx, scansByRepo, auditRows, cacheResets, auditWrites, loopRuns, lanesByRun, loopDeleteOrder };
+  return {
+    prisma,
+    tx,
+    scansByRepo,
+    auditRows,
+    cacheResets,
+    auditWrites,
+    loopRuns,
+    lanesByRun,
+    loopDeleteOrder,
+    athenaThreads,
+    athenaTurnsByThread,
+    athenaProposalsByThread,
+    athenaIdentityRows,
+    athenaMemories,
+    athenaDeleteOrder,
+  };
 }
 
 describe("resolveAuditDisposition — the legacy boolean's new meaning (data-retention 07-16 #4)", () => {
@@ -1727,6 +1860,113 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     expect(tx.loopRun.deleteMany).not.toHaveBeenCalled();
     expect(tx.loopRunLane.deleteMany).not.toHaveBeenCalled();
     expect(loopRuns).toHaveLength(2);
+  });
+
+  // ── Athena (the org-scoped companion) ──────────────────────────────────────────────────────────
+  // Her threads are the operator's own words, her self-model is a document about this organization,
+  // and her episodes are memories of working with it. An "erasure" that left any of it behind would
+  // leave a mind that still remembers the org that asked to be forgotten.
+
+  it("org scope erases Athena's whole store: proposals BEFORE turns BEFORE threads (no FK cascade)", async () => {
+    const f = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(f.prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.athenaThreadsDeleted).toBe(2);
+    expect(outcome.athenaTurnsDeleted).toBe(6); // 3 per thread
+    expect(outcome.athenaProposalsDeleted).toBe(2); // 1 per thread
+    expect(outcome.athenaIdentityDeleted).toBe(2); // constitution + self-model
+    expect(outcome.athenaMemoriesDeleted).toBe(3);
+
+    // Children before parents — relationMode = "prisma" emits no cascade to do it for us.
+    expect(f.athenaDeleteOrder.indexOf("proposals")).toBeLessThan(f.athenaDeleteOrder.indexOf("turns"));
+    expect(f.athenaDeleteOrder.indexOf("turns")).toBeLessThan(f.athenaDeleteOrder.indexOf("threads"));
+
+    // Nothing of hers survives the sweep.
+    expect(f.athenaThreads).toEqual([]);
+    expect(f.athenaIdentityRows).toEqual([]);
+    expect(f.athenaMemories).toEqual([]);
+    expect(Object.values(f.athenaTurnsByThread)).toEqual([]);
+  });
+
+  it("a preview COUNTS Athena's store over the SAME predicates and deletes none of it", async () => {
+    const f = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(f.prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const real = (() => {
+      const g = fakeErasePrisma();
+      mockGetPrisma.mockReturnValue(g.prisma);
+      return eraseOrgData({ orgSlug: "acme" });
+    })();
+    const done = await real;
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+
+    // The number an operator is shown before confirming is the number the confirmed run removes.
+    expect(preview.athenaThreadsDeleted).toBe(done.athenaThreadsDeleted);
+    expect(preview.athenaTurnsDeleted).toBe(done.athenaTurnsDeleted);
+    expect(preview.athenaProposalsDeleted).toBe(done.athenaProposalsDeleted);
+    expect(preview.athenaIdentityDeleted).toBe(done.athenaIdentityDeleted);
+    expect(preview.athenaMemoriesDeleted).toBe(done.athenaMemoriesDeleted);
+
+    // ...and the preview itself moved nothing.
+    expect(f.tx.athenaThread.deleteMany).not.toHaveBeenCalled();
+    expect(f.tx.athenaTurn.deleteMany).not.toHaveBeenCalled();
+    expect(f.tx.athenaProposal.deleteMany).not.toHaveBeenCalled();
+    expect(f.prisma.athenaIdentity.deleteMany).not.toHaveBeenCalled();
+    expect(f.prisma.orgMemory.deleteMany).not.toHaveBeenCalled();
+    expect(f.athenaThreads).toHaveLength(2);
+    expect(f.athenaMemories).toHaveLength(3);
+  });
+
+  it("sweeps ONLY the memories Athena wrote — the predicate is source:'athena', never the whole store", async () => {
+    const f = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(f.prisma);
+
+    await eraseOrgData({ orgSlug: "acme" });
+
+    // The fixture asserts `where.source === "athena"` on every read; this pins the DELETE side too,
+    // so a future widening to "all of the org's memory" cannot slip in under this counter's name.
+    for (const call of f.prisma.orgMemory.findMany.mock.calls) {
+      expect((call[0] as { where: { source: string } }).where.source).toBe("athena");
+    }
+    expect(f.prisma.orgMemory.findMany).toHaveBeenCalled();
+  });
+
+  it("a repo-scoped erase never touches Athena — a thread is not a repo's row", async () => {
+    const f = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(f.prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api" });
+
+    expect(outcome.ok && outcome.athenaThreadsDeleted).toBe(0);
+    expect(outcome.ok && outcome.athenaTurnsDeleted).toBe(0);
+    expect(outcome.ok && outcome.athenaIdentityDeleted).toBe(0);
+    expect(outcome.ok && outcome.athenaMemoriesDeleted).toBe(0);
+    expect(f.tx.athenaThread.deleteMany).not.toHaveBeenCalled();
+    expect(f.prisma.orgMemory.findMany).not.toHaveBeenCalled();
+    expect(f.athenaThreads).toHaveLength(2);
+  });
+
+  it("records Athena's counters in the data.erased audit meta (a counter absent there lies)", async () => {
+    const { prisma } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await eraseOrgData({ orgSlug: "acme", actorId: "owner-login" });
+
+    const meta = vi.mocked(recordAudit).mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(meta.athenaThreadsDeleted).toBe(2);
+    expect(meta.athenaTurnsDeleted).toBe(6);
+    expect(meta.athenaProposalsDeleted).toBe(2);
+    expect(meta.athenaIdentityDeleted).toBe(2);
+    expect(meta.athenaMemoriesDeleted).toBe(3);
   });
 
   it("org scope leaves the audit trail alone unless includeAudit is set (erasing evidence is a separate ask)", async () => {

@@ -112,6 +112,9 @@ model Organization {
   techGroups       TechStackGroup[]
   llmConfig        OrgLlmConfig?
   loopRuns         LoopRun[]
+  athenaThreads    AthenaThread[]
+  athenaProposals  AthenaProposal[]
+  athenaIdentity   AthenaIdentity[]
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -1641,4 +1644,118 @@ model LoopRunLane {
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// ATHENA — the resident, ORG-SCOPED companion. One mind per organization.
+//
+// Her EPISODES are not here: they reuse OrgMemory (namespace "athena", kind "episodic", source
+// "athena" — see src/lib/db/athena-episodes.ts), because an episode is exactly what that store
+// already models, and duplicating it would fork the org's memory in two.
+//
+// Her IDENTITY does need its own table, for three reasons the memory store cannot express:
+//   • IMMUTABILITY. updateOrgMemory (src/lib/db/org-memory.ts) patches any id it is handed; there is
+//     no write-ACL a constitution could hide behind.
+//   • TAXONOMY. normalizeMemoryKind (src/lib/org/memory-kinds.ts) coerces any unknown kind to
+//     "semantic", so a "constitution" kind would silently become an ordinary fact.
+//   • DECAY. A row whose kind is not in DECAY_EXEMPT_KINDS (src/lib/memory/decay.ts) is scored, aged
+//     and archived by selectDecayed. A constitution that can be forgotten is not a constitution.
+//
+// The four models below are additive and JSON-in-TEXT (`metaJson`, `payloadJson`), following this
+// schema's no-jsonb DSQL contract. Like every other model here, relations exist for Prisma-side
+// integrity only — relationMode = "prisma" emits no ON DELETE, so the delete graph is the
+// application's job (eraseOrgAthena, src/lib/db/retention.ts).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+// One conversation with Athena. TITLES ARE DERIVED from the first user message and never typed: a
+// title box is a chore the operator pays before saying anything, and the thing they were going to
+// say IS the title. See deriveThreadTitle (src/lib/db/athena-threads.ts).
+model AthenaThread {
+  id        String   @id @default(uuid())
+  orgId     String
+  title     String   @default("") // derived, never user-entered; "" until the first user turn lands
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organization     @relation(fields: [orgId], references: [id])
+  turns     AthenaTurn[]
+  proposals AthenaProposal[]
+
+  // The thread list is "this org's conversations, most recently active first" — one index serves it.
+  @@index([orgId, updatedAt])
+}
+
+// One message in a thread. `metaJson` carries everything the transcript needs to REPLAY the turn as
+// it was rendered: blocks, recall chips, proposal ids, the phase trail, `grounding` and `truncated`.
+model AthenaTurn {
+  id       String @id @default(uuid())
+  threadId String
+  role     String // "user" | "assistant"
+  content  String
+  metaJson String @default("{}") // JSON object (TEXT) — blocks, chips, proposalIds, phases, grounding, truncated
+  // TOKEN COUNTS ARE NULLABLE ON PURPOSE, and `null` must never be written as `0`. A provider that
+  // reports no usage (a local model, a degraded path) is UNKNOWN, not free — and a `0` would be
+  // averaged and summed downstream as if it were a measurement. Unknown is not a value.
+  inputTokens  Int?
+  outputTokens Int?
+  legs         Int? // agent legs (tool round-trips) this turn took; null = not instrumented
+  createdAt    DateTime @default(now())
+
+  thread AthenaThread @relation(fields: [threadId], references: [id])
+
+  @@index([threadId, createdAt])
+}
+
+// Something Athena ASKED FOR that a human has not yet answered. `kind` is an action id (the action
+// the acceptance would run) or "identity_diff" (a change to her self-model). The OUTCOME of a
+// resolution is merged into `payloadJson` rather than given its own column: an outcome is
+// kind-shaped — a run id here, an anchored diff result there — and a single column would either be
+// a second JSON blob or a lowest-common-denominator string that loses the useful half.
+model AthenaProposal {
+  id          String    @id @default(uuid())
+  orgId       String
+  threadId    String
+  turnId      String // the assistant turn that raised it (scalar: the turn owns no proposal list)
+  kind        String
+  payloadJson String    @default("{}") // JSON object (TEXT) — the ask, and after resolution its outcome
+  status      String    @default("open") // open | accepted | declined
+  resolvedAt  DateTime?
+  resolvedBy  String? // GitHub login of the human who answered
+  createdAt   DateTime  @default(now())
+
+  org    Organization @relation(fields: [orgId], references: [id])
+  thread AthenaThread @relation(fields: [threadId], references: [id])
+
+  // "What is still open for this org" is the badge query, and the only one that must stay cheap.
+  @@index([orgId, status])
+  @@index([threadId])
+}
+
+// Athena's identity, in two tiers, one row each per org.
+//
+//   • "constitution" — who she is and what she may never do. WRITTEN ONCE, at seed time, BY A HUMAN
+//     PATH. There is deliberately NO exported function that can update a constitution row (see
+//     src/lib/db/athena-identity.ts): the lock is the ABSENCE of a writer, not a runtime `if` that a
+//     later refactor could "simplify" away.
+//   • "self_model" — what she has learned about this org and how to work with it. Mutable, but only
+//     through the anchored-diff engine (src/lib/athena/identity-diff.ts), and only after a human
+//     accepts an `identity_diff` proposal.
+//
+// `content` is MARKDOWN with stable `## ` sections, not a JSON blob, so the anchored diff has real
+// anchors to bind to — and so a future export seam can hand the document to another substrate
+// unchanged. `version` increments on every accepted diff; `updatedBy` is the accepting human.
+model AthenaIdentity {
+  id        String   @id @default(uuid())
+  orgId     String
+  tier      String // "constitution" | "self_model"
+  content   String   @default("")
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+  updatedBy String? // GitHub login of the human who accepted the diff; null for the seed
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  // One constitution and one self-model per org — "one mind per organization" as a fact of the
+  // schema rather than a convention the read layer hopes for.
+  @@unique([orgId, tier])
 }

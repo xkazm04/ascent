@@ -25,6 +25,7 @@ import type { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans";
 import { redactAuditIdentity } from "@/lib/db/audit-integrity";
+import { ATHENA_MEMORY_SOURCE } from "@/lib/db/athena-episodes";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
 /** Audit action recorded by the purge job for each org it enforces a policy on. */
@@ -862,6 +863,125 @@ async function eraseOrgLoopRuns(
   return { runs, lanes };
 }
 
+/**
+ * Erase everything ATHENA holds for the org — her conversations, her open asks, her identity, and
+ * the episodes she wrote into the org's memory store (src/lib/db/athena*.ts).
+ *
+ * She is a resident, org-scoped companion: her threads are the operator's own words, her turns are
+ * agent output about the tenant's code, her self-model is a document ABOUT this organization, and her
+ * episodes are memories of working with it. Every one of those is tenant data, so an "erasure" that
+ * left them behind would leave a mind that still remembers the org that asked to be forgotten.
+ *
+ * ORDER (relationMode = "prisma" emits no FK cascades, so it is written by hand): proposals → turns →
+ * threads → identity → the OrgMemory rows. Children before parents, exactly like eraseOrgLoopRuns.
+ *
+ * SCOPING CAVEAT, stated here because the counter it produces will be read as broader than it is:
+ * this is the FIRST OrgMemory sweep in this module — `retention.ts` covers no memory row today. It is
+ * deliberately narrowed to `source: "athena"`, i.e. HER OWN WRITES. Human-authored memories, the
+ * scan-pipeline feed, and registry-mirrored notes are untouched and remain a real gap; this function
+ * is not a fix for it and must not be widened into one by accident.
+ *
+ * Org scope ONLY: a thread is not a repo's row, so the repo-scoped erase variant never reaches it.
+ */
+async function eraseOrgAthena(
+  prisma: PrismaLike,
+  orgId: string,
+  batchSize: number,
+  overBudget: () => boolean,
+  dryRun: boolean,
+): Promise<{ threads: number; turns: number; proposals: number; identity: number; memories: number }> {
+  let threads = 0;
+  let turns = 0;
+  let proposals = 0;
+  let identity = 0;
+  let memories = 0;
+
+  // ── conversations: proposals + turns, then the threads that own them ───────────────────────────
+  let threadCursor: string | undefined;
+  for (;;) {
+    if (overBudget()) return { threads, turns, proposals, identity, memories };
+    const page = await prisma.athenaThread.findMany({
+      where: { orgId },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      select: { id: true },
+      ...(threadCursor ? { cursor: { id: threadCursor }, skip: 1 } : {}),
+    });
+    if (page.length === 0) break;
+    const ids = page.map((t) => t.id);
+    if (dryRun) {
+      // Preview: count over the SAME predicates the delete uses, cursor-paged since nothing leaves.
+      // Proposals are NOT counted here — the org-wide block below counts them exactly once, and the
+      // union of the two real deletes (by threadId, then by orgId) is precisely that same set.
+      turns += await prisma.athenaTurn.count({ where: { threadId: { in: ids } } });
+      threads += ids.length;
+      if (page.length < batchSize) break;
+      threadCursor = ids[ids.length - 1]!;
+      continue;
+    }
+    await withRetry(
+      () =>
+        prisma.$transaction(async (tx) => {
+          proposals += (await tx.athenaProposal.deleteMany({ where: { threadId: { in: ids } } })).count;
+          turns += (await tx.athenaTurn.deleteMany({ where: { threadId: { in: ids } } })).count;
+          threads += (await tx.athenaThread.deleteMany({ where: { id: { in: ids } } })).count;
+        }),
+      { label: "erase.athena-threads" },
+    );
+  }
+
+  // A proposal is org-scoped as well as thread-scoped, so a row whose thread vanished in an earlier
+  // (budget-stopped) call would otherwise survive forever. Sweep the org predicate too — and in a
+  // preview this ONE count is the whole proposal figure, over the same set the two deletes union to.
+  if (!overBudget()) {
+    if (dryRun) proposals += await prisma.athenaProposal.count({ where: { orgId } });
+    else {
+      proposals += (
+        await withRetry(() => prisma.athenaProposal.deleteMany({ where: { orgId } }), {
+          label: "erase.athena-proposals",
+        })
+      ).count;
+    }
+  }
+
+  // ── identity: at most two rows (constitution + self_model), so no paging is warranted ──────────
+  if (!overBudget()) {
+    if (dryRun) identity += await prisma.athenaIdentity.count({ where: { orgId } });
+    else {
+      identity += (
+        await withRetry(() => prisma.athenaIdentity.deleteMany({ where: { orgId } }), {
+          label: "erase.athena-identity",
+        })
+      ).count;
+    }
+  }
+
+  // ── episodes: OrgMemory rows SHE wrote (see the scoping caveat above) ──────────────────────────
+  const memoryWhere = { orgId, source: ATHENA_MEMORY_SOURCE };
+  if (dryRun) {
+    if (!overBudget()) memories += await prisma.orgMemory.count({ where: memoryWhere });
+  } else {
+    for (;;) {
+      if (overBudget()) break;
+      const page = await prisma.orgMemory.findMany({
+        where: memoryWhere,
+        orderBy: { id: "asc" },
+        take: batchSize,
+        select: { id: true },
+      });
+      if (page.length === 0) break;
+      const ids = page.map((m) => m.id);
+      memories += (
+        await withRetry(() => prisma.orgMemory.deleteMany({ where: { id: { in: ids } } }), {
+          label: "erase.athena-memories",
+        })
+      ).count;
+    }
+  }
+
+  return { threads, turns, proposals, identity, memories };
+}
+
 /** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
  *  config to be a literal, so the route can't import this — a route test pins the two together instead
  *  (same contract as {@link PURGE_MAX_DURATION_S}). */
@@ -913,6 +1033,19 @@ export interface EraseResult {
   loopRunsDeleted: number;
   /** Loop-run lanes removed. Deleted BEFORE their runs: relationMode = "prisma" emits no cascade. */
   loopLanesDeleted: number;
+  /** Athena conversations removed (org scope only — a thread belongs to the org, not to a repo). */
+  athenaThreadsDeleted: number;
+  /** Turns removed. Deleted BEFORE their threads — no cascade exists to do it for us. */
+  athenaTurnsDeleted: number;
+  /** Proposals removed (her open asks, and the answered ones with their outcomes). */
+  athenaProposalsDeleted: number;
+  /** Identity rows removed: the constitution and the self-model, at most one of each. */
+  athenaIdentityDeleted: number;
+  /** OrgMemory rows removed — HER episodes only (`source: "athena"`). This is the module's first
+   *  memory sweep and is deliberately narrow: human, scan-pipeline and registry memories are NOT
+   *  covered by any erase path yet. See eraseOrgAthena's scoping caveat before reading this as
+   *  "memory is now erased". */
+  athenaMemoriesDeleted: number;
   /** Audit rows DESTROYED (only ever non-zero for `auditDisposition: "delete"`). */
   auditDeleted: number;
   /** Audit rows reduced to identifier-only form — the historical account that SURVIVED the erasure. */
@@ -999,6 +1132,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let auditRedacted = 0;
   let loopRunsDeleted = 0;
   let loopLanesDeleted = 0;
+  let athenaThreadsDeleted = 0;
+  let athenaTurnsDeleted = 0;
+  let athenaProposalsDeleted = 0;
+  let athenaIdentityDeleted = 0;
+  let athenaMemoriesDeleted = 0;
   let stoppedEarly = false;
 
   // Erase ONE repo's scan graph + reset its scan-derived caches. Each batch inside pruneRepoScans is
@@ -1059,6 +1197,19 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       if (overBudget()) stoppedEarly = true;
     }
 
+    // Athena: org-scoped like the loop history, and tenant data for the same reason — her threads are
+    // the operator's words and her self-model is a document about this organization. Includes the
+    // OrgMemory rows she wrote (`source: "athena"`) and NOTHING else in that store; see eraseOrgAthena.
+    if (!stoppedEarly) {
+      const athena = await eraseOrgAthena(prisma, org.id, batchSize, overBudget, dryRun);
+      athenaThreadsDeleted = athena.threads;
+      athenaTurnsDeleted = athena.turns;
+      athenaProposalsDeleted = athena.proposals;
+      athenaIdentityDeleted = athena.identity;
+      athenaMemoriesDeleted = athena.memories;
+      if (overBudget()) stoppedEarly = true;
+    }
+
     // Audit trail: org-scoped, NO date cutoff (this is erasure, not retention). Opt-in, and skipped
     // once the budget is spent so the resume call does it instead.
     if (auditDisposition !== "keep" && !stoppedEarly) {
@@ -1092,6 +1243,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       recommendationEventsDeleted,
       loopRunsDeleted,
       loopLanesDeleted,
+      athenaThreadsDeleted,
+      athenaTurnsDeleted,
+      athenaProposalsDeleted,
+      athenaIdentityDeleted,
+      athenaMemoriesDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -1121,6 +1277,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       recommendationEventsDeleted,
       loopRunsDeleted,
       loopLanesDeleted,
+      athenaThreadsDeleted,
+      athenaTurnsDeleted,
+      athenaProposalsDeleted,
+      athenaIdentityDeleted,
+      athenaMemoriesDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -1140,6 +1301,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     recommendationEventsDeleted,
     loopRunsDeleted,
     loopLanesDeleted,
+    athenaThreadsDeleted,
+    athenaTurnsDeleted,
+    athenaProposalsDeleted,
+    athenaIdentityDeleted,
+    athenaMemoriesDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,
