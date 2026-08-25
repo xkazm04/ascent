@@ -270,7 +270,8 @@
       "doc": "docs/features/companion/README.md",
       "sourceGlobs": [
         "src/lib/athena/**",
-        "src/lib/db/athena*.ts"
+        "src/lib/db/athena*.ts",
+        "src/app/api/athena/**"
       ]
     },
     {

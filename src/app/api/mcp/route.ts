@@ -21,7 +21,7 @@
 
 import { NextResponse } from "next/server";
 import { verifyOrgApiToken, type SkillTokenScope } from "@/lib/db";
-import { runTool } from "@/lib/mcp/handlers";
+import { runTool, toolResultText } from "@/lib/mcp/handlers";
 import {
   err,
   httpStatusFor,
@@ -157,7 +157,9 @@ export async function POST(req: Request) {
       const args = (body.params?.arguments ?? {}) as Record<string, unknown>;
       try {
         const result = await runTool(name, token.orgSlug, args);
-        const text = result.text ?? JSON.stringify(result.structuredContent, null, 2);
+        // Serialized by the shared helper, not inline: Athena dispatches these same handlers in-process
+        // (src/lib/athena/grounding.ts), and both doors must show the model byte-identical text.
+        const text = toolResultText(result);
         return rpc(
           ok(id, {
             content: [{ type: "text", text }],
