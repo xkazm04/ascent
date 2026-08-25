@@ -145,7 +145,14 @@ describe("the constitution is write-locked BY CONSTRUCTION", () => {
   });
 
   it('never passes "constitution" to an update anywhere in the module source', () => {
-    const src = readFileSync(join(process.cwd(), "src", "lib", "db", "athena-identity.ts"), "utf8");
+    // Normalized to LF before matching. git's autocrlf rewrites this file with CRLF on every Windows
+    // checkout, so a snippet carrying a literal newline matched in the worktree it was authored in and
+    // failed the moment it was checked out anywhere else — including a fresh clone. A guard that only
+    // holds where it was written is not a guard.
+    const src = readFileSync(join(process.cwd(), "src", "lib", "db", "athena-identity.ts"), "utf8").replace(
+      /\r\n/g,
+      "\n",
+    );
     // The only `.update(` call in the file, and the tier in its where-clause is a literal.
     const updates = [...src.matchAll(/athenaIdentity\.update\(/g)];
     expect(updates).toHaveLength(1);
