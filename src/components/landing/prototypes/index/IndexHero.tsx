@@ -29,10 +29,10 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
   // Falsy when the corpus is empty — the sample-report link is then omitted (the curated org-demo link,
   // which points at a seeded org, still shows).
   const sampleRepo = exampleRepos?.[0] ?? null;
-  // The source link is the strongest zero-commitment preview there is on an open-source product: it
-  // is the one claim on this page a sceptical engineer can verify without giving us anything. Null
-  // (and therefore omitted) unless the deployment names its repository — NEXT_PUBLIC_SOURCE_REPO_URL
-  // is inlined at build time, so this resolves in the client bundle. See lib/site.
+  // The source link is the strongest zero-commitment preview there is on an open-source product.
+  // Null unless the deployment names its repository (NEXT_PUBLIC_SOURCE_REPO_URL, inlined at build
+  // time so this resolves in the client bundle — see lib/site); the self-host CTA then falls back to
+  // the pricing page's SelfHostBand anchor instead of shipping a dead external link.
   const sourceHref = sourceRepoHref();
   return (
     <DeckSection id="hero" variant="hero">
@@ -80,6 +80,15 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
               score on a {LEVELS.length}-level ladder across {DIMENSIONS.length} weighted dimensions, with the
               evidence behind every number.
             </p>
+            {/* Co-primary identity line. Phrased in lockstep with /pricing's SelfHostBand ("the plans
+                buy operation, not capability" / "the Claude subscription you already pay for") so the
+                two surfaces can't drift apart in spirit — the landing makes the claim, the pricing
+                page substantiates it. */}
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-400 2xl:max-w-2xl">
+              <span className="font-medium text-slate-200">Open source under AGPL-3.0.</span> Run it yourself
+              with any model — including the Claude subscription you already pay for. The cloud plans buy
+              operation, not capability.
+            </p>
             {/* Primary CTA opens the single-repo scan dialog (input + expected output + GitHub connect).
                 The secondary button surfaces the higher-value path — a one-shot whole-org scan + cross-repo
                 rollup — which a cold-start visitor would otherwise only discover after signing in. */}
@@ -91,6 +100,27 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
               >
                 Scan your whole org <span aria-hidden>→</span>
               </Link>
+              {/* The self-host path, promoted from a buried text link to a real CTA: on an AGPL
+                  product it is the one claim a sceptical engineer can verify without giving us
+                  anything. Links to the repository when the deployment names one; otherwise to the
+                  pricing page's self-host band, which states the same offer without a dead link. */}
+              {sourceHref ? (
+                <a
+                  href={sourceHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                >
+                  Open source · run it yourself <span aria-hidden>→</span>
+                </a>
+              ) : (
+                <Link
+                  href="/pricing#self-host"
+                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                >
+                  Open source · run it yourself <span aria-hidden>→</span>
+                </Link>
+              )}
             </div>
             {/* Zero-commitment previews — drop a first-time visitor straight into a fully-rendered
                 example before scanning anything. The org dashboard points at the curated demo org (one
@@ -106,16 +136,6 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
               <Link href={demoOrgHref()} className="focus-ring rounded-sm transition hover:text-accent">
                 <span aria-hidden>▸</span> See an example org dashboard
               </Link>
-              {sourceHref && (
-                <a
-                  href={sourceHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="focus-ring rounded-sm transition hover:text-accent"
-                >
-                  <span aria-hidden>▸</span> Open source · run it yourself
-                </a>
-              )}
             </div>
           </div>
 

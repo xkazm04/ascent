@@ -17,6 +17,30 @@ Context-map group: **Marketing Site & Design System** (`feature`).
 | Marketing About Page | `/about` | `src/app/about`, `src/components/about/**` |
 | Marketing Org Page | `/about-org` | `src/app/about-org`, `src/components/about-org/**` |
 
+## The `/` landing deck ("The Index")
+
+`IndexLanding` renders the production landing as a scroll-snap deck. Section
+roster (also the right-edge `DeckNav`): **hero · org · fleet · local · gallery
+(when the register has data) · levels · dimensions**, each a `DeckSection` under
+`src/components/landing/prototypes/index/`.
+
+Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
+`SelfHostBand` so the copy can't drift apart in spirit:
+
+- **Hero (`IndexHero`)**: an identity line under the lede ("Open source under
+  AGPL-3.0 … The cloud plans buy operation, not capability") plus a co-primary
+  "Open source · run it yourself" CTA beside the ScanModal button. It links to the
+  deployment's repository (`NEXT_PUBLIC_SOURCE_REPO_URL`) when named, and falls
+  back to `/pricing#self-host` — an anchor `SelfHostBand` now carries — instead of
+  shipping a dead external link.
+- **Local-loop section (`IndexLocal`, deck id `local`, after the fleet)**: three
+  cards for the self-hosted-only capabilities — repo↔folder pairing with
+  scan-from-disk (unpushed commits included), the autopilot loop (Claude CLI in an
+  isolated worktree, branch as the deliverable, never pushes), and the read-only
+  token-scoped MCP door. Card copy is verified against
+  [`local-mode/README.md`](../local-mode/README.md) and `src/lib/mcp/tools.ts`;
+  keep it exactly true when either changes.
+
 ## The deck reading scale (large-screen typography & measure)
 
 Marketing decks used to stop growing at `lg`: the container was pinned at

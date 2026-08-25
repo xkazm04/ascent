@@ -39,8 +39,11 @@ const POINTS: { title: string; body: string }[] = [
 
 export function SelfHostBand() {
   const guideHref = sourceRepoHref("docs/SELF-HOSTING.md");
+  // `id="self-host"` is a public anchor: the landing hero's "run it yourself" CTA deep-links to
+  // /pricing#self-host when the deployment names no source repository. Renaming it breaks that
+  // fallback silently.
   return (
-    <section aria-labelledby="self-host-heading" className="w-full">
+    <section id="self-host" aria-labelledby="self-host-heading" className="w-full">
       <HairlineGrid className="tick-corners">
         <div className="bg-surface/60 p-6 sm:p-8">
           <Kicker as="span" tone="accent">

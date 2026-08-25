@@ -9,6 +9,7 @@ import type { LandingData } from "../types";
 import { IndexHero } from "./IndexHero";
 import { IndexOrg } from "./IndexOrg";
 import { IndexFleet } from "./IndexFleet";
+import { IndexLocal } from "./IndexLocal";
 import { IndexGallery } from "./IndexGallery";
 import { IndexLevels } from "./IndexLevels";
 import { DimensionMatrix } from "./DimensionMatrix";
@@ -28,6 +29,11 @@ export function IndexVariant(props: LandingData) {
         </Reveal>
         <Reveal>
           <IndexFleet />
+        </Reveal>
+        {/* After the fleet: the cloud story peaks with mission control, then the deck turns to what
+            only the self-hosted deployment can do — before the register grounds it all in data. */}
+        <Reveal>
+          <IndexLocal />
         </Reveal>
         {props.gallery && (
           <Reveal>
