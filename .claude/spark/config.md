@@ -97,8 +97,48 @@ Pasted verbatim into every builder brief:
   rubber-stamped — always offer a real alternative.
 - Rejected options are memorized.
 - Prefers reusing existing machinery over new schema.
+- **2026-08-25 (operator-companion): took the recommendation 12 times of 15, and BOTH
+  overrides went toward the more powerful, more expensive option** — model-driven tool
+  calling over a pre-assembled grounding blob, and a shared cross-product name over an
+  unambiguous local one. Each was accepted with its cost already stated in the option text.
+  Confirms the standing read: offer the bold option with its cost named; never pre-narrow.
+- 2026-08-25: **zero "Other" answers across fifteen questions.** Keep writing the condition
+  INTO the option text — an override then arrives with its mitigation already agreed, which
+  is exactly what happened on the naming question.
+- 2026-08-25: takes the FULL ladder when offered a cumulative scope question. Size the brief
+  for it — this one came out at six work packages, not the method's nominal four.
 
 ## Skill improvement log
+
+- 2026-08-25 (operator-companion): **partition DOC surfaces as explicitly as source
+  directories.** Six code territories were carved carefully, then two parallel builders were
+  handed the same feature doc and the same feature-doc-map. Caught mid-flight; the fix that
+  worked is one owner per doc file, with the others emitting sections to a scratch file for
+  the Director to merge.
+- 2026-08-25 (operator-companion): **a source-reading guard must normalize line endings.**
+  The constitution write-lock test matched a snippet containing a literal newline escape;
+  autocrlf rewrites the file with CRLF on checkout, so it passed in the authoring worktree
+  and failed on master and on any fresh clone. This class is invisible to every gate that
+  runs where the code was written.
+- 2026-08-25 (operator-companion): **a scout claiming a capability is ABSENT must show the
+  repo-wide grep**, not the subsystem-scoped one. A scout reported that no provider supports
+  tool calling; the Bedrock adapter had shipped a working toolConfig all along. An absence
+  claim needs wider evidence than a presence claim.
+- 2026-08-25 (operator-companion): **a red test file hides its own flakes.** Repairing three
+  dead time-bomb fixtures exposed a one-in-ten flake underneath that nobody could see while
+  the file was red. Stress-run a file you just repaired; one green is not evidence.
+- 2026-08-25 (operator-companion): an acceptance criterion that asserts an ORDERING must name
+  the mechanism that makes the ordering observable — "assert the turn has not started when
+  POST returns" is unfalsifiable, because a stream's start() runs synchronously during
+  construction.
+- 2026-08-25 (operator-companion): restore package-lock.json IMMEDIATELY after the worktree
+  npm install, not at merge time. Carrying it dirty through six packages is one careless
+  staging mistake away from a junk commit.
+- 2026-08-25 (operator-companion): **never embed backticks in a python string passed to
+  `python -c` from bash** — bash performs command substitution first. One such string
+  contained a `git add -A` example and bash RAN it, staging a parallel session's WIP. A mixed
+  `git reset` recovered it with nothing lost, but the fix is to write files with the file
+  tool, never through a shell-quoted heredoc-less string.
 
 - 2026-08-22 (live-flagship): ask metaphor/shape questions BEFORE presentation questions
   (Q14 had to be re-asked as Q16 after the metaphor changed).
