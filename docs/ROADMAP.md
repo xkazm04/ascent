@@ -23,6 +23,20 @@ on self-hosted deployments: repo↔folder pairing, scan-from-disk, and the autop
 - The T1/T2 tracks in [`GOLDEN-TRIO.md`](./GOLDEN-TRIO.md): evidence ledger, `.ai` standard +
   fleet remediation.
 
+### Next steps toward Athena
+
+Ascent's resident companion is **Athena** ([`features/companion/README.md`](./features/companion/README.md));
+the founding plan lives in the AI registry
+(`ai-registry/docs/plans/athena-inject-ascent-2026-08-24.md`) and much of its phase sequence is
+already in build (schema, turn runner, drawer surface, action catalog, autonomous cycle). What
+remains from that plan, deliberately not started yet:
+
+- **The shared-brain seam in fact, not just in name**: export/import of the document-shaped
+  identity so an operator's kp/desktop Athena and an org's Ascent Athena can exchange what consent
+  allows (today they share vocabulary and format, zero storage).
+- **P5 retro**: lessons back to the registry's `skills/spark/LESSONS.md` + companion-doctrine
+  deepen candidates, and updating the registry plan's "verify at execution" notes with what drifted.
+
 ## History
 
 Hackathon-era plan: [`archive/2026-hackathon/PLAN.md`](./archive/2026-hackathon/PLAN.md).

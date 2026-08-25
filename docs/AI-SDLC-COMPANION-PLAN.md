@@ -9,6 +9,14 @@ _Grounded in a code audit of this repo (2026-08-13), the shipped UAT drain
 [Port's AI-SDLC piece](https://www.port.io/blog/ai-sdlc) and IBM's
 [AI-DLC](https://www.ibm.com/think/topics/ai-dlc) / [Bob](https://newsroom.ibm.com/2026-04-28-introducing-ibm-bob-ai-development-partner-that-takes-enterprises-from-ai-assisted-coding-to-production-ready-software)._
 
+> **The companion is named Athena** (operator decision, 2026-08-25). The name is shared with the
+> Personas desktop app's companion on purpose — the registry's `one-mind-many-mouths` doctrine says
+> an operator should meet one companion across their tools, and Athena's document-shaped brain format
+> (constitution / self-model / episodes as markdown with stable sections) is the shared lineage, even
+> though the substrates differ (kp: files on the operator's machine; Ascent: org-scoped DB rows).
+> Where this plan says "the companion", read Athena. The implemented product is documented in
+> [`features/companion/README.md`](features/companion/README.md).
+
 ---
 
 ## 0. The thesis in one paragraph

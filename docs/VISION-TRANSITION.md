@@ -1,5 +1,10 @@
 # Ascent as a transition companion: vision → feature pass
 
+> **The companion is named Athena** (2026-08-25). One name across the operator's tools, per the
+> registry's companion doctrine: Ascent's resident companion shares its name and its document-shaped
+> brain format with the Personas desktop app's Athena, while keeping its own org-scoped substrate.
+> See [`features/companion/README.md`](features/companion/README.md).
+
 ## The shift in what Ascent *is*
 
 Today Ascent **scores** repos and orgs. The real product is a **companion that helps an
