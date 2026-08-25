@@ -99,6 +99,7 @@ docs/harness/
 /.claude/skills/project-populate
 /.claude/skills/scan-sweep
 /.claude/skills/ship-loop
+/.claude/skills/spark
 /.claude/skills/tiger
 /.claude/skills/uat
 /.claude/rules/ai-registry-access.md
