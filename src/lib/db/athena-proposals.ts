@@ -150,3 +150,85 @@ export async function resolveAthenaProposal(
   const row = await prisma.athenaProposal.findFirst({ where: { id, orgId } });
   return row ? toRecord(row) : null;
 }
+
+// ── claim → run → stamp ─────────────────────────────────────────────────────────────────────────
+//
+// {@link resolveAthenaProposal} is the ONE-SHOT resolution: it is right for a decline, where there is
+// nothing to run. An ACCEPT has work in the middle of it, and the ordering of that work is the whole
+// problem. Write-then-work leaves a failed accept marked done. Work-then-write runs a double-click
+// twice. So an accept is three guarded steps, each of which can only ever move the row one way:
+//
+//   claim    status = 'open'                        → one caller wins; a second sees nothing and 409s
+//   stamp    resolvedAt IS NULL                     → merges the outcome in, and closes the row
+//   release  status = 'accepted' AND resolvedAt NULL → can ONLY undo a claim, never a resolution
+//
+// A RESOLVED PROPOSAL CAN NEVER BE RE-OPENED, RE-STAMPED OR FLIPPED. `resolvedAt IS NULL` in the stamp
+// and in the release is what guarantees it, and it is why reopening a conversation is safe: the card
+// reads its status from the live row, so a resolved proposal paints an OUTCOME rather than a second
+// Accept button.
+
+/**
+ * Step 1. `open → accepted` with `resolvedAt` still NULL — the row is claimed, nothing has run yet.
+ * Returns the claimed record, or null when another caller already took it (the 409).
+ */
+export async function claimAthenaProposal(
+  orgId: string,
+  id: string,
+  claimedBy: string | null,
+): Promise<AthenaProposalRecord | null> {
+  if (!isDbConfigured() || !orgId || !id) return null;
+  const prisma = getPrisma();
+  const { count } = await prisma.athenaProposal.updateMany({
+    where: { id, orgId, status: "open" },
+    data: { status: "accepted", resolvedBy: claimedBy },
+  });
+  if (count === 0) return null;
+  const row = await prisma.athenaProposal.findFirst({ where: { id, orgId } });
+  return row ? toRecord(row) : null;
+}
+
+/**
+ * Step 3. Merge the outcome into `payloadJson` and stamp `resolvedAt`, closing the row for good.
+ * Guarded on `resolvedAt IS NULL`, so a stamp can never overwrite a resolution that already stands.
+ * `status` may be corrected here (an accept whose action turned out to be retired resolves as
+ * `declined`), but only while the row is still unstamped.
+ */
+export async function stampAthenaProposal(
+  orgId: string,
+  id: string,
+  outcome: Record<string, unknown>,
+  status?: Exclude<AthenaProposalStatus, "open">,
+): Promise<AthenaProposalRecord | null> {
+  if (!isDbConfigured() || !orgId || !id) return null;
+  const prisma = getPrisma();
+  const current = await prisma.athenaProposal.findFirst({ where: { id, orgId, resolvedAt: null } });
+  if (!current) return null;
+
+  const payload = { ...parsePayload(current.payloadJson), outcome };
+  const { count } = await prisma.athenaProposal.updateMany({
+    where: { id, orgId, resolvedAt: null },
+    data: {
+      ...(status ? { status } : {}),
+      resolvedAt: new Date(),
+      payloadJson: JSON.stringify(payload),
+    },
+  });
+  if (count === 0) return null;
+  const row = await prisma.athenaProposal.findFirst({ where: { id, orgId } });
+  return row ? toRecord(row) : null;
+}
+
+/**
+ * Undo a claim, and ONLY a claim. `status = 'accepted' AND resolvedAt IS NULL` is the entire safety
+ * argument: a resolved row has a `resolvedAt` and is untouchable, and an open row is not accepted, so
+ * the only state this can act on is one this very request created. Used when the work THREW — the
+ * proposal goes back to open so the operator can click again.
+ */
+export async function releaseAthenaProposal(orgId: string, id: string): Promise<boolean> {
+  if (!isDbConfigured() || !orgId || !id) return false;
+  const { count } = await getPrisma().athenaProposal.updateMany({
+    where: { id, orgId, status: "accepted", resolvedAt: null },
+    data: { status: "open", resolvedBy: null },
+  });
+  return count > 0;
+}

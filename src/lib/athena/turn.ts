@@ -27,6 +27,7 @@ import type { TokenUsage, ProviderName } from "@/lib/types";
 import type { AthenaTool, ToolCall } from "@/lib/llm/leg";
 import type { AthenaTurnRecord } from "@/lib/db/athena-threads";
 import { parseAthenaBlocks, type AthenaBlock } from "@/lib/athena/blocks";
+import { athenaActionPayload, parseAthenaActions } from "@/lib/athena/actions";
 import { buildAthenaPrompt, ATHENA_NO_ENGINE_REPLY, ATHENA_HISTORY_TURNS } from "@/lib/athena/prompt";
 import { selectRecallChips, type AthenaGrounding, type AthenaRecallChip } from "@/lib/athena/grounding";
 
@@ -67,6 +68,13 @@ export interface AthenaPersistInput {
   inputTokens?: number | null;
   outputTokens?: number | null;
   legs?: number | null;
+  /**
+   * Offers this turn makes. Handed to `appendTurn` rather than written by a second call, because the
+   * store writes them IN THE SAME TRANSACTION as the turn (athena-threads.ts): a proposal whose turn
+   * was never written is an Accept button under nothing, and a turn pointing at rows that were never
+   * inserted is a card painted empty.
+   */
+  proposals?: { kind: string; payload: Record<string, unknown> }[];
 }
 
 export interface AthenaTurnDeps {
@@ -262,7 +270,12 @@ export async function* runAthenaTurn(input: AthenaTurnInput): AsyncIterable<Athe
   }
 
   const loop: AthenaLoopRun = outcome.run;
-  const parsed = parseAthenaBlocks(loop.text);
+  // ORDER IS LOAD-BEARING. `parseAthenaBlocks` only consumes `athena:table` and `athena:chart` fences,
+  // so an `athena:action` fence left in place would survive into the prose and be shown to the operator
+  // as raw JSON. The actions come out FIRST; the block parser then applies the prose budget last, over
+  // text with no fences of either kind left in it.
+  const acts = parseAthenaActions(loop.text);
+  const parsed = parseAthenaBlocks(acts.text);
   const meta: Record<string, unknown> = {
     blocks: parsed.blocks,
     chips,
@@ -275,6 +288,10 @@ export async function* runAthenaTurn(input: AthenaTurnInput): AsyncIterable<Athe
     droppedBlocks: parsed.dropped,
     truncatedBlocks: parsed.truncated,
     overflowBlocks: parsed.overflow,
+    // Same reasoning as the block counts: an offer that silently vanishes is indistinguishable from a
+    // model that never made one, and only one of those is worth fixing.
+    droppedActions: acts.dropped,
+    overflowActions: acts.overflow,
     toolsCalled: loop.toolCalls.map((c) => c.name),
     phases: ["recalling", "grounding", "thinking"],
   };
@@ -301,6 +318,7 @@ export async function* runAthenaTurn(input: AthenaTurnInput): AsyncIterable<Athe
       inputTokens: loop.usage.inputTokens ?? null,
       outputTokens: loop.usage.outputTokens ?? null,
       legs: loop.legs,
+      proposals: acts.actions.map((a) => ({ kind: a.id, payload: athenaActionPayload(a) })),
     })) ?? unpersisted(threadId, parsed.prose, meta, at);
 
   yield { type: "settled", turn: record };

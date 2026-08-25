@@ -35,11 +35,23 @@ import { recommendationDecisionKey } from "@/lib/report/rec-identity";
  */
 export const ROADMAP_DECISION_MODULE = "roadmap";
 
-/** Every module an OrgDecision row may carry — the four derived-finding modules plus `roadmap`. */
-export type DecisionModule = FindingModule | typeof ROADMAP_DECISION_MODULE;
+/**
+ * A sixth surface, added the same way and for the same reason: a finding ATHENA raised in conversation
+ * that has no derived-Finding home of its own. One constant, no second store — a ruling she carries
+ * lands in the very same OrgDecision row a dashboard ruling does, flows through `decisionsForRepo` into
+ * the scan prompt, and is published to memory by the same write-through. A separate "companion
+ * decisions" table would have been two ledgers of the same judgment, disagreeing within a week.
+ */
+export const ATHENA_DECISION_MODULE = "athena";
+
+/** Every module an OrgDecision row may carry — the four derived-finding modules, `roadmap`, `athena`. */
+export type DecisionModule =
+  | FindingModule
+  | typeof ROADMAP_DECISION_MODULE
+  | typeof ATHENA_DECISION_MODULE;
 
 export function isDecisionModule(v: string | null | undefined): v is DecisionModule {
-  return isFindingModule(v) || v === ROADMAP_DECISION_MODULE;
+  return isFindingModule(v) || v === ROADMAP_DECISION_MODULE || v === ATHENA_DECISION_MODULE;
 }
 
 /**

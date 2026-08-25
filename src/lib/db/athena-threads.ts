@@ -149,6 +149,13 @@ export async function listAthenaTurns(orgId: string, threadId: string, limit = 2
 
 // ── turns ────────────────────────────────────────────────────────────────────────────────────────
 
+/** A proposal raised BY this turn, written in the same transaction as it. See {@link appendAthenaTurn}. */
+export interface AppendTurnProposal {
+  /** An action id from the catalog (src/lib/athena/actions.ts), or IDENTITY_DIFF_KIND. */
+  kind: string;
+  payload: Record<string, unknown>;
+}
+
 export interface AppendTurnInput {
   orgId: string;
   threadId: string;
@@ -160,6 +167,8 @@ export interface AppendTurnInput {
   inputTokens?: number | null;
   outputTokens?: number | null;
   legs?: number | null;
+  /** Offers this turn makes. Written WITH the turn or not at all — see the transaction note below. */
+  proposals?: AppendTurnProposal[];
 }
 
 /** A count is written only when it is a real measurement; anything else is stored as `null`. */
@@ -170,6 +179,18 @@ const asCount = (n: number | null | undefined): number | null =>
  * Append a turn and bump the thread's `updatedAt` (so the rail's ordering is "last spoken", not
  * "created"). The FIRST user turn also names the thread — one write, not a second round trip that
  * could fail and leave a permanently untitled conversation.
+ *
+ * PROPOSALS ARE WRITTEN IN THE SAME TRANSACTION AS THE TURN THAT OFFERED THEM, and the two failure
+ * modes of doing it any other way are both silent:
+ *
+ *   • a proposal whose turn was never written is an Accept button under nothing — a card with no
+ *     conversation above it, offering an action for a reason nobody can read;
+ *   • a turn whose proposals were never inserted is a card painted empty — the meta promises offers
+ *     that resolve to no rows, and the drawer renders a gap.
+ *
+ * So all of it commits or none of it does. The ids come back on the turn's OWN meta (`proposalIds`),
+ * which is why the turn is updated a second time INSIDE the transaction: a proposal's row needs the
+ * `turnId`, and the turn's meta needs the proposal ids, and neither can be written first outside one.
  */
 export async function appendAthenaTurn(input: AppendTurnInput): Promise<AthenaTurnRecord | null> {
   if (!isDbConfigured() || !input.orgId || !input.threadId) return null;
@@ -181,9 +202,10 @@ export async function appendAthenaTurn(input: AppendTurnInput): Promise<AthenaTu
   if (!thread) return null;
 
   const title = !thread.title && input.role === "user" ? deriveThreadTitle(input.content) : null;
+  const proposals = (input.proposals ?? []).filter((p) => p && typeof p.kind === "string" && p.kind.trim());
 
   return await prisma.$transaction(async (tx) => {
-    const turn = await tx.athenaTurn.create({
+    let turn = await tx.athenaTurn.create({
       data: {
         threadId: thread.id,
         role: input.role,
@@ -200,6 +222,28 @@ export async function appendAthenaTurn(input: AppendTurnInput): Promise<AthenaTu
       // when there is one, and `{}` is the no-op that still bumps the timestamp.
       data: title ? { title } : {},
     });
+
+    if (proposals.length > 0) {
+      const ids: string[] = [];
+      for (const p of proposals) {
+        const row = await tx.athenaProposal.create({
+          data: {
+            orgId: input.orgId,
+            threadId: thread.id,
+            turnId: turn.id,
+            kind: p.kind.trim(),
+            payloadJson: JSON.stringify(p.payload ?? {}),
+          },
+          select: { id: true },
+        });
+        ids.push(row.id);
+      }
+      turn = await tx.athenaTurn.update({
+        where: { id: turn.id },
+        data: { metaJson: JSON.stringify({ ...(input.meta ?? {}), proposalIds: ids }) },
+      });
+    }
+
     return toTurn(turn);
   });
 }

@@ -7,6 +7,7 @@
 //   self-model     what she has learned about THIS org (mutable only through an accepted diff)
 //   tone contract  how she writes — checkable rules, never adjectives (see below)
 //   block contract the two structured shapes she may emit, with their exact fences
+//   action contract what she may OFFER to do — generated from the action catalog, never restated here
 //   ── then the evidence ──
 //   recall         memories that may bear on the question — UNTRUSTED, quoted inside the boundary
 //   grounding      whether she can call tools or is answering from the prompt alone
@@ -29,6 +30,13 @@
 // `neutralize` and is quoted inside `wrapUntrusted`, under MEMORY_UNTRUSTED_BOUNDARY.
 
 import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+// GENERATED from src/lib/athena/actions.ts — the ONE array that also drives the validator, the
+// executor binding and the capability doc. It is a constant rather than a parameter for the same
+// reason the two contracts above it are: it is byte-identical on every turn, which keeps the cached
+// prefix of the prompt cached. Nothing here decides WHETHER she may act — the resolve route reads
+// `requiredRole` off the spec and gates there. Teaching an action she could not run would be a lie;
+// teaching one the operator's role cannot accept is merely an offer that gets refused, with a reason.
+import { ATHENA_ACTION_CONTRACT } from "@/lib/athena/actions";
 
 /** How many prior turns are replayed into a prompt. Enough for a pronoun to resolve, few enough that
  *  a long thread does not price itself out of an answer. */
@@ -164,6 +172,7 @@ export function buildAthenaPrompt(input: AthenaPromptInput): string {
     section("WHAT YOU HAVE LEARNED ABOUT THIS ORGANIZATION", input.selfModel),
     ATHENA_TONE_CONTRACT,
     ATHENA_BLOCK_CONTRACT,
+    ATHENA_ACTION_CONTRACT,
     input.grounding === "tools" ? GROUNDING_TOOLS : GROUNDING_PREFETCHED,
     recallSection(input.recall),
     historySection(input.history),

@@ -59,6 +59,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org_memory.reflected", label: "Memory reflected", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org_memory.decayed", label: "Memory decayed", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "org_decision.recorded", label: "Decision recorded", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  // Athena's action door. The ACCEPT is emerald because something was actually performed on the org's
+  // behalf — it is the one place a companion's suggestion turns into a write, and the trail is the
+  // reason that is safe to offer at all. The decline is slate: a considered "no" changed nothing.
+  { value: "athena_proposal.accepted", label: "Athena action accepted", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "athena_proposal.declined", label: "Athena action declined", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "passport.pr_opened", label: "Passport PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "passport.overrides_set", label: "Passport overrides", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "passport.declines_set", label: "Passport declines", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },

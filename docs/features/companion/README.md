@@ -114,16 +114,123 @@ The rules are registry doctrine `anchored-identity-diffs`, and none of them is n
 Only the named section is touched, and there is **no operation that rewrites the whole document**. A
 sequence of diffs is all-or-nothing: the first refusal aborts and nothing is written.
 
-## Proposals: nothing happens until a person says so
+<!-- athena-actions -->
 
-A proposal is the seam between "she said something" and "something happened". `kind` is an action id
-or `"identity_diff"`; `status` starts `open`. `resolveAthenaProposal` is a compare-and-set on
-`status: "open"`, so two accepts racing cannot run the action twice.
+## The action catalog
 
-**The outcome is merged into `payloadJson`, and there is deliberately no `outcome` column.** An
-outcome is kind-shaped — a run id for one action, an anchored-diff result for `identity_diff`, a
-refusal reason for a diff that missed — so a dedicated column would be either a second JSON blob or a
-lowest-common-denominator string that throws away the half a reader needs.
+Athena cannot change anything. What she can do is **offer** — a card with an Accept and a Decline on
+it — and nothing happens until a person clicks. Everything she may offer is declared in **one array**,
+`ATHENA_ACTIONS` in [`src/lib/athena/actions.ts`](../../../src/lib/athena/actions.ts). Four things
+derive from that array and none of them restates it:
+
+| Derivation | Where | How it derives |
+| --- | --- | --- |
+| The teaching text shipped to the model | `ATHENA_ACTION_CONTRACT`, spliced into the prompt after the block contract | Generated from `athenaActionWire()` — every id, doc, parameter and closed value set is rendered from the array |
+| The validator | `coerceAthenaAction()` | Its presence and shape checks read `spec.params`; there is no per-action branch in it |
+| The executor binding | `ATHENA_ACTION_EXECUTORS` in `actions-execute.ts` | Typed `Record<AthenaActionId, …>`, so a missing or extra executor does not compile |
+| This capability list | the table below | See **How this list stays true**, below |
+
+**The failure this prevents is not a crash — it is asymmetry.** A kind the prompt teaches and the
+validator rejects. A kind the validator accepts and no executor performs. A field the executor requires
+and the prompt never mentions. Each half is individually correct, so nothing throws and nothing logs;
+the model simply gets blamed for hallucinating a capability it was, in fact, taught.
+
+`execute` is deliberately **not** a field on the spec. It is the one part of an action that needs the
+database, and the catalog is imported by `turn.ts`, which is documented as having no database, no
+network and no Next.js so a whole turn can run against fakes. The `Record<AthenaActionId, …>` binding is
+also strictly stronger than a field would be: an optional `execute?` cannot detect an action nobody
+performs, whereas the Record makes it un-compilable. A **set-equality test** pins the same fact at
+runtime (`actions.test.ts`, "the wire catalog and the executors carry the EXACT same id set").
+
+### What this build carries
+
+Both actions dispatch machinery that already exists. **Neither reaches outside Ascent and neither
+spends money** — that is the bar for being in the catalog at all.
+
+| Action | Required role | What accepting it does |
+| --- | --- | --- |
+| `handoff_followups` | `member` | Claims follow-up items: `open → in_progress`, with a timeline note. Reuses the semantics of `POST /api/org/followups/handoff` — per-id tenancy re-check with a **whole-action refusal** on any foreign id (so ids cannot be enumerated), idempotent, and `done` / `dismissed` are never reopened. It records the claim and nothing else: the fix is a prompt a human runs, and the boundary ends at a string. |
+| `rule_on_finding` | `member` | Records the team's ruling on one finding — accept, dismiss, or snooze until a date — carrying the rationale. Reuses `decide()` (`src/lib/db/org-decisions.ts`): a sparse upsert on `(orgId, module, itemKey)`, write-through to Shared Org Memory, already audited. Athena's own findings use the `athena` decision module, added the way `roadmap` was — **one constant, no second store**. |
+
+### How this list stays true
+
+The table above is **checked against the catalog, not maintained beside it.** The test
+`actions.test.ts` → "the capability doc lists exactly the actions this build carries" locates the
+companion doc by its `<!-- athena-actions -->` marker and asserts set equality between the ids in the
+catalog and the ids the doc mentions. Adding an action without documenting it fails the suite; leaving a
+retired action documented fails it too. The marker travels with the prose, so the check survives this
+section being merged into another file.
+
+## The proposal lifecycle
+
+A proposal row (`AthenaProposal`) is raised by an assistant turn and answered by a human. Its outcome is
+**merged into `payloadJson`** — there is deliberately no outcome column, because an outcome is
+kind-shaped and a single column would be either a second JSON blob or a lowest-common-denominator string
+that throws away the half a reader needs.
+
+**Proposals are written in the same transaction as the turn that offered them.** A proposal whose turn
+was never written is an Accept button under nothing; a turn pointing at rows that were never inserted is
+a card painted empty. `appendAthenaTurn` writes the turn, the proposals and the turn's `meta.proposalIds`
+in one transaction, or none of it. At most **two proposals per reply** — a panel that is mostly buttons
+has stopped being a conversation.
+
+Accepting is three guarded steps, because write-then-work leaves a failed accept marked done and
+work-then-write runs a double-click twice:
+
+| Step | Guard | What it buys |
+| --- | --- | --- |
+| **claim** | `status = 'open'` | Exactly one caller wins the compare-and-set; a second gets **409** and no executor runs |
+| **run** | — | `execute` performs the action. A **refusal returns an outcome; it never throws** |
+| **stamp** | `resolvedAt IS NULL` | Merges the outcome into `payloadJson` and closes the row for good |
+| **release** (on a throw) | `status = 'accepted' AND resolvedAt IS NULL` | Can only ever undo a claim, never a resolution — the card goes back to open and the click can be retried |
+
+A refusal (`ok: false`) is a **resolution**: the action ran, looked, and declined to act, and re-offering
+it would only refuse again. A **throw** is not a resolution — that is something breaking, so the claim is
+released and the operator gets a 500.
+
+**A resolved proposal can never be re-opened, re-stamped or flipped by anything.** Status is read from
+the live row rather than from the turn that produced it, which is what makes reopening a conversation
+safe: an answered card paints an outcome, not a second Accept button.
+
+## The one door
+
+`POST /api/athena/proposals/[id]/resolve` with `{ org, decision: "accept" | "decline" }`. **Nothing
+Athena says executes until a request arrives here.** There is no background worker, no auto-accept, no
+"she was confident so we ran it".
+
+And the door **re-validates from scratch**. Everything the proposal asserted is checked again, now:
+
+- the proposal is still open (otherwise **409**);
+- its payload still parses, and undeclared keys in it are dropped rather than handed to an executor;
+- **its action still exists in the catalog**;
+- its params still satisfy the declared shape;
+- inside `execute`, the thing it names still exists **in this tenant**.
+
+A proposal-time check is a *claim*; an execution-time check is the *guarantee*. Everything interesting
+changes between the reply and the click: an item gets closed, a finding disappears, a snooze date passes,
+an action is retired.
+
+**A proposal whose action this build no longer carries is declined on the operator's behalf** with a
+`retired` outcome — never left as an Accept button that can never succeed. A payload that no longer
+satisfies the current spec is declined the same way, with an `invalid` outcome. An `identity_diff`
+proposal is *refused* here rather than auto-declined: it is a different door with a different safety
+argument, and declining another surface's offer on the operator's behalf would silently eat a real one.
+
+Gating:
+
+- The role comes from **`spec.requiredRole`**, enforced with `requireOrgRole`. There is no parallel
+  gating list anywhere; adding an action declares its own gate.
+- The preamble is the shared `gateAthenaOrg` — db guard → org → `PUBLIC_ORG` refused → `requireOrgAccess`
+  → tenant id resolved. A proposal id alone never crosses a tenant boundary; `orgId` is ANDed into every
+  read.
+- The org's **own published AI stance** is consulted rather than duplicated. When
+  `provenance.requireHumanApproval` is set, the accept must be attributable to a named human — this click
+  *is* the human approval the stance means, and an anonymous one is not.
+
+**Every accept writes an audit row** (`athena_proposal.accepted`, via `recordOrgAudit`), carrying the
+proposal, the action, the outcome kind and the summary. Declines are audited too
+(`athena_proposal.declined`). This is the bar the companion clears that autopilot does not: autopilot
+audits nothing.
 
 ## The turn is a function that returns events; the transport is an adapter
 
@@ -434,6 +541,13 @@ for it, and `athenaMemoriesDeleted` must not be read as "the org's memory was er
 only the episodes Athena wrote.
 
 ## Known gaps
+
+- `identity_diff` proposals have no accept path yet. The anchored-diff engine
+  (`src/lib/athena/identity-diff.ts`) exists and `AthenaIdentity` has no writer for the self-model, so an
+  identity diff can currently only be *declined*. The resolve route returns 409 on an accept rather than
+  auto-declining, so nothing is lost when that door is built.
+- The catalog carries two actions. Anything that spends money, reaches outside Ascent, or writes to a
+  repository is deliberately absent and is a separate design question, not an omission.
 
 - No export/import seam to kp's Athena (see above); the document shape is the only preparation.
 - The wider `OrgMemory` erase gap described directly above.
