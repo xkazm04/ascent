@@ -147,6 +147,59 @@ few KB in the cloud bundle, traded for the provider working on the deployments t
 now exists to serve. A build-time flag could restore the pruning, but only by making
 self-hosters set a variable before `npm run build`.
 
+### The agent-CLI transport seam (`src/lib/llm/transport/`)
+
+The spawn / parse / env-strip / stdout-cap mechanics behind `claude-cli` live in a dedicated
+transport module — the reference implementation of the registry subject
+`software-engineering/llm-agent/runtime-and-io/agent-cli-transport`. (Not to be confused with
+`src/lib/llm/transports.ts`, the Athena text seam's HTTP wire formats.) Every adapter
+implements the same contract (`types.ts`):
+
+- **`probe()`** → `{ available, authed, version }` — install + auth proven **without spending
+  tokens** (`claude --version` + `claude auth status`; `codex --version` + `codex login
+  status`). `probeTransport()` (`index.ts`) caches results for 5 minutes.
+- **`run({ prompt, mode, cwd?, schema?, model?, timeoutMs, signal? })`** →
+  `{ ok, text?, json?, raw, durationMs, error? }` — one child process per call, prompt over
+  **stdin** (never argv), stdout (data) and stderr (logs) captured separately, failure as a
+  **typed outcome** carrying the tool's own classification (`error.kind`, `error.subtype`),
+  never a bare nonzero exit. `raw` keeps the full envelope so metering never depends on the
+  normalized view.
+- **`mode`** is a closed vocabulary — `generate` (neutral tmpdir cwd, no ambient project
+  instructions), `readonly-scan` (may read the given cwd, provably cannot write), `edit`
+  (works inside a workspace). Modes an adapter does not implement return a typed
+  `not-supported` error, never a silent downgrade. The assessment seam (this module's
+  consumers) and the autopilot's editing seam (`src/lib/local/agent.ts`, its own
+  `ASCENT_AUTOPILOT` gate) remain **separate exported functions on purpose** — folding them
+  would make "which mode am I in?" a bug that type-checks.
+- **Capabilities are dated data** (`TransportCapabilities.verifiedOn`), not baked constants:
+  which envelope dialect a tool speaks, whether its read-only mode is an OS sandbox or
+  policy, and which env var flips its billing are all true *of a version on a date*.
+
+Two adapters ship:
+
+| | `claude.ts` (claude 2.1.245, verified 2026-08-25) | `codex.ts` (codex-cli 0.139.0, verified 2026-08-25) |
+| --- | --- | --- |
+| Modes | `generate` | `generate`, `readonly-scan` |
+| Envelope | single JSON object, answer in `.result` | **JSONL events**; answer = last `item.completed` with `item.type=="agent_message"` → `.item.text`; usage in `turn.completed` |
+| Read-only enforcement | tool policy | **OS sandbox** (`-s read-only`: Seatbelt / Landlock / Windows restricted tokens) |
+| Billing strip | `ANTHROPIC_API_KEY` (Pro/Max seat) | `OPENAI_API_KEY` (ChatGPT-plan seat) |
+| Edit mode | typed not-supported — the editing seam is `agent.ts` | typed not-supported — codex is **not wired into the autopilot** |
+
+The billing strip is applied at the one spawn door (`spawn.ts`), after all other env
+construction, and pinned by tests that read the child env the door actually passes
+(`transport/env-strip.test.ts`); envelope normalization is pinned against captured fixtures
+(`transport/normalize.test.ts`). `spawn.ts` also carries the shared hardening the old
+`claude-cli.ts` grew: the 4 MB stdout / 16 KB stderr runaway caps, the app-enforced timeout
+(no tool in this class has a timeout flag; tiny values are floored, not honored), the abort
+kill, and the model-token validation that `shell:true` (Windows `.cmd` resolution) makes
+load-bearing.
+
+**`codex-cli` is ready but unrouted**: it is *not* an `LLM_PROVIDER` value. Wiring it into
+provider selection means touching `ProviderName`, `PROVIDER_LABEL`, pricing and the failover
+ladder in one deliberate change; the transport was introduced without it on purpose. Schema-
+constrained output (`--json-schema` / `--output-schema`) exists in both tools but is not yet
+wired through the `shell:true` spawn door (`schemaWired: false` — a typed error today).
+
 ### `getProvider()`
 
 The env-driven, non-org-aware picker. `forceMock` always wins. For an **explicit**
@@ -263,7 +316,7 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 | OpenAI | `src/lib/llm/openai.ts` | `OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (default `https://api.openai.com/v1`) | Fetch-based, no SDK. Requires `OPENAI_API_KEY`. Also serves Azure OpenAI and self-hosted OpenAI-compatible endpoints (vLLM, Ollama, LM Studio) via `OPENAI_BASE_URL`. Decodes against the strict `json_schema` derived from `ASSESSMENT_JSON_SCHEMA`, with a one-shot fallback to `json_object` when the target rejects strict schemas. `OPENAI_MAX_TOKENS` guards against small default completion caps (e.g. Ollama's `num_predict`) truncating the assessment JSON. |
 | OpenRouter | `src/lib/llm/openrouter.ts` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`, always a `vendor/model` slug) | Fetch-based, same OpenAI-compatible `/chat/completions` contract, one key routes to any vendor's model. Requires `OPENROUTER_API_KEY`. This is the fleet/benchmark path `scripts/matrix/run.mts` measures. Same strict-schema-then-`json_object` fallback and `OPENROUTER_MAX_TOKENS` guard as OpenAI. Sends `HTTP-Referer`/`X-Title` attribution headers. Also exports `testOpenRouterConnection()`. |
 | Local | `src/lib/llm/local.ts` | `LOCAL_LLM_MODEL` (required), `LOCAL_LLM_BASE_URL` (required), `LOCAL_LLM_API_KEY` (optional) | `LocalProvider extends OpenAiProvider` — same protocol, own identity and $0 cost class. `localLlmConfigured()` requires both variables; `assess()` throws naming them rather than letting an empty base URL fall through to `api.openai.com`. `Authorization` is omitted when no key is set (a bare `Bearer ` is malformed and some servers 401 on it). |
-| Claude CLI | `src/lib/llm/claude-cli.ts` | `CLAUDE_MODEL` (default `sonnet`), `CLAUDE_CLI_PATH` | Shells out to a local `claude` binary (`claude -p --output-format json --model <id>`) under your Pro/Max **subscription** (not pay-per-token; `ANTHROPIC_API_KEY` is stripped from the child env). Available in dev and on a self-hosted production deployment; refused on managed cloud (see above). Timeout via `CLAUDE_CLI_TIMEOUT_MS` (default 10 min; a full CLI session is ~6 min median). Output is capped (4 MB stdout / 16 KB stderr) against a runaway subprocess. Also exposes `runClaudePrompt()`, a generic prompt-in/text-out call used by other surfaces (e.g. Shared Org Memory's write-intelligence pass); it reads the **same** `cliProviderAllowed()` predicate, which is why that predicate lives in the leaf `config.ts` rather than in `index.ts` — two copies of "is the CLI usable here?" would have left the memory pass dead on exactly the self-hosted deployments that had just gained a working CLI. |
+| Claude CLI | `src/lib/llm/claude-cli.ts` (spawn/parse mechanics in `src/lib/llm/transport/`) | `CLAUDE_MODEL` (default `sonnet`), `CLAUDE_CLI_PATH` | Shells out to a local `claude` binary (`claude -p --output-format json --model <id>`) under your Pro/Max **subscription** (not pay-per-token; `ANTHROPIC_API_KEY` is stripped from the child env). Available in dev and on a self-hosted production deployment; refused on managed cloud (see above). Timeout via `CLAUDE_CLI_TIMEOUT_MS` (default 10 min; a full CLI session is ~6 min median). Output is capped (4 MB stdout / 16 KB stderr) against a runaway subprocess. Also exposes `runClaudePrompt()`, a generic prompt-in/text-out call used by other surfaces (e.g. Shared Org Memory's write-intelligence pass); it reads the **same** `cliProviderAllowed()` predicate, which is why that predicate lives in the leaf `config.ts` rather than in `index.ts` — two copies of "is the CLI usable here?" would have left the memory pass dead on exactly the self-hosted deployments that had just gained a working CLI. |
 | Mock | `src/lib/llm/mock.ts` | — | Deterministic, no network, no key. Derives the assessment directly from the signal scores (`overallScoreFor`, `levelForScore`) and a fallback roadmap. Memoized (bounded LRU, deep-frozen results) so repeated keyless/degraded scans of the same commit+signals reuse the prior result. The keyless-demo + CI floor, and the terminal step of every degrade chain. |
 
 ## `LLM_PROVIDER` selection knobs (`src/lib/llm/config.ts`)
@@ -642,6 +695,10 @@ default**:
 - **Whether a `local` or OpenRouter-routed model supports tool calling is unknowable up front.**
   `supportsToolCalling()` is a permission to *try*, backed by the one-shot fallback; a model with
   no tool template costs one wasted request per turn before degrading.
+- **The codex adapter is unrouted.** `src/lib/llm/transport/codex.ts` probes and generates
+  (verified live 2026-08-25), but `codex-cli` is not an `LLM_PROVIDER` value, is not in the
+  failover ladder, and is not wired into the autopilot's edit seam; routing it is a separate,
+  deliberate change (see the transport-seam section).
 - **Text-seam token usage still has no write-side ledger.** `TextRunnerOptions.onUsage` now fires
   for the memory passes and the tool loop (and `MemoryRunner.usage` exposes the running total),
   but `src/lib/db/usage.ts` derives `/usage` entirely from `Scan` rows, so non-scan LLM spend is
