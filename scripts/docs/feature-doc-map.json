@@ -272,6 +272,7 @@
         "src/lib/athena/**",
         "src/lib/db/athena*.ts",
         "src/app/api/athena/**",
+        "src/app/api/cron/athena/**",
         "src/features/shared/athena/**"
       ]
     },

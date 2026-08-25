@@ -3,7 +3,9 @@
 _Status: **in build** (2026-08-25). This document covers WP2 (the persistence layer: the schema, the
 identity store, the anchored-diff engine, the episode feed, the erase path), WP3 (the turn, its
 grounding, the block contract, the prompt and the HTTP routes) and WP4 (**the surface** - see
-[Where she lives](#where-she-lives-the-drawer-absorbed-her) below)._
+[Where she lives](#where-she-lives-the-drawer-absorbed-her) below), WP5 (the action catalog and the
+one door) and WP6 (**the autonomous cycle** - see
+[The autonomous cycle](#the-autonomous-cycle-the-one-thing-she-does-with-nobody-watching) below)._
 
 Athena is a resident chat companion who lives inside an Ascent organization. She is not a per-user
 assistant and not a per-repo one: she is **org-scoped — one mind per organization**. Every member of
@@ -500,6 +502,142 @@ A failed boot is not a dead panel either: the composer works and the first send 
 A turn that produces no answer keeps the question on screen beside the reason, rather than silently
 forgetting the operator said anything.
 
+## The autonomous cycle: the one thing she does with nobody watching
+
+`GET /api/cron/athena`, daily at **07:30 UTC** (`vercel.json`). Everything above this section happens
+because a human typed something. This is the exception, and it is the only one.
+
+**This cron is the only hosted execution path Athena has.** The other unattended actor in the
+codebase — the local autopilot — is cloud-*unreachable* behind four guards, and no managed deployment
+can satisfy them:
+
+| Guard | Where |
+| --- | --- |
+| `selfHostGuard()` → **404** on managed cloud | `src/lib/api/self-host.ts:11` |
+| `ASCENT_AUTOPILOT=1` must be set | `src/app/api/org/local/autopilot/route.ts:58` |
+| caller must hold `owner` | `src/app/api/org/local/autopilot/route.ts:48` |
+| the repo must be paired to a path on the **server's own filesystem** | `src/app/api/org/local/autopilot/route.ts:64` |
+
+So when this document says "she acts", this route is where it happens — which is why the hosting
+discipline is written down rather than assumed.
+
+### Report-or-absorb: the gate that keeps her from narrating her own housekeeping
+
+Every autonomous outcome passes one judgment **at the moment it is produced**, on the outcome's own
+terms: *does this change what the operator would do, or is it maintenance she is supposed to handle
+quietly?* The rule lives in `src/lib/athena/cycle-signal.ts` — **pure, no database import**, so the
+most consequential rule in the cycle (when a machine may interrupt a person) is testable without one.
+
+Five ordered rules, each a property someone could check by hand:
+
+1. **No prose is nothing to say.** An empty outcome cannot be news even if it moved a number.
+2. **Maintenance is absolute.** A consolidation or a housekeeping pass never initiates contact,
+   whatever else is true of it. Checked *before* anything that could promote it.
+3. **A decision waiting on a human always clears the bar.** Nothing happens until they answer, so
+   staying quiet is not restraint — it is dropping the thing on the floor.
+4. **Movement beyond the org's noise band clears it.** The band is the org's own
+   (`SCORE_NOISE_BAND` = 2 points, `src/lib/maturity/noise.ts`): inside it a `+1` is scan-to-scan
+   wobble wearing a green arrow.
+5. **Everything else is absorbed**, and the reason distinguishes "she is repeating the dashboard"
+   (`already_visible`) from "she had nothing" (`nothing_to_say`).
+
+**Absorbed outcomes still exist** — counted by reason, recorded on her own episode, carried in the
+turn's `meta.absorbed` and in the cron response. They are inspectable whenever someone asks. They
+simply do not initiate contact.
+
+#### The separation is enforced by type, not by discipline
+
+A person told about six consolidations and one thing that matters learns to skip all seven. That is
+not a tuning problem, it is a structural one: as long as the absorbed outcomes travel *beside* the
+raised ones — as a list, as a trailing "and 6 routine items", as a count at the bottom — the reader
+does the filtering, and the cheapest filter a human owns is *ignore this sender*. So:
+
+- `partitionCycleOutcomes` returns raised outcomes as `CycleOutcome` (they carry their prose) and
+  absorbed ones as `AbsorbedOutcome` — **an id, a kind, a reason, and no text at all**. There is
+  nothing left on an absorbed outcome for a composer to render.
+- `composeCycleMessage` takes **only** the raised list. It cannot see the absorbed count, so it
+  cannot append one.
+- It returns **`null`** when nothing cleared the bar, and the cycle then lands *nothing*. Silence is a
+  first-class outcome: a message saying "nothing to report" is contact, and contact is exactly what an
+  absorbed run must not make.
+
+**The one promotion**: when a decision is raised, the briefing prose that *explains* it is raised with
+it. A proposal is written in the same transaction as its turn precisely so an Accept button is never
+left under nothing; the prose has to travel with the card. Maintenance is absorbed in rule 2 before
+promotion is considered, and a briefing with no prose was already refused by rule 1 — so this promotes
+the explanation of a raised item, never a sibling piece of news.
+
+### What the cycle actually does
+
+One org, one pass (`runOrgCycle`, `src/lib/athena/cycle.ts`) — the same headless shape as the turn:
+every dependency injected, so a whole cycle runs in a plain node test with no database, no network and
+no Next.js. The order of the first three steps *is* the safety argument, because each can end the run
+before a billable completion exists:
+
+1. **Where would it land?** `latestAthenaActivity(orgId)` — the org's newest thread and the role/time
+   of its last turn, in two indexed lookups. No landing → `no_landing`, **no spend**.
+2. **Is someone mid-conversation?** The newest turn being a **user** turn written within
+   `ATHENA_TOTAL_BUDGET_MS + 30s` is exactly the shape of an exchange in progress (a turn persists the
+   question before the model call and the answer after). If so the org is **skipped and never queued**
+   — a queued cycle would land a stale briefing into the middle of an exchange minutes later — and the
+   skip is counted as `skippedLiveTurn` in the response. Past that window an unanswered question is a
+   turn that *failed*, not a permanent do-not-disturb sign.
+3. **Is there anything to brief on?** No scanned standing → `no_standing`, no spend.
+
+Then **one metered call** — `runToolLoop` with `maxLegs: 1`, no tools, `legKind: "athena_cycle"`, so
+this spend is separable from her interactive turns in `/usage` and in the tracklight mirror. The
+standing (the trailing-week window the weekly digest resolves, so the two cannot disagree about where
+the week started) and her still-open asks are prefetched into the prompt.
+
+The briefing prompt (`src/lib/athena/cycle-prompt.ts`) reuses the identity and all three contracts
+*verbatim* — she is the same companion at 07:30 with nobody watching as she is mid-conversation. What
+it adds is the unattended framing, and **silence has a spelling**: `NOTHING TO REPORT` on the first
+line is a complete, correct answer, and the prompt says it is the right one most days. Without it a
+model asked to write a briefing always writes one, and the median daily message becomes "the fleet is
+stable" — which teaches the reader to stop opening them. A declared silence also **discards any offer
+attached to it**: an action proposed alongside "nothing to report" is a reflex, not an offer.
+
+She may propose actions through the existing catalog; they land as `AthenaProposal` rows in the same
+transaction as the message, and a human resolves them at the one door like any other. **She may never
+write `AthenaIdentity`.** There is no identity writer in `OrgCycleDeps`, `athena-identity.ts` exposes
+no writer for the constitution at all, and `cycle.test.ts` asserts the absence at the **source level**
+across all five cycle modules — a behavioural test can only prove the paths it happened to exercise
+did not take it.
+
+**She writes exactly one episode, and it is hers.** Never a user episode: her recall reads this store
+back, and a user episode written by an unattended job would put words in the operator's mouth in the
+one place she trusts as a record of what they said. It is written on a landed run and on an absorbed
+one alike, and it is the one place the absorbed count *may* be named — memory is not contact.
+
+**Titles stay derived, never typed.** With no thread at all she mints one, and its title is
+`deriveThreadTitle(briefing)` — the briefing's own first line, through the same function the
+interactive thread names itself by (`createAthenaThread(orgId, titleFrom)`; there is still no setter,
+so a title cannot drift from what it names). The thread is minted at landing rather than before the
+call, so an absorbed run leaves no empty untitled thread behind.
+
+### The cron contract
+
+| Property | How |
+| --- | --- |
+| **auth** | `requireCronAuth(request)` as the **first statement**. Bearer only; **503** when `CRON_SECRET` is unset (fail closed), 401 on a bad credential, and the `?key=` channel stays refused. |
+| **at-most-once** | `claimOrgAuditOnce("athena_cycle.ran", org, since, …)` per org **before the spend**, with a 20-hour window. A second invocation inside it finds the claim and does nothing (`skippedAlreadyRan`). The weekly digest is the working precedent. |
+| **release** | The claim is released on **every skip and every failed land** — a window falsely marked done silences the org until tomorrow. An **absorbed** run *keeps* its claim: the work was done and the answer was "nothing to say". |
+| **declared ceiling** | `invokedAt` is anchored before any `await`; `mapPoolUntilDeadline` at `ATHENA_CYCLE_CONCURRENCY` (2 — every lane holds a model completion open, against a provider interactive surfaces are sharing) with `fleetDeadlineAt(invokedAt, maxDuration)`. The untouched tail is reported as `remaining`. |
+| **coupled constant** | `maxDuration = 300` must equal `ATHENA_CYCLE_MAX_DURATION_S`. Next requires a literal, so `route.test.ts` pins the equality — the `PURGE_MAX_DURATION_S` idiom. |
+| **degraded is never green** | **207** when any org threw, when the budget truncated the fan-out, **or when no engine would answer** — that last one is the analogue of the purge's DB-unconfigured branch: a deployment with no provider would otherwise return a cheerful 200 every day while the companion never once ran. A DB-unconfigured deploy is **503**. |
+| **schedule** | `30 7 * * *`, chosen not to collide with rescan (06:00 daily), purge (04:00 daily) or digest (13:00 Mondays), and to land *after* the rescan so the standing she briefs on is fresh. |
+
+The response body carries `orgs`, `briefed`, `absorbedRuns`, `absorbedOutcomes`, `proposalsRaised`,
+`skippedAlreadyRan`, `skippedNoOrg`, `skippedLiveTurn`, `skippedNoLanding`, `skippedNoStanding`,
+`skippedNoEngine`, `remaining`, `truncated` and `errors`.
+
+**The fleet it considers** is `listOrgsWithWatchedRepos()` minus `PUBLIC_ORG` — an org with no watched
+repositories has no standing to brief on, and the public funnel org has no companion to be.
+
+**No standing count of its own reaches a surface.** The counters above are an operator-facing HTTP
+body read by a cron monitor; the open-proposal count already lives on the drawer badge, where the
+click it invites is the click that clears it.
+
 ## Degrade modes
 
 | Mode | What she does | What the payload says |
@@ -552,18 +690,21 @@ only the episodes Athena wrote.
 - No export/import seam to kp's Athena (see above); the document shape is the only preparation.
 - The wider `OrgMemory` erase gap described directly above.
 - Retention (the daily purge) does not age Athena's threads at all — only erasure removes them.
-- **A proposal can be READ but not answered.** The cards render the ask and say it is waiting; the
-  accept/decline control and the API behind it (`src/app/api/athena/proposals/**`) are a separate work
-  package. The card deliberately renders no dead button - a control that looks live and does nothing
-  costs more trust than an absent one. (Moot today: nothing in the turn creates a proposal yet, below.)
+- **A proposal can be answered through the API, but not yet from the card.** The door is built
+  (`POST /api/athena/proposals/[id]/resolve`, see [The one door](#the-one-door)); what is still missing
+  is the accept/decline control on `AthenaProposalCard`, which renders the ask and says it is waiting.
+  The card deliberately renders no dead button - a control that looks live and does nothing costs more
+  trust than an absent one. This is now the *only* gap between an offer and a click.
 - **The channel choice is not persisted across a hard reload.** `TourStorageState` is the obvious home
   for it, but `useTourEngine.dom.test.tsx:184`/`:202` assert the stored record deep-equals
   `{ open, index }`. A `?tab=` switch already preserves it, since the drawer lives in the layout.
 - **No token streaming.** The event union has room for `delta`, and `runToolLoop` does not surface
   partials, so every reply lands whole at `settled`.
-- **She raises no proposals yet.** `AthenaProposal` is written and read by the store and returned by
-  the boot payload, but nothing in the turn creates one - the completion is parsed for blocks, not for
-  asks.
+- **The cycle raises no `identity_diff`.** It may, in principle - it writes proposals through the
+  same catalog path - but `identity_diff` has no accept path yet (the gap above), so an unattended run
+  that raised one would hand the operator a card they cannot answer. That is precisely the noise
+  report-or-absorb exists to prevent, so the briefing prompt does not teach the fence. When the accept
+  path lands, this becomes a one-line change to `cycle-prompt.ts`.
 - **One episode per answered turn.** That is a lot of rows for a chatty thread. Consolidating at
   thread close (or gating on whether the turn was actually grounded) is the obvious next move, and is
   not done.

@@ -110,10 +110,19 @@ const toTurn = (r: TurnRow): AthenaTurnRecord => ({
 
 // ── threads ──────────────────────────────────────────────────────────────────────────────────────
 
-/** Open a new, untitled conversation. It names itself when the first user turn lands. */
-export async function createAthenaThread(orgId: string): Promise<AthenaThreadRecord | null> {
+/**
+ * Open a new conversation. Untitled by default: it names itself when the first user turn lands.
+ *
+ * `titleFrom` is for the ONE caller that has no first user turn to be named by — the unattended cycle
+ * (`src/lib/athena/cycle.ts`), which mints a thread for a briefing nobody asked for. It is still a
+ * DERIVED title, run through the same {@link deriveThreadTitle} as every other one: the text handed in
+ * is the briefing's own prose, never a name someone typed. There is no setter, so a title still cannot
+ * drift from what it names — it is written once, at creation, or derived from the first user turn.
+ */
+export async function createAthenaThread(orgId: string, titleFrom?: string): Promise<AthenaThreadRecord | null> {
   if (!isDbConfigured() || !orgId) return null;
-  return toThread(await getPrisma().athenaThread.create({ data: { orgId } }));
+  const title = typeof titleFrom === "string" ? deriveThreadTitle(titleFrom) : "";
+  return toThread(await getPrisma().athenaThread.create({ data: { orgId, ...(title ? { title } : {}) } }));
 }
 
 /** The org's conversations, most recently active first. */
@@ -145,6 +154,45 @@ export async function listAthenaTurns(orgId: string, threadId: string, limit = 2
     take: Math.max(1, Math.min(1000, Math.round(limit))),
   });
   return rows.map(toTurn);
+}
+
+/** The org's newest thread and the role + time of the LAST turn in it. See {@link latestAthenaActivity}. */
+export interface AthenaActivity {
+  threadId: string | null;
+  lastRole: AthenaRole | null;
+  lastAt: string | null;
+}
+
+/**
+ * "Is this org mid-exchange right now, and where would a new message land?" — one read, two answers.
+ *
+ * The unattended cycle needs both and must not spend a completion to find out. It is deliberately NOT
+ * `listAthenaTurns`: that reader pages OLDEST-first, so on a long thread it would return turn 200 and
+ * the caller would judge liveness from ancient history. Two indexed lookups instead —
+ * `@@index([orgId, updatedAt])` for the thread, `@@index([threadId, createdAt])` for its last turn.
+ *
+ * The newest thread is the right one to ask: every appended turn bumps `updatedAt` (appendAthenaTurn),
+ * so a live exchange is always in the thread this returns.
+ */
+export async function latestAthenaActivity(orgId: string): Promise<AthenaActivity | null> {
+  if (!isDbConfigured() || !orgId) return null;
+  const prisma = getPrisma();
+  const thread = await prisma.athenaThread.findFirst({
+    where: { orgId },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  if (!thread) return { threadId: null, lastRole: null, lastAt: null };
+  const last = await prisma.athenaTurn.findFirst({
+    where: { threadId: thread.id },
+    orderBy: { createdAt: "desc" },
+    select: { role: true, createdAt: true },
+  });
+  return {
+    threadId: thread.id,
+    lastRole: last ? (last.role === "user" ? "user" : "assistant") : null,
+    lastAt: last ? last.createdAt.toISOString() : null,
+  };
 }
 
 // ── turns ────────────────────────────────────────────────────────────────────────────────────────
