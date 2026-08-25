@@ -76,11 +76,19 @@ function fakeUsageStore() {
  */
 const daysAgo = (n: number): Date => new Date(Date.now() - n * 86_400_000);
 
+/** ONE timestamp, resolved once. The store's composite key is millisecond-precise
+ *  (`keyOf` folds in `periodStart.getTime()`), so calling `daysAgo(3)` per invocation made two
+ *  `rec()` calls in the same test land on DIFFERENT keys whenever they straddled a millisecond —
+ *  an upsert that inserted twice instead of updating, failing about one run in ten. The tests that
+ *  want a different period pass `periodStart` explicitly; the default has to be stable for
+ *  "same composite key" to mean what it says. */
+const DEFAULT_PERIOD = daysAgo(3);
+
 const rec = (over: Partial<UsageRecordInput> = {}): UsageRecordInput => ({
   source: "claude-code",
   scope: "repo",
   scopeKey: "acme/api",
-  periodStart: daysAgo(3),
+  periodStart: DEFAULT_PERIOD,
   fidelity: "measured",
   costCents: 1000,
   seats: 3,
@@ -222,7 +230,14 @@ describe("getOrgUsageRollup", () => {
 });
 
 describe("getProviderIngestStatus — what each provider actually landed", () => {
-  const t = (iso: string) => new Date(iso);
+  // Fixtures are expressed in DAYS-AGO, never as calendar literals. getProviderIngestStatus filters
+  // on a rolling `Date.now() - windowDays` window (integrations.ts:138), so hardcoded dates are a
+  // time bomb: they sit inside the window when written and silently fall out of it weeks later,
+  // failing as if the code broke. This is the same fix W3 applied to getOrgUsageRollup; `daysAgo`
+  // at the top of this file is the pattern the tests that never broke always used.
+  const RECENT = daysAgo(2);
+  const MIDDLE = daysAgo(3);
+  const OLDEST = daysAgo(4);
   /** Rows keyed by updatedAt (the Prisma @updatedAt the ingest path already maintains). */
   function statusStore(rows: Record<string, unknown>[]) {
     mockGetPrisma.mockReturnValue({
@@ -242,7 +257,7 @@ describe("getProviderIngestStatus — what each provider actually landed", () =>
     fidelity: "measured",
     costCents: 100,
     tokens: 10,
-    updatedAt: t("2026-07-20T10:00:00Z"),
+    updatedAt: OLDEST,
     ...over,
   });
 
@@ -256,12 +271,12 @@ describe("getProviderIngestStatus — what each provider actually landed", () =>
 
   it("reports the newest updatedAt as last-received, with distinct repos and summed cost", async () => {
     statusStore([
-      row({ updatedAt: t("2026-07-20T10:00:00Z"), scopeKey: "acme/api", costCents: 100, tokens: 10 }),
-      row({ updatedAt: t("2026-07-22T09:00:00Z"), scopeKey: "acme/web", costCents: 250, tokens: 40 }),
-      row({ updatedAt: t("2026-07-21T09:00:00Z"), scopeKey: "ACME/api", costCents: 50, tokens: 5 }), // case-folded dup
+      row({ updatedAt: OLDEST, scopeKey: "acme/api", costCents: 100, tokens: 10 }),
+      row({ updatedAt: RECENT, scopeKey: "acme/web", costCents: 250, tokens: 40 }),
+      row({ updatedAt: MIDDLE, scopeKey: "ACME/api", costCents: 50, tokens: 5 }), // case-folded dup
     ]);
     const [s] = (await getProviderIngestStatus("acme"))!;
-    expect(s!.lastReceived.toISOString()).toBe("2026-07-22T09:00:00.000Z");
+    expect(s!.lastReceived.toISOString()).toBe(RECENT.toISOString());
     expect(s!.repos).toBe(2);
     expect(s!.costCents).toBe(400);
     expect(s!.tokens).toBe(55);
