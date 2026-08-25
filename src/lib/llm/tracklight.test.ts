@@ -114,9 +114,22 @@ describe("buildEventBody", () => {
     expect(body).toMatchObject({ provider: "anthropic", model: "claude-sonnet-4-6" });
   });
 
-  it("omits project_id when none is configured, and zero-fills missing usage", () => {
+  // Was: "zero-fills missing usage". It no longer does, deliberately — `input: 0, output: 0` is
+  // indistinguishable from a genuinely free call, so an unreadable usage block used to be mirrored as
+  // a confident "this cost nothing". Absent now means unknown.
+  it("omits project_id when none is configured, and OMITS usage it could not read", () => {
     const body = buildEventBody({ provider: "mock", model: "mock" });
     expect(body).not.toHaveProperty("project_id");
+    expect(body).not.toHaveProperty("usage");
+  });
+
+  it("keeps a partially-reported usage block, without inventing the missing half", () => {
+    const body = buildEventBody({ provider: "gemini", model: "gemini-3-flash", usage: { inputTokens: 12 } });
+    expect(body.usage).toEqual({ input: 12 });
+  });
+
+  it("records a genuine zero as zero — free is a fact, unknown is not", () => {
+    const body = buildEventBody({ provider: "local", model: "qwen", usage: { inputTokens: 0, outputTokens: 0 } });
     expect(body.usage).toEqual({ input: 0, output: 0 });
   });
 });

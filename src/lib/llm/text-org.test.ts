@@ -32,7 +32,7 @@ describe("resolveTextRunnerForOrg — a BYOM org gets an engine", () => {
       state: "active",
       params: { kind: "openrouter", model: "anthropic/claude-sonnet-4", apiKey: "sk-or-org" },
     });
-    const runner = await resolveTextRunnerForOrg("acme");
+    const runner = await resolveTextRunnerForOrg("acme", { legKind: "memory" });
     expect(runner).not.toBeNull();
     expect(runner!.engine).toBe("openrouter");
     expect(runner!.model).toBe("anthropic/claude-sonnet-4");
@@ -47,7 +47,7 @@ describe("resolveTextRunnerForOrg — a BYOM org gets an engine", () => {
     const fetchMock = vi.fn(async () => Response.json({ choices: [{ message: { content: "hi" } }] }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const runner = await resolveTextRunnerForOrg("acme");
+    const runner = await resolveTextRunnerForOrg("acme", { legKind: "memory" });
     await runner!.run("prompt");
 
     const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
@@ -64,7 +64,7 @@ describe("resolveTextRunnerForOrg — a BYOM org gets an engine", () => {
         credentials: { accessKeyId: "AKIA", secretAccessKey: "s" },
       },
     });
-    const runner = await resolveTextRunnerForOrg("acme");
+    const runner = await resolveTextRunnerForOrg("acme", { legKind: "memory" });
     expect(runner!.engine).toBe("bedrock");
     expect(runner!.model).toBe("eu.anthropic.claude-sonnet-4-6");
   });
@@ -73,18 +73,18 @@ describe("resolveTextRunnerForOrg — a BYOM org gets an engine", () => {
 describe("resolveTextRunnerForOrg — unchanged behavior everywhere else", () => {
   it("falls back to the env runner when the org has no BYOM", async () => {
     vi.stubEnv("GEMINI_API_KEY", "g");
-    const runner = await resolveTextRunnerForOrg("acme");
+    const runner = await resolveTextRunnerForOrg("acme", { legKind: "memory" });
     expect(runner!.engine).toBe("gemini");
   });
 
   it("still returns null when neither BYOM nor a platform key exists", async () => {
-    expect(await resolveTextRunnerForOrg("acme")).toBeNull();
+    expect(await resolveTextRunnerForOrg("acme", { legKind: "memory" })).toBeNull();
   });
 
   it("never consults BYOM for the public org (or no org)", async () => {
     vi.stubEnv("GEMINI_API_KEY", "g");
-    await resolveTextRunnerForOrg("public");
-    await resolveTextRunnerForOrg(null);
+    await resolveTextRunnerForOrg("public", { legKind: "memory" });
+    await resolveTextRunnerForOrg(null, { legKind: "memory" });
     expect(mockResolveState).not.toHaveBeenCalled();
   });
 });
@@ -93,12 +93,12 @@ describe("resolveTextRunnerForOrg — fail closed", () => {
   it("throws rather than falling back to the platform when BYOM is active but unresolvable", async () => {
     vi.stubEnv("GEMINI_API_KEY", "g"); // a platform engine IS available — it must still not be used
     mockResolveState.mockResolvedValue({ state: "unresolvable" });
-    await expect(resolveTextRunnerForOrg("acme")).rejects.toThrow(/BYOM is enabled/i);
+    await expect(resolveTextRunnerForOrg("acme", { legKind: "memory" })).rejects.toThrow(/BYOM is enabled/i);
   });
 
   it("propagates an infrastructure failure instead of resolving it to 'no BYOM'", async () => {
     vi.stubEnv("GEMINI_API_KEY", "g");
     mockResolveState.mockRejectedValue(new Error("connection terminated"));
-    await expect(resolveTextRunnerForOrg("acme")).rejects.toThrow(/connection terminated/);
+    await expect(resolveTextRunnerForOrg("acme", { legKind: "memory" })).rejects.toThrow(/connection terminated/);
   });
 });

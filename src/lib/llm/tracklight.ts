@@ -167,10 +167,13 @@ export function toTracklightModel(name: ProviderName, model: string): string {
 
 /** Build the tracklight /v1/events body for a tracked call. Exported for unit testing. */
 export function buildEventBody(ev: LlmCallTrack, project?: string): Record<string, unknown> {
-  const usage: Record<string, number> = {
-    input: Math.trunc(ev.usage?.inputTokens ?? 0),
-    output: Math.trunc(ev.usage?.outputTokens ?? 0),
-  };
+  // A token count the provider did NOT report is OMITTED, never zero-filled. `input: 0, output: 0` is
+  // indistinguishable from a genuinely free call, so a provider that surfaces no usage metadata (or a
+  // call that failed before any was returned) used to read in the mirror as "this cost nothing" — the
+  // exact class of confident-but-wrong number the cost surfaces exist to avoid. Absent means unknown.
+  const usage: Record<string, number> = {};
+  if (ev.usage?.inputTokens != null) usage.input = Math.trunc(ev.usage.inputTokens);
+  if (ev.usage?.outputTokens != null) usage.output = Math.trunc(ev.usage.outputTokens);
   // Bedrock surfaces a prompt-cache breakdown; the cache-READ class is what tracklight prices at
   // the cached rate. (Cache WRITES have no distinct field in the event contract.)
   if (ev.usage?.cacheReadTokens != null) usage.cached_input = Math.trunc(ev.usage.cacheReadTokens);
@@ -178,10 +181,10 @@ export function buildEventBody(ev: LlmCallTrack, project?: string): Record<strin
   const body: Record<string, unknown> = {
     provider: toTracklightProvider(ev.provider, ev.model),
     model: toTracklightModel(ev.provider, ev.model) || "unknown",
-    usage,
     source: "ascent",
     operation: ev.operation ?? "chat",
   };
+  if (Object.keys(usage).length) body.usage = usage;
   if (project) body.project_id = project;
   if (ev.latencyMs != null) body.latency_ms = Math.trunc(ev.latencyMs);
 

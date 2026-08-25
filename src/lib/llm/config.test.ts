@@ -16,6 +16,7 @@ import {
   withLlmTimeout,
   llmTimeoutMs,
   llmTemperature,
+  supportsToolCalling,
   llmMaxTokens,
   providerLabel,
 } from "./config";
@@ -259,6 +260,51 @@ describe("llmTemperature (clamped to [0,2] — same misconfig hardening as the t
     expect(llmTemperature()).toBe(2);
     vi.stubEnv("LLM_TEMPERATURE", "-1");
     expect(llmTemperature()).toBe(0);
+  });
+
+  // The scan path calls llmTemperature() with NO argument at all seven provider call sites, and
+  // src/lib/cache.ts folds the result into the scoring-cache identity — so "scan" and "absent" must
+  // resolve to exactly the same number the knob always produced. A drift here silently re-keys every
+  // cached score and breaks the D29 reproducibility promise.
+  it("resolves `scan` and an absent leg kind identically — byte-for-byte the old behaviour", () => {
+    for (const v of ["", "0", "0.2", "1.5", "5", "-1", "warm"]) {
+      vi.stubEnv("LLM_TEMPERATURE", v);
+      expect(llmTemperature("scan")).toBe(llmTemperature());
+    }
+  });
+
+  it("leaves the memory passes on the shared knob too — only Athena's legs deviate", () => {
+    vi.stubEnv("LLM_TEMPERATURE", "0.4");
+    expect(llmTemperature("memory")).toBe(0.4);
+  });
+
+  it("gives Athena its own knob, so pinning SCORES to 0 does not flatten chat prose", () => {
+    vi.stubEnv("LLM_TEMPERATURE", "0");
+    expect(llmTemperature("athena_turn")).toBe(0.3);
+    expect(llmTemperature("athena_cycle")).toBe(0.3);
+    vi.stubEnv("ATHENA_TEMPERATURE", "0.8");
+    expect(llmTemperature("athena_turn")).toBe(0.8);
+    // Still clamped, same misconfiguration hardening as the shared knob.
+    vi.stubEnv("ATHENA_TEMPERATURE", "9");
+    expect(llmTemperature("athena_turn")).toBe(2);
+  });
+});
+
+describe("supportsToolCalling", () => {
+  it("admits every provider whose transport can carry a tool definition", () => {
+    for (const p of ["bedrock", "gemini", "openai", "openrouter", "local"]) {
+      expect(supportsToolCalling(p)).toBe(true);
+    }
+  });
+
+  // claude-cli is not a chat API: `--output-format json` collapses the whole agentic session into one
+  // final string, so there is no seam at which ascent could offer a tool and answer it. A "tool loop"
+  // there would be a fiction; the honest outcome is grounding: "prefetched".
+  it("excludes claude-cli and mock, and treats null as unsupported", () => {
+    expect(supportsToolCalling("claude-cli")).toBe(false);
+    expect(supportsToolCalling("mock")).toBe(false);
+    expect(supportsToolCalling(null)).toBe(false);
+    expect(supportsToolCalling(undefined)).toBe(false);
   });
 });
 

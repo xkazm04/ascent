@@ -1,4 +1,5 @@
 import type { ProviderName } from "@/lib/types";
+import type { LlmLegKind } from "@/lib/llm/leg";
 import { selfHosted } from "@/lib/env";
 
 // Env-driven LLM tuning knobs shared by the real providers. Temperature and Bedrock's maxTokens were
@@ -86,9 +87,34 @@ export function llmTimeoutMs(): number {
  * symptom the MIN_LLM_TIMEOUT_MS floor above was built to kill, so the same hardening policy applies
  * to the whole knob family, not just the timeout. (llm-provider-abstraction #3)
  */
-export function llmTemperature(): number {
-  return Math.min(2, Math.max(0, envNumber("LLM_TEMPERATURE", 0)));
+export function llmTemperature(legKind?: LlmLegKind): number {
+  const envName = legKind ? LEG_TEMPERATURE_ENV[legKind] : undefined;
+  const legDefault = legKind ? LEG_TEMPERATURE_DEFAULT[legKind] : undefined;
+  const base = legDefault ?? envNumber("LLM_TEMPERATURE", 0);
+  return Math.min(2, Math.max(0, envName ? envNumber(envName, base) : base));
 }
+
+/**
+ * Per-leg-kind sampling overrides. A leg kind ABSENT from both maps — `scan`, `memory`, and the
+ * no-argument call every scan-path provider makes — resolves through `LLM_TEMPERATURE` exactly as
+ * before, which is the whole point: the seven scan call sites are byte-identical, and `src/lib/cache.ts`
+ * (which folds temperature into the scoring-cache identity) keeps seeing the number it always saw.
+ *
+ * Athena's legs are the exception, and they get their OWN knob rather than inheriting `LLM_TEMPERATURE`.
+ * That variable exists to pin SCORES: a self-hoster who sets it to 0 for reproducible, filed numbers
+ * (docs/VALUE-CASE.md D29) has said nothing about chat prose, and flattening a conversational assistant
+ * to greedy decoding as a side effect of a scoring decision is not what they asked for. 0.3 is a
+ * conservative default — enough variation for readable prose, far from the temperature at which a
+ * grounded assistant starts inventing.
+ */
+const LEG_TEMPERATURE_ENV: Partial<Record<LlmLegKind, string>> = {
+  athena_turn: "ATHENA_TEMPERATURE",
+  athena_cycle: "ATHENA_TEMPERATURE",
+};
+const LEG_TEMPERATURE_DEFAULT: Partial<Record<LlmLegKind, number>> = {
+  athena_turn: 0.3,
+  athena_cycle: 0.3,
+};
 
 /**
  * Floor for the max-output-token knobs. A 0/negative completion cap is a misconfiguration that makes
@@ -188,6 +214,43 @@ const ZERO_COST_PROVIDERS: ReadonlySet<string> = new Set<ProviderName>(["local"]
 /** Whether a persisted `Scan.engineProvider` id bills nothing per token. */
 export function isZeroCostProvider(provider: string | null | undefined): boolean {
   return provider != null && ZERO_COST_PROVIDERS.has(provider);
+}
+
+/**
+ * Providers whose transport can carry a TOOL DEFINITION and hand back a structured tool call, which is
+ * what lets Athena ground an answer in this org's real data instead of in the prompt it was seeded with.
+ *
+ *   - `bedrock`     — Converse `toolConfig`/`toolUse`. Already proven in this codebase: the scan path
+ *                     forces a single schema tool (src/lib/llm/bedrock.ts:128-139) and reads
+ *                     `toolUse.input` back, so the shape is not speculative.
+ *   - `gemini`      — `config.tools[].functionDeclarations` out, `response.functionCalls` back
+ *                     (@google/genai 2.7.0).
+ *   - `openai`      — `tools[{type:"function"}]` / `message.tool_calls`, the protocol everything else
+ *                     copies.
+ *   - `openrouter`  — the same OpenAI protocol; support is then a property of the ROUTED model, which
+ *                     is why the runtime degrade below exists rather than a static allow-list of slugs.
+ *   - `local`       — vLLM / Ollama / LM Studio speak the OpenAI protocol too, and a self-hoster is
+ *                     precisely the operator we cannot afford to lock out of the feature. Whether the
+ *                     specific model has a tool template is unknowable from here, so this is a
+ *                     PERMISSION to try, backed by the one-shot fallback in tool-loop.ts.
+ *
+ * Deliberately NOT `claude-cli`. It is not a chat API: it spawns the `claude` binary and reads one
+ * `--output-format json` blob back (src/lib/llm/claude-cli.ts:175-181), which collapses the CLI's whole
+ * agentic session — its own tool use included — into a single final string. There is no seam at which
+ * Ascent could offer a tool, see it called, and answer it, so a "tool loop" there would be a fiction.
+ * The honest outcome is `grounding: "prefetched"`. `mock` needs no entry: it never reaches this seam.
+ */
+const TOOL_CALLING_PROVIDERS: ReadonlySet<string> = new Set<ProviderName>([
+  "bedrock",
+  "gemini",
+  "openai",
+  "openrouter",
+  "local",
+]);
+
+/** Whether a provider id can be handed tool definitions at all (see {@link TOOL_CALLING_PROVIDERS}). */
+export function supportsToolCalling(provider: string | null | undefined): boolean {
+  return provider != null && TOOL_CALLING_PROVIDERS.has(provider);
 }
 
 // ---------------------------------------------------------------------------

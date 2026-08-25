@@ -283,6 +283,15 @@ silent all-scans-to-mock degrade:
   their credibility. Sampling nuance still reaches the prose the model writes around the number.
   **`claude-cli` has no temperature knob**, so it stays non-reproducible regardless of this
   default: never anchor a customer-facing number on a claude-cli scan.
+- `ATHENA_TEMPERATURE` (default `0.3`, clamped to `[0, 2]`): sampling temperature for Athena's
+  legs only. `llmTemperature()` takes an optional `LlmLegKind`; **`"scan"` and no argument
+  resolve identically to the pre-existing `LLM_TEMPERATURE` behaviour** (the seven scan-path
+  call sites pass no argument, and `src/lib/cache.ts` folds temperature into the scoring-cache
+  identity, so any drift there would silently re-key every cached score). `"memory"` also stays
+  on the shared knob. Athena gets its own because `LLM_TEMPERATURE` exists to pin *scores*: a
+  self-hoster who sets it to `0` for filed, reproducible numbers said nothing about chat prose,
+  and flattening a conversational assistant to greedy decoding as a side effect of a scoring
+  decision is not what they asked for.
 - `BEDROCK_MAX_TOKENS` / `OPENAI_MAX_TOKENS` / `OPENROUTER_MAX_TOKENS` (default 4096,
   floored at 256): per-provider max-output-tokens knob.
 - `LLM_FALLBACK_PROVIDER`: the scan pipeline's failover; retry with this named provider
@@ -346,8 +355,10 @@ apply to a caller bringing its own contract.
   rather than silently substituting one the operator never chose; `auto`/unset resolves to
   Gemini when a key is present, else `null`; `mock` returns `null`, there is no honest
   "deterministic mock judgment" to hand a caller whose whole job is judgment.
-- One OpenAI-compatible `/chat/completions` transport serves both `openai` (incl. Azure /
-  vLLM / Ollama / LM Studio) and `openrouter`; Gemini and Bedrock reuse their own SDK shapes.
+- One OpenAI-compatible `/chat/completions` transport serves `openai` (incl. Azure), `local`
+  (vLLM / Ollama / LM Studio) and `openrouter`; Gemini and Bedrock reuse their own SDK shapes.
+  The wire formats live in `src/lib/llm/transports.ts`; `text.ts` keeps selection, the timeout
+  lifecycle and the metering.
   No `response_format` is requested; callers own their contract and repair-parse through
   `parseJsonLoose()` anyway, so demanding strict JSON would only add a failure mode on
   endpoints that don't implement it.
@@ -356,6 +367,20 @@ apply to a caller bringing its own contract.
   pass distinguishes *no engine available* from *nothing to consolidate*.
 - The resolved runner reports **which** provider answered (`engine`, `model`), so a verdict
   can name its source instead of hard-coding one.
+- **`TextRunnerOptions.legKind` is required and has no default.** It names the surface that is
+  spending (`"scan" | "memory" | "athena_turn" | "athena_cycle"`, `src/lib/llm/leg.ts`), which
+  both sets the tracklight tag and selects the sampling temperature. A default would turn a
+  chokepoint back into a habit, and the caller that forgets to tag itself is exactly the one you
+  needed to see.
+- **`local` resolves here too.** It had no `case` in the switch and fell through to `null`, even
+  though `providerAvailable("local")` returns true once both knobs are set - so a self-hoster on
+  Ollama got "no engine" from every non-scan LLM surface while their scans ran fine on the same
+  server.
+- **Two layers.** `resolveLegRunner(opts)` returns the *raw*, unmetered leg call - prompt +
+  prior turns + tool definitions in, text / tool calls / usage out - which is what the multi-leg
+  tool loop needs, because a loop must own **one** cross-leg deadline and emit **one** telemetry
+  event, not N of each. `resolveTextRunner(opts)` wraps a leg runner in the per-call timeout +
+  metering and returns the single-shot `TextRunner` its existing callers already use.
 
 ### Org-aware resolution (`src/lib/llm/text-org.ts`)
 
@@ -379,11 +404,64 @@ repo source.
 Text-seam calls are **billed model calls**, and they are metered in the seam itself, not by the
 callers: `TextRunnerOptions.onUsage` receives the provider's token counts (the same hook
 `AssessOptions.onUsage` gives the scan path), and every call, success, error, or timeout,
-is mirrored to tracklight with its latency under the **`text`** surface tag rather than
-`scan`, so this traffic can't inflate scan cost/latency rollups. Before this, these were the
+is mirrored to tracklight with its latency under the **leg kind** as its surface tag (`memory`,
+`athena_turn`, ...) rather than `scan`, so this traffic can't inflate scan cost/latency rollups
+and the non-scan surfaces are no longer merged into one indistinguishable `text` bucket. Before this, these were the
 only LLM calls in the app no meter could see: absent from `/usage`, from the cost estimate,
 and from the observability mirror, while every scan-path call was fully accounted. Metering
 in the seam means a caller cannot forget it.
+
+## Tool calling and the Athena loop (`src/lib/llm/tool-loop.ts`)
+
+A single-shot `TextRunner` can only answer from what its prompt already contains, so grounding
+an answer in an org's real data meant pre-fetching everything the model *might* want and hoping.
+`runToolLoop()` instead offers the model a set of tools, executes the ones it asks for, feeds the
+results back, and repeats until it answers in prose.
+
+These are **new types beside `TextRunner`, not a widening of it** - widening the runner contract
+would have forced a change on `consolidation.ts` and `reflection.ts`, two callers that will never
+call a tool. `resolveLegRunner()` is the shared floor, so the loop uses identical provider
+selection and identical transports.
+
+The loop **never dispatches a tool itself** and imports nothing from `src/lib/mcp/`. The caller
+supplies `execute(call)`, so the caller owns tool dispatch *and* the authorization decision for
+every one of them; the loop has no idea who is asking, which is precisely why it must not be the
+thing that decides what they may see. A tool that throws is reported back to the model as a tool
+error rather than crashing the turn.
+
+**Which providers can be handed tools** - `supportsToolCalling()` (`config.ts`), modelled on
+`isZeroCostProvider`: `bedrock` (Converse `toolConfig`/`toolUse`, the shape the scan path already
+uses in `bedrock.ts`), `gemini` (`functionDeclarations` out, `response.functionCalls` back),
+`openai`, `openrouter` and `local` (the OpenAI `tools` / `message.tool_calls` protocol).
+**`claude-cli` is deliberately excluded**: it is not a chat API, it spawns the binary and reads
+one `--output-format json` blob back, which collapses the CLI's whole agentic session - its own
+tool use included - into a single final string. There is no seam at which Ascent could offer a
+tool, see it called, and answer it, so a "tool loop" there would be a fiction.
+
+**Budget.** `ATHENA_MAX_LEGS` = 4 and `ATHENA_TOTAL_BUDGET_MS` = 90s. `withLlmTimeout()` is
+strictly *per call*, so an N-leg loop built on it alone would be allowed N x `LLM_TIMEOUT_MS`;
+the loop therefore owns **one** deadline controller, combined with the caller's signal via
+`AbortSignal.any` and threaded through every leg - the same shape as the scan-wide LLM budget in
+`scan-assess.ts`. Hitting either ceiling sets `truncated: true` and returns what it actually has,
+**even when that is an empty string**. It never fabricates a final answer.
+
+**Honesty about grounding.** `ToolLoopResult.grounding` is `"tools"` when the model could call
+them and `"prefetched"` when it could not, and the caller is expected to tell the user which. An
+OpenAI-compatible endpoint may 4xx on `tools` (older vLLM builds, a model with no tool template);
+the loop then falls back **once** to a single-shot prompt, `console.warn`s naming the model, and
+reports `"prefetched"` - the precedent is `isResponseFormatRejection` driving the one-shot
+`json_object` retry in `openai.ts`. There is never a silent substitution. A genuine auth/quota
+failure is not a tool rejection and still surfaces as a real error.
+
+**The tool-call-only reply.** All three transports used to throw `Empty response from X` on falsy
+content, and a reply that is nothing but tool calls has no text - so the very first tool turn
+would have hard-failed everywhere. Each transport now reads its tool-call field *before* the
+empty check, which is unchanged behaviour for a toolless call.
+
+**Metering.** Usage **sums across legs** - `scan-assess.ts`'s last-wins accumulation is right for
+*retries*, where only one attempt counts, and an undercount here, where every leg was really
+billed - and exactly **one** `trackLlmCall` is emitted after the final leg, tagged with the leg
+kind plus `grounding:*` and, when truncated, `truncated`.
 
 ## House prose style (`src/lib/llm/prose.ts`)
 
@@ -520,7 +598,11 @@ default**:
   still identifiable rather than silently mis-attributed. Bedrock's geo/vendor prefixes
   (`us.`/`eu.`/`apac.`/`global.`, `anthropic.`) and claude-cli's short aliases (`sonnet` →
   `claude-sonnet-4-6`, etc.) are stripped/expanded to the bare price-book model id.
-- The event body carries usage (input/output/cached-input tokens), latency, status
+- The event body carries usage (input/output/cached-input tokens) **only when the provider
+  actually reported it**. A token count that could not be read is **omitted, never zero-filled**:
+  `input: 0, output: 0` is indistinguishable from a genuinely free call, so an unreadable usage
+  block used to be mirrored as a confident "this cost nothing". Absent now means unknown; a real
+  zero is still recorded as zero. The body also carries latency, status
   (`success`/`error`/`timeout`), a truncated error message (`MAX_ERR_LEN` = 500), and
   metadata (`repo`, `org`, `degraded`), so degradation rate is observable per repo/org
   alongside cost.
@@ -555,3 +637,12 @@ default**:
   workflow.
 - **Tracklight mirroring assumes a locally-reachable instance** (default
   `http://127.0.0.1:8787`); there is no cloud-hosted default today.
+- **`claude-cli` cannot participate in a tool loop**, so an operator running Athena on the CLI
+  provider always gets `grounding: "prefetched"` - see the tool-loop section for why.
+- **Whether a `local` or OpenRouter-routed model supports tool calling is unknowable up front.**
+  `supportsToolCalling()` is a permission to *try*, backed by the one-shot fallback; a model with
+  no tool template costs one wasted request per turn before degrading.
+- **Text-seam token usage still has no write-side ledger.** `TextRunnerOptions.onUsage` now fires
+  for the memory passes and the tool loop (and `MemoryRunner.usage` exposes the running total),
+  but `src/lib/db/usage.ts` derives `/usage` entirely from `Scan` rows, so non-scan LLM spend is
+  visible in the tracklight mirror and at the seam, not yet in the in-app cost estimate.

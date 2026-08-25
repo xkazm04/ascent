@@ -8,6 +8,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { resolveTextRunner } from "@/lib/llm/text";
 
+// `legKind` is a REQUIRED option — there is no default — so every call here names the surface it is
+// standing in for. These tests stand in for Shared Org Memory's passes.
+const MEMORY = { legKind: "memory" } as const;
+
 const ENV_KEYS = [
   "LLM_PROVIDER",
   "NODE_ENV",
@@ -16,6 +20,8 @@ const ENV_KEYS = [
   "OPENAI_API_KEY",
   "OPENROUTER_API_KEY",
   "BEDROCK_REGION",
+  "LOCAL_LLM_BASE_URL",
+  "LOCAL_LLM_MODEL",
 ] as const;
 
 const setEnv = (patch: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>) => {
@@ -27,43 +33,58 @@ afterEach(() => vi.unstubAllEnvs());
 describe("resolveTextRunner", () => {
   it("resolves a HOSTED runner in a production build — the whole point", async () => {
     setEnv({ NODE_ENV: "production", LLM_PROVIDER: "gemini", GEMINI_API_KEY: "k" });
-    const runner = await resolveTextRunner();
+    const runner = await resolveTextRunner(MEMORY);
     expect(runner?.engine).toBe("gemini");
     expect(typeof runner?.run).toBe("function");
   });
 
   it("honors each explicit hosted selection when its prerequisite is present", async () => {
     setEnv({ NODE_ENV: "production", LLM_PROVIDER: "openai", OPENAI_API_KEY: "k" });
-    expect((await resolveTextRunner())?.engine).toBe("openai");
+    expect((await resolveTextRunner(MEMORY))?.engine).toBe("openai");
 
     setEnv({ NODE_ENV: "production", LLM_PROVIDER: "openrouter", OPENROUTER_API_KEY: "k" });
-    expect((await resolveTextRunner())?.engine).toBe("openrouter");
+    expect((await resolveTextRunner(MEMORY))?.engine).toBe("openrouter");
 
     setEnv({ NODE_ENV: "production", LLM_PROVIDER: "bedrock", BEDROCK_REGION: "us-east-1" });
-    expect((await resolveTextRunner())?.engine).toBe("bedrock");
+    expect((await resolveTextRunner(MEMORY))?.engine).toBe("bedrock");
   });
 
   it("returns null rather than SUBSTITUTING a provider the operator did not choose", async () => {
     // Explicitly selected, prerequisite absent: "no engine" is the honest answer, not a silent swap.
     setEnv({ NODE_ENV: "production", LLM_PROVIDER: "openai", GEMINI_API_KEY: "k" });
-    expect(await resolveTextRunner()).toBeNull();
+    expect(await resolveTextRunner(MEMORY)).toBeNull();
   });
 
   it("returns null for mock and for claude-cli on a production host", async () => {
     setEnv({ LLM_PROVIDER: "mock" });
-    expect(await resolveTextRunner()).toBeNull();
+    expect(await resolveTextRunner(MEMORY)).toBeNull();
 
     // Mirrors providerAvailable("claude-cli"): the prod build dead-code-prunes the CLI module away.
     setEnv({ NODE_ENV: "production", LLM_PROVIDER: "claude-cli" });
-    expect(await resolveTextRunner()).toBeNull();
+    expect(await resolveTextRunner(MEMORY)).toBeNull();
+  });
+
+  // `local` had NO case in the switch, so it fell through to `default: -> null` even though
+  // providerAvailable("local") returns true once both knobs are set — meaning a self-hoster on Ollama
+  // got "no engine" from every non-scan LLM surface while their scans ran fine on the same server.
+  it("resolves a runner for LLM_PROVIDER=local — the self-hoster's whole path", async () => {
+    setEnv({
+      NODE_ENV: "production",
+      LLM_PROVIDER: "local",
+      LOCAL_LLM_BASE_URL: "http://localhost:11434/v1",
+      LOCAL_LLM_MODEL: "qwen2.5-coder:14b",
+    });
+    const runner = await resolveTextRunner(MEMORY);
+    expect(runner?.engine).toBe("local");
+    expect(runner?.model).toBe("qwen2.5-coder:14b");
   });
 
   it("follows getProvider()'s `auto` rule: Gemini with a key, otherwise nothing", async () => {
     setEnv({ LLM_PROVIDER: undefined, GEMINI_API_KEY: "k" });
-    expect((await resolveTextRunner())?.engine).toBe("gemini");
+    expect((await resolveTextRunner(MEMORY))?.engine).toBe("gemini");
 
     setEnv({ LLM_PROVIDER: undefined });
-    expect(await resolveTextRunner()).toBeNull();
+    expect(await resolveTextRunner(MEMORY)).toBeNull();
   });
 });
 
@@ -87,7 +108,7 @@ describe("resolveTextRunner — every call is metered", () => {
         return modelResponse();
       }),
     );
-    const runner = await resolveTextRunner({ onUsage: onUsage });
+    const runner = await resolveTextRunner({ ...MEMORY, onUsage });
     return { runner: runner!, events };
   }
   const onUsage = vi.fn();
@@ -107,7 +128,7 @@ describe("resolveTextRunner — every call is metered", () => {
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ inputTokens: 11, outputTokens: 4 }));
   });
 
-  it("mirrors a successful call to tracklight under the TEXT surface, not 'scan'", async () => {
+  it("mirrors a successful call to tracklight under its LEG KIND, not 'scan' or a blanket 'text'", async () => {
     const { runner, events } = await openAiRunner(() =>
       Response.json({ choices: [{ message: { content: "hi" } }], usage: { prompt_tokens: 7, completion_tokens: 2 } }),
     );
@@ -116,9 +137,12 @@ describe("resolveTextRunner — every call is metered", () => {
 
     expect(events).toHaveLength(1);
     const body = events[0] as { tags: string[]; operation: string; status: string; usage: Record<string, number> };
-    // Tagging these "scan" would quietly inflate scan cost/latency rollups with another surface's traffic.
-    expect(body.tags).toContain("text");
+    // Tagging these "scan" would quietly inflate scan cost/latency rollups with another surface's
+    // traffic; the old blanket "text" tag merged every non-scan surface into one indistinguishable
+    // bucket, which is exactly what the required legKind exists to prevent.
+    expect(body.tags).toContain("memory");
     expect(body.tags).not.toContain("scan");
+    expect(body.tags).not.toContain("text");
     expect(body.operation).toBe("text");
     expect(body.status).toBe("success");
     expect(body.usage).toMatchObject({ input: 7, output: 2 });
@@ -137,7 +161,7 @@ describe("resolveTextRunner — every call is metered", () => {
   it("a caller that passes no onUsage is unaffected — metering is optional for the caller", async () => {
     setEnv({ LLM_PROVIDER: "openai", OPENAI_API_KEY: "k" });
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ message: { content: "hi" } }] })));
-    const runner = await resolveTextRunner();
+    const runner = await resolveTextRunner(MEMORY);
     await expect(runner!.run("prompt")).resolves.toBe("hi");
   });
 });

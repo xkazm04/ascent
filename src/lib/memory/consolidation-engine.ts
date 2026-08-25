@@ -17,7 +17,7 @@
 
 import { resolveTextRunner } from "@/lib/llm/text";
 import type { RunPrompt } from "@/lib/memory/consolidation";
-import type { ProviderName } from "@/lib/types";
+import type { ProviderName, TokenUsage } from "@/lib/types";
 
 /**
  * A duplicate check (and a reflection pass) runs while a human waits on a button. The scan-sized budget
@@ -31,6 +31,17 @@ export interface MemoryRunner {
   /** Which provider answered — so the UI can say "gemini judged this", not just "an LLM did". */
   engine: ProviderName;
   model: string;
+  /**
+   * Tokens this runner has spent so far, summed across every prompt it ran. Live-mutated, so a caller
+   * reads it AFTER its passes finish.
+   *
+   * It exists because this seam passed only `timeoutMs`: it never supplied `onUsage`, so the memory
+   * write-gate and reflection passes were the one place in the app where real billed tokens reached no
+   * meter at all. There is no write-side LLM ledger table to post to yet (`src/lib/db/usage.ts` derives
+   * everything from Scan rows), so the honest interim is to make the number READABLE at the seam
+   * instead of discarding it — the tracklight mirror already receives it per call.
+   */
+  usage: TokenUsage;
 }
 
 /**
@@ -40,6 +51,17 @@ export interface MemoryRunner {
  * treats it as "propose nothing, and SAY so" (`llmUnavailable: true`).
  */
 export async function resolveMemoryRunner(): Promise<MemoryRunner | null> {
-  const runner = await resolveTextRunner({ timeoutMs: CHECK_TIMEOUT_MS });
-  return runner ? { run: runner.run, engine: runner.engine, model: runner.model } : null;
+  const usage: TokenUsage = {};
+  const runner = await resolveTextRunner({
+    // Names the surface that is spending — memory passes are not scans and must not be tagged as such.
+    legKind: "memory",
+    timeoutMs: CHECK_TIMEOUT_MS,
+    onUsage: (u) => {
+      for (const k of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"] as const) {
+        const v = u[k];
+        if (v != null) usage[k] = (usage[k] ?? 0) + v;
+      }
+    },
+  });
+  return runner ? { run: runner.run, engine: runner.engine, model: runner.model, usage } : null;
 }
