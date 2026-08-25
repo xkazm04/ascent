@@ -243,3 +243,54 @@ Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Pri
 - Enterprise: inference in-account via Bedrock, full audit log, **configurable data
   retention** (per-org scan/audit windows enforced by a daily purge cron; see
   ENTERPRISE.md §5), VPC/PrivateLink, KMS-managed keys.
+
+## 6. The pipeline and the source tree today
+
+§2 above is the MVP as designed. This is how a scan runs now (moved here from the README):
+
+1. **Ingest**: read repo metadata, the full git tree, a budgeted sample of file contents
+   (≤32 files), and recent commits over the GitHub API (no clone; no source persisted).
+   Optionally folds in PR stats + branch-governance signals when a token is present. On a
+   self-hosted deployment a paired repo can instead be ingested **from disk**
+   (`LocalFsSource`, [`features/local-mode/README.md`](./features/local-mode/README.md)).
+2. **Detect**: 9 deterministic analyzers (`src/lib/analyze`) extract evidence per
+   dimension → reproducible signal scores, plus archetype + AI-usage classification.
+3. **Score**: the engine (`src/lib/scoring`) sends signals + sampled content to an
+   `LLMProvider`; the LLM's per-dimension score is **guardbanded** (±25) to the signal
+   score, then blended (60% LLM / 40% deterministic) and rolled up to an overall score,
+   maturity level, and the two posture axes. A failed/unusable LLM auto-falls back to mock.
+4. **Report**: score ring, level ladder, posture quadrant, dimension radar with inline
+   evidence + provenance, contributors, PR signals, and a prioritized roadmap, streamed
+   live over Server-Sent Events, plus a shareable SVG badge.
+
+Deep dive: [`features/scanning/scan.md`](./features/scanning/scan.md).
+
+```
+src/
+  app/
+    page.tsx                          landing (scroll-snap deck: hero/scan, org, fleet, register, levels, dimensions)
+    report/…                          report view, permalink, compare
+    trends/ · usage/ · connect/       history, metering, App install
+    onboarding/ · launch/             org onboarding + fleet star-map
+    org/[slug]/…                      org intelligence dashboards (7 tabs)
+    api/
+      scan · scan/stream              run a scan (blocking + SSE)
+      badge · gate                    SVG badge · CI maturity gate
+      app/* · auth/*                  GitHub App webhook/setup · OAuth
+      org/* · history · recommendations · usage · audit · cron/*
+      mcp                             read-only MCP server for coding agents
+  components/                         Brand, ScanForm, report/*, org/*, connect/*, …
+  features/<group>/<tab>/             org-dashboard tabs, mirroring the nav (see AGENTS.md)
+  lib/
+    maturity/model.ts                 the rubric: levels, dimensions, weights, posture
+    github/                           ingestion, App tokens, governance, write (PRs)
+    local/                            local mode: pairing, scan-from-disk, autopilot loop
+    analyze/                          deterministic detectors D1–D9
+    llm/                              provider abstraction (local · claude-cli · gemini · bedrock · openai · openrouter · mock)
+    scoring/                          prompt · engine · gate · recommendations · orgsim
+    mcp/                              the agent door: tool catalog + protocol
+    db/                               org rollups, usage, retention, installations, plan
+    scan.ts                           top-level orchestrator
+prisma/schema.prisma                  Phase 2 data model (DSQL-safe)
+action.yml · scripts/maturity-gate.mjs  the published CI gate
+```

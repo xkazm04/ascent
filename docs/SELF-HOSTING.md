@@ -119,6 +119,17 @@ Use `npm run db:deploy` (`prisma migrate deploy`) for anything you intend to kee
 is the dev-loop shortcut that syncs the schema without a migration history. Every feature that
 touches the database degrades cleanly when `DATABASE_URL` is unset.
 
+For a laptop, the embedded **PGlite** path needs no Docker at all: keep `PGLITE_DATA_DIR=.pglite/ascent`
+and the dummy `DATABASE_URL` from [`.env.example`](../.env.example), and `npm run dev` boots
+Postgres-in-WASM itself (never run `db:push` on that path — [`SETUP.md`](./SETUP.md) §3 explains
+why and how the schema reaches it instead).
+
+Scripts: `db:push` (sync schema in dev), `db:migrate` (create a migration), `db:deploy`
+(`prisma migrate deploy`: apply committed migrations in CI/production), `db:studio` (browse),
+`db:generate` (regenerate client). Migrations live in [`prisma/migrations/`](../prisma/migrations)
+(baseline `0_init`). Schema: [`prisma/schema.prisma`](../prisma/schema.prisma). Local development
+against Aurora DSQL: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §"Local development & Aurora DSQL".
+
 The schema is written to stay inside Aurora DSQL's supported subset (UUID primary keys, no foreign
 key constraints, `relationMode = "prisma"`), so the same migrations apply to plain Postgres and to
 DSQL. See [`docs/features/data/data-model.md`](./features/data/data-model.md).
@@ -159,6 +170,12 @@ Apply migrations against the compose database with:
 docker compose exec app npx prisma migrate deploy
 ```
 
+### Without Docker
+
+A plain `npm run build && npm start` works too. Set `ASCENT_SELF_HOSTED=1` alongside it if you want
+the `claude-cli` provider or the local-mode features (that gate reads the flag, because `NODE_ENV`
+is `production` either way); the image sets it for you, a manual start does not.
+
 ---
 
 ## Optional: the GitHub App
@@ -167,7 +184,14 @@ Scanning **public** repos needs nothing. Private and org-wide repos, PR auto-gat
 need a GitHub App, and on a self-hosted deployment you register your own — it takes a few minutes and
 is the one piece of setup the hosted cloud genuinely saves you.
 
-Walkthrough: [`docs/features/github/setup.md`](./features/github/setup.md).
+Walkthrough: [`docs/features/github/setup.md`](./features/github/setup.md); how the App behaves
+once installed: [`docs/features/github/github-app.md`](./features/github/github-app.md).
+
+Once registered, the flow in the app is: visit **`/connect`** → **Install on GitHub** → pick which
+repos to **watch** and their autoscan schedule. Ascent scans private repos via short-lived
+installation tokens and stores only derived scores, never source. Private scans are attributed to
+the installing org and counted as billable in [`/usage`](../src/app/usage/page.tsx) (which, on a
+self-hosted deployment, is a meter and not a bill).
 
 A `GITHUB_TOKEN` alone (a classic or fine-grained PAT) is a lighter alternative: it raises rate
 limits and unlocks the PR and branch-governance signals without an App installation.

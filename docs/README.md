@@ -4,9 +4,10 @@
 > repository and it scores how deeply an engineering org has adopted LLM-driven
 > development, then tells them exactly how to climb to the next level.
 
-**Stack:** Next.js 16 + TypeScript + Tailwind v4 on Vercel · LLM analysis across six
-providers (Gemini, Bedrock, OpenAI, OpenRouter, Claude CLI, Mock) · Prisma over
-Postgres / Aurora DSQL, with embedded PGlite for local dev.
+**Stack:** Next.js 16 · React 19 · TypeScript · Tailwind v4 (Vercel for the hosted product,
+a container or plain `npm start` for self-hosting) · a pluggable LLM layer with seven providers
+(local OpenAI-compatible servers, Claude CLI, Gemini, Bedrock, OpenAI, OpenRouter, Mock) · Prisma
+over Postgres / Aurora DSQL, with embedded PGlite for local dev.
 
 Ascent began as an AWS Databases × Vercel hackathon build; it has since grown well
 past that scope (Supabase auth wall, billing and credits, RBAC, org fleet scanning,
@@ -30,13 +31,18 @@ playbooks, passports, a CI gate). Docs from the hackathon period live in
 | 2 | [features/scanning/maturity-model.md](./features/scanning/maturity-model.md) | The 5 levels, 9 scoring dimensions, criteria/signals, scoring math |
 | 3 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Request flow, deployment, the Aurora DSQL rationale, security posture |
 | 4 | [SETUP.md](./SETUP.md) | Local and deployed setup ⚠️ *see caveat below* |
-| 4b | [SELF-HOSTING.md](./SELF-HOSTING.md) | **Running Ascent yourself**: deployment modes, choosing a model (incl. local + `$0` paths), Docker, cron, upgrades |
+| 4b | [SELF-HOSTING.md](./SELF-HOSTING.md) | **Running Ascent yourself**: deployment modes, choosing a model (incl. local + `$0` paths), persistence, Docker, GitHub App, cron, upgrades |
+| 4c | [DEPLOY.md](./DEPLOY.md) | **Ascent Cloud on Vercel**: production requirements, deploy & rollback, required prod env |
 | 5 | [VISION-TRANSITION.md](./VISION-TRANSITION.md) | Where the product is heading, with dated delivery markers |
-| 6 | [features/README.md](./features/README.md) | Feature-by-feature reference with file pointers |
+| 6 | [features/README.md](./features/README.md) | Feature overview + feature-by-feature reference with file pointers |
+| 7 | [API.md](./API.md) | The HTTP API as a curl tour (scan, stream, gate, badge, persistence endpoints) |
+| 8 | [ROADMAP.md](./ROADMAP.md) | Shipped / next status snapshot |
 
 **Also here:** [VALUE-CASE.md](./VALUE-CASE.md) (open decisions D28–D32),
 [REFERENCE-SCAN-AUDIT.md](./REFERENCE-SCAN-AUDIT.md) (the 10-org validation that
-produced them), and [DOC-DRIFT.md](./DOC-DRIFT.md).
+produced them), [BACKLOG.md](./BACKLOG.md) (evidence-backed work items),
+[DOC-DRIFT.md](./DOC-DRIFT.md), and [development/devinspector.md](./development/devinspector.md)
+(the dev-only click-a-component → copy `File.tsx:line` overlay).
 
 ## Known documentation caveats
 
