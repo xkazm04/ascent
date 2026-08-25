@@ -114,14 +114,32 @@ W6c it holds the **server-derived getting-started checklist**, and the teach ste
 spotlight copy the tasks borrow. A second "activation" surface next to it would have split the one
 question a new member has ("what do I do next?") across two answers that could disagree.
 
-**Two postures, decided by the caller's own stamp** (`decidePosture`, `tasks.ts`):
+**Three postures. Two are derived from the caller's own stamp** (`decidePosture`, `tasks.ts`); the
+third is an explicit choice layered over them (`resolveDrawerPosture`):
 
-| | `companion` | `teaching` |
-| --- | --- | --- |
-| Who | a member whose `onboarding` stamp is null and who still has an available undone step | stamped (completed **or** skipped), `allDone`, the demo org, or anyone with no membership row |
-| Entry | the drawer **opens itself** | collapsed pull tab, discoverable (today's behaviour exactly) |
-| Body | ONE promoted next task (primary CTA + "Show me") over the full task rail | task rail + the "Learn the dashboard" teach rail |
-| Footer | "Skip setup" (stamps) | — |
+| | `companion` | `teaching` | `athena` |
+| --- | --- | --- | --- |
+| Who | a member whose `onboarding` stamp is null and who still has an available undone step | stamped (completed **or** skipped), `allDone`, the demo org, or anyone with no membership row | anyone who pressed **Athena** in the drawer header (not offered on the demo org) |
+| Entry | the drawer **opens itself** | collapsed pull tab, discoverable (today's behaviour exactly) | never opens itself — an explicit switch |
+| Body | ONE promoted next task (primary CTA + "Show me") over the full task rail | task rail + the "Learn the dashboard" teach rail | the conversation surface ([companion](../companion/README.md)) |
+| Footer | "Skip setup" (stamps) | — | the composer |
+
+**`companion` is not Athena, and the name predates her.** It means "the onboarding drawer opened
+itself", and it is load-bearing in `TourChecklist`, `TourNextTask`, `useGettingStarted` and
+`useTourEngine` — so the absorb added a distinct `athena` value beside it rather than a rename that
+would have silently re-aimed all four.
+
+**The checklist model is UNCHANGED by the absorb.** `buildGettingStartedModel`,
+`GETTING_STARTED_ANCHORS` and every `data-tour` anchor are read, never rewritten: Athena becomes the
+checklist's *voice* (`restingLine` is handed the step `nextTask` already promoted) and never a second
+opinion about what is left to do. Two surfaces disagreeing about whether the first scan has run is
+worse than either alone.
+
+**The channel choice is not persisted, deliberately.** `TourStorageState` is the obvious home for it,
+but `useTourEngine.dom.test.tsx:184`/`:202` assert the stored record deep-equals `{ open, index }`.
+The drawer lives in the org *layout*, so the channel and the conversation in it already survive every
+`?tab=` switch; only a hard reload returns to the checklist, and a reload re-boots the transcript from
+the server anyway.
 
 A stored session decision always wins over the posture, so a member who shut the companion is not
 re-opened on every navigation. **Collapsing is not skipping**: Escape and the collapse control stay
@@ -228,7 +246,10 @@ cluster, each repo a star:
 | `src/components/onboarding/upgradeScan.ts` | The one-shot, org-scoped, 15-min-TTL sessionStorage handoff the org header consumes to auto-start the live scan. |
 | `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`. |
 | `src/components/onboarding/OnboardingChecklist.tsx` | The **pre-org** funnel checklist, rendered by the connect page only (the wizard's done phase dropped it in W6b). Deliberately kept: it serves the state *before* any org dashboard exists (install App → pick repos → first scan), derived from session + watchlist, with no membership and therefore no getting-started model to read. The companion takes over the moment there is a dashboard; the two never render on the same page. |
-| `src/components/onboarding/tour/TourChecklist.tsx` | The drawer: chrome, posture, both stamp writes. |
+| `src/components/onboarding/tour/TourChecklist.tsx` | The drawer: chrome, posture, channel switch, both stamp writes. |
+| `src/components/onboarding/tour/TourDrawerHeader.tsx` | Header row + the Setup/Athena channel switch (`aria-pressed`, never `aria-expanded` — the pull tab owns that). |
+| `src/components/onboarding/tour/TourChecklistBody.tsx` | The setup channel's scrolling body: progress, promoted task, both rails. |
+| `src/components/onboarding/tour/TourStepFooter.tsx` | The setup channel's footer: running spotlight copy, "Skip setup", "Got it". |
 | `src/components/onboarding/tour/tasks.ts` | Pure content model: rows, progress, next task, posture, spotlight mapping. |
 | `src/components/onboarding/tour/useGettingStarted.ts` | Poll the derived checklist; POST the stamp. |
 | `src/components/onboarding/tour/useTourEngine.ts` | Cursor, tab deep-link, rAF anchor poll, skip-when-absent, cursor persistence. |

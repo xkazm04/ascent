@@ -1,9 +1,9 @@
 # Athena — the resident companion
 
 _Status: **in build** (2026-08-25). This document covers WP2 (the persistence layer: the schema, the
-identity store, the anchored-diff engine, the episode feed, the erase path) and WP3 (the turn, its
-grounding, the block contract, the prompt and the HTTP routes). **The UI is a separate work package
-and is not described here** - nothing below has a rendered surface yet._
+identity store, the anchored-diff engine, the episode feed, the erase path), WP3 (the turn, its
+grounding, the block contract, the prompt and the HTTP routes) and WP4 (**the surface** - see
+[Where she lives](#where-she-lives-the-drawer-absorbed-her) below)._
 
 Athena is a resident chat companion who lives inside an Ascent organization. She is not a per-user
 assistant and not a per-repo one: she is **org-scoped — one mind per organization**. Every member of
@@ -297,6 +297,102 @@ refuses - so the operator gets a fluent, confident, completely ungrounded reply 
 anywhere. The route test asserts the ordering literally, by timestamping `ReadableStream`
 construction.
 
+## Where she lives: the drawer absorbed her
+
+**She has no launcher of her own.** Ascent runs exactly ONE right-edge guidance channel - the
+onboarding drawer (`src/components/onboarding/tour/TourChecklist.tsx`, mounted by `OrgShell`) - and
+Athena is a **posture** of it, reached by a `Setup | Athena` switch in its header. A floating bubble
+beside the drawer would have made two surfaces answering the same question ("what now?"), which is the
+same failure the repo already refuses for feedback: *"never a toast that scrolls away from the control
+that caused it"* (`src/features/shared/registry/useRegistryMutation.ts:9`). `LiveWarRoomCelebrations`
+already owns bottom-right on `?tab=live`; nothing new competes for a corner.
+
+The drawer is a **complementary `<aside>`, not a dialog**: it traps no focus, blocks nothing behind
+it, and stays `inert` while collapsed. It widens in her posture (a conversation needs more room than a
+checklist) and a table inside scrolls in its own container rather than the page.
+
+**A conversation survives a tab switch** because the drawer is mounted in the org **layout**, beside
+`{children}` - `OrgTabChunks.tsx:52` keys on the tab and unmounts everything inside it. Her panel is
+also **lazily mounted and then latched**: it boots on the first switch to her (a dashboard nobody asks
+her about pays for no request), and afterwards switching back to the checklist HIDES it rather than
+unmounting, so glancing at the checklist cannot throw a conversation away.
+
+### `companion` is a posture name, and it is not her
+
+`DrawerPosture` gained `"athena"` beside the existing `"companion"` and `"teaching"`. The existing
+`companion` value means *the onboarding drawer opened itself* and predates her entirely; it is
+load-bearing across four modules, so the absorb added a value rather than renaming one.
+
+### She is the checklist's voice, never a second opinion
+
+`buildGettingStartedModel` (`src/lib/org/getting-started.ts:79`) and `GETTING_STARTED_ANCHORS` are
+**read, not rewritten**. Her resting line is `restingLine(next)`, handed the step the checklist itself
+promoted (`nextTask`). Nothing in `src/features/shared/athena/**` re-derives doneness.
+
+`restingLine(null)` deliberately **claims nothing about setup**: `next === null` has three
+indistinguishable causes (the payload has not loaded, everything available is done, or this workspace
+derives no steps), and a companion whose first line says "setup is complete" while the checklist is
+still loading has lied before anyone spoke to her.
+
+### One assistant turn, in reading order
+
+**what she drew -> what she offered -> what she stood on.**
+
+1. **Blocks render FULL-BLEED beneath the bubble**, escaping its width cap (`-mx-4` cancels the
+   transcript's own padding). A paragraph needs a ragged edge and an identity gutter; a table is a
+   drawing, and every pixel handed back to the gutter is a column it cannot show.
+2. **Proposal cards** render from the boot payload's open proposals. This is the DISPLAY half only -
+   see the gap below.
+3. **At most TWO recall chips**, each a derived sentence and never a raw excerpt, rendered *after* the
+   answer. When no chip survived, **nothing** renders: an empty strip beats echoing the operator's own
+   question back at them.
+
+### What the surface is built out of
+
+| Concern | What it uses, and why |
+| --- | --- |
+| Panels / chrome | `Surface`, `Kicker` from `@/components/ui` - never a hand-rolled `border-slate-*` panel |
+| The composer | `TextArea` from the `Field` kit. Enter sends, Shift+Enter newlines; the textarea is never disabled mid-turn (that would discard what was being typed while waiting) |
+| `athena:table` | `OrgTable` (`src/components/org/shared/ui.tsx:76`) - a table she draws and a table the dashboard draws are the same object. `minWidth` is derived from the column count, not left at 640, so a two-column answer does not force a scrollbar in a 28rem drawer |
+| `athena:chart` | Dependency-free inline SVG on `chartScale.ts` + `chartHover.tsx`. **No chart library** - recharts appears in exactly one landing file and must not spread |
+| Prose | `MarkdownLite` (`src/components/report/MarkdownLite.tsx`) via an `AthenaProse` sibling that strips fenced regions first. Four inert constructs, no href, no src, no `dangerouslySetInnerHTML` - model output is untrusted, and that posture is repo law |
+
+**The caps are IMPORTED from `blocks.ts`, never re-declared.** `model.ts` re-applies
+`ATHENA_TABLE_MAX_*` / `ATHENA_CHART_MAX_*` / `ATHENA_MAX_BLOCKS` on the way OUT of `meta`, which
+costs one `slice` and closes the last gap: a block written into the database before a cap existed.
+
+Two chart decisions that look like styling and are not:
+
+- **The domain is shifted, not clamped.** `linScale` clamps into `[0, domainMax]`, which is right for
+  a 0..100 score and silently wrong for a series that dips below zero - every negative would flatten
+  onto the baseline and assert something the data never said. Values are shifted by the minimum first.
+- **Series colours are azure + slate, never the level ramp.** Red->green means L1->L5. Her series are
+  arbitrary numbers, and painting a low one red invents a maturity claim out of an axis.
+
+### Waiting is honest, and announcements are not per-beat
+
+The phase strip is driven by the real `phase` / `tool` events - no fake progress, no invented stage.
+After **8 seconds** a second line names the actual wait ("her whole reply arrives at once rather than
+a word at a time"), because a spinner that has turned for ten seconds tells the operator nothing they
+cannot already see.
+
+The pulse exists **only while a turn is in flight** (never idle chrome that breathes) and is
+`motion-safe:` gated exactly as `HighlightLayer.tsx:15` is - BRAND.md's "no always-on loops".
+
+The phase strip is `aria-hidden`: those are beats. One polite `role="status"` region announces at the
+level of **a decision is waiting** - once per settled turn, naming open proposals when there are any.
+Three announcements per answer is how a helpful surface becomes one a screen-reader user turns off.
+
+### Degrading in the panel
+
+The boot payload's `degraded` flag renders **one quiet line that names where the switch is** - a
+limitation with no stated remedy reads as a defect - linking to `?tab=settings`, where the org's model
+provider is configured. The composer stays usable, and she still answers from what is stored.
+
+A failed boot is not a dead panel either: the composer works and the first send makes its own thread.
+A turn that produces no answer keeps the question on screen beside the reason, rather than silently
+forgetting the operator said anything.
+
 ## Degrade modes
 
 | Mode | What she does | What the payload says |
@@ -342,7 +438,13 @@ only the episodes Athena wrote.
 - No export/import seam to kp's Athena (see above); the document shape is the only preparation.
 - The wider `OrgMemory` erase gap described directly above.
 - Retention (the daily purge) does not age Athena's threads at all — only erasure removes them.
-- **No UI.** The routes and the turn exist; nothing renders them yet.
+- **A proposal can be READ but not answered.** The cards render the ask and say it is waiting; the
+  accept/decline control and the API behind it (`src/app/api/athena/proposals/**`) are a separate work
+  package. The card deliberately renders no dead button - a control that looks live and does nothing
+  costs more trust than an absent one. (Moot today: nothing in the turn creates a proposal yet, below.)
+- **The channel choice is not persisted across a hard reload.** `TourStorageState` is the obvious home
+  for it, but `useTourEngine.dom.test.tsx:184`/`:202` assert the stored record deep-equals
+  `{ open, index }`. A `?tab=` switch already preserves it, since the drawer lives in the layout.
 - **No token streaming.** The event union has room for `delta`, and `runToolLoop` does not surface
   partials, so every reply lands whole at `settled`.
 - **She raises no proposals yet.** `AthenaProposal` is written and read by the store and returned by

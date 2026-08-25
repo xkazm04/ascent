@@ -253,8 +253,12 @@ export async function OrgShell({
         </div>
       </main>
       {/* THE guidance channel for ANY org dashboard (W6c) — the onboarding companion when this member's
-          onboarding is unstamped and unfinished, the discoverable teaching drawer otherwise. Mounted in
-          the layout (not a page) so it survives tab navigation and re-anchors after each deep link.
+          onboarding is unstamped and unfinished, the discoverable teaching drawer otherwise, and since
+          the Athena absorb a third posture holding the resident companion's conversation (she has no
+          launcher of her own: one right-edge channel, switched inside the drawer's own header).
+          Mounted in the layout (not a page) — beside `{children}`, never inside it, because
+          OrgTabChunks keys on the tab and unmounts everything in there — so the drawer survives tab
+          navigation, the conversation in it survives with it, and the tour re-anchors after a deep link.
           Mounted on the first-scan empty state TOO: that is precisely the member the companion exists
           for, and its first task ("run your first scan") is the one thing that state is about. Its
           content is server-derived, so a thin/personal org gets a shorter, honest list rather than a

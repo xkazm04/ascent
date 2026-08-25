@@ -187,14 +187,34 @@ export function nextTask(items: DrawerItem[]): DrawerItem | null {
 }
 
 /**
- * Two postures, one channel:
+ * Three postures, ONE channel. The drawer is the only right-edge guidance surface in the product, so
+ * every kind of guidance is a posture of it rather than a new floating thing.
+ *
  *  - `companion` — a member of this org whose onboarding is UNSTAMPED and unfinished. The drawer opens
  *    itself, promotes one next task, and offers "Skip setup".
  *  - `teaching`  — everyone else: stamped (completed or skipped), already `allDone`, the demo org, or
  *    anyone with no membership row (`onboarding: null` — a non-member, or an auth-off box). Today's
  *    behaviour exactly: a collapsed, discoverable pull tab over the teach rail.
+ *  - `athena`    — the operator switched the drawer to the resident companion. NOT derived from the
+ *    payload: it is an explicit choice, so `decidePosture` never returns it and `resolveDrawerPosture`
+ *    layers it over whatever the payload decided.
+ *
+ * NAMING TRAP, stated because it has already caught a reader: `companion` here means "the ONBOARDING
+ * drawer opened itself" and predates Athena entirely. It is load-bearing in `TourChecklist`,
+ * `TourNextTask`, `useGettingStarted` and `useTourEngine`, so Athena got a distinct value beside it
+ * rather than a rename that would have silently re-aimed all four.
  */
-export type DrawerPosture = "companion" | "teaching";
+export type DrawerPosture = "companion" | "teaching" | "athena";
+
+/**
+ * The posture actually rendered. The operator's explicit switch wins over the derived one, and the
+ * derived posture is kept UNDERNEATH (`decidePosture` is still what decides whether the setup channel
+ * shows the promoted task or the teach rail when they switch back). Pure, so the whole precedence rule
+ * is testable without a DOM.
+ */
+export function resolveDrawerPosture(derived: DrawerPosture, athenaOn: boolean): DrawerPosture {
+  return athenaOn ? "athena" : derived;
+}
 
 export function decidePosture(
   payload: GettingStartedPayload | null,

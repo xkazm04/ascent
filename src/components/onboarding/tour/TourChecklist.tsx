@@ -9,12 +9,29 @@
 // another tab ticks a row live. Doneness is DERIVED: no click in here records progress, and no door
 // elsewhere in the product is second-class.
 //
-// TWO POSTURES, ONE CHANNEL (the whole entry-intensity rule):
+// THREE POSTURES, ONE CHANNEL (the whole entry-intensity rule):
 //  - `companion` — a member whose onboarding is unstamped and unfinished. The drawer opens itself,
 //    promotes ONE next task with its primary CTA + "Show me", keeps the rest as a thin rail, and
 //    offers "Skip setup" (which STAMPS — collapsing does not).
 //  - `teaching`  — stamped, complete, the demo org, or anyone with no membership row. Exactly the old
 //    behaviour: collapsed pull tab, discoverable, with the teach steps no task claimed.
+//  - `athena`    — the member switched the drawer to the resident companion. NOT derived; an explicit
+//    choice. She ABSORBED into this drawer rather than arriving as a second floating thing: one
+//    right-edge channel was the rule before her and still is.
+//
+// THE CHANNEL CHOICE IS NOT PERSISTED, deliberately. `TourStorageState` looks like the obvious home
+// for it, but `useTourEngine.dom.test.tsx:184` and `:202` assert the stored record deep-equals
+// `{ open, index }` — a third field fails them, and a test is not something to edit to make a feature
+// fit. Nothing is lost that the acceptance criterion asked for: the drawer lives in the org LAYOUT, so
+// the channel (and the conversation in it) already survives every `?tab=` switch. Only a HARD RELOAD
+// returns to the checklist, and a reload re-boots the transcript from the server anyway.
+//
+// WHY SHE MOUNTS LAZILY AND THEN NEVER UNMOUNTS. `athenaMounted` latches on the first switch, and
+// afterwards the conversation is hidden with a `hidden` class rather than removed from the tree. Lazy,
+// because a dashboard nobody asks her about should not pay for her boot request; latched, because
+// unmounting a conversation to glance at the checklist would throw the conversation away. The drawer
+// itself lives in the org LAYOUT, so the same tree survives a `?tab=` switch — `OrgTabChunks` keys on
+// the tab and unmounts everything inside `{children}`, which is exactly why she is not in there.
 //
 // The engine is unchanged in kind: it still owns the cursor, the deep link, the rAF anchor poll and
 // the skip-when-absent rule. It is `enabled` only while a spotlight is running, so an auto-opened
@@ -23,14 +40,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { PUBLIC_ORG } from "@/lib/org-constants";
+import { AthenaPanel } from "@/features/shared/athena/AthenaPanel";
 import { useTourEngine } from "./useTourEngine";
 import { patchTourState, readTourState, type TourStorageState } from "./tourStorage";
 import { HighlightRing } from "./HighlightLayer";
-import { buildDrawerItems, decidePosture, nextTask, shouldStampCompleted, taskProgress } from "./tasks";
+import {
+  buildDrawerItems,
+  decidePosture,
+  nextTask,
+  resolveDrawerPosture,
+  shouldStampCompleted,
+  taskProgress,
+  type DrawerItem,
+} from "./tasks";
 import { GETTING_STARTED_POLL_MS, stampOnboarding, useGettingStarted } from "./useGettingStarted";
-import { TourNextTask } from "./TourNextTask";
-import { TourProgress, TourTaskRow, rowState } from "./TourTaskRow";
-import { Kicker } from "@/components/ui";
+import { TourChecklistBody } from "./TourChecklistBody";
+import { TourDrawerHeader } from "./TourDrawerHeader";
+import { TourStepFooter } from "./TourStepFooter";
 
 export { GETTING_STARTED_POLL_MS };
 
@@ -42,6 +68,8 @@ export function TourChecklist({ slug }: { slug: string }) {
   // Optimistic skip: the stamp POST is fire-and-forget, so the posture must fall to `teaching` on the
   // click rather than waiting for the next poll to observe the write.
   const [skipped, setSkipped] = useState(false);
+  const [athenaOn, setAthenaOn] = useState(false);
+  const [athenaMounted, setAthenaMounted] = useState(false);
 
   const { payload, loaded } = useGettingStarted(slug);
 
@@ -57,10 +85,11 @@ export function TourChecklist({ slug }: { slug: string }) {
   }, [slug]);
 
   const isDemoOrg = slug.trim().toLowerCase() === PUBLIC_ORG;
-  const posture = skipped ? "teaching" : decidePosture(payload, { isDemoOrg });
+  const derived = skipped ? "teaching" : decidePosture(payload, { isDemoOrg });
+  const posture = resolveDrawerPosture(derived, athenaOn);
   const items = useMemo(
-    () => buildDrawerItems(payload, { includeTeach: posture === "teaching" }),
-    [payload, posture],
+    () => buildDrawerItems(payload, { includeTeach: derived === "teaching" }),
+    [payload, derived],
   );
   // The engine keys its anchor poll on step IDENTITY, so the array must be stable across renders.
   const tourSteps = useMemo(() => items.map((i) => i.tour), [items]);
@@ -77,9 +106,9 @@ export function TourChecklist({ slug }: { slug: string }) {
   useEffect(() => {
     if (!loaded || !snapshotTaken || restored) return;
     const saved = savedRef.current;
-    setOpen(saved ? saved.open : posture === "companion");
+    setOpen(saved ? saved.open : derived === "companion");
     setRestored(true);
-  }, [loaded, snapshotTaken, restored, posture]);
+  }, [loaded, snapshotTaken, restored, derived]);
 
   useEffect(() => {
     if (restored) patchTourState(slug, { open });
@@ -104,30 +133,47 @@ export function TourChecklist({ slug }: { slug: string }) {
   }, [slug]);
 
   const show = useCallback(
-    (i: number) => {
-      t.goTo(i);
+    (item: DrawerItem) => {
+      t.goTo(items.indexOf(item));
       setSpotlight(true);
     },
-    [t],
+    [t, items],
   );
 
+  // A running spotlight belongs to the setup channel; switching to her must not leave a ring pointing
+  // at a control the drawer is no longer talking about.
+  const setMode = useCallback((athena: boolean) => {
+    setAthenaOn(athena);
+    if (athena) {
+      setAthenaMounted(true);
+      setSpotlight(false);
+    }
+  }, []);
+
   const progress = taskProgress(items);
-  const next = posture === "companion" ? nextTask(items) : null;
+  const next = derived === "companion" ? nextTask(items) : null;
   const active = spotlight ? (items[t.index] ?? null) : null;
-  const tasks = items.filter((i) => i.kind === "task");
-  const teach = items.filter((i) => i.kind === "teach");
-  const companion = posture === "companion";
+  const athena = posture === "athena";
+  // Read, never re-derived: whatever the checklist promoted is what she names. `nextTask` is called
+  // directly rather than reusing `next` so she still has a step to name in the teaching posture, where
+  // the setup channel deliberately promotes nothing.
+  const herNext = useMemo(() => {
+    const step = nextTask(items);
+    return step
+      ? { title: step.title, phaseLabel: step.phaseLabel, href: orgTabHref(slug, step.tour.tab), cta: step.cta }
+      : null;
+  }, [items, slug]);
 
   return (
     <>
       {open && spotlight && <HighlightRing rect={t.rect} />}
 
       {/* `pointer-events-none` on the fixed wrapper, re-enabled on the tab and the panel below. The
-          wrapper is a transparent box as wide as the panel (w-80), pinned to the right edge and
-          vertically centred — and a transparent element still captures clicks. With the panel
-          collapsed it sat, invisibly, over whatever the dashboard put in that band: on the Overview
-          that was the Fleet card's Type/Stack/Level group buttons, which read as dead. The panel is
-          only translated off-screen, so `inert` already handles focus; this handles the mouse. */}
+          wrapper is a transparent box as wide as the panel, pinned to the right edge and vertically
+          centred — and a transparent element still captures clicks. With the panel collapsed it sat,
+          invisibly, over whatever the dashboard put in that band: on the Overview that was the Fleet
+          card's Type/Stack/Level group buttons, which read as dead. The panel is only translated
+          off-screen, so `inert` already handles focus; this handles the mouse. */}
       <div className="pointer-events-none fixed right-0 top-1/2 z-[55] -translate-y-1/2">
         <div
           className={`relative transition-transform duration-300 ease-out motion-reduce:transition-none ${
@@ -147,129 +193,55 @@ export function TourChecklist({ slug }: { slug: string }) {
             <span className="font-mono text-xs uppercase tracking-[0.2em]">Guided setup</span>
           </button>
 
-          {/* Panel — flush to the right edge (left-rounded, no right border). `inert` while collapsed: the
-              panel is only translated off-screen, so without it every control inside stays in the tab order
-              and a keyboard/SR user walks through an invisible drawer. The pull tab sits outside it. */}
-          <div
+          {/* Panel — flush to the right edge (left-rounded, no right border). A COMPLEMENTARY region,
+              never a dialog: it traps no focus and blocks nothing behind it. `inert` while collapsed:
+              the panel is only translated off-screen, so without it every control inside stays in the
+              tab order and a keyboard/SR user walks through an invisible drawer. The pull tab sits
+              outside it. A conversation needs more width than a checklist, so the panel widens in her
+              posture; a table inside still scrolls in its own container rather than the page. */}
+          <aside
             inert={!open}
-            className="pointer-events-auto flex max-h-[80vh] w-80 max-w-[85vw] flex-col rounded-l-2xl border border-r-0 border-divider bg-surface-strong shadow-2xl ring-1 ring-white/5 backdrop-blur-md"
+            aria-label="Guided setup"
+            className={`pointer-events-auto flex flex-col rounded-l-2xl border border-r-0 border-divider bg-surface-strong shadow-2xl ring-1 ring-white/5 backdrop-blur-md transition-[width] duration-300 motion-reduce:transition-none ${
+              athena ? "h-[80vh] w-[28rem] max-w-[92vw]" : "max-h-[80vh] w-80 max-w-[85vw]"
+            }`}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-divider px-4 py-3">
-              <div>
-                <Kicker>{companion ? "Getting started" : "Guided setup"}</Kicker>
-                <h2 className="mt-1 text-base font-semibold text-white">
-                  {companion ? "Set up your dashboard" : "Learn this dashboard"}
-                </h2>
-              </div>
-              <div className="flex items-center gap-2">
-                {progress.total > 0 && (
-                  <span className="font-mono text-xs tabular-nums text-slate-500">
-                    {progress.done}/{progress.total}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  aria-label="Hide guided setup"
-                  className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 text-slate-400 transition hover:border-accent hover:text-white"
-                >
-                  ▸
-                </button>
-              </div>
-            </div>
+            <TourDrawerHeader
+              posture={posture}
+              progress={progress}
+              athenaAvailable={!isDemoOrg}
+              onMode={setMode}
+              onCollapse={() => setOpen(false)}
+            />
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
-              {progress.total > 0 && <TourProgress done={progress.done} total={progress.total} />}
-
-              {next && (
-                <TourNextTask
-                  item={next}
-                  href={orgTabHref(slug, next.tour.tab)}
-                  onShowMe={() => show(items.indexOf(next))}
-                />
-              )}
-
-              {tasks.length > 0 && (
-                <div>
-                  <div className="font-mono text-xs uppercase tracking-widest text-slate-500">Setup</div>
-                  <ul className="mt-2 space-y-1">
-                    {tasks.map((item) => (
-                      <TourTaskRow
-                        key={item.key}
-                        item={item}
-                        state={rowState(item, active?.key === item.key)}
-                        onSelect={() => show(items.indexOf(item))}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {teach.length > 0 && (
-                <div>
-                  <div className="font-mono text-xs uppercase tracking-widest text-slate-500">
-                    Learn the dashboard
-                  </div>
-                  <ul className="mt-2 space-y-1">
-                    {teach.map((item) => (
-                      <TourTaskRow
-                        key={item.key}
-                        item={item}
-                        state={rowState(item, active?.key === item.key)}
-                        onSelect={() => show(items.indexOf(item))}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {loaded && items.length === 0 && (
-                <p className="text-sm leading-relaxed text-slate-400">
-                  Nothing to guide here yet: this workspace has no setup steps to derive.
-                </p>
-              )}
-            </div>
-
-            {(active || companion) && (
-              <div className="border-t border-divider px-4 py-3">
-                {active && (
-                  <>
-                    <p className="text-sm leading-relaxed text-slate-300">{active.tour.body}</p>
-                    {/* An absent anchor degrades to plain navigation — the tab switch already happened,
-                        only the ring is missing. Never a stuck "seeking" state. */}
-                    {t.isSkipped(active.tour.id) && (
-                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                        That control isn&apos;t on screen for this organization yet. You&apos;re on the right
-                        tab; it appears once there&apos;s something for it to act on.
-                      </p>
-                    )}
-                  </>
-                )}
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  {companion ? (
-                    <button
-                      type="button"
-                      onClick={skipSetup}
-                      className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
-                    >
-                      Skip setup
-                    </button>
-                  ) : (
-                    <span />
-                  )}
-                  {active && (
-                    <button
-                      type="button"
-                      onClick={() => setSpotlight(false)}
-                      className="focus-ring rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
-                    >
-                      Got it
-                    </button>
-                  )}
-                </div>
+            {/* Latched, not conditional — see the header note on why she never unmounts. */}
+            {athenaMounted && (
+              <div className={athena ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+                <AthenaPanel slug={slug} next={herNext} degradedHref={orgTabHref(slug, "settings")} />
               </div>
             )}
-          </div>
+
+            {!athena && (
+              <>
+                <TourChecklistBody
+                  slug={slug}
+                  items={items}
+                  next={next}
+                  active={active}
+                  progress={progress}
+                  loaded={loaded}
+                  onShow={show}
+                />
+                <TourStepFooter
+                  active={active}
+                  companion={derived === "companion"}
+                  anchorMissing={Boolean(active && t.isSkipped(active.tour.id))}
+                  onSkip={skipSetup}
+                  onGotIt={() => setSpotlight(false)}
+                />
+              </>
+            )}
+          </aside>
         </div>
       </div>
     </>

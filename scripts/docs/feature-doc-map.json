@@ -271,7 +271,8 @@
       "sourceGlobs": [
         "src/lib/athena/**",
         "src/lib/db/athena*.ts",
-        "src/app/api/athena/**"
+        "src/app/api/athena/**",
+        "src/features/shared/athena/**"
       ]
     },
     {
