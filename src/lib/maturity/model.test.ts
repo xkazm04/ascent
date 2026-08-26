@@ -169,7 +169,10 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // prompt gained the cited-claims contract (scoring/claims.ts facetContract). Re-pinned again the
     // same day, still under r9 (never deployed in between): the `observed` facet's doc gained the
     // "must be a trail OF something" rule after the first live run awarded a trail of nothing.
-    const EXPECTED_RUBRIC_HASH = "44effc1e3e8e2d8f267003c5da0de51b9c4d1f5e7b35c6aca8fb828106bf8221";
+    // Re-pinned 2026-08-26 WITH the r10 bump: the TASK block gained CRAFT ENTRIES (one `kind: "craft"`
+    // roadmap entry per dimension at/above the follow-up floor with no gap) — a changed model input, the
+    // r6 precedent; no weight, band, blend or detector moved.
+    const EXPECTED_RUBRIC_HASH = "ccc5a3d456a1b3ccfd2777a90f1401e02114bd4f5646030439e824fbcdda1e43";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

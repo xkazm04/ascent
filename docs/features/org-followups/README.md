@@ -109,6 +109,24 @@ feedback loop, for fixes a scan can't see.
 | `src/components/org/followups/` | `FollowupsTab` (server; renders `PersonalBacklog` for a personal workspace) · `FollowupsWorklist` · `FollowupsPromptModal` · `FollowupsFilterBar` · `FollowupChips` · `FollowupHistory` · `followupsModel.ts`. |
 | `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. |
 
+## The resolve rule, tightened (2026-08-26)
+
+`decideInProgress` now takes the dimension's score on both scans (`movement`) and treats the
+trailer as a **hint**. The full rule:
+
+| Rescan says | Trailer | Score moved | Decision |
+| --- | --- | --- | --- |
+| still restates the gap | any | any | **keep** (`restated`, or `claimed-but-restated` with a note that the claim was made) |
+| no longer restates it | any | **did not rise** | **keep** (`no-movement`, with the before → after in the note) |
+| no longer restates it | yes | rose, or unknown | done (`trailer`) |
+| no longer restates it | no | rose, or unknown | done (`not-restated`) |
+
+Why: the autopilot's *agent* writes the trailer, so an unconditional close was self-certification;
+and restatement is title-only while titles are not stable across scans, so a reworded gap used to
+read as a resolved one. A kept row that matched nothing on the new scan is copied forward as
+`in_progress` with a same-status event carrying the reason, so the ledger explains itself instead of
+losing the row. `docs/features/org-planning/live.md` has the loop-side view.
+
 ## Known gaps
 
 - **Only the trailer and title-disappearance close a row.** A fix that lands without a trailer and

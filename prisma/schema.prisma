@@ -651,6 +651,10 @@ model Recommendation {
   explore       String    @default("[]") // JSON string[] — invitational questions to explore the gap
   levelUnlock   String?
   status        String    @default("open") // open | in_progress | done | dismissed
+  // r10 (2026-08-26): `gap` is a shortfall below the band — a follow-up the loop may work. `craft` is
+  // what would make an already-strong dimension exemplary: shown on the report, never a follow-up,
+  // never debt, never a loop batch, never auto-closed. The backlog and the loop read `kind: "gap"`.
+  kind          String    @default("gap") // gap | craft
   // Ownership + planning layer that turns a scattered list of gaps into a trackable backlog
   // (the assignee/due-date mechanics behind the org-wide backlog view — see getOrgBacklog).
   // Both carry forward across re-scans (matched by dimId+title) so a re-scan doesn't drop who

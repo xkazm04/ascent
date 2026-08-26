@@ -152,6 +152,18 @@ count, start/stop, live log; polls the job every 4s only while one runs, and ref
 per finished run. Routes: `GET/POST /api/org/local/autopilot` (start/stop owner-gated — same blast
 radius as pairing).
 
+## Drive to green, headless (`/api/org/local/drive`, 2026-08-26)
+
+| | |
+| --- | --- |
+| `POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency? }` | start a drive over the watched, paired repos (or the given ones) — `202 { drive }` |
+| `POST { org, action:"stop", id }` | cooperative stop: the current run finishes its phase, then the drive ends |
+| `GET ?org=<slug>` | every drive for the org with its phase, per-run debt before/after, and the latest measurement |
+
+Same guards as `/api/org/loop`: self-host 404, DB, `PUBLIC_ORG` 403, **owner**, and 409 when
+`ASCENT_AUTOPILOT` is off. A drive stops on `green`, `dry` (a run did not lower the debt) or
+`ceiling`; the policy and its reasoning are in `docs/features/org-planning/live.md`.
+
 ## Known gaps
 
 - The agent model rides `CLAUDE_MODEL` (default `sonnet`); no per-run model picker yet.

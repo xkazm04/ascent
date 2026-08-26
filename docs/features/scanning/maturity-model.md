@@ -384,6 +384,23 @@ Each shortfall is reported as a `DimGap` carrying the distance in points to the 
 repos are both ordered widest-first — a loop with a bounded number of cycles should spend them where
 the distance is.
 
+## 4c. Craft entries — the roadmap above the band (r10, 2026-08-26)
+
+A strong score used to be the end of the conversation: below `FOLLOW_UP_BELOW` (65) every
+dimension is guaranteed a roadmap entry, above it entries were optional, and at L5 `nextLevel` is
+null and the roadmap went quiet. A repo at 90 was told nothing.
+
+The assessment now asks for **one `kind: "craft"` entry per dimension at or above the floor that has
+no gap entry**: what would make the dimension *exemplary* — the practice the strongest teams of its
+kind run that this repository does not yet, or where its current practice would break first under
+more AI-authored change. Same invitational voice; never a gap, never a fault.
+
+Craft entries are deliberately **inert everywhere but the report**: they carry `kind: "craft"` on
+`Recommendation`, the backlog and the loop read `kind: "gap"` only, `buildDimensionFollowUps` does
+not synthesise them, and they never touch a score or the fleet's debt. The score stays a bounded,
+reproducible measure of practice presence; craft is the open-ended half. The corpus comparison
+("the top decile of this archetype does X") is the intended next step and is not built.
+
 ## 5. Calibration & Roadmap (post-MVP)
 - Build a **labeled benchmark set** (~30 repos hand-rated L1–L5) and tune weights/BLEND
   to maximize agreement (target ≥ 80%).
@@ -422,6 +439,7 @@ genuinely display-only change, but the reasoning belongs in the diff.
 | `r4` (2026-08-05) | Two Security (D9) detector corrections in `src/lib/security/checks.ts`: pinned-dependencies no longer counts multi-stage `FROM <alias>` or `FROM scratch` in the denominator, and the broad-write cap matches `contents: write` anywhere in a permissions block. D9 is taken verbatim by the engine. |
 | `r5` (2026-08-14) | The assessment system prompt gained `PROSE_STYLE_RULE` (`src/lib/llm/prose.ts`, interpolated in `src/lib/scoring/prompt.ts`). It constrains punctuation in the model's prose, so no scoring semantics moved — but it is a changed model input, which is the same class as `r3`. The em-dash sweep re-pinned the surface hash without bumping, having accounted for the six display-only strings it rewrote but not for the prompt injection. |
 | `r6` (2026-08-17) | The TASK block now asks for a *markdown-lite* summary (short paragraphs · bullets · bold · code) instead of one paragraph, and for **roadmap coverage** of every dimension below `FOLLOW_UP_BELOW` (65). Neither moves a score, but the roadmap grows from 3-5 entries to up to nine and the prose shape changes, so a cached scan's "next steps" would disagree with a fresh one. Same class as `r3`/`r5`. |
+| `r10` (2026-08-26) | **Craft entries.** The assessment prompt asks for one `kind: "craft"` roadmap entry per dimension at/above the follow-up floor with no gap — what would make it exemplary. No weight, band, blend or detector moved; the bump is for the changed model input (the `r6` precedent). Craft rows never feed a score, a follow-up batch or debt (§4c). |
 | `r9` (2026-08-26) | **D4 scored from verified citations** (`src/lib/scoring/claims.ts`). The detector evidences *facets* (a review that runs, the team's own review judgment, teeth, an observed trail, autofix, dependency automation, agent dispatch) instead of summing vendor-name hits; a config file must be non-empty to count and a product name counts only on a `uses:`/`run:` line. The model adds a facet only by citing a sampled path and a verbatim quote the engine verifies; its D4 score field no longer moves the number and D4 has no guardband blend. A vendor-config-only repo drops (config 35 + "LLM in CI" 25 used to stack; now one facet, 25) and cannot reach L5 without teeth and a trail; a bespoke review step the old regex could not name rises. The r7 platform folds survive as instances of `automated_review` / `observed`. Anonymous and token scans both move; `r8` D4 scores are not comparable. [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md). |
 | `r8` (2026-08-20) | **`LLM_GUARDBAND` narrowed 25 → 6.** The band was as wide as a maturity level, so an LLM judgment at its edge could move a repository's published level with no deterministic support — and two levels on a dimension whose band a `discrepancies` claim doubled. 6 keeps the nuance the model actually uses (the control-arm study measured ≤24% of the old band) while making a level jump impossible. Every blended dimension can differ from its `r7` value by up to ±15 points, so `r7` scores are not comparable with `r8` ones. Not a claim that `r7` scores were wrong under `r7`. |
 | `r7` (2026-08-17) | The **deepening pass**: token-gated, additive platform credits entered the detector point tables. The installed-App inventory read from the scored commit's check suites (`src/lib/github/check-suites.ts`) folds into D4 (+25 AI review/agent App), D3 (+35 non-Actions CI, +10 deploy platform), D2 (+8 coverage reporter) and the D9 battery (SAST 10 for a code-scanning App, dependency-updates 6 for a supply-chain App); default-branch Actions health (`src/lib/github/actions-health.ts`) folds into D3 (+8 / +4); the already-computed `aiPreReviewedRate` folds into D4 (≤20). Anonymous scans are byte-identical to `r6`; a token scan of the same commit can move up, so cached `r6` scores are not comparable with fresh ones. |

@@ -226,6 +226,9 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         rationale: typeof r.rationale === "string" ? cap(r.rationale.trim()) : "",
         explore: asStringArray(r.explore, 3),
         levelUnlock: validLevelUnlock(r.levelUnlock),
+        // Only the non-default kind is carried; an absent kind IS "gap", so pre-r10 rows and
+        // fixtures are unchanged.
+        ...(r.kind === "craft" ? { kind: "craft" as const } : {}),
       });
     }
   }

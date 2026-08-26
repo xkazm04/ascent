@@ -231,6 +231,20 @@ in that precedence) for an honest "served live from …" UI indicator.
 | `src/lib/db/scans-read.ts` / `scans-recommendations.ts` / `scans-audit.ts` / `scans-shared.ts` | History/comparison reads, recommendation patching, audit log, shared row↔report mapping. |
 | `src/lib/db/{org,plan,usage,retention,installations,org-memory,org-skills}.ts` | Feature-specific queries (linked from their docs). |
 
+## `Recommendation.kind` (r10, 2026-08-26)
+
+`kind TEXT NOT NULL DEFAULT 'gap'` — `gap` is a shortfall below the band (a follow-up the loop may
+work); `craft` is what would make an already-strong dimension exemplary. Craft rows are shown on the
+report roadmap and **nowhere else**: the backlog (`getOrgBacklog`) and the loop's batch read
+`kind: "gap"`, so a craft entry is never debt, never a batch, never auto-closed. Additive with a
+default, so every pre-r10 row is a `gap`. Migration `20260826120000_add_recommendation_kind`;
+`init.sql` mirrored; PGlite picks it up on boot via the defaulted-column reconcile.
+
+`persistScanReport` also now reads the previous scan's `dimensions` alongside its recommendations:
+the per-dimension score movement is the independent witness for an in-progress row's fate (see
+`docs/features/org-followups/README.md`). Kept rows that matched nothing on the new scan are copied
+forward as `in_progress` with a same-status `RecommendationEvent` carrying the reason.
+
 ## Known gaps
 
 - **No FK cascades** (`relationMode = "prisma"`): children must be deleted before parents

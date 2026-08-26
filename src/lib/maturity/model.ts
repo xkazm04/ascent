@@ -90,7 +90,11 @@ import type {
 // (config 35 + "LLM in CI" 25) now evidence one facet worth 25, so a vendor-config-only repo drops;
 // a bespoke review step the old regex could not name rises. Anonymous and token scans both move.
 // Not comparable with r8, which is what this token is for. docs/SCORING-VALIDITY.md has the case.
-export const SCORING_RUBRIC_VERSION = "r9";
+// r10 (2026-08-26): the assessment prompt gained CRAFT ENTRIES — one `kind: "craft"` roadmap entry
+// per dimension at/above the follow-up floor with no gap, so a strong score still gets told what
+// would make it exemplary. No weight, band, blend or detector moved; the bump is for the changed
+// model input (the r6 precedent). Craft entries never feed a score, a follow-up batch or debt.
+export const SCORING_RUBRIC_VERSION = "r10";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

@@ -866,6 +866,7 @@ async function loadLatestRecommendations(
           rationale: true,
           explore: true,
           levelUnlock: true,
+          kind: true,
           status: true,
           assigneeLogin: true,
           targetDate: true,
@@ -1015,6 +1016,7 @@ async function loadScanReportByCommit(
     rationale: r.rationale,
     explore: parseStringArray(r.explore),
     levelUnlock: r.levelUnlock ?? undefined,
+    ...(r.kind === "craft" ? { kind: "craft" as const } : {}),
   }));
 
   // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them

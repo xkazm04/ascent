@@ -8,7 +8,7 @@ import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
-import { decideInProgress, isRestated, resolutionNote } from "@/lib/org/followups";
+import { decideInProgress, isRestated, keepNote, resolutionNote } from "@/lib/org/followups";
 import {
   canonicalRepoFullName,
   DEFAULT_ORG_SLUG,
@@ -282,9 +282,22 @@ export async function persistScanReport(
       // ARBITRARY row on a tie — carrying tracked status/assignee from a non-canonical predecessor.
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
-      select: { recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true } } },
+      select: {
+        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true, kind: true } },
+        // The previous scan's dimension scores — the independent witness for an in-progress row's
+        // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
+        // rephrasing, not repair.
+        dimensions: { select: { dimId: true, score: true } },
+      },
     });
     const prevRecs = previous?.recommendations ?? [];
+    const prevDimScore = new Map<string, number>((previous?.dimensions ?? []).map((d) => [d.dimId, d.score]));
+    const nextDimScore = new Map<string, number>(report.dimensions.map((d) => [d.id, d.score]));
+    const movementOf = (dimId: string) => {
+      const before = prevDimScore.get(dimId);
+      const after = nextDimScore.get(dimId);
+      return before == null || after == null ? null : { before, after };
+    };
     const carryMatch = matchRecommendations(
       prevRecs.map((r) => ({ dim: r.dimId, title: r.title })),
       report.roadmap.map((r) => ({ dim: r.dimension, title: r.title })),
@@ -302,18 +315,29 @@ export async function persistScanReport(
     // claimed row is carried by its title or not at all.
     const nextIds = report.roadmap.map((r) => ({ dim: r.dimension, title: r.title }));
     const resolvedIds = new Set(report.resolvedFollowUpIds ?? []);
+    const scanRef = headSha ? headSha.slice(0, 12) : "latest";
     const resolvedRows: { row: (typeof prevRecs)[number]; note: string }[] = [];
+    // Rows a rescan KEPT open for a reason the ledger should state. `paired` ones ride the normal
+    // carry-forward (a restated title matched a new row) and get their note attached to that row;
+    // unpaired ones (not restated, but the dimension did not move) would otherwise vanish — nothing
+    // matched them and they are not done — so they are copied forward as in_progress explicitly.
+    const keptRows: { row: (typeof prevRecs)[number]; note: string; paired: boolean }[] = [];
     prevRecs.forEach((r, i) => {
       if (r.status !== "in_progress") return;
       const restated = isRestated({ dim: r.dimId, title: r.title }, nextIds);
-      const decision = decideInProgress({ id: r.id }, restated, resolvedIds);
+      const movement = movementOf(r.dimId);
+      const decision = decideInProgress({ id: r.id }, restated, resolvedIds, movement);
       if (decision.kind === "done") {
-        resolvedRows.push({ row: r, note: resolutionNote(decision, headSha ? headSha.slice(0, 12) : "latest") });
+        resolvedRows.push({ row: r, note: resolutionNote(decision, scanRef) });
         // Un-pair any next item carry-forward matched to this row: it is not the same gap.
         carryMatch.forEach((m, j) => {
           if (m === i) carryMatch[j] = null;
         });
+      } else if (decision.reason === "no-movement") {
+        keptRows.push({ row: r, note: keepNote(decision, scanRef, movement), paired: false });
       } else {
+        const note = keepNote(decision, scanRef, movement);
+        if (note) keptRows.push({ row: r, note, paired: true });
         // Restated (kept): keep the pairing ONLY if it is a title-tier match. matchRecommendations does
         // not report the tier, so re-check the specific pair — a tier-3 pairing joins titles that
         // isRestated rejects.
@@ -424,6 +448,7 @@ export async function persistScanReport(
                   rationale: r.rationale,
                   explore: JSON.stringify(r.explore ?? []),
                   levelUnlock: r.levelUnlock ?? null,
+                  kind: r.kind ?? "gap",
                   status: carried?.status ?? "open",
                   assigneeLogin: carried?.assigneeLogin ?? null,
                   targetDate: carried?.targetDate ?? null,
@@ -449,6 +474,7 @@ export async function persistScanReport(
               rationale: row.rationale,
               explore: row.explore,
               levelUnlock: row.levelUnlock,
+              kind: row.kind,
               status: "done",
               assigneeLogin: row.assigneeLogin,
               targetDate: row.targetDate,
@@ -457,6 +483,40 @@ export async function persistScanReport(
           });
           await tx.recommendationEvent.create({
             data: { recommendationId: done.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "done", note },
+          });
+        }
+
+        // Rows the rescan kept open for a stated reason. An unpaired keep (not restated, but its
+        // dimension did not move) is copied forward as in_progress — it is nobody's "done" and it
+        // matched nothing, so without this it would silently drop out of the ledger. A paired keep
+        // (claimed by trailer, still restated) already rode carry-forward; its note attaches to the
+        // new row the carry produced. Same-status events are the ledger saying WHY, not a transition.
+        for (const { row, note, paired } of keptRows) {
+          const target = paired
+            ? await tx.recommendation.findFirst({
+                where: { scanId: scan.id, dimId: row.dimId, title: row.title },
+                select: { id: true },
+              })
+            : await tx.recommendation.create({
+                data: {
+                  scanId: scan.id,
+                  title: row.title,
+                  dimId: row.dimId,
+                  impact: row.impact,
+                  effort: row.effort,
+                  rationale: row.rationale,
+                  explore: row.explore,
+                  levelUnlock: row.levelUnlock,
+                  kind: row.kind,
+                  status: "in_progress",
+                  assigneeLogin: row.assigneeLogin,
+                  targetDate: row.targetDate,
+                },
+                select: { id: true },
+              });
+          if (!target) continue;
+          await tx.recommendationEvent.create({
+            data: { recommendationId: target.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "in_progress", note },
           });
         }
 

@@ -305,6 +305,7 @@ CREATE TABLE "Recommendation" (
     "explore" TEXT NOT NULL DEFAULT '[]',
     "levelUnlock" TEXT,
     "status" TEXT NOT NULL DEFAULT 'open',
+    "kind" TEXT NOT NULL DEFAULT 'gap',
     "assigneeLogin" TEXT,
     "targetDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

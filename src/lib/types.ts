@@ -580,6 +580,9 @@ export interface LlmRoadmapItem {
   explore?: string[];
   /** e.g. "L3->L4" — the level transition this unlocks. */
   levelUnlock?: string;
+  /** `gap` (default): a shortfall below the band — a follow-up the loop may work. `craft`: what would
+   *  make an already-strong dimension exemplary; never a follow-up, never debt, never auto-closed. */
+  kind?: "gap" | "craft";
 }
 
 /** The LLM acting as auditor: a signal it believes the deterministic detector got wrong. */

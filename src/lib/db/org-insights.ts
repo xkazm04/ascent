@@ -271,7 +271,9 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
           archetype: true,
           dimensions: { select: { dimId: true, score: true } },
           recommendations: {
-            where: { status: { in: ["open", "in_progress"] } },
+            // `kind: "gap"` only: a craft entry (what would make a strong dimension exemplary) is not
+            // a follow-up the team owes and must never become debt or a loop batch (r10).
+            where: { status: { in: ["open", "in_progress"] }, kind: "gap" },
             // rationale + explore carry the companion voice (why the gap matters + questions to explore)
             // onto the org surface — same rows already read, so no extra query.
             select: { title: true, dimId: true, impact: true, rationale: true, explore: true },

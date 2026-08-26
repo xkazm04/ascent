@@ -62,17 +62,56 @@ export function parseResolvedIds(messages: readonly string[]): Set<string> {
 export type InProgressDecision =
   | { kind: "done"; reason: "trailer"; sha?: string }
   | { kind: "done"; reason: "not-restated" }
-  | { kind: "keep" };
+  | { kind: "keep"; reason: "restated" | "claimed-but-restated" | "no-movement" };
+
+/** The row's dimension score on the previous scan and on this one — the independent witness. */
+export interface DimMovement {
+  before: number;
+  after: number;
+}
 
 /**
  * Decide the fate of ONE in-progress row from the previous scan. Pure.
  * - `restated`: the new scan restated it (a tier-1/2 title match).
  * - `resolvedIds`: ids named by trailers in the new scan's commit sample.
+ * - `movement`: the dimension's score before and after, when both scans measured it.
+ *
+ * THE TRAILER IS A HINT, NOT A VERDICT (2026-08-26). It used to close a row unconditionally, and in
+ * the autopilot loop the AGENT writes the trailer — the loop was certifying its own homework. Now a
+ * trailer is an honoured claim only when the rescan agrees: a row that is still restated stays open
+ * however many trailers name it, and the note says the claim was made.
+ *
+ * "NOT RESTATED" IS WEAK ON ITS OWN. Restatement is title-only, and titles are not stable across
+ * scans — a model that merely REWORDS a gap produces exactly the "not restated" signal a resolved gap
+ * does. So when the dimension's score is known on both sides it has to have MOVED; a gap that
+ * vanished from the roadmap while its number stood still is far more likely rephrasing than repair.
+ * Unknown movement (a first scan, a dimension dropped on either side) falls back to the title rule
+ * rather than inventing a measurement.
  */
-export function decideInProgress(row: { id: string }, restated: boolean, resolvedIds: ReadonlySet<string>): InProgressDecision {
-  if (resolvedIds.has(row.id)) return { kind: "done", reason: "trailer" };
-  if (!restated) return { kind: "done", reason: "not-restated" };
-  return { kind: "keep" };
+export function decideInProgress(
+  row: { id: string },
+  restated: boolean,
+  resolvedIds: ReadonlySet<string>,
+  movement?: DimMovement | null,
+): InProgressDecision {
+  const claimed = resolvedIds.has(row.id);
+  if (restated) return { kind: "keep", reason: claimed ? "claimed-but-restated" : "restated" };
+  if (movement && movement.after <= movement.before) return { kind: "keep", reason: "no-movement" };
+  return claimed ? { kind: "done", reason: "trailer" } : { kind: "done", reason: "not-restated" };
+}
+
+/** The event note for a row a rescan KEPT open despite a signal that it might be done, so the ledger
+ *  explains why a claim did not close it. Empty for a plain restatement (nothing to explain). */
+export function keepNote(d: InProgressDecision, scanRef: string, movement?: DimMovement | null): string {
+  if (d.kind !== "keep") return "";
+  if (d.reason === "claimed-but-restated") {
+    return `Claimed resolved by commit trailer (${FOLLOWUP_TRAILER}), but scan ${scanRef} still raises it — kept in progress`;
+  }
+  if (d.reason === "no-movement") {
+    const m = movement ? ` (${movement.before} → ${movement.after})` : "";
+    return `No longer raised by scan ${scanRef}, but the dimension did not move${m} — kept in progress until a rescan measures a change`;
+  }
+  return "";
 }
 
 /**

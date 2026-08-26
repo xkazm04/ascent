@@ -64,6 +64,7 @@ export const ASSESSMENT_JSON_SCHEMA = {
           rationale: { type: "string" },
           explore: { ...stringArray, description: "2-3 invitational questions." },
           levelUnlock: { type: "string" },
+          kind: { type: "string", enum: ["gap", "craft"], description: "gap (default) or craft (for a dimension already at/above the band)." },
         },
         required: ["title", "dimension", "impact", "effort", "rationale"],
       },

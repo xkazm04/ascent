@@ -370,6 +370,51 @@ failure isolation, per-lane early stop, bounded parallelism, stop, the gates),
 `autopilot.equivalence.test.ts` (the shim's shipped job contract and branch prefix),
 `scan-stage.test.ts` + `route.stages.test.ts` (the sub-stage contract).
 
+## The loop verifies; the agent proposes (2026-08-26)
+
+Three changes made the loop safe to leave alone, all in service of one rule: **the agent's word
+never decides continuation or closure.**
+
+- **The trailer is a hint, not a verdict** (`src/lib/org/followups.ts` `decideInProgress`). In the
+  loop the *agent* writes `Ascent-Resolves:`, so an unconditional close was the loop certifying its
+  own homework. A trailer now closes a row only when the rescan agrees — a row still restated stays
+  open with the note *"claimed resolved by commit trailer, but scan … still raises it"*.
+- **"Not restated" needs movement.** Restatement is title-only and titles are not stable across
+  scans, so a merely *reworded* gap produced the same signal a fixed one did. When the dimension's
+  score is known on both scans it must have **risen**; a gap that vanished while its number stood
+  still is kept open — *"no longer raised by scan …, but the dimension did not move (61 → 61)"*. An
+  unpaired keep is copied forward as `in_progress` explicitly so it cannot silently drop out of the
+  ledger. Unknown movement (first scan, dropped dimension) falls back to the title rule rather than
+  inventing a measurement.
+- **The batch is picked by practice gap, not by projected points** (`loop-lane.ts` `openBatch`):
+  impact first, points as the tiebreak. A loop that chases the biggest number chases whatever the
+  detector prices highest — the shortest path to the score, not to the practice.
+- **The agent's brief says what counts** (`loop-lane.ts`): understand the codebase, then implement
+  the change that most raises the level of trust; *do the work, never the detector* — a config for a
+  tool the project does not use, a stub file, or a tool's name in a workflow comment is not a fix
+  and the rescan scores practices that operate; and in each commit body, state how a reviewer would
+  tell the practice is real (what runs, when, what happens on failure).
+
+## Drive to green (`src/lib/local/drive.ts`, `POST /api/org/local/drive`)
+
+One run is at most `LOOP_MAX_CYCLES_CAP` cycles by design — the right shape for a session of work
+and the wrong shape for a *target*. A **drive** is a sequence of runs, each re-measured against the
+fleet's own green predicate (`src/lib/maturity/green.ts`) from the rescans the lanes persisted, with
+three honest ways to stop and no fourth:
+
+| Phase | Means |
+| --- | --- |
+| `green` | every repo in scope cleared the band |
+| `dry` | a whole run did not lower the debt — re-asking a stalled agent will not un-stall it, and the ceiling is not spent proving that again |
+| `ceiling` | the operator's rope (`maxRuns`, default 3, cap `DRIVE_MAX_RUNS_CAP` = 8) ran out |
+
+The measurement is the verifier: a run's own `progressed` flag never earns another run. The policy
+is the pure `nextDriveStep` (tested in isolation); `startDrive` is single-flight per org and defaults
+its scope to every watched, paired repo. `GET ?org=` lists drives with their latest measurement and
+per-run debt before/after. Process-local like the engine's `live` registry: every run it starts is a
+durable `LoopRun`, so what happened survives a restart; a restart ends the drive rather than resuming
+into a state it cannot verify.
+
 ## Known gaps
 
 - **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns

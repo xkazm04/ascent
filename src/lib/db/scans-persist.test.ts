@@ -90,6 +90,8 @@ type PrevRec = {
  */
 function fakePrisma(opts: {
   previousRecs?: PrevRec[] | null;
+  /** The previous scan's dimension scores — the movement witness for an in-progress row (2026-08-26). */
+  previousDims?: { dimId: string; score: number }[];
   /** Make the in-tx scan.create throw this on its first call (cross-instance P2002 race). */
   scanCreateThrows?: unknown;
 } = {}) {
@@ -123,6 +125,9 @@ function fakePrisma(opts: {
         createdResolved.push(data);
         return { id: `rec_done_${createdResolved.length}` };
       }),
+      // A paired keep (claimed by trailer, still restated) attaches its note to the row carry-forward
+      // produced inside the nested scan.create; the path looks that row up by (scanId, dimId, title).
+      findFirst: vi.fn(async () => ({ id: "rec_carried" })),
     },
     scanDimension: { deleteMany: vi.fn(async () => ({})) },
     repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
@@ -140,7 +145,7 @@ function fakePrisma(opts: {
     scan: {
       findFirst: vi.fn(async () => {
         const recs = opts.previousRecs;
-        return recs ? { recommendations: recs } : null;
+        return recs ? { recommendations: recs, dimensions: opts.previousDims ?? [] } : null;
       }),
     },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -157,6 +162,8 @@ function makeReport(over: {
   engineProvider?: string;
   /** Follow-up ids the commit sample declared resolved (Ascent-Resolves trailers). */
   resolvedFollowUpIds?: string[];
+  /** Dimension scores on THIS scan — the after-side of the movement witness (2026-08-26). */
+  dimensions?: ScanReport["dimensions"];
 } = {}): ScanReport {
   const roadmap = (over.roadmap ?? [{ dimension: "D1", title: "Add CI smoke tests" }]).map((r) => ({
     dimension: r.dimension,
@@ -189,7 +196,7 @@ function makeReport(over: {
     strengths: [],
     risks: [],
     discrepancies: [],
-    dimensions: [],
+    dimensions: over.dimensions ?? [],
     contributors: [],
     roadmap,
     ...(over.resolvedFollowUpIds ? { resolvedFollowUpIds: over.resolvedFollowUpIds } : {}),
@@ -995,8 +1002,10 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     expect(String(createdEvents[0]!.note)).toContain("no longer raised");
   });
 
-  it("TRAILER → done even though the scan restates the gap, with a trailer event", async () => {
-    const { prisma, createdScans, createdResolved, createdEvents } = fakePrisma({ previousRecs: [prevInProgress()] });
+  // 2026-08-26: the trailer is a HINT, not a verdict (followups.ts decideInProgress). In the loop the
+  // AGENT writes it, so "trailer wins over the rescan" was the loop grading its own homework.
+  it("TRAILER while the scan still restates the gap → KEPT in progress, with a claimed-but-restated event", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents, tx } = fakePrisma({ previousRecs: [prevInProgress()] });
     mockGetPrisma.mockReturnValue(prisma);
     mockFindScanByCommit.mockResolvedValue(null);
 
@@ -1005,9 +1014,55 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     );
 
     const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
-    // The restated item is a fresh open row — the trailer says the CLAIM is resolved, and if the
-    // scan still raises the gap that is a new finding, not the old claim.
-    expect(recs[0]).toMatchObject({ status: "open" });
+    // The restated item rides carry-forward as the SAME claim, still in progress — nothing resolved.
+    expect(recs[0]).toMatchObject({ status: "in_progress", assigneeLogin: "octocat" });
+    expect(createdResolved).toHaveLength(0);
+    // …and the ledger says why the claim did not close it, on the carried row.
+    expect(tx.recommendation.findFirst).toHaveBeenCalledTimes(1);
+    expect(createdEvents[0]).toMatchObject({ recommendationId: "rec_carried", fromValue: "in_progress", toValue: "in_progress" });
+    expect(String(createdEvents[0]!.note)).toMatch(/Claimed resolved by commit trailer.*still raises it/);
+  });
+
+  it("TRAILER and NOT restated, but the dimension did not move → KEPT and copied forward with the reason", async () => {
+    // A gap that vanished from the roadmap while its number stood still is rephrasing, not repair.
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [prevInProgress()],
+      previousDims: [{ dimId: "D2", score: 61 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v3b",
+        roadmap: [{ dimension: "D2", title: "Tests exist but nothing gates a merge on them" }],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 61, signalScore: 61, llmScore: 61, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    expect(createdResolved).toHaveLength(1);
+    expect(createdResolved[0]).toMatchObject({ status: "in_progress", title: "No coverage threshold fails a run", assigneeLogin: "octocat" });
+    expect(String(createdEvents[0]!.note)).toMatch(/did not move \(61 → 61\)/);
+  });
+
+  it("TRAILER and NOT restated, and the dimension ROSE → done with a trailer event", async () => {
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [prevInProgress()],
+      previousDims: [{ dimId: "D2", score: 61 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v3c",
+        roadmap: [],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 70, signalScore: 70, llmScore: 70, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
     expect(createdResolved[0]).toMatchObject({ status: "done" });
     expect(String(createdEvents[0]!.note)).toContain("Ascent-Resolves");
   });

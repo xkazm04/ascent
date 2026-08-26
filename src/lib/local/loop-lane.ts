@@ -71,10 +71,15 @@ const firstLine = (s: string): string => s.split("\n").find((l) => l.trim())?.sl
 export async function openBatch(org: string, repo: string, limit: number = BATCH_SIZE): Promise<FollowUpItem[]> {
   const backlog = await getOrgBacklog(org, null, new Date(), null);
   if (!backlog) return [];
+  // Ordered by the PRACTICE gap the assessment rated highest, then by projected points as the
+  // tiebreak — not by points first. A loop that chases the biggest number chases whatever the
+  // detector prices highest, which is the shortest path to the score rather than to the practice
+  // (docs/SCORING-VALIDITY.md); impact is the model's judgment of what matters.
+  const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
   return backlog.byOwner
     .flatMap((g) => g.items)
     .filter((it) => it.repo === repo && it.status === "open")
-    .sort((a, b) => (b.projectedPoints ?? 0) - (a.projectedPoints ?? 0))
+    .sort((a, b) => (rank[a.impact] ?? 1) - (rank[b.impact] ?? 1) || (b.projectedPoints ?? 0) - (a.projectedPoints ?? 0))
     .slice(0, Math.max(1, limit))
     .map((it) => ({
       id: it.id,
@@ -172,7 +177,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
     const prompt =
       buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle" }) +
-      `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\` — commit directly to it, one commit per resolved item, each carrying its trailer.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n`;
+      `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\` — commit directly to it, one commit per resolved item, each carrying its trailer.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- In each commit body, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is not resolved.\n`;
     const result = await deps.runAgent({ cwd: worktree.dir, prompt });
     await appendLaneLog(laneId, result.ok ? `Agent finished: ${firstLine(result.summary)}` : `Agent failed: ${firstLine(result.summary)}`);
 

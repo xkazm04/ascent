@@ -2,7 +2,7 @@
 // in-progress rows, and the prompt builder's shape.
 
 import { describe, it, expect } from "vitest";
-import { FOLLOWUP_TRAILER, buildFixPrompt, decideInProgress, isRestated, parseResolvedIds, resolutionNote, type FollowUpItem } from "./followups";
+import { FOLLOWUP_TRAILER, buildFixPrompt, decideInProgress, isRestated, keepNote, parseResolvedIds, resolutionNote, type FollowUpItem } from "./followups";
 
 const item = (over: Partial<FollowUpItem> = {}): FollowUpItem => ({
   id: "rec-1",
@@ -35,11 +35,38 @@ describe("parseResolvedIds", () => {
 
 describe("decideInProgress — the resolve rule", () => {
   it("a trailer wins even when the scan still restates the gap", () => {
-    expect(decideInProgress({ id: "a" }, true, new Set(["a"]))).toEqual({ kind: "done", reason: "trailer" });
+    // 2026-08-26: a trailer no longer beats a restatement — see the "hint, not a verdict" cases below.
+    expect(decideInProgress({ id: "a" }, false, new Set(["a"]))).toEqual({ kind: "done", reason: "trailer" });
   });
   it("not restated → done; restated without a trailer → keep", () => {
     expect(decideInProgress({ id: "a" }, false, new Set())).toEqual({ kind: "done", reason: "not-restated" });
-    expect(decideInProgress({ id: "a" }, true, new Set())).toEqual({ kind: "keep" });
+    expect(decideInProgress({ id: "a" }, true, new Set())).toEqual({ kind: "keep", reason: "restated" });
+  });
+
+  // 2026-08-26: the trailer is a HINT, not a verdict, and "not restated" needs the dimension to have
+  // moved when movement is measurable — the loop's agent writes the trailer, and a reworded gap
+  // produces the same "not restated" signal a fixed one does.
+  it("keeps a row the agent claimed when the rescan still restates it, and says so", () => {
+    const d = decideInProgress({ id: "a" }, true, new Set(["a"]));
+    expect(d).toEqual({ kind: "keep", reason: "claimed-but-restated" });
+    expect(keepNote(d, "abc123")).toMatch(/Claimed resolved by commit trailer.*still raises it/);
+  });
+
+  it("keeps a not-restated row whose dimension did not move — rephrasing is not repair", () => {
+    const d = decideInProgress({ id: "a" }, false, new Set(["a"]), { before: 61, after: 61 });
+    expect(d).toEqual({ kind: "keep", reason: "no-movement" });
+    expect(keepNote(d, "abc123", { before: 61, after: 61 })).toMatch(/did not move \(61 → 61\)/);
+    expect(decideInProgress({ id: "a" }, false, new Set(), { before: 61, after: 58 })).toEqual({ kind: "keep", reason: "no-movement" });
+  });
+
+  it("closes a not-restated row when the dimension moved — trailer or not", () => {
+    expect(decideInProgress({ id: "a" }, false, new Set(["a"]), { before: 61, after: 70 })).toEqual({ kind: "done", reason: "trailer" });
+    expect(decideInProgress({ id: "a" }, false, new Set(), { before: 61, after: 62 })).toEqual({ kind: "done", reason: "not-restated" });
+  });
+
+  it("falls back to the title rule when movement is unknown rather than inventing a measurement", () => {
+    expect(decideInProgress({ id: "a" }, false, new Set(), null)).toEqual({ kind: "done", reason: "not-restated" });
+    expect(keepNote({ kind: "keep", reason: "restated" }, "x")).toBe("");
   });
 });
 
