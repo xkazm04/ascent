@@ -130,7 +130,23 @@ document's concern: a `CLAUDE.md` stub moves it enormously.
 locally is therefore optimizing a different, blinder function than the cloud scan a customer sees**,
 and some dimensions may be unreachable locally for reasons that have nothing to do with the repo.
 
-**3e. Dirty-tree scans have no commit identity.** kp scanned `dirty: true` → sha-less. The loop's
+**3e. `scoreIntegrity` is computed and then thrown away.** The guardband's own rationale rests on a
+feedback loop — *"a clamp that binds is information (it shows up in `scoreIntegrity`), and the remedy
+for a detector the model keeps out-arguing is to fix the detector"* (`model.ts:108-111`). But
+`scoreIntegrity` is returned on the report and **never persisted**: no column on `Scan`, no write in
+`scans-persist.ts`. So the question that remedy depends on — *how often does the clamp bind, and on
+which detectors?* — cannot be answered from the database at all. The evidence exists for the length
+of one HTTP response.
+
+`ScanDimension` does persist `signalScore` and `llmScore`, so *whether a clamp bound* is
+recoverable per dimension (that is what `isContested` in `green.ts` does). What is not recoverable
+is **`widenedDims`** — which dimensions had their band doubled — so a reconstruction must assume the
+base band and will over-report contest on a widened dimension. For a loop that treats contested as
+not-green, that error is in the safe direction: it keeps working on a dimension it could have called
+done, and never lets a gamed one through. It is still a reconstruction, and persisting
+`scoreIntegrity` would make it a reading.
+
+**3f. Dirty-tree scans have no commit identity.** kp scanned `dirty: true` → sha-less. The loop's
 before/after comparison rests on scans that cannot be pinned to a commit, so "the agent improved
 D4 by 12" is not reproducible from the record.
 
@@ -146,6 +162,11 @@ forbids that answer, correctly.
    allows"* is the single highest-value sentence in the product, and it is currently invisible.
    For the loop: **a dimension whose clamp bound during a drive-to-green cycle should be treated as
    not-green regardless of its number.**
+   **Implemented 2026-08-26** as `isContested` in `src/lib/maturity/green.ts`, reconstructed from the
+   persisted `signalScore`/`llmScore` pair. Verified against the exploit in §2: adding an empty
+   `.coderabbit.yaml` moves kp's D4 signal 25 → 60 while the model still reads 30, so the score rises
+   to 56 and the dimension is flagged contested — it cannot reach green by that route. Today's honest
+   scan (signal 25, model 30) is uncontested, so the guard is not simply firing on everything.
 2. **Add content checks to the cheapest-to-fake, highest-value detectors.** A `.coderabbit.yaml`
    scoring 35 should at minimum be non-empty and parse. The workflow-text matches should require a
    `uses:`/`run:` context rather than a bare substring anywhere in the YAML.

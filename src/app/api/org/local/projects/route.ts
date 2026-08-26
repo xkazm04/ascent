@@ -91,7 +91,7 @@ export async function GET(request: Request) {
   // has moved since the standing was measured. `dims` for every repo is already in the rollup, so
   // this costs one query, not nine per repo (which is what /api/org/repo-dimension would have been).
   const rollup = await getOrgRollup(g.org.slug);
-  const dimsByRepo = new Map<string, { dimId: string; score: number }[]>();
+  const dimsByRepo = new Map<string, { dimId: string; score: number; signalScore?: number; llmScore?: number }[]>();
   for (const r of rollup?.repos ?? []) if (r.latest) dimsByRepo.set(r.fullName, r.latest.dims);
 
   // Scope is what is WATCHED. An unwatched row still appears in `projects` (it keeps its history and

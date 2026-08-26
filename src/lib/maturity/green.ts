@@ -14,7 +14,7 @@
 // A repo with no dimensions is deliberately NOT green (see `repoGreenness`): an unscanned repo and a
 // perfect one must never be indistinguishable, and "no evidence" is the reading a loop can act on.
 
-import { LEVEL_BY_ID, levelForScore } from "@/lib/maturity/model";
+import { LEVEL_BY_ID, LLM_GUARDBAND, levelForScore } from "@/lib/maturity/model";
 import type { LevelId } from "@/lib/types";
 
 /** The band a dimension must reach. The top of the ladder, by definition of "green". */
@@ -26,6 +26,36 @@ export const GREEN_MIN_SCORE: number = LEVEL_BY_ID[GREEN_LEVEL].band[0];
 export interface DimScore {
   dimId: string;
   score: number;
+  /** The deterministic detector's score. Optional: older reads project only `score`. */
+  signalScore?: number;
+  /** The model's score BEFORE the guardband clamped it. Optional, as above. */
+  llmScore?: number;
+  /** True when this dimension's band was doubled because the model flagged the detector as suspect
+   *  (`scoreIntegrity.widenedDims`). Changes the threshold a disagreement has to clear to count. */
+  widened?: boolean;
+}
+
+/**
+ * CONTESTED — the model disagreed with the detector by more than it was allowed to act on.
+ *
+ * The engine clamps the LLM to within ±LLM_GUARDBAND of the deterministic signal (±2× for a flagged
+ * dimension), so the final score sits within ~±4 points of the detector no matter how strongly the
+ * model objected. When `|llmScore - signalScore|` exceeds the band, the clamp BOUND: the model
+ * wanted to move the number further than the architecture permits, and the score you are reading is
+ * the detector's opinion, not the reconciled one.
+ *
+ * That is normally a footnote. For a loop driving a number to a target it is the whole ballgame,
+ * because the cheapest way to raise a detector score is to satisfy the detector rather than do the
+ * work — and the model noticing exactly that is what a bound clamp looks like from the outside.
+ * See docs/SCORING-VALIDITY.md.
+ *
+ * Unknowable without both scores, and an absent answer is reported as NOT contested rather than
+ * guessed: a read that projects only `score` must not manufacture suspicion it has no evidence for.
+ */
+export function isContested(d: DimScore): boolean {
+  if (typeof d.signalScore !== "number" || typeof d.llmScore !== "number") return false;
+  const band = d.widened ? LLM_GUARDBAND * 2 : LLM_GUARDBAND;
+  return Math.abs(d.llmScore - d.signalScore) > band;
 }
 
 /** One dimension that has not cleared the band yet, with the distance still to cover. */
@@ -33,8 +63,11 @@ export interface DimGap {
   dimId: string;
   score: number;
   level: LevelId;
-  /** Points from this score to the bottom of the green band. Always >= 1 for a gap. */
+  /** Points from this score to the bottom of the green band. Zero for a contested dimension that is
+   *  already numerically green — its remaining work is evidential, not arithmetic. */
   points: number;
+  /** The model disagreed with the detector by more than the guardband allowed. See isContested. */
+  contested?: true;
 }
 
 export interface RepoGreenness {
@@ -44,6 +77,9 @@ export interface RepoGreenness {
   /** Nothing scored yet — distinct from "scored and failing", and the reason `green` is false. */
   unscanned: boolean;
   gaps: DimGap[];
+  /** Dimension ids where the clamp bound — present even when the dimension is numerically green,
+   *  because "the detector is satisfied and the model objects" is the state worth surfacing. */
+  contested: string[];
   /** Total points across every gap — the cheap ordering key for "what needs the most work". */
   debt: number;
 }
@@ -57,13 +93,27 @@ export function repoGreenness(fullName: string, dims: readonly DimScore[]): Repo
   if (dims.length === 0) {
     // An unscanned repo is not green, and saying so explicitly is what keeps a loop from reporting
     // victory over a fleet it never measured.
-    return { fullName, green: false, unscanned: true, gaps: [], debt: 0 };
+    return { fullName, green: false, unscanned: true, gaps: [], contested: [], debt: 0 };
   }
   const gaps: DimGap[] = [];
+  const contested: string[] = [];
   for (const d of dims) {
-    if (isDimGreen(d.score)) continue;
+    // A CONTESTED dimension is never green, whatever its number says. The clamp bound, so the score
+    // is the detector's verdict over the model's objection — and "the detector is satisfied" is
+    // precisely the state a loop reaches by satisfying the detector. Counting it as arrived would
+    // let the loop declare victory on the one reading that suggests it cheated.
+    if (isContested(d)) contested.push(d.dimId);
+    if (isDimGreen(d.score) && !isContested(d)) continue;
     const level = levelForScore(d.score).id;
-    gaps.push({ dimId: d.dimId, score: d.score, level, points: GREEN_MIN_SCORE - Math.round(d.score) });
+    gaps.push({
+      dimId: d.dimId,
+      score: d.score,
+      level,
+      // A contested dimension that is already at/above the band has no numeric distance left to
+      // cover; its remaining work is evidential, so it carries zero points rather than a negative.
+      points: Math.max(0, GREEN_MIN_SCORE - Math.round(d.score)),
+      contested: isContested(d) || undefined,
+    });
   }
   // Widest gap first: a loop with a bounded number of cycles should spend them where the distance is.
   gaps.sort((a, b) => b.points - a.points || a.dimId.localeCompare(b.dimId));
@@ -72,6 +122,7 @@ export function repoGreenness(fullName: string, dims: readonly DimScore[]): Repo
     green: gaps.length === 0,
     unscanned: false,
     gaps,
+    contested,
     debt: gaps.reduce((sum, g) => sum + g.points, 0),
   };
 }

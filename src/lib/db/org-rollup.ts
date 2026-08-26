@@ -196,7 +196,7 @@ export interface OrgRepoRow {
     /** The engine that produced this scan — "mock" = the deterministic floor (a placeholder score, not
      *  a real graded scan); anything else is a live model. Surfaced so the UI can flag mock provenance. */
     engine: string;
-    dims: { dimId: string; score: number }[];
+    dims: { dimId: string; score: number; signalScore?: number; llmScore?: number }[];
     /**
      * This scan scored NOTHING — no dimension row was persisted, so `overall`/`level` are the
      * renormalized floor (0 / L1) rather than a measurement. Carried because the FLEET path scores
@@ -363,7 +363,7 @@ export function computeWindowDeltas(
 /** One repo's per-dimension scores on one side of the window — input to `computeDimDeltas`. */
 export interface RepoDimSnap {
   repoId: string;
-  dims: { dimId: string; score: number }[];
+  dims: { dimId: string; score: number; signalScore?: number; llmScore?: number }[];
 }
 
 /**
@@ -442,7 +442,12 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         where: upper ? { scannedAt: upper } : undefined,
         orderBy: { scannedAt: "desc" },
         take: 1,
-        include: { dimensions: { select: { dimId: true, score: true } } },
+        include: {
+          // signalScore + llmScore ride along so a consumer can tell whether the guardband BOUND on a
+          // dimension (|llm - signal| > band) — the one persisted trace of the model having disagreed
+          // with a detector more strongly than the engine let it act on. Two ints per dimension row.
+          dimensions: { select: { dimId: true, score: true, signalScore: true, llmScore: true } },
+        },
       },
     },
     orderBy: { fullName: "asc" },

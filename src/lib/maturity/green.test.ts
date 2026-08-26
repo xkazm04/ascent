@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   GREEN_MIN_SCORE,
   fleetGreenness,
+  isContested,
   isDimGreen,
   repoGreenness,
   type DimScore,
@@ -57,6 +58,52 @@ describe("repoGreenness", () => {
     ]);
     expect(r.gaps[0]!.level).toBe("L2");
     expect(r.debt).toBe(50);
+  });
+});
+
+describe("contested — the model out-argued the detector and was clamped", () => {
+  // See docs/SCORING-VALIDITY.md. The engine lets the LLM move a dimension by at most ±4 points, so
+  // when |llm - signal| exceeds the band the score you are reading is the DETECTOR's verdict over
+  // the model's objection. For a loop driving a number to a target, that is the signature of the
+  // number having been satisfied rather than earned.
+  const contestedDim = { dimId: "D4", score: 88, signalScore: 90, llmScore: 40 };
+
+  it("needs both scores — an absent answer is not suspicion", () => {
+    expect(isContested({ dimId: "D4", score: 88 })).toBe(false);
+    expect(isContested({ dimId: "D4", score: 88, signalScore: 90 })).toBe(false);
+  });
+
+  it("fires only past the guardband, in either direction", () => {
+    expect(isContested({ dimId: "D4", score: 50, signalScore: 50, llmScore: 56 })).toBe(false); // exactly 6
+    expect(isContested({ dimId: "D4", score: 50, signalScore: 50, llmScore: 57 })).toBe(true);
+    expect(isContested({ dimId: "D4", score: 50, signalScore: 50, llmScore: 43 })).toBe(true);
+  });
+
+  it("uses the doubled band for a flagged dimension", () => {
+    const d = { dimId: "D4", score: 50, signalScore: 50, llmScore: 60 };
+    expect(isContested(d)).toBe(true);
+    expect(isContested({ ...d, widened: true })).toBe(false); // 10 <= 12
+  });
+
+  it("keeps a numerically-green dimension OUT of green when the clamp bound", () => {
+    // The whole point: 88 clears the band, and the model said 40. Counting this as arrived would let
+    // a loop declare victory on the one reading that suggests it satisfied the detector instead.
+    const r = repoGreenness("a/b", [contestedDim]);
+    expect(r.green).toBe(false);
+    expect(r.contested).toEqual(["D4"]);
+    expect(r.gaps[0]).toMatchObject({ dimId: "D4", contested: true });
+  });
+
+  it("gives a contested-but-green dimension zero points, never a negative debt", () => {
+    const r = repoGreenness("a/b", [contestedDim]);
+    expect(r.gaps[0]!.points).toBe(0);
+    expect(r.debt).toBe(0);
+  });
+
+  it("does not contest an agreeing dimension", () => {
+    const r = repoGreenness("a/b", [{ dimId: "D4", score: 88, signalScore: 90, llmScore: 87 }]);
+    expect(r.green).toBe(true);
+    expect(r.contested).toEqual([]);
   });
 });
 
