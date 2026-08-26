@@ -47,6 +47,11 @@ export interface FacetSpec {
   kind: FacetKind;
   /** Shipped to the model verbatim as the facet's definition — written as a shape, never a vendor. */
   doc: string;
+  /** A CLAIMED facet that only makes sense as evidence OF another: awarded only when at least one of
+   *  these is already evidenced (by the detector, the platform folds, or an earlier verified claim).
+   *  A trail is a trail of something — without a mechanism it is an interpretation, not an
+   *  observation. Measured signals (the pulls fold) are exempt; this binds model claims only. */
+  requiresAny?: readonly string[];
 }
 
 /**
@@ -89,10 +94,15 @@ export const D4_FACETS: readonly FacetSpec[] = [
     id: "observed",
     points: 15,
     kind: "behavioral",
+    // The first live run awarded this on ONE tagged commit subject in a repo with no review step, no
+    // fix step and no dispatch — a trail of nothing. Hence `requiresAny`: a claimed trail counts only
+    // once the mechanism it is a trail of is evidenced.
+    requiresAny: ["automated_review", "autofix", "agent_dispatch"],
     doc:
       "evidence the automation actually RAN: a bot or agent review on a merged change, a commit that " +
       "responds to automated findings, an agent-authored fix. Cite a commit subject from the sample " +
-      "with path \"commits\".",
+      "with path \"commits\". Counts only when an automated_review, autofix or agent_dispatch facet is " +
+      "also evidenced — a trail must be a trail OF something.",
   },
   {
     id: "autofix",
@@ -182,7 +192,49 @@ export type ClaimRejection =
   | "quote-too-short"
   | "path-not-sampled"
   | "prose-evidence"
-  | "quote-not-found";
+  | "quote-not-found"
+  /** The quote is real, but the facet needs a mechanism (`requiresAny`) that nothing evidenced. */
+  | "unsupported-trail";
+
+// ---- composition (the engine's rule, pure) -----------------------------------------------------
+
+export interface ClaimApplication {
+  /** Verified claims on facets NOT already evidenced — these award points. */
+  awarded: VerifiedClaim[];
+  /** Verified claims on facets the detector already found — rendered, never re-scored. */
+  confirmed: VerifiedClaim[];
+  /** Verified quotes whose facet's `requiresAny` was not met — rendered with the reason, not scored. */
+  unsupported: RejectedClaim[];
+  /** Points to add to the detector's signal score. */
+  points: number;
+}
+
+/**
+ * Apply verified claims on top of what the detector evidenced. Facet-table order, so a claim for a
+ * mechanism (automated_review) is settled before the trail that depends on it (observed) — the
+ * order of the table is the dependency order, by construction.
+ */
+export function applyVerifiedClaims(verified: readonly VerifiedClaim[], detectedFacets: readonly string[]): ClaimApplication {
+  const have = new Set(detectedFacets);
+  const out: ClaimApplication = { awarded: [], confirmed: [], unsupported: [], points: 0 };
+  const byFacet = new Map(verified.map((v) => [v.facet, v]));
+  for (const spec of D4_FACETS) {
+    const v = byFacet.get(spec.id);
+    if (!v) continue;
+    if (have.has(spec.id)) {
+      out.confirmed.push(v);
+      continue;
+    }
+    if (spec.requiresAny && !spec.requiresAny.some((id) => have.has(id))) {
+      out.unsupported.push({ ...v, reason: "unsupported-trail" });
+      continue;
+    }
+    have.add(spec.id);
+    out.awarded.push(v);
+    out.points += v.points;
+  }
+  return out;
+}
 
 export interface VerifiedClaim extends Claim {
   points: number;

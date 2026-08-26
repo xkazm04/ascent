@@ -140,3 +140,18 @@ describe("D4 is scored from verified citations, not from the model's score field
     expect(d4Of(r).score).toBeLessThan(85);
   });
 });
+
+describe("observed needs a mechanism (the first live r9 finding)", () => {
+  it("does not award a trail in a repo with nothing for it to be a trail of", () => {
+    const s = snap();
+    s.commits.push({ message: "fix(build): clear stale tsbuildinfo before tsc [candidate: imp-tc-001]" });
+    const r = assembleReport(
+      s,
+      d4(0),
+      assessment({ claims: [{ dimension: "D4", facet: "observed", path: "commits", quote: "clear stale tsbuildinfo before tsc" }] }),
+      eng, AT, "org",
+    );
+    expect(d4Of(r).score).toBe(0);
+    expect(d4Of(r).evidence.some((e) => /Unverified claim \(unsupported-trail\)/.test(e))).toBe(true);
+  });
+});

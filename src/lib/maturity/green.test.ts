@@ -66,21 +66,23 @@ describe("contested — the model out-argued the detector and was clamped", () =
   // when |llm - signal| exceeds the band the score you are reading is the DETECTOR's verdict over
   // the model's objection. For a loop driving a number to a target, that is the signature of the
   // number having been satisfied rather than earned.
-  const contestedDim = { dimId: "D4", score: 88, signalScore: 90, llmScore: 40 };
+  // D2 rather than D4: D4 is claim-scored since r9 and is never contested by design (see the last
+  // describe block); these tests exercise the GENERIC guardband rule on an ordinary dimension.
+  const contestedDim = { dimId: "D2", score: 88, signalScore: 90, llmScore: 40 };
 
   it("needs both scores — an absent answer is not suspicion", () => {
-    expect(isContested({ dimId: "D4", score: 88 })).toBe(false);
-    expect(isContested({ dimId: "D4", score: 88, signalScore: 90 })).toBe(false);
+    expect(isContested({ dimId: "D2", score: 88 })).toBe(false);
+    expect(isContested({ dimId: "D2", score: 88, signalScore: 90 })).toBe(false);
   });
 
   it("fires only past the guardband, in either direction", () => {
-    expect(isContested({ dimId: "D4", score: 50, signalScore: 50, llmScore: 56 })).toBe(false); // exactly 6
-    expect(isContested({ dimId: "D4", score: 50, signalScore: 50, llmScore: 57 })).toBe(true);
-    expect(isContested({ dimId: "D4", score: 50, signalScore: 50, llmScore: 43 })).toBe(true);
+    expect(isContested({ dimId: "D2", score: 50, signalScore: 50, llmScore: 56 })).toBe(false); // exactly 6
+    expect(isContested({ dimId: "D2", score: 50, signalScore: 50, llmScore: 57 })).toBe(true);
+    expect(isContested({ dimId: "D2", score: 50, signalScore: 50, llmScore: 43 })).toBe(true);
   });
 
   it("uses the doubled band for a flagged dimension", () => {
-    const d = { dimId: "D4", score: 50, signalScore: 50, llmScore: 60 };
+    const d = { dimId: "D2", score: 50, signalScore: 50, llmScore: 60 };
     expect(isContested(d)).toBe(true);
     expect(isContested({ ...d, widened: true })).toBe(false); // 10 <= 12
   });
@@ -90,8 +92,8 @@ describe("contested — the model out-argued the detector and was clamped", () =
     // a loop declare victory on the one reading that suggests it satisfied the detector instead.
     const r = repoGreenness("a/b", [contestedDim]);
     expect(r.green).toBe(false);
-    expect(r.contested).toEqual(["D4"]);
-    expect(r.gaps[0]).toMatchObject({ dimId: "D4", contested: true });
+    expect(r.contested).toEqual(["D2"]);
+    expect(r.gaps[0]).toMatchObject({ dimId: "D2", contested: true });
   });
 
   it("gives a contested-but-green dimension zero points, never a negative debt", () => {
@@ -101,7 +103,7 @@ describe("contested — the model out-argued the detector and was clamped", () =
   });
 
   it("does not contest an agreeing dimension", () => {
-    const r = repoGreenness("a/b", [{ dimId: "D4", score: 88, signalScore: 90, llmScore: 87 }]);
+    const r = repoGreenness("a/b", [{ dimId: "D2", score: 88, signalScore: 90, llmScore: 87 }]);
     expect(r.green).toBe(true);
     expect(r.contested).toEqual([]);
   });
@@ -132,5 +134,13 @@ describe("fleetGreenness", () => {
     ]);
     expect(f.remaining.map((r) => r.fullName)).toEqual(["big/gap", "small/gap"]);
     expect(f.totalDebt).toBe(65 + 5);
+  });
+});
+
+describe("contested does not apply to a claim-scored dimension", () => {
+  it("never flags D4: its model score field is ignored by the engine, so a gap there is noise", () => {
+    // The first live r9 run flagged kp's D4 on signal 0 vs llm 15 — a number nothing acted on.
+    expect(isContested({ dimId: "D4", score: 15, signalScore: 0, llmScore: 15 })).toBe(false);
+    expect(repoGreenness("a/b", [{ dimId: "D4", score: 90, signalScore: 90, llmScore: 20 }]).green).toBe(true);
   });
 });

@@ -164,7 +164,12 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // exactly as wide as a maturity level, so model influence alone could move a repo's published
     // level (see the r8 note and the guardband's own comment). This is the case the backstop was
     // built for — a score-moving knob, so the bump is the remedy and the re-pin only records it.
-    const EXPECTED_RUBRIC_HASH = "bc25615e545b3802b08d0f0f90780ff7301c98418cf00df47d7768e0f5112254";
+    //
+    // Re-pinned 2026-08-26 WITH the r9 bump: D4's criteria were rewritten as shapes and the assessment
+    // prompt gained the cited-claims contract (scoring/claims.ts facetContract). Re-pinned again the
+    // same day, still under r9 (never deployed in between): the `observed` facet's doc gained the
+    // "must be a trail OF something" rule after the first live run awarded a trail of nothing.
+    const EXPECTED_RUBRIC_HASH = "44effc1e3e8e2d8f267003c5da0de51b9c4d1f5e7b35c6aca8fb828106bf8221";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

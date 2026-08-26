@@ -161,7 +161,7 @@ detector's point values and the engine's verifier all derive from. The facets su
 | `automated_review` | 25 | a step that runs on changes and hands them to a model — a hosted app's **non-empty** config, a known review action, or **any** model invoked from a `uses:`/`run:` line in a workflow with a change trigger |
 | `custom_judgment` | 20 | the team's **own** review prompt/rubric, versioned in the repo (≥200 chars). Worth more than a vendor default by design |
 | `review_teeth` | 15 | the review gates a merge or must be resolved (model-cited) |
-| `observed` | 15 | the trail that it **ran**: `aiPreReviewedRate × 0.4` (token scans), or a cited commit subject |
+| `observed` | 15 | the trail that it **ran**: `aiPreReviewedRate × 0.4` (token scans), or a cited commit subject — a *claimed* trail counts only when `automated_review`, `autofix` or `agent_dispatch` is also evidenced (a trail must be a trail *of* something) |
 | `autofix` | 10 | a fix/format step, on a line that runs it |
 | `dependency_automation` | 10 | a non-empty bot config **or** the bot's commits in history — same facet, same points |
 | `agent_dispatch` | 5 | a dispatched/scheduled trigger that invokes a model or opens a change |

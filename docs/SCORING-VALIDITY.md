@@ -190,6 +190,31 @@ forbids that answer, correctly.
 
 ---
 
+## 4b. What the first live r9 run showed (2026-08-26, kp + systedo-case, opus via claude-cli)
+
+Two findings, both worth more than the design they tested.
+
+**The r8 phantom was worse than the exploit.** Under r8 both repos carried a 25-point "LLM invoked
+inside CI" credit. Grepping their workflow files for the old regex shows every hit was a **comment**
+— `# test_claude_cli…`, `# (needs a GEMINI_API_KEY — CI has neither)`, `# real-model Claude run
+stays local in the Husky hook` — and zero `uses:`/`run:` lines. Neither repo invokes a model in CI.
+§2 priced what an optimizer *could* do to D4; the honest baseline had already been inflated by 25
+points on two repos through nothing more than engineers writing accurate comments about what CI
+does *not* do. kp's D4 went 28 → 0 (detector) once matches were scoped to lines that act.
+
+**The verifier verified a true quote for a false inference.** The model cited `observed` on a real
+commit subject (`fix(build): clear stale tsbuildinfo… [candidate: imp-tc-001]`) in a repo with no
+review step, no fix step and no dispatch — a trail of nothing — and the engine awarded 15. That is
+precisely the residual §1 admitted (existence, not interpretation), and it took one live run to
+find its cheapest form. Fixed by making a *claimed* trail depend on a mechanism (`requiresAny` on
+the facet, enforced in table order so a mechanism claimed in the same assessment still counts);
+the measured `aiPreReviewedRate` fold is exempt because it is measured, not inferred. With the fix
+kp's D4 is 0 under r9, which is the honest number: nothing agentic runs there yet.
+
+Also corrected: `isContested` no longer applies to a claim-scored dimension. Its model score is a
+number nothing acts on, so a gap there is noise, and it was flagging kp's D4 as gamed on exactly
+that noise.
+
 ## 5. What this document does not claim
 
 The rubric is not sloppy. The reference audit found 213 discrepancies and fixed the structural

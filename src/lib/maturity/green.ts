@@ -15,6 +15,7 @@
 // perfect one must never be indistinguishable, and "no evidence" is the reading a loop can act on.
 
 import { LEVEL_BY_ID, LLM_GUARDBAND, levelForScore } from "@/lib/maturity/model";
+import { CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
 import type { LevelId } from "@/lib/types";
 
 /** The band a dimension must reach. The top of the ladder, by definition of "green". */
@@ -53,6 +54,12 @@ export interface DimScore {
  * guessed: a read that projects only `score` must not manufacture suspicion it has no evidence for.
  */
 export function isContested(d: DimScore): boolean {
+  // A CLAIM-SCORED dimension (D4, r9) has no guardband: the model's score field is recorded and
+  // ignored, and its opinion is expressed as citations that award nothing unless verified. So
+  // |llm - signal| there is not "the model was clamped" — it is a number nothing acted on. The first
+  // live r9 run flagged kp's D4 contested on exactly that noise. The gaming door this predicate
+  // guards is closed for such dimensions by construction (an unverifiable claim scores zero).
+  if ((CLAIM_SCORED_DIMENSIONS as readonly string[]).includes(d.dimId)) return false;
   if (typeof d.signalScore !== "number" || typeof d.llmScore !== "number") return false;
   const band = d.widened ? LLM_GUARDBAND * 2 : LLM_GUARDBAND;
   return Math.abs(d.llmScore - d.signalScore) > band;

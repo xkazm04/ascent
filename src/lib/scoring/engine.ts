@@ -38,7 +38,7 @@ import {
   weightsFor,
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { CLAIM_SCORED_DIMENSIONS, facetSpec, verifyClaims } from "@/lib/scoring/claims";
+import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims } from "@/lib/scoring/claims";
 import { buildDimensionFollowUps, buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { parseResolvedIds } from "@/lib/org/followups";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
@@ -220,20 +220,13 @@ export function assembleReport(
     let claimPoints = 0;
     const claimEvidence: string[] = [];
     if (claimed) {
-      const detected = new Set(s.facets ?? []);
-      for (const v of claimed.verified) {
-        const name = facetSpec(v.facet)?.id ?? v.facet;
-        if (detected.has(v.facet)) {
-          claimEvidence.push(`Model confirmed ${name} — ${v.path}: "${v.quote}"`);
-          continue;
-        }
-        detected.add(v.facet);
-        claimPoints += v.points;
-        claimEvidence.push(`Model cited ${name} (+${v.points}) — ${v.path}: "${v.quote}"`);
-      }
-      for (const r of claimed.rejected) {
-        // Every rejection is rendered: a claim that failed verification is the most useful sentence
-        // on the card, and the rate of them is the reliability signal SCORING-VALIDITY asks for.
+      const applied = applyVerifiedClaims(claimed.verified, s.facets ?? []);
+      claimPoints = applied.points;
+      for (const v of applied.awarded) claimEvidence.push(`Model cited ${v.facet} (+${v.points}) — ${v.path}: "${v.quote}"`);
+      for (const v of applied.confirmed) claimEvidence.push(`Model confirmed ${v.facet} — ${v.path}: "${v.quote}"`);
+      // Every rejection is rendered: a claim that failed verification is the most useful sentence on
+      // the card, and the rate of them is the reliability signal SCORING-VALIDITY asks for.
+      for (const r of [...applied.unsupported, ...claimed.rejected]) {
         claimEvidence.push(`Unverified claim (${r.reason}) — ${r.facet}, ${r.path}`);
       }
     }

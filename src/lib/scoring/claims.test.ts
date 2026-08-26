@@ -6,6 +6,7 @@ import {
   D4_FACETS,
   D4_FACET_IDS,
   facetContract,
+  applyVerifiedClaims,
   facetPoints,
   verifyClaims,
   type Claim,
@@ -155,5 +156,36 @@ describe("verifyClaims — existence, not interpretation", () => {
   it("never throws on garbage", () => {
     const junk = [{}, null, { dimension: "D4" }, { dimension: "D4", facet: "observed", path: 1, quote: [] }] as unknown as Claim[];
     expect(() => verifyClaims(junk, s, "D4")).not.toThrow();
+  });
+});
+
+describe("applyVerifiedClaims — a trail is a trail OF something", () => {
+  const v = (facet: string, points = facetPoints(facet)) =>
+    ({ dimension: "D4" as const, facet, path: "x", quote: "quote long enough", points });
+
+  it("refuses an observed trail when no mechanism is evidenced anywhere", () => {
+    // The first live r9 run: one tagged commit subject, in a repo with no review, no fix step and
+    // no dispatch. A real quote, and still not evidence that automation ran.
+    const out = applyVerifiedClaims([v("observed")], []);
+    expect(out.points).toBe(0);
+    expect(out.unsupported.map((u) => u.reason)).toEqual(["unsupported-trail"]);
+  });
+
+  it("awards the trail once the mechanism is evidenced by the detector", () => {
+    const out = applyVerifiedClaims([v("observed")], ["automated_review"]);
+    expect(out.points).toBe(facetPoints("observed"));
+  });
+
+  it("awards the trail when the mechanism arrives as a verified claim in the SAME assessment", () => {
+    // Table order is dependency order: automated_review settles before observed is judged.
+    const out = applyVerifiedClaims([v("observed"), v("automated_review")], []);
+    expect(out.awarded.map((a) => a.facet)).toEqual(["automated_review", "observed"]);
+    expect(out.points).toBe(facetPoints("automated_review") + facetPoints("observed"));
+  });
+
+  it("treats a claim on a detected facet as confirmation, not points", () => {
+    const out = applyVerifiedClaims([v("dependency_automation")], ["dependency_automation"]);
+    expect(out.points).toBe(0);
+    expect(out.confirmed).toHaveLength(1);
   });
 });
