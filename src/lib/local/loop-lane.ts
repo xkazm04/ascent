@@ -131,7 +131,21 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   const { runId, org, repo, cycle, worktree } = input;
   const lane = await upsertLane({ runId, repoFullName: repo, cycle });
   const laneId = lane?.id ?? null;
+  // CLAIM → RUN → ADJUDICATE, with RELEASE on every path where the adjudication never happened.
+  // The claim (open → in_progress below) is what lets the rescan's feedback attach to these rows —
+  // and a claim nobody adjudicates is a ZOMBIE: still in_progress, so openBatch never re-dispatches
+  // it, and the movement-gated rescan rule keeps it open. Drive #1 (2026-08-26) died 35s in and left
+  // ten of eleven backlog rows claimed; the next drive found "no open follow-ups" on a fleet with
+  // 350 points of debt. Every failure path below releases; only a lane whose RESCAN ran keeps them.
+  let claimedIds: string[] = [];
+  const releaseClaims = async (why: string): Promise<void> => {
+    for (const id of claimedIds) {
+      await updateRecommendation(id, { status: "open" }, { actor: "autopilot", note: `Released: ${why}` }).catch(() => null);
+    }
+    claimedIds = [];
+  };
   const fail = async (message: string): Promise<LaneRunResult> => {
+    await releaseClaims(`loop cycle ${cycle} failed before its rescan could adjudicate (${firstLine(message)})`);
     if (laneId) {
       await appendLaneLog(laneId, message);
       await updateLane(laneId, { phase: "error", error: message, stage: null, endedAt: new Date() });
@@ -166,11 +180,12 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // The hand-off claim, so the rescan's trailer/restatement feedback applies to these rows
     // (scans-persist only resolves IN-PROGRESS rows — an unclaimed row is nobody's promise).
     for (const it of batch) {
-      await updateRecommendation(
+      const claimed = await updateRecommendation(
         it.id,
         { status: "in_progress" },
         { actor: "autopilot", note: `Loop cycle ${cycle}: dispatched to a local agent on ${worktree.branch}` },
       ).catch(() => null);
+      if (claimed) claimedIds.push(it.id);
     }
 
     await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
@@ -186,8 +201,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     await appendLaneLog(laneId, `${commits} commit(s) landed this cycle.`);
 
     if (input.shouldStop?.()) {
+      await releaseClaims(`loop cycle ${cycle} was stopped before its rescan could adjudicate`);
       await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
-      await appendLaneLog(laneId, "Stop requested — winding this lane down before the rescan.");
+      await appendLaneLog(laneId, "Stop requested — winding this lane down before the rescan; the batch is released.");
       return { laneId, progressed: false, commits, closed: 0, error: null };
     }
 
@@ -207,6 +223,14 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       afterScanId = out.scanId;
     } catch (err) {
       await appendLaneLog(laneId, `Rescan failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (afterScanId == null) {
+      // No rescan means no adjudication: the rows would sit in_progress forever, owned by nobody.
+      // Releasing risks re-dispatching work that exists unverified on this branch — accepted; a
+      // duplicate attempt is recoverable and a zombie claim is not.
+      await releaseClaims(`loop cycle ${cycle}'s rescan failed, so nothing adjudicated the claim`);
+    } else {
+      claimedIds = []; // the rescan adjudicated; the claim is now the scan feedback's to settle
     }
     await appendLaneLog(
       laneId,

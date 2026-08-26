@@ -164,6 +164,53 @@ export async function markStaleRunsStopped(
       error: "Interrupted — the server restarted while this run was in flight.",
     },
   });
+  // A dead run's CLAIMS die with it too. Its lanes marked backlog rows in_progress before the agent
+  // ran; with nobody left to rescan, those rows are zombies — never re-dispatched (openBatch takes
+  // `open` only) and kept in_progress by the movement-gated resolve rule. Drive #1 (2026-08-26) left
+  // ten of eleven rows claimed this way and the next drive found "no open follow-ups" on a fleet with
+  // 350 points of debt. Release them, with a ledger event per row saying why.
+  try {
+    const lanes = await prisma.loopRunLane.findMany({
+      where: { runId: { in: ids }, phase: { in: ["queued", "dispatching", "rescanning"] } },
+      select: { batchIdsJson: true },
+    });
+    const recIds = [
+      ...new Set(
+        lanes.flatMap((l) => {
+          try {
+            const parsed: unknown = JSON.parse(l.batchIdsJson || "[]");
+            return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+          } catch {
+            return [];
+          }
+        }),
+      ),
+    ];
+    if (recIds.length > 0) {
+      const claimed = await prisma.recommendation.findMany({
+        where: { id: { in: recIds }, status: "in_progress" },
+        select: { id: true },
+      });
+      if (claimed.length > 0) {
+        await prisma.recommendation.updateMany({
+          where: { id: { in: claimed.map((r) => r.id) } },
+          data: { status: "open" },
+        });
+        await prisma.recommendationEvent.createMany({
+          data: claimed.map((r) => ({
+            recommendationId: r.id,
+            actor: "autopilot",
+            kind: "status",
+            fromValue: "in_progress",
+            toValue: "open",
+            note: "Released: the loop run that claimed this item was interrupted before its rescan could adjudicate.",
+          })),
+        });
+      }
+    }
+  } catch {
+    // Best-effort: a failed release leaves rows a human can still reopen from the ledger.
+  }
   // In-flight lanes die with the process too; leaving them "dispatching" would spin forever.
   await prisma.loopRunLane
     .updateMany({

@@ -415,6 +415,19 @@ per-run debt before/after. Process-local like the engine's `live` registry: ever
 durable `LoopRun`, so what happened survives a restart; a restart ends the drive rather than resuming
 into a state it cannot verify.
 
+### Claims are released when nothing adjudicated them (2026-08-26)
+
+A lane CLAIMS its batch (`open → in_progress`) before the agent runs, so the rescan's feedback can
+attach to those rows. A claim nobody adjudicates is a **zombie**: still `in_progress`, so
+`openBatch` never re-dispatches it, and the movement-gated resolve rule keeps it open. Drive #1
+died 35 seconds in and left ten of eleven backlog rows claimed — the next drive found *"no open
+follow-ups"* on a fleet with 350 points of debt. Now every path where the rescan never ran releases
+the claim back to `open` with a ledger event saying why: a lane failure, a stop before the rescan, a
+rescan that threw, and — in `markStaleRunsStopped` — the interrupted lanes of a run a dead process
+left behind. Only a lane whose rescan actually ran leaves its claims, because from that point the
+scan feedback owns them. The accepted trade: work that exists unverified on the branch may be
+re-dispatched; a duplicate attempt is recoverable and a zombie claim is not.
+
 ### Two liveness bugs the drive exposed (2026-08-26)
 
 The first drive's only run died 35 seconds into cycle 1 — on the poll that was watching it.
