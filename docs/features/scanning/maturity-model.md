@@ -329,6 +329,33 @@ Design principles:
 }
 ```
 
+## 4b. "Green" — the termination condition for a drive-to-target loop (`green.ts`, 2026-08-26)
+
+An improvement loop asked to run *until the fleet is green* needs green to be a predicate, not a
+feeling. `src/lib/maturity/green.ts` defines it, and defines it only in terms of the ladder above so
+a retune of `LEVELS` moves the target with it:
+
+> **A repo is green when EVERY one of its nine dimensions lands in the top band (L5).**
+
+`GREEN_MIN_SCORE` is derived from `LEVEL_BY_ID.L5.band[0]`, never typed as `85`, and every comparison
+routes through `levelForScore` — the same rounding seam the report, the gate and the fleet colours
+use, so the boundary cannot drift between them.
+
+**Per-dimension, not the overall score.** An overall of 85 is reachable with a dimension still at L2,
+carried by strong scores elsewhere. A loop that stopped there would report success over a repo with
+an unaddressed weakness — the one outcome that makes the exercise worthless.
+
+**Two absences are deliberately not green**, because vacuous truth is the failure mode here:
+
+| State | Verdict | Why |
+| --- | --- | --- |
+| a repo with no dimensions scored | `green: false`, `unscanned: true` | an unscanned repo and a perfect one must never be indistinguishable |
+| an empty fleet scope | `green: false` | "every repo is green" over zero repos would let a misconfigured scope read as a finished job |
+
+Each shortfall is reported as a `DimGap` carrying the distance in points to the band, and gaps and
+repos are both ordered widest-first — a loop with a bounded number of cycles should spend them where
+the distance is.
+
 ## 5. Calibration & Roadmap (post-MVP)
 - Build a **labeled benchmark set** (~30 repos hand-rated L1–L5) and tune weights/BLEND
   to maximize agreement (target ≥ 80%).
