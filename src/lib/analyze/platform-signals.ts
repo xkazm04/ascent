@@ -19,6 +19,7 @@
 import { appsOf, type AppInventory, type AppSuite } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import type { DimensionSignals, Signal } from "@/lib/types";
+import { facetPoints } from "@/lib/scoring/claims";
 
 /** Local 0..100 clamp — the same shape applyPrSignals uses, kept module-local so the fold has no
  *  dependency on the rubric module (this file only ever adds points to an existing score). */
@@ -36,8 +37,6 @@ function slugsOf(apps: AppSuite[]): string {
 const CI_PRESENT = /^(GitHub Actions CI present|CI pipeline present|Off-GitHub CI detected)/;
 /** D3's existing "something deploys automatically" label. */
 const DEPLOY_PRESENT = "Automated deploy step";
-/** D4's existing "a review bot is configured in the repo" label. */
-const AI_REVIEW_CONFIGURED = "AI code-review agent";
 
 /**
  * Fold the installed-App inventory into D2/D3/D4. No-op on null (not observable).
@@ -65,10 +64,16 @@ export function applyAppInventorySignals(
     if (s.failed) return s;
 
     if (s.id === "D4" && aiReview.length) {
-      const configured = s.signals.some((x) => x.label.startsWith(AI_REVIEW_CONFIGURED));
+      // r9: an installed review App is an INSTANCE of the automated_review facet (scoring/claims.ts),
+      // not a separate 25. If the detector already evidenced the facet this is confirmation; otherwise
+      // it awards the facet's points and marks it, so a model claim for the same facet cannot double it.
+      const facets = new Set(s.facets ?? []);
+      const configured = facets.has("automated_review");
+      if (!configured) facets.add("automated_review");
       return {
         ...s,
-        signalScore: configured ? s.signalScore : clamp(s.signalScore + 25),
+        signalScore: configured ? s.signalScore : clamp(s.signalScore + facetPoints("automated_review")),
+        facets: [...facets],
         signals: [
           ...s.signals,
           configured

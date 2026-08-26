@@ -480,9 +480,12 @@ describe("applyPrSignals — D4 fold from aiPreReviewedRate", () => {
     { id: "D4", signalScore: score, signals },
   ];
 
-  it("credits rate × 0.4 (50% → +20) and explains the observation", () => {
+  // r9: this fold is the `observed` FACET (scoring/claims.ts) — rate × 0.4, capped at the facet's
+  // 15 points, awarded once, and independent of whether a review is configured (a different facet).
+  it("credits rate × 0.4 capped at the observed facet (50% → +15) and explains the observation", () => {
     const [out] = applyPrSignals(d4(), stats());
-    expect(out!.signalScore).toBe(60);
+    expect(out!.signalScore).toBe(55);
+    expect(out!.facets).toEqual(["observed"]);
     expect(out!.signals[0]!.label).toBe("AI reviewer active on 50% of merged PRs");
     expect(out!.signals[0]!.detail).toContain("before the first human review");
   });
@@ -492,15 +495,26 @@ describe("applyPrSignals — D4 fold from aiPreReviewedRate", () => {
     expect(out!.signalScore).toBe(44);
   });
 
-  it("caps at 20 for a fully AI-pre-reviewed repo", () => {
+  it("caps at the facet's 15 points for a fully AI-pre-reviewed repo", () => {
     const [out] = applyPrSignals(d4(), stats({ aiPreReviewedRate: 100 }));
-    expect(out!.signalScore).toBe(60); // min(20, 40), not 40
+    expect(out!.signalScore).toBe(55); // min(15, 40), not 40
   });
 
-  it("caps at 8 when the file detector already found the review bot's config", () => {
-    const [out] = applyPrSignals(d4([{ label: "AI code-review agent in the pipeline" }]), stats());
-    expect(out!.signalScore).toBe(48); // +8, not +20 — behavioral confirmation of a known bot
+  it("no longer discounts against a configured review: config and trail are different facets", () => {
+    // Before r9 an observed reviewer was capped at +8 when its config was also found, on the theory
+    // that it was the same tool seen twice. Under facets "a review is configured" and "a review RAN"
+    // are distinct claims about the practice, and the trail is the one a config cannot fake.
+    const base: DimensionSignals[] = [{ id: "D4", signalScore: 40, signals: [{ label: "Automated AI review configured" }], facets: ["automated_review"] }];
+    const [out] = applyPrSignals(base, stats());
+    expect(out!.signalScore).toBe(55);
+    expect(out!.facets).toEqual(["automated_review", "observed"]);
     expect(out!.signals).toHaveLength(2);
+  });
+
+  it("awards the observed facet once even if the fold runs twice", () => {
+    const [once] = applyPrSignals(d4(), stats());
+    const [twice] = applyPrSignals([once!], stats());
+    expect(twice!.signalScore).toBe(once!.signalScore);
   });
 
   it("leaves D4 untouched when the rate is null (below the >=5 merged floor — no sample)", () => {

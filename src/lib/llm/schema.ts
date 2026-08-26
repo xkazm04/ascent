@@ -14,6 +14,7 @@
 // schema can never drift from the rubric the rest of the app scores against.
 
 import { DIMENSIONS } from "@/lib/maturity/model";
+import { CLAIM_SCORED_DIMENSIONS, D4_FACET_IDS } from "@/lib/scoring/claims";
 
 const DIMENSION_IDS = DIMENSIONS.map((d) => d.id);
 /** The impact/effort vocabulary — the single source for both the schema enum (constrain the model
@@ -79,8 +80,26 @@ export const ASSESSMENT_JSON_SCHEMA = {
         required: ["dimension", "claim"],
       },
     },
+    // Cited claims for the claim-scored dimensions (scoring/claims.ts). The facet enum is DERIVED from
+    // the facet table, so the schema can never teach the model a facet the verifier will not accept.
+    claims: {
+      type: "array",
+      description:
+        "Cited practice claims (D4). Each names a facet, a sampled file path (or \"commits\"), and a verbatim quote from it.",
+      items: {
+        type: "object",
+        properties: {
+          dimension: { type: "string", enum: CLAIM_SCORED_DIMENSIONS as string[] },
+          facet: { type: "string", enum: D4_FACET_IDS as string[] },
+          path: { type: "string" },
+          quote: { type: "string" },
+          note: { type: "string" },
+        },
+        required: ["dimension", "facet", "path", "quote"],
+      },
+    },
   },
-  required: ["headline", "dimensions", "strengths", "risks", "roadmap", "discrepancies"],
+  required: ["headline", "dimensions", "strengths", "risks", "roadmap", "discrepancies", "claims"],
 };
 
 /** Bedrock Converse tool used to force a schema-constrained JSON response. */

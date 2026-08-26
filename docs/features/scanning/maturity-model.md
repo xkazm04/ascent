@@ -149,20 +149,48 @@ appended as zero-point evidence, so a pipeline is never paid twice.
 declarative, auditable, and reversible the path to production is: what lets autonomy
 compound.
 
-#### D4: Agentic Workflows (12%)
-*Signals:* AI review bots (CodeRabbit, Claude/Copilot review, `claude-code-action`,
-Greptile, Sweep), LLM invocations inside CI workflows, auto-fix/auto-format bots,
-auto-PR tooling, Renovate/Dependabot **auto-merge**, issue→PR automation, agent configs
-in CI. *Platform (token-gated, additive, r7):* an AI review/agent **App** installed on the
-repo (the `claude`, `coderabbitai`, `greptile-apps`, `copilot-pull-request-reviewer`, …
-check suite on the scored commit) earns +25 when no review bot is configured in committed
-files, and the **observed** `aiPreReviewedRate` (share of merged PRs an AI reviewer reviewed
-before the first human) earns `min(20, rate × 0.4)`, capped at 8 when a bot is already
-configured in-repo (`analyze/pulls.ts:applyPrSignals`). Configured-in-repo remains the
-strongest evidence; the App and the observed reviews close the "installed at the org level,
-nothing committed" blind spot.
-*LLM assessment:* how deeply are agents embedded: keyboard assist only (low), or
-autonomous review/fix/ship loops (high)?
+#### D4: Agentic Workflows (12%) — scored from verified citations (r9, 2026-08-26)
+
+D4 is the first **claim-scored** dimension (`src/lib/scoring/claims.ts`). It is defined as
+**facets** — shapes a practice takes, which any tool can satisfy — rather than as a list of
+products, and the facet table is the *one* authority the rubric text, the JSON schema, the
+detector's point values and the engine's verifier all derive from. The facets sum to 100:
+
+| Facet | Pts | Evidenced by |
+| --- | --- | --- |
+| `automated_review` | 25 | a step that runs on changes and hands them to a model — a hosted app's **non-empty** config, a known review action, or **any** model invoked from a `uses:`/`run:` line in a workflow with a change trigger |
+| `custom_judgment` | 20 | the team's **own** review prompt/rubric, versioned in the repo (≥200 chars). Worth more than a vendor default by design |
+| `review_teeth` | 15 | the review gates a merge or must be resolved (model-cited) |
+| `observed` | 15 | the trail that it **ran**: `aiPreReviewedRate × 0.4` (token scans), or a cited commit subject |
+| `autofix` | 10 | a fix/format step, on a line that runs it |
+| `dependency_automation` | 10 | a non-empty bot config **or** the bot's commits in history — same facet, same points |
+| `agent_dispatch` | 5 | a dispatched/scheduled trigger that invokes a model or opens a change |
+
+**How the model moves the number.** For D4 there is no guardband blend: the model's D4 `score`
+field is recorded and ignored. It may add a facet the detector did not find only by emitting a
+**claim** — `{facet, path, quote}` — and the engine verifies the quote appears verbatim in the
+sampled file (whitespace- and case-insensitive) before awarding that facet's points. A verified
+claim on a facet the detector already found is confirmation, never a second award. Every
+rejected claim is rendered in the evidence with its reason (`quote-not-found`, `path-not-sampled`,
+`prose-evidence`, …), because the rate of them is the reliability signal.
+
+**Evidence rules the verifier enforces.** Operational facets may not be cited from prose
+(`.md`, `docs/`, README/CHANGELOG/CONTRIBUTING) — a file that *says* a review runs proves
+nothing ran. `custom_judgment` may cite a markdown prompt file but never the front matter.
+`observed` may only cite the commit sample (path `commits`), because a file cannot evidence
+that something happened.
+
+**What this changes, and why.** The r8 detector summed vendor-name hits: a config file scored 35
+*on presence* (an empty `.coderabbit.yaml` qualified), "LLM in CI" scored 25 on a product name
+*anywhere* in the YAML, and the two stacked. A bespoke review step the regex could not name
+scored 0. Under r9 a vendor config alone reaches 25 and **cannot reach the green band without
+teeth and a trail**; a bespoke, versioned, gated review reaches 100 with no vendor anywhere.
+The case is made in [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md). The platform
+folds (r7's installed-App credit and `aiPreReviewedRate`) survive as instances of
+`automated_review` and `observed`.
+
+*LLM assessment:* judge the **practice**, not the tool: does the automation run, have teeth,
+and demonstrably leave a trail?
 
 #### D5: Documentation & Knowledge (9%)
 *Signals:* README size/sections, `/docs` or `/documentation`, ADRs
@@ -394,5 +422,6 @@ genuinely display-only change, but the reasoning belongs in the diff.
 | `r4` (2026-08-05) | Two Security (D9) detector corrections in `src/lib/security/checks.ts`: pinned-dependencies no longer counts multi-stage `FROM <alias>` or `FROM scratch` in the denominator, and the broad-write cap matches `contents: write` anywhere in a permissions block. D9 is taken verbatim by the engine. |
 | `r5` (2026-08-14) | The assessment system prompt gained `PROSE_STYLE_RULE` (`src/lib/llm/prose.ts`, interpolated in `src/lib/scoring/prompt.ts`). It constrains punctuation in the model's prose, so no scoring semantics moved — but it is a changed model input, which is the same class as `r3`. The em-dash sweep re-pinned the surface hash without bumping, having accounted for the six display-only strings it rewrote but not for the prompt injection. |
 | `r6` (2026-08-17) | The TASK block now asks for a *markdown-lite* summary (short paragraphs · bullets · bold · code) instead of one paragraph, and for **roadmap coverage** of every dimension below `FOLLOW_UP_BELOW` (65). Neither moves a score, but the roadmap grows from 3-5 entries to up to nine and the prose shape changes, so a cached scan's "next steps" would disagree with a fresh one. Same class as `r3`/`r5`. |
+| `r9` (2026-08-26) | **D4 scored from verified citations** (`src/lib/scoring/claims.ts`). The detector evidences *facets* (a review that runs, the team's own review judgment, teeth, an observed trail, autofix, dependency automation, agent dispatch) instead of summing vendor-name hits; a config file must be non-empty to count and a product name counts only on a `uses:`/`run:` line. The model adds a facet only by citing a sampled path and a verbatim quote the engine verifies; its D4 score field no longer moves the number and D4 has no guardband blend. A vendor-config-only repo drops (config 35 + "LLM in CI" 25 used to stack; now one facet, 25) and cannot reach L5 without teeth and a trail; a bespoke review step the old regex could not name rises. The r7 platform folds survive as instances of `automated_review` / `observed`. Anonymous and token scans both move; `r8` D4 scores are not comparable. [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md). |
 | `r8` (2026-08-20) | **`LLM_GUARDBAND` narrowed 25 → 6.** The band was as wide as a maturity level, so an LLM judgment at its edge could move a repository's published level with no deterministic support — and two levels on a dimension whose band a `discrepancies` claim doubled. 6 keeps the nuance the model actually uses (the control-arm study measured ≤24% of the old band) while making a level jump impossible. Every blended dimension can differ from its `r7` value by up to ±15 points, so `r7` scores are not comparable with `r8` ones. Not a claim that `r7` scores were wrong under `r7`. |
 | `r7` (2026-08-17) | The **deepening pass**: token-gated, additive platform credits entered the detector point tables. The installed-App inventory read from the scored commit's check suites (`src/lib/github/check-suites.ts`) folds into D4 (+25 AI review/agent App), D3 (+35 non-Actions CI, +10 deploy platform), D2 (+8 coverage reporter) and the D9 battery (SAST 10 for a code-scanning App, dependency-updates 6 for a supply-chain App); default-branch Actions health (`src/lib/github/actions-health.ts`) folds into D3 (+8 / +4); the already-computed `aiPreReviewedRate` folds into D4 (≤20). Anonymous scans are byte-identical to `r6`; a token scan of the same commit can move up, so cached `r6` scores are not comparable with fresh ones. |

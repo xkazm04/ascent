@@ -77,8 +77,9 @@ describe("applyAppInventorySignals — D4 (AI review Apps)", () => {
     expect(out.signals[0]!.detail).toBe("observed on the scored commit: claude, coderabbitai");
   });
 
-  it("adds evidence with NO points when D4 already carries the configured-bot label", () => {
-    const base = [dim("D4", 60, [{ label: "AI code-review agent in the pipeline" }])];
+  it("adds evidence with NO points when D4 already evidenced the automated_review facet", () => {
+    // r9: the contract is the FACET, not a label prefix — the same practice observed twice is one award.
+    const base = [{ id: "D4" as const, signalScore: 60, signals: [{ label: "Automated AI review configured" }], facets: ["automated_review"] }];
     const out = pick(applyAppInventorySignals(base, inv(["claude"])), "D4");
     expect(out.signalScore).toBe(60); // no double credit for one review bot
     expect(out.signals).toHaveLength(2);

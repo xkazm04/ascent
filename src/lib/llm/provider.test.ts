@@ -413,6 +413,7 @@ describe("validateAssessment — malformed payloads yield the documented empty (
     risks: [],
     roadmap: [],
     discrepancies: [],
+    claims: [],
   };
 
   it("never throws and returns a well-formed empty assessment for hostile/garbage inputs", () => {

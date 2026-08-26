@@ -5,6 +5,7 @@
 
 import { fetchPullRequests, type PrNode, type PrReview } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
+import { facetPoints } from "@/lib/scoring/claims";
 import { AI_REVIEW_BOT_ALT, AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT, AI_TRAILER_SOURCE } from "./ai-tools";
 import {
   FAST_APPROVAL_MAX_MINUTES,
@@ -542,11 +543,16 @@ export function applyPrSignals(
       // Additive only (absence is not a penalty — an anonymous scan can't see reviews at all), and
       // capped harder when the file detector already found the bot's config: the same tool observed
       // twice is confirmation, not a second discovery.
-      const configured = s.signals.some((x) => x.label.startsWith("AI code-review agent"));
-      const credit = Math.min(configured ? 8 : 20, Math.round(pr.aiPreReviewedRate * 0.4));
+      // r9: this is the `observed` facet (scoring/claims.ts) — the trail that the review RAN — and it
+      // is a different facet from "a review is configured", so it no longer caps against the config
+      // signal. Scaled by the rate, capped at the facet's points; awarded once.
+      const facets = new Set(s.facets ?? []);
+      const credit = facets.has("observed") ? 0 : Math.min(facetPoints("observed"), Math.round(pr.aiPreReviewedRate * 0.4));
+      facets.add("observed");
       return {
         ...s,
         signalScore: clamp(s.signalScore + credit),
+        facets: [...facets],
         signals: [
           ...s.signals,
           {

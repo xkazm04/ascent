@@ -268,8 +268,8 @@ describe("D4 phantom AI-review-agent fix (P1-4)", () => {
     ]);
     expect(labelText(dimOf(s, "D4").signals)).not.toMatch(/AI code-review agent/);
   });
-  it("still credits a real AI review bot from its config file", () => {
-    expect(labelText(dimOf(repoSnap([{ path: ".coderabbit.yaml", content: "reviews: {}" }]), "D4").signals)).toMatch(/AI code-review agent/);
+  it("still credits a real AI review bot from its (non-empty) config file", () => {
+    expect(labelText(dimOf(repoSnap([{ path: ".coderabbit.yaml", content: "reviews: {}" }]), "D4").signals)).toMatch(/Automated AI review configured/);
   });
 });
 
@@ -460,5 +460,69 @@ describe("classifyArchetype — run-style, not popularity (ambiguity-ui maturity
   it("keeps the unchanged lower rungs: 50+ stars → team, quiet unstarred repo → solo", () => {
     expect(classifyArchetype(snap({ stars: 60 }, commitsBy("alice")))).toBe("team");
     expect(classifyArchetype(snap({ stars: 3 }, commitsBy("alice")))).toBe("solo");
+  });
+});
+
+describe("D4 as facets (r9, scoring/claims.ts)", () => {
+  const wf = (body: string) => ({ path: ".github/workflows/review.yml", content: body });
+  const d4 = (files: { path: string; content: string }[], commits: CommitInfo[] = []) => dimOf(repoSnap(files, commits), "D4");
+
+  it("gives an EMPTY vendor config nothing — the SCORING-VALIDITY §2 exploit", () => {
+    const out = d4([{ path: ".coderabbit.yaml", content: "" }]);
+    expect(out.signalScore).toBe(0);
+    expect(out.facets).toEqual([]);
+  });
+
+  it("awards automated_review ONCE however many ways it is evidenced (no more 35 + 25 stacking)", () => {
+    const out = d4([
+      { path: ".coderabbit.yaml", content: "reviews: {}" },
+      wf("on:\n  pull_request:\njobs:\n  r:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n"),
+    ]);
+    expect(out.signalScore).toBe(25);
+    expect(out.facets).toEqual(["automated_review"]);
+  });
+
+  it("counts a model only on a line that DOES something — a comment or a job name is not an invocation", () => {
+    const comment = d4([wf("# we might add claude review later\non:\n  pull_request:\njobs:\n  claude-check:\n    steps:\n      - run: npm test\n")]);
+    expect(comment.facets).toEqual([]);
+    const invoked = d4([wf("on:\n  pull_request:\njobs:\n  r:\n    steps:\n      - run: claude -p \"review this diff\" < diff.txt\n")]);
+    expect(invoked.facets).toEqual(["automated_review"]);
+  });
+
+  it("recognises a bespoke review step with no vendor anywhere, when it runs on changes", () => {
+    const out = d4([wf("on: [pull_request]\njobs:\n  r:\n    steps:\n      - run: curl -s $OPENAI_API_URL -d @review.json\n        env:\n          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n")]);
+    expect(out.facets).toContain("automated_review");
+  });
+
+  it("classifies a model run from a dispatched/scheduled trigger as agent_dispatch, not review", () => {
+    const out = d4([wf("on:\n  workflow_dispatch:\njobs:\n  agent:\n    steps:\n      - run: claude -p \"triage open issues\"\n")]);
+    expect(out.facets).toEqual(["agent_dispatch"]);
+  });
+
+  it("credits the team's own versioned review rubric — the facet the old detector could not see", () => {
+    const rubric = "# Review rubric\n" + "Flag any change that widens a public API without a test.\n".repeat(6);
+    const out = d4([{ path: "prompts/review-rubric.md", content: rubric }]);
+    expect(out.facets).toEqual(["custom_judgment"]);
+    expect(out.signalScore).toBe(20);
+  });
+
+  it("does not credit a rubric that is only a stub", () => {
+    expect(d4([{ path: "prompts/review-rubric.md", content: "# TODO" }]).facets).toEqual([]);
+  });
+
+  it("scores the bot's commits and its config as the SAME dependency facet", () => {
+    const fromConfig = d4([{ path: ".github/dependabot.yml", content: "version: 2\nupdates: []\n" }]);
+    const fromTrail = d4([{ path: "go.mod", content: "module x" }], [
+      { message: "Bump golang.org/x/net from 1 to 2", authorLogin: "dependabot[bot]" },
+      { message: "chore(deps): update actions", authorLogin: "renovate[bot]" },
+    ]);
+    expect(fromConfig.signalScore).toBe(fromTrail.signalScore);
+    expect(fromTrail.facets).toEqual(["dependency_automation"]);
+  });
+
+  it("says plainly when nothing was found by shape, and why a bespoke setup might still exist", () => {
+    const out = d4([{ path: "src/index.ts", content: "export {}" }]);
+    expect(labelText(out.signals)).toMatch(/No agentic automation detected by shape/);
+    expect(out.signalScore).toBe(0);
   });
 });

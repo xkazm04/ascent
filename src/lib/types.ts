@@ -552,6 +552,10 @@ export interface DimensionSignals {
   /** Deterministic gaps that OVERRIDE the LLM's gaps for this dimension (D9's check-battery
    *  remediation). When set, the engine uses these as the dimension's `gaps` instead of `llm.gaps`. */
   gaps?: string[];
+  /** Facet ids this detector evidenced (claim-scored dimensions only, e.g. D4 — see
+   *  scoring/claims.ts). The engine adds points for a VERIFIED model claim only when its facet is not
+   *  already here, so the same practice observed twice is confirmation, never a second award. */
+  facets?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +588,18 @@ export interface Discrepancy {
   claim: string;
 }
 
+/** A CITED claim: the model asserts a practice facet and points at the evidence — a sampled file
+ *  path and a verbatim quote. Verified deterministically before it can award anything
+ *  (scoring/claims.ts). This is how a claim-scored dimension lets the model move the number: through
+ *  evidence it can name, never through the score field. */
+export interface LlmClaim {
+  dimension: DimensionId;
+  facet: string;
+  path: string;
+  quote: string;
+  note?: string;
+}
+
 export interface LlmAssessment {
   dimensions: LlmDimensionScore[];
   headline: string;
@@ -591,6 +607,10 @@ export interface LlmAssessment {
   risks: string[];
   roadmap: LlmRoadmapItem[];
   discrepancies: Discrepancy[];
+  /** Optional at the type level so pre-r9 constructors (the mock, fixtures, cached rows) still
+   *  type-check; the engine treats absence as "no claims", which scores the dimension from its
+   *  detector alone. */
+  claims?: LlmClaim[];
 }
 
 // ---------------------------------------------------------------------------

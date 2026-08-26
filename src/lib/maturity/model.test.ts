@@ -164,7 +164,7 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // exactly as wide as a maturity level, so model influence alone could move a repo's published
     // level (see the r8 note and the guardband's own comment). This is the case the backstop was
     // built for — a score-moving knob, so the bump is the remedy and the re-pin only records it.
-    const EXPECTED_RUBRIC_HASH = "68736375014d04334722ac933038ba1d94e466aec598d4a924df5f514d9224c8";
+    const EXPECTED_RUBRIC_HASH = "bc25615e545b3802b08d0f0f90780ff7301c98418cf00df47d7768e0f5112254";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

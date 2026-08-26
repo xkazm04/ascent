@@ -117,6 +117,10 @@ export type ChannelPayoff = "inert" | "consequential";
 export const REPO_OUTPUT_PAYOFF: Readonly<Record<string, ChannelPayoff>> = {
   dimensions: "consequential",
   discrepancies: "consequential",
+  // A verified claim MOVES a claim-scored dimension's number (scoring/claims.ts), and its quote is
+  // repository content echoed back — consequential on both counts. The verifier bounds what a claim
+  // can do (it must match a sampled file verbatim), but a field that changes a score is never inert.
+  claims: "consequential",
   headline: "inert",
   strengths: "inert",
   risks: "inert",

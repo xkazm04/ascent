@@ -80,7 +80,17 @@ import type {
 // comparable with an r8 one, which is the whole reason this token exists. Because it is folded into
 // the cache key, the bump re-derives every cached score fleet-wide rather than serving pre-bump
 // numbers for up to the 7-day cache age. See the reasoning on LLM_GUARDBAND below.
-export const SCORING_RUBRIC_VERSION = "r8";
+// r9 (2026-08-26): D4 (Agentic Workflows) is scored from VERIFIED CITATIONS (scoring/claims.ts). The
+// detector no longer sums vendor-name hits: it evidences FACETS (a review that runs, the team's own
+// review judgment, teeth, an observed trail, autofix, dependency automation, agent dispatch), a
+// config-file match requires the file to be non-empty, and workflow matches must sit in a `uses:`/
+// `run:`/`on:` line rather than anywhere in the YAML. The model may add a facet only by citing a
+// sampled file and a verbatim quote that the engine verifies; its D4 score field no longer moves the
+// number (no guardband blend for D4 — the citation IS the bound). Two nominal hits that used to stack
+// (config 35 + "LLM in CI" 25) now evidence one facet worth 25, so a vendor-config-only repo drops;
+// a bespoke review step the old regex could not name rises. Anonymous and token scans both move.
+// Not comparable with r8, which is what this token is for. docs/SCORING-VALIDITY.md has the case.
+export const SCORING_RUBRIC_VERSION = "r9";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -223,9 +233,13 @@ export const DIMENSIONS: DimensionDef[] = [
     weight: 0.12,
     axis: "adoption",
     description:
-      "Are agents in the loop (review, CI steps, auto-fix/PR, dependency automation)? The high-maturity signal.",
+      "Are agents in the loop — does automation take part in how changes are reviewed, fixed and shipped? The high-maturity signal.",
+    // r9: written as SHAPES, not vendors. The previous text named products (a review bot, an action, a
+    // dependency service), which taught the model — and the detector — to reward dropping a name over
+    // having the practice, and ranked a bespoke review step BELOW a vendor config. This dimension is now
+    // scored from verified citations against the facets in scoring/claims.ts; see docs/SCORING-VALIDITY.md.
     criteria:
-      "AI review bots (CodeRabbit, Claude/Copilot review, claude-code-action, Greptile, Sweep), LLM invocations inside CI, auto-fix/format bots, auto-PR tooling, Renovate/Dependabot auto-merge, issue->PR automation. High maturity = autonomous review/fix/ship loops, not just keyboard assist.",
+      "Judge the PRACTICE, not the tool. An automated review is a step that runs on changes and hands them to a model, by any means — a hosted app, a CI job calling any model API or CLI, a local model, a script. A review whose prompt, rubric or checklist is the team's own and versioned in the repository is MORE mature than a vendor default, not less: it is the team's judgment made repeatable. A configuration file alone, an empty file, or prose that says a review exists is not evidence the practice operates — look for the trigger, the invocation, the gate, and the trail it leaves in history. The same holds for automated fixes, dependency automation and agent dispatch. High maturity = the automation runs, has teeth (gates a merge or must be resolved), and demonstrably ran; keyboard assist alone is low.",
   },
   {
     id: "D5",

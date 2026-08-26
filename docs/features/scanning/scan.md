@@ -503,6 +503,19 @@ cancelled only when the last interested caller disconnects.
 | `src/lib/scan-scope-server.ts` | `resolveScanScope()`: validates + server-side-resolves a request's ref/sub-path for both scan routes. |
 | `src/lib/types.ts` | All domain types (`RepoSnapshot`, `DimensionSignals`, `LlmAssessment`, `ScanReport`, …). |
 
+## Cited claims (r9, 2026-08-26)
+
+The assessment JSON carries a `claims` array beside `discrepancies`. For a **claim-scored**
+dimension (D4 today — `src/lib/scoring/claims.ts`, `CLAIM_SCORED_DIMENSIONS`) the model does not
+move the score through its `score` field at all; it asserts a practice *facet* and cites a sampled
+file path plus a verbatim quote, and the engine verifies the quote exists in that file before
+awarding the facet's points. Rejected claims are rendered in the dimension's evidence with a reason.
+The D4 detector (`src/lib/analyze/index.ts` `d4`) reports the facets it evidenced on
+`DimensionSignals.facets`, so a verified claim on an already-found facet is confirmation rather than
+a second award; the r7 platform folds in `pulls.ts` and `platform-signals.ts` tag their facets the
+same way. Design and the adversarial case: [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md);
+the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-workflows-12--scored-from-verified-citations-r9-2026-08-26).
+
 ## Known gaps
 
 - **Coverage is a heuristic.** `estimateCoverage` caps confidence on truncated/large

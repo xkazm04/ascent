@@ -38,6 +38,7 @@ import {
   weightsFor,
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
+import { CLAIM_SCORED_DIMENSIONS, facetSpec, verifyClaims } from "@/lib/scoring/claims";
 import { buildDimensionFollowUps, buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { parseResolvedIds } from "@/lib/org/followups";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
@@ -207,9 +208,40 @@ export function assembleReport(
     const guarded = clamp(
       Math.max(s.signalScore - band, Math.min(s.signalScore + band, llmScore)),
     );
-    const score = s.deterministic
-      ? s.signalScore
-      : Math.round(effectiveBlend * guarded + (1 - effectiveBlend) * s.signalScore);
+    // CLAIM-SCORED dimensions (D4, r9 — scoring/claims.ts): no guardband blend at all. The model's
+    // score field is recorded for transparency and ignored for the number. The model moves the score
+    // only by CITING a facet the detector did not find — a sampled path and a verbatim quote the
+    // verifier confirms — and then by exactly that facet's points. A facet the detector already
+    // evidenced is confirmation, not a second award. The citation is the bound: drift is limited to
+    // what is actually in the repository, which is the property the ±6 band was approximating.
+    const claimed = CLAIM_SCORED_DIMENSIONS.includes(s.id)
+      ? verifyClaims(assessment.claims ?? [], snap, s.id)
+      : null;
+    let claimPoints = 0;
+    const claimEvidence: string[] = [];
+    if (claimed) {
+      const detected = new Set(s.facets ?? []);
+      for (const v of claimed.verified) {
+        const name = facetSpec(v.facet)?.id ?? v.facet;
+        if (detected.has(v.facet)) {
+          claimEvidence.push(`Model confirmed ${name} — ${v.path}: "${v.quote}"`);
+          continue;
+        }
+        detected.add(v.facet);
+        claimPoints += v.points;
+        claimEvidence.push(`Model cited ${name} (+${v.points}) — ${v.path}: "${v.quote}"`);
+      }
+      for (const r of claimed.rejected) {
+        // Every rejection is rendered: a claim that failed verification is the most useful sentence
+        // on the card, and the rate of them is the reliability signal SCORING-VALIDITY asks for.
+        claimEvidence.push(`Unverified claim (${r.reason}) — ${r.facet}, ${r.path}`);
+      }
+    }
+    const score = claimed
+      ? clamp(s.signalScore + claimPoints)
+      : s.deterministic
+        ? s.signalScore
+        : Math.round(effectiveBlend * guarded + (1 - effectiveBlend) * s.signalScore);
 
     return [{
       id: s.id,
@@ -219,7 +251,7 @@ export function assembleReport(
       signalScore: s.signalScore,
       llmScore,
       summary: llm?.summary || `${def.name}: scored ${s.signalScore}/100 from repository signals.`,
-      evidence: evidenceStrings(s),
+      evidence: [...evidenceStrings(s), ...claimEvidence],
       strengths: llm?.strengths ?? [],
       // Deterministic dimensions carry their own remediation (the check battery's fixes); everything
       // else uses the LLM's gaps.

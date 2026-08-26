@@ -14,6 +14,7 @@ import type {
   Signal,
 } from "@/lib/types";
 import { clamp } from "@/lib/maturity/model";
+import { facetPoints } from "@/lib/scoring/claims";
 import { AI_TRAILER_SOURCE } from "./ai-tools";
 
 // ---------------------------------------------------------------------------
@@ -434,50 +435,82 @@ const d3: Detector = (idx, snap) => {
 // ---------------------------------------------------------------------------
 // D4 — Agentic Workflows (the high-maturity signal)
 // ---------------------------------------------------------------------------
+// D4 is scored as FACETS (scoring/claims.ts, rubric r9): each is a SHAPE a practice takes, worth the
+// points the facet table assigns, and a facet is awarded once however many ways it is evidenced. The
+// vendor names below are INSTANCES the regex happens to know — the model can add any facet it can
+// cite (a bespoke review step, a local model, a script), so the list here no longer has to be complete
+// to be fair. Two things the old detector got wrong are fixed at this layer too: a config file must
+// be NON-EMPTY to count (an empty `.coderabbit.yaml` scored 35 — docs/SCORING-VALIDITY.md §2), and a
+// product name counts only on a line that DOES something (`uses:`/`run:`), not in a comment, a job
+// name or a `name:` string anywhere in the YAML.
 const d4: Detector = (idx, snap) => {
   const s = new Scorer();
+  const facets = new Set<string>();
+  /** Award a facet once. A second way of evidencing the same facet is recorded as confirmation. */
+  const award = (facet: string, label: string, detail?: string) => {
+    if (facets.has(facet)) return s.note(label, detail);
+    facets.add(facet);
+    s.add(facetPoints(facet), label, detail);
+  };
   const wf = idx.workflowText;
-  const blob = wf + " " + idx.pathText;
+  // Only lines that DO something are invocation evidence.
+  const actionLines = wf
+    .split("\n")
+    .filter((l) => /^\s*-?\s*(uses|run):/.test(l))
+    .join("\n");
+  const changeTrigger = /^\s*(pull_request(_target)?|push)\s*:|\bon:\s*\[?[^\n]*\b(pull_request|push)\b/m.test(wf);
+  const dispatchTrigger = /^\s*(issue_comment|issues|workflow_dispatch|schedule)\s*:|\bon:\s*\[?[^\n]*\b(issue_comment|issues|workflow_dispatch|schedule)\b/m.test(wf);
+  // "Hands the change to a model" — any model, named because a regex cannot recognise an unnamed one.
+  const modelInvoked = /anthropic|openai|gemini|bedrock|ollama|openrouter|litellm|\bclaude\b|\baider\b|\bllm\b|_api_key/.test(actionLines);
+  const nonEmpty = (name: string) => /\w+\s*[:=]/.test(idx.content(name) ?? "");
 
-  // AI code-review agent — match a bot CONFIG file or a bot token in WORKFLOW YAML, not a bare token in
-  // ANY tree path. The old all-paths match on generic words (`sweep`, `ellipsis`) false-fired on repos
-  // with e.g. `runtime/mgcsweep.go` — crediting golang/go & rustc a phantom AI reviewer (reference-scan
-  // P1-4). Scope the generic names to config files; keep unambiguous product tokens in workflow text.
+  // automated_review — a hosted app's config (non-empty), a known review action, or any model invoked
+  // from a step in a workflow that runs on changes. One facet, three instances.
+  if ([".coderabbit.yaml", ".coderabbit.yml", "sweep.yaml", ".qodo.yaml", ".ellipsis.yaml"].some(nonEmpty))
+    award("automated_review", "Automated AI review configured (hosted app, non-empty config)");
+  if (/coderabbit|claude-code-action|anthropics\/claude-code|greptile|pr-agent|qodo-ai|cubic-dev|ellipsis-dev/.test(actionLines))
+    award("automated_review", "Automated AI review runs from a workflow step");
+  if (modelInvoked && changeTrigger)
+    award("automated_review", "A model is invoked from a workflow step that runs on changes");
+  else if (modelInvoked && dispatchTrigger)
+    award("agent_dispatch", "A model is invoked from a dispatched or scheduled workflow");
+
+  // custom_judgment — the team's own review prompt/rubric, versioned. The strongest thing this
+  // dimension can find, and the one the old detector could not see at all.
+  const rubricPath = idx.paths.find((p) =>
+    /(^|\/)(\.github\/|\.claude\/(commands|agents|skills)\/|\.cursor\/rules\/|prompts?\/|rubrics?\/)?[^/]*review[^/]*(prompt|rubric|guide|checklist|instructions|policy)[^/]*$/i.test(p) ||
+    /(^|\/)(prompts?|rubrics?)\/[^/]*review[^/]*$/i.test(p),
+  );
+  if (rubricPath && (idx.content(rubricPath.toLowerCase()) ?? "").length >= 200)
+    award("custom_judgment", "The team's own review prompt/rubric is versioned in the repo", rubricPath);
+
+  // autofix — a bot or step that corrects, on a line that runs it.
   if (
-    idx.has(/(^|\/)(\.coderabbit\.ya?ml|sweep\.ya?ml|\.qodo\.ya?ml|\.ellipsis\.ya?ml)$/) ||
-    /coderabbit|claude-code-action|anthropics\/claude-code|greptile|pr-agent|qodo-ai|cubic-dev|ellipsis-dev/.test(wf)
+    [".github/autofix.yml", "autofix.ci"].some(nonEmpty) ||
+    /autofix|pre-commit\.ci|--fix\b|git-auto-commit|autoformat/.test(actionLines)
   )
-    s.add(35, "AI code-review agent in the pipeline");
+    award("autofix", "Automated fix/format step");
 
-  if (
-    /anthropic_api_key|openai_api_key|gemini_api_key|google_api_key|anthropics\/|openai\b|claude|aws-actions\/.*bedrock/.test(
-      wf,
-    )
-  )
-    s.add(25, "LLM invoked inside CI");
-
-  if (idx.has(/(^|\/)(autofix\.ci|\.autofix)/) || /autofix|pre-commit\.ci|lint.*--fix/.test(blob))
-    s.add(15, "Automated fix/format bot");
-
-  const depAuto =
-    idx.content(".github/dependabot.yml") || idx.content("renovate.json") || "";
-  if (/automerge|auto-merge/.test(depAuto.toLowerCase()) || /automerge/.test(blob))
-    s.add(15, "Dependency auto-merge enabled");
-
-  if (/issue.*comment|workflow_dispatch.*agent|peter-evans\/create-pull-request/.test(wf))
-    s.add(15, "Issue/PR automation workflow");
-
-  if (idx.has(/(^|\/)\.github\/dependabot\.yml$/) || idx.has(/(^|\/)renovate\.json$/))
-    s.add(10, "Dependency update bot configured");
-  // Behavioral fallback: the bot is often enabled at the org/App level with NO committed config, yet
-  // its commits flood the history — crediting them resolves the D4↔D9 "no dependency tool" contradiction
-  // (reference-scan P1-2). Slightly lower than a committed config (less auditable in-repo).
+  // dependency_automation — a committed config (non-empty) or the bot's commits in history (org/App-
+  // level enablement with nothing committed — reference-scan P1-2). Same facet, same points: the trail
+  // is not weaker evidence than the file.
+  if ([".github/dependabot.yml", "renovate.json", ".renovaterc.json", ".renovaterc"].some(nonEmpty))
+    award("dependency_automation", "Dependency update bot configured");
   else if (snap && hasDependencyBotCommits(snap))
-    s.add(8, "Dependency update bot active (org/App-level, no committed config)");
+    award("dependency_automation", "Dependency update bot active (org/App-level, no committed config)");
+  const depAuto = idx.content(".github/dependabot.yml") || idx.content("renovate.json") || "";
+  if (/automerge|auto-merge/.test(depAuto.toLowerCase())) s.note("Dependency auto-merge enabled");
 
-  if (s.signals.length === 0)
-    s.note("No agentic/AI-in-CI workflows detected", "e.g. AI review bots, LLM steps in CI, auto-merge");
-  return s.result("D4");
+  // agent_dispatch — an issue, a comment or a manual trigger turns into a change via automation.
+  if (dispatchTrigger && /peter-evans\/create-pull-request|create-pull-request|gh pr create/.test(actionLines))
+    award("agent_dispatch", "Dispatched workflow opens changes");
+
+  if (facets.size === 0)
+    s.note(
+      "No agentic automation detected by shape",
+      "a bespoke review step, a local model or a custom harness is recognised only through a model-cited claim; none was available",
+    );
+  return { ...s.result("D4"), facets: [...facets] };
 };
 
 /** Renovate/Dependabot fingerprints in recent commits — the behavioral signal that a dependency-update

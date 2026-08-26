@@ -7,6 +7,7 @@ import type { Governance, PrStats, SecurityAssessment } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, FOLLOW_UP_BELOW, LEVELS } from "@/lib/maturity/model";
 import { MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
+import { facetContract } from "@/lib/scoring/claims";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import {
   neutralize,
@@ -165,6 +166,8 @@ invitational throughout — provide inputs to explore, not directives to follow.
 The "title" must state the gap ACCURATELY and must not contradict its own "rationale" (e.g. do not
 title an item "tests run in CI but don't gate" when the rationale notes CI never runs the tests at all).
 
+${facetContract()}
+
 Finally, act as an AUDITOR: list any "discrepancies" — dimensions where you believe the
 deterministic signalScore is WRONG based on the sampled file evidence (e.g. tests clearly
 exist but the signal reported none, or a config was missed). Each is a one-sentence claim
@@ -184,7 +187,8 @@ Respond with JSON only in exactly this shape:
   "strengths": [""],
   "risks": [""],
   "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"}],
-  "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}]
+  "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}],
+  "claims": [{"dimension":"D4","facet":"automated_review","path":".github/workflows/review.yml","quote":"on:\\n  pull_request:","note":"A review job runs on every PR and calls the model."}]
 }`;
 
 // The full stable system prefix, composed ONCE at module load so every scan sends byte-identical

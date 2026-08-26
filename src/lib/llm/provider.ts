@@ -28,6 +28,8 @@ import type {
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
 import { IMPACT_LEVELS } from "@/lib/llm/schema";
+import { CLAIM_MAX, CLAIM_QUOTE_MAX, CLAIM_SCORED_DIMENSIONS, D4_FACET_IDS } from "@/lib/scoring/claims";
+import type { LlmClaim } from "@/lib/types";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { deEmDash } from "@/lib/llm/prose";
 import type { StackFit } from "@/lib/analyze/stack-fit";
@@ -242,6 +244,27 @@ export function validateAssessment(raw: unknown): LlmAssessment {
     }
   }
 
+  // Cited claims (scoring/claims.ts). Shape-checked here, VERIFIED in the engine against the snapshot
+  // — this layer cannot see the repo. The quote deliberately bypasses cap(): cap() rewrites em dashes
+  // (deEmDash) and would turn a faithful quote of a file containing one into a quote that no longer
+  // matches, and the whole point of a quote is that it matches. Control characters are still stripped
+  // (they are never legitimate file content worth matching on) and the length is bounded.
+  const claims: LlmClaim[] = [];
+  if (Array.isArray(obj.claims)) {
+    for (const c of (obj.claims as Record<string, unknown>[]).slice(0, CLAIM_MAX * 4)) {
+      const dim =
+        typeof c?.dimension === "string" && (CLAIM_SCORED_DIMENSIONS as string[]).includes(c.dimension)
+          ? (c.dimension as DimensionId)
+          : null;
+      const facet = typeof c?.facet === "string" && D4_FACET_IDS.includes(c.facet.trim()) ? c.facet.trim() : null;
+      const path = typeof c?.path === "string" ? c.path.replace(CONTROL_CHARS, "").trim().slice(0, 300) : "";
+      const quote = typeof c?.quote === "string" ? c.quote.replace(CONTROL_CHARS, "").trim().slice(0, CLAIM_QUOTE_MAX) : "";
+      if (!dim || !facet || !path || !quote) continue;
+      const note = typeof c?.note === "string" ? cap(c.note.trim()) : undefined;
+      claims.push(note ? { dimension: dim, facet, path, quote, note } : { dimension: dim, facet, path, quote });
+    }
+  }
+
   return {
     dimensions: dims,
     headline: typeof obj.headline === "string" ? cap(obj.headline.trim()) : "",
@@ -249,6 +272,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
     risks: asStringArray(obj.risks),
     roadmap: roadmap.slice(0, 6),
     discrepancies: discrepancies.slice(0, 8),
+    claims: claims.slice(0, CLAIM_MAX),
   };
 }
 

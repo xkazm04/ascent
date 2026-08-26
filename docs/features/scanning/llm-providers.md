@@ -418,6 +418,20 @@ a provider to the union without adding its label fails the build.
   loop. Throws a typed `ProviderParseError` (carrying a truncated snippet) only when every
   strategy fails.
 
+### `claims` (r9, 2026-08-26)
+
+The assessment contract gained a top-level `claims` array — `{dimension, facet, path, quote, note?}`
+— for the claim-scored dimensions (`src/lib/scoring/claims.ts`). Three things about how it crosses
+this layer are deliberate. The `facet` enum in `ASSESSMENT_JSON_SCHEMA` is **derived** from the facet
+table, so the schema can never teach the model a facet the verifier rejects. `validateAssessment`
+shape-checks a claim but does not verify it — this layer cannot see the repository; verification
+happens in the engine against the snapshot. And the `quote` deliberately **bypasses `cap()`**: `cap()`
+rewrites em dashes (`deEmDash`), which would turn a faithful quote of a file containing one into a
+quote that no longer matches — and matching is the whole point. Control characters are still
+stripped and the length is bounded (`CLAIM_QUOTE_MAX`). `claims` is classified `consequential` in
+`REPO_OUTPUT_PAYOFF` (`untrusted.ts`): a verified claim moves a score, and its quote is repository
+content echoed back.
+
 ## Free-form text seam (`src/lib/llm/text.ts`)
 
 `LLMProvider.assess()` is shaped around exactly one contract (`LlmScoreInput →

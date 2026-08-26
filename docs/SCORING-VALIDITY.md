@@ -170,6 +170,15 @@ forbids that answer, correctly.
 2. **Add content checks to the cheapest-to-fake, highest-value detectors.** A `.coderabbit.yaml`
    scoring 35 should at minimum be non-empty and parse. The workflow-text matches should require a
    `uses:`/`run:` context rather than a bare substring anywhere in the YAML.
+   **Done for D4 in rubric r9 (2026-08-26)** — and superseded by something better than content
+   checks: D4 is now scored from **verified citations** (`src/lib/scoring/claims.ts`). The practice
+   is decomposed into facets any tool can satisfy; the model adds a facet only by citing a sampled
+   file and a verbatim quote the engine verifies; its D4 score field no longer moves the number and
+   D4 has no guardband. This resolves §1's dilemma rather than picking a side: the model's judgment
+   moves the score again, through evidence it can point at instead of through appetite. Verified
+   against §2's exploit — a config-only repo tops out at 35 and cannot reach the band without teeth
+   and a trail, while a bespoke, versioned, gated review reaches 100 with no vendor anywhere
+   (`engine.claims.test.ts`).
 3. **Separate "configured" from "observed".** D4's own behavioural fallback already does this well
    (`hasDependencyBotCommits` scores 8 vs 10 for a committed config). Generalise it: a bot that has
    *actually left commits or reviews* is worth more than a config that claims one, not less.
