@@ -131,7 +131,18 @@ export async function appendLaneLog(id: string, line: string): Promise<void> {
  * @param orgSlug scope to one org; omit to sweep every org (the boot sweep).
  * @returns how many runs were reconciled.
  */
-export async function markStaleRunsStopped(orgSlug?: string): Promise<number> {
+export async function markStaleRunsStopped(
+  orgSlug?: string,
+  /**
+   * Which run ids THIS process is still driving. Without it every `running` row is treated as
+   * orphaned — correct for the boot sweep (a fresh process drives nothing) and wrong for every
+   * later call: the loop route reconciles on each GET, so with no predicate a page load during a
+   * run stopped the run it was rendering (found 2026-08-26 when the drive door's first run died
+   * 35 seconds into cycle 1 on the very poll that was watching it). Pass the engine's
+   * `isLoopRunLive`; it is backed by a process-wide registry, so every route chunk agrees.
+   */
+  isLive: (id: string) => boolean = () => false,
+): Promise<number> {
   if (!isDbConfigured()) return 0;
   const prisma = getPrisma();
   let orgId: string | undefined;
@@ -141,7 +152,8 @@ export async function markStaleRunsStopped(orgSlug?: string): Promise<number> {
     orgId = org.id;
   }
   const where = { phase: "running", ...(orgId ? { orgId } : {}) };
-  const stale = await prisma.loopRun.findMany({ where, select: { id: true } }).catch(() => []);
+  const running = await prisma.loopRun.findMany({ where, select: { id: true } }).catch(() => []);
+  const stale = running.filter((r) => !isLive(r.id));
   if (stale.length === 0) return 0;
   const ids = stale.map((r) => r.id);
   await prisma.loopRun.updateMany({

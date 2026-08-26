@@ -415,6 +415,21 @@ per-run debt before/after. Process-local like the engine's `live` registry: ever
 durable `LoopRun`, so what happened survives a restart; a restart ends the drive rather than resuming
 into a state it cannot verify.
 
+### Two liveness bugs the drive exposed (2026-08-26)
+
+The first drive's only run died 35 seconds into cycle 1 — on the poll that was watching it.
+Two causes, both now fixed:
+
+- **The stale-run reconcile consulted no liveness.** `markStaleRunsStopped` marked *every*
+  `running` row stopped, and `GET /api/org/loop` calls it on every request — so any page load or
+  poll during a run stopped the run it was rendering. It now takes an `isLive(id)` predicate
+  (defaulting to "nothing is live", which is right only for the boot sweep); the engine and the
+  loop route pass `isLoopRunLive`.
+- **The engine's `live` registry was per module instance, not per process.** Next bundles each
+  API route into its own server chunk, so a module-level `Map` is instantiated once *per chunk*: a
+  run started by the drive route was invisible to the loop route. Both registries (`live`, and
+  the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
+
 ## Known gaps
 
 - **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns

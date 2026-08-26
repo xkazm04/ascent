@@ -49,7 +49,14 @@ interface LiveRun {
   worktrees: Map<string, LoopWorktree>;
 }
 
-const live = new Map<string, LiveRun>(); // keyed by run id
+// ONE registry per PROCESS, on globalThis — not per module instance. Next bundles each API route
+// into its own server chunk, and a module-level `const live = new Map()` is instantiated once PER
+// CHUNK: a run started from one route (the drive door) was invisible to the loop route, whose
+// stale-run reconcile then judged it dead and marked it stopped 35 seconds into cycle 1 (2026-08-26).
+// Same hazard, same fix as pglite-boot's adapter handle. Keyed by run id.
+const LIVE_KEY = "__ascentLoopLive" as const;
+const live: Map<string, LiveRun> = ((globalThis as unknown as Record<string, unknown>)[LIVE_KEY] ??=
+  new Map<string, LiveRun>()) as Map<string, LiveRun>;
 
 export interface StartLoopRunInput {
   org: string;
@@ -83,7 +90,7 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
 
   // A `running` row with no live registry entry died with a previous process — reconcile BEFORE the
   // one-run-per-org check, or a single crash would bar the org from ever starting another run.
-  await markStaleRunsStopped(org);
+  await markStaleRunsStopped(org, isLoopRunLive);
   const active = await getActiveLoopRun(org);
   if (active && live.has(active.id)) throw new Error(`A loop run is already active for ${org}.`);
 

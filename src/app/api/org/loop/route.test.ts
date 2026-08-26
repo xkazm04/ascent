@@ -47,6 +47,7 @@ vi.mock("@/lib/local/loop-engine", () => ({
   startLoopRun: vi.fn(async () => ({ id: "run-new", phase: "running", repos: ["acme/web"] })),
   stopLoopRun: vi.fn(async () => true),
   retryLane: vi.fn(async () => true),
+  isLoopRunLive: vi.fn((id: string) => id === "run-live"),
 }));
 
 import { GET, POST } from "./route";
@@ -89,6 +90,17 @@ describe("GET /api/org/loop", () => {
   it("answers { enabled, active, runs }", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
     expect(body).toEqual({ enabled: true, active: null, runs: [] });
+  });
+
+  it("reconciles stale runs WITH the engine's liveness — a run this process drives is not stale", async () => {
+    // 2026-08-26: without the predicate this GET stopped the run it was rendering.
+    const { markStaleRunsStopped } = await import("@/lib/db/loop-runs");
+    await get("org=acme");
+    const call = vi.mocked(markStaleRunsStopped).mock.calls.at(-1)!;
+    expect(call[0]).toBe("acme");
+    const isLive = call[1] as (id: string) => boolean;
+    expect(isLive("run-live")).toBe(true);
+    expect(isLive("run-orphan")).toBe(false);
   });
 });
 

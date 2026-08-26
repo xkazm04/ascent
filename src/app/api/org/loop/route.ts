@@ -29,7 +29,7 @@ import {
   listLoopRuns,
   markStaleRunsStopped,
 } from "@/lib/db/loop-runs";
-import { retryLane, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { isLoopRunLive, retryLane, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
 
 export const runtime = "nodejs";
@@ -43,8 +43,10 @@ export async function GET(request: Request) {
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
   // Reconcile before reading: a run left `running` by a process that died is not resumable, and
-  // rendering it as active would leave the wall spinning on a job nobody is driving.
-  await markStaleRunsStopped(org).catch(() => 0);
+  // rendering it as active would leave the wall spinning on a job nobody is driving. A run THIS
+  // process is driving is not stale — without the predicate this GET stopped the run it was
+  // rendering (2026-08-26).
+  await markStaleRunsStopped(org, isLoopRunLive).catch(() => 0);
   const [active, runs] = await Promise.all([getActiveLoopRun(org), listLoopRuns(org, 20)]);
   return NextResponse.json({ enabled: autopilotEnabled(), active, runs });
 }

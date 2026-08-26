@@ -117,7 +117,11 @@ export async function measureDrive(orgSlug: string, repos: readonly string[]): P
 
 // ── the registry ─────────────────────────────────────────────────────────────────────────────────
 
-const drives = new Map<string, DriveStatus>();
+// On globalThis for the same reason loop-engine's `live` is: one registry per process, not per
+// route chunk, so a status read from any route sees the drive another route started.
+const DRIVES_KEY = "__ascentDrives" as const;
+const drives: Map<string, DriveStatus> = ((globalThis as unknown as Record<string, unknown>)[DRIVES_KEY] ??=
+  new Map<string, DriveStatus>()) as Map<string, DriveStatus>;
 
 const nowIso = () => new Date().toISOString();
 const driveId = () => `drive_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
