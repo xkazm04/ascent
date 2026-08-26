@@ -46,6 +46,13 @@ can decide anything.
 | `POST { url, path? }` | the single-project shorthand |
 | `DELETE { fullName, drop?: true }` | unpair; `drop` also leaves scan scope |
 
+The `GET` also carries **greenness** (`src/lib/maturity/green.ts`): the target band, each in-scope
+repo's per-dimension gaps and point debt, and whether the fleet as a whole has arrived. It rides the
+same read on purpose — "what is mapped" and "where does it stand" are one question for anything
+driving a loop, and asking them separately invites acting on a scope that has moved since the
+standing was measured. Scope is what is **watched**: an unwatched row still appears (it keeps its
+history and its pairing state is worth seeing) but cannot hold the fleet back from green.
+
 Same guards as the routes it composes, outermost first: self-host 404 → the local-org flag → DB →
 **owner**. An explicit `org` is accepted only when it *is* the declared one, so this door can never
 be pointed at a real tenant (403).

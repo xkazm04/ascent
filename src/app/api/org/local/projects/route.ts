@@ -35,7 +35,8 @@ import { selfHostGuard } from "@/lib/api/self-host";
 import { parseRepoUrl } from "@/lib/github/source";
 import { verifyLocalPath } from "@/lib/local/pairing";
 import { ensureLocalOrg, localOrgName } from "@/lib/local/org";
-import { listLocalPairings, setRepoLocalPath, setRepoWatch } from "@/lib/db";
+import { GREEN_LEVEL, GREEN_MIN_SCORE, fleetGreenness, repoGreenness } from "@/lib/maturity/green";
+import { getOrgRollup, listLocalPairings, setRepoLocalPath, setRepoWatch } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,11 +85,34 @@ export async function GET(request: Request) {
   if (g.denied) return g.denied;
 
   const projects = await listLocalPairings(g.org.slug);
+
+  // Greenness rides along on the SAME read, because "what is mapped" and "where does it stand" are
+  // one question for anything driving a loop — asking them separately invites acting on a scope that
+  // has moved since the standing was measured. `dims` for every repo is already in the rollup, so
+  // this costs one query, not nine per repo (which is what /api/org/repo-dimension would have been).
+  const rollup = await getOrgRollup(g.org.slug);
+  const dimsByRepo = new Map<string, { dimId: string; score: number }[]>();
+  for (const r of rollup?.repos ?? []) if (r.latest) dimsByRepo.set(r.fullName, r.latest.dims);
+
+  // Scope is what is WATCHED. An unwatched row still appears in `projects` (it keeps its history and
+  // its pairing state is worth seeing) but must not hold the fleet back from green.
+  const inScope = projects.filter((p) => p.watched);
+  const fleet = fleetGreenness(inScope.map((p) => repoGreenness(p.fullName, dimsByRepo.get(p.fullName) ?? [])));
+
   return NextResponse.json({
     org: g.org.slug,
     name: localOrgName(),
     projects,
     paired: projects.filter((p) => p.localPath != null).length,
+    green: {
+      target: GREEN_LEVEL,
+      minScore: GREEN_MIN_SCORE,
+      fleetGreen: fleet.green,
+      greenCount: fleet.greenCount,
+      inScope: inScope.length,
+      totalDebt: fleet.totalDebt,
+      repos: fleet.repos,
+    },
   });
 }
 
