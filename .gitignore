@@ -106,3 +106,6 @@ docs/harness/
 /.claude/rules/ai-registry-access.md
 /.claude/rules/ai-registry-software-engineering.md
 # END ai-registry linked skills
+
+# detached dev-server log (see docs/features/local-mode)
+dev-server.log

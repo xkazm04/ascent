@@ -10,6 +10,53 @@ does not have to lead against GitHub. A paired repo scans from disk; an `Ascent-
 closes its follow-up the moment it is **committed, before any push**; and the war room can dispatch a
 local coding agent at the backlog and verify its work in the same breath.
 
+## The declared org (`ASCENT_LOCAL_ORG`, 2026-08-26)
+
+Ascent's tenancy is org-shaped — a `Repository` hangs off an `Organization`, every gate is
+`(role × slug)`, and both pairing routes take an `org`. That is right for a GitHub organization
+fleet and wrong for the case local mode actually serves: **an operator whose projects are public
+repos on their personal account**, which has no GitHub organization behind it. There is nothing to
+import and no installation to key off, so the routes worked but the operator had no legal value to
+pass them.
+
+So local mode may **declare** one. `ASCENT_LOCAL_ORG` names a slug that exists because the operator
+said so (`1`/`true` → the default slug `local`; any other value is used as the slug;
+`ASCENT_LOCAL_ORG_NAME` sets the display name). The row is created on demand by `ensureLocalOrg()`
+(`src/lib/local/org.ts`), so flipping the flag on a running server takes effect at the next request.
+
+**`kind` stays `"org"`, deliberately.** `kind: "personal"` is not "an org for one person" — per
+`schema.prisma` it means the org holds watch-*pointer* rows only and a public repo's scan series
+stays in the shared `public` org, because a personal dashboard is a *lens* over that corpus. This
+org is the opposite: it owns its repos and its scans, it is the scope a loop runs over, and its
+dimension scores must be its own. Marking it personal would route every scan into the public corpus
+and leave the org rendering a lens over data it does not control.
+
+## Project mapping, headless (`/api/org/local/projects`, 2026-08-26)
+
+The two primitives (`/api/org/local/repo`, `/api/org/local/pairing`) both work and both are
+POST-only, so nothing could **read** the current mapping back, and adding a project took two round
+trips that could half-succeed — in scope, unpaired — with no way to observe which state you were in.
+An agent asked to keep a fleet green has to be able to ask *"what is mapped right now?"* before it
+can decide anything.
+
+| | |
+| --- | --- |
+| `GET ?org=<slug>` | the org and every project with its pairing state |
+| `POST { projects: [{ url, path? }] }` | add to scope, and pair when a path is given |
+| `POST { url, path? }` | the single-project shorthand |
+| `DELETE { fullName, drop?: true }` | unpair; `drop` also leaves scan scope |
+
+Same guards as the routes it composes, outermost first: self-host 404 → the local-org flag → DB →
+**owner**. An explicit `org` is accepted only when it *is* the declared one, so this door can never
+be pointed at a real tenant (403).
+
+**Partial success is reported, never swallowed.** Scope lands first and unconditionally; a path that
+fails verification leaves the project **in scope and unpaired** with the verifier's own sentence
+attached, and the batch answers **207**. Rolling back the scope write would discard a good half over
+a fixable typo; a bare `ok: false` would hide which half survived. `DELETE` unpairs but does not
+delete scan history — that history is the org's record of what it learned, and a mapping call must
+not be able to erase it.
+
 ## Pairing (Admin → Pairing)
 
 - `Repository.localPath` (nullable; cloud never writes it) maps a fleet repo to an absolute path on
