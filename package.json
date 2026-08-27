@@ -4,7 +4,7 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",

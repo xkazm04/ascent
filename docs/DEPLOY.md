@@ -27,9 +27,12 @@ the command that builds production** (the build-time `prisma migrate deploy` is 
 Mitigation: a failed Vercel build leaves the previous deployment live. Owed fix: run the full
 chain in CI against a disposable database, or move the migration out of `buildCommand`.
 
-**Node authority.** `package.json` pins `"engines": { "node": "20.x" }` so Vercel's runtime major
-is pinned by the repo — with a loose `>=20`, Vercel picks the major itself. `.nvmrc` (20) and CI's
-`node-version` derive from it; bump all three together.
+**Node authority.** `package.json` pins `"engines": { "node": "24.x" }` so Vercel's runtime major
+is pinned by the repo — with a loose `>=20`, Vercel picks the major itself. `.nvmrc` (24) and CI's
+`node-version` derive from it; bump all three together. Field note (2026-08-27): the Vercel
+project had been building production on 24.x for two months while the repo said 20 everywhere
+— a live parity divergence. 24 is the version production actually ran and the local gate proved
+green on, so the repo was aligned to it rather than forcing Vercel back to an end-of-life 20.
 
 **Rollback.** `vercel rollback`, or promote the previous good deployment from the Vercel
 dashboard (instant, no rebuild). Code only: Prisma migrations are forward-only and are **not**
@@ -43,10 +46,14 @@ trigger has deliberately not been patched yet.
 
 **Vercel CLI re-linking.** `.vercel/` is absent/gitignored, so a fresh clone cannot CLI-deploy or
 `vercel rollback` until linked: run `vercel link` (interactive, after `vercel login`), or export
-`VERCEL_ORG_ID` + `VERCEL_PROJECT_ID`. Operator: fill these in after linking —
+`VERCEL_ORG_ID` + `VERCEL_PROJECT_ID` (identifiers, not secrets; linked 2026-08-27):
 
-- `VERCEL_ORG_ID`: `TODO`
-- `VERCEL_PROJECT_ID`: `TODO`
+- `VERCEL_ORG_ID`: `team_x2mjBAxi3mgsZkKQ1SJgkjqL`
+- `VERCEL_PROJECT_ID`: `prj_enoDciZF5ewfLRjGIqnaqdASyEL0`
+
+Env inventory (`vercel env ls`, 2026-08-27): 17 variables, every one scoped Preview + Production
+— so previews build with the same variable set as production (with the same values, which is the
+next thing to split: a preview should hold scoped, lower-privilege values).
 
 ## Production requirements
 
