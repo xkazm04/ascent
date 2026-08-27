@@ -77,11 +77,14 @@ export function TourChecklist({ slug }: { slug: string }) {
   // effects run in declaration order, and the engine's persist effect writes the same record — read
   // after it and every mount would look like "the user already chose collapsed", so the companion could
   // never open itself. Not a lazy initializer (the drawer renders inside a server-rendered layout).
+  // The "taken" flag is a REF, not state: it only sequences this effect ahead of the restore effect
+  // below, and declaration order already guarantees that within every commit — nothing needs to
+  // re-render when it flips (state here would be a synchronous setState in an effect).
   const savedRef = useRef<TourStorageState | null>(null);
-  const [snapshotTaken, setSnapshotTaken] = useState(false);
+  const snapshotTakenRef = useRef(false);
   useEffect(() => {
     savedRef.current = readTourState(slug);
-    setSnapshotTaken(true);
+    snapshotTakenRef.current = true;
   }, [slug]);
 
   const isDemoOrg = slug.trim().toLowerCase() === PUBLIC_ORG;
@@ -104,11 +107,11 @@ export function TourChecklist({ slug }: { slug: string }) {
   // always wins: a member who shut the companion this session must not have it pushed back open on every
   // navigation. With nothing stored, the posture decides — that IS the entry-intensity rule.
   useEffect(() => {
-    if (!loaded || !snapshotTaken || restored) return;
+    if (!loaded || !snapshotTakenRef.current || restored) return;
     const saved = savedRef.current;
     setOpen(saved ? saved.open : derived === "companion");
     setRestored(true);
-  }, [loaded, snapshotTaken, restored, derived]);
+  }, [loaded, restored, derived]);
 
   useEffect(() => {
     if (restored) patchTourState(slug, { open });

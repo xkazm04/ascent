@@ -17,6 +17,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate
+      # `npm run verify` (lint → typecheck → test:coverage → build) mirrors this blocking set — the
+      # pre-push gate (.githooks/pre-push) and this job must change together. Coverage runs the same
+      # vitest suite as "Unit tests" below, so verify covers both steps without running it twice.
       - name: Lint
         run: npm run lint
       - name: Typecheck

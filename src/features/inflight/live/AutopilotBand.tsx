@@ -40,8 +40,13 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
     }
   }, [org]);
 
+  // Catch a run started in another tab / before this mount. Scheduled on a zero-delay timer (with
+  // cleanup) instead of called in the effect body so `poll`'s setState runs as an async callback,
+  // not synchronously in the effect (react-hooks/set-state-in-effect); poll is an idempotent GET,
+  // so a cancel/reschedule (StrictMode, org change) costs nothing.
   useEffect(() => {
-    void poll(); // catch a run started in another tab / before this mount
+    const t = setTimeout(() => void poll(), 0);
+    return () => clearTimeout(t);
   }, [poll]);
 
   useEffect(() => {

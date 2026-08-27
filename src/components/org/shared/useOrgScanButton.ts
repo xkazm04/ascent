@@ -132,7 +132,12 @@ export function useOrgScanButton(org: string, watchedCount: number) {
     const repos = consumeUpgradeScanFlag(org);
     if (!repos) return;
     autoStarted.current = true;
-    void run({ repos });
+    // Deferred one microtask so `run`'s synchronous head (the initial "running" setP) executes as an
+    // async continuation rather than inside the effect body (react-hooks/set-state-in-effect). No
+    // cancelling cleanup on purpose: the flag is already consumed, and StrictMode's doubled effect
+    // (effect → cleanup → effect) re-enters with `autoStarted` latched — a cancel in the cleanup
+    // would silently swallow the one-shot handoff.
+    void Promise.resolve().then(() => run({ repos }));
     // Mount-only by design: the flag is one-shot and `run` is stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
