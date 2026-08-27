@@ -13,7 +13,7 @@ import type { PairingView } from "./pairingClient";
 export function PairingList({ org, initial }: { org: string; initial: PairingView[] }) {
   const router = useRouter();
   if (initial.length === 0) {
-    return <SectionEmpty>No repositories in scope yet — add one above, or import your org's fleet from Onboarding.</SectionEmpty>;
+    return <SectionEmpty>No repositories in scope yet — add one above, or import your org&apos;s fleet from Onboarding.</SectionEmpty>;
   }
   const paired = initial.filter((r) => r.localPath != null).length;
   return (

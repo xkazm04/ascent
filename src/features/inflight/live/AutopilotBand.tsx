@@ -41,7 +41,7 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
   }, [org]);
 
   useEffect(() => {
-    void poll(); // catch a run started in another tab / before this mount
+    void (async () => { await poll(); })(); // catch a run started in another tab / before this mount
   }, [poll]);
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
         <div>
           <span className="font-mono text-xs uppercase tracking-[0.25em] text-accent">Autopilot · local</span>
           <p className="mt-1 text-sm text-slate-400">
-            Dispatch a local agent at a paired repo's follow-ups — it works an isolated branch, and a from-disk rescan
+            Dispatch a local agent at a paired repo&apos;s follow-ups — it works an isolated branch, and a from-disk rescan
             closes what its trailers resolved. Nothing is ever pushed; you review and merge the branch.
           </p>
         </div>

@@ -132,7 +132,7 @@ export function useOrgScanButton(org: string, watchedCount: number) {
     const repos = consumeUpgradeScanFlag(org);
     if (!repos) return;
     autoStarted.current = true;
-    void run({ repos });
+    void (async () => { await run({ repos }); })();
     // Mount-only by design: the flag is one-shot and `run` is stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

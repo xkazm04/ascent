@@ -40,7 +40,7 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
         <h1 className="mt-1 text-2xl font-bold text-white">Engineering maturity across the book</h1>
         <p className="mt-2 max-w-2xl text-base text-slate-400">
           Compare AI-native engineering maturity, trajectory and posture across several organizations on one yardstick.
-          It's the fleet-of-fleets read for a portfolio or platform lead.
+          It&apos;s the fleet-of-fleets read for a portfolio or platform lead.
         </p>
 
         <form method="get" className="mt-6 flex flex-wrap items-end gap-3">

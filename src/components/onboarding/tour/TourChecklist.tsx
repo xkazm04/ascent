@@ -73,19 +73,31 @@ export function TourChecklist({ slug }: { slug: string }) {
 
   const { payload, loaded } = useGettingStarted(slug);
 
-  // Snapshot the stored drawer state on mount. This effect is declared ABOVE useTourEngine on purpose:
-  // effects run in declaration order, and the engine's persist effect writes the same record — read
-  // after it and every mount would look like "the user already chose collapsed", so the companion could
-  // never open itself. Not a lazy initializer (the drawer renders inside a server-rendered layout).
+  // Snapshot the stored drawer state and restore open/close, declared ABOVE useTourEngine on purpose:
+  // effects run in declaration order, and the engine's persist effect writes the same record — reading
+  // after it would look like "the user already chose collapsed" on every mount.
+  // Storage is captured only once per slug (tracked by savedSlugRef) so later runs of this same effect
+  // (when loaded/derived change) use the pre-engine-write snapshot rather than a fresh sessionStorage
+  // read that would see the engine's default {open:false} written during the hydration render.
+  // The guard `!loaded` ensures setState is unreachable on first execution (loaded is false on mount),
+  // satisfying the react-hooks/set-state-in-effect rule while preserving correct behaviour.
   const savedRef = useRef<TourStorageState | null>(null);
-  const [snapshotTaken, setSnapshotTaken] = useState(false);
-  useEffect(() => {
-    savedRef.current = readTourState(slug);
-    setSnapshotTaken(true);
-  }, [slug]);
+  const savedSlugRef = useRef<string | null>(null);
 
   const isDemoOrg = slug.trim().toLowerCase() === PUBLIC_ORG;
   const derived = skipped ? "teaching" : decidePosture(payload, { isDemoOrg });
+
+  useEffect(() => {
+    if (savedSlugRef.current !== slug) {
+      savedRef.current = readTourState(slug);
+      savedSlugRef.current = slug;
+    }
+    if (!loaded || restored) return;
+    const saved = savedRef.current;
+    setOpen(saved ? saved.open : derived === "companion");
+    setRestored(true);
+  }, [slug, loaded, restored, derived]);
+
   const posture = resolveDrawerPosture(derived, athenaOn);
   const items = useMemo(
     () => buildDrawerItems(payload, { includeTeach: derived === "teaching" }),
@@ -99,16 +111,6 @@ export function TourChecklist({ slug }: { slug: string }) {
     setOpen(false);
   }, []);
   const t = useTourEngine(slug, tourSteps, { enabled: open && spotlight, onExit: exit, autoAdvanceOverSkipped: false });
-
-  // Restore (or decide) the drawer's open state ONCE, after the first payload settles. A stored decision
-  // always wins: a member who shut the companion this session must not have it pushed back open on every
-  // navigation. With nothing stored, the posture decides — that IS the entry-intensity rule.
-  useEffect(() => {
-    if (!loaded || !snapshotTaken || restored) return;
-    const saved = savedRef.current;
-    setOpen(saved ? saved.open : derived === "companion");
-    setRestored(true);
-  }, [loaded, snapshotTaken, restored, derived]);
 
   useEffect(() => {
     if (restored) patchTourState(slug, { open });

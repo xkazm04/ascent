@@ -171,7 +171,7 @@ export function ContextHalfLife({ slug, rows }: { slug: string; rows: RepoContex
       )}
 
       <p className="font-mono text-xs uppercase tracking-[0.18em] text-slate-600">
-        Staleness is ≈ by design · freshness "?" = history lookup degraded, never fabricated
+        Staleness is ≈ by design · freshness &quot;?&quot; = history lookup degraded, never fabricated
       </p>
     </div>
   );
