@@ -21,6 +21,7 @@ vi.mock("@/lib/integrations/ingest-token", () => ({
 }));
 vi.mock("@/lib/integrations/otlp", () => ({ parseOtlpMetrics: vi.fn() }));
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));
+vi.mock("@/lib/db/integrations", () => ({ getIngestTokenEpoch: vi.fn(async () => 0) }));
 
 import { POST } from "./route";
 import { MAX_BODY } from "@/lib/integrations/ingest-guard";
