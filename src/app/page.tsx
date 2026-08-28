@@ -38,7 +38,7 @@ const FAQ_LD = {
     },
     {
       "@type": "Question",
-      name: "What are the five maturity levels?",
+      name: `What are the ${LEVELS.length} maturity levels?`,
       acceptedAnswer: {
         "@type": "Answer",
         text: LEVELS.map((l) => `${l.id} ${l.name} (${l.band[0]}–${l.band[1]}): ${l.tagline}`).join(" "),

@@ -63,7 +63,8 @@ export function AboutOrgQuestions() {
         <SectionHeading
           size="page"
           kicker="Why the org edition exists"
-          title="Five questions a repository score cannot answer"
+          // Derived from the ledger below it — a heading that counts its own rows can't be off by one.
+          title={`${QUESTIONS.length} questions a repository score cannot answer`}
           intro="A per-repo report tells you how one codebase is doing. None of these questions are about one codebase: they are about the population, the trend, and the evidence. Each has a view that answers it; open any of them in the live demo."
         />
       </Reveal>

@@ -41,6 +41,16 @@ Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
   [`local-mode/README.md`](../local-mode/README.md) and `src/lib/mcp/tools.ts`;
   keep it exactly true when either changes.
 
+- **Loop band (inside `IndexLocal`, added 2026-08-28)**: "Drive it to green" — the
+  loop the product exists for (scan → propose → agent/foundation lane → rescan →
+  drive to green), the one surface no marketing page named at all until now. Its
+  rope is imported, not written: `LOOP_CONCURRENCY_CAP` and `LOOP_MAX_CYCLES_CAP`
+  (`src/lib/db/loop-runs-types.ts`), `DRIVE_MAX_RUNS_CAP` (`src/lib/local/drive-types.ts`),
+  and the three stop reasons typed against `DrivePhase` so a renamed phase fails the
+  build here. The caps ARE the copy on purpose: the honest claim about this loop is
+  that it is bounded and that a rescan, not the agent, decides whether anything
+  landed — printing the numbers is what makes that checkable.
+
 **Numbers in landing copy are imported, never typed.** The hero and
 `DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; the scan dialog's duration
 now reads `scanDurationClaim()` (`src/components/report/scanEstimate.ts`), the same
@@ -48,6 +58,17 @@ constants the live-scan progress bar and its abort backstop run on. The dialog
 promised "in about a minute" for a year — true of no provider the scanner has ever
 run on (~100 s hosted, a measured ~6 min median on a local CLI), and already
 retired in `ColdScanGate`'s copy while the hero went on printing it.
+
+**The levels chart's dashed line marks a boundary that exists on its own axis.**
+`TrajectoryChart` drew it at `POSTURE_THRESHOLD` (50) labelled "AI-NATIVE" and
+`IndexLevels` invited the reader to "cross the dashed line and the org reads
+AI-Native". Wrong twice: POSTURE_THRESHOLD is the cut on the **adoption** and
+**rigor** axes (AI-Native means both clear 50, `model.ts:504-512`) while the chart's
+Y axis is the weighted 0–100 index, and 50 on the index sits **inside L3** — so
+crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
+(`prototypes/shared/levelRamp.ts`): the L4 floor, labelled with the level it is the
+floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
+floor and is not the posture threshold.
 
 ## The deck reading scale (large-screen typography & measure)
 

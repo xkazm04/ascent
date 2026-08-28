@@ -7,6 +7,12 @@
 // MCP door (src/lib/mcp/). These only exist where Ascent runs beside the code it scores, which is
 // precisely why a scan-the-cloud competitor cannot copy them — so they earn a deck section.
 //
+// Added 2026-08-28: the Loop Cockpit / drive-to-green band. The loop is what the product is FOR —
+// "zero scores to L5, infinitely iterable" — and until now no marketing surface named it at all,
+// neither here, nor on /about, nor on /about-org. Every number in it is imported from the module that
+// enforces it (LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP, DRIVE_MAX_RUNS_CAP) rather than typed, so
+// the band cannot outlive the caps it advertises.
+//
 // Every card's copy is checked against docs/features/local-mode/README.md and src/lib/mcp/tools.ts;
 // keep it exactly true when either changes.
 
@@ -14,12 +20,40 @@ import Link from "next/link";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
 import { sourceRepoHref } from "@/lib/site";
+import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
+import { DRIVE_MAX_RUNS_CAP, type DrivePhase } from "@/lib/local/drive-types";
 
 interface LocalFeature {
   term: string;
   title: string;
   body: string;
 }
+
+/**
+ * The loop's stages, named the way the cockpit names them, and its rope, imported from the modules
+ * that enforce it — `LOOP_CONCURRENCY_CAP` / `LOOP_MAX_CYCLES_CAP` (src/lib/db/loop-runs-types.ts)
+ * and `DRIVE_MAX_RUNS_CAP` (src/lib/local/drive-types.ts).
+ *
+ * Why the caps are the copy and not a footnote: the honest thing about this loop is that it is
+ * BOUNDED. A marketing surface that says "it improves your repo until it's done" is selling an
+ * open-ended agent, which is exactly what `drive.ts` was written not to be — it stops on `green`,
+ * on `dry` (a whole run moved nothing) or on `ceiling`, and the measurement is a rescan, never the
+ * agent's own word. Printing the numbers is what makes that claim checkable.
+ */
+const LOOP_STAGES = ["scan", "propose", "agent or foundation lane", "rescan", "drive to green"];
+
+/** The three ways a drive ENDS BY POLICY (drive.ts's `decideNext`), typed against `DrivePhase` so a
+ *  renamed or retired phase fails the build here instead of leaving the landing selling a stop
+ *  condition the engine no longer has. The other phases — stopped, interrupted, error — are not
+ *  outcomes of the policy and deliberately aren't advertised as such. */
+const DRIVE_STOPS: DrivePhase[] = ["green", "dry", "ceiling"];
+
+const LOOP_FACTS: Array<{ value: string; label: string }> = [
+  { value: `${LOOP_CONCURRENCY_CAP}`, label: "lanes at once" },
+  { value: `${LOOP_MAX_CYCLES_CAP}`, label: "cycles per run" },
+  { value: `${DRIVE_MAX_RUNS_CAP}`, label: "runs per drive" },
+  { value: `${DRIVE_STOPS.length}`, label: "ways it stops" },
+];
 
 // The three claims, each verified against the shipped code (see file header). "Unpushed commits
 // included" is `git log` on the paired folder; "never pushes" is a loop-engine guardrail; the MCP
@@ -69,6 +103,51 @@ export function IndexLocal() {
               <span className="mt-2 text-sm leading-relaxed text-slate-400 2xl:text-base">{f.body}</span>
             </div>
           ))}
+        </div>
+
+        {/* The loop itself — the thing the brief calls the product's core, and the one surface the
+            landing never mentioned. Every number below is imported from the module that enforces it,
+            so this block cannot outlive the caps it advertises. */}
+        <div className="mt-8 rounded-xl border border-accent/25 bg-accent/[0.04] p-5 2xl:p-6">
+          <Kicker>Drive it to green</Kicker>
+          <p className="deck-body mt-2 max-w-3xl text-base leading-relaxed text-slate-300">
+            The cockpit runs the whole climb for you: it reads the open gaps, proposes a batch, works
+            each repo in its own isolated worktree — a coding agent on the backlog, or a deterministic
+            lane that installs the <code className="font-mono text-sm text-slate-200">.ai/</code>{" "}
+            foundation and practice starters — then rescans from disk and keeps going until the fleet
+            clears the bar. What decides whether it landed is the rescan, never the agent&apos;s own
+            report.
+          </p>
+
+          <ol className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-xs uppercase tracking-[0.18em] text-slate-400">
+            {LOOP_STAGES.map((stage, i) => (
+              <li key={stage} className="flex items-center gap-2">
+                {i > 0 && (
+                  <span aria-hidden className="text-slate-700">
+                    →
+                  </span>
+                )}
+                <span className={i === LOOP_STAGES.length - 1 ? "text-accent" : undefined}>{stage}</span>
+              </li>
+            ))}
+          </ol>
+
+          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-divider bg-divider sm:grid-cols-4">
+            {LOOP_FACTS.map((f) => (
+              <div key={f.label} className="bg-ink px-4 py-3">
+                <dt className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">{f.label}</dt>
+                <dd className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <p className="mt-3 text-sm leading-relaxed text-slate-500">
+            Bounded on purpose. A drive ends exactly three ways —{" "}
+            <span className="font-mono text-slate-400">{DRIVE_STOPS.join(" · ")}</span> — every repo in
+            scope cleared the bar, a whole run moved nothing, or the rope ran out. Never because
+            something decided it was finished. Self-hosted only, owner-gated, and it never pushes: what
+            you get back is a branch.
+          </p>
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2">
