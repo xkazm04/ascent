@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { reportHandledError } from "@/lib/api/respond";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, lookupScopedScan, resolveHeadWithHint, type ScanCacheLookup } from "@/lib/scan-cache";
@@ -367,6 +368,13 @@ export async function POST(request: Request) {
             err instanceof GitHubError
               ? { error: err.message, code: err.code }
               : { error: "Unexpected error while scanning the repository." };
+          // A GitHubError is a known upstream outcome; anything else is a defect. Report the latter:
+          // the 200 and headers went out long ago, so this failure can never reach onRequestError, and
+          // the app's most expensive path was failing invisibly in production. No status — an SSE
+          // failure has no status left to carry.
+          if (!(err instanceof GitHubError)) {
+            reportHandledError(err, { message: "scan/stream failed after the stream opened" });
+          }
           send("error", payload);
         }
       } finally {

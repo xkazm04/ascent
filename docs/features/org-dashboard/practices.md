@@ -46,6 +46,24 @@ degrades to placeholders when context is sparse.
 context from GitHub, calls `buildArtifact`, and returns the spec for **preview** (no
 writes).
 
+A GitHub failure is answered with the status its *condition* means, via the single
+`githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,
+which previously disagreed with this route on the same error:
+
+| Condition | Status | Body |
+| --- | --- | --- |
+| Unparseable repo URL | `400` | `{ error, code: "INVALID_URL" }` |
+| Repo missing or private | `404` | `{ error, code: "NOT_FOUND" }` |
+| Repo has no files | `422` | `{ error, code: "EMPTY" }` |
+| GitHub throttling | `429` + `retry-after` | `{ error, code: "RATE_LIMITED" }` |
+| Any other GitHub failure | `502` | `{ error, code: "UPSTREAM" }` |
+
+Until 2026-08-28 this route mapped these by GitHub's *own* status (`err.status ?? 502`),
+which is set at only some throw sites — so an empty repo and an invalid URL both read as
+`502`, and a **secondary** rate limit surfaced GitHub's raw `403`, telling callers to fix
+their credentials when the correct signal was to back off. The response now also carries
+`code` and `retry-after`, which this route previously dropped.
+
 ## Apply flow (`POST /api/practices/apply` → `src/lib/github/write.ts`)
 
 `POST /api/practices/apply { repo, practiceId, base? }` opens a draft PR and returns

@@ -7,6 +7,8 @@
 
 import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
+import { githubErrorHeaders, githubErrorStatus } from "@/lib/api/github-status";
+import { respondError } from "@/lib/api/respond";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import {
@@ -33,13 +35,9 @@ export const dynamic = "force-dynamic";
 // inside one function invocation. The client backstop (SCAN_CLIENT_TIMEOUT_MS) sits above this.
 export const maxDuration = 300;
 
-const STATUS: Record<GitHubError["code"], number> = {
-  INVALID_URL: 400,
-  NOT_FOUND: 404,
-  RATE_LIMITED: 429,
-  EMPTY: 422,
-  UPSTREAM: 502,
-};
+// The STATUS record that used to live here moved to @/lib/api/github-status, unchanged in every
+// value — practices/generate mapped the SAME error class by `err.status ?? 502` and disagreed with
+// this route on EMPTY, INVALID_URL and RATE_LIMITED. One mapping now, this one.
 
 /**
  * "Serve the latest persisted PUBLIC report" — the any-commit salvage read, single-sourced across its
@@ -459,11 +457,12 @@ function handleError(err: unknown) {
   if (err instanceof GitHubError) {
     // Surface GitHub's Retry-After on a (secondary) rate limit so the client can back off instead of
     // hammering — paired with the secondary-limit classification in ghJson (github-repo-data-access #2).
-    const headers = err.retryAfterSec ? { "retry-after": String(err.retryAfterSec) } : undefined;
-    return NextResponse.json(
-      { error: err.message, code: err.code },
-      { status: STATUS[err.code] ?? 500, headers },
-    );
+    // A GitHubError is a KNOWN upstream outcome, not a defect, so it is answered without a `cause`:
+    // reporting every rate limit would be exactly the noise that trains people to ignore Sentry.
+    return respondError(githubErrorStatus(err), err.message, {
+      code: err.code,
+      headers: githubErrorHeaders(err),
+    });
   }
   // Client disconnected mid-scan — the scan aborted as intended (no work wasted), and no one is
   // waiting on this response. Don't log it as an unexpected failure. (499 = client closed request.)
@@ -471,10 +470,9 @@ function handleError(err: unknown) {
     return new NextResponse(null, { status: 499 });
   }
   console.error("[scan] unexpected error", err);
-  return NextResponse.json(
-    { error: "Unexpected error while scanning the repository." },
-    { status: 500 },
-  );
+  // Passing `cause` is what closes the inversion: this path caught the error, so onRequestError will
+  // never see it, and until now the most expensive route in the app failed silently in production.
+  return respondError(500, "Unexpected error while scanning the repository.", { cause: err });
 }
 
 export async function POST(request: Request) {
