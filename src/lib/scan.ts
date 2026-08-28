@@ -263,7 +263,19 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // The mock floor is a SILENT failure: a report still renders, so it counts as a success everywhere
   // else even though the model never ran. Tallied separately from the error rate, which is defined
   // over scans that terminated.
-  if (llmFailed) void recordScanDegraded(intendedProvider);
+  //
+  // It is also the failure mode that makes a run-over-run "lift" meaningless: a mock score and a real
+  // score are two different rulers, so a delta across that boundary measures the engine swap, not the
+  // repository. The counter above is aggregate and unattributed; this line names the repo and the
+  // engine that was supposed to answer, at `warn`, so the degrade is visible in the server log of the
+  // very run whose numbers it invalidates rather than only in a metric nobody is watching.
+  if (llmFailed) {
+    void recordScanDegraded(intendedProvider);
+    console.warn(
+      `[scan] ${repoFullName}: LLM assessment degraded to the deterministic mock floor (intended provider: ${intendedProvider}). ` +
+        `This scan's scores are NOT model-assessed — any lift measured against a real-engine scan is engine noise, not repository change.`,
+    );
+  }
 
   // ── Phase 4: compose ─────────────────────────────────────────────────────────────────────────
   // The mock fallback (and any provider that ignores the signal) can resolve even after a
@@ -309,6 +321,12 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // refuse caching or persisting this report as authoritative (the matching prose caveat comes from
   // buildScanWarnings below).
   if (prPartial) report.prPartial = true;
+  // Stamp the mock-floor degrade onto the report's own engine record. composeScanReport only knows
+  // WHICH provider answered; `llmFailed` — the fact that one was asked for and did not — lives only
+  // here, and without it a degraded scan is indistinguishable from a deliberate keyless one once the
+  // row is persisted. Written unconditionally (false, not omitted, on a live scan) so a consumer can
+  // tell "proven not degraded" from "predates the flag".
+  report.engine.degraded = llmFailed;
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings = buildScanWarnings({
     detectorWarnings,

@@ -335,6 +335,22 @@ These are running all-time totals, not a time series, so the rate is a lifetime 
 - **Warnings**: appended for no token (PR signals skipped), LLM fallback, truncated
   tree, low coverage (< 50%), or a detector error.
 
+#### Provenance: which engine produced the score, and what moved it
+
+Three facts travel with every persisted scan so a run-over-run delta can be *attributed* rather than
+assumed (see [the loop's attribution rule](../org-planning/live.md#is-this-lift-real-the-attribution-rule)):
+
+| Field | Column | Says |
+| --- | --- | --- |
+| `engine.provider` / `engine.model` | `engineProvider`, `engineModel` | which engine answered |
+| `engine.degraded` | `engineDegraded` | an LLM **was requested and never answered**, so the provider above is the deterministic *floor*, not a choice |
+| `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `effectiveBlend` |
+
+`engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
+explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
+written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
+/ "nothing widened", and the readers keep it `undefined` rather than defaulting it.
+
 ### App Readiness Passport & autonomy tier (`src/lib/analyze/passport*.ts`)
 
 `scan-compose.ts` also attaches `report.passport = buildPassport(report, snapshot)`, a pure,
@@ -537,8 +553,10 @@ the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-
 - **LLM fallback is automatic but lossy.** A failed LLM swaps to the deterministic mock;
   the report still renders but with `engine.provider: "mock"` and a warning. It is no longer
   *silent*: each fallback bumps a `scan_degraded` tally (see [Outcome
-  counters](#outcome-counters-srclibscan-outcomets)), but the rate is all-time, so there is
-  still no way to ask "did degradations spike this week" without a real event table.
+  counters](#outcome-counters-srclibscan-outcomets)), writes a `warn`-level line naming the repo and
+  the provider that was supposed to answer, and is recorded **per row** as `Scan.engineDegraded` — but
+  the tally rate is still all-time, so there is no way to ask "did degradations spike this week"
+  without a real event table.
 - **No raw source is persisted** in the MVP; only the derived report (see
   [data-model.md](../data/data-model.md)).
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes

@@ -258,6 +258,8 @@ CREATE TABLE "Scan" (
     "aiUsageJson" TEXT,
     "rubricVersion" TEXT,
     "engineByom" BOOLEAN,
+    "engineDegraded" BOOLEAN,
+    "scoreIntegrityJson" TEXT,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -274,6 +276,11 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineByom" BOOLEAN;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
+-- Scan provenance: the mock-floor degrade flag and the ScoreIntegrity record. See the
+-- 20260828140000_add_scan_provenance migration for why `engineProvider = 'mock'` cannot carry the
+-- first on its own.
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineDegraded" BOOLEAN;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "scoreIntegrityJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (

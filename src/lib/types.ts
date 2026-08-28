@@ -995,8 +995,15 @@ export interface ScanReport {
    *  (BYOM), false = Ascent's platform account. Optional and additive — undefined on a legacy
    *  persisted row (scored before the flag existed), which must read as "not proven to be the
    *  customer's own account", never as true. The report header's privacy chip is the consumer:
-   *  "in-account" is only an honest claim when this is true. */
-  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean };
+   *  "in-account" is only an honest claim when this is true.
+   *
+   *  `degraded` records that an LLM WAS requested for this scan and every real attempt failed, so
+   *  `provider` is the deterministic mock FLOOR rather than a chosen engine. It is the difference
+   *  between "no model was asked for" (a keyless deploy or an explicit demo — provider is `mock`,
+   *  degraded false) and "a model was asked for and never answered", which `provider` alone cannot
+   *  tell apart. Undefined on a legacy row and on any report built before the flag existed: unknown,
+   *  which must never be read as "not degraded" when the provider is already `mock`. */
+  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean; degraded?: boolean };
   /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.
    *  Absent on a mock/keyless scan, or when the provider didn't report usage. */
   usage?: { inputTokens?: number; outputTokens?: number; latencyMs?: number };

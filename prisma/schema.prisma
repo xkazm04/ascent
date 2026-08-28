@@ -587,6 +587,19 @@ model Scan {
   // "in YOUR AWS account" only when that is literally true. Nullable: rows scored before this column
   // are UNKNOWN, and unknown must render as the platform wording — never as the customer's account.
   engineByom        Boolean?
+  // An LLM WAS requested for this scan and every real attempt failed, so `engineProvider` is the
+  // deterministic mock FLOOR rather than a chosen engine (src/lib/scan.ts, `llmFailed`). Distinct from
+  // engineProvider = "mock" on its own, which also covers a keyless deploy and an explicit demo — two
+  // situations that are not failures. The loop's attribution rule reads it: a delta between a mock scan
+  // and a real one measures the engine swap, not the repository, and must never be reported as a lift.
+  // Nullable: rows written before this column are UNKNOWN, and unknown is not "not degraded".
+  engineDegraded    Boolean?
+  // The scoring-integrity record for this scan (JSON ScoreIntegrity — d9Unmeasurable, widenedDims,
+  // widenCapped, effectiveBlend). It was computed, typed and rendered by nothing (UAT SAM-L1-02,
+  // 2026-08-10) and, worse, not persisted at all — so a reconstructed report and every run-over-run
+  // comparison lost the record of the three levers that move a headline on an UNCHANGED commit. Any
+  // consumer comparing two scans has to be able to read it to attribute a delta. Null on legacy rows.
+  scoreIntegrityJson String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens       Int?

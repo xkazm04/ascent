@@ -18,6 +18,7 @@ import type {
   ProviderName,
   RepoArchetype,
   ScanReport,
+  ScoreIntegrity,
   TechStack,
 } from "@/lib/types";
 import { createHash } from "node:crypto";
@@ -447,6 +448,14 @@ export interface ComparableScan {
   posture: string;
   confidence: number;
   engineProvider: string;
+  engineModel: string;
+  /** The mock floor FIRED on this scan: a model was requested and never answered, so `engineProvider`
+   *  is the deterministic floor rather than a chosen engine. Undefined on a row written before the
+   *  column — UNKNOWN, which the attribution rule must not read as "not degraded". */
+  engineDegraded?: boolean;
+  /** The levers that can move a headline on an UNCHANGED commit (see ScoreIntegrity). Undefined on a
+   *  row written before the column, and on any scan that never recorded one. */
+  scoreIntegrity?: ScoreIntegrity;
   headSha: string | null;
   dimensions: ComparableDimension[];
   recommendations: ComparableRecommendation[];
@@ -483,12 +492,19 @@ async function loadComparableScan(
       posture: true,
       confidence: true,
       engineProvider: true,
+      engineModel: true,
+      // The two provenance columns the loop's attribution rule reads: WHICH engine produced this end
+      // of a bracketed pair, and whether the number it carries was moved by something other than the
+      // repository. A comparison that cannot see them cannot tell a lift from an engine swap.
+      engineDegraded: true,
+      scoreIntegrityJson: true,
       headSha: true,
       dimensions: { select: { dimId: true, name: true, score: true, signalScore: true, evidence: true, gaps: true } },
       recommendations: { select: { id: true, title: true, dimId: true, status: true } },
     },
   });
   if (!scan) return null;
+  const integrity = parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson);
   return {
     id: scan.id,
     scannedAt: scan.scannedAt.toISOString(),
@@ -501,6 +517,12 @@ async function loadComparableScan(
     posture: scan.posture,
     confidence: scan.confidence,
     engineProvider: scan.engineProvider,
+    engineModel: scan.engineModel,
+    // Both are OMITTED, not defaulted, when the column is null: a row written before these existed is
+    // unknown on both counts, and defaulting would manufacture the exact certainty the attribution
+    // rule is there to withhold.
+    ...(scan.engineDegraded == null ? {} : { engineDegraded: scan.engineDegraded }),
+    ...(integrity ? { scoreIntegrity: integrity } : {}),
     headSha: scan.headSha,
     dimensions: scan.dimensions.map((d) => ({
       dimId: d.dimId,
@@ -1128,6 +1150,12 @@ async function loadScanReportByCommit(
     discrepancies: parseDiscrepancies(scan.discrepancies),
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
+    // The integrity record round-trips onto the reconstructed report, so a permalinked or reloaded
+    // report can explain a headline the same way the fresh scan could. Undefined on a legacy row —
+    // "not recorded", never "nothing fired".
+    ...(parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)
+      ? { scoreIntegrity: parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)! }
+      : {}),
     scannedAt: scan.scannedAt.toISOString(),
     engine: {
       provider: scan.engineProvider as ProviderName,
@@ -1136,6 +1164,8 @@ async function loadScanReportByCommit(
       // A legacy row (scored before the column) is NULL -> undefined, which the header renders as the
       // platform wording. Never upgrade "unknown" to an in-your-account claim.
       byom: scan.engineByom ?? undefined,
+      // Same rule for the mock-floor degrade: NULL is UNKNOWN, and unknown is not "not degraded".
+      degraded: scan.engineDegraded ?? undefined,
     },
   };
 }

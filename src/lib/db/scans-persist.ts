@@ -391,6 +391,16 @@ export async function persistScanReport(
             // reloaded report's privacy chip keeps making the SAME claim the fresh scan made. `?? null`
             // keeps a report that never set it (a hand-built or legacy in-memory report) as UNKNOWN.
             engineByom: report.engine.byom ?? null,
+            // Whether the mock floor FIRED (a model was asked for and never answered) rather than being
+            // chosen. `engineProvider` cannot carry this: it reads "mock" for a keyless deploy and an
+            // explicit demo too, and neither is a failure. The loop's attribution rule needs the
+            // difference to refuse a lift measured across a mock/real boundary. `?? null` keeps a
+            // hand-built or legacy report UNKNOWN — which is not the same claim as "not degraded".
+            engineDegraded: report.engine.degraded ?? null,
+            // The ScoreIntegrity record — the levers that move a headline on an UNCHANGED commit.
+            // Persisted so a reconstructed report and a run-over-run comparison can attribute a delta
+            // to them instead of reporting it as repository change. Null = the row predates the column.
+            scoreIntegrityJson: report.scoreIntegrity ? JSON.stringify(report.scoreIntegrity) : null,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),
