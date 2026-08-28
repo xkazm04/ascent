@@ -27,61 +27,24 @@ import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { getLoopRun } from "@/lib/db/loop-runs-read";
 import { getOrgRollup, listLocalPairings } from "@/lib/db";
 import { fleetGreenness, repoGreenness } from "@/lib/maturity/green";
+import {
+  DRIVE_DEFAULT_MAX_RUNS,
+  DRIVE_MAX_RUNS_CAP,
+  DRIVE_POLL_MS,
+  type DriveInput,
+  type DriveMeasurement,
+  type DriveRunRecord,
+  type DriveStatus,
+} from "@/lib/local/drive-types";
 
-export type DrivePhase = "running" | "green" | "dry" | "ceiling" | "stopped" | "error";
-
-export interface DriveMeasurement {
-  debt: number;
-  green: boolean;
-  greenCount: number;
-  inScope: number;
-  /** Repos still short of green, worst debt first — the next run's targets. */
-  remaining: string[];
-  /** Repos with no scan at all: they are not green, and a run cannot start from nothing. */
-  unscanned: string[];
-}
-
-export interface DriveRunRecord {
-  runId: string;
-  repos: string[];
-  debtBefore: number;
-  debtAfter: number | null;
-  startedAt: string;
-  endedAt: string | null;
-}
-
-export interface DriveStatus {
-  id: string;
-  org: string;
-  phase: DrivePhase;
-  repos: string[];
-  maxRuns: number;
-  maxCycles: number;
-  concurrency: number;
-  runs: DriveRunRecord[];
-  /** The latest measurement, so a status read never has to re-score the fleet. */
-  measurement: DriveMeasurement | null;
-  startedAt: string;
-  endedAt: string | null;
-  error: string | null;
-  stopRequested: boolean;
-}
-
-export interface DriveInput {
-  org: string;
-  /** Explicit scope; defaults to every watched AND paired repo in the org. */
-  repos?: string[];
-  maxRuns?: number;
-  maxCycles?: number;
-  concurrency?: number;
-  actor?: string | null;
-}
-
-/** The rope. A drive is bounded by construction — this is the most it may pull. */
-export const DRIVE_MAX_RUNS_CAP = 8;
-export const DRIVE_DEFAULT_MAX_RUNS = 3;
-/** How often the driver looks at a run it is waiting on. Runs take minutes; this is not a hot loop. */
-export const DRIVE_POLL_MS = 5_000;
+export type {
+  DriveInput,
+  DriveMeasurement,
+  DrivePhase,
+  DriveRunRecord,
+  DriveStatus,
+} from "@/lib/local/drive-types";
+export { DRIVE_DEFAULT_MAX_RUNS, DRIVE_MAX_RUNS_CAP, DRIVE_POLL_MS, isDriveLive } from "@/lib/local/drive-types";
 
 export type DriveStep = { action: "stop"; phase: "green" | "dry" | "ceiling" } | { action: "run"; repos: string[] };
 
