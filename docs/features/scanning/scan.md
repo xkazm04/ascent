@@ -172,6 +172,28 @@ zero score plus a warning, never the whole scan.
 | D8 | AI Process & Harness | Evals/golden tests, prompt/agent library, runbooks, AI contribution process |
 | D9 | Supply Chain & Security | SAST, SCA, secret/container scanning, SBOM, signing, SECURITY.md, threat models |
 
+#### Evidence has to be checkable
+
+A signal is `{ label, detail? }` and renders as `label (detail)`. UAT `SAM-L1-01` (2026-08-10)
+recorded the evidence lines as **unsourced labels** — an instant-trust-failure — because a presence
+check (`RepoIndex.has`) computed which path matched and then discarded it, leaving the reader to
+re-derive the regex by hand.
+
+`RepoIndex.first(...res)` returns that path, and the presence signals cite it: *"Found CLAUDE.md
+(Claude Code guidance) (docs/claude.md)"*. The **quality** claims about a guidance file cite the file
+they were read from, since the claim is about that file's contents.
+
+**A signal fired by TEXT stays unsourced, deliberately.** Several detectors match either a path *or*
+the combined manifest/workflow text blob. When the blob fired one there is no file to point at, so
+`first()` returns `undefined` and no detail is attached — naming a plausible file would be a
+fabrication in the one place the product is asking to be trusted. `evidence-source.test.ts` pins both
+directions.
+
+Covered so far: D1 (all presence + quality signals), D2's framework/e2e/coverage config, D5's
+document set, D6's type-check / pre-commit / CODEOWNERS, D9's SAST / SCA / SECURITY.md /
+threat-model. Not yet: the purely text-blob signals in D3/D8/D9, which have no path to cite at all,
+and the count/ratio signals, whose detail is already a number. Backlog `B4` tracks the sweep.
+
 The same pass also computes `classifyArchetype()` (**solo / team / org**, selects the
 weighting lens later), `detectAiUsage()` (AI-commit fraction, tracked separately from the
 score), and `computeContributors()`.

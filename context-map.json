@@ -116,6 +116,7 @@
             "src/lib/analyze/pulls.ts",
             "src/lib/analyze/pulls.test.ts",
             "src/lib/analyze/signals.test.ts",
+            "src/lib/analyze/evidence-source.test.ts",
             "src/lib/analyze/calibration.test.ts",
             "src/lib/practices.ts",
             "src/lib/scoring/engine.ts",

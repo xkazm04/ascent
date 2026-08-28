@@ -72,6 +72,25 @@ class RepoIndex {
     return this.lowerPaths.some((p) => re.test(p));
   }
 
+  /**
+   * The FIRST path matching any of `res`, or undefined when none does — the source behind a presence
+   * signal, which `has()` computes and then discards.
+   *
+   * UAT `SAM-L1-01` (2026-08-10): "evidence lines are unsourced labels", named as an
+   * instant-trust-failure. A reader shown "Found MCP server config" has no way to check it without
+   * re-deriving the detector's regex by hand, even though the detector walked the exact path that
+   * matched. Returns undefined deliberately when the signal was satisfied by something OTHER than a
+   * path (a manifest-text or workflow-text branch): the caller then attaches no detail rather than
+   * naming a file that did not trigger it.
+   */
+  first(...res: RegExp[]): string | undefined {
+    for (const re of res) {
+      const hit = this.lowerPaths.find((p) => re.test(p));
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
   /** How many paths match the regex? */
   count(re: RegExp): number {
     return this.lowerPaths.reduce((n, p) => (re.test(p) ? n + 1 : n), 0);
@@ -192,22 +211,33 @@ function aiStandardCached(idx: RepoIndex): ReturnType<typeof aiStandard> {
 const d1: Detector = (idx) => {
   const s = new Scorer();
   // Presence (reduced caps so guidance *quality* can contribute meaningfully).
-  if (idx.has(/(^|\/)claude\.md$/)) s.add(22, "Found CLAUDE.md (Claude Code guidance)");
-  if (idx.has(/(^|\/)agents?\.md$/)) s.add(16, "Found AGENTS.md (agent guidance)");
-  if (idx.has(/(^|\/)\.cursorrules$/) || idx.has(/^\.cursor\/rules\//)) s.add(14, "Found Cursor rules");
-  if (idx.has(/^\.github\/copilot-instructions\.md$/)) s.add(14, "Found Copilot instructions");
-  if (idx.has(/(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing|using[-_]ai)\.mdx?$/)) s.add(8, "Found an AI-usage policy/guide");
-  if (idx.has(/(^|\/)\.aider\.conf\.ya?ml$/)) s.add(10, "Found Aider config");
-  if (idx.has(/(^|\/)\.windsurfrules$/) || idx.has(/^\.windsurf\//)) s.add(10, "Found Windsurf rules");
-  if (idx.has(/(^|\/)\.?mcp\.json$/) || idx.has(/(^|\/)mcp\.config\./)) s.add(10, "Found MCP server config");
-  if (idx.has(/^\.claude\//)) s.add(8, "Found .claude/ directory");
-  if (idx.has(/^(prompts|\.prompts)\//)) s.add(8, "Found a prompts/ library");
-  if (idx.has(/(^|\/)\.continue\//) || idx.has(/(^|\/)\.clinerules/)) s.add(8, "Found Continue/Cline config");
-  if (idx.has(/^\.devcontainer\//)) s.add(4, "Found devcontainer");
+  //
+  // Each of these CITES the path that matched (`idx.first`), rather than asserting "Found X" and
+  // leaving the reader to re-derive the regex. This is the dimension SAM-L1-01 was written about, and
+  // the one the loop moves most often, so an unverifiable evidence line here costs the most trust.
+  const found = (points: number, label: string, ...res: RegExp[]) => {
+    const path = idx.first(...res);
+    if (path) s.add(points, label, path);
+  };
+  found(22, "Found CLAUDE.md (Claude Code guidance)", /(^|\/)claude\.md$/);
+  found(16, "Found AGENTS.md (agent guidance)", /(^|\/)agents?\.md$/);
+  found(14, "Found Cursor rules", /(^|\/)\.cursorrules$/, /^\.cursor\/rules\//);
+  found(14, "Found Copilot instructions", /^\.github\/copilot-instructions\.md$/);
+  found(8, "Found an AI-usage policy/guide", /(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing|using[-_]ai)\.mdx?$/);
+  found(10, "Found Aider config", /(^|\/)\.aider\.conf\.ya?ml$/);
+  found(10, "Found Windsurf rules", /(^|\/)\.windsurfrules$/, /^\.windsurf\//);
+  found(10, "Found MCP server config", /(^|\/)\.?mcp\.json$/, /(^|\/)mcp\.config\./);
+  found(8, "Found .claude/ directory", /^\.claude\//);
+  found(8, "Found a prompts/ library", /^(prompts|\.prompts)\//);
+  found(8, "Found Continue/Cline config", /(^|\/)\.continue\//, /(^|\/)\.clinerules/);
+  found(4, "Found devcontainer", /^\.devcontainer\//);
 
-  // Content quality — substantive guidance with advanced patterns beats a token stub.
+  // Content quality — substantive guidance with advanced patterns beats a token stub. Every one of
+  // these is a claim about a SPECIFIC file's contents, so it cites that file: "Documents build/test
+  // commands" is unanswerable without knowing which document was read.
+  const guidancePath = idx.first(/(^|\/)claude\.md$/, /(^|\/)agents?\.md$/, /(^|\/)agent\.md$/);
   const guidance = idx.content("claude.md") || idx.content("agents.md") || idx.content("agent.md");
-  if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label);
+  if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label, guidancePath);
 
   // The `.ai/` standard's agent-facing contract is high-signal machine-readable guidance.
   for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label);
@@ -268,12 +298,14 @@ const d2: Detector = (idx) => {
     ) ||
     idx.has(/(^|\/)(vitest\.config|jest\.config|pytest\.ini|conftest\.py)/)
   )
-    s.add(15, "Test framework configured");
+    // Each of these three can fire from a CONFIG FILE or from the manifest/workflow text. The detail
+    // names the file when a file is what fired it, and is absent otherwise — never a guess.
+    s.add(15, "Test framework configured", idx.first(/(^|\/)(vitest\.config|jest\.config|pytest\.ini|conftest\.py)/));
   if (/playwright|cypress|selenium|puppeteer/.test(frameworks) ||
     idx.has(/(^|\/)(playwright\.config|cypress\.config)/))
-    s.add(15, "End-to-end tests configured");
+    s.add(15, "End-to-end tests configured", idx.first(/(^|\/)(playwright\.config|cypress\.config)/));
   if (idx.has(/(^|\/)(codecov\.ya?ml|\.coveragerc)$/) || /--cov|nyc|coverage/.test(frameworks))
-    s.add(10, "Coverage tracking configured");
+    s.add(10, "Coverage tracking configured", idx.first(/(^|\/)(codecov\.ya?ml|\.coveragerc)$/));
 
   if (sourceFiles.length > 0 && n > 0) {
     const ratio = n / sourceFiles.length;
@@ -545,16 +577,20 @@ const d5: Detector = (idx) => {
     s.note("No README detected");
   }
 
+  // Every one of these is a pure presence claim over the file tree, so each cites the path that
+  // triggered it (SAM-L1-01: an evidence line a reader cannot check is a label, not evidence).
   if (idx.count(/^docs?\/.*\.(md|mdx|rst)$/) >= 2 || idx.count(/(^|\/)apps\/docs\//) >= 1)
-    s.add(20, "Dedicated /docs with multiple pages");
-  if (idx.has(/(^|\/)llms(-full)?\.(txt|md)$/)) s.add(5, "LLM-readable docs (llms.txt)");
+    s.add(20, "Dedicated /docs with multiple pages", idx.first(/^docs?\/.*\.(md|mdx|rst)$/, /(^|\/)apps\/docs\//));
+  if (idx.has(/(^|\/)llms(-full)?\.(txt|md)$/))
+    s.add(5, "LLM-readable docs (llms.txt)", idx.first(/(^|\/)llms(-full)?\.(txt|md)$/));
   if (idx.has(ADR_PATH) || idx.has(ADR_HINT))
-    s.add(15, "Architecture Decision Records");
-  if (idx.has(/(^|\/)contributing\.md$/)) s.add(10, "CONTRIBUTING.md");
-  if (idx.has(/(^|\/)changelog\.md$/) || idx.has(/^\.changeset\//)) s.add(10, "Changelog");
+    s.add(15, "Architecture Decision Records", idx.first(ADR_PATH, ADR_HINT));
+  if (idx.has(/(^|\/)contributing\.md$/)) s.add(10, "CONTRIBUTING.md", idx.first(/(^|\/)contributing\.md$/));
+  if (idx.has(/(^|\/)changelog\.md$/) || idx.has(/^\.changeset\//))
+    s.add(10, "Changelog", idx.first(/(^|\/)changelog\.md$/, /^\.changeset\//));
   if (idx.has(/(^|\/)(openapi|swagger)\.(ya?ml|json)$/) || idx.has(/typedoc\.json$/))
-    s.add(10, "API documentation");
-  if (idx.has(/^examples?\//)) s.add(5, "Examples directory");
+    s.add(10, "API documentation", idx.first(/(^|\/)(openapi|swagger)\.(ya?ml|json)$/, /typedoc\.json$/));
+  if (idx.has(/^examples?\//)) s.add(5, "Examples directory", idx.first(/^examples?\//));
   return s.result("D5");
 };
 
@@ -604,16 +640,18 @@ const d6: Detector = (idx, snap) => {
   if (/"strict"\s*:\s*true/.test(tsconfig)) s.add(20, "TypeScript strict mode");
   else if (tsconfig) s.add(10, "TypeScript configured");
   else if (idx.has(/(^|\/)(mypy\.ini|\.mypy\.ini)$/) || /mypy|pyright/.test(idx.manifestText))
-    s.add(15, "Static type checking (mypy/pyright)");
+    // Undefined detail when the MANIFEST text triggered this rather than a config file: naming a file
+    // that did not fire the signal would be worse than an unsourced label.
+    s.add(15, "Static type checking (mypy/pyright)", idx.first(/(^|\/)(mypy\.ini|\.mypy\.ini)$/));
 
   if (
     idx.has(/(^|\/)\.pre-commit-config\.ya?ml$/) ||
     idx.has(/^\.husky\//) ||
     /lint-staged|husky|pre-commit/.test(idx.manifestText)
   )
-    s.add(15, "Pre-commit hooks");
+    s.add(15, "Pre-commit hooks", idx.first(/(^|\/)\.pre-commit-config\.ya?ml$/, /^\.husky\//));
 
-  if (idx.has(/(^|\/)codeowners$/)) s.add(15, "CODEOWNERS");
+  if (idx.has(/(^|\/)codeowners$/)) s.add(15, "CODEOWNERS", idx.first(/(^|\/)codeowners$/));
   // Off-platform review gate (Gerrit / bors) — real review discipline GitHub's PR API can't see.
   const offReview = offPlatformReview(snap.commits);
   if (offReview) s.add(15, `Code review via off-platform gate (${offReview})`, "commit trailers show mandatory pre-merge review");
@@ -788,7 +826,13 @@ const d9: Detector = (idx) => {
     idx.has(/(^|\/)(sonar-project\.properties|\.semgrep\.ya?ml)$/) ||
     /codeql|github\/codeql-action|semgrep|sonarqube|sonarcloud|sonarsource|snyk code/.test(blob)
   )
-    s.add(25, "Static analysis (SAST) in the pipeline");
+    // A workflow/config FILE names itself; a hit in the combined text blob does not, so the detail is
+    // present only in the first case (SAM-L1-01 — cite what fired it, or cite nothing).
+    s.add(
+      25,
+      "Static analysis (SAST) in the pipeline",
+      idx.first(/^\.github\/workflows\/.*codeql/i, /(^|\/)(sonar-project\.properties|\.semgrep\.ya?ml)$/),
+    );
 
   // Dependency / SCA scanning + license compliance. Renovate has several config locations
   // (renovate.json[5], .renovaterc[.json], .github/renovate.json) and tools may sit as a
@@ -801,7 +845,15 @@ const d9: Detector = (idx) => {
       blob,
     )
   )
-    s.add(20, "Dependency/SCA & license scanning");
+    s.add(
+      20,
+      "Dependency/SCA & license scanning",
+      idx.first(
+        /(^|\/)\.github\/dependabot\.yml$/,
+        /(^|\/)(\.?renovaterc(\.json)?|renovate\.json5?)$/,
+        /(^|\/)(\.snyk|osv-scanner\.toml)$/,
+      ),
+    );
 
   // Secret scanning.
   if (/gitleaks|trufflehog|detect-secrets|ggshield|gitguardian|secretlint/.test(blob))
@@ -820,9 +872,9 @@ const d9: Detector = (idx) => {
     s.add(12, "Artifact signing / SLSA provenance");
 
   // Security policy + threat modeling (Plan & Design security requirements).
-  if (idx.has(/(^|\/)security\.md$/)) s.add(6, "SECURITY.md policy");
+  if (idx.has(/(^|\/)security\.md$/)) s.add(6, "SECURITY.md policy", idx.first(/(^|\/)security\.md$/));
   if (idx.has(/threat[-_ ]?model/) || /threat model|stride|attack tree|trust boundary/.test(blob))
-    s.add(8, "Threat-model documentation");
+    s.add(8, "Threat-model documentation", idx.first(/threat[-_ ]?model/));
 
   if (s.signals.length === 0)
     s.note("No supply-chain security tooling detected", "e.g. CodeQL/Semgrep, Dependabot/Snyk, gitleaks, SBOM, cosign");
