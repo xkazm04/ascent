@@ -198,6 +198,18 @@ verdict lands above the run's outcome ledger. The gate is not widened for it —
 `cockpitGate.ts` is one predicate serving both Run and Drive. It remains fully usable headlessly:
 `useDrive` adopts a drive started by curl on its next mount tick.
 
+## Proving it end to end
+
+`e2e/loop/cockpit-loop.spec.ts` (`npm run test:e2e:loop`) drives this whole page against a live
+server: its own `next dev`, its own throwaway PGlite dir, its own declared `ASCENT_LOCAL_ORG`, and a
+**real git repository** it creates in the OS temp dir — mapped and paired through
+`/api/org/local/projects`, scanned from disk, then improved by a real foundation lane in a real
+worktree and rescanned. Nothing it does can reach the operator's own `.pglite` data or their org.
+It runs no agent session (the fixture has no `.ai/` standard, so the lane is a deterministic install,
+and cycles are pinned to 1), and because its engine is the mock it asserts the ledger's **refusal** to
+call the movement a lift. The Character-level journey is `uat/journeys/loop-to-l5.md`; its L2 half —
+a real agent lane, an attributable lift, a killed-and-resumed drive — has **not** been run.
+
 ## Known gaps
 
 - The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local

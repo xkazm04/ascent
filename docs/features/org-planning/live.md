@@ -587,6 +587,53 @@ settle-once), `CockpitOutcome.dom.test.tsx`, `CockpitDrivePanel.dom.test.tsx` (t
 states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
 `observatory/*.test.ts(x)`.
 
+### End-to-end proof (2026-08-28)
+
+Everything above was unit- and DOM-tested and **nothing drove it end to end**: no e2e spec and no UAT
+journey mentioned the cockpit, the loop, the drive, the lane kinds or the attribution rendering. Two
+artifacts close that, and they close different halves of it.
+
+**`e2e/loop/cockpit-loop.spec.ts`** (config `playwright.loop.config.ts`, `npm run test:e2e:loop`) —
+five tests, ~50 s, no model spend. It boots its own `next dev` on its own port against a **throwaway
+PGlite dir** and its own declared `ASCENT_LOCAL_ORG`, creates a **real git repository** in the OS temp
+dir, maps and pairs it through `/api/org/local/projects`, scans it from disk, then drives the cockpit
+in a browser: select on the observatory → read the proposal → set cycles/model/effort → **Run** → read
+the outcome ledger → back to the inspector with the selection intact. What runs for real is the whole
+loop *except the agent*: a real `git worktree`, a real foundation lane that writes the generated `.ai/`
+tree and commits it, a real rescan of that worktree, the real attribution rule, and the real branch
+left behind (asserted from the repository, not from the screen — including that `main` is untouched).
+
+Two scoping decisions make it fast and repeatable, and both are deliberate:
+
+- **The fixture repo has no `.ai/manifest.yaml`**, so rule 1 gives it a `foundation` lane — a
+  deterministic install with no `claude -p` session — and `Cycles` is pinned to **1** so cycle 2 never
+  falls back to the agent lane. A separate test then **merges the lane's branch** and asserts the same
+  rule stops proposing a foundation, which is the operator's half of the loop and proves the rule
+  reads the paired working copy rather than the branch.
+- **The engine is the deterministic mock**, so both ends of every pair are mock scans and the spec
+  asserts the *refusal*: `not attributable: mock scan`, `excluded: 1 mock scan`, a muted delta, and the
+  provenance line `engine mock` + `D2/D3/D4 not measurable locally`. A coloured delta there would be
+  the bug.
+
+Not covered by it, and named rather than implied: an agent lane, an **attributable** lift (needs a real
+engine on both ends), and a live drive killed and resumed. It also is **not in CI** —
+`.github/workflows/ci.yml` runs no Playwright at all and `smoke.yml` runs only `--grep @smoke`; wiring
+e2e into PR CI is backlog item 11 and owns that decision.
+
+**`uat/journeys/loop-to-l5.md`** — the same journey as a Character walk (Priya, platform lead), with
+the L1 seam table this branch is graded against, the L2 confirmations only a live run can settle
+(a real agent lane, an attributable lift, a killed-and-resumed drive, the observed→carried platform
+fold, two full iterations, the blocked states), and an honest **L2 not yet run** status.
+
+> One thing the e2e work found and fixed: `src/instrumentation.ts` is compiled for the **edge** runtime
+> too, and webpack does no dead-code elimination in dev — so the boot sweep's `await import(…)` dragged
+> `db/client → @prisma/adapter-pg → pg → require('fs')` into a compilation with no `fs`, failing the
+> whole `/instrumentation` compile and answering **500 on every route** under `next dev --webpack`
+> (the only dev mode a junctioned worktree can run; Turbopack refuses the symlink). Both node-only
+> dynamic imports now sit behind a `process.env.NEXT_RUNTIME === "nodejs"` **condition** rather than
+> only behind the early return — webpack folds a statically-false condition at parse time and never
+> walks the branch.
+
 ## Key files
 
 | Concern | File |
