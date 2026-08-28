@@ -1,7 +1,14 @@
 // Shared, server-safe presentation for a maturity goal: the progress meter, the pace verdict
 // (reached / on-pace / behind / tracking), the trend-derived ETA, and the "what must move" repo
-// breakdown that links into the per-repo gap analysis and the org practices. Used read-only on the
-// overview (compact) and inside the interactive GoalsPanel on the Plan tab (with a remove control).
+// breakdown that links into the per-repo gap analysis and the org practices.
+//
+// WHAT IS ACTUALLY MOUNTED (measured 2026-08-28). Only `PaceChip` and the re-exported types/helpers
+// have call sites — the live wall's goal banner and TV stages. `GoalCard` itself has NONE: the
+// overview surface and the Plan tab's GoalsPanel that this line used to name both retired
+// 2026-08-17, and its `initiatives` block renders a concept that retired with them. It is kept
+// unmounted rather than deleted because goals are themselves a retirement candidate (see the foot of
+// src/lib/db/plan.ts); that call is not this file's to make. Do not read the presence of GoalCard as
+// evidence a goals surface exists.
 //
 // Types live in GoalViewTypes.ts, pure pace/readout logic in goalViewLogic.ts — both re-exported below
 // so every existing import of "@/components/org/shared/goalView" keeps resolving unchanged.
