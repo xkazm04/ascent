@@ -36,6 +36,9 @@ export interface StartDriveInput {
   maxRuns: number;
   maxCycles: number;
   concurrency: number;
+  /** Inherited by EVERY run the drive dispatches, so the whole drive is one experiment. */
+  model: string | null;
+  effort: string | null;
 }
 
 export const startDrive = (slug: string, input: StartDriveInput): Promise<{ drive: DriveStatus }> =>

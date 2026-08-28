@@ -1,6 +1,6 @@
 // LOCAL MODE — drive the fleet to green, headlessly (self-hosted + ASCENT_AUTOPILOT=1 only).
 //
-//   POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency? } → { drive }
+//   POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency?, model?, effort? } → { drive }
 //   POST { org, action:"stop", id }                                          → { ok, drive }
 //   POST { org, action:"resume", id }                                        → { drive }
 //   GET  ?org=<slug>                                                         → { drives }
@@ -26,6 +26,7 @@ import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { resolveViewerLogin } from "@/lib/access";
 import { autopilotEnabled } from "@/lib/local/agent";
+import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
 import { DRIVE_MAX_RUNS_CAP, getDrive, listDrives, readDrive, resumeDrive, startDrive, stopDrive } from "@/lib/local/drive";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/local/loop-engine";
 
@@ -60,6 +61,8 @@ export async function POST(request: Request) {
     maxRuns?: unknown;
     maxCycles?: unknown;
     concurrency?: unknown;
+    model?: unknown;
+    effort?: unknown;
   };
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   const denied = await gate(org);
@@ -107,7 +110,17 @@ export async function POST(request: Request) {
   const repos = Array.isArray(body.repos) ? body.repos.filter((r): r is string => typeof r === "string") : undefined;
 
   try {
-    const drive = await startDrive({ org, repos, maxRuns, maxCycles, concurrency, actor: await resolveViewerLogin() });
+    const drive = await startDrive({
+      org,
+      repos,
+      maxRuns,
+      maxCycles,
+      concurrency,
+      // Same normalization as /api/org/loop, and for the same reason — one closed list, two doors.
+      model: normalizeAgentModel(body.model),
+      effort: normalizeAgentEffort(body.effort),
+      actor: await resolveViewerLogin(),
+    });
     return NextResponse.json({ drive }, { status: 202 });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 409 });

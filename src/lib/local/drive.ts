@@ -24,7 +24,7 @@
 // is a human decision. `resumeDrive` is that decision, and it continues the chain's run count.
 
 import { selfHosted } from "@/lib/env";
-import { autopilotEnabled } from "@/lib/local/agent";
+import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { getLoopRun } from "@/lib/db/loop-runs-read";
 import { createDriveRow, getDriveRow, listDriveRows, markStaleDrivesInterrupted, saveDriveRow } from "@/lib/db/drives";
@@ -176,6 +176,10 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
       : (await listLocalPairings(org)).filter((p) => p.watched && p.localPath != null).map((p) => p.fullName);
   if (scope.length === 0) throw new Error("Nothing to drive: no watched, paired repositories in scope.");
 
+  // One configuration for the whole drive, resolved here and inherited by every run it dispatches —
+  // a drive that changed model between runs would make its own debt-before/after ledger a comparison
+  // of two setups rather than of two states of the fleet.
+  const agent = resolveAgentConfig({ model: input.model, effort: input.effort });
   const maxRuns = Math.min(DRIVE_MAX_RUNS_CAP, Math.max(1, input.maxRuns ?? DRIVE_DEFAULT_MAX_RUNS));
   const runsBefore = Math.max(0, Math.trunc(input.runsBefore ?? 0));
   if (runsBefore >= maxRuns) throw new Error("This drive's run budget is already spent — raise it to drive again.");
@@ -191,6 +195,8 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
     measurement: null,
     runsBefore,
     resumedFrom: input.resumedFrom ?? null,
+    model: agent.model,
+    effort: agent.effort,
     startedAt: nowIso(),
     endedAt: null,
     error: null,
@@ -259,7 +265,15 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
       st.phase = step.phase;
       break;
     }
-    const run = await startLoopRun({ org: st.org, repos: step.repos, maxCycles: st.maxCycles, concurrency: st.concurrency, actor });
+    const run = await startLoopRun({
+      org: st.org,
+      repos: step.repos,
+      maxCycles: st.maxCycles,
+      concurrency: st.concurrency,
+      model: st.model,
+      effort: st.effort,
+      actor,
+    });
     const rec: DriveRunRecord = { runId: run.id, repos: step.repos, debtBefore: m.debt, debtAfter: null, startedAt: nowIso(), endedAt: null };
     st.runs.push(rec);
     await saveDriveRow(st);

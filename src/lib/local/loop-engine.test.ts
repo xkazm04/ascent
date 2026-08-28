@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── in-memory stand-in for the persistence layer ─────────────────────────────────────────────────
-type Run = { id: string; orgId: string; phase: string; repos: string[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
+type Run = { id: string; orgId: string; phase: string; repos: string[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
 type Lane = { id: string; runId: string; repoFullName: string; cycle: number; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null };
 
 const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0 };
@@ -22,7 +22,7 @@ vi.mock("@/lib/db/loop-runs", () => ({
   LOOP_DEFAULT_CONCURRENCY: 2,
   LOOP_MAX_CYCLES_CAP: 5,
   LANE_LOG_LINES: 200,
-  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; concurrency?: number; maxCycles?: number; curated?: boolean }) => {
+  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null }) => {
     const run: Run = {
       id: `run${++db.seq}`,
       orgId: "org1",
@@ -32,6 +32,8 @@ vi.mock("@/lib/db/loop-runs", () => ({
       maxCycles: input.maxCycles ?? 3,
       cycle: 0,
       curated: input.curated === true,
+      model: input.model ?? null,
+      effort: input.effort ?? null,
       startedAt: new Date().toISOString(),
       endedAt: null,
       error: null,
@@ -76,7 +78,20 @@ vi.mock("@/lib/db/loop-runs", () => ({
 }));
 
 vi.mock("@/lib/env", () => ({ selfHosted: () => true, envBool: () => true }));
-vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => true, runClaudeAgent: vi.fn() }));
+// resolveAgentConfig is NOT stubbed to a constant: the engine's job is to resolve the operator's pick
+// against the deployment env exactly once and persist the answer, so the real resolver runs here.
+vi.mock("@/lib/local/agent", async () => {
+  const options = await import("@/lib/local/agent-options");
+  return {
+    autopilotEnabled: () => true,
+    runClaudeAgent: vi.fn(),
+    DEFAULT_AGENT_MODEL: "sonnet",
+    resolveAgentConfig: (choice: { model?: string | null; effort?: string | null } | null | undefined) => ({
+      model: options.normalizeAgentModel(choice?.model) ?? (process.env.CLAUDE_MODEL?.trim() || "sonnet"),
+      effort: options.normalizeAgentEffort(choice?.effort) ?? options.normalizeAgentEffort(process.env.ASCENT_AGENT_EFFORT?.trim()),
+    }),
+  };
+});
 vi.mock("@/lib/local/pairing", () => ({ verifyLocalPath: vi.fn(async () => ({ ok: true })) }));
 vi.mock("@/lib/db", () => ({ getRepoLocalPath: vi.fn(async (_o: string, repo: string) => `/paired/${repo}`), persistScanReport: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ getPrisma: () => ({ organization: { findUnique: async () => ({ slug: "acme" }) } }), isDbConfigured: () => true }));
@@ -297,5 +312,65 @@ describe("startLoopRun — the gates", () => {
     const { verifyLocalPath } = await import("@/lib/local/pairing");
     vi.mocked(verifyLocalPath).mockResolvedValueOnce({ ok: false, error: "not a git repo" } as Awaited<ReturnType<typeof verifyLocalPath>>);
     await expect(startLoopRun({ org: "acme", repos: ["acme/web"], deps: workingDeps() })).rejects.toThrow(/Pairing broken/i);
+  });
+});
+
+describe("per-run agent configuration threads propose → start → the agent invocation", () => {
+  it("records the RESOLVED model and effort on the run, and arms every lane's session with them", async () => {
+    const runAgent = vi.fn(async () => ({ ok: true, summary: "did the thing" }));
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web", "acme/api"],
+      maxCycles: 1,
+      model: "opus",
+      effort: "high",
+      deps: workingDeps({ runAgent }),
+    });
+    await settle(run.id);
+
+    // The row is what the ledger later reads to say which setup produced the lift.
+    expect(db.runs[0]!.model).toBe("opus");
+    expect(db.runs[0]!.effort).toBe("high");
+    // And every session actually ran as that — one lane per repo, both armed identically.
+    expect(runAgent).toHaveBeenCalledTimes(2);
+    for (const call of runAgent.mock.calls) {
+      expect(call[0]).toMatchObject({ model: "opus", effort: "high" });
+    }
+  });
+
+  it("resolves the deployment default when nothing was picked, rather than storing null", async () => {
+    vi.stubEnv("CLAUDE_MODEL", "haiku");
+    const runAgent = vi.fn(async () => ({ ok: true, summary: "ok" }));
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 1, deps: workingDeps({ runAgent }) });
+    await settle(run.id);
+    // "whatever CLAUDE_MODEL was that day" is exactly what a null row could not tell anyone later.
+    expect(db.runs[0]!.model).toBe("haiku");
+    expect(runAgent.mock.calls[0]![0]).toMatchObject({ model: "haiku" });
+    vi.unstubAllEnvs();
+  });
+
+  it("passes NO effort when none was chosen — the flag is absent, not defaulted", async () => {
+    const runAgent = vi.fn(async () => ({ ok: true, summary: "ok" }));
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 1, deps: workingDeps({ runAgent }) });
+    await settle(run.id);
+    expect(db.runs[0]!.effort).toBeNull();
+    expect(runAgent.mock.calls[0]![0]).not.toHaveProperty("effort");
+  });
+
+  it("reads the configuration off the ROW for later cycles, so a changed env cannot split a run", async () => {
+    const runAgent = vi.fn(async () => ({ ok: true, summary: "ok" }));
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 3,
+      model: "opus",
+      deps: workingDeps({ runAgent }),
+    });
+    // Move the deployment default out from under the run while it is cycling.
+    vi.stubEnv("CLAUDE_MODEL", "haiku");
+    await settle(run.id);
+    expect(runAgent.mock.calls.length).toBeGreaterThan(1);
+    for (const call of runAgent.mock.calls) expect(call[0]).toMatchObject({ model: "opus" });
+    vi.unstubAllEnvs();
   });
 });

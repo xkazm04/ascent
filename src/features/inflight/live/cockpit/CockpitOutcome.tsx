@@ -7,6 +7,7 @@
 import { Kicker } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
+import { agentConfigLabel } from "@/lib/local/agent-options";
 import { OutcomeRow, OutcomeTotals } from "./CockpitOutcomeLedger";
 import { laneAttribution, runAttribution } from "./cockpitDrift";
 import type { LoopRunDetail } from "./loopTypes";
@@ -30,12 +31,20 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
   const improved = verdicts.filter((v) => v.kind === "attributable" && v.delta > 0).length;
   const regressed = verdicts.filter((v) => v.kind === "attributable" && v.delta < 0).length;
   const measured = outcomes.filter((o) => o.before && o.after);
+  const agentConfig = agentConfigLabel(run);
 
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Outcome · {run.phase}</Kicker>
-        <span className="font-mono text-xs text-slate-500">{timeAgo(run.endedAt ?? run.startedAt)}</span>
+        <span className="font-mono text-xs text-slate-500">
+          {/* WHAT THE LIFT WAS PRODUCED UNDER. A lift on sonnet at the deployment's default effort and
+              one on opus at high effort are results from two different setups, and the ledger compared
+              them for months without recording which was which. Absent on a run written before the
+              columns existed — unknown, rendered as nothing rather than as "default". */}
+          {agentConfig && <span className="mr-2 text-slate-400">{agentConfig}</span>}
+          {timeAgo(run.endedAt ?? run.startedAt)}
+        </span>
       </div>
       <OutcomeTotals
         lift={totals.lift}

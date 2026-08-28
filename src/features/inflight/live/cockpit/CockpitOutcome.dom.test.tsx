@@ -92,6 +92,10 @@ const detail = (outcomes: LoopLaneOutcome[]): LoopRunDetail => ({
     endedAt: "2026-08-22T10:30:00Z",
     error: null,
     createdAt: "2026-08-22T10:00:00Z",
+    // A run older than the agent-config columns — unknown, which renders as nothing. The cases that
+    // exercise a KNOWN configuration live in CockpitOutcome.agent.dom.test.tsx (200-LOC cap).
+    model: null,
+    effort: null,
   },
   lanes: outcomes.map((o) => o.lane),
   outcomes,
@@ -188,3 +192,4 @@ describe("CockpitOutcome", () => {
     expect(onBack).toHaveBeenCalledOnce();
   });
 });
+

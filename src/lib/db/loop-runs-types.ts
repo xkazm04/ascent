@@ -29,6 +29,12 @@ export interface LoopRunRecord {
   maxCycles: number;
   cycle: number;
   curated: boolean;
+  /** The RESOLVED model this run's agent sessions were armed with; null on a row written before the
+   *  column, which is unknown — never "the default". */
+  model: string | null;
+  /** The reasoning effort passed to the CLI, or null when none was chosen (the flag is then not
+   *  passed at all — see src/lib/local/agent.ts). */
+  effort: string | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -67,6 +73,10 @@ export interface LoopRunSummary {
   /** Summed overall-score movement across the lanes that have BOTH ends. Null when none do —
    *  "not measurable yet", which is not the same number as zero movement. */
   lift?: number | null;
+  /** The agent configuration this run's lift was produced under — the history strip prints it beside
+   *  the number, because comparing two lifts means comparing two setups. Null = unknown. */
+  model?: string | null;
+  effort?: string | null;
 }
 
 /** One lane's before/after, as the detail view needs it. */
@@ -107,6 +117,8 @@ type RunRow = {
   maxCycles: number;
   cycle: number;
   curated: boolean;
+  model?: string | null;
+  effort?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -143,6 +155,8 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     maxCycles: row.maxCycles,
     cycle: row.cycle,
     curated: row.curated,
+    model: row.model ?? null,
+    effort: row.effort ?? null,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,

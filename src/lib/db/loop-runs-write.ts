@@ -29,6 +29,9 @@ export interface CreateLoopRunInput {
   maxCycles?: number;
   curated?: boolean;
   createdBy?: string | null;
+  /** RESOLVED agent configuration (see resolveAgentConfig) — what the sessions will actually run as. */
+  model?: string | null;
+  effort?: string | null;
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
 }
@@ -46,6 +49,8 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       concurrency: clamp(input.concurrency ?? LOOP_DEFAULT_CONCURRENCY, 1, LOOP_CONCURRENCY_CAP),
       maxCycles: clamp(input.maxCycles ?? 3, 1, LOOP_MAX_CYCLES_CAP),
       curated: input.curated === true,
+      model: input.model ?? null,
+      effort: input.effort ?? null,
     },
   });
   return toRunRecord(row);

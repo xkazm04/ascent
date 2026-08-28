@@ -151,6 +151,13 @@ Guardrails, each load-bearing:
   deployment gets an honest 409 naming the fix). The session runs `--permission-mode acceptEdits` —
   not `--dangerously-skip-permissions` — with a 20-min default ceiling
   (`ASCENT_AUTOPILOT_TIMEOUT_MS`).
+- **Model and effort are per RUN** (2026-08-28), picked in the cockpit and resolved at arm time
+  against `CLAUDE_MODEL` / **`ASCENT_AGENT_EFFORT`** — deliberately not `CLAUDE_EFFORT`, which the
+  Claude Code harness sets in the environment it hands child processes, so a self-hosted Ascent
+  launched from inside a session would have inherited an effort nobody chose. The resolved pair is
+  stored on the run (and on the drive, which hands it to every run it dispatches) and printed beside
+  the lift, because two lifts from two setups are not comparable. `--effort` is appended only when a
+  level was chosen. Details: [org-planning/live.md](../org-planning/live.md#per-run-model-and-effort-2026-08-28).
 - **No-progress stop**: a cycle with zero commits and zero closed rows ends the run early (applied
   per lane by the engine, so in a multi-repo run one stalled repo no longer ends the pass).
 - **One run per org**, enforced against the database, not a process `Map`. Phase, branch, log and
@@ -182,7 +189,9 @@ verdict lands above the run's outcome ledger. The gate is not widened for it —
 
 ## Known gaps
 
-- The agent model rides `CLAUDE_MODEL` (default `sonnet`); no per-run model picker yet.
+- The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local
+  `claude` build accepts the flag: on a build that rejects it the session fails with the CLI's own
+  message rather than retrying without it.
 - A run interrupted by a restart is **reconciled, not resumed**: the row is marked `stopped` and its
   in-flight lanes `error`. The branch and its commits survive; nothing picks the cycle back up.
 - The dirty-tree sha-less scan can't dedup against itself — two identical dirty scans persist two

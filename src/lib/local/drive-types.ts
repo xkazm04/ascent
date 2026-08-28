@@ -52,6 +52,10 @@ export interface DriveStatus {
   runsBefore: number;
   /** The interrupted drive this one continues, or null for a fresh drive. */
   resumedFrom: string | null;
+  /** The RESOLVED agent configuration every run this drive dispatches is armed with, so a multi-run
+   *  drive is ONE experiment. Null = unknown (a row written before the columns existed). */
+  model?: string | null;
+  effort?: string | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -69,6 +73,9 @@ export interface DriveInput {
   /** Runs the chain has already spent — set only by a resume, never by the route's start path. */
   runsBefore?: number;
   resumedFrom?: string | null;
+  /** The operator's agent pick, normalized by the route; resolved against the env by `startDrive`. */
+  model?: string | null;
+  effort?: string | null;
 }
 
 /** The rope. A drive is bounded by construction — this is the most it may pull. */
@@ -105,5 +112,9 @@ export function resumeParams(drive: DriveStatus): DriveInput | null {
     concurrency: drive.concurrency,
     runsBefore,
     resumedFrom: drive.id,
+    // A resume continues the same experiment: re-arming the chain under a different model would make
+    // the drive's own before/after ledger a comparison of two setups.
+    model: drive.model ?? null,
+    effort: drive.effort ?? null,
   };
 }

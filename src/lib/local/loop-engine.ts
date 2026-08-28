@@ -19,7 +19,7 @@
 
 import { selfHosted } from "@/lib/env";
 import { mapPool } from "@/lib/pool";
-import { autopilotEnabled } from "@/lib/local/agent";
+import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { verifyLocalPath } from "@/lib/local/pairing";
 import { getRepoLocalPath } from "@/lib/db";
 import {
@@ -68,6 +68,10 @@ export interface StartLoopRunInput {
   curated?: boolean;
   /** GitHub login arming the run, for the audit trail on the row. */
   actor?: string | null;
+  /** The operator's per-run agent pick (already normalized by the route). Resolved against the
+   *  deployment's env HERE, once, and the resolved values are what land on the row. */
+  model?: string | null;
+  effort?: string | null;
   /** Test seam + the autopilot shim's legacy branch naming. */
   deps?: Partial<LaneDeps>;
   branchFor?: (repo: string, stamp: string) => string;
@@ -105,6 +109,10 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     targets.push({ repo, path });
   }
 
+  // Resolve ONCE, at arm time, and persist what was resolved. A row that recorded the raw pick would
+  // read `null` for every default run, i.e. "whatever CLAUDE_MODEL was that day" — the one fact the
+  // ledger needs and the only one an env var cannot recover afterwards.
+  const agent = resolveAgentConfig({ model: input.model, effort: input.effort });
   const run = await createLoopRun({
     orgSlug: org,
     repos,
@@ -112,6 +120,8 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     maxCycles: input.maxCycles ?? 3,
     curated: input.curated,
     createdBy: input.actor ?? null,
+    model: agent.model,
+    effort: agent.effort,
     phase: "running",
   });
   if (!run) throw new Error("The loop requires a database.");
@@ -177,6 +187,8 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         worktree: wt,
         batch: lane.batchIds.length > 0 ? lane.batchIds : null,
         deps: opts.deps,
+        // A retry re-runs the SAME experiment: the run's recorded configuration, not today's env.
+        agent: { model: run.model, effort: run.effort },
       });
     } catch (err) {
       await updateLane(laneId, {
@@ -235,6 +247,9 @@ async function drive(
           worktree: wt,
           batch: batches[t.repo] ?? null,
           deps: input.deps,
+          // Every cycle of a run uses the run's configuration — read off the ROW rather than the
+          // input, so a retry dispatched hours later cannot silently pick up a changed env.
+          agent: { model: run.model, effort: run.effort },
           shouldStop: () => state.stopRequested,
         });
         return { repo: t.repo, progressed: res.progressed };

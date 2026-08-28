@@ -435,10 +435,57 @@ tab is foregrounded, and the gate is clear — on managed cloud, where the route
 makes no request at all. It adopts a drive started elsewhere (curl, another tab) on its mount tick,
 and hands the terminal status up exactly once.
 
+### Per-run model and effort (2026-08-28)
+
+The agent was pinned to the deployment's `CLAUDE_MODEL` (default `sonnet`) with no per-run choice —
+so the most expensive variable in the system was the one an operator could not vary without a
+redeploy, and the outcome ledger compared lifts across runs whose configuration it did not record.
+
+Two selects sit with the other dials in the inspector (`CockpitRunControls`, state in `useRunDials`):
+**Agent model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort** (`AGENT_EFFORTS` — low ·
+medium · high), both defaulting to *Deployment default*. They ride `POST {action:"start"}` on the
+loop route and on the drive route, and a drive hands the same pair to **every** run it dispatches, so
+a multi-run drive stays one experiment. A resume inherits it for the same reason.
+
+| Concern | Where |
+| --- | --- |
+| The closed lists + normalizers + the ledger label | `src/lib/local/agent-options.ts` (dependency-free, so the picker and the route validator cannot drift) |
+| Env resolution + the `--effort` argv | `src/lib/local/agent.ts` (`resolveAgentConfig`, `runClaudeAgent`) |
+| Persistence | `LoopRun.model/effort`, `LoopDrive.model/effort` (migration `20260828170000_add_run_agent_config`) |
+
+Three decisions worth stating:
+
+- **The values are RESOLVED at arm time and the resolved values are persisted.** A row storing the
+  raw pick would read `null` for every default run — "whatever `CLAUDE_MODEL` was that day", which is
+  exactly the fact the ledger needs and the only one an env var cannot recover afterwards. Later
+  cycles and a lane retry read the configuration off the **row**, so a changed env cannot split one
+  run across two setups.
+- **The model list is closed, and not because the CLI cares.** `--model` and `--effort` reach a
+  re-parsing shell on Windows (`shell: true`), so both are normalized against the same list the picker
+  offers; an unrecognised value falls back to the deployment default rather than 400-ing, because a
+  run must not die because a stale tab sent a retired name. An operator who needs a pinned model id
+  sets `CLAUDE_MODEL` and picks *Deployment default* — a pinned id is a deployment decision.
+- **The effort env var is `ASCENT_AGENT_EFFORT`, not `CLAUDE_EFFORT`.** The Claude Code harness sets
+  `CLAUDE_EFFORT` itself in the environment it gives child processes (found the hard way: a test
+  asserting "no effort chosen" failed against the ambient env of the session writing it). A
+  self-hosted Ascent started from inside a Claude Code session would have inherited an effort level
+  nobody chose, on every run, invisibly. `CLAUDE_MODEL` carries no such collision and keeps its name.
+- **`null` effort is not a level.** The flag is then not appended at all, so the argv is byte-for-byte
+  what it always was.
+
+The configuration is rendered where lifts are compared: beside the timestamp on the outcome header,
+and under every row of the run-history strip. A run recorded before the columns existed prints
+**nothing** — "default" would be a claim about a run nobody can check.
+
+Tests: `agent-options.test.ts` (the closed lists, including the shell-injection shapes, and the
+unknown-renders-nothing label), `agent.test.ts` (`resolveAgentConfig` precedence),
+`loop-engine.test.ts` (the parameter threading start → row → agent invocation, and that a mid-run env
+change cannot reach a later cycle), `CockpitOutcome.dom.test.tsx` (the ledger shows it).
+
 ### Run history
 
-`CockpitHistory` lists the last 20 runs (age, repo count, lift, phase); selecting one fetches its
-detail and shows the outcome rail for it.
+`CockpitHistory` lists the last 20 runs (age, repo count, lift, phase, and the agent configuration the
+lift was produced under); selecting one fetches its detail and shows the outcome rail for it.
 
 ### Setup states (`CockpitSetup`)
 
@@ -470,6 +517,7 @@ states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
 | Boot sweep | `src/lib/local/boot-sweep.ts`, called from `src/instrumentation.ts` |
 | Drive route | `src/app/api/org/local/drive/route.ts` |
 | Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
+| Agent model/effort | `src/lib/local/agent-options.ts`, `agent.ts`, `cockpit/{CockpitRunControls,useRunDials}.ts(x)` |
 | Platform fold carry | `src/lib/analyze/platform-carry.ts` (+ `platform-signals.ts`) |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |
@@ -652,4 +700,6 @@ Two causes, both now fixed:
 - **Retry builds a fresh worktree and branch.** Deliberate (the original worktree is gone by then),
   but it means a retried lane's commits land on a different branch from its siblings' — two branches
   to review for one repo.
-- **The agent model rides `CLAUDE_MODEL`** (default `sonnet`); no per-run model picker.
+- **The agent's `--effort` flag is passed only when a level is chosen.** A `claude` build that does
+  not know the flag is therefore unaffected, but there is also no probe: if a build rejects it, the
+  session fails with the CLI's own message rather than falling back to no-effort.

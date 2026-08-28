@@ -1637,6 +1637,14 @@ model LoopRun {
   maxCycles   Int       @default(3)
   cycle       Int       @default(0) // the cycle currently being worked (0 = none started yet)
   curated     Boolean   @default(false) // true when the operator approved the batches by hand
+  // What this run's agent sessions were armed with, RESOLVED at arm time (the operator's pick, else
+  // the deployment's CLAUDE_MODEL / ASCENT_AGENT_EFFORT). Persisted because the ledger compares lifts across
+  // runs, and a lift from `sonnet` at default effort and one from `opus` at high effort are results
+  // from two different setups. Resolved rather than raw: a null would mean "whatever the env said that
+  // day", which is exactly the fact that cannot be recovered afterwards.
+  // `effort` stays NULL when no level was chosen — the CLI flag is then not passed at all.
+  model       String?
+  effort      String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1701,6 +1709,10 @@ model LoopDrive {
   runsJson        String    @default("[]") // JSON DriveRunRecord[]
   measurementJson String? // JSON DriveMeasurement — the latest fleet score, or null before the first
   stopRequested   Boolean   @default(false)
+  // The agent configuration the drive arms EVERY run it dispatches with, so a multi-run drive is one
+  // experiment rather than several. Same resolved-at-arm-time contract as LoopRun.
+  model           String?
+  effort          String?
   startedAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   endedAt         DateTime?

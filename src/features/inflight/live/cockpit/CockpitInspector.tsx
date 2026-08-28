@@ -15,13 +15,11 @@ import { InlineEmpty } from "@/components/org/shared/ui";
 import { ProposalList, SharedDimensionBars } from "./CockpitBatch";
 import { CockpitRunControls } from "./CockpitRunControls";
 import { proposalDimensions, sharedDimensions } from "./cockpitDimensions";
-import { DRIVE_DEFAULT_MAX_RUNS } from "./driveTypes";
+import { useRunDials } from "./useRunDials";
 import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
 import type { LoopProposal } from "./loopTypes";
 
-const DEFAULT_CONCURRENCY = 2;
-const DEFAULT_CYCLES = 3;
 /** A lasso drags through dozens of intermediate selections; only the one it settles on is queried. */
 const PROPOSE_DEBOUNCE_MS = 350;
 
@@ -50,10 +48,9 @@ export function CockpitInspector(props: CockpitInspectorProps) {
   const [fetched, setFetched] = useState<{ key: string; proposals: LoopProposal[] }>({ key: "", proposals: [] });
   const [loading, setLoading] = useState(false);
   const [pruned, setPruned] = useState<ReadonlySet<string>>(() => new Set());
-  const [dimFocus, setDimFocus] = useState<string | null>(null);
-  const [concurrency, setConcurrency] = useState(DEFAULT_CONCURRENCY);
-  const [cycles, setCycles] = useState(DEFAULT_CYCLES);
-  const [maxRuns, setMaxRuns] = useState(DRIVE_DEFAULT_MAX_RUNS);
+  // Six dials in one piece of state (useRunDials) — the run and the drive read the SAME values, which
+  // is what makes them two ways of arming one experiment rather than two configurations.
+  const { dials, set } = useRunDials();
 
   const repos = useMemo(() => [...selected].sort(), [selected]);
   const key = repos.join(",");
@@ -94,17 +91,34 @@ export function CockpitInspector(props: CockpitInspectorProps) {
     const batches: Record<string, string[]> = {};
     for (const p of proposals) {
       if (!paired.has(p.repo)) continue;
-      const ids = p.items.filter((i) => !pruned.has(i.id) && (!dimFocus || i.dimId === dimFocus)).map((i) => i.id);
+      const ids = p.items.filter((i) => !pruned.has(i.id) && (!dials.dimFocus || i.dimId === dials.dimFocus)).map((i) => i.id);
       if (ids.length > 0) batches[p.repo] = ids;
     }
     const curated = Object.keys(batches).length > 0;
-    onRun({ repos: runnable, batches: curated ? batches : undefined, concurrency, maxCycles: cycles });
+    onRun({
+      repos: runnable,
+      batches: curated ? batches : undefined,
+      concurrency: dials.concurrency,
+      maxCycles: dials.cycles,
+      model: dials.model,
+      effort: dials.effort,
+    });
   };
 
   // A drive picks its OWN batch before every run (the fleet is re-scored between them), so the
   // inspector's pruning and dimension focus deliberately do not travel with it — only the scope and
   // the three bounds do.
-  const drive = () => onDrive({ repos: runnable, maxRuns, maxCycles: cycles, concurrency });
+  const drive = () =>
+    onDrive({
+      repos: runnable,
+      maxRuns: dials.maxRuns,
+      maxCycles: dials.cycles,
+      concurrency: dials.concurrency,
+      // The agent configuration DOES travel with a drive, unlike the pruning above: it is a property
+      // of how the work is done, not of which work was picked, so it survives the re-batching.
+      model: dials.model,
+      effort: dials.effort,
+    });
 
   if (repos.length === 0) {
     return (
@@ -138,23 +152,13 @@ export function CockpitInspector(props: CockpitInspectorProps) {
 
       <SharedDimensionBars shares={shares} />
 
-      <CockpitRunControls
-        dims={dims}
-        dimFocus={dimFocus}
-        onDimFocus={setDimFocus}
-        concurrency={concurrency}
-        onConcurrency={setConcurrency}
-        cycles={cycles}
-        onCycles={setCycles}
-        maxRuns={maxRuns}
-        onMaxRuns={setMaxRuns}
-      />
+      <CockpitRunControls dims={dims} dials={dials} onChange={set} />
 
       <ProposalList
         proposals={proposals}
         pruned={pruned}
         onTogglePrune={togglePrune}
-        dimFocus={dimFocus}
+        dimFocus={dials.dimFocus}
         unpaired={unpaired}
         loading={loading}
       />
@@ -183,7 +187,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
               </button>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
                 Runs again and again until every selected repo clears the band, a whole run moves nothing, or the{" "}
-                {maxRuns}-run budget is spent.
+                {dials.maxRuns}-run budget is spent.
               </p>
             </>
           )}

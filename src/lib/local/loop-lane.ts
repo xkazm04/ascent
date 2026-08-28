@@ -54,6 +54,9 @@ export interface LaneRunInput {
   deps?: Partial<LaneDeps>;
   /** Cooperative stop, checked between phases — never mid-agent-session. */
   shouldStop?: () => boolean;
+  /** What to arm this lane's agent session with, already resolved by the engine. Omitted keeps the
+   *  runner's own env fallback, which is what the single-repo autopilot shim has always relied on. */
+  agent?: { model?: string | null; effort?: string | null };
 }
 
 export interface LaneRunResult {
@@ -209,7 +212,12 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     const prompt =
       buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle" }) +
       `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\` — commit directly to it, one commit per resolved item, each carrying its trailer.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- In each commit body, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is not resolved.\n`;
-    const result = await deps.runAgent({ cwd: worktree.dir, prompt });
+    const result = await deps.runAgent({
+      cwd: worktree.dir,
+      prompt,
+      ...(input.agent?.model ? { model: input.agent.model } : {}),
+      ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+    });
     await appendLaneLog(laneId, result.ok ? `Agent finished: ${firstLine(result.summary)}` : `Agent failed: ${firstLine(result.summary)}`);
 
     const countRes = await runGit(worktree.dir, ["rev-list", "--count", `${before}..HEAD`]);

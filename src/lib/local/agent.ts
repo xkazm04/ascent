@@ -20,10 +20,41 @@
 import { spawn } from "node:child_process";
 import { cliProviderAllowed, envNumber } from "@/lib/llm/config";
 import { envBool } from "@/lib/env";
+import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/lib/local/agent-options";
 
 /** Operator consent for the autopilot (spawning editing agents). Off by default, everywhere. */
 export function autopilotEnabled(): boolean {
   return envBool("ASCENT_AUTOPILOT") && cliProviderAllowed();
+}
+
+/** The model a run falls back to when neither the operator nor the deployment named one. */
+export const DEFAULT_AGENT_MODEL = "sonnet";
+
+/**
+ * Resolve what a run will ACTUALLY be armed with, from the operator's choice and the deployment's env.
+ *
+ * Resolved once at arm time rather than per session, and the resolved values are what get persisted
+ * on the run: a row reading `model: null` would mean "whatever CLAUDE_MODEL happened to be that day",
+ * which is precisely the fact the ledger needs and the one an env var cannot recover after the fact.
+ *
+ * `effort` stays null when nothing asked for one, and that is not the same as a default: the CLI flag
+ * is only passed when a level was chosen, so a `claude` build without `--effort` is unaffected by this
+ * feature existing.
+ *
+ * THE ENV NAME IS `ASCENT_AGENT_EFFORT`, NOT `CLAUDE_EFFORT`, and that is not a style choice.
+ * `CLAUDE_EFFORT` is set by the Claude Code harness itself in the environment it hands to child
+ * processes (verified 2026-08-28 — it was in the ambient env of the very session that wrote this, and
+ * a test asserting "no effort chosen" failed because of it). A self-hosted Ascent started from inside
+ * a Claude Code session would have inherited an effort level nobody chose, on every run, invisibly.
+ * `CLAUDE_MODEL` carries no such collision and keeps its existing name.
+ */
+export function resolveAgentConfig(choice: AgentConfig | null | undefined): { model: string; effort: string | null } {
+  const picked = normalizeAgentModel(choice?.model);
+  const envModel = process.env.CLAUDE_MODEL?.trim();
+  return {
+    model: picked ?? (envModel || DEFAULT_AGENT_MODEL),
+    effort: normalizeAgentEffort(choice?.effort) ?? normalizeAgentEffort(process.env.ASCENT_AGENT_EFFORT?.trim()),
+  };
 }
 
 /** Per-session ceiling. A fix batch is a real working session — default 20 min, env-tunable. The
@@ -43,24 +74,33 @@ export interface AgentRunResult {
 
 /** Run one editing session in `cwd`. Resolves (never rejects) — the autopilot treats every outcome
  *  as cycle data: a failed session ends the cycle with its reason in the log, not a stack. */
-export function runClaudeAgent(opts: { cwd: string; prompt: string; model?: string }): Promise<AgentRunResult> {
+export function runClaudeAgent(opts: { cwd: string; prompt: string; model?: string; effort?: string | null }): Promise<AgentRunResult> {
   return new Promise((resolve) => {
     if (!autopilotEnabled()) {
       resolve({ ok: false, summary: "Autopilot is not enabled — set ASCENT_AUTOPILOT=1 on this deployment." });
       return;
     }
-    const model = opts.model || process.env.CLAUDE_MODEL || "sonnet";
+    const model = opts.model || process.env.CLAUDE_MODEL || DEFAULT_AGENT_MODEL;
     // shell:true is required on Windows (claude.cmd), which re-parses argv — so the model must stay
     // a plain token, same validation and reasoning as claude-cli.ts.
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(model)) {
       resolve({ ok: false, summary: `Invalid model "${model}".` });
       return;
     }
+    // Effort is normalized against the SAME closed list the picker offers (agent-options.ts) rather
+    // than passed through: it reaches a re-parsing shell exactly as the model does. An unrecognised
+    // value drops the flag instead of failing the run — a session that would have worked must not die
+    // because a stale caller sent a level this build does not know.
+    const effort = normalizeAgentEffort(opts.effort);
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY; // subscription auth, like every local CLI call
 
     const bin = process.env.CLAUDE_CLI_PATH || "claude";
-    const child = spawn(bin, ["-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--model", model], {
+    // `--effort` is appended ONLY when a level was chosen, so a `claude` build that has never heard of
+    // the flag runs exactly the argv it always did.
+    const args = ["-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--model", model];
+    if (effort) args.push("--effort", effort);
+    const child = spawn(bin, args, {
       shell: true,
       cwd: opts.cwd,
       env,

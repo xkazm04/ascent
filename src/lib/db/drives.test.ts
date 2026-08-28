@@ -51,6 +51,8 @@ const status = (over: Partial<DriveStatus> = {}): DriveStatus => ({
   measurement: null,
   runsBefore: 0,
   resumedFrom: null,
+  model: null,
+  effort: null,
   startedAt: "2026-08-28T10:00:00.000Z",
   endedAt: null,
   error: null,
@@ -80,6 +82,16 @@ describe("LoopDrive persistence — the round trip", () => {
     const back = await getDriveRow("drive_1");
     expect(back?.runs).toEqual(st.runs);
     expect(back?.measurement).toEqual(st.measurement);
+  });
+
+  it("carries the agent configuration, so a resumed drive continues the SAME experiment", async () => {
+    // A drive hands one model/effort to every run it dispatches; if the row lost it, a resume after a
+    // restart would re-arm the chain from the env and turn one experiment into two.
+    const st = status({ model: "opus", effort: "high" });
+    await createDriveRow(st, null);
+    const back = await getDriveRow("drive_1");
+    expect(back?.model).toBe("opus");
+    expect(back?.effort).toBe("high");
   });
 
   it("carries the resume chain — the thing a restart is most likely to lose", async () => {

@@ -37,6 +37,8 @@ type DriveRow = {
   runsJson: string;
   measurementJson: string | null;
   stopRequested: boolean;
+  model?: string | null;
+  effort?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -71,6 +73,8 @@ export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
     measurement: parseJson<DriveMeasurement | null>(row.measurementJson, null),
     runsBefore: row.runsBefore,
     resumedFrom: row.resumedFrom,
+    model: row.model ?? null,
+    effort: row.effort ?? null,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -89,6 +93,8 @@ const rowData = (st: DriveStatus) => ({
   runsJson: JSON.stringify(st.runs),
   measurementJson: st.measurement ? JSON.stringify(st.measurement) : null,
   stopRequested: st.stopRequested,
+  model: st.model ?? null,
+  effort: st.effort ?? null,
   endedAt: st.endedAt ? new Date(st.endedAt) : null,
   error: st.error,
 });

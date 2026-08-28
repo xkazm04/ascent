@@ -46,6 +46,9 @@ export interface StartLoopInput {
   batches?: Record<string, string[]>;
   concurrency: number;
   maxCycles: number;
+  /** Agent configuration for this run; null on either means "use the deployment's default". */
+  model: string | null;
+  effort: string | null;
 }
 
 export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>

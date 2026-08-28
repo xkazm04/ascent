@@ -140,6 +140,10 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
         startedAt: r.startedAt,
         endedAt: r.endedAt,
         lift: liftByRun.has(r.id) ? (liftByRun.get(r.id) as number) : null,
+        // The configuration the lift was produced under travels with it: a strip of numbers whose
+        // setups differ is a comparison nobody can make.
+        model: r.model,
+        effort: r.effort,
       };
     });
   }, []);
