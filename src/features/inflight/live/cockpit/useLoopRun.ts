@@ -25,6 +25,7 @@ import {
   type StartLoopInput,
 } from "./loopClient";
 import { isRunLive, type LoopProposal, type LoopRunDetail, type LoopRunRecord, type LoopRunSummary } from "./loopTypes";
+import { useIsVisible } from "../useIsVisible";
 
 const POLL_MS = 3_000;
 
@@ -56,14 +57,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   // The id we last saw live — the thing whose disappearance means "it finished".
   const lastLiveId = useRef<string | null>(initialActive && isRunLive(initialActive.phase) ? initialActive.id : null);
 
-  const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sync = () => setVisible(document.visibilityState !== "hidden");
-    sync();
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
+  const visible = useIsVisible();
 
   const tick = useCallback(async () => {
     try {

@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpsState } from "@/lib/db";
+import { useIsVisible } from "./useIsVisible";
 
 const REFRESH_MS = 90_000;
 
@@ -31,14 +32,7 @@ export function useShipLoop({
     onMergedRef.current = onMerged;
   }, [onMerged]);
 
-  const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sync = () => setVisible(document.visibilityState !== "hidden");
-    sync();
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
+  const visible = useIsVisible();
 
   const refresh = useCallback(async () => {
     try {

@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { clampStageIndex } from "./liveTvStages";
+import { useIsVisible } from "./useIsVisible";
 
 const STAGE_MS = 14_000;
 
@@ -16,15 +17,7 @@ export function useTvRotation(stagesLength: number, onExit: () => void) {
   const [focusPaused, setFocusPaused] = useState(false);
   const [manualPaused, setManualPaused] = useState(false);
   const paused = hoverPaused || focusPaused || manualPaused;
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sync = () => setVisible(document.visibilityState !== "hidden");
-    sync();
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
+  const visible = useIsVisible();
 
   // Auto-rotate through the relevant stages; a single-stage state (or a running scan) never rotates.
   useEffect(() => {

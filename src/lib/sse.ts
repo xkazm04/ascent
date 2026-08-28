@@ -53,12 +53,29 @@ export async function readSSE(
     if (done) break;
     onChunk?.();
     buf += dec.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n\n")) >= 0) {
-      const block = buf.slice(0, nl);
-      buf = buf.slice(nl + 2);
+    let m: RegExpExecArray | null;
+    while ((m = FRAME_BOUNDARY.exec(buf))) {
+      const block = buf.slice(0, m.index);
+      buf = buf.slice(m.index + m[0].length);
       const msg = parseSSE(block);
       if (msg.event || msg.data) onMessage(msg);
     }
   }
 }
+
+/**
+ * A frame ends at a BLANK LINE, which over the wire may be `\n\n` OR `\r\n\r\n`.
+ *
+ * This was `buf.indexOf("\n\n")`, which cannot see a CRLF boundary at all: `\r\n\r\n` contains no
+ * `\n\n` substring, so against a proxy that normalises to CRLF the buffer grew forever and NOT ONE
+ * frame was delivered — the stream simply appeared to hang. `parseSSE` already tolerated CRLF *within*
+ * a frame (it strips a trailing `\r` per line), so the two halves of the parser disagreed about which
+ * line endings the wire may use.
+ *
+ * `src/components/report/useReportScan.ts` had found this and carried its own `/\r?\n\r?\n/` loop; the
+ * fix belongs here, where all six other consumers get it too. Declared once at module scope rather than
+ * per call — a literal regex with no `/g` flag holds no `lastIndex` state, so it is safe to share.
+ *
+ * Architect ADR 2026-08-28-client-fetch-primitives.
+ */
+const FRAME_BOUNDARY = /\r?\n\r?\n/;
