@@ -66,13 +66,36 @@ export function selfHostedExplicit(): boolean {
   return raw === "1" || raw === "true";
 }
 
+/** Warn-once latch for the production fall-through below. Module-scoped so the log fires once per
+ *  process, not once per gate check — `selfHosted()` is consulted on nearly every plan decision. */
+let inferredSelfHostWarned = false;
+
 export function selfHosted(): boolean {
   const raw = process.env.ASCENT_SELF_HOSTED?.trim().toLowerCase();
   // Deliberately NOT envBool: this flag needs a third state. `envBool` cannot distinguish "unset"
   // (fall through to the billing sniff) from an explicit "0" (the operator says: enforce plans).
   if (raw === "1" || raw === "true") return true;
   if (raw === "0" || raw === "false") return false;
-  return !billingConfigured();
+  const inferred = !billingConfigured();
+  // The inference is right for a fresh clone and wrong for a managed deployment that has LOST its
+  // Polar token: every plan gate opens, scans stop metering, and nothing says so. The mode is still
+  // inferred (changing that would break existing self-hosts that never set the flag) — but in
+  // production it no longer happens silently. Server-side only: `@/lib/plans` is imported by client
+  // components for its DATA constants, and this must not log in a browser console.
+  if (inferred && !inferredSelfHostWarned && typeof window === "undefined" && process.env.NODE_ENV === "production") {
+    inferredSelfHostWarned = true;
+    console.warn(
+      "[env] ASCENT_SELF_HOSTED is unset and POLAR_ACCESS_TOKEN is absent — this production deployment " +
+        "is running SELF-HOSTED: every plan gate is open, scans are unmetered, retention is unbounded. " +
+        "Set ASCENT_SELF_HOSTED=1 to declare that deliberate, or ASCENT_SELF_HOSTED=0 to enforce plans.",
+    );
+  }
+  return inferred;
+}
+
+/** Test seam: reset the warn-once latch. Not used in production code. */
+export function __resetSelfHostWarning(): void {
+  inferredSelfHostWarned = false;
 }
 
 // ── Auth-gate env predicates ─────────────────────────────────────────────────

@@ -10,7 +10,7 @@
 // tier gating), so every test in this file sets the mode explicitly.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { selfHosted, selfHostedExplicit } from "@/lib/env";
+import { __resetSelfHostWarning, selfHosted, selfHostedExplicit } from "@/lib/env";
 import {
   isUnlimitedPlan,
   planAllowsByom,
@@ -81,6 +81,65 @@ describe("selfHosted()", () => {
     vi.stubEnv("ASCENT_SELF_HOSTED", "yes");
     vi.stubEnv("POLAR_ACCESS_TOKEN", "polar_at_live_xxx");
     expect(selfHosted()).toBe(false);
+  });
+});
+
+// The inference is right for a fresh clone and wrong for a managed deployment that LOST its Polar
+// token: the gates open, metering stops, and before this the fall-through was silent. The mode is
+// still inferred — existing self-hosts that never set the flag must keep working — but production
+// now says so once. Architect ADR 2026-08-28-selfhosted-fails-open.
+describe("selfHosted() production fall-through warning", () => {
+  afterEach(() => {
+    __resetSelfHostWarning();
+  });
+
+  it("warns once when production infers self-hosted from a missing billing token", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "");
+    vi.stubEnv("POLAR_ACCESS_TOKEN", "");
+
+    expect(selfHosted()).toBe(true);
+    expect(selfHosted()).toBe(true); // consulted on nearly every plan decision
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("ASCENT_SELF_HOSTED");
+    warn.mockRestore();
+  });
+
+  it("stays silent when the operator declared the mode explicitly", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("POLAR_ACCESS_TOKEN", "");
+
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    expect(selfHosted()).toBe(true);
+    vi.stubEnv("ASCENT_SELF_HOSTED", "0");
+    expect(selfHosted()).toBe(false);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("stays silent outside production, where the inference is the intended default", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "");
+    vi.stubEnv("POLAR_ACCESS_TOKEN", "");
+
+    expect(selfHosted()).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("stays silent in production when billing IS configured", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_SELF_HOSTED", "");
+    vi.stubEnv("POLAR_ACCESS_TOKEN", "polar_at_live_xxx");
+
+    expect(selfHosted()).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 
