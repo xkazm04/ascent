@@ -209,6 +209,53 @@ is captured at dispatch time using the *exact* ordering `scans-read` uses (`scan
 against a different "latest" scan than the comparison view later reads. A lane with no recorded
 `before` has nothing to diff against and reports `diff: null` rather than inventing a baseline.
 
+### Is this lift real? The attribution rule
+
+**A subtraction is not an attribution.** Two of the three ways an Ascent score moves have nothing to
+do with the repository, and until 2026-08-28 the loop reported all three as lift:
+
+1. **The engine changed.** `scanRepository` falls to a deterministic mock floor when every real LLM
+   attempt fails, and that report persists like any other (it was a *silent success* —
+   `src/lib/scan.ts`). A mock score and a model-blended score are two different rulers.
+2. **The model wobbled.** Measured live 2026-08-10 (UAT `L2-NEW-01`): a 193-second model call moved
+   the overall score by roughly ±2 points, using ≤24% of its guardband. So a 2-point "lift" on an
+   unchanged repository is an ordinary outcome of scanning twice.
+3. The repository actually changed — the only one worth reporting.
+
+[`src/lib/maturity/attribution.ts`](../../../src/lib/maturity/attribution.ts) is the single rule that
+decides between them, and everything that claims a lift consults it: the outcome ledger, the run
+totals, the history strip's per-run lift (`listLoopRuns`), and the follow-up resolve rule
+(`decideInProgress`). One rule, so those four can never tell four stories about the same pair.
+
+| Verdict | When | What the surface shows |
+| --- | --- | --- |
+| `attributable` | both ends from a real engine **and** `abs(delta) > SCORE_NOISE_BAND` | the signed delta |
+| `mock-scan` | either end has `engineProvider = "mock"` | *not attributable: mock scan* — or *the model failed and this scan fell to the deterministic floor* when `engineDegraded` |
+| `within-noise` | real pair, movement inside the band (including zero) | *within noise (±2)* |
+| `unmeasured` | one end missing (first-ever scan, lane never rescanned) | *not measured* |
+
+`SCORE_NOISE_BAND` is **2**, from that UAT measurement, and the band is **exclusive** — a movement of
+exactly 2 is noise. The rule is **symmetric**: a small regression is refused on the same grounds,
+because reporting one would be the same error with the sign flipped and would have the loop chasing
+noise it created. It is also applied per *dimension* in `decideInProgress`, where the band is
+conservative (the per-dimension `LLM_GUARDBAND` is 6, doubled on a widened dim); tightening that
+needs a per-dimension measurement, not a guessed constant.
+
+Two consequences worth stating plainly:
+
+- **The run's headline lift sums only the attributable lanes.** A run that moved four repos by one
+  point each reads `—`, not `+4`. `runAttribution` returns the excluded counts beside the number, so
+  "no lift, three noise lanes" and "no lift, three mock lanes" stay distinguishable — they call for
+  opposite next moves.
+- **A follow-up never closes on an unattributable movement.** The 2026-08-26 rule already refused to
+  let a trailer close a row the rescan still restated; this refuses the other half — a claimed row
+  whose dimension "moved" only within the band, or across a mock rescan, stays in progress with a
+  note saying which.
+
+Callers that genuinely have no provenance (a legacy row, a fixture) may omit the engines and get the
+pre-attribution strict-movement rule. The rule tightens where evidence exists and nowhere else; it
+never invents a verdict from absent data.
+
 ## Gates
 
 Each is checked at the route **and** in the engine, and each is load-bearing:

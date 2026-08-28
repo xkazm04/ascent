@@ -8,7 +8,7 @@ import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
-import { decideInProgress, isRestated, keepNote, resolutionNote } from "@/lib/org/followups";
+import { decideInProgress, isRestated, keepNote, resolutionNote, type MovementEngines } from "@/lib/org/followups";
 import {
   canonicalRepoFullName,
   DEFAULT_ORG_SLUG,
@@ -288,6 +288,11 @@ export async function persistScanReport(
         // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
         // rephrasing, not repair.
         dimensions: { select: { dimId: true, score: true } },
+        // The previous scan's ENGINE — the other half of the witness. A movement measured across a
+        // mock/real boundary is a change of ruler, not of repository, and must not close a claimed
+        // row however far the number travelled (src/lib/maturity/attribution.ts).
+        engineProvider: true,
+        engineDegraded: true,
       },
     });
     const prevRecs = previous?.recommendations ?? [];
@@ -298,6 +303,15 @@ export async function persistScanReport(
       const after = nextDimScore.get(dimId);
       return before == null || after == null ? null : { before, after };
     };
+    // The engines behind that movement. Null when there is no previous scan — no pair, nothing to
+    // attribute — which leaves decideInProgress on its pre-attribution strict-movement rule rather
+    // than letting it judge from a fabricated end.
+    const movementEngines: MovementEngines | null = previous
+      ? {
+          before: { engineProvider: previous.engineProvider, engineDegraded: previous.engineDegraded },
+          after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded },
+        }
+      : null;
     const carryMatch = matchRecommendations(
       prevRecs.map((r) => ({ dim: r.dimId, title: r.title })),
       report.roadmap.map((r) => ({ dim: r.dimension, title: r.title })),
@@ -326,7 +340,7 @@ export async function persistScanReport(
       if (r.status !== "in_progress") return;
       const restated = isRestated({ dim: r.dimId, title: r.title }, nextIds);
       const movement = movementOf(r.dimId);
-      const decision = decideInProgress({ id: r.id }, restated, resolvedIds, movement);
+      const decision = decideInProgress({ id: r.id }, restated, resolvedIds, movement, movementEngines);
       if (decision.kind === "done") {
         resolvedRows.push({ row: r, note: resolutionNote(decision, scanRef) });
         // Un-pair any next item carry-forward matched to this row: it is not the same gap.

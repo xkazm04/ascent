@@ -31,7 +31,12 @@ const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
   rigorScore: 50,
   posture: "manual",
   confidence: 0.8,
-  engineProvider: "mock",
+  // A REAL engine by default: the attribution rule refuses a pair with a mock end, so a fixture on
+  // the mock floor would make every lift in this file unmeasurable — which is the rule working, but
+  // it is not what these cases are about. The mock case has its own test below.
+  engineProvider: "anthropic",
+  engineModel: "claude",
+  engineDegraded: false,
   headSha: null,
   dimensions: dims(),
   recommendations: [],

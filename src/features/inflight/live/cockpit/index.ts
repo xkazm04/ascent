@@ -23,6 +23,6 @@ export { LANE_STOPS, laneActiveStop, laneCaption, laneIsLive, laneMarkerPct, lan
 export type { LaneStop, LanePosition } from "./laneStages";
 export { isOrgWide, proposalDimensions, shareLine, sharedDimensions } from "./cockpitDimensions";
 export type { DimensionShare, SharedDimensions } from "./cockpitDimensions";
-export { driftFor, runLift, scanningRepos } from "./cockpitDrift";
+export { driftFor, laneAttribution, runAttribution, runLift, scanningRepos } from "./cockpitDrift";
 export type { CockpitDrift } from "./cockpitDrift";
 export type { CockpitMode, LoopProposal, LoopStatusPayload } from "./loopTypes";

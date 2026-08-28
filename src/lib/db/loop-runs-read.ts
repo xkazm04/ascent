@@ -7,6 +7,7 @@ import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
+import { attributeScores } from "@/lib/maturity/attribution";
 import {
   toLaneRecord,
   toRunRecord,
@@ -110,15 +111,23 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
     ];
     const scans = ids.length
-      ? await prisma.scan.findMany({ where: { id: { in: ids } }, select: { id: true, overallScore: true } })
+      ? await prisma.scan.findMany({
+          where: { id: { in: ids } },
+          // The engine columns ride along with the score: the history strip's lift is the same claim
+          // the outcome ledger makes, so it answers to the same attribution rule. Without them this
+          // read would fold a mock/real pair — or a run of pure model wobble — into a green number
+          // the ledger beside it refuses to print.
+          select: { id: true, overallScore: true, engineProvider: true, engineDegraded: true },
+        })
       : [];
-    const score = new Map(scans.map((s) => [s.id, s.overallScore]));
+    const score = new Map(scans.map((s) => [s.id, s]));
     const liftByRun = new Map<string, number>();
     for (const l of lanes) {
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
-      if (b == null || a == null) continue;
-      liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + (a - b));
+      const verdict = attributeScores(b, a);
+      if (verdict.kind !== "attributable") continue;
+      liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + verdict.delta);
     }
     return rows.map((row) => {
       const r = toRunRecord(row);

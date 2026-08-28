@@ -27,6 +27,7 @@
 
 import type { RecIdentity } from "@/lib/report/compare";
 import { normalizeRecTitle } from "@/lib/report/compare";
+import { attributeDelta, SCORE_NOISE_BAND, type EngineEnd } from "@/lib/maturity/attribution";
 
 /** The commit-message trailer a fix commit uses to name the follow-up it resolves. */
 export const FOLLOWUP_TRAILER = "Ascent-Resolves";
@@ -62,12 +63,23 @@ export function parseResolvedIds(messages: readonly string[]): Set<string> {
 export type InProgressDecision =
   | { kind: "done"; reason: "trailer"; sha?: string }
   | { kind: "done"; reason: "not-restated" }
-  | { kind: "keep"; reason: "restated" | "claimed-but-restated" | "no-movement" };
+  | {
+      kind: "keep";
+      reason: "restated" | "claimed-but-restated" | "no-movement" | "within-noise" | "mock-scan";
+    };
 
 /** The row's dimension score on the previous scan and on this one — the independent witness. */
 export interface DimMovement {
   before: number;
   after: number;
+}
+
+/** The engines that produced the two scans the movement was measured between. Optional: a caller with
+ *  no provenance to hand (a legacy row, a unit fixture) gets the pre-attribution behaviour rather
+ *  than a fabricated verdict. */
+export interface MovementEngines {
+  before: EngineEnd;
+  after: EngineEnd;
 }
 
 /**
@@ -87,16 +99,41 @@ export interface DimMovement {
  * vanished from the roadmap while its number stood still is far more likely rephrasing than repair.
  * Unknown movement (a first scan, a dimension dropped on either side) falls back to the title rule
  * rather than inventing a measurement.
+ *
+ * AND THE MOVEMENT HAS TO BE ATTRIBUTABLE (2026-08-28). "It moved" is not the same claim as "the
+ * repository changed", and this rule is the loop certifying its own work, so it gets the strictest
+ * reading available. `engines` runs the same `attributeDelta` the ledger uses:
+ *   • a pair with a MOCK end is two different rulers — a follow-up must never close on it, however
+ *     far the number travelled;
+ *   • a real pair whose movement is inside `SCORE_NOISE_BAND` is a re-run of the same measurement,
+ *     which is exactly the evidence the old `after > before` test accepted as repair.
+ * Omitting `engines` keeps the pre-attribution behaviour: a caller with no provenance in hand gets
+ * the strict-movement rule, never a verdict invented from absent data.
  */
 export function decideInProgress(
   row: { id: string },
   restated: boolean,
   resolvedIds: ReadonlySet<string>,
   movement?: DimMovement | null,
+  engines?: MovementEngines | null,
 ): InProgressDecision {
   const claimed = resolvedIds.has(row.id);
   if (restated) return { kind: "keep", reason: claimed ? "claimed-but-restated" : "restated" };
-  if (movement && movement.after <= movement.before) return { kind: "keep", reason: "no-movement" };
+  if (movement) {
+    if (engines) {
+      const verdict = attributeDelta(movement.after - movement.before, engines.before, engines.after);
+      if (verdict.kind === "mock-scan") return { kind: "keep", reason: "mock-scan" };
+      // A real pair inside the band, or moving the wrong way, is not repair. `no-movement` stays the
+      // reason for a flat-or-down dimension so the existing ledger wording is unchanged for the case
+      // it already described; `within-noise` is the new, narrower one.
+      if (verdict.kind === "within-noise") {
+        return { kind: "keep", reason: verdict.delta > 0 ? "within-noise" : "no-movement" };
+      }
+      if (verdict.delta < 0) return { kind: "keep", reason: "no-movement" };
+    } else if (movement.after <= movement.before) {
+      return { kind: "keep", reason: "no-movement" };
+    }
+  }
   return claimed ? { kind: "done", reason: "trailer" } : { kind: "done", reason: "not-restated" };
 }
 
@@ -110,6 +147,13 @@ export function keepNote(d: InProgressDecision, scanRef: string, movement?: DimM
   if (d.reason === "no-movement") {
     const m = movement ? ` (${movement.before} → ${movement.after})` : "";
     return `No longer raised by scan ${scanRef}, but the dimension did not move${m} — kept in progress until a rescan measures a change`;
+  }
+  if (d.reason === "within-noise") {
+    const m = movement ? ` (${movement.before} → ${movement.after})` : "";
+    return `No longer raised by scan ${scanRef}, and the dimension moved${m} — but by less than the ±${SCORE_NOISE_BAND}-point run-to-run noise band, so the movement is not evidence of repair`;
+  }
+  if (d.reason === "mock-scan") {
+    return `No longer raised by scan ${scanRef}, but one end of the comparison came from the deterministic mock floor — the two scans are not on the same ruler, so no movement between them can close this row`;
   }
   return "";
 }

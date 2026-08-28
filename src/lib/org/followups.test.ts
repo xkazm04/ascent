@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { FOLLOWUP_TRAILER, buildFixPrompt, decideInProgress, isRestated, keepNote, parseResolvedIds, resolutionNote, type FollowUpItem } from "./followups";
+import { MOCK_ENGINE, SCORE_NOISE_BAND } from "@/lib/maturity/attribution";
 
 const item = (over: Partial<FollowUpItem> = {}): FollowUpItem => ({
   id: "rec-1",
@@ -67,6 +68,74 @@ describe("decideInProgress — the resolve rule", () => {
   it("falls back to the title rule when movement is unknown rather than inventing a measurement", () => {
     expect(decideInProgress({ id: "a" }, false, new Set(), null)).toEqual({ kind: "done", reason: "not-restated" });
     expect(keepNote({ kind: "keep", reason: "restated" }, "x")).toBe("");
+  });
+});
+
+// 2026-08-28: "it moved" is not "the repository changed". When the caller can name the two engines,
+// the same rule the cockpit ledger applies decides whether the movement is evidence at all — a
+// follow-up must never close on model wobble, and never on a rescan that fell to the mock floor.
+describe("decideInProgress — a claim never closes on an unattributable movement", () => {
+  const real = { engineProvider: "anthropic", engineDegraded: false };
+  const mock = { engineProvider: MOCK_ENGINE, engineDegraded: false };
+  const degraded = { engineProvider: MOCK_ENGINE, engineDegraded: true };
+
+  it("a MOCK rescan cannot close a row, however far the dimension moved", () => {
+    const d = decideInProgress({ id: "a" }, false, new Set(["a"]), { before: 10, after: 90 }, { before: real, after: mock });
+    expect(d).toEqual({ kind: "keep", reason: "mock-scan" });
+    expect(keepNote(d, "abc123")).toMatch(/deterministic mock floor.*not on the same ruler/);
+  });
+
+  it("a mock BEFORE end refuses it too — either end breaks the comparison", () => {
+    expect(
+      decideInProgress({ id: "a" }, false, new Set(), { before: 10, after: 90 }, { before: mock, after: real }),
+    ).toEqual({ kind: "keep", reason: "mock-scan" });
+  });
+
+  it("a degraded end is refused on the same grounds", () => {
+    expect(
+      decideInProgress({ id: "a" }, false, new Set(), { before: 10, after: 90 }, { before: real, after: degraded }),
+    ).toEqual({ kind: "keep", reason: "mock-scan" });
+  });
+
+  it("a REAL pair inside the noise band is kept, and the note says which band it failed", () => {
+    const d = decideInProgress(
+      { id: "a" },
+      false,
+      new Set(["a"]),
+      { before: 61, after: 61 + SCORE_NOISE_BAND },
+      { before: real, after: real },
+    );
+    expect(d).toEqual({ kind: "keep", reason: "within-noise" });
+    expect(keepNote(d, "abc123", { before: 61, after: 61 + SCORE_NOISE_BAND })).toMatch(
+      new RegExp(`±${SCORE_NOISE_BAND}-point run-to-run noise band`),
+    );
+  });
+
+  it("a REAL pair past the band closes the row exactly as before", () => {
+    expect(
+      decideInProgress(
+        { id: "a" },
+        false,
+        new Set(["a"]),
+        { before: 61, after: 61 + SCORE_NOISE_BAND + 1 },
+        { before: real, after: real },
+      ),
+    ).toEqual({ kind: "done", reason: "trailer" });
+  });
+
+  it("a REAL pair that moved DOWN past the band is still not repair", () => {
+    expect(
+      decideInProgress({ id: "a" }, false, new Set(), { before: 61, after: 40 }, { before: real, after: real }),
+    ).toEqual({ kind: "keep", reason: "no-movement" });
+  });
+
+  it("omitting the engines keeps the pre-attribution rule — no verdict is invented from absent data", () => {
+    // The same 1-point movement that `within-noise` now refuses still closes when the caller has no
+    // provenance to offer. That is deliberate: the rule tightens where evidence exists, nowhere else.
+    expect(decideInProgress({ id: "a" }, false, new Set(), { before: 61, after: 62 })).toEqual({
+      kind: "done",
+      reason: "not-restated",
+    });
   });
 });
 

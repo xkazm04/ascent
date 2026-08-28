@@ -130,6 +130,8 @@
             "src/lib/analyze/stack-fit.ts",
             "src/lib/analyze/tech-extract.test.ts",
             "src/lib/analyze/tech-extract.ts",
+            "src/lib/maturity/attribution.ts",
+            "src/lib/maturity/attribution.test.ts",
             "src/lib/maturity/model.test.ts",
             "src/lib/maturity/noise.test.ts",
             "src/lib/maturity/noise.ts",
