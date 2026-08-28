@@ -129,7 +129,10 @@ export function decideInProgress(
       if (verdict.kind === "within-noise") {
         return { kind: "keep", reason: verdict.delta > 0 ? "within-noise" : "no-movement" };
       }
-      if (verdict.delta < 0) return { kind: "keep", reason: "no-movement" };
+      // `attributable` is the only kind left that carries a delta — `unmeasured` cannot be reached
+      // here (this branch already established both a movement and two engines), but the narrowing is
+      // written explicitly rather than assumed.
+      if (verdict.kind === "attributable" && verdict.delta < 0) return { kind: "keep", reason: "no-movement" };
     } else if (movement.after <= movement.before) {
       return { kind: "keep", reason: "no-movement" };
     }
