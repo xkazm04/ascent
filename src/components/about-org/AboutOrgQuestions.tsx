@@ -14,44 +14,43 @@ import { SectionHeading } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
+import { orgGroupLabelFor } from "./orgModules";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 
 interface OrgQuestion {
   ask: string;
-  /** The module group the answering view lives under, for the "you are here" trail. */
-  module: string;
   tab: OrgTabId;
+  /** The named surface INSIDE the tab that answers the question — a sub-view, not the tab itself. */
   view: string;
 }
 
+// The module half of each trail is DERIVED from the tab (see `orgGroupLabelFor`). It used to be typed
+// here, and named modules the product retired: "Fleet", "Intelligence", "Govern". A reader who
+// followed one of these links landed in Standing or Admin and found no such module in the rail —
+// on the same page whose module map promises the names are the product's own.
 const QUESTIONS: OrgQuestion[] = [
   {
     ask: "Which repositories are ready to accelerate, and which are quietly compounding risk?",
-    module: "Fleet",
     tab: "repositories",
     view: "Repositories",
   },
   {
     ask: "Are we actually becoming more AI-native, or just louder about it?",
-    module: "Overview",
     tab: "overview",
     view: "Trajectory",
   },
   {
     ask: "Where is the one fix that moves twenty repos instead of two?",
-    module: "Standing",
     tab: "followups",
     view: "Follow-ups",
   },
   {
     ask: "Who already knows how to do this, and which teams are sitting at zero?",
-    module: "Intelligence",
     tab: "contributors",
     view: "Contributors",
   },
   {
     ask: "Can we prove any of it to an auditor next quarter?",
-    module: "Govern",
     tab: "audit",
     view: "Audit trail",
   },
@@ -91,7 +90,7 @@ export function AboutOrgQuestions() {
                 </span>
               </span>
               <span className="flex items-center gap-2 pl-8 sm:justify-end sm:pl-0">
-                <span className="font-mono text-xs uppercase tracking-[0.2em] text-slate-600">{q.module}</span>
+                <span className="font-mono text-xs uppercase tracking-[0.2em] text-slate-600">{orgGroupLabelFor(q.tab)}</span>
                 <span aria-hidden className="text-slate-700">
                   ›
                 </span>
