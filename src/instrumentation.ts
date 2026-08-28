@@ -33,8 +33,12 @@ export async function register() {
   // next.config.ts ("Encountered unexpected file in NFT list"). On Vercel PGLITE_DATA_DIR is unset,
   // so no deployed behavior changes; only a local `next start` with PGLITE_DATA_DIR set stops booting
   // the embedded DB — use `npm run dev` for that (its documented entry point).
+  //
+  // `NEXT_RUNTIME` leads the condition, and its position is load-bearing — see the note on the boot
+  // sweep below. Webpack folds a statically-false LEFT operand and never parses the branch, which is
+  // what keeps pglite-boot's `node:fs` out of the edge compile; behind `dataDir` it would not fold.
   const dataDir = process.env.PGLITE_DATA_DIR;
-  if (dataDir) {
+  if (process.env.NEXT_RUNTIME === "nodejs" && dataDir) {
     if (process.env.NODE_ENV !== "production") {
       const { bootPglite } = await import("@/lib/db/pglite-boot");
       await bootPglite(dataDir);
@@ -56,12 +60,24 @@ export async function register() {
   // a configured DB, checked inside): a boot must not fail because a sweep could not run, and the
   // sweep must not run on a managed deployment where "this process started nothing" is a claim about
   // one instance among many.
-  try {
-    const { bootSweepLine, sweepInterruptedWork } = await import("@/lib/local/boot-sweep");
-    const line = bootSweepLine(await sweepInterruptedWork());
-    if (line) console.warn(line);
-  } catch {
-    // A sweep that cannot run leaves rows the first GET /api/org/loop still reconciles, as before.
+  //
+  // THE REDUNDANT `NEXT_RUNTIME` GUARD IS A BUNDLER INSTRUCTION, NOT LOGIC. The early return at the
+  // top of register() already makes this unreachable off Node — but only at RUNTIME. This file is
+  // compiled for the edge runtime too, and webpack (`next dev --webpack`, the only mode that works
+  // in a junctioned worktree) does no dead-code elimination in dev: the early return eliminates
+  // nothing, so the dynamic import below stayed in the EDGE graph, dragging
+  // db/client → @prisma/adapter-pg → pg → `require('fs')` into a compilation with no `fs`. One
+  // unresolvable module fails the whole /instrumentation compile, and Next then answers 500 on
+  // EVERY route — including /api/health. Wrapping the import in an `if` webpack can fold at parse
+  // time is the documented Next recipe and is what actually drops it from the edge bundle.
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    try {
+      const { bootSweepLine, sweepInterruptedWork } = await import("@/lib/local/boot-sweep");
+      const line = bootSweepLine(await sweepInterruptedWork());
+      if (line) console.warn(line);
+    } catch {
+      // A sweep that cannot run leaves rows the first GET /api/org/loop still reconciles, as before.
+    }
   }
 }
 
