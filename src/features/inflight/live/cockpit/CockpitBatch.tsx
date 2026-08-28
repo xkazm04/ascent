@@ -11,7 +11,7 @@ import { Kicker } from "@/components/ui";
 import { InlineEmpty } from "@/components/org/shared/ui";
 import { ImpactEffort, Points } from "@/components/org/followups/FollowupChips";
 import { isOrgWide, shareLine, type SharedDimensions } from "./cockpitDimensions";
-import type { LoopProposal } from "./loopTypes";
+import { laneKindTag, type LoopProposal } from "./loopTypes";
 
 export function SharedDimensionBars({ shares }: { shares: SharedDimensions }) {
   if (shares.rows.length === 0) return null;
@@ -63,11 +63,20 @@ export function ProposalList({ proposals, pruned, onTogglePrune, dimFocus, unpai
       {proposals.map((p) => {
         const items = dimFocus ? p.items.filter((i) => i.dimId === dimFocus) : p.items;
         const orphan = unpaired.has(p.repo);
+        // One tag per lane, no new panel: a lane that installs the `.ai/` foundation or a practice
+        // starter says so where the batch would be, because its work IS the install and there are no
+        // rows for the operator to prune.
+        const tag = laneKindTag(p.kind);
         return (
           <div key={p.repo} className="rounded-lg border border-divider bg-surface/40 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="min-w-0 truncate font-mono text-xs text-slate-300" title={p.repo}>
                 {p.repo}
+                {tag && (
+                  <span className="ml-2 rounded-sm border border-accent/40 px-1.5 text-[0.65rem] uppercase tracking-wide text-accent">
+                    {tag}
+                  </span>
+                )}
               </span>
               {orphan ? (
                 <span className="shrink-0 font-mono text-xs text-warn">not paired · skipped</span>
@@ -75,8 +84,9 @@ export function ProposalList({ proposals, pruned, onTogglePrune, dimFocus, unpai
                 <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500">+{p.projectedPoints} projected</span>
               )}
             </div>
+            {tag && <p className="mt-1 text-xs leading-relaxed text-slate-400">{p.reason}</p>}
             {items.length === 0 ? (
-              <p className="mt-2 font-mono text-xs text-slate-600">nothing open here</p>
+              <p className="mt-2 font-mono text-xs text-slate-600">{tag ? "no rows to curate — this lane installs files" : "nothing open here"}</p>
             ) : (
               <ul className="mt-2 space-y-1">
                 {items.map((item) => (

@@ -105,6 +105,7 @@ vi.mock("@/lib/local/source", () => ({ LocalFsSource: class {} }));
 
 import { MAX_CYCLES_CAP, getAutopilotJob, requestAutopilotStop, startAutopilot, toAutopilotJob } from "@/lib/local/autopilot";
 import { isLoopRunLive } from "@/lib/local/loop-engine";
+import { BACKLOG_LANE } from "@/lib/local/lane-kind";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
 const REPO = "acme/web";
@@ -114,6 +115,9 @@ let closeSeq = 0;
 function deps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
   return {
     openBatch: (async () => [item(`rec${++closeSeq}`)]) as unknown as LaneDeps["openBatch"],
+    // The shim's contract is the AGENT lane; the kind resolver reads a real filesystem, and this
+    // test's paths are fictional. Pinned so the equivalence claim keeps testing what it names.
+    laneKind: (async () => BACKLOG_LANE) as unknown as LaneDeps["laneKind"],
     runAgent: (async () => ({ ok: true, summary: "fixed it\nsecond line" })) as unknown as LaneDeps["runAgent"],
     rescan: (async () => ({ scanId: `scan${closeSeq}`, closedIds: [`rec${closeSeq}`] })) as unknown as LaneDeps["rescan"],
     ...over,

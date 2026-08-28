@@ -5,6 +5,12 @@
 // a curation screen built on a second, "equivalent" query would eventually propose a batch the engine
 // then declines to work, and nobody would know which side was wrong.
 //
+// It also returns the lane KIND, through the very same `proposeLaneKind` the engine re-runs at arm
+// time, for exactly the same reason. A repo with no `.ai/` foundation leads with a `foundation` lane
+// (that install used to be reachable only from the per-repo report header — a 7-hop detour); a repo
+// whose biggest open gap has a Practice Library starter it lacks leads with a `practice` lane; the
+// agent lane is everything else, and stays the default.
+//
 // A GET (not a POST action) because it is a pure read that creates nothing: no LoopRun row is written
 // until `POST { action: "start" }`, so a user can open, close and reopen the curation panel freely.
 // Static-segment `propose` resolves ahead of the sibling `[id]` route, so the two never collide.
@@ -13,7 +19,10 @@ import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 import { selfHostGuard } from "@/lib/api/self-host";
+import { getRepoLocalPath } from "@/lib/db";
 import { openBatch } from "@/lib/local/loop-lane";
+import { proposeLaneKind } from "@/lib/local/lane-kind";
+import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
 import type { FollowUpItem } from "@/lib/org/followups";
 
 export const runtime = "nodejs";
@@ -25,6 +34,12 @@ export interface LoopProposal {
   items: FollowUpItem[];
   /** Sum of the batch's projected points — the "what this lane is worth" headline. */
   projectedPoints: number;
+  /** What this lane would DO. `backlog` is the agent lane and the default. */
+  kind: LoopLaneKind;
+  /** Practice Library id, on a `practice` proposal only. */
+  practiceId: string | null;
+  /** One line explaining the kind — rendered under the repo name in the curation panel. */
+  reason: string;
 }
 
 export async function GET(request: Request) {
@@ -49,10 +64,22 @@ export async function GET(request: Request) {
   const proposals: LoopProposal[] = [];
   for (const repo of repos) {
     const items = await openBatch(org, repo);
+    // The lane KIND, from the very same rule the engine re-runs at arm time (loop-engine.ts). A repo
+    // with no `.ai/` foundation leads with the foundation lane; a repo whose biggest open gap has a
+    // Practice Library starter it is missing leads with that; everything else is the agent lane.
+    const path = await getRepoLocalPath(org, repo).catch(() => null);
+    const plan = await proposeLaneKind(path, async () => items);
+    // A FOUNDATION lane has nothing to curate — its work is the install, not the backlog — so it
+    // proposes no items rather than showing checkboxes the run would ignore. The backlog is still
+    // there and cycle 2 works it, with the standard already in place.
+    const laneItems = plan.kind === "foundation" ? [] : items;
     proposals.push({
       repo,
-      items,
-      projectedPoints: items.reduce((n, it) => n + (it.projectedPoints ?? 0), 0),
+      items: laneItems,
+      projectedPoints: laneItems.reduce((n, it) => n + (it.projectedPoints ?? 0), 0),
+      kind: plan.kind,
+      practiceId: plan.practiceId,
+      reason: plan.reason,
     });
   }
   return NextResponse.json({ proposals });

@@ -16,6 +16,7 @@ import {
   type LoopLaneRecord,
   type LoopRunPhase,
   type LoopRunRecord,
+  type LoopTarget,
 } from "@/lib/db/loop-runs-types";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
@@ -25,6 +26,10 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, M
 export interface CreateLoopRunInput {
   orgSlug: string;
   repos: string[];
+  /** The repos WITH their armed lane kinds. When given, this is what `reposJson` records (the repo
+   *  order must match `repos`); omit it and the run is recorded as all-`backlog`, which is what every
+   *  row written before lane kinds existed means. */
+  targets?: LoopTarget[];
   concurrency?: number;
   maxCycles?: number;
   curated?: boolean;
@@ -45,7 +50,7 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       orgId: org.id,
       createdBy: input.createdBy ?? null,
       phase: input.phase ?? "running",
-      reposJson: JSON.stringify(input.repos),
+      reposJson: JSON.stringify(input.targets ?? input.repos),
       concurrency: clamp(input.concurrency ?? LOOP_DEFAULT_CONCURRENCY, 1, LOOP_CONCURRENCY_CAP),
       maxCycles: clamp(input.maxCycles ?? 3, 1, LOOP_MAX_CYCLES_CAP),
       curated: input.curated === true,

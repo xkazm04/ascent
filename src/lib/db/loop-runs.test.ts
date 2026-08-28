@@ -5,7 +5,7 @@
 // so each one is pinned against the shapes a hand-edited or half-migrated row can actually hold.
 
 import { describe, expect, it } from "vitest";
-import { LANE_LOG_LINES, boundLog, toLaneRecord, toRunRecord } from "@/lib/db/loop-runs";
+import { LANE_LOG_LINES, boundLog, laneKindOf, parseTargets, toLaneRecord, toRunRecord } from "@/lib/db/loop-runs";
 
 const runRow = (over: Partial<Parameters<typeof toRunRecord>[0]> = {}) => ({
   id: "r1",
@@ -93,5 +93,62 @@ describe("boundLog", () => {
     const out = boundLog(src);
     out.push("c");
     expect(src).toEqual(["a", "b"]);
+  });
+});
+
+// ── lane kinds ride on the existing reposJson column ─────────────────────────────────────────────
+//
+// A lane kind has to survive a restart (the outcome ledger renders it long after the run ended), and
+// the loop tables have no spare JSON payload. `reposJson` is therefore WIDENED rather than joined by
+// a new column — so the encoding has to read BOTH shapes forever, and that is what these pin.
+
+describe("parseTargets", () => {
+  it("reads a legacy string[] row as an all-backlog run — which is what those runs were", () => {
+    const r = toRunRecord(runRow({ reposJson: '["acme/web","acme/api"]' }));
+    expect(r.repos).toEqual(["acme/web", "acme/api"]);
+    expect(r.targets).toEqual([
+      { repo: "acme/web", kind: "backlog", practiceId: null },
+      { repo: "acme/api", kind: "backlog", practiceId: null },
+    ]);
+  });
+
+  it("reads the widened object row, and keeps `repos` derived from it", () => {
+    const r = toRunRecord(
+      runRow({ reposJson: '[{"repo":"acme/web","kind":"foundation","practiceId":null},{"repo":"acme/api","kind":"practice","practiceId":"ci-gates"}]' }),
+    );
+    expect(r.repos).toEqual(["acme/web", "acme/api"]);
+    expect(r.targets[1]).toEqual({ repo: "acme/api", kind: "practice", practiceId: "ci-gates" });
+  });
+
+  it("coerces an unknown kind to backlog rather than trusting a hand-edited column", () => {
+    const r = toRunRecord(runRow({ reposJson: '[{"repo":"acme/web","kind":"rm -rf"}]' }));
+    expect(r.targets).toEqual([{ repo: "acme/web", kind: "backlog", practiceId: null }]);
+  });
+
+  it("survives a malformed column the way every other parse here does", () => {
+    expect(parseTargets("not json")).toEqual([]);
+    expect(parseTargets('{"repo":"x"}')).toEqual([]);
+    expect(parseTargets(null)).toEqual([]);
+    expect(parseTargets('[null,42,{"kind":"foundation"}]')).toEqual([]);
+  });
+});
+
+describe("laneKindOf", () => {
+  const targets = [
+    { repo: "acme/web", kind: "foundation" as const, practiceId: null },
+    { repo: "acme/api", kind: "practice" as const, practiceId: "ci-gates" },
+  ];
+
+  it("gives a cycle-1 lane its armed kind", () => {
+    expect(laneKindOf(targets, { repoFullName: "acme/web", cycle: 1 })).toBe("foundation");
+    expect(laneKindOf(targets, { repoFullName: "acme/api", cycle: 1 })).toBe("practice");
+  });
+
+  it("puts every later cycle back on the backlog — the install happens once", () => {
+    expect(laneKindOf(targets, { repoFullName: "acme/web", cycle: 2 })).toBe("backlog");
+  });
+
+  it("defaults a repo the run does not name", () => {
+    expect(laneKindOf(targets, { repoFullName: "acme/ghost", cycle: 1 })).toBe("backlog");
   });
 });

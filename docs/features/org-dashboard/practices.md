@@ -82,6 +82,14 @@ three behaviors below apply to either. Its inner write (openDraftPr + the unifor
 AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply`, see
 [org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
 
+- **Generation is factored out (2026-08-28).** `buildPracticeArtifact()`
+  (`src/lib/practices/artifact.ts`) owns the house-pattern lookup + `buildArtifact` call
+  that `applyPracticeToRepo` kept private. It exists because there is now a **second
+  door**: the local improvement loop's `practice` lane writes the same starter straight
+  into its worktree instead of opening a PR (local mode only — see
+  [live.md § Lane kinds](../org-planning/live.md#lane-kinds-foundation-and-practice-lanes-2026-08-28)).
+  Only delivery differs; the bytes come from one generator, so the loop can never install
+  a body different from the one the PR would have opened. The cloud path is unchanged.
 - **Content-drift guard.** The caller may pass the `expectedFingerprint` it previewed.
   If `artifactFingerprint(artifact.body)` no longer matches, apply returns
   `{ kind: "content-drift" }` and **opens no PR**, so a template or repo-context
@@ -155,6 +163,7 @@ straight at the CI-gates practice and its exemplars.
 | --- | --- |
 | `src/lib/practices.ts` | `PRACTICES[]` catalog + `PracticeDef`. |
 | `src/lib/practice-artifact.ts` | `buildArtifact()`: deterministic, language-aware artifact builder. |
+| `src/lib/practices/artifact.ts` | `buildPracticeArtifact()` / `resolveHousePattern()`: the generation step, shared by the PR path and the loop's practice lane. |
 | `src/lib/practice-artifact.test.ts` | Verifies tailored AGENTS.md, language-appropriate CI, non-null for every practice, null for unknown, placeholder degradation. |
 | `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |

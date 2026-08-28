@@ -9,8 +9,10 @@ import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
 import { attributeScores } from "@/lib/maturity/attribution";
 import {
+  laneKindOf,
   toLaneRecord,
   toRunRecord,
+  type LoopLaneKind,
   type LoopLaneOutcome,
   type LoopLaneRecord,
   type LoopRunDetail,
@@ -165,13 +167,18 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
     .catch(() => null);
   const lanes = await listLanes(id);
   const outcomes: LoopLaneOutcome[] = [];
-  for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug));
+  for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   return { run, lanes, outcomes };
 }
 
-async function laneOutcome(lane: LoopLaneRecord, orgSlug: string | undefined): Promise<LoopLaneOutcome> {
+async function laneOutcome(
+  lane: LoopLaneRecord,
+  orgSlug: string | undefined,
+  kind: LoopLaneKind,
+): Promise<LoopLaneOutcome> {
   const base: LoopLaneOutcome = {
     lane,
+    kind,
     before: null,
     after: null,
     diff: null,

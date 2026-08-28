@@ -6,6 +6,13 @@
 //   • A run works N repos as N LANES with bounded parallelism (default 2, hard cap 4). One lane's
 //     failure is lane data — the run keeps going — because the alternative, aborting a fleet pass on
 //     one bad repo, throws away the work the other lanes already committed.
+//   • A lane has a KIND, decided per repo at ARM time from the paired working copy by the same
+//     `proposeLaneKind` the curation panel calls: `foundation` when the repo has no `.ai/` standard,
+//     `practice` when the biggest open gap has a Practice Library starter the repo is missing, and
+//     the agent lane for everything else. The first two are deterministic file writes — no agent
+//     session — and they apply to CYCLE 1 only, so a run reads "install, rescan, then work the gaps".
+//     This is what closes UC1's loop locally: before it, installing the standard or a practice was a
+//     separate GitHub-App draft-PR door the local loop never opened.
 //   • The DB is the source of truth (src/lib/db/loop-runs.ts). This module's in-memory registry holds
 //     ONLY what cannot be serialized: the cooperative stop flag and the live worktree handles. A
 //     `running` row that this process has no registry entry for is therefore, by construction, a
@@ -37,9 +44,18 @@ import {
   upsertLane,
   type LoopRunRecord,
 } from "@/lib/db/loop-runs";
+import type { LoopTarget } from "@/lib/db/loop-runs-types";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { runLane, type LaneDeps } from "@/lib/local/loop-lane";
+import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
+import { defaultLaneDeps, runLane, type LaneDeps } from "@/lib/local/loop-lane";
 import { createLoopWorktree, removeLoopWorktree, runStamp, type LoopWorktree } from "@/lib/local/loop-worktree";
+
+/** One repo of a run: where it lives on disk, and what its FIRST cycle was armed to do. */
+interface LaneTargetPlan {
+  repo: string;
+  path: string;
+  plan: LaneKindProposal;
+}
 
 /** Live, unserializable state for one in-flight run. Everything else lives in the DB. */
 interface LiveRun {
@@ -100,13 +116,20 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
 
   // Resolve + verify EVERY pairing up front: a half-armed run that discovers a broken pairing three
   // lanes in has already spent an agent session on the others.
-  const targets: { repo: string; path: string }[] = [];
+  const targets: LaneTargetPlan[] = [];
+  const laneKind = input.deps?.laneKind ?? defaultLaneDeps.laneKind;
+  const openBatch = input.deps?.openBatch ?? defaultLaneDeps.openBatch;
   for (const repo of repos) {
     const path = await getRepoLocalPath(org, repo);
     if (!path) throw new Error(`${repo} is not paired with a local path — pair it on Admin → Pairing.`);
     const check = await verifyLocalPath(path, repo);
     if (!check.ok) throw new Error(`Pairing broken for ${repo}: ${check.error}`);
-    targets.push({ repo, path });
+    // The SAME rule the curation panel showed (GET /api/org/loop/propose calls this function too), so
+    // a proposal that led with "install the .ai/ foundation" cannot turn into an agent session on the
+    // way to the engine. Re-read here rather than trusted from the wire: the operator may have
+    // installed the standard by hand between opening the panel and pressing Run.
+    const plan = await laneKind(path, () => openBatch(org, repo).catch(() => []));
+    targets.push({ repo, path, plan });
   }
 
   // Resolve ONCE, at arm time, and persist what was resolved. A row that recorded the raw pick would
@@ -116,6 +139,9 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
   const run = await createLoopRun({
     orgSlug: org,
     repos,
+    // The armed kinds ride on the row, so the outcome ledger can still say what each lane DID long
+    // after the run ended and the process that drove it is gone.
+    targets: targets.map<LoopTarget>((t) => ({ repo: t.repo, kind: t.plan.kind, practiceId: t.plan.practiceId })),
     concurrency: input.concurrency ?? LOOP_DEFAULT_CONCURRENCY,
     maxCycles: input.maxCycles ?? 3,
     curated: input.curated,
@@ -179,6 +205,11 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
     let wt: LoopWorktree | null = null;
     try {
       wt = await createLoopWorktree(path, lane.repoFullName, runStamp());
+      const target = run.targets.find((t) => t.repo === lane.repoFullName);
+      // A retry re-runs the SAME lane, which includes its KIND: re-deciding it against today's disk
+      // would silently turn a failed foundation lane into an agent session (or the reverse) under the
+      // same lane row. `laneKindOf`'s cycle-1 rule applies here too.
+      const kind = lane.cycle === 1 ? (target?.kind ?? "backlog") : "backlog";
       await runLane({
         runId: run.id,
         org,
@@ -186,6 +217,9 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         cycle: lane.cycle,
         worktree: wt,
         batch: lane.batchIds.length > 0 ? lane.batchIds : null,
+        kind,
+        practiceId: target?.practiceId ?? null,
+        reason: `retry of a ${kind} lane`,
         deps: opts.deps,
         // A retry re-runs the SAME experiment: the run's recorded configuration, not today's env.
         agent: { model: run.model, effort: run.effort },
@@ -212,7 +246,7 @@ export function isLoopRunLive(id: string): boolean {
 
 async function drive(
   run: LoopRunRecord,
-  targets: { repo: string; path: string }[],
+  targets: LaneTargetPlan[],
   input: StartLoopRunInput,
   state: LiveRun,
 ): Promise<void> {
@@ -239,13 +273,30 @@ async function drive(
             return { repo: t.repo, progressed: false };
           }
         }
+        // A foundation/practice lane is a CYCLE-1 lane: once the standard (or the starter) is in, the
+        // repo's next cycle is ordinary backlog work with the new floor in place. Same shape as the
+        // curated batch above, and the rule `laneKindOf` reads back off the row.
+        //
+        // A curated batch WINS over a practice lane: the operator naming rows is an explicit
+        // instruction, and a practice lane whose item they pruned would install a starter for a gap
+        // they just declined. A foundation lane has no rows to curate, so nothing can contradict it.
+        const curatedIds = batches[t.repo];
+        const plan =
+          cycle !== 1 || (t.plan.kind === "practice" && curatedIds != null && !curatedIds.includes(t.plan.itemId ?? ""))
+            ? BACKLOG_LANE
+            : t.plan;
         const res = await runLane({
           runId: run.id,
           org: state.orgSlug,
           repo: t.repo,
           cycle,
           worktree: wt,
-          batch: batches[t.repo] ?? null,
+          // A practice lane answers exactly one row — the highest-impact gap its starter is for — so
+          // it names that row as its batch and the trailer closes it, or the rescan declines to.
+          batch: plan.kind === "practice" && plan.itemId ? [plan.itemId] : (batches[t.repo] ?? null),
+          kind: plan.kind,
+          practiceId: plan.practiceId,
+          reason: plan.reason,
           deps: input.deps,
           // Every cycle of a run uses the run's configuration — read off the ROW rather than the
           // input, so a retry dispatched hours later cannot silently pick up a changed env.

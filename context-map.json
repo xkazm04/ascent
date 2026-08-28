@@ -941,7 +941,8 @@
             "src/features/shared/practices/PracticesTab.tsx",
             "src/features/shared/practices/promotePractice.test.ts",
             "src/features/shared/practices/promotePractice.ts",
-            "src/features/shared/practices/usePlaybookCard.ts"
+            "src/features/shared/practices/usePlaybookCard.ts",
+            "src/lib/practices/artifact.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1280,7 +1281,15 @@
             "src/lib/local/drive-resume.test.ts",
             "src/instrumentation.ts",
             "src/features/inflight/live/cockpit/CockpitDriveResume.tsx",
-            "src/features/inflight/live/cockpit/CockpitDriveResume.dom.test.tsx"
+            "src/features/inflight/live/cockpit/CockpitDriveResume.dom.test.tsx",
+            "src/lib/local/lane-kind.ts",
+            "src/lib/local/lane-kind.test.ts",
+            "src/lib/local/lane-install.ts",
+            "src/lib/local/lane-install.test.ts",
+            "src/lib/local/install-files.ts",
+            "src/features/inflight/live/cockpit/CockpitLaneKind.dom.test.tsx",
+            "src/app/api/org/loop/propose/route.ts",
+            "src/app/api/org/loop/propose/route.test.ts"
           ],
           "target": null,
           "apiRoutes": [

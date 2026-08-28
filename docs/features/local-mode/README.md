@@ -141,6 +141,17 @@ claim — `scans-persist` only resolves claimed rows) → spawn one headless `cl
 **isolated worktree** with the batch's fix prompt (`buildFixPrompt` + autopilot context) → count the
 commits → rescan the worktree from disk → repeat while progress lands, up to `maxCycles` (≤5).
 
+**Not every lane spends an agent session (2026-08-28).** A lane has a **kind**, decided per repo at
+arm time from the paired working copy (`src/lib/local/lane-kind.ts`): a repo with no `.ai/` standard
+gets a `foundation` lane, one whose biggest open gap has a Practice Library starter it is missing gets
+a `practice` lane, and everything else gets the agent lane above. The first two are deterministic file
+writes + a commit — using the *same generators* the cloud draft-PR doors use — followed by the
+identical rescan and attribution. This is what makes UC1's "scan → gaps → apply practice / `.ai/`
+foundation → rescan" a single local loop instead of a detour through a GitHub-App PR door. It is
+**local mode only**: the rule reads a filesystem, so cloud orgs keep the draft-PR path unchanged.
+Full rule, execution and parity notes:
+[org-planning/live.md § Lane kinds](../org-planning/live.md#lane-kinds-foundation-and-practice-lanes-2026-08-28).
+
 Guardrails, each load-bearing:
 
 - **Worktree isolation**: `git worktree add -b ascent/autopilot-<stamp> <tmp> HEAD` — the operator's

@@ -12,6 +12,7 @@
 
 import type { FollowUpItem } from "@/lib/org/followups";
 import type {
+  LoopLaneKind,
   LoopLaneOutcome,
   LoopLaneRecord,
   LoopLanePhase,
@@ -23,6 +24,7 @@ import type {
 
 export type {
   FollowUpItem,
+  LoopLaneKind,
   LoopLaneOutcome,
   LoopLaneRecord,
   LoopLanePhase,
@@ -37,7 +39,15 @@ export interface LoopProposal {
   repo: string;
   items: FollowUpItem[];
   projectedPoints: number;
+  kind: LoopLaneKind;
+  practiceId: string | null;
+  reason: string;
 }
+
+/** The one-word tag a lane's kind renders as, everywhere. `null` for the default agent lane, which
+ *  needs no tag — a badge on every row would say nothing. */
+export const laneKindTag = (kind: LoopLaneKind): string | null =>
+  kind === "foundation" ? ".ai/ foundation" : kind === "practice" ? "practice starter" : null;
 
 /** GET /api/org/loop?org=… */
 export interface LoopStatusPayload {

@@ -17,7 +17,7 @@ import { dimShort } from "@/lib/ui";
 import { attributeDimension, attributionLabel, integrityNotes } from "@/lib/maturity/attribution";
 import { platformFoldNote } from "@/lib/analyze/platform-carry";
 import { laneAttribution, type RunAttribution } from "./cockpitDrift";
-import type { LoopLaneOutcome } from "./loopTypes";
+import { laneKindTag, type LoopLaneOutcome } from "./loopTypes";
 
 /** The engine + integrity provenance line. Renders nothing when there is nothing to disclose. */
 function ProvenanceLine({ outcome }: { outcome: LoopLaneOutcome }) {
@@ -59,12 +59,20 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
   const moved = (diff?.dimensions ?? []).filter((d) => d.delta != null && d.delta !== 0);
   const verdict = laneAttribution(outcome);
   const refusal = attributionLabel(verdict);
+  // What this lane DID, so a row with no agent session in it does not read as one that failed to
+  // produce commits. Resolved server-side off the run's targets, never guessed from the lane's shape.
+  const tag = laneKindTag(outcome.kind);
 
   return (
     <li className="bg-ink px-4 py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="min-w-0 truncate font-mono text-sm text-slate-200" title={lane.repoFullName}>
           {lane.repoFullName}
+          {tag && (
+            <span className="ml-2 rounded-sm border border-accent/40 px-1.5 font-sans text-[0.65rem] uppercase tracking-wide text-accent">
+              {tag}
+            </span>
+          )}
         </span>
         <span className="shrink-0 font-mono text-sm tabular-nums">
           {before && after ? (

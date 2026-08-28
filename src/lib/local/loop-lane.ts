@@ -8,6 +8,12 @@
 // The guardrails are unchanged and each still load-bearing: an ISOLATED worktree on its own branch,
 // never a push, a bounded cycle count, and a cycle that produced neither a commit nor a closed row
 // ends its lane (an agent that stalled will not un-stall by being re-asked).
+//
+// A lane now has a KIND (src/lib/db/loop-runs-types.ts). `backlog` is everything above and stays the
+// default. `foundation` and `practice` replace the agent session with a DETERMINISTIC install — the
+// same generators the cloud draft-PR doors use, written into the worktree and committed — and then
+// run the identical rescan + adjudication. That is deliberate: the install is only the claim, and a
+// row still closes only when the next scan says the dimension moved.
 
 import { runGit } from "@/lib/local/git";
 import { LocalFsSource } from "@/lib/local/source";
@@ -18,13 +24,20 @@ import { updateRecommendation } from "@/lib/db/scans-recommendations";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
+import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
+import { installInWorktree } from "@/lib/local/lane-install";
+import { proposeLaneKind } from "@/lib/local/lane-kind";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
 export const BATCH_SIZE = 5;
 
-/** The two side-effecting primitives a lane drives, injectable so tests never spawn an agent. */
+/** The side-effecting primitives a lane drives, injectable so tests never spawn an agent or shell. */
 export interface LaneDeps {
   runAgent: typeof runClaudeAgent;
+  /** The deterministic install a `foundation` / `practice` lane does instead of calling an agent. */
+  install: typeof installInWorktree;
+  /** Which kind of lane a repo's next cycle should be — read from the paired working copy. */
+  laneKind: typeof proposeLaneKind;
   /** Scan a worktree from disk and persist it. Returns the new scan id + the ids its trailers closed. */
   rescan: (args: {
     org: string;
@@ -39,6 +52,8 @@ export interface LaneDeps {
 
 export const defaultLaneDeps: LaneDeps = {
   runAgent: runClaudeAgent,
+  install: installInWorktree,
+  laneKind: proposeLaneKind,
   rescan: rescanWorktree,
   openBatch,
 };
@@ -51,6 +66,13 @@ export interface LaneRunInput {
   worktree: LoopWorktree;
   /** The curated batch for this lane, or null to auto-pick the top open follow-ups. */
   batch: readonly string[] | null;
+  /** What this lane DOES. Defaults to the agent lane, which is what every caller meant before kinds
+   *  existed. `foundation` and `practice` are deterministic file writes — see lane-install.ts. */
+  kind?: LoopLaneKind;
+  /** Practice Library id — required when `kind` is "practice". */
+  practiceId?: string | null;
+  /** One line saying why this kind was picked, for the lane log. */
+  reason?: string;
   deps?: Partial<LaneDeps>;
   /** Cooperative stop, checked between phases — never mid-agent-session. */
   shouldStop?: () => boolean;
@@ -183,42 +205,73 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       error: null,
     });
 
-    // A curated batch NAMES its rows, so the pick has to span the repo's whole open list — a curated
-    // id ranked 7th by projected points is still a curated id, and filtering the top-5 slice would
-    // silently drop it. An uncurated cycle takes the top BATCH_SIZE, exactly as the autopilot did.
-    const curated = input.batch;
-    const picked = await deps.openBatch(org, repo, curated ? 500 : BATCH_SIZE);
-    const batch = curated ? picked.filter((it) => curated.includes(it.id)) : picked;
-    if (batch.length === 0) {
-      await appendLaneLog(laneId, "No open follow-ups left for this repo — nothing to dispatch.");
-      await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
-      return { laneId, progressed: false, commits: 0, closed: 0, error: null };
-    }
-    await updateLane(laneId, { batchIds: batch.map((b) => b.id) });
-
-    // The hand-off claim, so the rescan's trailer/restatement feedback applies to these rows
-    // (scans-persist only resolves IN-PROGRESS rows — an unclaimed row is nobody's promise).
-    for (const it of batch) {
-      const claimed = await updateRecommendation(
-        it.id,
-        { status: "in_progress" },
-        { actor: "autopilot", note: `Loop cycle ${cycle}: dispatched to a local agent on ${worktree.branch}` },
-      ).catch(() => null);
-      if (claimed) claimedIds.push(it.id);
-    }
-
-    await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
+    const kind: LoopLaneKind = input.kind ?? "backlog";
     const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
-    const prompt =
-      buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle" }) +
-      `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\` — commit directly to it, one commit per resolved item, each carrying its trailer.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- In each commit body, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is not resolved.\n`;
-    const result = await deps.runAgent({
-      cwd: worktree.dir,
-      prompt,
-      ...(input.agent?.model ? { model: input.agent.model } : {}),
-      ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
-    });
-    await appendLaneLog(laneId, result.ok ? `Agent finished: ${firstLine(result.summary)}` : `Agent failed: ${firstLine(result.summary)}`);
+
+    // A FOUNDATION lane has no batch: the repo's backlog is not what it is answering. Every other
+    // kind picks one, and a curated batch NAMES its rows, so the pick has to span the repo's whole
+    // open list — a curated id ranked 7th by projected points is still a curated id, and filtering
+    // the top-5 slice would silently drop it. An uncurated cycle takes the top BATCH_SIZE, exactly as
+    // the autopilot did.
+    let batch: FollowUpItem[] = [];
+    if (kind !== "foundation") {
+      const curated = input.batch;
+      const picked = await deps.openBatch(org, repo, curated ? 500 : BATCH_SIZE);
+      batch = curated ? picked.filter((it) => curated.includes(it.id)) : picked;
+      if (batch.length === 0) {
+        await appendLaneLog(laneId, "No open follow-ups left for this repo — nothing to dispatch.");
+        await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
+        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+      }
+      await updateLane(laneId, { batchIds: batch.map((b) => b.id) });
+
+      // The hand-off claim, so the rescan's trailer/restatement feedback applies to these rows
+      // (scans-persist only resolves IN-PROGRESS rows — an unclaimed row is nobody's promise).
+      for (const it of batch) {
+        const claimed = await updateRecommendation(
+          it.id,
+          { status: "in_progress" },
+          { actor: "autopilot", note: `Loop cycle ${cycle}: dispatched to a local agent on ${worktree.branch}` },
+        ).catch(() => null);
+        if (claimed) claimedIds.push(it.id);
+      }
+    }
+
+    if (kind !== "backlog") {
+      // The deterministic half of the loop. No agent session is spent: the files come out of the same
+      // generator the cloud draft-PR doors use, and the rescan below adjudicates the result exactly as
+      // it does an agent's commits — an install that changes nothing measurable closes nothing.
+      await appendLaneLog(laneId, `Cycle ${cycle}: ${kind} lane — ${input.reason ?? "installing generated files."}`);
+      const res = await deps.install({
+        dir: worktree.dir,
+        org,
+        repo,
+        kind,
+        practiceId: input.practiceId ?? null,
+        resolvesId: batch[0]?.id ?? null,
+      });
+      await appendLaneLog(laneId, res.summary);
+      if (!res.ok) return fail(res.summary);
+      if (!res.committed) {
+        // Nothing landed, so there is nothing for a rescan to attribute. Release rather than leave a
+        // claim nobody will adjudicate — the same contract every other non-rescanning path here has.
+        await releaseClaims(`loop cycle ${cycle}'s ${kind} lane wrote nothing`);
+        await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
+        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+      }
+    } else {
+      await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
+      const prompt =
+        buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle" }) +
+        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\` — commit directly to it, one commit per resolved item, each carrying its trailer.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- In each commit body, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is not resolved.\n`;
+      const result = await deps.runAgent({
+        cwd: worktree.dir,
+        prompt,
+        ...(input.agent?.model ? { model: input.agent.model } : {}),
+        ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+      });
+      await appendLaneLog(laneId, result.ok ? `Agent finished: ${firstLine(result.summary)}` : `Agent failed: ${firstLine(result.summary)}`);
+    }
 
     const countRes = await runGit(worktree.dir, ["rev-list", "--count", `${before}..HEAD`]);
     const commits = countRes.ok ? Number(countRes.stdout.trim()) || 0 : 0;

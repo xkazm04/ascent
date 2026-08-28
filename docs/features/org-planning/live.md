@@ -17,8 +17,10 @@ select ──▶ curate ──▶ run ──▶ rescan ──▶ outcome
   │          │         │        │           │
   │          │         │        │           └─ per-lane before/after diff + closed follow-ups
   │          │         │        └─ scan the WORKTREE from disk; `Ascent-Resolves:` trailers close rows
-  │          │         └─ N lanes, bounded parallelism: worktree → local `claude -p` → rescan
-  │          └─ GET /api/org/loop/propose: the exact batch each lane would get, editable
+  │          │         └─ N lanes, bounded parallelism. Each lane is one of three KINDS:
+  │          │            backlog → worktree → local `claude -p` → rescan
+  │          │            foundation / practice → worktree → generated files + commit → rescan
+  │          └─ GET /api/org/loop/propose: the batch AND the kind each lane would get, editable
   └─ repos picked in the cockpit (the Observatory's adoption × rigor field)
 ```
 
@@ -39,7 +41,7 @@ fails if a model is in `schema.prisma` and not in the mirror).
 | --- | --- |
 | `id` / `orgId` / `createdBy` | `createdBy` is the GitHub login that armed the run (audit trail on the row). |
 | `phase` | `curating \| running \| done \| stopped \| error`. `start` writes `running` directly. |
-| `reposJson` | JSON `string[]` of `owner/name` — the run's selected set. TEXT, not `jsonb` (the schema's DSQL contract). |
+| `reposJson` | The run's selected set, TEXT not `jsonb` (the schema's DSQL contract). **Two encodings, both read forever** (`parseTargets`): the original JSON `string[]` of `owner/name`, and the widened `[{repo, kind, practiceId}]` that carries each repo's armed [lane kind](#lane-kinds-foundation-and-practice-lanes-2026-08-28). A legacy row parses as all-`backlog`, which is what those runs were. Widened rather than given a column deliberately — see that section. |
 | `concurrency` | Lanes in flight at once. Clamped 1…`LOOP_CONCURRENCY_CAP` (4); default 2. |
 | `maxCycles` | Clamped 1…`LOOP_MAX_CYCLES_CAP` (5); default 3. |
 | `cycle` | The cycle being worked (`0` = none started). |
@@ -136,12 +138,19 @@ would either authorize nothing, or have to trust the row it is about to disclose
 Member-gated. The curation step's data: the batch each repo's lane *would* get if a run started now.
 
 ```jsonc
-{ "proposals": [ { "repo": "acme/api", "items": [ /* FollowUpItem × ≤5 */ ], "projectedPoints": 14 } ] }
+{ "proposals": [ {
+  "repo": "acme/api",
+  "items": [ /* FollowUpItem × ≤5 — always [] on a foundation lane */ ],
+  "projectedPoints": 14,
+  "kind": "backlog",          // backlog | foundation | practice
+  "practiceId": null,          // set only on a practice lane
+  "reason": "Works this repo's open follow-ups with a local agent."
+} ] }
 ```
 
-It calls the **same `openBatch`** the engine calls. That identity is the point: a curation screen
-built on a second, "equivalent" query would eventually propose a batch the engine then declines to
-work. It is a `GET` because it writes nothing — no `LoopRun` row exists until `start`, so the panel
+It calls the **same `openBatch`** the engine calls, and the **same `proposeLaneKind`**. That identity
+is the point: a curation screen built on a second, "equivalent" query would eventually propose a
+batch (or a lane kind) the engine then declines to work. It is a `GET` because it writes nothing — no `LoopRun` row exists until `start`, so the panel
 can be opened and closed freely. `400` on a missing `org` or empty `repos`. The static `propose`
 segment resolves ahead of the sibling `[id]` route, so the two never collide.
 
@@ -482,6 +491,83 @@ unknown-renders-nothing label), `agent.test.ts` (`resolveAgentConfig` precedence
 `loop-engine.test.ts` (the parameter threading start → row → agent invocation, and that a mid-run env
 change cannot reach a later cycle), `CockpitOutcome.dom.test.tsx` (the ledger shows it).
 
+### Lane kinds: foundation and practice lanes (2026-08-28)
+
+Until this, the loop's batch source was the **scan backlog only**, and its only tool was an agent
+session. Installing the generated `.ai/` standard, or a Practice Library starter, lived behind a
+*different* door: a GitHub-App draft PR (`POST /api/report/foundation/pr`, `POST /api/practices/apply`),
+which the local loop never opened and which — for the foundation — was reachable only from the
+per-repo report header. Priya's L2 walk measured that as a **7-hop detour**. UC1's loop is
+"scan → gaps → apply practice / `.ai/` foundation → rescan", so a loop that could only do the middle
+step was not the journey.
+
+A lane now has a **kind**:
+
+| kind | what the lane does | agent session? |
+| --- | --- | --- |
+| `backlog` | the original lane: dispatch the repo's open follow-ups to a local `claude -p` | yes |
+| `foundation` | write the generated `.ai/` tree into the worktree and commit it | **no** |
+| `practice` | write one Practice Library starter into the worktree and commit it | **no** |
+
+**The rule** (`src/lib/local/lane-kind.ts`, `proposeLaneKind`), in order:
+
+1. the repo has no `.ai/manifest.{yaml,yml}` → `foundation`;
+2. else the **highest-impact** open follow-up sits on a dimension the library has a starter for AND
+   that starter's file is missing → `practice` for it;
+3. else `backlog`, which stays the default and does everything else.
+
+Only the *top* item is considered in (2). Letting any item in the batch pull the lane would make a
+template drop the default answer rather than the shortest path to the biggest gap. The cap and the
+impact-first ordering of `openBatch` are untouched.
+
+**One rule, two callers.** `/propose` renders it and the engine re-runs it at arm time — the same
+identity argument as `openBatch`. It is re-read rather than trusted from the wire, because the
+operator may have installed the standard by hand between opening the panel and pressing Run.
+
+**Execution** (`lane-install.ts`, `install-files.ts`). Both kinds go through the *same generators* the
+cloud doors use — `buildFoundation` and `buildPracticeArtifact` — and differ only in **delivery**: a
+write into the worktree instead of a contents-API commit. The generation step was factored out of the
+PR plumbing for exactly this (`src/lib/practices/artifact.ts` now owns the house-pattern lookup that
+`applyPracticeToRepo` kept private), and `lane-install.test.ts` drives *both* doors off one report and
+asserts the bytes are identical.
+
+The **collision policy is copied from `openDraftPr`, not relaxed**: the spine (`.ai/manifest.yaml`)
+already present means *already installed* — nothing is written at all; any later file already present
+is the repo's own and is skipped and reported. A worktree install that quietly rewrote a repo's real
+`AGENTS.md` would be strictly worse than the PR path's refusal — changing files that already exist is
+what the agent lane is for.
+
+After the commit, a foundation/practice lane runs the **identical rescan + attribution** an agent lane
+runs. The install is a claim, not a verdict: a practice lane carries its follow-up's
+`Ascent-Resolves:` trailer, and that row closes only if the next scan says the dimension moved.
+
+**Cycle 1 only.** Once the standard (or the starter) is in, the repo's next cycle is ordinary backlog
+work with the new floor in place — so one run reads "install → rescan → work the gaps". Same shape the
+curated batch already has. A **curated batch wins over a practice lane**: the operator naming rows is
+an explicit instruction, and installing a starter for a gap they just pruned would override it. A
+foundation lane has no rows to curate, so `/propose` returns `items: []` for it.
+
+**Recording it.** The armed kinds ride on `LoopRun.reposJson`, whose JSON-in-TEXT encoding was widened
+to accept `[{repo, kind, practiceId}]` alongside the legacy `string[]`. A column would have meant
+regenerating the Prisma client into a `node_modules` this worktree *shares with the operator's own
+checkout*; the widening is durable, reversible, backward-compatible in both directions, and is the
+technique `runsJson` / `measurementJson` already use. `laneKindOf` reads it back for the ledger.
+
+**Cloud parity: unchanged, and local-only for now.** Every branch of the rule reads a filesystem path,
+and the routes are behind `selfHostGuard()`. On the managed cloud path practices and the foundation
+keep going out as GitHub-App draft PRs exactly as before — a hosted equivalent needs the sandboxed
+executor the "no hosted dispatch" gap below already names.
+
+**UI: one tag per lane, no new panel.** `laneKindTag` renders `.ai/ foundation` / `practice starter`
+beside the repo name in the curation panel (with the reason under it) and on the outcome-ledger row.
+The agent lane is deliberately untagged — a badge on every row would say nothing.
+
+Tests: `lane-kind.test.ts` (the rule, against real directories), `lane-install.test.ts` (real git
+fixture: files written, one commit, the trailer, the skip policy, and the byte-identity case),
+`loop-engine.test.ts` (install instead of agent, the kind on the row, cycle 2 back to backlog, a dry
+install ending cleanly, a curated batch winning), `propose/route.test.ts` (the wiring),
+`loop-runs.test.ts` (both `reposJson` encodings), `CockpitLaneKind.dom.test.tsx` (both tags).
+
 ### Run history
 
 `CockpitHistory` lists the last 20 runs (age, repo count, lift, phase, and the agent configuration the
@@ -518,6 +604,10 @@ states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
 | Drive route | `src/app/api/org/local/drive/route.ts` |
 | Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
 | Agent model/effort | `src/lib/local/agent-options.ts`, `agent.ts`, `cockpit/{CockpitRunControls,useRunDials}.ts(x)` |
+| Lane kinds — the rule | `src/lib/local/lane-kind.ts` |
+| Lane kinds — the install | `src/lib/local/lane-install.ts`, `src/lib/local/install-files.ts` |
+| Shared practice generation | `src/lib/practices/artifact.ts` (used by `practices/apply.ts` and the lane) |
+| Shared foundation generation | `src/lib/standard/index.ts` `buildFoundation` (used by `standard/pr.ts` and the lane) |
 | Platform fold carry | `src/lib/analyze/platform-carry.ts` (+ `platform-signals.ts`) |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |

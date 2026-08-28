@@ -12,7 +12,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── in-memory stand-in for the persistence layer ─────────────────────────────────────────────────
-type Run = { id: string; orgId: string; phase: string; repos: string[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
+type Target = { repo: string; kind: string; practiceId: string | null };
+type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
 type Lane = { id: string; runId: string; repoFullName: string; cycle: number; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null };
 
 const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0 };
@@ -22,12 +23,14 @@ vi.mock("@/lib/db/loop-runs", () => ({
   LOOP_DEFAULT_CONCURRENCY: 2,
   LOOP_MAX_CYCLES_CAP: 5,
   LANE_LOG_LINES: 200,
-  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null }) => {
+  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null }) => {
     const run: Run = {
       id: `run${++db.seq}`,
       orgId: "org1",
       phase: "running",
       repos: input.repos,
+      // The row records the ARMED kinds — the ledger reads them back long after the run ended.
+      targets: input.targets ?? input.repos.map((r) => ({ repo: r, kind: "backlog", practiceId: null })),
       concurrency: input.concurrency ?? 2,
       maxCycles: input.maxCycles ?? 3,
       cycle: 0,
@@ -120,14 +123,21 @@ vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 vi.mock("@/lib/local/source", () => ({ LocalFsSource: class {} }));
 
 import { isLoopRunLive, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
 const item = (id: string, repo: string) => ({ id, repo, title: id, dimId: "D1", dimLabel: "D1", impact: "high", effort: "low", rationale: "", explore: "", projectedPoints: 3 });
 
-/** Deps that always "work": one open follow-up per repo, an agent that succeeds, a rescan that closes it. */
+/** Deps that always "work": one open follow-up per repo, an agent that succeeds, a rescan that closes it.
+ *  `laneKind` is pinned to the AGENT lane here — the real resolver reads the paired working copy off
+ *  disk, and these paths are fictional, so without the stub every repo would read as "no `.ai/`
+ *  foundation" and every test above would silently become a foundation-lane test. The kinds have
+ *  their own describe block below. */
 function workingDeps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
   return {
     openBatch: vi.fn(async (_org: string, repo: string) => [item(`rec-${repo}`, repo)]) as unknown as LaneDeps["openBatch"],
+    laneKind: vi.fn(async () => BACKLOG_LANE),
+    install: vi.fn(async () => ({ ok: true, written: [], skipped: [], committed: false, summary: "not used" })),
     runAgent: vi.fn(async () => ({ ok: true, summary: "did the thing" })),
     rescan: vi.fn(async ({ repo, onStage }) => {
       onStage("analyze");
@@ -372,5 +382,118 @@ describe("per-run agent configuration threads propose → start → the agent in
     expect(runAgent.mock.calls.length).toBeGreaterThan(1);
     for (const call of runAgent.mock.calls) expect(call[0]).toMatchObject({ model: "opus" });
     vi.unstubAllEnvs();
+  });
+});
+
+// ── lane kinds: the loop's own foundation / practice doors ───────────────────────────────────────
+//
+// Gap #5's whole point: before these, the local loop could only dispatch an agent, and installing the
+// `.ai/` standard or a practice starter was a separate GitHub-App draft-PR door it never opened.
+
+const foundationLane: LaneKindProposal = {
+  kind: "foundation",
+  practiceId: null,
+  itemId: null,
+  reason: "No .ai/ foundation in this repo — this lane installs the generated standard, then rescans.",
+};
+const practiceLane: LaneKindProposal = {
+  kind: "practice",
+  practiceId: "agent-guidance",
+  itemId: "rec-acme/web",
+  reason: "Agent guidance — this lane installs `AGENTS.md`.",
+};
+
+/** Deps whose kind resolver answers with `plan`, and whose install always lands a commit. */
+function kindDeps(plan: LaneKindProposal, over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
+  return workingDeps({
+    laneKind: vi.fn(async () => plan),
+    install: vi.fn(async () => ({ ok: true, written: [".ai/manifest.yaml"], skipped: [], committed: true, summary: "Installed 1 file(s)." })),
+    ...over,
+  });
+}
+
+describe("lane kinds — a foundation lane", () => {
+  it("installs instead of dispatching an agent, then rescans exactly as the agent lane does", async () => {
+    const deps = kindDeps(foundationLane);
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 1, deps });
+    await settle(run.id);
+
+    expect(deps.install).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deps.install!).mock.calls[0]![0]).toMatchObject({ kind: "foundation", org: "acme", repo: "acme/web" });
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    const lane = db.lanes.find((l) => l.runId === run.id)!;
+    expect(lane.phase).toBe("done");
+    expect(lane.afterScanId).toBe("scan-after-acme/web"); // the SAME rescan + attribution path
+    // No batch is claimed: the repo's backlog is not what a foundation lane is answering.
+    expect(lane.batchIds).toEqual([]);
+  });
+
+  it("records the kind on the run row, so the ledger can still say what the lane did", async () => {
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 1, deps: kindDeps(foundationLane) });
+    await settle(run.id);
+    expect(db.runs[0]!.targets).toEqual([{ repo: "acme/web", kind: "foundation", practiceId: null }]);
+  });
+
+  it("is a CYCLE-1 lane — cycle 2 works the backlog with the standard already in place", async () => {
+    const deps = kindDeps(foundationLane);
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 2, deps });
+    await settle(run.id);
+    expect(deps.install).toHaveBeenCalledTimes(1);
+    expect(deps.runAgent).toHaveBeenCalledTimes(1); // cycle 2
+  });
+
+  it("ends the lane cleanly when the install wrote nothing — there is nothing to attribute", async () => {
+    const deps = kindDeps(foundationLane, {
+      install: vi.fn(async () => ({ ok: true, written: [], skipped: [], committed: false, summary: "Already installed — the spine is present." })),
+    });
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 2, deps });
+    await settle(run.id);
+    const lane = db.lanes.find((l) => l.runId === run.id)!;
+    expect(lane.phase).toBe("done");
+    expect(lane.error).toBeNull();
+    expect(deps.rescan).not.toHaveBeenCalled();
+    expect(db.lanes).toHaveLength(1); // no progress ⇒ the repo drops out, as any dry lane does
+  });
+
+  it("surfaces a failed install as a lane error rather than taking the run down", async () => {
+    const deps = kindDeps(foundationLane, {
+      install: vi.fn(async () => ({ ok: false, written: [], skipped: [], committed: false, summary: "No saved scan for this repository yet." })),
+    });
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 1, deps });
+    await settle(run.id);
+    expect(db.runs[0]!.phase).toBe("done");
+    expect(db.lanes[0]!.phase).toBe("error");
+    expect(db.lanes[0]!.error).toMatch(/no saved scan/i);
+  });
+});
+
+describe("lane kinds — a practice lane", () => {
+  it("claims the one row its starter answers and hands the id to the install as the trailer", async () => {
+    const deps = kindDeps(practiceLane);
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web"], maxCycles: 1, deps });
+    await settle(run.id);
+    expect(vi.mocked(deps.install!).mock.calls[0]![0]).toMatchObject({
+      kind: "practice",
+      practiceId: "agent-guidance",
+      resolvesId: "rec-acme/web",
+    });
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(db.lanes[0]!.batchIds).toEqual(["rec-acme/web"]);
+    expect(db.runs[0]!.targets).toEqual([{ repo: "acme/web", kind: "practice", practiceId: "agent-guidance" }]);
+  });
+
+  it("yields to a curated batch that pruned its row — the operator's pick wins", async () => {
+    const deps = kindDeps(practiceLane);
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      curated: true,
+      batches: { "acme/web": ["some-other-row"] },
+      deps: { ...deps, openBatch: vi.fn(async () => [item("some-other-row", "acme/web")]) as unknown as LaneDeps["openBatch"] },
+    });
+    await settle(run.id);
+    expect(deps.install).not.toHaveBeenCalled();
+    expect(deps.runAgent).toHaveBeenCalledTimes(1);
   });
 });
