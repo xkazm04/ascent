@@ -1190,7 +1190,7 @@
         },
         {
           "name": "Live War Room",
-          "description": "## Purpose\nA live, presentation-mode 'war room' for the fleet: real-time leaderboard, celebrations on milestones, and headline stats meant to be projected during a review.\n\n## Key Flows\n- live page mounts LiveWarRoom which composes Header/Leaderboard/Panels/Stat/Celebrations; liveWarRoomShared holds the shared derivations.\n\n## Entry Points\n- src/app/org/[slug]/live/page.tsx\n- src/components/org/LiveWarRoom.tsx",
+          "description": "## Purpose\nA live, presentation-mode 'war room' for the fleet: real-time leaderboard, celebrations on milestones, and headline stats meant to be projected during a review.\n\n## Key Flows\n- live page mounts LiveWarRoom which composes Header/Leaderboard/Panels/Stat/Celebrations; liveWarRoomShared holds the shared derivations.\n\n## Key Flows (drive to green)\n- The Loop Cockpit starts a bounded loop run OR a drive: POST /api/org/local/drive runs the loop again and again, re-scoring the fleet against maturity/green after every run, until green | dry | ceiling.\n- useCockpit composes useLoopRun + useDrive; CockpitRail picks the panel; a live drive outranks every other rail mode and settles into the same outcome ledger a single run uses.\n\n## Entry Points\n- src/app/org/[slug]/live/page.tsx\n- src/components/org/LiveWarRoom.tsx",
           "businessFeature": "Live War Room",
           "category": "ui",
           "filePaths": [
@@ -1242,11 +1242,30 @@
             "src/features/inflight/live/LiveWarRoomTvHeader.tsx",
             "src/features/inflight/live/useLiveWarRoomStat.ts",
             "src/features/inflight/live/useTvRotation.ts",
-            "src/features/inflight/live/useTvShareLink.ts"
+            "src/features/inflight/live/useTvShareLink.ts",
+            "src/features/inflight/live/cockpit/CockpitDrivePanel.tsx",
+            "src/features/inflight/live/cockpit/CockpitField.tsx",
+            "src/features/inflight/live/cockpit/CockpitRail.tsx",
+            "src/features/inflight/live/cockpit/CockpitRunControls.tsx",
+            "src/features/inflight/live/cockpit/cockpitGate.ts",
+            "src/features/inflight/live/cockpit/driveClient.ts",
+            "src/features/inflight/live/cockpit/driveModel.ts",
+            "src/features/inflight/live/cockpit/driveTypes.ts",
+            "src/features/inflight/live/cockpit/useCockpit.ts",
+            "src/features/inflight/live/cockpit/useDrive.ts",
+            "src/features/inflight/live/cockpit/CockpitDrivePanel.dom.test.tsx",
+            "src/features/inflight/live/cockpit/cockpitGate.test.ts",
+            "src/features/inflight/live/cockpit/driveModel.test.ts",
+            "src/features/inflight/live/cockpit/useDrive.dom.test.tsx",
+            "src/lib/local/drive.ts",
+            "src/lib/local/drive-types.ts",
+            "src/lib/local/drive.test.ts",
+            "src/app/api/org/local/drive/route.ts"
           ],
           "target": null,
           "apiRoutes": [
-            "/api/org/ops"
+            "/api/org/ops",
+            "/api/org/local/drive"
           ]
         },
         {
@@ -2299,7 +2318,7 @@
     "Org Dashboard & Analytics › Provider Integrations [ui] — 16 files",
     "Org Dashboard & Analytics › Org Overview & Standing [ui] — 43 files",
     "Org Planning & Execution › Executive Briefing [ui] — 15 files",
-    "Org Planning & Execution › Live War Room [ui] — 35 files",
+    "Org Planning & Execution › Live War Room [ui] — 67 files",
     "Org Planning & Execution › Investment Simulator & Forecast [lib] — 13 files",
     "Org Planning & Execution › Playbooks [ui] — 14 files",
     "Org Planning & Execution › Backlog Management [ui] — 13 files",
@@ -2327,7 +2346,7 @@
   "summary": {
     "totalGroups": 11,
     "totalContexts": 49,
-    "totalFiles": 1455,
+    "totalFiles": 1473,
     "categories": {
       "api": 9,
       "lib": 8,

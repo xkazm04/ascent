@@ -5,24 +5,28 @@
 // run did. The rail's mode is derived from the run's own lifecycle rather than from a tab bar,
 // because at any moment exactly one of those three is the interesting question.
 //
+// A DRIVE is a fourth: a sequence of runs re-measured against the fleet's own green predicate after
+// every one of them (src/lib/local/drive.ts). It outranks the run mode while it is pulling, because
+// during a drive the interesting question is "is debt falling and how much rope is left", not "what
+// is this one run doing" — and it settles into the SAME outcome ledger a single run does, with a
+// verdict banner above it saying which of the three honest stops ended it.
+//
+// This file is layout only: the state machine is useCockpit, the rail's panel choice is CockpitRail.
+//
 // The wall this replaces is still one link away (`?view=wall`) and is untouched — including the
 // kiosk route that renders it read-only.
 
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Surface } from "@/components/ui";
 import { reportPermalink } from "@/lib/ui";
-import { ObservatoryField, ObservatoryList, layoutBodies, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
+import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
+import { CockpitField } from "./CockpitField";
 import { CockpitHeader } from "./CockpitHeader";
 import { CockpitHistory } from "./CockpitHistory";
-import { CockpitInspector } from "./CockpitInspector";
-import { CockpitOutcome } from "./CockpitOutcome";
-import { CockpitRunPanel } from "./CockpitRunPanel";
-import { CockpitSetup, type CockpitSetupState } from "./CockpitSetup";
-import { driftFor, scanningRepos, type CockpitDrift } from "./cockpitDrift";
-import { useLoopRun } from "./useLoopRun";
-import type { StartLoopInput } from "./loopClient";
-import type { CockpitMode, LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
+import { CockpitRail } from "./CockpitRail";
+import { useCockpit } from "./useCockpit";
+import type { LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
 export interface LiveCockpitProps {
   slug: string;
@@ -42,154 +46,67 @@ export interface LiveCockpitProps {
 }
 
 export function LiveCockpit(props: LiveCockpitProps) {
-  const { slug, seeds, histories, pairedRepos, activeRun, runs, loopEnabled, selfHosted, isOwner, wallHref } = props;
+  const { slug, seeds, isOwner, wallHref } = props;
   const router = useRouter();
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => initialSelection(runs, seeds));
-  const [mode, setMode] = useState<CockpitMode>(activeRun ? "run" : "inspect");
-  const [outcome, setOutcome] = useState<LoopRunDetail | null>(null);
-  const [drift, setDrift] = useState<CockpitDrift | null>(null);
-  const [replay, setReplay] = useState(0);
   const [listOpen, setListOpen] = useState(true);
-
-  const bodies = useMemo(() => layoutBodies(seeds, histories), [seeds, histories]);
-  const paired = useMemo(() => new Set(pairedRepos), [pairedRepos]);
-
-  const settle = useCallback(
-    (detail: LoopRunDetail) => {
-      setOutcome(detail);
-      setMode("outcome");
-      setDrift(driftFor(seeds, histories, detail, 0));
-      // The seeds this page was rendered from are now stale — the run wrote new scans.
-      router.refresh();
-    },
-    [seeds, histories, router],
-  );
-
-  const loop = useLoopRun({ slug, initialActive: activeRun, initialRuns: runs, initialEnabled: loopEnabled, onSettled: settle });
-  const scanning = useMemo(() => scanningRepos(loop.live ? loop.detail : null), [loop.live, loop.detail]);
-  const laneCount = loop.live ? loop.detail?.lanes.length ?? 0 : 0;
-
-  const start = async (input: StartLoopInput) => {
-    setMode("run");
-    setDrift(null);
-    const run = await loop.start(input);
-    if (!run) setMode("inspect");
-  };
-
-  const openRun = async (id: string) => {
-    if (loop.live && id === loop.activeId) {
-      setMode("run");
-      return;
-    }
-    const detail = await loop.loadDetail(id);
-    if (!detail) return;
-    setOutcome(detail);
-    setMode("outcome");
-    setReplay(0);
-    setDrift(driftFor(seeds, histories, detail, 0));
-  };
-
-  const replayRun = () => {
-    if (!outcome) return;
-    const next = replay + 1;
-    setReplay(next);
-    setDrift(driftFor(seeds, histories, outcome, next));
-  };
-
-  const setup = setupState({ selfHosted, seeds, isOwner, enabled: loop.enabled, paired });
+  const c = useCockpit(props);
+  const { loop, drive } = c;
 
   return (
     <section aria-label="Loop cockpit" className="space-y-4">
       <CockpitHeader
         fleetCount={seeds.length}
         active={loop.active}
-        laneCount={laneCount}
-        live={loop.live}
+        laneCount={c.laneCount}
+        live={loop.live || drive.live}
+        driveCaption={drive.live && drive.drive ? `drive · run ${drive.drive.runs.length}/${drive.drive.maxRuns}` : null}
         wallHref={wallHref}
-        onStop={loop.activeId ? () => void loop.stop(loop.activeId!) : undefined}
-        stopping={loop.busy}
+        onStop={c.stop}
+        stopping={loop.busy || drive.busy}
       />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(18rem,1.4fr)]">
-        <Surface className="min-w-0 p-3">
-          <ObservatoryField
-            bodies={bodies}
-            selected={selected}
-            onSelect={setSelected}
-            scanning={scanning}
-            drift={drift}
-            onBodyOpen={(fullName) => router.push(reportPermalink(fullName, null, slug))}
-          />
-          <div className="mt-2 border-t border-divider pt-2">
-            <button
-              type="button"
-              onClick={() => setListOpen(!listOpen)}
-              aria-expanded={listOpen}
-              className="focus-ring rounded font-mono text-xs uppercase tracking-[0.18em] text-slate-500 hover:text-accent"
-            >
-              {listOpen ? "Hide fleet list" : "Show fleet list"}
-            </button>
-            {listOpen && (
-              <ObservatoryList
-                bodies={bodies}
-                selected={selected}
-                onSelect={setSelected}
-                onOpen={(fullName) => router.push(reportPermalink(fullName, null, slug))}
-                className="mt-2"
-              />
-            )}
-          </div>
-        </Surface>
+        <CockpitField
+          bodies={c.bodies}
+          selected={c.selected}
+          onSelect={c.setSelected}
+          scanning={c.scanning}
+          drift={c.drift}
+          onOpen={(fullName) => router.push(reportPermalink(fullName, null, slug))}
+          listOpen={listOpen}
+          onToggleList={() => setListOpen(!listOpen)}
+        />
 
         <Surface className="min-w-0 p-4">
-          {mode === "run" ? (
-            <CockpitRunPanel
-              detail={loop.detail}
-              live={loop.live}
-              onStop={() => loop.activeId && void loop.stop(loop.activeId)}
-              onRetry={(laneId) => void loop.retry(laneId)}
-              busy={loop.busy}
-              error={loop.error}
-            />
-          ) : mode === "outcome" && outcome ? (
-            <CockpitOutcome detail={outcome} onReplay={replayRun} onBack={() => setMode("inspect")} canReplay={drift != null} />
-          ) : setup ? (
-            <CockpitSetup state={setup} slug={slug} message={loop.error} />
-          ) : (
-            <CockpitInspector
-              selected={selected}
-              paired={paired}
-              propose={loop.propose}
-              onRun={(input) => void start(input)}
-              canRun={isOwner && loop.enabled}
-              busy={loop.busy}
-            />
-          )}
+          <CockpitRail
+            slug={slug}
+            mode={c.mode}
+            setup={c.setup}
+            liveDrive={drive.live ? drive.drive : null}
+            driveOutcome={c.driveOutcome}
+            runDetail={loop.detail}
+            runLive={loop.live}
+            outcome={c.outcome}
+            canReplay={c.drift != null}
+            selected={c.selected}
+            paired={c.paired}
+            propose={loop.propose}
+            canRun={isOwner && loop.enabled}
+            busy={loop.busy || drive.busy}
+            loopError={loop.error}
+            driveError={drive.error}
+            onRun={(input) => void c.startRun(input)}
+            onDrive={(input) => void c.startDrive(input)}
+            onStopRun={() => loop.activeId && void loop.stop(loop.activeId)}
+            onStopDrive={() => void drive.stop()}
+            onRetryLane={(laneId) => void loop.retry(laneId)}
+            onReplay={c.replayRun}
+            onBack={c.backToInspect}
+          />
         </Surface>
       </div>
 
-      <CockpitHistory runs={loop.runs} selectedId={outcome?.run.id ?? loop.activeId} onOpen={(id) => void openRun(id)} />
+      <CockpitHistory runs={loop.runs} selectedId={c.outcome?.run.id ?? loop.activeId} onOpen={(id) => void c.openRun(id)} />
     </section>
   );
-}
-
-/** Open on the last run's repos — the selection an operator is most likely to iterate on. */
-function initialSelection(runs: readonly LoopRunSummary[], seeds: readonly ObservatorySeed[]): Set<string> {
-  const known = new Set(seeds.map((s) => s.fullName));
-  return new Set((runs[0]?.repos ?? []).filter((r) => known.has(r)));
-}
-
-function setupState(o: {
-  selfHosted: boolean;
-  seeds: readonly ObservatorySeed[];
-  isOwner: boolean;
-  enabled: boolean;
-  paired: ReadonlySet<string>;
-}): CockpitSetupState | null {
-  if (!o.selfHosted) return "hosted";
-  if (o.seeds.length === 0) return "no-repos";
-  if (!o.isOwner) return "not-owner";
-  if (!o.enabled) return "autopilot-off";
-  if (o.paired.size === 0) return "unpaired";
-  return null;
 }

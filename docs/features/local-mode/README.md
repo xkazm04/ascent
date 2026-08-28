@@ -152,7 +152,7 @@ count, start/stop, live log; polls the job every 4s only while one runs, and ref
 per finished run. Routes: `GET/POST /api/org/local/autopilot` (start/stop owner-gated — same blast
 radius as pairing).
 
-## Drive to green, headless (`/api/org/local/drive`, 2026-08-26)
+## Drive to green (`/api/org/local/drive`, 2026-08-26; reachable from the cockpit 2026-08-28)
 
 | | |
 | --- | --- |
@@ -163,6 +163,12 @@ radius as pairing).
 Same guards as `/api/org/loop`: self-host 404, DB, `PUBLIC_ORG` 403, **owner**, and 409 when
 `ASCENT_AUTOPILOT` is off. A drive stops on `green`, `dry` (a run did not lower the debt) or
 `ceiling`; the policy and its reasoning are in `docs/features/org-planning/live.md`.
+
+The three verbs are also what the Loop Cockpit drives: the **Drive to green** CTA in the inspector
+starts one over the selection, `CockpitDrivePanel` renders its progress and Stop, and a terminal
+verdict lands above the run's outcome ledger. The gate is not widened for it — the cockpit's
+`cockpitGate.ts` is one predicate serving both Run and Drive. It remains fully usable headlessly:
+`useDrive` adopts a drive started by curl on its next mount tick.
 
 ## Known gaps
 

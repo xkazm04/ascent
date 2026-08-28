@@ -275,8 +275,14 @@ rebuilds the current query string with `view=wall` so scope params survive the t
 Layout: header (`Kicker` "Observatory", LIVE dot while a run is live, `N lanes · cycle c/m`, **Wall**
 link, **Stop**) · the Observatory field (dominant) with the fleet list as a collapsible section below
 it · a right rail whose mode is **derived from the run lifecycle**, not a tab bar: `inspect` (no run)
-⇄ `run` (active run) ⇄ `outcome` (a finished run or a history pick) · the run-history strip. One
-primary CTA at a time: **Run (N repos)** / **Stop after in-flight** / **Replay run**.
+⇄ `run` (active run) ⇄ `drive` (a drive pulling) ⇄ `outcome` (a finished run, a finished drive, or a
+history pick) · the run-history strip. One primary CTA at a time: **Run (N repos)** / **Drive to
+green** / **Stop after in-flight** / **Stop drive** / **Replay run**.
+
+The rail's choice is one ordered list in `CockpitRail.tsx`, and the order is the doctrine: a **live
+drive outranks everything**, because while it pulls, "is debt falling and how much rope is left" is
+the only question and its own runs come and go underneath it. `LiveCockpit.tsx` is layout only; the
+state machine is `useCockpit.ts`, which composes `useLoopRun` + `useDrive` and owns the mode.
 
 ### The Observatory (sky chart)
 
@@ -332,6 +338,40 @@ history pick drifts a run you never watched and the picture cannot disagree with
 with no measured pair disables Replay. `router.refresh()` fires on settle to re-seed the server
 render.
 
+### Drive to green, from the cockpit (`CockpitDrivePanel`, `useDrive`)
+
+The inspector's second CTA. It starts a drive over the **same selection** the Run button would work
+(paired repos only) with the same `Lanes at once` / `Cycles` dials plus a **Drive runs** dial capped
+at `DRIVE_MAX_RUNS_CAP`. The gate is not widened for it: `cockpitGate.ts` is ONE predicate
+(`selfHosted → repos → owner → autopilot → paired`) serving both, because a drive is a sequence of
+runs with exactly the loop's blast radius.
+
+Pruning and dimension focus deliberately do **not** travel with a drive: it re-scores the fleet and
+picks a fresh batch before every run, so a batch curated against the first measurement would be a
+lie by the second.
+
+While it pulls, the panel shows run counter vs cap, debt now against the debt the drive started
+with, `greenCount/inScope`, the in-flight run's own `cycle c/m · n/m lanes done` (from `useLoopRun`'s
+poll, not a second one), and each finished run's debt before → after. **Progress is `null`, not 0,
+until a run has been measured** — a fresh drive has burned nothing *and* achieved nothing, and 0%
+claims the second when only the first is known. Debt inverts the house delta convention (falling is
+the win), so the colour takes the size of the drop while the text prints the signed change with
+`signedDelta` — no ▲/▼ glyph contradicting the colour beside it.
+
+**Stop** is cooperative and belongs to the drive while one is live: stopping only the in-flight run
+would let the drive dispatch the next one, so the header's Stop is re-pointed at `stopDrive` for the
+duration.
+
+On termination a `DriveVerdict` banner sits **above** the ordinary outcome ledger — the two answer
+different questions ("why did the drive stop" vs "what did the last run do"), and `dry` and
+`ceiling` are worded apart on purpose because they call for opposite next moves. A drive that never
+dispatched a run (already green) renders the banner alone, with its own way back.
+
+`useDrive` polls `GET /api/org/local/drive?org=` every 12 s, and **only** while a drive is live, the
+tab is foregrounded, and the gate is clear — on managed cloud, where the route 404s by design, it
+makes no request at all. It adopts a drive started elsewhere (curl, another tab) on its mount tick,
+and hands the terminal status up exactly once.
+
 ### Run history
 
 `CockpitHistory` lists the last 20 runs (age, repo count, lift, phase); selecting one fetches its
@@ -345,8 +385,11 @@ via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ reposit
 `?tab=pairing` → pick repos → run).
 
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
-`useLoopRun.dom.test.tsx`, `CockpitOutcome.dom.test.tsx`, `LiveTabView.dom.test.tsx` (wall mode and
-the kiosk render no cockpit), `observatory/*.test.ts(x)`.
+`cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and
+the three verdicts), `useLoopRun.dom.test.tsx`, `useDrive.dom.test.tsx` (gating + poll discipline +
+settle-once), `CockpitOutcome.dom.test.tsx`, `CockpitDrivePanel.dom.test.tsx` (the control's
+states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
+`observatory/*.test.ts(x)`.
 
 ## Key files
 
@@ -359,6 +402,9 @@ the kiosk render no cockpit), `observatory/*.test.ts(x)`.
 | Worktree isolation | `src/lib/local/loop-worktree.ts` |
 | Single-repo shim | `src/lib/local/autopilot.ts` |
 | Routes | `src/app/api/org/loop/{route,propose/route,[id]/route}.ts` |
+| Drive engine + wire shapes | `src/lib/local/drive.ts`, `src/lib/local/drive-types.ts` |
+| Drive route | `src/app/api/org/local/drive/route.ts` |
+| Drive UI | `cockpit/{CockpitDrivePanel,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |
 | Cockpit | `src/features/inflight/live/cockpit/**` |
@@ -414,6 +460,11 @@ its scope to every watched, paired repo. `GET ?org=` lists drives with their lat
 per-run debt before/after. Process-local like the engine's `live` registry: every run it starts is a
 durable `LoopRun`, so what happened survives a restart; a restart ends the drive rather than resuming
 into a state it cannot verify.
+
+The wire shapes and the caps live in `src/lib/local/drive-types.ts` (re-exported by `drive.ts`, the
+same split as `loop-runs-types.ts` ⇄ `loop-engine.ts`) so the cockpit can import them in the browser
+without dragging the engine's db/`selfHosted()` imports into the bundle. Since 2026-08-28 the route
+is no longer curl-only: the cockpit reaches it — see *Drive to green, from the cockpit* above.
 
 ### Claims are released when nothing adjudicated them (2026-08-26)
 
