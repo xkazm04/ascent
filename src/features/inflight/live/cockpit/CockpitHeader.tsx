@@ -15,13 +15,15 @@ export interface CockpitHeaderProps {
   /** Lanes the active run has on the board right now. */
   laneCount: number;
   live: boolean;
+  /** Set while a DRIVE is pulling — it stays live between runs, when `active` is momentarily null. */
+  driveCaption?: string | null;
   /** `?view=wall` with the tab's other params preserved. */
   wallHref: string;
   onStop?: () => void;
   stopping?: boolean;
 }
 
-export function CockpitHeader({ fleetCount, active, laneCount, live, wallHref, onStop, stopping = false }: CockpitHeaderProps) {
+export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaption = null, wallHref, onStop, stopping = false }: CockpitHeaderProps) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 border-b border-divider pb-3">
       <div className="min-w-0">
@@ -29,6 +31,12 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, wallHref, o
         <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-100">The fleet, in adoption × rigor</h2>
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-slate-500">
           <span className="tabular-nums">{fleetCount} repos</span>
+          {driveCaption && (
+            <span className="inline-flex items-center gap-1.5 text-accent">
+              <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
+              <span className="tabular-nums">{driveCaption}</span>
+            </span>
+          )}
           {live && active ? (
             <span className="inline-flex items-center gap-1.5 text-accent">
               <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
@@ -36,7 +44,7 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, wallHref, o
                 {laneCount} {laneCount === 1 ? "lane" : "lanes"} · cycle {active.cycle}/{active.maxCycles}
               </span>
             </span>
-          ) : (
+          ) : driveCaption ? null : (
             <span>at rest</span>
           )}
         </p>

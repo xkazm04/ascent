@@ -41,6 +41,35 @@ Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
   [`local-mode/README.md`](../local-mode/README.md) and `src/lib/mcp/tools.ts`;
   keep it exactly true when either changes.
 
+- **Loop band (inside `IndexLocal`, added 2026-08-28)**: "Drive it to green" — the
+  loop the product exists for (scan → propose → agent/foundation lane → rescan →
+  drive to green), the one surface no marketing page named at all until now. Its
+  rope is imported, not written: `LOOP_CONCURRENCY_CAP` and `LOOP_MAX_CYCLES_CAP`
+  (`src/lib/db/loop-runs-types.ts`), `DRIVE_MAX_RUNS_CAP` (`src/lib/local/drive-types.ts`),
+  and the three stop reasons typed against `DrivePhase` so a renamed phase fails the
+  build here. The caps ARE the copy on purpose: the honest claim about this loop is
+  that it is bounded and that a rescan, not the agent, decides whether anything
+  landed — printing the numbers is what makes that checkable.
+
+**Numbers in landing copy are imported, never typed.** The hero and
+`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; the scan dialog's duration
+now reads `scanDurationClaim()` (`src/components/report/scanEstimate.ts`), the same
+constants the live-scan progress bar and its abort backstop run on. The dialog
+promised "in about a minute" for a year — true of no provider the scanner has ever
+run on (~100 s hosted, a measured ~6 min median on a local CLI), and already
+retired in `ColdScanGate`'s copy while the hero went on printing it.
+
+**The levels chart's dashed line marks a boundary that exists on its own axis.**
+`TrajectoryChart` drew it at `POSTURE_THRESHOLD` (50) labelled "AI-NATIVE" and
+`IndexLevels` invited the reader to "cross the dashed line and the org reads
+AI-Native". Wrong twice: POSTURE_THRESHOLD is the cut on the **adoption** and
+**rigor** axes (AI-Native means both clear 50, `model.ts:504-512`) while the chart's
+Y axis is the weighted 0–100 index, and 50 on the index sits **inside L3** — so
+crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
+(`prototypes/shared/levelRamp.ts`): the L4 floor, labelled with the level it is the
+floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
+floor and is not the posture threshold.
+
 ## The deck reading scale (large-screen typography & measure)
 
 Marketing decks used to stop growing at `lg`: the container was pinned at
@@ -107,14 +136,26 @@ CTA. It shares `DeckSection` / `DeckNav` / `Reveal` / `AboutFeature` /
 `AboutCtaButtons` / `GlowBackdrop` with `/about` rather than forking them.
 
 **The module map is derived, not authored.**
-`src/components/about-org/orgModules.ts` builds the six module groups from
+`src/components/about-org/orgModules.ts` builds the module groups from
 `ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`), the same constant the shipping rail
 renders, and every href from `orgTabHref`. The only thing the file adds is one
 sentence per view, keyed by `OrgTabId`. So a renamed tab flows through
 automatically, and an **added** tab fails `orgModules.test.ts` (which pins that
 every tab in `ORG_TAB_IDS` has a blurb) instead of silently going unmentioned. The
-masthead's "6 modules / 21 views" figures are derived from the same source, so the
-copy cannot contradict the map below it.
+masthead's "N modules / M views" figures come from `MODULE_COUNT` / `VIEW_COUNT`,
+so the copy cannot contradict the map below it. (This paragraph said "six module
+groups" and quoted "6 modules / 21 views" until 2026-08-28; the rail has had five
+groups since the Standing/Shared/In flight/Bought/Admin regroup. Don't restate the
+numbers here — that is the drift the derivation exists to prevent.)
+
+**And so is every module NAME the deck prints.** `AboutOrgQuestions` (the "you are
+here" trail beside each question), `AboutOrgLoop` (the module under each step) and
+`orgFeatures.ts` (each feature pane's kicker) all resolve their module label
+through `orgGroupLabelFor(tab)` rather than typing one. Hand-typed, they named
+**Fleet, Intelligence, Govern, Plan and Library** — an information architecture the
+regroup retired — on the very page whose module map promises "same modules, same
+order, same names". `orgModules.test.ts` pins that every printed module name is one
+the rail has, and that a non-rail tab yields `null` rather than a wrong trail.
 
 **Every diagram states a real constraint.** `PracticeCascade` caps its run at the
 same 25 repos/call `POST /api/practices/apply-batch` enforces; `KnowledgeLedger`
@@ -125,7 +166,7 @@ the product's own modules rather than invented vocabulary.
 one grid cell (`col-start-1 row-start-1`). That keeps the panel as tall as the
 tallest module (no layout shift under a scroll-snap reader), avoids a bare
 `bg-divider` block where a module's view count doesn't fill the last grid row, and
-ships all 21 views in the server HTML for crawlers.
+ships every view in the server HTML for crawlers.
 
 ## Form controls (`src/components/ui/Field.tsx`)
 

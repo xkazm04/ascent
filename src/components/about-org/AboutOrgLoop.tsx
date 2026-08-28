@@ -12,50 +12,49 @@ import { Kicker, SectionHeading } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
+import { orgGroupLabelFor } from "./orgModules";
+import { DIMENSIONS } from "@/lib/maturity/model";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 
 interface LoopStep {
   n: string;
   title: string;
   detail: string;
-  module: string;
   tab: OrgTabId;
 }
 
+// Each step's module label is DERIVED from its tab (`orgGroupLabelFor`) rather than typed. The typed
+// versions named "Govern", "Fleet" and "Overview" — none of which are modules in the shipping rail.
 const STEPS: LoopStep[] = [
   {
     n: "01",
     title: "Connect",
     detail: "Install the GitHub App on the org. Ascent reads through the API; it never clones your code.",
-    module: "Govern",
     tab: "settings",
   },
   {
     n: "02",
     title: "Scan",
-    detail: "Every watched repository is scored across the nine dimensions, then rescanned on a cadence you set.",
-    module: "Fleet",
+    // The dimension count comes from the rubric, not from a word typed here.
+    detail: `Every watched repository is scored across all ${DIMENSIONS.length} dimensions, then rescanned on a cadence you set.`,
     tab: "repositories",
   },
   {
     n: "03",
     title: "Read",
     detail: "The rollup says where the fleet stands, what moved, and which gaps are shared across teams.",
-    module: "Overview",
     tab: "overview",
   },
   {
     n: "04",
     title: "Decide",
     detail: "The org-wide gaps — open in half the fleet — are practices to fix once; the ledger marks them so a batch is the right shape.",
-    module: "Standing",
     tab: "followups",
   },
   {
     n: "05",
     title: "Apply",
     detail: "Tick a batch, get one fix prompt for your local agent, hand it off; the next scan closes what landed.",
-    module: "Standing",
     tab: "followups",
   },
 ];
@@ -82,7 +81,7 @@ export function AboutOrgLoop() {
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs tabular-nums text-accent">{s.n}</span>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">{s.module}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">{orgGroupLabelFor(s.tab)}</span>
                 </span>
                 <span className="mt-3 text-base font-semibold text-white group-hover:text-accent">{s.title}</span>
                 <span className="mt-1.5 text-sm leading-relaxed text-slate-400 2xl:text-base">{s.detail}</span>

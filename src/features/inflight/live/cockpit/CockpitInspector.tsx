@@ -10,16 +10,16 @@
 // actually run — dropping to disabled when that count is zero.
 
 import { useEffect, useMemo, useState } from "react";
-import { Field, Kicker, SelectInput } from "@/components/ui";
+import { Kicker } from "@/components/ui";
 import { InlineEmpty } from "@/components/org/shared/ui";
-import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
 import { ProposalList, SharedDimensionBars } from "./CockpitBatch";
+import { CockpitRunControls } from "./CockpitRunControls";
 import { proposalDimensions, sharedDimensions } from "./cockpitDimensions";
+import { useRunDials } from "./useRunDials";
+import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
 import type { LoopProposal } from "./loopTypes";
 
-const DEFAULT_CONCURRENCY = 2;
-const DEFAULT_CYCLES = 3;
 /** A lasso drags through dozens of intermediate selections; only the one it settles on is queried. */
 const PROPOSE_DEBOUNCE_MS = 350;
 
@@ -29,21 +29,28 @@ export interface CockpitInspectorProps {
   paired: ReadonlySet<string>;
   propose: (repos: readonly string[]) => Promise<LoopProposal[] | null>;
   onRun: (input: StartLoopInput) => void;
+  /** Start a DRIVE over the same scope: runs until green, dry, or the run budget is spent. */
+  onDrive: (input: StartDriveInput) => void;
   canRun: boolean;
+  /** Drive shares the loop's gate; false only when the deployment cannot start one at all. */
+  canDrive?: boolean;
+  /** A failed start (the server's own 409 copy) — shown next to the buttons that produced it. */
+  error?: string | null;
   /** Why running is unavailable (hosted, not owner, autopilot off) — shown in place of the CTA. */
   blockedReason?: string | null;
   busy?: boolean;
 }
 
-export function CockpitInspector({ selected, paired, propose, onRun, canRun, blockedReason = null, busy = false }: CockpitInspectorProps) {
+export function CockpitInspector(props: CockpitInspectorProps) {
+  const { selected, paired, propose, onRun, onDrive, canRun, canDrive = true, blockedReason = null, busy = false, error = null } = props;
   // Keyed by the selection they were fetched FOR, so a stale response can never be read against a
   // selection it does not describe (and an emptied selection needs no state write at all).
   const [fetched, setFetched] = useState<{ key: string; proposals: LoopProposal[] }>({ key: "", proposals: [] });
   const [loading, setLoading] = useState(false);
   const [pruned, setPruned] = useState<ReadonlySet<string>>(() => new Set());
-  const [dimFocus, setDimFocus] = useState<string | null>(null);
-  const [concurrency, setConcurrency] = useState(DEFAULT_CONCURRENCY);
-  const [cycles, setCycles] = useState(DEFAULT_CYCLES);
+  // Six dials in one piece of state (useRunDials) — the run and the drive read the SAME values, which
+  // is what makes them two ways of arming one experiment rather than two configurations.
+  const { dials, set } = useRunDials();
 
   const repos = useMemo(() => [...selected].sort(), [selected]);
   const key = repos.join(",");
@@ -84,12 +91,34 @@ export function CockpitInspector({ selected, paired, propose, onRun, canRun, blo
     const batches: Record<string, string[]> = {};
     for (const p of proposals) {
       if (!paired.has(p.repo)) continue;
-      const ids = p.items.filter((i) => !pruned.has(i.id) && (!dimFocus || i.dimId === dimFocus)).map((i) => i.id);
+      const ids = p.items.filter((i) => !pruned.has(i.id) && (!dials.dimFocus || i.dimId === dials.dimFocus)).map((i) => i.id);
       if (ids.length > 0) batches[p.repo] = ids;
     }
     const curated = Object.keys(batches).length > 0;
-    onRun({ repos: runnable, batches: curated ? batches : undefined, concurrency, maxCycles: cycles });
+    onRun({
+      repos: runnable,
+      batches: curated ? batches : undefined,
+      concurrency: dials.concurrency,
+      maxCycles: dials.cycles,
+      model: dials.model,
+      effort: dials.effort,
+    });
   };
+
+  // A drive picks its OWN batch before every run (the fleet is re-scored between them), so the
+  // inspector's pruning and dimension focus deliberately do not travel with it — only the scope and
+  // the three bounds do.
+  const drive = () =>
+    onDrive({
+      repos: runnable,
+      maxRuns: dials.maxRuns,
+      maxCycles: dials.cycles,
+      concurrency: dials.concurrency,
+      // The agent configuration DOES travel with a drive, unlike the pruning above: it is a property
+      // of how the work is done, not of which work was picked, so it survives the re-batching.
+      model: dials.model,
+      effort: dials.effort,
+    });
 
   if (repos.length === 0) {
     return (
@@ -123,42 +152,13 @@ export function CockpitInspector({ selected, paired, propose, onRun, canRun, blo
 
       <SharedDimensionBars shares={shares} />
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <Field label="Focus">
-          <SelectInput value={dimFocus ?? ""} onChange={(e) => setDimFocus(e.target.value || null)}>
-            <option value="">All dimensions</option>
-            {dims.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.id} · {d.label}
-              </option>
-            ))}
-          </SelectInput>
-        </Field>
-        <Field label="Lanes at once">
-          <SelectInput value={concurrency} onChange={(e) => setConcurrency(Number(e.target.value))}>
-            {Array.from({ length: LOOP_CONCURRENCY_CAP }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </SelectInput>
-        </Field>
-        <Field label="Cycles">
-          <SelectInput value={cycles} onChange={(e) => setCycles(Number(e.target.value))}>
-            {Array.from({ length: LOOP_MAX_CYCLES_CAP }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </SelectInput>
-        </Field>
-      </div>
+      <CockpitRunControls dims={dims} dials={dials} onChange={set} />
 
       <ProposalList
         proposals={proposals}
         pruned={pruned}
         onTogglePrune={togglePrune}
-        dimFocus={dimFocus}
+        dimFocus={dials.dimFocus}
         unpaired={unpaired}
         loading={loading}
       />
@@ -166,15 +166,34 @@ export function CockpitInspector({ selected, paired, propose, onRun, canRun, blo
       {blockedReason || !canRun ? (
         <p className="mt-4 font-mono text-xs text-slate-500">{blockedReason ?? "Running the loop needs org-owner access."}</p>
       ) : (
-        <button
-          type="button"
-          onClick={run}
-          disabled={busy || runnable.length === 0}
-          className="focus-ring mt-4 w-full rounded-md bg-accent px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {runnable.length === 0 ? "No paired repos selected" : `Run (${runnable.length} ${runnable.length === 1 ? "repo" : "repos"})`}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={run}
+            disabled={busy || runnable.length === 0}
+            className="focus-ring mt-4 w-full rounded-md bg-accent px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {runnable.length === 0 ? "No paired repos selected" : `Run (${runnable.length} ${runnable.length === 1 ? "repo" : "repos"})`}
+          </button>
+          {canDrive && (
+            <>
+              <button
+                type="button"
+                onClick={drive}
+                disabled={busy || runnable.length === 0}
+                className="focus-ring mt-2 w-full rounded-md border border-accent/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Drive to green
+              </button>
+              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                Runs again and again until every selected repo clears the band, a whole run moves nothing, or the{" "}
+                {dials.maxRuns}-run budget is spent.
+              </p>
+            </>
+          )}
+        </>
       )}
+      {error && <p className="mt-3 font-mono text-xs text-danger">{error}</p>}
     </div>
   );
 }

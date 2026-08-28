@@ -7,9 +7,12 @@ import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
+import { attributeScores } from "@/lib/maturity/attribution";
 import {
+  laneKindOf,
   toLaneRecord,
   toRunRecord,
+  type LoopLaneKind,
   type LoopLaneOutcome,
   type LoopLaneRecord,
   type LoopRunDetail,
@@ -110,15 +113,23 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
     ];
     const scans = ids.length
-      ? await prisma.scan.findMany({ where: { id: { in: ids } }, select: { id: true, overallScore: true } })
+      ? await prisma.scan.findMany({
+          where: { id: { in: ids } },
+          // The engine columns ride along with the score: the history strip's lift is the same claim
+          // the outcome ledger makes, so it answers to the same attribution rule. Without them this
+          // read would fold a mock/real pair — or a run of pure model wobble — into a green number
+          // the ledger beside it refuses to print.
+          select: { id: true, overallScore: true, engineProvider: true, engineDegraded: true },
+        })
       : [];
-    const score = new Map(scans.map((s) => [s.id, s.overallScore]));
+    const score = new Map(scans.map((s) => [s.id, s]));
     const liftByRun = new Map<string, number>();
     for (const l of lanes) {
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
-      if (b == null || a == null) continue;
-      liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + (a - b));
+      const verdict = attributeScores(b, a);
+      if (verdict.kind !== "attributable") continue;
+      liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + verdict.delta);
     }
     return rows.map((row) => {
       const r = toRunRecord(row);
@@ -131,6 +142,10 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
         startedAt: r.startedAt,
         endedAt: r.endedAt,
         lift: liftByRun.has(r.id) ? (liftByRun.get(r.id) as number) : null,
+        // The configuration the lift was produced under travels with it: a strip of numbers whose
+        // setups differ is a comparison nobody can make.
+        model: r.model,
+        effort: r.effort,
       };
     });
   }, []);
@@ -152,13 +167,18 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
     .catch(() => null);
   const lanes = await listLanes(id);
   const outcomes: LoopLaneOutcome[] = [];
-  for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug));
+  for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   return { run, lanes, outcomes };
 }
 
-async function laneOutcome(lane: LoopLaneRecord, orgSlug: string | undefined): Promise<LoopLaneOutcome> {
+async function laneOutcome(
+  lane: LoopLaneRecord,
+  orgSlug: string | undefined,
+  kind: LoopLaneKind,
+): Promise<LoopLaneOutcome> {
   const base: LoopLaneOutcome = {
     lane,
+    kind,
     before: null,
     after: null,
     diff: null,

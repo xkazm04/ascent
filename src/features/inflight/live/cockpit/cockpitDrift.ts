@@ -16,8 +16,9 @@
 // Repos that were not in the run appear IDENTICALLY on both sides, so the drift moves only the
 // bodies the run actually touched.
 
+import { attributeScores, type Attribution } from "@/lib/maturity/attribution";
 import { layoutBodies, type ObservatoryBody, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
-import type { LoopRunDetail } from "./loopTypes";
+import type { LoopLaneOutcome, LoopRunDetail } from "./loopTypes";
 
 /** The scan-end fields the overlay reads — `ComparableScan` satisfies it structurally. */
 interface ScanEnd {
@@ -88,14 +89,44 @@ export function scanningRepos(detail: LoopRunDetail | null): ReadonlySet<string>
   );
 }
 
-/** Run-level lift: summed overall movement across the lanes that have both ends; null when none do. */
-export function runLift(detail: LoopRunDetail): number | null {
-  let sum = 0;
-  let seen = 0;
-  for (const o of detail.outcomes) {
-    if (!o.before || !o.after) continue;
-    sum += o.after.overallScore - o.before.overallScore;
-    seen += 1;
-  }
-  return seen === 0 ? null : sum;
+/** One lane's verdict — the same rule the resolve rule and the history strip apply. */
+export const laneAttribution = (o: LoopLaneOutcome): Attribution => attributeScores(o.before, o.after);
+
+export interface RunAttribution {
+  /** Summed movement across the lanes whose movement is ATTRIBUTABLE; null when no lane is. */
+  lift: number | null;
+  attributable: number;
+  /** Real on both ends, but the movement is inside the noise band. */
+  withinNoise: number;
+  /** At least one end came off the deterministic mock floor. */
+  mock: number;
+  /** No pair to compare (a first-ever scan, or a lane that never rescanned). */
+  unmeasured: number;
 }
+
+/**
+ * The run's totals, with the noise and the mock lanes held OUT of the headline number rather than
+ * folded into it. A run that moved four repos by one point each used to read "+4 total lift"; every
+ * one of those movements is inside a single re-run's wobble, and summing them manufactures a
+ * significance none of them has. The counts are kept beside the number so the operator can see what
+ * was excluded — a lift of null with three noise lanes is a different situation from a lift of null
+ * with three mock lanes, and they call for different next moves.
+ */
+export function runAttribution(detail: LoopRunDetail): RunAttribution {
+  const out: RunAttribution = { lift: null, attributable: 0, withinNoise: 0, mock: 0, unmeasured: 0 };
+  let sum = 0;
+  for (const o of detail.outcomes) {
+    const a = laneAttribution(o);
+    if (a.kind === "attributable") {
+      out.attributable += 1;
+      sum += a.delta;
+    } else if (a.kind === "within-noise") out.withinNoise += 1;
+    else if (a.kind === "mock-scan") out.mock += 1;
+    else out.unmeasured += 1;
+  }
+  if (out.attributable > 0) out.lift = sum;
+  return out;
+}
+
+/** Run-level lift: the attributable movement only; null when no lane produced any. */
+export const runLift = (detail: LoopRunDetail): number | null => runAttribution(detail).lift;

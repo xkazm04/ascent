@@ -82,3 +82,21 @@ export const VIEW_COUNT = ABOUT_ORG_MODULES.reduce((n, m) => n + m.views.length,
 
 /** Every id this page claims to describe. Exported for the drift test. */
 export const DESCRIBED_TAB_IDS: OrgTabId[] = Object.keys(BLURBS) as OrgTabId[];
+
+/**
+ * The nav GROUP a tab lives in, by its shipping label — the "you are here" trail every /about-org
+ * section prints beside a deep link.
+ *
+ * This exists because three sections were printing module names the product does not have. The rail's
+ * groups are Standing / Shared / In flight / Bought / Admin (`ORG_NAV_GROUPS`); the marketing copy
+ * hand-typed "Fleet", "Intelligence", "Govern", "Plan" and "Library" — names from an earlier
+ * information architecture, still on the page after the regroup that retired them, on a page whose
+ * own module map promises "same modules, same order, same names" (`AboutOrgModules.tsx:20`). A
+ * derivation means the next regroup carries the copy with it instead of leaving it behind.
+ *
+ * Returns null for a tab outside the rail (`ORG_TABS_NOT_IN_NAV`), so a caller that wanted a trail
+ * gets nothing rather than a wrong one.
+ */
+export function orgGroupLabelFor(id: OrgTabId): string | null {
+  return ORG_NAV_GROUPS.find((g) => g.items.some((i) => i.id === id))?.label ?? null;
+}

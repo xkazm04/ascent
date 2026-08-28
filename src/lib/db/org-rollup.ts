@@ -10,6 +10,7 @@ import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
+import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
 import type { AppPassport, ContextHealth, PrStats, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
@@ -197,6 +198,14 @@ export interface OrgRepoRow {
      *  a real graded scan); anything else is a live model. Surfaced so the UI can flag mock provenance. */
     engine: string;
     dims: { dimId: string; score: number; signalScore?: number; llmScore?: number }[];
+    /**
+     * Dimensions this scan could NOT measure — D2/D3/D4 on a worktree/local scan that had no
+     * GitHub-side fold to carry (src/lib/analyze/platform-carry.ts). Empty on every scan that could
+     * see GitHub, and empty on a legacy row, where the question was never asked: unknown provenance
+     * is not evidence that a dimension was unmeasurable, and reading it as such would quietly drop
+     * three dimensions out of every historical green verdict.
+     */
+    unmeasurableDims?: string[];
     /**
      * This scan scored NOTHING — no dimension row was persisted, so `overall`/`level` are the
      * renormalized floor (0 / L1) rather than a measurement. Carried because the FLEET path scores
@@ -492,6 +501,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
             scannedAt: s.scannedAt.toISOString(),
             engine: s.engineProvider,
             dims: s.dimensions,
+            unmeasurableDims: unmeasurablePlatformDims(parsePlatformSignals(s.platformSignalsJson)),
             // See `incomplete` on OrgRepoRow["latest"]: no dimension row means nothing was scored,
             // which is the same predicate the engine and the per-repo gate use.
             incomplete: s.dimensions.length === 0,

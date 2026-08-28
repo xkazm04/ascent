@@ -1,7 +1,7 @@
 // LOCAL-MODE IMPROVEMENT LOOP control (self-hosted only, ASCENT_AUTOPILOT=1 only).
 //
 //   GET  ?org=…                                              → { enabled, active, runs }
-//   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated? } → { run }
+//   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort? } → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
 //   POST { action:"retry",  org, laneId }                    → { ok }
 //
@@ -20,6 +20,7 @@ import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { autopilotEnabled } from "@/lib/local/agent";
+import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
 import {
   LOOP_CONCURRENCY_CAP,
   LOOP_MAX_CYCLES_CAP,
@@ -61,6 +62,8 @@ type Body = {
   concurrency?: unknown;
   maxCycles?: unknown;
   curated?: unknown;
+  model?: unknown;
+  effort?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -106,6 +109,11 @@ export async function POST(request: Request) {
       concurrency,
       maxCycles,
       curated: body.curated === true,
+      // Normalized against the closed list the picker offers, never passed through: both values reach
+      // a re-parsing shell in the agent runner. An unrecognised value falls back to the deployment
+      // default rather than 400-ing — a run must not fail because a stale tab sent a retired name.
+      model: normalizeAgentModel(body.model),
+      effort: normalizeAgentEffort(body.effort),
       actor: viewer?.login ?? null,
     });
     return NextResponse.json({ run });

@@ -47,7 +47,8 @@ can decide anything.
 | `DELETE { fullName, drop?: true }` | unpair; `drop` also leaves scan scope |
 
 The `GET` also carries **greenness** (`src/lib/maturity/green.ts`): the target band, each in-scope
-repo's per-dimension gaps and point debt, and whether the fleet as a whole has arrived. It rides the
+repo's per-dimension gaps and point debt, the dimensions that reading could not measure at all
+(`repos[].unmeasurable` — see the platform fold below), and whether the fleet as a whole has arrived. It rides the
 same read on purpose — "what is mapped" and "where does it stand" are one question for anything
 driving a loop, and asking them separately invites acting on a scope that has moved since the
 standing was measured. Scope is what is **watched**: an unwatched row still appears (it keeps its
@@ -101,6 +102,15 @@ downstream — analyzers, scoring, persistence, the trailer close in `engine.ts`
 - GitHub-side enrichments (PR stats, governance, security posture) are absent, like a token-less
   scan, and the report says so via `scopeCaveat` — a local scan can honestly score a few points
   apart from a cloud scan of the same commit.
+- **The platform fold is carried, or its absence is declared (2026-08-28).** D2/D3/D4 are credited
+  partly for tooling that is *installed rather than committed* (review/CI/coverage Apps posting check
+  suites, default-branch Actions health), which no filesystem scan can see. Both local scan doors —
+  `/api/org/local/rescan` and the loop's own rescan — replay the last scan that DID observe it
+  (`src/lib/analyze/platform-carry.ts`), stamping every borrowed evidence line with
+  `platform signals from scan <id>, <age>` and marking it `stale` past 14 days. When there is nothing
+  to replay the scan records `unavailable`, and those three dimensions are **excluded from the green
+  verdict** rather than scored at a floor the repository cannot raise. Full rationale, and why
+  "folding is not a lift", in [org-planning/live.md](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
 
 `POST /api/org/local/rescan { org, fullName }` runs one paired repo end-to-end (member-gated — a
 scan reads, only pairing decides what may be read). No credit ceremony: behind `selfHostGuard`,
@@ -131,6 +141,17 @@ claim — `scans-persist` only resolves claimed rows) → spawn one headless `cl
 **isolated worktree** with the batch's fix prompt (`buildFixPrompt` + autopilot context) → count the
 commits → rescan the worktree from disk → repeat while progress lands, up to `maxCycles` (≤5).
 
+**Not every lane spends an agent session (2026-08-28).** A lane has a **kind**, decided per repo at
+arm time from the paired working copy (`src/lib/local/lane-kind.ts`): a repo with no `.ai/` standard
+gets a `foundation` lane, one whose biggest open gap has a Practice Library starter it is missing gets
+a `practice` lane, and everything else gets the agent lane above. The first two are deterministic file
+writes + a commit — using the *same generators* the cloud draft-PR doors use — followed by the
+identical rescan and attribution. This is what makes UC1's "scan → gaps → apply practice / `.ai/`
+foundation → rescan" a single local loop instead of a detour through a GitHub-App PR door. It is
+**local mode only**: the rule reads a filesystem, so cloud orgs keep the draft-PR path unchanged.
+Full rule, execution and parity notes:
+[org-planning/live.md § Lane kinds](../org-planning/live.md#lane-kinds-foundation-and-practice-lanes-2026-08-28).
+
 Guardrails, each load-bearing:
 
 - **Worktree isolation**: `git worktree add -b ascent/autopilot-<stamp> <tmp> HEAD` — the operator's
@@ -141,6 +162,13 @@ Guardrails, each load-bearing:
   deployment gets an honest 409 naming the fix). The session runs `--permission-mode acceptEdits` —
   not `--dangerously-skip-permissions` — with a 20-min default ceiling
   (`ASCENT_AUTOPILOT_TIMEOUT_MS`).
+- **Model and effort are per RUN** (2026-08-28), picked in the cockpit and resolved at arm time
+  against `CLAUDE_MODEL` / **`ASCENT_AGENT_EFFORT`** — deliberately not `CLAUDE_EFFORT`, which the
+  Claude Code harness sets in the environment it hands child processes, so a self-hosted Ascent
+  launched from inside a session would have inherited an effort nobody chose. The resolved pair is
+  stored on the run (and on the drive, which hands it to every run it dispatches) and printed beside
+  the lift, because two lifts from two setups are not comparable. `--effort` is appended only when a
+  level was chosen. Details: [org-planning/live.md](../org-planning/live.md#per-run-model-and-effort-2026-08-28).
 - **No-progress stop**: a cycle with zero commits and zero closed rows ends the run early (applied
   per lane by the engine, so in a multi-repo run one stalled repo no longer ends the pass).
 - **One run per org**, enforced against the database, not a process `Map`. Phase, branch, log and
@@ -152,7 +180,7 @@ count, start/stop, live log; polls the job every 4s only while one runs, and ref
 per finished run. Routes: `GET/POST /api/org/local/autopilot` (start/stop owner-gated — same blast
 radius as pairing).
 
-## Drive to green, headless (`/api/org/local/drive`, 2026-08-26)
+## Drive to green (`/api/org/local/drive`, 2026-08-26; reachable from the cockpit 2026-08-28)
 
 | | |
 | --- | --- |
@@ -164,9 +192,29 @@ Same guards as `/api/org/loop`: self-host 404, DB, `PUBLIC_ORG` 403, **owner**, 
 `ASCENT_AUTOPILOT` is off. A drive stops on `green`, `dry` (a run did not lower the debt) or
 `ceiling`; the policy and its reasoning are in `docs/features/org-planning/live.md`.
 
+The three verbs are also what the Loop Cockpit drives: the **Drive to green** CTA in the inspector
+starts one over the selection, `CockpitDrivePanel` renders its progress and Stop, and a terminal
+verdict lands above the run's outcome ledger. The gate is not widened for it — the cockpit's
+`cockpitGate.ts` is one predicate serving both Run and Drive. It remains fully usable headlessly:
+`useDrive` adopts a drive started by curl on its next mount tick.
+
+## Proving it end to end
+
+`e2e/loop/cockpit-loop.spec.ts` (`npm run test:e2e:loop`) drives this whole page against a live
+server: its own `next dev`, its own throwaway PGlite dir, its own declared `ASCENT_LOCAL_ORG`, and a
+**real git repository** it creates in the OS temp dir — mapped and paired through
+`/api/org/local/projects`, scanned from disk, then improved by a real foundation lane in a real
+worktree and rescanned. Nothing it does can reach the operator's own `.pglite` data or their org.
+It runs no agent session (the fixture has no `.ai/` standard, so the lane is a deterministic install,
+and cycles are pinned to 1), and because its engine is the mock it asserts the ledger's **refusal** to
+call the movement a lift. The Character-level journey is `uat/journeys/loop-to-l5.md`; its L2 half —
+a real agent lane, an attributable lift, a killed-and-resumed drive — has **not** been run.
+
 ## Known gaps
 
-- The agent model rides `CLAUDE_MODEL` (default `sonnet`); no per-run model picker yet.
+- The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local
+  `claude` build accepts the flag: on a build that rejects it the session fails with the CLI's own
+  message rather than retrying without it.
 - A run interrupted by a restart is **reconciled, not resumed**: the row is marked `stopped` and its
   in-flight lanes `error`. The branch and its commits survive; nothing picks the cycle back up.
 - The dirty-tree sha-less scan can't dedup against itself — two identical dirty scans persist two

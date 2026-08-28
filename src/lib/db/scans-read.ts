@@ -14,10 +14,12 @@ import type {
   LevelId,
   LlmRoadmapItem,
   PersistedRecommendation,
+  PlatformSignalRecord,
   PrStats,
   ProviderName,
   RepoArchetype,
   ScanReport,
+  ScoreIntegrity,
   TechStack,
 } from "@/lib/types";
 import { createHash } from "node:crypto";
@@ -28,6 +30,7 @@ import { getDbMode, type DbMode } from "@/lib/db/mode";
 import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
+import { parsePlatformSignals } from "@/lib/analyze/platform-carry";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
@@ -447,6 +450,17 @@ export interface ComparableScan {
   posture: string;
   confidence: number;
   engineProvider: string;
+  engineModel: string;
+  /** The mock floor FIRED on this scan: a model was requested and never answered, so `engineProvider`
+   *  is the deterministic floor rather than a chosen engine. Undefined on a row written before the
+   *  column — UNKNOWN, which the attribution rule must not read as "not degraded". */
+  engineDegraded?: boolean;
+  /** The levers that can move a headline on an UNCHANGED commit (see ScoreIntegrity). Undefined on a
+   *  row written before the column, and on any scan that never recorded one. */
+  scoreIntegrity?: ScoreIntegrity;
+  /** What this end could SEE of the GitHub-side folds (observed / carried / unavailable). Undefined
+   *  on a row written before the column — UNKNOWN, which no consumer may read as "unavailable". */
+  platformSignals?: PlatformSignalRecord;
   headSha: string | null;
   dimensions: ComparableDimension[];
   recommendations: ComparableRecommendation[];
@@ -483,12 +497,23 @@ async function loadComparableScan(
       posture: true,
       confidence: true,
       engineProvider: true,
+      engineModel: true,
+      // The two provenance columns the loop's attribution rule reads: WHICH engine produced this end
+      // of a bracketed pair, and whether the number it carries was moved by something other than the
+      // repository. A comparison that cannot see them cannot tell a lift from an engine swap.
+      engineDegraded: true,
+      scoreIntegrityJson: true,
+      // The third provenance column: whether this end's D2/D3/D4 were observed, carried from an
+      // earlier GitHub scan, or not measurable at all. A pair whose two ends folded the platform
+      // signals differently did not move those dimensions for a repository reason.
+      platformSignalsJson: true,
       headSha: true,
       dimensions: { select: { dimId: true, name: true, score: true, signalScore: true, evidence: true, gaps: true } },
       recommendations: { select: { id: true, title: true, dimId: true, status: true } },
     },
   });
   if (!scan) return null;
+  const integrity = parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson);
   return {
     id: scan.id,
     scannedAt: scan.scannedAt.toISOString(),
@@ -501,6 +526,16 @@ async function loadComparableScan(
     posture: scan.posture,
     confidence: scan.confidence,
     engineProvider: scan.engineProvider,
+    engineModel: scan.engineModel,
+    // Both are OMITTED, not defaulted, when the column is null: a row written before these existed is
+    // unknown on both counts, and defaulting would manufacture the exact certainty the attribution
+    // rule is there to withhold.
+    ...(scan.engineDegraded == null ? {} : { engineDegraded: scan.engineDegraded }),
+    ...(integrity ? { scoreIntegrity: integrity } : {}),
+    ...(() => {
+      const ps = parsePlatformSignals(scan.platformSignalsJson);
+      return ps ? { platformSignals: ps } : {};
+    })(),
     headSha: scan.headSha,
     dimensions: scan.dimensions.map((d) => ({
       dimId: d.dimId,
@@ -811,6 +846,52 @@ export async function getPublicScanGallery(
     return { ...data, dbMode: getDbMode() };
   }, null);
 }
+
+/**
+ * The most recent scan of `fullName` that actually OBSERVED the GitHub-side platform signals, with
+ * the fold it recorded — the snapshot a worktree rescan replays (src/lib/analyze/platform-carry.ts).
+ *
+ * The `observed` filter is applied in JS over a small newest-first window rather than as a substring
+ * match on the JSON column: a `contains: '"source":"observed"'` predicate would silently depend on
+ * `JSON.stringify` key order, which is exactly the kind of gate that keeps passing after it stops
+ * meaning anything. The window is bounded (`PLATFORM_FOLD_LOOKBACK`) because a repo the loop has been
+ * hammering accumulates local rescans between GitHub scans, and an unbounded scan-back would grow
+ * with the loop's own activity.
+ *
+ * Null when there is none: the caller must then say D2/D3/D4 were not measurable, never invent a fold.
+ */
+export async function getLatestPlatformSignals(
+  orgSlug: string,
+  fullName: string,
+): Promise<{ record: PlatformSignalRecord; scanId: string } | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return null;
+    const prisma = getPrisma();
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: fullName.toLowerCase() } },
+      select: { id: true },
+    });
+    if (!repo) return null;
+    const rows = await prisma.scan.findMany({
+      where: { repoId: repo.id, platformSignalsJson: { not: null } },
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      take: PLATFORM_FOLD_LOOKBACK,
+      select: { id: true, platformSignalsJson: true },
+    });
+    for (const row of rows) {
+      const record = parsePlatformSignals(row.platformSignalsJson);
+      if (record?.source === "observed") return { record, scanId: row.id };
+    }
+    return null;
+  }, null);
+}
+
+/** How far back to look for a GitHub-side scan before giving up. Ten is comfortably more than a
+ *  drive's whole run budget (DRIVE_MAX_RUNS_CAP = 8), so a full drive cannot bury the snapshot it
+ *  started from under its own rescans. */
+export const PLATFORM_FOLD_LOOKBACK = 10;
 
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */
 export async function getLatestRecommendations(
@@ -1128,6 +1209,12 @@ async function loadScanReportByCommit(
     discrepancies: parseDiscrepancies(scan.discrepancies),
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
+    // The integrity record round-trips onto the reconstructed report, so a permalinked or reloaded
+    // report can explain a headline the same way the fresh scan could. Undefined on a legacy row —
+    // "not recorded", never "nothing fired".
+    ...(parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)
+      ? { scoreIntegrity: parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)! }
+      : {}),
     scannedAt: scan.scannedAt.toISOString(),
     engine: {
       provider: scan.engineProvider as ProviderName,
@@ -1136,6 +1223,8 @@ async function loadScanReportByCommit(
       // A legacy row (scored before the column) is NULL -> undefined, which the header renders as the
       // platform wording. Never upgrade "unknown" to an in-your-account claim.
       byom: scan.engineByom ?? undefined,
+      // Same rule for the mock-floor degrade: NULL is UNKNOWN, and unknown is not "not degraded".
+      degraded: scan.engineDegraded ?? undefined,
     },
   };
 }

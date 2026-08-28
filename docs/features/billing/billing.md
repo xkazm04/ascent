@@ -437,6 +437,27 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   | Playbooks + planning: Team | No plan check. |
   | Buy extra scan credits: matrix says Starter and up | Checkout and `CreditsControl` have no tier gate; a Free org can buy credits. (Arguably the right behaviour, since the *matrix* is what's wrong.) |
 
+  **Marked, not dropped (2026-08-28).** Every row in that table now carries
+  `MatrixRow.planned` and renders a quiet **Planned** chip beside its label, with a
+  footnote under the table saying plainly that these boundaries are not enforced yet
+  and every plan can use them today. Ticking them unmarked was the page asserting a
+  restriction the product does not apply — the same defect as promising a capability
+  that doesn't exist, pointed the other way. `creditMatrixData.test.ts` pins the join
+  in both directions: every claim listed above is flagged, nothing else is, and a row
+  derived from `PLAN_CAPABILITIES` may never be flagged (those cells *are* the gate).
+  Retention is deliberately unflagged — `PlanFeature.retentionDays` is really read.
+  Closing a row for real means deleting its flag in the same change as the predicate.
+
+  **Public scans were being advertised as metered (fixed 2026-08-28).** The credit
+  matrix's Scanning group opened with "Every scan, public or private, draws on one
+  monthly allowance", three lines under a file header saying the opposite and directly
+  above a table showing the opposite. `PlanFeature.includedCredits`' own doc comment,
+  `src/lib/db/credits.ts:3` and `/pricing`'s page header all agree: an anonymous public
+  scan is never metered — it is rate-limited (`src/lib/rate-limit.ts`) and monthly-capped
+  (`src/lib/public-scan-quota.ts`) instead. Public and private scans are now separate
+  rows, tagged `free` and `credit` respectively, and `CREDIT_RULE` names the private
+  scan explicitly. Three tests pin it.
+
   Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
   all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does
   not**: login is GitHub OAuth via Supabase) and the old Custom-tier bullet "Priority support" (no support

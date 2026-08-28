@@ -7,8 +7,9 @@
 import { Kicker } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
+import { agentConfigLabel } from "@/lib/local/agent-options";
 import { OutcomeRow, OutcomeTotals } from "./CockpitOutcomeLedger";
-import { runLift } from "./cockpitDrift";
+import { laneAttribution, runAttribution } from "./cockpitDrift";
 import type { LoopRunDetail } from "./loopTypes";
 
 export interface CockpitOutcomeProps {
@@ -21,17 +22,37 @@ export interface CockpitOutcomeProps {
 
 export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitOutcomeProps) {
   const { run, outcomes } = detail;
+  // improved / flat / regressed count ATTRIBUTABLE movements only, on the same rule as the lift above
+  // them. Counting raw sign here would have the tally contradict the number it sits beside — three
+  // "improved" repos under a headline of "—" is the confusion the whole rule exists to remove. A lane
+  // held out for noise or a mock end lands in `flat`, and the excluded breakdown names which.
+  const totals = runAttribution(detail);
+  const verdicts = outcomes.map(laneAttribution);
+  const improved = verdicts.filter((v) => v.kind === "attributable" && v.delta > 0).length;
+  const regressed = verdicts.filter((v) => v.kind === "attributable" && v.delta < 0).length;
   const measured = outcomes.filter((o) => o.before && o.after);
-  const improved = measured.filter((o) => o.after!.overallScore > o.before!.overallScore).length;
-  const regressed = measured.filter((o) => o.after!.overallScore < o.before!.overallScore).length;
+  const agentConfig = agentConfigLabel(run);
 
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Outcome · {run.phase}</Kicker>
-        <span className="font-mono text-xs text-slate-500">{timeAgo(run.endedAt ?? run.startedAt)}</span>
+        <span className="font-mono text-xs text-slate-500">
+          {/* WHAT THE LIFT WAS PRODUCED UNDER. A lift on sonnet at the deployment's default effort and
+              one on opus at high effort are results from two different setups, and the ledger compared
+              them for months without recording which was which. Absent on a run written before the
+              columns existed — unknown, rendered as nothing rather than as "default". */}
+          {agentConfig && <span className="mr-2 text-slate-400">{agentConfig}</span>}
+          {timeAgo(run.endedAt ?? run.startedAt)}
+        </span>
       </div>
-      <OutcomeTotals lift={runLift(detail)} improved={improved} flat={measured.length - improved - regressed} regressed={regressed} />
+      <OutcomeTotals
+        lift={totals.lift}
+        improved={improved}
+        flat={measured.length - improved - regressed}
+        regressed={regressed}
+        excluded={totals}
+      />
       {run.error && <p className="mt-2 font-mono text-xs text-danger">{run.error}</p>}
 
       {outcomes.length === 0 ? (

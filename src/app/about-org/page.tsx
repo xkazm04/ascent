@@ -53,7 +53,9 @@ function faqLd() {
         name: "Does Ascent clone or store our source code?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "No. Ascent reads repositories through the GitHub API at scan time. It never clones a repository and does not store its source.",
+          // Same correction as the landing's FAQ (src/app/page.tsx): a flat "does not store its
+          // source" is contradicted by the evidence quotes rubric r9 records (src/lib/scoring/claims.ts).
+          text: "Ascent never clones a repository and never keeps a copy of your source — it reads through the GitHub API at scan time. The report does keep the evidence a score rests on: short verbatim quotes with the file path each came from, so a score can be checked instead of trusted. Reports live inside your plan's retention window.",
         },
       },
       {

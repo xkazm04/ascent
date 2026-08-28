@@ -9,6 +9,13 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // `.next-empty/**` is the SAME build output under a different name: next.config.ts switches
+    // distDir when ASCENT_EMPTY=1, which `npm run dev:empty` and the local-mode loop e2e suite
+    // (playwright.loop.config.ts) both set so their dev server never collides with `.next`. It was
+    // never added here, so anyone who ran either of them and then `npm run lint` got 563 errors out
+    // of generated bundles and a gate failure no file in `src` could explain — the exact failure the
+    // worktree ignore below was added for.
+    ".next-empty/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

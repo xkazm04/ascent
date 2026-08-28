@@ -849,6 +849,55 @@ export interface ScoreIntegrity {
 }
 
 // ---------------------------------------------------------------------------
+// Platform-signal provenance — what a scan could see of GitHub, and from when
+// ---------------------------------------------------------------------------
+
+/**
+ * The GitHub-side folds (`src/lib/analyze/platform-signals.ts`) credit D2/D3/D4 for tooling that is
+ * installed rather than committed: review/CI/coverage Apps posting check suites, and default-branch
+ * Actions health. A scan run from a WORKTREE cannot observe any of it — the loop's own rescans set
+ * `noAmbientToken` and read the filesystem — so the same commit scores lower from inside the loop
+ * than a GitHub scan of it would. Left alone that is not a caveat but a ceiling: `green` demands L5
+ * on every dimension, so a fleet could be un-greenable from inside the loop for a reason nothing
+ * rendered.
+ *
+ * This record is the fix's evidence. Every scan says which of the three states it was in, so a
+ * consumer can carry a fold forward, disclose its age, or refuse to demand a number the scan had no
+ * way to earn.
+ */
+export type PlatformFoldSource =
+  /** This scan read the platform signals itself (an ambient/installation token was in hand). */
+  | "observed"
+  /** The signals were folded in from an earlier `observed` scan of the same repo. */
+  | "carried"
+  /** The scan could not observe them and had no earlier snapshot to carry — D2/D3/D4 are NOT
+   *  measurable on this reading, which is a different claim from "this repo has no CI". */
+  | "unavailable";
+
+/** One dimension's share of a platform fold: the points it added and the evidence it added them on. */
+export interface PlatformFoldDim {
+  dimId: DimensionId;
+  /** Points added to the deterministic signal score. 0 when the fold only CORROBORATED evidence the
+   *  file scan had already found — that is a real outcome, not an absent one. */
+  points: number;
+  /** The evidence lines the fold appended, verbatim, so a carry reproduces the observed reading. */
+  signals: Signal[];
+}
+
+export interface PlatformSignalRecord {
+  source: PlatformFoldSource;
+  /** When the signals were OBSERVED on GitHub (not when this scan ran). Null on `unavailable`. */
+  observedAt: string | null;
+  /** The scan the fold was carried from — the provenance a surface prints. `carried` only. */
+  fromScanId?: string | null;
+  /** The carried observation is older than PLATFORM_FOLD_STALE_DAYS: still the best evidence there
+   *  is, and no longer evidence about today. `carried` only. */
+  stale?: boolean;
+  /** Per-dimension folds, empty on `unavailable`. */
+  dims: PlatformFoldDim[];
+}
+
+// ---------------------------------------------------------------------------
 // Context Health (W4) — quality-over-presence read of the agent-guidance layer
 // ---------------------------------------------------------------------------
 
@@ -978,6 +1027,11 @@ export interface ScanReport {
    *  (a briefing, a percentile, a signed export, a diligence verdict) must be able to read them.
    *  Undefined on reconstructed snapshots that predate the field. */
   scoreIntegrity?: ScoreIntegrity;
+  /** What this scan could see of the GITHUB-side signals, and from when — see PlatformSignalRecord.
+   *  Undefined on a legacy row and on any reconstructed snapshot, which is UNKNOWN: a consumer must
+   *  not read it as "the platform signals were unavailable", because that is the one reading that
+   *  removes dimensions from the green verdict. */
+  platformSignals?: PlatformSignalRecord;
   /** Follow-up ids named by `Ascent-Resolves:` trailers in the scanned commit sample (src/lib/org/
    *  followups.ts). Evidence, not score: persistence uses it to close in-progress follow-ups the
    *  fix commits declared resolved. Empty/absent when no commit carries a trailer. */
@@ -995,8 +1049,15 @@ export interface ScanReport {
    *  (BYOM), false = Ascent's platform account. Optional and additive — undefined on a legacy
    *  persisted row (scored before the flag existed), which must read as "not proven to be the
    *  customer's own account", never as true. The report header's privacy chip is the consumer:
-   *  "in-account" is only an honest claim when this is true. */
-  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean };
+   *  "in-account" is only an honest claim when this is true.
+   *
+   *  `degraded` records that an LLM WAS requested for this scan and every real attempt failed, so
+   *  `provider` is the deterministic mock FLOOR rather than a chosen engine. It is the difference
+   *  between "no model was asked for" (a keyless deploy or an explicit demo — provider is `mock`,
+   *  degraded false) and "a model was asked for and never answered", which `provider` alone cannot
+   *  tell apart. Undefined on a legacy row and on any report built before the flag existed: unknown,
+   *  which must never be read as "not degraded" when the provider is already `mock`. */
+  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean; degraded?: boolean };
   /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.
    *  Absent on a mock/keyless scan, or when the provider didn't report usage. */
   usage?: { inputTokens?: number; outputTokens?: number; latencyMs?: number };

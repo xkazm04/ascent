@@ -50,13 +50,18 @@ function toRow(it: BacklogItem): FollowUpRow {
 
 const IMPACT_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
+/** Effort ranks the OPPOSITE way to impact: `low` is the desirable end. Ranking effort through
+ *  IMPACT_RANK — which both this sort and buildFixPrompt did — put the most EXPENSIVE item first,
+ *  the reverse of the "cheapest first" the tie-break has always claimed. Two scales, two maps. */
+export const EFFORT_RANK: Record<string, number> = { low: 0, medium: 1, high: 2 };
+
 /** Biggest projected gain first; ties by impact, then effort (cheapest first), then title. */
 export function sortByValue(rows: FollowUpRow[]): FollowUpRow[] {
   return [...rows].sort(
     (a, b) =>
       (b.projectedPoints ?? -1) - (a.projectedPoints ?? -1) ||
       (IMPACT_RANK[a.impact] ?? 9) - (IMPACT_RANK[b.impact] ?? 9) ||
-      (IMPACT_RANK[a.effort] ?? 9) - (IMPACT_RANK[b.effort] ?? 9) ||
+      (EFFORT_RANK[a.effort] ?? 9) - (EFFORT_RANK[b.effort] ?? 9) ||
       a.title.localeCompare(b.title),
   );
 }
@@ -75,6 +80,16 @@ export interface FollowUpFilters {
 export const emptyFilters = (): FollowUpFilters => ({ repos: new Set(), dims: new Set(), impacts: new Set(), statuses: new Set(), query: "", orgWide: false });
 
 export const ACTIVE_STATUSES: ReadonlySet<string> = new Set(["open", "in_progress"]);
+
+/** Whether a row may enter a BATCH (hand-off / bulk resolve / bulk dismiss). A closed row cannot: the
+ *  three batch actions have nothing to do to it — the hand-off route skips a non-`open` id, and a bulk
+ *  resolve/dismiss of an already-closed row is a wasted PATCH. Single-sourced because the rule was
+ *  stated twice and the two statements disagreed: the row checkbox disabled a closed row while the
+ *  header's select-all added every SHOWN row, so in the resolved archive "select all" filled the bulk
+ *  bar with rows the user could not then untick one by one. */
+export function isSelectable(r: Pick<FollowUpRow, "status">): boolean {
+  return ACTIVE_STATUSES.has(r.status);
+}
 
 export function applyFilters(rows: FollowUpRow[], f: FollowUpFilters, spread?: Map<string, DimensionSpread>): FollowUpRow[] {
   const q = f.query.trim().toLowerCase();

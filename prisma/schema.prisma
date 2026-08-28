@@ -112,6 +112,7 @@ model Organization {
   techGroups       TechStackGroup[]
   llmConfig        OrgLlmConfig?
   loopRuns         LoopRun[]
+  loopDrives       LoopDrive[]
   athenaThreads    AthenaThread[]
   athenaProposals  AthenaProposal[]
   athenaIdentity   AthenaIdentity[]
@@ -586,6 +587,29 @@ model Scan {
   // "in YOUR AWS account" only when that is literally true. Nullable: rows scored before this column
   // are UNKNOWN, and unknown must render as the platform wording — never as the customer's account.
   engineByom        Boolean?
+  // An LLM WAS requested for this scan and every real attempt failed, so `engineProvider` is the
+  // deterministic mock FLOOR rather than a chosen engine (src/lib/scan.ts, `llmFailed`). Distinct from
+  // engineProvider = "mock" on its own, which also covers a keyless deploy and an explicit demo — two
+  // situations that are not failures. The loop's attribution rule reads it: a delta between a mock scan
+  // and a real one measures the engine swap, not the repository, and must never be reported as a lift.
+  // Nullable: rows written before this column are UNKNOWN, and unknown is not "not degraded".
+  engineDegraded    Boolean?
+  // The scoring-integrity record for this scan (JSON ScoreIntegrity — d9Unmeasurable, widenedDims,
+  // widenCapped, effectiveBlend). It was computed, typed and rendered by nothing (UAT SAM-L1-02,
+  // 2026-08-10) and, worse, not persisted at all — so a reconstructed report and every run-over-run
+  // comparison lost the record of the three levers that move a headline on an UNCHANGED commit. Any
+  // consumer comparing two scans has to be able to read it to attribute a delta. Null on legacy rows.
+  scoreIntegrityJson String?
+  // WHAT THIS SCAN COULD SEE OF GITHUB (JSON PlatformSignalRecord — source, observedAt, fromScanId,
+  // stale, per-dimension folds). The platform folds (analyze/platform-signals.ts) credit D2/D3/D4 for
+  // tooling that is installed rather than committed, and a worktree scan cannot observe any of it. Left
+  // unrecorded, the loop's own rescans scored those three dimensions at a floor the repository could
+  // not raise, while `green` demanded L5 on every one of them — a ceiling with no visible cause. This
+  // column is what lets a local rescan REPLAY the last observed fold (with its age) and, when there is
+  // none, say the dimensions were not measurable instead of scoring them as failed.
+  // Null on legacy rows and on any scan that never asked the question: UNKNOWN, which is deliberately
+  // not the same value as "unavailable" — that one removes dimensions from a verdict.
+  platformSignalsJson String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens       Int?
@@ -1613,6 +1637,14 @@ model LoopRun {
   maxCycles   Int       @default(3)
   cycle       Int       @default(0) // the cycle currently being worked (0 = none started yet)
   curated     Boolean   @default(false) // true when the operator approved the batches by hand
+  // What this run's agent sessions were armed with, RESOLVED at arm time (the operator's pick, else
+  // the deployment's CLAUDE_MODEL / ASCENT_AGENT_EFFORT). Persisted because the ledger compares lifts across
+  // runs, and a lift from `sonnet` at default effort and one from `opus` at high effort are results
+  // from two different setups. Resolved rather than raw: a null would mean "whatever the env said that
+  // day", which is exactly the fact that cannot be recovered afterwards.
+  // `effort` stays NULL when no level was chosen — the CLI flag is then not passed at all.
+  model       String?
+  effort      String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1648,6 +1680,47 @@ model LoopRunLane {
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])
+}
+
+// A DRIVE: the sequence of loop runs that pulls a fleet toward green (src/lib/local/drive.ts).
+//
+// The runs it dispatches were always durable; the drive's own INTENT was not — it lived in a Map on
+// globalThis, so a restart mid-drive ended it silently and a status read afterwards reported nothing
+// at all. A row that reads `running` while no process is driving is the same lie a stale LoopRun row
+// is, so it gets the same treatment: the boot sweep reconciles it to `interrupted`, which is a phase
+// a human can act on rather than a job that looks alive forever.
+//
+// Deliberately NOT auto-resumed. A drive spends agent sessions and money; re-arming one is a
+// decision, so `interrupted` is terminal and `resumedFrom` records the chain the operator restarted.
+model LoopDrive {
+  id              String    @id @default(uuid())
+  orgId           String
+  createdBy       String? // GitHub login that armed the drive
+  // running | green | dry | ceiling | stopped | interrupted | error
+  phase           String    @default("running")
+  reposJson       String    @default("[]") // JSON string[] of "owner/name" — the drive's scope
+  maxRuns         Int       @default(3) // the rope, spanning the whole resume chain
+  maxCycles       Int       @default(3)
+  concurrency     Int       @default(2)
+  // Runs already spent by the drives this one resumed. The cap counts the CHAIN, not the segment,
+  // so resuming can never hand an agent more rope than the operator originally allowed.
+  runsBefore      Int       @default(0)
+  resumedFrom     String? // the interrupted drive this one continues
+  runsJson        String    @default("[]") // JSON DriveRunRecord[]
+  measurementJson String? // JSON DriveMeasurement — the latest fleet score, or null before the first
+  stopRequested   Boolean   @default(false)
+  // The agent configuration the drive arms EVERY run it dispatches with, so a multi-run drive is one
+  // experiment rather than several. Same resolved-at-arm-time contract as LoopRun.
+  model           String?
+  effort          String?
+  startedAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  endedAt         DateTime?
+  error           String?
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, startedAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

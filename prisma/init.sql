@@ -258,6 +258,9 @@ CREATE TABLE "Scan" (
     "aiUsageJson" TEXT,
     "rubricVersion" TEXT,
     "engineByom" BOOLEAN,
+    "engineDegraded" BOOLEAN,
+    "scoreIntegrityJson" TEXT,
+    "platformSignalsJson" TEXT,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -274,6 +277,14 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineByom" BOOLEAN;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
+-- Scan provenance: the mock-floor degrade flag and the ScoreIntegrity record. See the
+-- 20260828140000_add_scan_provenance migration for why `engineProvider = 'mock'` cannot carry the
+-- first on its own.
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineDegraded" BOOLEAN;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "scoreIntegrityJson" TEXT;
+-- What this scan could SEE of the GitHub-side platform signals — observed / carried from an earlier
+-- scan / unavailable. See the 20260828160000_add_scan_platform_signals migration.
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "platformSignalsJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (
@@ -1303,6 +1314,8 @@ CREATE TABLE "LoopRun" (
     "maxCycles" INTEGER NOT NULL DEFAULT 3,
     "cycle" INTEGER NOT NULL DEFAULT 0,
     "curated" BOOLEAN NOT NULL DEFAULT false,
+    "model" TEXT,
+    "effort" TEXT,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "endedAt" TIMESTAMP(3),
     "error" TEXT,
@@ -1310,6 +1323,10 @@ CREATE TABLE "LoopRun" (
 
     CONSTRAINT "LoopRun_pkey" PRIMARY KEY ("id")
 );
+-- What the run's agents were armed with — the RESOLVED model and reasoning effort, so a lift can be
+-- compared across configurations. See the 20260828170000_add_run_agent_config migration.
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "model" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "effort" TEXT;
 
 -- CreateIndex
 CREATE INDEX "LoopRun_orgId_createdAt_idx" ON "LoopRun"("orgId", "createdAt");
@@ -1338,6 +1355,38 @@ CREATE TABLE "LoopRunLane" (
 
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");
+
+-- CreateTable: a DRIVE — the sequence of loop runs that pulls a fleet toward green. Durable so a
+-- restart mid-drive reports `interrupted` instead of nothing, and can be resumed by a human.
+CREATE TABLE "LoopDrive" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "createdBy" TEXT,
+    "phase" TEXT NOT NULL DEFAULT 'running',
+    "reposJson" TEXT NOT NULL DEFAULT '[]',
+    "maxRuns" INTEGER NOT NULL DEFAULT 3,
+    "maxCycles" INTEGER NOT NULL DEFAULT 3,
+    "concurrency" INTEGER NOT NULL DEFAULT 2,
+    "runsBefore" INTEGER NOT NULL DEFAULT 0,
+    "resumedFrom" TEXT,
+    "runsJson" TEXT NOT NULL DEFAULT '[]',
+    "measurementJson" TEXT,
+    "stopRequested" BOOLEAN NOT NULL DEFAULT false,
+    "model" TEXT,
+    "effort" TEXT,
+    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "endedAt" TIMESTAMP(3),
+    "error" TEXT,
+
+    CONSTRAINT "LoopDrive_pkey" PRIMARY KEY ("id")
+);
+-- The same pair on the drive, so every run it dispatches inherits ONE configuration.
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "model" TEXT;
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "effort" TEXT;
+
+-- CreateIndex
+CREATE INDEX "LoopDrive_orgId_startedAt_idx" ON "LoopDrive"("orgId", "startedAt");
 
 
 -- ATHENA — the resident, ORG-SCOPED companion. Her EPISODES are NOT here: they are OrgMemory rows

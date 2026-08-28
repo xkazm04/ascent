@@ -36,21 +36,23 @@ function listRows() {
   ];
 }
 
-/** A ComparableScan-shaped findFirst row for a given id. */
-function comparableRow(id: string) {
+/** A ComparableScan-shaped findFirst row for a given id. `prov` overrides the provenance columns the
+ *  attribution rule reads — omitted keys stay NULL, which is what a pre-migration row looks like. */
+function comparableRow(id: string, prov: Partial<{ engineDegraded: boolean | null; scoreIntegrityJson: string | null }> = {}) {
   return {
     id, scannedAt: new Date("2026-01-01"), overallScore: 60, level: "L1", levelName: "x",
     archetype: "library", adoptionScore: 1, rigorScore: 1, posture: "p", confidence: 1,
-    engineProvider: "p", headSha: id, dimensions: [], recommendations: [],
+    engineProvider: "p", engineModel: "m", engineDegraded: null, scoreIntegrityJson: null,
+    headSha: id, dimensions: [], recommendations: [], ...prov,
   };
 }
 
-function fakePrisma() {
+function fakePrisma(prov: Parameters<typeof comparableRow>[1] = {}) {
   return {
     repository: { findUnique: vi.fn(async () => ({ id: "repo_1", owner: "o", name: "r", fullName: "o/r", isPrivate: false })) },
     scan: {
       findMany: vi.fn(async () => listRows()),
-      findFirst: vi.fn(async ({ where }: { where: { id: string } }) => comparableRow(where.id)),
+      findFirst: vi.fn(async ({ where }: { where: { id: string } }) => comparableRow(where.id, prov)),
     },
   };
 }
@@ -110,5 +112,36 @@ describe("getScanComparison — baseline never reaches forward in time", () => {
     const cmp = await getScanComparison("o", "r", { afterId: "idA", beforeId: "idC" });
     expect(cmp!.after?.id).toBe("idA");
     expect(cmp!.before?.id).toBe("idC");
+  });
+});
+
+// The bracketed pair the loop reads is a ComparableScan pair, so provenance has to survive THIS read
+// or the attribution rule downstream is deciding on nulls. Both columns are additive and nullable,
+// and the null case has its own assertion because "unknown" must not be flattened into `false`.
+describe("getScanComparison — the pair carries its engine provenance", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+  });
+
+  it("engineModel, engineDegraded and scoreIntegrity round-trip onto both ends", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma({
+        engineDegraded: true,
+        scoreIntegrityJson: JSON.stringify({ d9Unmeasurable: false, widenedDims: ["D3"], effectiveBlend: 0.42 }),
+      }),
+    );
+
+    const cmp = await getScanComparison("o", "r", {});
+    expect(cmp!.after).toMatchObject({ engineModel: "m", engineDegraded: true });
+    expect(cmp!.after!.scoreIntegrity).toEqual({ d9Unmeasurable: false, widenedDims: ["D3"], effectiveBlend: 0.42 });
+    expect(cmp!.before).toMatchObject({ engineDegraded: true });
+  });
+
+  it("a pre-migration row leaves both UNDEFINED — unknown, never defaulted to false/empty", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma());
+
+    const cmp = await getScanComparison("o", "r", {});
+    expect(cmp!.after!.engineDegraded).toBeUndefined();
+    expect(cmp!.after!.scoreIntegrity).toBeUndefined();
   });
 });
