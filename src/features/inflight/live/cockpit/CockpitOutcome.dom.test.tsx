@@ -11,6 +11,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { CockpitOutcome } from "./CockpitOutcome";
 import { diffScans } from "@/lib/report/compare";
 import { DIMENSIONS } from "@/lib/maturity/model";
+import { MOCK_ENGINE, SCORE_NOISE_BAND } from "@/lib/maturity/attribution";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import type { LoopLaneOutcome, LoopLaneRecord, LoopRunDetail } from "./loopTypes";
 
@@ -126,6 +127,55 @@ describe("CockpitOutcome", () => {
     expect(screen.getByText("not measured")).toBeInTheDocument();
     expect(screen.getByText(/no diff/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Replay run" })).toBeDisabled();
+  });
+
+  // The whole point of the attribution rule is what the ledger REFUSES to print. Each of these is a
+  // number the row used to render green.
+  it("refuses a green delta across the mock floor, and says why", () => {
+    const mocked = outcome({
+      before: scan({ id: "bm", overallScore: 10, engineProvider: MOCK_ENGINE }),
+      after: scan({ id: "am", overallScore: 90, engineProvider: MOCK_ENGINE }),
+      diff: null,
+    });
+    render(<CockpitOutcome detail={detail([mocked])} onReplay={vi.fn()} onBack={vi.fn()} canReplay />);
+    expect(screen.getByText("10 → 90")).toBeInTheDocument();
+    expect(screen.getByText("not attributable: mock scan")).toBeInTheDocument();
+    expect(screen.queryByText(/\+80/)).toBeNull();
+    expect(screen.getByText(/excluded: 1 mock scan/)).toBeInTheDocument();
+  });
+
+  it("words a DEGRADED end apart from a keyless one — they call for opposite next moves", () => {
+    const deg = outcome({
+      before,
+      after: scan({ id: "ad", overallScore: 90, engineProvider: MOCK_ENGINE, engineDegraded: true }),
+      diff: null,
+    });
+    render(<CockpitOutcome detail={detail([deg])} onReplay={vi.fn()} onBack={vi.fn()} canReplay />);
+    expect(screen.getByText(/the model failed and this scan fell to the deterministic floor/)).toBeInTheDocument();
+  });
+
+  it("prints the band instead of a delta when a real pair moved less than it", () => {
+    const noise = outcome({ before, after: scan({ id: "an", overallScore: 42 }), diff: null });
+    render(<CockpitOutcome detail={detail([noise])} onReplay={vi.fn()} onBack={vi.fn()} canReplay />);
+    expect(screen.getByText(`within noise (±${SCORE_NOISE_BAND})`)).toBeInTheDocument();
+    // The headline agrees with the row: no attributable lane means no lift, not "+2".
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText(/excluded: 1 within noise/)).toBeInTheDocument();
+  });
+
+  it("discloses the engine behind the pair, and the integrity levers that fired", () => {
+    const withIntegrity = outcome({
+      before,
+      after: scan({
+        id: "ai",
+        overallScore: 52,
+        scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D2"], effectiveBlend: 0.6 },
+      }),
+    });
+    render(<CockpitOutcome detail={detail([withIntegrity])} onReplay={vi.fn()} onBack={vi.fn()} canReplay />);
+    expect(screen.getByText(/engine anthropic · claude/)).toBeInTheDocument();
+    expect(screen.getByText("D9 renormalized out")).toBeInTheDocument();
+    expect(screen.getByText("widened D2")).toBeInTheDocument();
   });
 
   it("offers replay and a way back to the inspector", () => {

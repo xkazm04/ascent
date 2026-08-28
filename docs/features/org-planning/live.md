@@ -380,10 +380,21 @@ the agent log is a collapsible detail; `error` lanes offer **Retry**; `done` lan
 
 ### The outcome ledger (per-dimension delta + attribution)
 
-When the run settles, the rail switches to `CockpitOutcome`: totals (lift, repos improved / flat /
-regressed) and a hairline ledger per repo — before → after overall (`fmtDelta`), dimensions moved
-(`DIMENSION_SHORT` + delta in `deltaHex`), closed gaps, the `diffScans` attribution one-liners,
-follow-ups closed by the `Ascent-Resolves` trailer, commits and branch. **Replay run** re-runs the
+When the run settles, the rail switches to `CockpitOutcome`: totals (**attributable** lift, repos
+improved / flat / regressed, and what was excluded) and a hairline ledger per repo — before → after
+overall (`fmtDelta`), dimensions moved (`DIMENSION_SHORT` + delta in `deltaHex`), closed gaps, the
+`diffScans` attribution one-liners, follow-ups closed by the `Ascent-Resolves` trailer, commits and
+branch, plus the row's **engine and score-integrity** line.
+
+A row prints a coloured delta only when [the attribution rule](#is-this-lift-real-the-attribution-rule)
+allows it; otherwise the two numbers stay muted and the verdict sits where the delta would ("not
+attributable: mock scan", "within noise (±2)"). Per-dimension deltas inherit the row's verdict — if
+the pair cannot be attributed, colouring one dimension green would restate the claim the line above
+just declined to make. The improved/flat/regressed tally counts attributable movements only, so it
+can never contradict the headline it sits beside. The provenance line names the engine (and marks it
+`(degraded)` when the model failed), then chips whatever `scoreIntegrity` recorded — `D9 renormalized
+out`, `widened D1, D2`, `audit capped`, `blend 50%` — each carrying its explanation as a tooltip and
+as sr-only text. **Replay run** re-runs the
 field drift. Drift ends come from the run's own detail, not a client snapshot: `driftFor` overlays
 each lane's `outcome.before` / `outcome.after` scan onto the seed set and lays out both sides, so a
 history pick drifts a run you never watched and the picture cannot disagree with the ledger; a run

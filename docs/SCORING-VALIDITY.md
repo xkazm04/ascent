@@ -130,21 +130,29 @@ document's concern: a `CLAUDE.md` stub moves it enormously.
 locally is therefore optimizing a different, blinder function than the cloud scan a customer sees**,
 and some dimensions may be unreachable locally for reasons that have nothing to do with the repo.
 
-**3e. `scoreIntegrity` is computed and then thrown away.** The guardband's own rationale rests on a
-feedback loop — *"a clamp that binds is information (it shows up in `scoreIntegrity`), and the remedy
-for a detector the model keeps out-arguing is to fix the detector"* (`model.ts:108-111`). But
-`scoreIntegrity` is returned on the report and **never persisted**: no column on `Scan`, no write in
-`scans-persist.ts`. So the question that remedy depends on — *how often does the clamp bind, and on
-which detectors?* — cannot be answered from the database at all. The evidence exists for the length
-of one HTTP response.
+**3e. `scoreIntegrity` is persisted and shown — since 2026-08-28.** ~~Computed and then thrown
+away.~~ The guardband's own rationale rests on a feedback loop — *"a clamp that binds is information
+(it shows up in `scoreIntegrity`), and the remedy for a detector the model keeps out-arguing is to
+fix the detector"* (`model.ts:108-111`) — and until this date `scoreIntegrity` was returned on the
+report and **never persisted**: no column on `Scan`, no write in `scans-persist.ts`. The evidence
+existed for the length of one HTTP response, so *how often does the clamp bind, and on which
+detectors?* could not be asked of the database at all.
 
-`ScanDimension` does persist `signalScore` and `llmScore`, so *whether a clamp bound* is
-recoverable per dimension (that is what `isContested` in `green.ts` does). What is not recoverable
-is **`widenedDims`** — which dimensions had their band doubled — so a reconstruction must assume the
-base band and will over-report contest on a widened dimension. For a loop that treats contested as
-not-green, that error is in the safe direction: it keeps working on a dimension it could have called
-done, and never lets a gamed one through. It is still a reconstruction, and persisting
-`scoreIntegrity` would make it a reading.
+It now round-trips through `Scan.scoreIntegrityJson` (migration `20260828140000_add_scan_provenance`),
+onto the reconstructed report, and onto `ComparableScan` — so `widenedDims` is a **reading** rather
+than the reconstruction described below, and the report header's integrity chip
+(`ScoreIntegrityChip`) plus the loop's outcome ledger both show it. A row scored before the column is
+`undefined`, which readers keep as unknown rather than defaulting to "nothing fired".
+
+The pre-existing reconstruction still applies to those legacy rows: `ScanDimension` persists
+`signalScore` and `llmScore`, so *whether a clamp bound* is recoverable per dimension (that is what
+`isContested` in `green.ts` does), but **`widenedDims`** is not, so a reconstruction assumes the base
+band and over-reports contest on a widened dimension. For a loop that treats contested as not-green,
+that error is in the safe direction.
+
+**Still open on this half:** `ProvenanceTrack` (`src/components/report/DimensionCard.tsx:120`) draws
+a fixed `±LLM_GUARDBAND` zone even on a dimension whose band was doubled, so the one picture of the
+blend can still understate the room the model actually had. The data to fix it is now persisted.
 
 **3f. Dirty-tree scans have no commit identity.** kp scanned `dirty: true` → sha-less. The loop's
 before/after comparison rests on scans that cannot be pinned to a commit, so "the agent improved

@@ -22,6 +22,9 @@
 // an engine swap, is not a regression either — reporting one would be the same error with the sign
 // flipped, and would have the loop chasing noise it created.
 
+import type { ScoreIntegrity } from "@/lib/types";
+import { SCORE_BLEND } from "@/lib/maturity/model";
+
 /** The engine name a degraded or keyless scan carries. Mirrors MockProvider.name. */
 export const MOCK_ENGINE = "mock";
 
@@ -125,6 +128,54 @@ export function attributionLabel(a: Attribution): string {
     case "within-noise":
       return `within noise (±${SCORE_NOISE_BAND})`;
   }
+}
+
+// ── Score integrity, as something a surface can render ──────────────────────────────────────────
+//
+// `ScoreIntegrity` was computed, typed and (UAT SAM-L1-02, 2026-08-10) rendered by nothing. It records
+// the levers that move a headline on an UNCHANGED commit, which makes it the other half of the same
+// question this module answers: not "did the engine change" but "did the SCORING change". Summarised
+// here rather than in either consumer, so the report header and the cockpit ledger cannot describe the
+// same record two different ways.
+
+/** One thing that fired while scoring, as a chip label plus the sentence explaining it. */
+export interface IntegrityNote {
+  label: string;
+  hint: string;
+}
+
+/**
+ * The notes for one scan, or an empty array for a clean run — a clean run has nothing to say, and a
+ * chip reading "integrity: fine" would be noise on every report that ever renders. `undefined` (a row
+ * scored before the field, or before it was persisted) is also empty: unknown is not a finding.
+ */
+export function integrityNotes(si: ScoreIntegrity | undefined | null): IntegrityNote[] {
+  if (!si) return [];
+  const out: IntegrityNote[] = [];
+  if (si.d9Unmeasurable) {
+    out.push({
+      label: "D9 renormalized out",
+      hint: "The model asserted this repo's security runs where a file scan cannot see it, so D9 was treated as unmeasurable and removed from the overall and the rigor axis. At D9's weight that alone is a multi-point step on an identical commit.",
+    });
+  }
+  if (si.widenCapped) {
+    out.push({
+      label: "audit capped",
+      hint: "The model flagged more dimensions as mis-detected than the per-scan budget allows, so NOTHING was widened and the D9 hatch was suppressed — this run is pinned to the deterministic signals.",
+    });
+  } else if (si.widenedDims.length > 0) {
+    out.push({
+      label: `widened ${si.widenedDims.join(", ")}`,
+      hint: `The model flagged the detector as suspect on ${si.widenedDims.join(", ")}, so its guardband there was DOUBLED. Those dimensions could move up to twice as far from their deterministic signal, so a run-over-run delta on them carries materially less confidence.`,
+    });
+  }
+  if (si.effectiveBlend < SCORE_BLEND - 1e-9) {
+    out.push({
+      label: `blend ${Math.round((si.effectiveBlend / SCORE_BLEND) * 100)}%`,
+      hint: `Only ${Math.round((si.effectiveBlend / SCORE_BLEND) * 100)}% of the model's usual weight was applied (${si.effectiveBlend.toFixed(2)} against a configured ${SCORE_BLEND}), because the ingest read a fraction of the repository. A thinner read shifts the score toward the deterministic signal with zero repository change.`,
+    });
+  }
+  return out;
 }
 
 /** Compact form for a dense ledger row, where the long sentence would not fit. */

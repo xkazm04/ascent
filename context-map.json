@@ -1745,6 +1745,7 @@
             "src/components/report/PassportHero.dom.test.tsx",
             "src/components/report/ReportShell.tsx",
             "src/components/report/ReportHeader.tsx",
+            "src/components/report/ScoreIntegrityChip.tsx",
             "src/components/report/FoundationPrButton.tsx",
             "src/components/report/ReportView.tsx",
             "src/components/report/ReportView.dom.test.tsx",
