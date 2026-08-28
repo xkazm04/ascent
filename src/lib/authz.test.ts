@@ -133,19 +133,26 @@ describe("requireOrgAccess (write gate)", () => {
     expect(await requireOrgAccess("public")).toBeNull();
   });
 
-  it("auth ON: public is open, but a private org needs a session", async () => {
+  // RETIRED STACK (legacy custom-OAuth env set, Supabase wall off). This used to be a second full
+  // authorization path through the gate, resolving standing from the signed cookie's installation
+  // list. It is gone. What matters is the DIRECTION it collapsed in: not to the auth-off open branch
+  // below it — that would silently convert a gated deployment into an open one — but closed, with a
+  // 503 that names the misconfiguration. Architect ADR 2026-08-28-dual-auth-stack.
+  it("retired stack: public stays open, but a private org fails CLOSED (503, never open)", async () => {
     mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
     expect(await requireOrgAccess("public")).toBeNull();
     const res = await requireOrgAccess("acme");
-    expect(res?.status).toBe(401);
+    expect(res?.status).toBe(503);
   });
 
-  it("auth ON: a member passes, a non-member gets 403 (case-insensitive)", async () => {
+  it("retired stack: a session's installations no longer grant access", async () => {
     mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
     mockGetSession.mockResolvedValue(sessionWith(["acme"]));
-    expect(await requireOrgAccess("ACME")).toBeNull();
-    const res = await requireOrgAccess("other");
-    expect(res?.status).toBe(403);
+    // Previously null (the cookie owned this org). The cookie is not an authorization input any more.
+    expect((await requireOrgAccess("ACME"))?.status).toBe(503);
+    expect((await requireOrgAccess("other"))?.status).toBe(503);
   });
 });
 
@@ -156,16 +163,26 @@ describe("canReadOrg / requireOrgRead (read gate)", () => {
     expect(await requireOrgRead("public")).toBeNull();
   });
 
-  it("auth ON: member reads, non-member is blocked, anon is 401", async () => {
+  it("retired stack: no read either, with or without a session", async () => {
     mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
     mockGetSession.mockResolvedValue(sessionWith(["acme"]));
-    expect(await canReadOrg("acme")).toBe(true);
-    expect(await requireOrgRead("acme")).toBeNull();
-    expect(await canReadOrg("other")).toBe(false);
-    expect((await requireOrgRead("other"))?.status).toBe(403);
+    // The read side collapsed the same way as the write side. Note it must NOT fall through to
+    // openOrgDashboardsEnabled() — handing a misconfigured deployment the OPEN posture is exactly the
+    // regression this refuses to deliver, and the flag is irrelevant here.
+    expect(await canReadOrg("acme")).toBe(false);
+    expect((await requireOrgRead("acme"))?.status).toBe(503);
 
     mockGetSession.mockResolvedValue(null);
-    expect((await requireOrgRead("acme"))?.status).toBe(401);
+    expect((await requireOrgRead("acme"))?.status).toBe(503);
+  });
+
+  it("retired stack ignores ASCENT_OPEN_ORG_DASHBOARDS (the open posture is not reachable)", async () => {
+    mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
+    vi.stubEnv("ASCENT_OPEN_ORG_DASHBOARDS", "1");
+    expect(await canReadOrg("acme")).toBe(false);
+    expect((await requireOrgRead("acme"))?.status).toBe(503);
   });
 
   it("auth OFF: a private org is closed unless the dashboard flag is set", async () => {
@@ -218,21 +235,19 @@ describe("session installation checks (scan-token IDOR)", () => {
   // own `account.login`, carried in an HMAC-signed cookie, so it can hold neither whitespace nor an
   // attacker's choice of string. Trimming it could therefore only matter in a world where it IS
   // attacker-writable — and there it would WIDEN the gate. These pin the fail-closed direction.
+  // sessionOwnsOrg / sessionHasInstallation remain exported and are still used by /api/app/repos to
+  // check the CALLER's own installation list. Their untrimmed-session-side semantics stay pinned here.
+  // What changed is that no org GATE consults them any more, so these are now assertions about the
+  // helpers alone — the gate cases moved to the retired-stack tests above.
   it("a whitespace-padded session login does NOT match the org (untrimmed = fail closed)", async () => {
     mockGetSession.mockResolvedValue(sessionWith([" acme"]));
     expect(await sessionOwnsOrg("acme")).toBe(false);
     expect(await sessionOwnsOrg(" acme ")).toBe(false); // the org side IS trimmed → still no match
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockAuthGateEnabled.mockReturnValue(false);
-    expect((await requireOrgAccess("acme"))?.status).toBe(403);
   });
 
-  it("the ORG argument is still normalized on both gates (trim + case)", async () => {
+  it("the ORG argument is still normalized by the helper (trim + case)", async () => {
     mockGetSession.mockResolvedValue(sessionWith(["acme"]));
     expect(await sessionOwnsOrg("  ACME  ")).toBe(true);
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockAuthGateEnabled.mockReturnValue(false);
-    expect(await requireOrgAccess("  ACME  ")).toBeNull();
   });
 });
 
@@ -277,11 +292,13 @@ describe("canMintInstallationToken (private-repo token gate)", () => {
     expect(await canMintInstallationToken("  ")).toBe(false);
   });
 
-  it("dormant OAuth still configured (dev): falls back to session installations", async () => {
+  it("retired stack: refuses to mint, even for an org the session installed", async () => {
     mockAuthGateEnabled.mockReturnValue(false);
     mockIsAuthConfigured.mockReturnValue(true);
     mockGetSession.mockResolvedValue(sessionWith(["acme"]));
-    expect(await canMintInstallationToken("ACME")).toBe(true);
+    // This gate guards a token that reads PRIVATE repositories, so of every collapsed branch this is
+    // the one that most needed to fail closed rather than reach the auth-off `return true` below.
+    expect(await canMintInstallationToken("ACME")).toBe(false);
     expect(await canMintInstallationToken("other")).toBe(false);
   });
 
@@ -300,33 +317,34 @@ describe("requireOrgRole (RBAC gate)", () => {
     expect(await requireOrgRole("public", "owner")).toBeNull();
   });
 
-  it("auth ON without a session is 401", async () => {
+  it("retired stack: 503 regardless of session, membership row, or requested role", async () => {
     mockIsAuthConfigured.mockReturnValue(true);
-    expect((await requireOrgRole("acme", "admin"))?.status).toBe(401);
-  });
+    mockAuthGateEnabled.mockReturnValue(false);
 
-  it("uses the explicit membership role against the minimum", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(sessionWith([])); // signed in, no installation
+    // No session.
+    expect((await requireOrgRole("acme", "admin"))?.status).toBe(503);
+
+    // Signed in with an explicit membership row that WOULD have satisfied the minimum. The RBAC
+    // branch that consulted it is gone; the row is only honoured under the Supabase wall now.
+    mockGetSession.mockResolvedValue(sessionWith([]));
     mockGetMembershipRole.mockResolvedValue("admin");
-    expect(await requireOrgRole("acme", "admin")).toBeNull(); // admin >= admin
-    expect((await requireOrgRole("acme", "owner"))?.status).toBe(403); // admin < owner
-    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
-  });
+    expect((await requireOrgRole("acme", "admin"))?.status).toBe(503);
 
-  it("treats an installation-owner as owner and seeds the membership", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(sessionWith(["acme"])); // installed the App on acme
-    mockGetMembershipRole.mockResolvedValue(null); // no explicit membership yet
-    expect(await requireOrgRole("acme", "owner")).toBeNull();
-    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("acme", "u", undefined);
-  });
-
-  it("a signed-in non-member with no installation is 403", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(sessionWith(["other"]));
+    // Signed in as the App installer of this org — previously auto-seeded as owner right here.
+    mockGetSession.mockResolvedValue(sessionWith(["acme"]));
     mockGetMembershipRole.mockResolvedValue(null);
-    expect((await requireOrgRole("acme", "member"))?.status).toBe(403);
+    expect((await requireOrgRole("acme", "owner"))?.status).toBe(503);
+  });
+
+  // The seeding side effect was the sharpest edge of the removed branch: it WROTE an owner membership
+  // from a cookie's installation list. A misconfigured deployment must not mint ownership.
+  it("retired stack: never seeds an owner membership", async () => {
+    mockIsAuthConfigured.mockReturnValue(true);
+    mockAuthGateEnabled.mockReturnValue(false);
+    mockGetSession.mockResolvedValue(sessionWith(["acme"]));
+    mockGetMembershipRole.mockResolvedValue(null);
+    await requireOrgRole("acme", "owner");
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
   });
 });
 

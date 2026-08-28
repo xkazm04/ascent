@@ -27,6 +27,51 @@ import { ensureOwnerMembership, getMembershipRole, normalizeLogin, orgHasOwner, 
  * MORE permissive: `" acme"` would start matching the org `acme`. Untrimmed fails closed. Same
  * reasoning applies to the sibling comparison in requireOrgAccess.
  */
+/**
+ * The RETIRED custom-OAuth stack is configured while the Supabase wall is off.
+ *
+ * Every org gate below used to carry a second authorization path: when Supabase was unconfigured but
+ * the legacy `GITHUB_OAUTH_CLIENT_ID`/`SECRET`/`AUTH_SECRET` env was present, the gate authorized
+ * against the signed custom-OAuth cookie's installation list instead. Two full code paths through
+ * every gate, and the in-file history shows this dual shape is where the cross-tenant IDORs came from
+ * — each fixed one branch at a time, which is the failure mode a second branch guarantees.
+ *
+ * The branch is gone. What replaces it is deliberately NOT "fall through to the auth-off open path":
+ * a deployment carrying that env today HAS a gate, and silently converting it to an open deployment
+ * would be the widest possible regression, delivered quietly. So this configuration now fails CLOSED
+ * and says why. An operator either configures Supabase (the supported wall) or removes the legacy env
+ * (the supported auth-off mode); what they cannot do is get a silent downgrade.
+ *
+ * Architect ADR 2026-08-28-dual-auth-stack.
+ */
+function retiredAuthStackConfigured(): boolean {
+  return !authGateEnabled() && isAuthConfigured();
+}
+
+let retiredStackWarned = false;
+
+/**
+ * The response for a deployment stuck on the retired stack. 503, not 401/403: the caller has done
+ * nothing wrong and cannot fix it by signing in — the deployment is misconfigured. Warn-once so the
+ * operator sees it in logs without every gated request writing a line.
+ */
+function retiredAuthStackResponse(): NextResponse {
+  if (!retiredStackWarned) {
+    retiredStackWarned = true;
+    console.error(
+      "[authz] GITHUB_OAUTH_CLIENT_ID/AUTH_SECRET are set but Supabase auth is not configured. " +
+        "The custom GitHub OAuth stack is RETIRED and no longer authorizes org access, so every " +
+        "org-scoped request is being refused. Configure NEXT_PUBLIC_SUPABASE_URL + " +
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY, or remove the legacy GITHUB_OAUTH_* / AUTH_SECRET vars to " +
+        "run this deployment auth-off.",
+    );
+  }
+  return NextResponse.json(
+    { error: "This deployment's authentication is not configured.", code: "auth_stack_retired" },
+    { status: 503 },
+  );
+}
+
 export async function sessionOwnsOrg(org: string): Promise<boolean> {
   const slug = normalizeLogin(org);
   const session = await getSession();
@@ -66,8 +111,9 @@ export async function canMintInstallationToken(owner: string): Promise<boolean> 
     if (!viewer) return false;
     return roleAtLeast(await viewerOrgRole(slug, viewer), "viewer");
   }
-  // Dormant custom OAuth still configured (dev boxes that set the legacy env): honor its installations.
-  if (isAuthConfigured()) return sessionOwnsOrg(slug);
+  // Retired stack: refuse to mint. This gate guards a token that reads PRIVATE repositories, so the
+  // one thing it must never do on a misconfigured deployment is fall through to the open branch.
+  if (retiredAuthStackConfigured()) return false;
   // Fully auth-off (local / demo / e2e): open, exactly like requireOrgAccess's auth-off branch.
   return true;
 }
@@ -129,18 +175,10 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
     if (roleAtLeast(await viewerOrgRole(slug, viewer), "member")) return null;
     return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
   }
-  // Custom GitHub OAuth path (dormant under the Supabase wall) and fully auth-off (local/demo).
-  if (!isAuthConfigured()) return null;
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
-  }
-  // `.toLowerCase()` without `.trim()` is intentional here — see sessionOwnsOrg's G8-51 note: the
-  // session side is signed-cookie GitHub data that cannot hold whitespace, and trimming it would only
-  // ever WIDEN this gate.
-  if (!session.installations.some((i) => i.login.toLowerCase() === slug)) {
-    return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
-  }
+  // The retired custom-OAuth branch used to authorize here against the signed cookie's installation
+  // list. It fails closed instead of falling through to the auth-off open path below.
+  if (retiredAuthStackConfigured()) return retiredAuthStackResponse();
+  // Fully auth-off (local / demo / e2e): open.
   return null;
 }
 
@@ -166,8 +204,10 @@ export async function canReadOrg(org: string): Promise<boolean> {
     if (!viewer) return false;
     return roleAtLeast(await viewerOrgRole(slug, viewer), "viewer");
   }
-  if (!isAuthConfigured()) return openOrgDashboardsEnabled();
-  return sessionOwnsOrg(slug);
+  // Retired stack: no read either. Falling through to openOrgDashboardsEnabled() would hand a
+  // misconfigured deployment the OPEN posture, which is the regression this refuses to deliver.
+  if (retiredAuthStackConfigured()) return false;
+  return openOrgDashboardsEnabled();
 }
 
 /**
@@ -187,13 +227,7 @@ export async function requireOrgRead(org: string): Promise<NextResponse | null> 
     }
     return NextResponse.json({ error: "Sign in to view this organization." }, { status: 401 });
   }
-  if (isAuthConfigured()) {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Sign in to view this organization." }, { status: 401 });
-    }
-    return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
-  }
+  if (retiredAuthStackConfigured()) return retiredAuthStackResponse();
   return NextResponse.json(
     { error: "Per-organization data requires authentication to be configured." },
     { status: 403 },
@@ -270,22 +304,9 @@ export async function requireOrgRole(org: string, min: OrgRole): Promise<NextRes
     );
   }
 
-  // Custom GitHub OAuth path (dormant under the Supabase wall) and fully auth-off (local/demo).
-  if (!isAuthConfigured()) return null;
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
-  }
-  let role = await getMembershipRole(slug, session.login);
-  if (!role && (await sessionOwnsOrg(slug))) {
-    // Installing the GitHub App requires org-admin on GitHub, so an installation-owner is the org's
-    // owner here. Seed the membership so the role is persisted and member management has an anchor.
-    await ensureOwnerMembership(slug, session.login, session.name).catch(() => {});
-    role = "owner";
-  }
-  if (roleAtLeast(role, min)) return null;
-  return NextResponse.json(
-    { error: `This action requires the ${min} role in this organization.` },
-    { status: 403 },
-  );
+  // The retired custom-OAuth branch used to resolve a role from the signed cookie here, seeding
+  // ownership from its installation list. Fails closed rather than reaching the auth-off open path.
+  if (retiredAuthStackConfigured()) return retiredAuthStackResponse();
+  // Fully auth-off (local / demo / e2e): open.
+  return null;
 }

@@ -333,16 +333,21 @@ function activeSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe("readableOrgForOwner — cross-tenant read gate", () => {
-  it("returns the lowercased owner org when the viewer HAS a matching installation", async () => {
-    // Session installation login is "Acme" (mixed case); the owner param is "acme" (lower). The
-    // case-insensitive match must hold and the canonical lowercased slug be returned.
+  // These two used to assert that a custom-OAuth session's installation list granted the private-org
+  // read. It no longer does: readableOrgForOwner delegates to canReadOrg, and the retired custom-OAuth
+  // branch there fails closed rather than falling through to the open posture (see
+  // src/lib/authz.test.ts, "retired stack"). A deployment carrying the legacy env with no Supabase
+  // wall now degrades to the PUBLIC org here instead of reading a tenant's private report — which is
+  // the safe direction, and the point of retiring the branch.
+  // Architect ADR 2026-08-28-dual-auth-stack.
+  it("retired stack: a matching installation no longer grants the private-org read", async () => {
     seedSession(activeSession({ installations: [{ id: 1, login: "Acme" }] }));
-    await expect(readableOrgForOwner("acme")).resolves.toBe("acme");
+    await expect(readableOrgForOwner("acme")).resolves.toBe(PUBLIC_ORG);
   });
 
-  it("matches case-insensitively when BOTH sides differ in casing (Acme vs acme)", async () => {
+  it("retired stack: degrades to public regardless of casing on either side", async () => {
     seedSession(activeSession({ installations: [{ id: 7, login: "acme" }] }));
-    await expect(readableOrgForOwner("ACME")).resolves.toBe("acme");
+    await expect(readableOrgForOwner("ACME")).resolves.toBe(PUBLIC_ORG);
   });
 
   it("DENIES (falls back to public) a viewer who is NOT a member of the target org", async () => {

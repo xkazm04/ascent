@@ -13,6 +13,7 @@ import {
   secureCookieForRequest,
   STATE_COOKIE,
 } from "@/lib/auth";
+import { supabaseAuthConfigured } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,14 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   if (!isAuthConfigured()) {
     return NextResponse.redirect(new URL("/connect?error=not_configured", request.url));
+  }
+  // The custom OAuth stack is RETIRED as an authorization path: src/lib/authz.ts no longer honours its
+  // session for any org gate. Completing this flow would hand the visitor a signed cookie that every
+  // gate then refuses — a sign-in that appears to work and authorizes nothing, which is a worse
+  // failure than not starting. Refuse at the door instead, and send the operator the same signal the
+  // gates log. Supabase (src/lib/access.ts) is the supported wall.
+  if (!supabaseAuthConfigured()) {
+    return NextResponse.redirect(new URL("/connect?error=auth_stack_retired", request.url));
   }
   const url = new URL(request.url);
   // The EXTERNAL origin (x-forwarded-proto/host aware), NOT url.origin: behind a TLS-terminating
