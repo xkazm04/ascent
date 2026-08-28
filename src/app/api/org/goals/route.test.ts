@@ -75,26 +75,6 @@ function deleteGoalReq(id: string) {
     params: Promise.resolve({ id }),
   });
 }
-function patchInitiative(id: string, body: Record<string, unknown>) {
-  return INIT_PATCH(
-    new Request(`http://localhost/api/org/initiatives/${id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-    { params: Promise.resolve({ id }) },
-  );
-}
-function postInitiatives(body: Record<string, unknown>) {
-  return INIT_POST(
-    new Request("http://localhost/api/org/initiatives", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockAccess.mockResolvedValue(null);
