@@ -189,10 +189,15 @@ construction, a restart casualty — a lie, not a resumable job. `markStaleRunsS
 runs `stopped` with `"Interrupted — the server restarted while this run was in flight."` and flips
 their non-terminal lanes to `error`.
 
-It runs at **two** moments: on `GET /api/org/loop` (so the cockpit never renders a job nobody is
-driving) and inside `startLoopRun`, *before* the one-run-per-org check — otherwise a single crash
-would bar the org from ever starting another run. There is deliberately **no boot hook**; see
-[Known gaps](#known-gaps).
+It runs at **three** moments: at **boot**, from `register()` in `src/instrumentation.ts` via
+`sweepInterruptedWork()` (so a crashed run stops reading as `running`, and its lanes' backlog claims
+are released, whether or not anybody opens the tab); on `GET /api/org/loop` (so the cockpit never
+renders a job nobody is driving); and inside `startLoopRun`, *before* the one-run-per-org check —
+otherwise a single crash would bar the org from ever starting another run.
+
+The `isLive(id)` predicate is what separates the three. The two request-path callers pass
+`isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
+The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
 
 ### Outcome: what the lane moved
 
@@ -403,8 +408,10 @@ states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
 | Single-repo shim | `src/lib/local/autopilot.ts` |
 | Routes | `src/app/api/org/loop/{route,propose/route,[id]/route}.ts` |
 | Drive engine + wire shapes | `src/lib/local/drive.ts`, `src/lib/local/drive-types.ts` |
+| Drive persistence | `src/lib/db/drives.ts` (`LoopDrive` rows, the stale-drive sweep) |
+| Boot sweep | `src/lib/local/boot-sweep.ts`, called from `src/instrumentation.ts` |
 | Drive route | `src/app/api/org/local/drive/route.ts` |
-| Drive UI | `cockpit/{CockpitDrivePanel,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
+| Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |
 | Cockpit | `src/features/inflight/live/cockpit/**` |
@@ -457,14 +464,50 @@ three honest ways to stop and no fourth:
 The measurement is the verifier: a run's own `progressed` flag never earns another run. The policy
 is the pure `nextDriveStep` (tested in isolation); `startDrive` is single-flight per org and defaults
 its scope to every watched, paired repo. `GET ?org=` lists drives with their latest measurement and
-per-run debt before/after. Process-local like the engine's `live` registry: every run it starts is a
-durable `LoopRun`, so what happened survives a restart; a restart ends the drive rather than resuming
-into a state it cannot verify.
+per-run debt before/after. Both the runs it starts and the drive itself are durable rows — see
+*Surviving a restart* below for what a restart does and, deliberately, does not do.
 
 The wire shapes and the caps live in `src/lib/local/drive-types.ts` (re-exported by `drive.ts`, the
 same split as `loop-runs-types.ts` ⇄ `loop-engine.ts`) so the cockpit can import them in the browser
 without dragging the engine's db/`selfHosted()` imports into the bundle. Since 2026-08-28 the route
 is no longer curl-only: the cockpit reaches it — see *Drive to green, from the cockpit* above.
+
+### Surviving a restart (2026-08-28)
+
+A drive used to live only in a `Map` on `globalThis`. Its RUNS were durable, so what happened
+survived; the drive itself did not, and neither did the fact that one had ever existed — a `GET`
+after a restart reported **nothing at all**, which is the one answer that is never true. Three
+changes close that:
+
+**1. The drive is a row.** `LoopDrive` (`prisma/schema.prisma`, migration
+`20260828120000_add_loop_drive`, store `src/lib/db/drives.ts`) holds the scope, the rope, the
+per-run debt ledger, the latest measurement and the resume chain. The registry in `drive.ts` still
+exists — a live task and a cooperative stop flag cannot be serialized — but every transition is
+mirrored onto the row, whole-row rather than by patch (a drive changes state a handful of times per
+hour, so there is nothing to gain from patch granularity and a half-written status to lose).
+`listDrives` reads the DB and overlays the live registry, which is the fresher copy while pulling.
+
+**2. A boot-time sweep, in `register()`.** `src/instrumentation.ts` — Next's startup hook, the same
+door the embedded PGlite boots from — calls `sweepInterruptedWork()` (`src/lib/local/boot-sweep.ts`)
+after the PGlite boot and before the first request. A fresh process is driving nothing, so it is the
+one caller entitled to omit the `isLive` predicate that every request path must pass. It marks stale
+`running` loop runs `stopped` (which is what **releases their lanes' backlog claims**, the zombie-claim
+bug of 2026-08-26) and stale `running` drives `interrupted` — runs first, so a drive is never marked
+interrupted while its last run still looks alive. Self-hosted only, and that guard is load-bearing:
+on a managed deployment "this process started nothing" is a claim about one instance among many.
+It is idempotent per process and silent unless it actually reconciled something.
+
+**3. Interrupted is offered back, never auto-resumed.** `interrupted` is a terminal phase nobody
+chose. A drive spends agent sessions inside real working copies, so a server that re-armed one by
+itself on boot would be spending the operator's money on the strength of a process having crashed.
+The cockpit shows `CockpitDriveResume` as a banner **above** the inspector (a standing offer, not a
+mode — the operator is equally entitled to ignore it and select a different scope) with one
+**Resume drive** button. Resuming starts a NEW drive that inherits the scope, the bounds and
+`runsBefore` — **the run budget belongs to the chain, not to a segment of it**, so a crash can never
+re-grant rope the operator did not give. The interrupted drive stays interrupted as the record of
+what that segment did, and `resumedFrom` links the two. `resumeParams` (`drive-types.ts`) is the one
+pure predicate both the route and the button consult, so the affordance appears exactly when
+`POST {action:"resume"}` would accept it.
 
 ### Claims are released when nothing adjudicated them (2026-08-26)
 
@@ -499,10 +542,6 @@ Two causes, both now fixed:
 - **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns
   processes. Cloud orgs get an empty state on the cockpit and a 404 from every loop route. A hosted
   path would need a sandboxed executor and a very different consent model.
-- **No boot-time stale-run sweep.** `markStaleRunsStopped` runs on the first `GET /api/org/loop` and
-  inside `startLoopRun`, not from an instrumentation hook. A crashed run therefore reads as `running`
-  in the database until someone opens the tab. Nothing acts on that row in the meantime, but a direct
-  DB reader (or a future digest) would see a lie.
 - **`curating` is reserved, unused.** The phase exists on the model for a run parked while a human
   edits its batches, but curation is currently a pure read (`/propose`) and `start` writes `running`
   directly. No row is ever written in `curating` today.

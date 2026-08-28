@@ -1,13 +1,18 @@
-// Next.js startup hook. Two jobs:
+// Next.js startup hook. Three jobs:
 //   1. Sentry server-side error capture (runtime only — no build plugin / source-map upload; that
 //      needs an auth token and is deliberately out of scope). A strict NO-OP unless SENTRY_DSN is
 //      set, so local dev and CI are completely unaffected.
 //   2. When PGLITE_DATA_DIR is set (local dev), boot an embedded in-process PGlite and stash a
 //      Prisma driver adapter for src/lib/db/client.ts to use — a real, persistent, offline
 //      Postgres with no install and no separate server.
+//   3. The loop's BOOT SWEEP: a fresh process is driving nothing, so every `running` loop run and
+//      every `running` drive in the database belongs to a process that is gone. Reconciling them
+//      here — rather than on the first page load, which is where it used to happen — is what stops a
+//      restart from leaving a job that looks alive forever and backlog rows claimed by nobody.
 //
-// Both live behind guarded dynamic imports, so this file stays free of node: APIs and never
-// triggers Edge-runtime compile warnings.
+// All three live behind guarded dynamic imports, so this file stays free of node: APIs and never
+// triggers Edge-runtime compile warnings. Order matters for the third: it must come AFTER the PGlite
+// boot, or on a local-dev deployment it would run before there is a database to sweep.
 
 import type { Instrumentation } from "next";
 
@@ -45,6 +50,18 @@ export async function register() {
           "every DB read will be empty. Use `npm run dev` for the embedded DB, or set DATABASE_URL for `next start`.",
       );
     }
+  }
+
+  // Reconcile the loop work a dead process left behind. Best-effort and self-gating (self-hosted +
+  // a configured DB, checked inside): a boot must not fail because a sweep could not run, and the
+  // sweep must not run on a managed deployment where "this process started nothing" is a claim about
+  // one instance among many.
+  try {
+    const { bootSweepLine, sweepInterruptedWork } = await import("@/lib/local/boot-sweep");
+    const line = bootSweepLine(await sweepInterruptedWork());
+    if (line) console.warn(line);
+  } catch {
+    // A sweep that cannot run leaves rows the first GET /api/org/loop still reconciles, as before.
   }
 }
 

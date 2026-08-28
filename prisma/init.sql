@@ -1339,6 +1339,33 @@ CREATE TABLE "LoopRunLane" (
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");
 
+-- CreateTable: a DRIVE — the sequence of loop runs that pulls a fleet toward green. Durable so a
+-- restart mid-drive reports `interrupted` instead of nothing, and can be resumed by a human.
+CREATE TABLE "LoopDrive" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "createdBy" TEXT,
+    "phase" TEXT NOT NULL DEFAULT 'running',
+    "reposJson" TEXT NOT NULL DEFAULT '[]',
+    "maxRuns" INTEGER NOT NULL DEFAULT 3,
+    "maxCycles" INTEGER NOT NULL DEFAULT 3,
+    "concurrency" INTEGER NOT NULL DEFAULT 2,
+    "runsBefore" INTEGER NOT NULL DEFAULT 0,
+    "resumedFrom" TEXT,
+    "runsJson" TEXT NOT NULL DEFAULT '[]',
+    "measurementJson" TEXT,
+    "stopRequested" BOOLEAN NOT NULL DEFAULT false,
+    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "endedAt" TIMESTAMP(3),
+    "error" TEXT,
+
+    CONSTRAINT "LoopDrive_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "LoopDrive_orgId_startedAt_idx" ON "LoopDrive"("orgId", "startedAt");
+
 
 -- ATHENA — the resident, ORG-SCOPED companion. Her EPISODES are NOT here: they are OrgMemory rows
 -- (namespace "athena", kind "episodic", source "athena"). Her IDENTITY needs its own table because

@@ -84,6 +84,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
             setup={c.setup}
             liveDrive={drive.live ? drive.drive : null}
             driveOutcome={c.driveOutcome}
+            interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
             runLive={loop.live}
             outcome={c.outcome}
@@ -99,6 +100,8 @@ export function LiveCockpit(props: LiveCockpitProps) {
             onDrive={(input) => void c.startDrive(input)}
             onStopRun={() => loop.activeId && void loop.stop(loop.activeId)}
             onStopDrive={() => void drive.stop()}
+            onResumeDrive={() => void c.resumeDrive()}
+            onDismissDrive={c.dismissDrive}
             onRetryLane={(laneId) => void loop.retry(laneId)}
             onReplay={c.replayRun}
             onBack={c.backToInspect}

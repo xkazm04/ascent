@@ -1190,7 +1190,7 @@
         },
         {
           "name": "Live War Room",
-          "description": "## Purpose\nA live, presentation-mode 'war room' for the fleet: real-time leaderboard, celebrations on milestones, and headline stats meant to be projected during a review.\n\n## Key Flows\n- live page mounts LiveWarRoom which composes Header/Leaderboard/Panels/Stat/Celebrations; liveWarRoomShared holds the shared derivations.\n\n## Key Flows (drive to green)\n- The Loop Cockpit starts a bounded loop run OR a drive: POST /api/org/local/drive runs the loop again and again, re-scoring the fleet against maturity/green after every run, until green | dry | ceiling.\n- useCockpit composes useLoopRun + useDrive; CockpitRail picks the panel; a live drive outranks every other rail mode and settles into the same outcome ledger a single run uses.\n\n## Entry Points\n- src/app/org/[slug]/live/page.tsx\n- src/components/org/LiveWarRoom.tsx",
+          "description": "## Purpose\nA live, presentation-mode 'war room' for the fleet: real-time leaderboard, celebrations on milestones, and headline stats meant to be projected during a review.\n\n## Key Flows\n- live page mounts LiveWarRoom which composes Header/Leaderboard/Panels/Stat/Celebrations; liveWarRoomShared holds the shared derivations.\n\n## Key Flows (drive to green)\n- The Loop Cockpit starts a bounded loop run OR a drive: POST /api/org/local/drive runs the loop again and again, re-scoring the fleet against maturity/green after every run, until green | dry | ceiling.\n- useCockpit composes useLoopRun + useDrive; CockpitRail picks the panel; a live drive outranks every other rail mode and settles into the same outcome ledger a single run uses.\n\n## Key Flows (surviving a restart)\n- A drive is a durable LoopDrive row (src/lib/db/drives.ts), not just a globalThis Map, so a GET after a restart reports the truth instead of nothing.\n- src/instrumentation.ts register() runs the boot sweep (src/lib/local/boot-sweep.ts): stale running loop runs -> stopped (releasing their lanes' backlog claims), stale running drives -> interrupted. Self-hosted only, once per process.\n- An interrupted drive is never auto-resumed: CockpitDriveResume offers a one-click Resume that starts a new drive inheriting runsBefore, so the run budget spans the chain.\n\n## Entry Points\n- src/app/org/[slug]/live/page.tsx\n- src/components/org/LiveWarRoom.tsx",
           "businessFeature": "Live War Room",
           "category": "ui",
           "filePaths": [
@@ -1260,7 +1260,16 @@
             "src/lib/local/drive.ts",
             "src/lib/local/drive-types.ts",
             "src/lib/local/drive.test.ts",
-            "src/app/api/org/local/drive/route.ts"
+            "src/app/api/org/local/drive/route.ts",
+            "src/lib/db/drives.ts",
+            "src/lib/db/drives.test.ts",
+            "src/lib/db/drives.stale.test.ts",
+            "src/lib/local/boot-sweep.ts",
+            "src/lib/local/boot-sweep.test.ts",
+            "src/lib/local/drive-resume.test.ts",
+            "src/instrumentation.ts",
+            "src/features/inflight/live/cockpit/CockpitDriveResume.tsx",
+            "src/features/inflight/live/cockpit/CockpitDriveResume.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": [

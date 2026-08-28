@@ -6,7 +6,7 @@
 //     verdicts must not read the same.
 
 import { describe, expect, it } from "vitest";
-import { driveProgress, driveVerdict, lastDriveRunId } from "./driveModel";
+import { driveProgress, driveResume, driveVerdict, lastDriveRunId } from "./driveModel";
 import type { DriveMeasurement, DrivePhase, DriveRunRecord, DriveStatus } from "./driveTypes";
 
 const measure = (over: Partial<DriveMeasurement> = {}): DriveMeasurement => ({
@@ -39,6 +39,8 @@ const status = (over: Partial<DriveStatus> = {}): DriveStatus => ({
   concurrency: 2,
   runs: [],
   measurement: measure(),
+  runsBefore: 0,
+  resumedFrom: null,
   startedAt: "2026-08-28T10:00:00Z",
   endedAt: null,
   error: null,
@@ -133,6 +135,30 @@ describe("driveVerdict — the three honest stops read differently", () => {
   it("counts the in-flight run while it is still driving", () => {
     const open = runRec({ runId: "run-2", debtAfter: null, endedAt: null });
     expect(driveVerdict(status({ runs: [runRec(), open] })).detail).toBe("Run 2 of 3, target green.");
+  });
+});
+
+describe("interrupted — the stop nobody chose", () => {
+  it("reads as a warning that names what survived and what did not", () => {
+    const v = driveVerdict(status({ phase: "interrupted", endedAt: "x", runs: [runRec()] }));
+    expect(v.label).toBe("Interrupted");
+    expect(v.tone).toBe("warn");
+    expect(v.detail).toMatch(/commits stand/);
+  });
+
+  it("counts the CHAIN's runs, so a resumed drive does not read as if it had fresh rope", () => {
+    const p = driveProgress(status({ runsBefore: 2, runs: [runRec()] }));
+    expect(p.runsDone).toBe(3);
+  });
+
+  it("offers a resume only while the chain has rope left", () => {
+    expect(driveResume(status({ phase: "interrupted", endedAt: "x", runsBefore: 1 }))).toEqual({
+      runsDone: 1,
+      runsLeft: 2,
+      repos: 3,
+    });
+    expect(driveResume(status({ phase: "interrupted", endedAt: "x", runsBefore: 3 }))).toBeNull();
+    expect(driveResume(status({ phase: "ceiling", endedAt: "x" }))).toBeNull();
   });
 });
 

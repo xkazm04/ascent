@@ -18,7 +18,7 @@
 // final DriveStatus — the one carrying the terminal phase — is handed up exactly once.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchDriveStatus, startDrive, stopDrive, type StartDriveInput } from "./driveClient";
+import { fetchDriveStatus, resumeDrive, startDrive, stopDrive, type StartDriveInput } from "./driveClient";
 import { isDriveLive, type DriveStatus } from "./driveTypes";
 
 const POLL_MS = 12_000;
@@ -119,5 +119,17 @@ export function useDrive({ slug, enabled, onSettled }: UseDriveInput) {
     void tick();
   }, [guard, slug, drive?.id, tick]);
 
-  return { drive, live, error, busy, start, stop, refresh: tick };
+  // Resume returns a NEW drive continuing the interrupted one's chain, so what is adopted is the
+  // response — never the id that was asked about, which stays interrupted as the record of that
+  // segment.
+  const resume = useCallback(
+    async (id: string) => {
+      const res = await guard(() => resumeDrive(slug, id));
+      if (res?.drive) adopt(res.drive);
+      return res?.drive ?? null;
+    },
+    [guard, slug, adopt],
+  );
+
+  return { drive, live, error, busy, start, stop, resume, refresh: tick };
 }

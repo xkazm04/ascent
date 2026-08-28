@@ -10,9 +10,12 @@
 //   3. an outcome (a run's, a drive's, or both — the drive verdict sits ABOVE the run's ledger,
 //      because "why did the drive stop" and "what did the last run do" are different questions);
 //   4. a setup block naming the one thing missing before anything can be dispatched;
-//   5. otherwise the inspector.
+//   5. otherwise the inspector — with an INTERRUPTED drive's resume offer as a banner above it, not
+//      in place of it: a drive a restart orphaned is a standing offer, and the operator is equally
+//      entitled to ignore it and select a different scope.
 
 import { CockpitDrivePanel, DriveVerdict } from "./CockpitDrivePanel";
+import { CockpitDriveResume } from "./CockpitDriveResume";
 import { CockpitInspector } from "./CockpitInspector";
 import { CockpitOutcome } from "./CockpitOutcome";
 import { CockpitRunPanel } from "./CockpitRunPanel";
@@ -31,6 +34,8 @@ export interface CockpitRailProps {
   liveDrive: DriveStatus | null;
   /** The drive that just ended, whose verdict belongs above the outcome ledger. */
   driveOutcome: DriveStatus | null;
+  /** A drive a server restart orphaned, offered back to the operator above the inspector. */
+  interruptedDrive: DriveStatus | null;
   runDetail: LoopRunDetail | null;
   runLive: boolean;
   outcome: LoopRunDetail | null;
@@ -46,6 +51,8 @@ export interface CockpitRailProps {
   onDrive: (input: StartDriveInput) => void;
   onStopRun: () => void;
   onStopDrive: () => void;
+  onResumeDrive: () => void;
+  onDismissDrive: () => void;
   onRetryLane: (laneId: string) => void;
   onReplay: () => void;
   onBack: () => void;
@@ -89,15 +96,28 @@ export function CockpitRail(props: CockpitRailProps) {
   }
   if (setup) return <CockpitSetup state={setup} slug={props.slug} message={props.loopError} />;
   return (
-    <CockpitInspector
-      selected={props.selected}
-      paired={props.paired}
-      propose={props.propose}
-      onRun={props.onRun}
-      onDrive={props.onDrive}
-      canRun={props.canRun}
-      busy={props.busy}
-      error={props.driveError}
-    />
+    <>
+      {props.interruptedDrive && (
+        <CockpitDriveResume
+          drive={props.interruptedDrive}
+          onResume={props.onResumeDrive}
+          onDismiss={props.onDismissDrive}
+          busy={props.busy}
+          error={props.driveError}
+        />
+      )}
+      <CockpitInspector
+        selected={props.selected}
+        paired={props.paired}
+        propose={props.propose}
+        onRun={props.onRun}
+        onDrive={props.onDrive}
+        canRun={props.canRun}
+        busy={props.busy}
+        // The interrupted banner already owns the drive error; showing it twice would read as two
+        // failures.
+        error={props.interruptedDrive ? null : props.driveError}
+      />
+    </>
   );
 }

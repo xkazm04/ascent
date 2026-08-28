@@ -7,6 +7,7 @@
 // started with, and it is `null` (not 0, not 100) until there are two measurements to compare. A
 // drive that starts already-green has nothing to burn and reads as complete, which is also honest.
 
+import { driveRunsDone, resumeParams } from "./driveTypes";
 import type { DrivePhase, DriveStatus } from "./driveTypes";
 
 export interface DriveProgressView {
@@ -39,7 +40,9 @@ export function driveProgress(drive: DriveStatus): DriveProgressView {
   return {
     phase: drive.phase,
     live: drive.endedAt == null && drive.phase === "running",
-    runsDone: drive.runs.filter((r) => r.endedAt != null).length,
+    // The CHAIN's count, so a resumed drive reads "run 3/3", not "run 1/3" — the rope the operator
+    // gave is spent across the whole chain and the panel must not suggest otherwise.
+    runsDone: driveRunsDone(drive),
     maxRuns: drive.maxRuns,
     currentRunId: drive.runs.find((r) => r.endedAt == null)?.runId ?? null,
     debtStart,
@@ -89,6 +92,14 @@ export function driveVerdict(drive: DriveStatus): DriveVerdictView {
       };
     case "stopped":
       return { label: "Stopped", tone: "muted", detail: `You stopped the drive after ${runWord(p.runsDone)}.` };
+    case "interrupted":
+      // Nobody decided this one — the boot sweep found a `running` row no process was pulling. Say
+      // what survived (the runs are durable, their commits and rescans are real) and what did not.
+      return {
+        label: "Interrupted",
+        tone: "warn",
+        detail: `The server restarted mid-drive after ${runWord(p.runsDone)}. Those runs and their commits stand; the drive itself stopped and was not resumed on its own.`,
+      };
     case "error":
       return { label: "Failed", tone: "danger", detail: drive.error ?? "The drive failed." };
     default:
@@ -97,6 +108,19 @@ export function driveVerdict(drive: DriveStatus): DriveVerdictView {
 }
 
 const runWord = (n: number) => `${n} ${n === 1 ? "run" : "runs"}`;
+
+/**
+ * What the "Resume drive" affordance needs, or null when there is nothing to offer. Derived from the
+ * SERVER's own `resumeParams`, so the button appears exactly when the route would accept the request —
+ * a drive that stopped for a reason a human chose (green/dry/ceiling/stopped) is not resumable, and
+ * neither is an interrupted one whose chain already spent the whole budget.
+ */
+export function driveResume(drive: DriveStatus): { runsDone: number; runsLeft: number; repos: number } | null {
+  const params = resumeParams(drive);
+  if (!params) return null;
+  const runsDone = params.runsBefore ?? 0;
+  return { runsDone, runsLeft: drive.maxRuns - runsDone, repos: drive.repos.length };
+}
 
 /** The run whose outcome ledger the terminal view should show — the last one the drive actually ran. */
 export function lastDriveRunId(drive: DriveStatus): string | null {

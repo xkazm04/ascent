@@ -43,3 +43,8 @@ export const startDrive = (slug: string, input: StartDriveInput): Promise<{ driv
 
 export const stopDrive = (slug: string, id: string): Promise<{ ok: boolean; drive: DriveStatus }> =>
   post<{ ok: boolean; drive: DriveStatus }>(slug, { action: "stop", id }, "Could not stop the drive");
+
+/** Re-arm an INTERRUPTED drive. The server starts a NEW drive continuing the same chain, so the
+ *  response carries a different id from the one asked about — the caller adopts what comes back. */
+export const resumeDrive = (slug: string, id: string): Promise<{ drive: DriveStatus }> =>
+  post<{ drive: DriveStatus }>(slug, { action: "resume", id }, "Could not resume the drive");

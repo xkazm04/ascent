@@ -112,6 +112,7 @@ model Organization {
   techGroups       TechStackGroup[]
   llmConfig        OrgLlmConfig?
   loopRuns         LoopRun[]
+  loopDrives       LoopDrive[]
   athenaThreads    AthenaThread[]
   athenaProposals  AthenaProposal[]
   athenaIdentity   AthenaIdentity[]
@@ -1648,6 +1649,43 @@ model LoopRunLane {
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])
+}
+
+// A DRIVE: the sequence of loop runs that pulls a fleet toward green (src/lib/local/drive.ts).
+//
+// The runs it dispatches were always durable; the drive's own INTENT was not — it lived in a Map on
+// globalThis, so a restart mid-drive ended it silently and a status read afterwards reported nothing
+// at all. A row that reads `running` while no process is driving is the same lie a stale LoopRun row
+// is, so it gets the same treatment: the boot sweep reconciles it to `interrupted`, which is a phase
+// a human can act on rather than a job that looks alive forever.
+//
+// Deliberately NOT auto-resumed. A drive spends agent sessions and money; re-arming one is a
+// decision, so `interrupted` is terminal and `resumedFrom` records the chain the operator restarted.
+model LoopDrive {
+  id              String    @id @default(uuid())
+  orgId           String
+  createdBy       String? // GitHub login that armed the drive
+  // running | green | dry | ceiling | stopped | interrupted | error
+  phase           String    @default("running")
+  reposJson       String    @default("[]") // JSON string[] of "owner/name" — the drive's scope
+  maxRuns         Int       @default(3) // the rope, spanning the whole resume chain
+  maxCycles       Int       @default(3)
+  concurrency     Int       @default(2)
+  // Runs already spent by the drives this one resumed. The cap counts the CHAIN, not the segment,
+  // so resuming can never hand an agent more rope than the operator originally allowed.
+  runsBefore      Int       @default(0)
+  resumedFrom     String? // the interrupted drive this one continues
+  runsJson        String    @default("[]") // JSON DriveRunRecord[]
+  measurementJson String? // JSON DriveMeasurement — the latest fleet score, or null before the first
+  stopRequested   Boolean   @default(false)
+  startedAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  endedAt         DateTime?
+  error           String?
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, startedAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,13 @@
 //
 //   POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency? } → { drive }
 //   POST { org, action:"stop", id }                                          → { ok, drive }
+//   POST { org, action:"resume", id }                                        → { drive }
 //   GET  ?org=<slug>                                                         → { drives }
+//
+// `resume` re-arms an INTERRUPTED drive (one a server restart orphaned) as a new drive continuing the
+// same chain — the run count carries over, so a restart never re-grants rope the operator did not
+// give. It is a POST from a human, never something boot does: the boot sweep only tells the truth
+// about what died, because an agent that spends money is re-armed by a person.
 //
 // A drive is a sequence of loop runs re-measured against the fleet's own green predicate after every
 // run, stopping on green, on a dry run (debt did not fall), or at the operator's ceiling — see
@@ -20,7 +26,7 @@ import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { resolveViewerLogin } from "@/lib/access";
 import { autopilotEnabled } from "@/lib/local/agent";
-import { DRIVE_MAX_RUNS_CAP, getDrive, listDrives, startDrive, stopDrive } from "@/lib/local/drive";
+import { DRIVE_MAX_RUNS_CAP, getDrive, listDrives, readDrive, resumeDrive, startDrive, stopDrive } from "@/lib/local/drive";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/local/loop-engine";
 
 export const runtime = "nodejs";
@@ -40,7 +46,9 @@ export async function GET(request: Request) {
   const org = (new URL(request.url).searchParams.get("org") ?? "").trim().toLowerCase();
   const denied = await gate(org);
   if (denied) return denied;
-  return NextResponse.json({ enabled: autopilotEnabled(), drives: listDrives(org) });
+  // The list reads the DB (a drive this process never started still happened), overlaid with the
+  // live registry — so a restart reports `interrupted`, not nothing at all.
+  return NextResponse.json({ enabled: autopilotEnabled(), drives: await listDrives(org) });
 }
 
 export async function POST(request: Request) {
@@ -64,7 +72,25 @@ export async function POST(request: Request) {
     if (!drive || drive.org !== org) return NextResponse.json({ error: "Unknown drive for this organization." }, { status: 404 });
     return NextResponse.json({ ok: stopDrive(id), drive });
   }
-  if (body.action !== "start") return NextResponse.json({ error: "action must be 'start' or 'stop'." }, { status: 400 });
+  if (body.action === "resume") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return NextResponse.json({ error: "Missing 'id'." }, { status: 400 });
+    if (!autopilotEnabled()) {
+      return NextResponse.json({ error: "The loop is not enabled on this deployment — set ASCENT_AUTOPILOT=1." }, { status: 409 });
+    }
+    // Tenancy is checked BEFORE anything is armed: `requireOrgRole` above authorized the caller for
+    // `org`, and a drive id is not org-scoped on its own.
+    const prior = await readDrive(id);
+    if (!prior || prior.org !== org) return NextResponse.json({ error: "Unknown drive for this organization." }, { status: 404 });
+    try {
+      return NextResponse.json({ drive: await resumeDrive(id, await resolveViewerLogin()) }, { status: 202 });
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 409 });
+    }
+  }
+  if (body.action !== "start") {
+    return NextResponse.json({ error: "action must be 'start', 'stop' or 'resume'." }, { status: 400 });
+  }
 
   if (!autopilotEnabled()) {
     return NextResponse.json(

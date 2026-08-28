@@ -45,6 +45,8 @@ export function useCockpit(input: UseCockpitInput) {
   const [driveOutcome, setDriveOutcome] = useState<DriveStatus | null>(null);
   const [drift, setDrift] = useState<CockpitDrift | null>(null);
   const [replay, setReplay] = useState(0);
+  /** An interrupted drive the operator waved off — a standing offer, not a modal, so it can be closed. */
+  const [dismissedDriveId, setDismissedDriveId] = useState<string | null>(null);
 
   const bodies = useMemo(() => layoutBodies(seeds, histories), [seeds, histories]);
   const paired = useMemo(() => new Set(pairedRepos), [pairedRepos]);
@@ -97,6 +99,19 @@ export function useCockpit(input: UseCockpitInput) {
     await drive.start(i);
   };
 
+  // The drive a restart orphaned, offered back to the operator. Only ever surfaced from `inspect`:
+  // while something is running, or while an outcome is on screen, the rail is answering a different
+  // question and this offer can wait.
+  const interruptedDrive =
+    mode === "inspect" && drive.drive?.phase === "interrupted" && drive.drive.id !== dismissedDriveId ? drive.drive : null;
+
+  const resumeDrive = async () => {
+    if (!interruptedDrive) return;
+    setDrift(null);
+    setDriveOutcome(null);
+    await drive.resume(interruptedDrive.id);
+  };
+
   const openRun = async (id: string) => {
     if (loop.live && id === loop.activeId) return setMode("run");
     const detail = await loop.loadDetail(id);
@@ -131,6 +146,8 @@ export function useCockpit(input: UseCockpitInput) {
     setSelected,
     outcome,
     driveOutcome,
+    interruptedDrive,
+    dismissDrive: () => setDismissedDriveId(drive.drive?.id ?? null),
     drift,
     scanning: scanningRepos(loop.live ? loop.detail : null),
     laneCount: loop.live ? loop.detail?.lanes.length ?? 0 : 0,
@@ -139,6 +156,7 @@ export function useCockpit(input: UseCockpitInput) {
     stop: drive.live ? () => void drive.stop() : loop.activeId ? () => void loop.stop(loop.activeId!) : undefined,
     startRun,
     startDrive,
+    resumeDrive,
     openRun,
     replayRun,
     backToInspect,

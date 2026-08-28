@@ -8,7 +8,7 @@
 import type { DriveMeasurement, DrivePhase, DriveRunRecord, DriveStatus } from "@/lib/local/drive-types";
 
 export type { DriveMeasurement, DrivePhase, DriveRunRecord, DriveStatus };
-export { DRIVE_DEFAULT_MAX_RUNS, DRIVE_MAX_RUNS_CAP, isDriveLive } from "@/lib/local/drive-types";
+export { DRIVE_DEFAULT_MAX_RUNS, DRIVE_MAX_RUNS_CAP, driveRunsDone, isDriveLive, resumeParams } from "@/lib/local/drive-types";
 
 /** GET /api/org/local/drive?org=… */
 export interface DriveStatusPayload {

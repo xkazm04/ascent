@@ -42,6 +42,8 @@ const drive = (over: Partial<DriveStatus> = {}): DriveStatus => ({
   concurrency: 2,
   runs: [],
   measurement: measure(),
+  runsBefore: 0,
+  resumedFrom: null,
   startedAt: "2026-08-28T10:00:00Z",
   endedAt: null,
   error: null,
