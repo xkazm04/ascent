@@ -17,7 +17,7 @@
 // not know how it ended, and dropping it would quietly shrink the denominator of every rate.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-const GH = "https://api.github.com";
+import { ghFetch, githubApiBase } from "@/lib/github/host";
 
 /** One deployment as we store it. `sha` is lower-cased — the join key to AiChange.mergeCommitSha. */
 export interface DeploymentRecord {
@@ -73,16 +73,25 @@ export function toDeploymentRecord(d: GhDeployment, latest: GhDeploymentStatus |
   };
 }
 
+/**
+ * Null-on-failure GET, now over the shared {@link ghFetch} rather than a bare `fetch`.
+ *
+ * This module was the last GitHub caller hand-rolling its own request: same headers, same `no-store`,
+ * but NO timeout — so a stalled connection hung until the calling route's maxDuration, which is the
+ * exact failure `fetchWithTimeout` was built to stop (see the note above it in host.ts about the
+ * budget covering the body, not just the headers). The ingest also rides along a scan and pages up to
+ * 20 deployments plus a status call each, so a single stall could eat a scan's whole budget.
+ *
+ * The base URL moves to {@link githubApiBase} in the same change: this file hardcoded
+ * `https://api.github.com`, so deployments ingest silently ignored `GITHUB_API_URL` and could never
+ * work against a GitHub Enterprise host, while every sibling module honoured it.
+ *
+ * The null-on-failure contract is deliberately unchanged — callers here treat an unavailable
+ * deployments API as "no deployments known", never as a scan failure.
+ */
 async function ghJson<T>(path: string, token: string): Promise<T | null> {
   try {
-    const res = await fetch(`${GH}${path}`, {
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: "application/vnd.github+json",
-        "x-github-api-version": "2022-11-28",
-      },
-      cache: "no-store",
-    });
+    const res = await ghFetch(`${githubApiBase()}${path}`, { token, cache: "no-store" });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {

@@ -31,6 +31,16 @@ import { buildAthenaTurnDeps, gateAthenaOrg, refused, resolveAthenaGates } from 
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A tool-loop turn is an LLM call (often several), so this needs the same ceiling every other
+// inference route declares — scan, scan/stream, org/scan and all four cron routes are 300.
+//
+// It matters MORE here than on those, because of the error contract in the header above. A frame is
+// the only way this route can report a failure once the 200 is on the wire, and a platform timeout
+// does not raise inside the stream: it kills the function, so the `catch` that would have sent
+// `error` never runs and the client sees a socket die mid-answer — the one failure this file is
+// built to avoid, reachable by clock rather than by bug. Without this export the route ran on the
+// platform default, which is shorter than a tool loop can legitimately take.
+export const maxDuration = 300;
 
 /** Longest message accepted. A prompt-sized paste is a different feature, not a chat turn. */
 const MESSAGE_MAX = 8_000;

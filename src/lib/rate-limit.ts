@@ -642,3 +642,26 @@ export const BADGE_RATE_LIMIT: RateLimitConfig = {
   windowMs: 60_000,
   basis: "inherited",
 };
+
+// GET /api/org/repos was the last PUBLIC endpoint with no limiter — its siblings badge, gate and
+// scorecard all have one. It is the most expensive of them per call: `listOrgRepos` pages up to
+// MAX_LIST_PAGES (5) x 100 repos against the server's AMBIENT `GITHUB_TOKEN`, so one anonymous
+// request costs up to 5 upstream calls on a shared credential nobody is authenticated against. An
+// unauthenticated loop over made-up org names is therefore a denial-of-wallet lever on the operator's
+// GitHub quota — the same shape as PEEK and QUOTA_PEEK above, at 5x the upstream cost.
+// CLEARS: this serves the onboarding org-name selector, where a human types an org, looks, and maybe
+// corrects it. 10/min/IP admits ten distinct orgs a minute from one address — past any real
+// onboarding session, and a 429 costs the user only a retry.
+// THE MULTIPLICATION THAT MATTERS: at up to 5 upstream calls each, the GLOBAL cap admits ~300 GitHub
+// calls/min, which exceeds the 5,000/hour core quota if sustained. So this is a BURST brake, not a
+// quota guarantee — the actual quota protection remains `listOrgRepos`'s own page budget. If the
+// shared token starts hitting secondary limits, lower `global` here first.
+// NOT DERIVED: 10 and 60 are judgement calls about onboarding behaviour; no selector-usage rate has
+// been measured.
+export const ORG_REPOS_RATE_LIMIT: RateLimitConfig = {
+  name: "org-repos",
+  perIp: envInt("RATE_LIMIT_ORG_REPOS_PER_IP", 10),
+  global: envInt("RATE_LIMIT_ORG_REPOS_GLOBAL", 60),
+  windowMs: 60_000,
+  basis: "inherited",
+};
