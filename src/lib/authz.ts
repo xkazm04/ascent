@@ -5,6 +5,8 @@
 // shared "public" org is actable by anyone (the free funnel), and a real org requires a session
 // whose GitHub-App installations include it.
 
+import "server-only";
+
 import { NextResponse } from "next/server";
 import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { authGateEnabled, getViewer, requireViewer, type Viewer } from "@/lib/access";

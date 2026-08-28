@@ -6,6 +6,8 @@
 // list *their* installations of the App (GET /user/installations) — see docs/features/github/setup.md.
 // Server-only module (uses next/headers); never import from a client component.
 
+import "server-only";
+
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";

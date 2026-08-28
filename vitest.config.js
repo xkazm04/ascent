@@ -53,7 +53,17 @@ const config = {
     },
   },
   resolve: {
-    alias: [{ find: /^@\//, replacement: resolve(process.cwd(), "src") + "/" }],
+    alias: [
+      { find: /^@\//, replacement: resolve(process.cwd(), "src") + "/" },
+      // `server-only` is a BUILD-time marker, not a runtime module: its default export throws on
+      // import so that a client bundle referencing it fails `next build` (that is the whole point —
+      // see Architect ADR 2026-08-28-server-only-boundary). Next resolves the package's `react-server`
+      // condition to a no-op on the server; vitest has no such condition, so every unit test that
+      // imports a guarded module (auth, access, authz, db) would throw. Point it at the package's own
+      // empty.js — the same file Next uses — rather than setting a global `react-server` condition,
+      // which would also change how react itself resolves.
+      { find: /^server-only$/, replacement: resolve(process.cwd(), "node_modules/server-only/empty.js") },
+    ],
   },
 };
 

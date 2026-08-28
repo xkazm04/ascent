@@ -55,7 +55,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
-    "remotion": "^4.0.481"
+    "remotion": "^4.0.481",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "^3.1075.0",

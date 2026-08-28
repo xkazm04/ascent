@@ -1,4 +1,9 @@
-﻿export {
+﻿// Guards the fattest server surface in the app: a client component that reaches this barrel for a
+// VALUE (rather than `import type`) now fails the build here, naming this module, instead of failing
+// downstream with a message about next/headers. See Architect ADR 2026-08-28-server-only-boundary.
+import "server-only";
+
+export {
   getPrisma,
   isDbConfigured,
   withDb,

@@ -7,6 +7,8 @@
 // Server-only module (reads cookies via the Supabase server client); never import from a client
 // component — mirrors the convention in src/lib/auth.ts.
 
+import "server-only";
+
 import { cache } from "react";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
