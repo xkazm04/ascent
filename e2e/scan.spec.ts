@@ -19,13 +19,23 @@ test("header nav routes to the pricing page @smoke", async ({ page }) => {
   // into the deck's own "Page sections" rail. Guard that the top-menu Pricing route resolves.
   await page.getByRole("link", { name: "Pricing" }).first().click();
   await expect(page).toHaveURL(/\/pricing$/);
-  await expect(page.getByRole("heading", { name: /Plans & credits/ })).toBeVisible();
+  // The page's h1, not its <title>. "Plans & credits" moved to the metadata title in 7deeaa84
+  // (2026-08-14, "Enterprise becomes Custom"); this assertion kept naming it and had been red ever
+  // since — invisibly, because the only place it ran was smoke.yml's post-deploy job. Wiring e2e
+  // into PR CI is what surfaced it.
+  await expect(page.getByRole("heading", { name: /Pick the tier that fits your fleet/ })).toBeVisible();
 });
 
 // Deliberately NOT @smoke: this and the next test run a real scan (GitHub ingest + live LLM engine
 // on prod), which burns public scan quota and LLM cost on every deploy. There is no client-reachable
 // mock mode against a deployed server (LLM_PROVIDER=mock is a server env), so they stay local-only.
-test("scan flow streams to a report without a manual refresh", async ({ page }) => {
+//
+// @livescan marks the second thing they are: even locally, against the mock engine, they perform a
+// REAL GitHub ingest of sindresorhus/slugify. That is the one dependency the PR e2e job must not
+// carry — api.github.com's availability and rate limit would sit on the critical path of every
+// pull request — so `.github/workflows/ci.yml` runs the suite with `--grep-invert @livescan`. The
+// tag changes nothing about running them by hand; `npx playwright test e2e/scan.spec.ts` still does.
+test("scan flow streams to a report without a manual refresh @livescan", async ({ page }) => {
   await page.goto("/");
 
   // Drive the exact path that was stuck: client-side nav from the form -> SSE stream.
@@ -62,7 +72,7 @@ test("scan flow streams to a report without a manual refresh", async ({ page }) 
   await expect(page.getByText(/Evidence|test file|signal /i).first()).toBeVisible();
 });
 
-test("public scan runs through the engine and renders — no error wall", async ({ page }) => {
+test("public scan runs through the engine and renders — no error wall @livescan", async ({ page }) => {
   // The basic operation the product exists to do: open a report, let the live pipeline run
   // (GitHub ingest → deterministic signals → LLM engine → compose), and render. This 500'd
   // ("Unexpected error while scanning the repository") when the DB was configured but unreachable,
