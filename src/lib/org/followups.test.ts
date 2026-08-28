@@ -181,6 +181,21 @@ describe("buildFixPrompt", () => {
     expect(p).toContain("up to +9 maturity points");
   });
 
+  it("breaks an impact tie on effort CHEAPEST first, not most-expensive first", () => {
+    // Effort ranks the opposite way to impact; ranking it through the IMPACT map put the dearest
+    // item at the top of the repo's section — the reverse of the order a batch is worked in.
+    const p = buildFixPrompt(
+      [
+        item({ id: "dear", impact: "high", effort: "high" }),
+        item({ id: "cheap", impact: "high", effort: "low" }),
+        item({ id: "mid", impact: "high", effort: "medium" }),
+      ],
+      ctx,
+    );
+    expect(p.indexOf("id: `cheap`")).toBeLessThan(p.indexOf("id: `mid`"));
+    expect(p.indexOf("id: `mid`")).toBeLessThan(p.indexOf("id: `dear`"));
+  });
+
   it("carries the scan's own words and the trailer instruction, and names every id", () => {
     const p = buildFixPrompt([item()], ctx);
     expect(p).toContain("Agent guidance is thin");

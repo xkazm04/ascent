@@ -182,11 +182,15 @@ export function resolutionNote(d: InProgressDecision, scanRef: string): string {
 // ─── The prompt ──────────────────────────────────────────────────────────────────────────────────
 
 const IMPACT_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+/** Effort runs the other way — `low` is the desirable end. Ranking it through IMPACT_ORDER listed the
+ *  most expensive item first, which is not the order anyone wants to work a batch in. */
+const EFFORT_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 };
 
 /**
  * Build the fix prompt for a batch of follow-ups. Pure, deterministic.
- * One section per repository, ordered by the batch's projected points; items inside a repo by
- * impact then effort. Text is plain markdown that reads well pasted into a terminal-side agent.
+ * One section per repository, ordered by the batch's projected points; items inside a repo by impact
+ * (highest first) then effort (cheapest first). Text is plain markdown that reads well pasted into a
+ * terminal-side agent.
  */
 export function buildFixPrompt(items: readonly FollowUpItem[], ctx: { org: string; generatedAt: string; scanNote?: string }): string {
   const byRepo = new Map<string, FollowUpItem[]>();
@@ -211,7 +215,7 @@ export function buildFixPrompt(items: readonly FollowUpItem[], ctx: { org: strin
   lines.push("");
 
   for (const [repo, list] of repos) {
-    const sorted = [...list].sort((a, b) => (IMPACT_ORDER[a.impact] ?? 9) - (IMPACT_ORDER[b.impact] ?? 9) || (IMPACT_ORDER[a.effort] ?? 9) - (IMPACT_ORDER[b.effort] ?? 9));
+    const sorted = [...list].sort((a, b) => (IMPACT_ORDER[a.impact] ?? 9) - (IMPACT_ORDER[b.impact] ?? 9) || (EFFORT_ORDER[a.effort] ?? 9) - (EFFORT_ORDER[b.effort] ?? 9));
     const pts = sumPts(sorted);
     lines.push(`## ${repo}${pts > 0 ? ` — up to +${pts} maturity points if all close` : ""}`);
     lines.push("");
