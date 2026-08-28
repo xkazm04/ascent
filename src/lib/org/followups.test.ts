@@ -35,8 +35,11 @@ describe("parseResolvedIds", () => {
 });
 
 describe("decideInProgress — the resolve rule", () => {
-  it("a trailer wins even when the scan still restates the gap", () => {
-    // 2026-08-26: a trailer no longer beats a restatement — see the "hint, not a verdict" cases below.
+  it("a trailer closes a row the scan no longer restates, and names itself as the reason", () => {
+    // The name of this case read "a trailer wins even when the scan still restates the gap" until
+    // 2026-08-28 — the behaviour it was written for in 2026-08-26, and the exact opposite of what the
+    // assertion below has checked ever since (note the `false`: the gap is NOT restated here). The
+    // trailer-vs-restatement case is `claimed-but-restated`, two cases down.
     expect(decideInProgress({ id: "a" }, false, new Set(["a"]))).toEqual({ kind: "done", reason: "trailer" });
   });
   it("not restated → done; restated without a trailer → keep", () => {
