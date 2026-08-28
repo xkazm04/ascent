@@ -73,6 +73,60 @@ pragma and mock setup.
 
 ---
 
+# Safety conventions the codebase already holds
+
+These are not aspirations. Each is a pattern the code follows today, written down because losing it
+costs more than following it. Two are enforced by a structural test; the third is a rule for you.
+
+## A dangerous env flag is hard-disabled inside its OWN definition
+
+An escape-hatch flag — one that drops the login wall, opens a credit mint, or exposes a preview
+surface — reads its production floor **in the function that defines it**, never at the call site:
+
+```ts
+export function authBypassEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;   // floor FIRST
+  return envBool("ASCENT_AUTH_BYPASS");
+}
+```
+
+`src/lib/env.ts` applies this to `authBypassEnabled()` (`:88`), `creditGrantsEnabled()` (`:96`) and
+`registryPreviewEnabled()` (`:141`), and each comments the reason: a stray or leaked env var on a real
+deployment must be **inert**, not merely unused-by-convention.
+
+Why the placement is the whole point: a flag whose floor lives at the call site is one careless
+`process.env.X === "1"` away from being lost, and the person who writes that line will not know the
+floor existed. Putting it in the definition means there is no way to read the flag without the floor.
+
+**When you add an escape hatch:** put the `NODE_ENV === "production"` check inside its definition,
+before reading the variable, and never read the raw `process.env` value anywhere else.
+
+Note the deliberate exception: `selfHosted()` (`src/lib/env.ts:69`) has a *three-state* read and no
+production floor, because self-hosting in production is a legitimate mode. It instead warns once when
+production falls through to inference — a fail-open it makes **loud** rather than forbidden.
+
+## An `[id]` route authorizes against the row's org
+
+Enforced by `src/app/api/org/id-routes-gated.test.ts`. Two mechanisms, both correct:
+
+- **resolve-then-gate** — derive the owning org from the row, gate that (`getGoalOrgSlug(id)` →
+  `requireOrgRole`). Never trust a caller-supplied org *alongside* a caller-supplied id.
+- **gate-then-constrain** — gate the caller-supplied org, then pass it into the query beside the id so
+  a mismatched row is simply not found (`setRepoSegment(body.org, id, …)` → 404).
+
+The guard checks a gate is present; it cannot check the id is org-constrained. That part is review.
+
+## A db type that crosses to a client never declares a `Date`
+
+Enforced by `src/lib/db/wire-safe-dates.test.ts` (a compile-time assertion, so `tsc` catches it).
+
+Prisma returns `Date`; `NextResponse.json` sends an ISO **string**. A wire type declaring `Date` lets
+`row.createdAt.getTime()` type-check and then throw at runtime. Every client-facing row type declares
+timestamps as `string` and the `toRow()` mappers `.toISOString()` server-side — so the mistake is not
+available to make. Add a new client-imported db type to that guard's list.
+
+---
+
 # Documentation Sync: one surface, same-session enforcement
 
 Ascent has one docs surface for implemented product: **`docs/features/<area>/`**,
