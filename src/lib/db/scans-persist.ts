@@ -415,6 +415,11 @@ export async function persistScanReport(
             // Persisted so a reconstructed report and a run-over-run comparison can attribute a delta
             // to them instead of reporting it as repository change. Null = the row predates the column.
             scoreIntegrityJson: report.scoreIntegrity ? JSON.stringify(report.scoreIntegrity) : null,
+            // What this scan could see of the GITHUB-side folds (observed / carried / unavailable).
+            // A worktree rescan cannot observe them, so without this the loop's own scans recorded a
+            // floor on D2/D3/D4 that read exactly like a measured shortfall. Null = the question was
+            // never asked, which is UNKNOWN and not "unavailable" — see PlatformSignalRecord.
+            platformSignalsJson: report.platformSignals ? JSON.stringify(report.platformSignals) : null,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),

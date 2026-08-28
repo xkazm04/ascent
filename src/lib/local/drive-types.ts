@@ -20,6 +20,12 @@ export interface DriveMeasurement {
   remaining: string[];
   /** Repos with no scan at all: they are not green, and a run cannot start from nothing. */
   unscanned: string[];
+  /**
+   * Per repo, the dimensions the verdict was reached WITHOUT — D2/D3/D4 when the repo's latest
+   * reading was local and had no GitHub-side platform fold to carry (src/lib/analyze/platform-carry.ts).
+   * Optional: absent on a measurement taken before this existed, which is unknown rather than "none".
+   */
+  notMeasurable?: { repo: string; dims: string[] }[];
 }
 
 export interface DriveRunRecord {

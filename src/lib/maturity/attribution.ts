@@ -22,8 +22,9 @@
 // an engine swap, is not a regression either — reporting one would be the same error with the sign
 // flipped, and would have the loop chasing noise it created.
 
-import type { ScoreIntegrity } from "@/lib/types";
+import type { PlatformSignalRecord, ScoreIntegrity } from "@/lib/types";
 import { SCORE_BLEND } from "@/lib/maturity/model";
+import { PLATFORM_FOLD_DIMS } from "@/lib/analyze/platform-carry";
 
 /** The engine name a degraded or keyless scan carries. Mirrors MockProvider.name. */
 export const MOCK_ENGINE = "mock";
@@ -105,6 +106,73 @@ export function attributeDelta(
     return { kind: "mock-scan", delta, degraded: before.engineDegraded === true || after.engineDegraded === true };
   }
   return Math.abs(delta) > SCORE_NOISE_BAND ? { kind: "attributable", delta } : { kind: "within-noise", delta };
+}
+
+// ── the fourth way a number moves: the platform fold ────────────────────────────────────────────
+//
+// D2/D3/D4 are credited partly for tooling that is INSTALLED rather than committed — review/CI/
+// coverage Apps posting check suites, default-branch Actions health (analyze/platform-signals.ts).
+// A worktree scan cannot observe any of it, so those three dimensions can move between two scans of
+// an unchanged repository purely because one end saw GitHub and the other did not.
+//
+// The loop's rescans now CARRY the last observed fold forward (analyze/platform-carry.ts), which is
+// what makes the ordinary pair comparable again: the same points land on the same dimensions on both
+// ends, and the residue is real repository movement. This rule catches what is left — a pair whose
+// two ends folded the platform signals DIFFERENTLY, which is almost always a first local rescan
+// against a before-scan written before any of this was recorded.
+//
+// It refuses per DIMENSION, not per pair, and deliberately so. The fold moves three dimensions; the
+// overall score it feeds is an archetype-weighted mean over nine, and refusing the whole pair on a
+// D2-only fold difference would throw away six dimensions of honest measurement to protect three.
+// The narrower refusal is the one that says something true.
+
+/** The provenance end this rule reads. `ComparableScan` satisfies it structurally. */
+export interface FoldEnd {
+  platformSignals?: PlatformSignalRecord;
+}
+
+/** Points the platform fold contributed to `dimId` on one end, or null when the end never recorded
+ *  the question — UNKNOWN, which is not zero. */
+export function foldPointsFor(end: FoldEnd | null | undefined, dimId: string): number | null {
+  const record = end?.platformSignals;
+  if (!record) return null;
+  return record.dims.find((d) => d.dimId === dimId)?.points ?? 0;
+}
+
+/**
+ * Did the platform fold contribute the SAME thing to this dimension on both ends?
+ *
+ * Unknown on both ends is `true`: two legacy rows are as comparable as they ever were, and inventing
+ * a refusal from absent data is the error this whole module exists to avoid. Unknown on one end while
+ * the other folded nothing is also `true` — nothing was carried, so nothing was added. Only a real
+ * difference, or an unknown facing a real fold, refuses.
+ */
+export function foldIsComparable(before: FoldEnd | null | undefined, after: FoldEnd | null | undefined, dimId: string): boolean {
+  if (!(PLATFORM_FOLD_DIMS as readonly string[]).includes(dimId)) return true;
+  const b = foldPointsFor(before, dimId);
+  const a = foldPointsFor(after, dimId);
+  if (b == null && a == null) return true;
+  if (b == null) return a === 0;
+  if (a == null) return b === 0;
+  return a === b;
+}
+
+/**
+ * The verdict for ONE DIMENSION's movement, which is `attributeDelta` plus the fold check.
+ *
+ * A dimension whose fold differs across the pair reports `unmeasured`: the difference is a fact about
+ * what each scan could SEE of GitHub, and folding is not a lift. It is reported as unmeasured rather
+ * than as a mock-shaped refusal because that is literally the situation — the movement was never
+ * measured against a comparable baseline.
+ */
+export function attributeDimension(
+  dimId: string,
+  delta: number | null | undefined,
+  before: (EngineEnd & FoldEnd) | null | undefined,
+  after: (EngineEnd & FoldEnd) | null | undefined,
+): Attribution {
+  if (!foldIsComparable(before, after, dimId)) return { kind: "unmeasured" };
+  return attributeDelta(delta, before, after);
 }
 
 /** True only for a movement this rule will let a surface print as a green delta. */

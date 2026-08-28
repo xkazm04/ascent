@@ -144,3 +144,56 @@ describe("contested does not apply to a claim-scored dimension", () => {
     expect(repoGreenness("a/b", [{ dimId: "D4", score: 90, signalScore: 90, llmScore: 20 }]).green).toBe(true);
   });
 });
+
+describe("dimensions no reading could measure are EXCLUDED, not failed", () => {
+  // D2/D3/D4 are credited partly for tooling that is installed rather than committed, which a
+  // worktree scan cannot observe (src/lib/analyze/platform-carry.ts). Judging them at their file-scan
+  // floor made the loop drive at a number no amount of real work could raise.
+  const PLATFORM = ["D2", "D3", "D4"];
+
+  it("does not raise a gap, a debt or a contested flag for an excluded dimension", () => {
+    const r = repoGreenness(
+      "a/b",
+      [
+        { dimId: "D1", score: 90 },
+        // Numerically far below the band, and contested on top of it — both readings of a number
+        // nothing could observe, so neither may be held against the repo.
+        { dimId: "D3", score: 20, signalScore: 20, llmScore: 90 },
+      ],
+      PLATFORM,
+    );
+    expect(r.green).toBe(true);
+    expect(r.gaps).toEqual([]);
+    expect(r.debt).toBe(0);
+    expect(r.contested).toEqual([]);
+    expect(r.unmeasurable).toEqual(["D3"]);
+  });
+
+  it("still fails on a MEASURED dimension that is short — exclusion is not a blanket pass", () => {
+    const r = repoGreenness(
+      "a/b",
+      [
+        { dimId: "D1", score: 40 },
+        { dimId: "D2", score: 10 },
+      ],
+      PLATFORM,
+    );
+    expect(r.green).toBe(false);
+    expect(r.gaps.map((g) => g.dimId)).toEqual(["D1"]);
+    expect(r.unmeasurable).toEqual(["D2"]);
+  });
+
+  it("is NOT green when every dimension was excluded — vacuous green is the unscanned case again", () => {
+    const r = repoGreenness("a/b", [{ dimId: "D2", score: 10 }, { dimId: "D3", score: 10 }], PLATFORM);
+    expect(r.green).toBe(false);
+    expect(r.unmeasurable).toEqual(["D2", "D3"]);
+    // And it is distinguishable from a repo nobody ever scanned, which reports the other way.
+    expect(r.unscanned).toBe(false);
+  });
+
+  it("excludes nothing by default, so every existing caller keeps the nine-dimension verdict", () => {
+    const r = repoGreenness("a/b", dims(90, 95, 20));
+    expect(r.unmeasurable).toEqual([]);
+    expect(r.green).toBe(false);
+  });
+});

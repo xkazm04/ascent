@@ -260,6 +260,7 @@ CREATE TABLE "Scan" (
     "engineByom" BOOLEAN,
     "engineDegraded" BOOLEAN,
     "scoreIntegrityJson" TEXT,
+    "platformSignalsJson" TEXT,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -281,6 +282,9 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
 -- first on its own.
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineDegraded" BOOLEAN;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "scoreIntegrityJson" TEXT;
+-- What this scan could SEE of the GitHub-side platform signals — observed / carried from an earlier
+-- scan / unavailable. See the 20260828160000_add_scan_platform_signals migration.
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "platformSignalsJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (

@@ -29,6 +29,13 @@ export interface DriveProgressView {
   /** Repos still short of green — the next run's targets, worst first. */
   remaining: string[];
   unscanned: string[];
+  /**
+   * The one line naming what the verdict was reached WITHOUT: dimensions no reading in scope could
+   * measure (D2/D3/D4 on a local scan with no GitHub-side fold to carry). Null when everything was
+   * measured. Without it a green light over six dimensions is indistinguishable from one over nine,
+   * which is the same silence the fold's ceiling used to hide behind.
+   */
+  notMeasurable: string | null;
 }
 
 export function driveProgress(drive: DriveStatus): DriveProgressView {
@@ -53,7 +60,18 @@ export function driveProgress(drive: DriveStatus): DriveProgressView {
     inScope: m?.inScope ?? drive.repos.length,
     remaining: m?.remaining ?? [],
     unscanned: m?.unscanned ?? [],
+    notMeasurable: notMeasurableLine(m?.notMeasurable),
   };
+}
+
+/** `D2/D3/D4 not measurable on 2 repos` — the dims named once, the repos counted. Naming every repo
+ *  would push the panel into a list nobody reads; naming no dimension would say nothing at all. */
+function notMeasurableLine(entries: { repo: string; dims: string[] }[] | undefined): string | null {
+  if (!entries?.length) return null;
+  const dims = [...new Set(entries.flatMap((e) => e.dims))].sort();
+  if (dims.length === 0) return null;
+  const n = entries.length;
+  return `${dims.join("/")} not measurable on ${n} ${n === 1 ? "repo" : "repos"}`;
 }
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);

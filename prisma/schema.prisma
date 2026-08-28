@@ -600,6 +600,16 @@ model Scan {
   // comparison lost the record of the three levers that move a headline on an UNCHANGED commit. Any
   // consumer comparing two scans has to be able to read it to attribute a delta. Null on legacy rows.
   scoreIntegrityJson String?
+  // WHAT THIS SCAN COULD SEE OF GITHUB (JSON PlatformSignalRecord — source, observedAt, fromScanId,
+  // stale, per-dimension folds). The platform folds (analyze/platform-signals.ts) credit D2/D3/D4 for
+  // tooling that is installed rather than committed, and a worktree scan cannot observe any of it. Left
+  // unrecorded, the loop's own rescans scored those three dimensions at a floor the repository could
+  // not raise, while `green` demanded L5 on every one of them — a ceiling with no visible cause. This
+  // column is what lets a local rescan REPLAY the last observed fold (with its age) and, when there is
+  // none, say the dimensions were not measurable instead of scoring them as failed.
+  // Null on legacy rows and on any scan that never asked the question: UNKNOWN, which is deliberately
+  // not the same value as "unavailable" — that one removes dimensions from a verdict.
+  platformSignalsJson String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens       Int?

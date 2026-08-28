@@ -51,6 +51,15 @@ export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, erro
         {p.unscanned.length > 0 && <span className="ml-2 text-warn">· {p.unscanned.length} never scanned</span>}
       </p>
 
+      {p.notMeasurable && (
+        <p
+          className="mt-1 font-mono text-xs text-slate-500"
+          title="These dimensions are credited partly for tooling that is installed rather than committed (review, CI and coverage Apps; default-branch Actions health), which a local scan cannot observe and no earlier GitHub scan recorded. They are EXCLUDED from the green verdict rather than counted as failed — driving at a number the reading cannot produce is how a loop runs forever."
+        >
+          {p.notMeasurable}
+        </p>
+      )}
+
       {inFlight ? (
         <p className="mt-3 inline-flex items-center gap-1.5 font-mono text-xs tabular-nums text-accent">
           <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
@@ -169,6 +178,9 @@ export function DriveVerdict({ drive, onBack }: { drive: DriveStatus; onBack?: (
         </span>
       </div>
       <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{v.detail}</p>
+      {/* A terminal verdict has to disclose what it could not see. "Green" over six dimensions is a
+          real result and a different claim from "green" over nine. */}
+      {p.notMeasurable && <p className="mt-1 font-mono text-xs text-slate-500">{p.notMeasurable}</p>}
       {onBack && (
         <button
           type="button"

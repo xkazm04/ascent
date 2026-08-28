@@ -15,7 +15,7 @@ import { runClaudeAgent } from "@/lib/local/agent";
 import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
 import { updateRecommendation } from "@/lib/db/scans-recommendations";
-import { persistScanReport } from "@/lib/db";
+import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
@@ -109,11 +109,27 @@ export async function rescanWorktree(args: {
   branch: string;
   onStage: (stage: string) => void;
 }): Promise<{ scanId: string | null; closedIds: string[] }> {
+  // THE PLATFORM FOLD, CARRIED. D2/D3/D4 are credited partly for tooling that is installed rather
+  // than committed (review/CI/coverage Apps posting check suites, default-branch Actions health —
+  // src/lib/analyze/platform-signals.ts), and none of it is visible from a worktree. Scoring those
+  // three dimensions at their file-scan floor here was not a rounding difference: `green` demands L5
+  // on every dimension, so the loop could drive forever against a ceiling it created and rendered
+  // nowhere. The last GitHub-side scan of this repo recorded what the fold was worth; it is replayed
+  // with its own provenance and age on every evidence line, and when there is none the report says
+  // the dimensions were NOT MEASURABLE rather than reporting the floor as a measurement.
+  //
+  // Best-effort: a lookup failure must never fail the rescan. It degrades to `unavailable`, which is
+  // the honest reading of "we could not establish what GitHub sees".
+  const carried = await getLatestPlatformSignals(args.org, args.repo).catch(() => null);
   const report = await scanRepository(args.repo, {
     orgSlug: args.org,
     source: new LocalFsSource(args.dir),
-    scopeCaveat: `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are not included.`,
+    scopeCaveat: carried
+      ? `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are carried from scan ${carried.scanId}, not observed here.`
+      : `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are not included.`,
     noAmbientToken: true,
+    platformSignalsUnobservable: true,
+    carriedPlatformSignals: carried,
     onProgress: (p) => {
       if (p.stage !== "done") args.onStage(p.stage);
     },

@@ -367,11 +367,24 @@ assumed (see [the loop's attribution rule](../org-planning/live.md#is-this-lift-
 | `engine.provider` / `engine.model` | `engineProvider`, `engineModel` | which engine answered |
 | `engine.degraded` | `engineDegraded` | an LLM **was requested and never answered**, so the provider above is the deterministic *floor*, not a choice |
 | `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `effectiveBlend` |
+| `report.platformSignals` | `platformSignalsJson` | what this scan could see of **GitHub** — `observed`, `carried` (from which scan, how old, `stale`), or `unavailable` |
+
+The fourth row is the one a *worktree* scan needs. D2/D3/D4 are credited partly for tooling that is
+**installed rather than committed** — review/CI/coverage Apps posting check suites, default-branch
+Actions health (`src/lib/analyze/platform-signals.ts`) — and a scan reading a local filesystem cannot
+observe any of it. `applyPlatformSignals` therefore records what the fold was worth (points +
+evidence, per dimension); a later local scan **replays** that record with its provenance and age on
+every line (`src/lib/analyze/platform-carry.ts`, stale past `PLATFORM_FOLD_STALE_DAYS` = 14), and when
+there is nothing to replay the record says `unavailable` — which excludes those three dimensions from
+the green verdict instead of scoring them at a floor the repository cannot raise. See
+[the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
 
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
 explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
 written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
-/ "nothing widened", and the readers keep it `undefined` rather than defaulting it.
+/ "nothing widened" / "unavailable", and the readers keep it `undefined` rather than defaulting it.
+That asymmetry is load-bearing for the last row: `unavailable` *removes dimensions from a verdict*,
+and no historical row is entitled to make that claim.
 
 ### App Readiness Passport & autonomy tier (`src/lib/analyze/passport*.ts`)
 

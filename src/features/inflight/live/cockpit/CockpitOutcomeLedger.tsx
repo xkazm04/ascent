@@ -14,7 +14,8 @@
 
 import { deltaHex, fmtDelta, Kicker } from "@/components/ui";
 import { dimShort } from "@/lib/ui";
-import { attributionLabel, integrityNotes } from "@/lib/maturity/attribution";
+import { attributeDimension, attributionLabel, integrityNotes } from "@/lib/maturity/attribution";
+import { platformFoldNote } from "@/lib/analyze/platform-carry";
 import { laneAttribution, type RunAttribution } from "./cockpitDrift";
 import type { LoopLaneOutcome } from "./loopTypes";
 
@@ -23,6 +24,11 @@ function ProvenanceLine({ outcome }: { outcome: LoopLaneOutcome }) {
   const end = outcome.after ?? outcome.before;
   if (!end) return null;
   const notes = integrityNotes(end.scoreIntegrity);
+  // Where this lane's D2/D3/D4 credit came from. A loop rescan cannot observe the GitHub-side
+  // signals, so it either replays the last scan that could (naming it and its age) or says the
+  // dimensions were not measurable — and the operator is entitled to know which, because it is the
+  // difference between a score that is comparable with the fleet's and one that is not.
+  const fold = platformFoldNote(end.platformSignals);
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-slate-600">
       <span title={`The engine that produced this lane's after-scan${end.engineDegraded ? " — after the requested model failed" : ""}`}>
@@ -30,6 +36,14 @@ function ProvenanceLine({ outcome }: { outcome: LoopLaneOutcome }) {
         {end.engineModel ? ` · ${end.engineModel}` : ""}
         {end.engineDegraded ? " (degraded)" : ""}
       </span>
+      {fold && (
+        <span
+          className="cursor-help rounded-sm border border-divider px-1.5 text-slate-500"
+          title="D2/D3/D4 are credited partly for tooling that is installed rather than committed (review, CI and coverage Apps posting check suites; default-branch Actions health). A scan run from the loop's worktree cannot observe any of it, so it replays the last scan that could — or says so."
+        >
+          {fold}
+        </span>
+      )}
       {notes.map((n) => (
         <span key={n.label} className="cursor-help rounded-sm border border-divider px-1.5 text-amber-400/80" title={n.hint}>
           {n.label}
@@ -74,18 +88,28 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
 
       {moved.length > 0 && (
         <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-          {moved.map((d) => (
-            <li key={d.id} className="font-mono text-xs tabular-nums">
-              <span className="text-slate-500">{dimShort(d.id)}</span>{" "}
-              {/* A per-dimension delta inherits the row's verdict: if the PAIR cannot be attributed,
-                  neither can any movement inside it, and colouring one green here would restate the
-                  claim the line above just declined to make. */}
-              <span style={{ color: verdict.kind === "attributable" ? deltaHex(d.delta ?? 0) : undefined }}
-                className={verdict.kind === "attributable" ? undefined : "text-slate-600"}>
-                {fmtDelta(d.delta ?? 0)}
-              </span>
-            </li>
-          ))}
+          {moved.map((d) => {
+            // A per-dimension delta inherits the row's verdict — if the PAIR cannot be attributed,
+            // neither can any movement inside it, and colouring one green here would restate the
+            // claim the line above just declined to make. It ALSO has to clear its own check: a
+            // dimension the two ends folded the platform signals differently on moved because one
+            // scan could see GitHub and the other could not, which is not work the loop did.
+            const claimable =
+              verdict.kind === "attributable" &&
+              attributeDimension(d.id, d.delta, before, after).kind === "attributable";
+            return (
+              <li key={d.id} className="font-mono text-xs tabular-nums">
+                <span className="text-slate-500">{dimShort(d.id)}</span>{" "}
+                <span
+                  style={{ color: claimable ? deltaHex(d.delta ?? 0) : undefined }}
+                  className={claimable ? undefined : "text-slate-600"}
+                  title={claimable ? undefined : "Not attributable to this run — see the row's verdict and the platform-signal provenance below."}
+                >
+                  {fmtDelta(d.delta ?? 0)}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
 

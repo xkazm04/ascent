@@ -470,6 +470,7 @@ states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
 | Boot sweep | `src/lib/local/boot-sweep.ts`, called from `src/instrumentation.ts` |
 | Drive route | `src/app/api/org/local/drive/route.ts` |
 | Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
+| Platform fold carry | `src/lib/analyze/platform-carry.ts` (+ `platform-signals.ts`) |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |
 | Cockpit | `src/features/inflight/live/cockpit/**` |
@@ -566,6 +567,51 @@ re-grant rope the operator did not give. The interrupted drive stays interrupted
 what that segment did, and `resumedFrom` links the two. `resumeParams` (`drive-types.ts`) is the one
 pure predicate both the route and the button consult, so the affordance appears exactly when
 `POST {action:"resume"}` would accept it.
+
+### Platform signals, carried into a worktree rescan (2026-08-28)
+
+D2/D3/D4 are credited partly for tooling that is **installed rather than committed** — the review, CI
+and coverage Apps posting check suites on the scored commit, and default-branch Actions health
+(`src/lib/analyze/platform-signals.ts`). A loop rescan reads a worktree with `noAmbientToken`, so it
+could observe none of it and scored those three dimensions at their file-scan floor.
+
+That was not a rounding difference. `green` demands L5 on **every** dimension, so three dimensions
+that could only ever read low were three dimensions the loop could drive at forever — and a
+drive-to-green would run to `ceiling` for a reason the operator could not see anywhere on screen.
+
+| Reading | When | What the loop does |
+| --- | --- | --- |
+| `observed` | the scan held a token and read GitHub | records the fold: points **and** evidence, per dimension (`applyPlatformSignals`) |
+| `carried` | a worktree rescan, and an earlier observed scan exists | replays that record verbatim, stamping every line with `platform signals from scan <id>, <age>`; past `PLATFORM_FOLD_STALE_DAYS` (14) it also says `stale` |
+| `unavailable` | a worktree rescan with nothing to replay | the three dimensions are **excluded** from the green verdict, and the cockpit says `D2/D3/D4 not measurable locally` |
+
+The record rides the scan row (`Scan.platformSignalsJson`, migration
+`20260828160000_add_scan_platform_signals`) and is read back onto `ComparableScan`, so both halves of
+a bracketed pair carry it. Three consequences worth stating plainly:
+
+- **A stale fold still applies.** A three-week-old App inventory is the best evidence anyone has about
+  a repo's installed tooling; dropping it would swap a stated uncertainty for a silent understatement.
+  The threshold is a disclosure, not a gate.
+- **Excluded is not passed.** `repoGreenness` reports `unmeasurable` alongside `gaps`, a repo whose
+  *every* dimension was excluded is **not** green (the unscanned rule again), and `DriveMeasurement`
+  carries `notMeasurable` so the drive panel and the terminal verdict both name what the light stands
+  on. A green light over six dimensions is a different claim from one over nine.
+- **Unknown is not `unavailable`.** A legacy row has no record; reading that as "unavailable" would
+  quietly drop three dimensions out of every historical verdict, so it excludes nothing.
+
+**Folding is not a lift** (`attributeDimension`, `src/lib/maturity/attribution.ts`). A dimension whose
+fold credit *differs* between the two ends of a pair moved because one scan could see GitHub and the
+other could not, so it reports `unmeasured` and the ledger renders it muted. Carrying the fold forward
+is what makes the ordinary pair comparable again — the same points land on both ends, and the residue
+is real work, still reported as a lift. The refusal is per **dimension**, not per pair: the fold moves
+three of nine, and refusing the whole pair would throw away six dimensions of honest measurement to
+protect three.
+
+The same carry runs on `POST /api/org/local/rescan`, so a manual local rescan cannot silently retire
+the fold from a repo's latest reading either.
+
+Tests: `platform-carry.test.ts` (fresh / stale / absent, and the round-trip), `green.test.ts`
+(exclusion, and that it is not a blanket pass), `attribution.test.ts` (folding is not a lift).
 
 ### Claims are released when nothing adjudicated them (2026-08-26)
 

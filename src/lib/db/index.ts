@@ -21,6 +21,7 @@ export {
   getScanReportByCommit,
   getRepoPassport,
   getLatestRecommendations,
+  getLatestPlatformSignals,
   updateRecommendation,
   getRecommendationEvents,
   getRecommendationOrgSlug,

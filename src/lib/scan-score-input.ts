@@ -9,7 +9,8 @@
 
 import { analyzeSignals, classifyArchetype, offPlatformReview } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
-import { applyAppInventorySignals, applyCiHealthSignals } from "@/lib/analyze/platform-signals";
+import { applyPlatformSignals } from "@/lib/analyze/platform-signals";
+import { carryPlatformFold, platformSignalsUnavailable } from "@/lib/analyze/platform-carry";
 import type { AppInventory } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import { detectStackFit, type StackFit } from "@/lib/analyze/stack-fit";
@@ -20,6 +21,7 @@ import { decisionsForRepo } from "@/lib/db";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type {
   DimensionSignals,
+  PlatformSignalRecord,
   Governance,
   PrStats,
   RepoArchetype,
@@ -46,6 +48,16 @@ export interface ScoreInputPhaseInput {
    * empty ⇒ no decisions are read at all.
    */
   decisionSlug?: string;
+  /**
+   * This scan structurally CANNOT observe the GitHub-side signals — a worktree/local scan. Set by the
+   * caller, because only it knows: `appInventory == null` on its own is equally what a failed read
+   * looks like on a scan that could have succeeded, and the difference decides whether D2/D3/D4 are
+   * EXCLUDED from the green verdict or merely left uncredited.
+   */
+  platformSignalsUnobservable?: boolean;
+  /** The last OBSERVED platform fold for this repo, to replay when this scan cannot observe one.
+   *  Ignored when the enrichments are present: a live reading always wins over a borrowed one. */
+  carriedPlatformSignals?: { record: PlatformSignalRecord; scanId: string } | null;
 }
 
 export interface ScoreInputPhaseResult {
@@ -58,6 +70,10 @@ export interface ScoreInputPhaseResult {
   scoreInput: LlmScoreInput;
   /** Caveats raised by the signal detectors themselves — the seed of the report's warnings. */
   detectorWarnings: string[];
+  /** What this scan could see of the GitHub-side signals — observed, carried from an earlier scan, or
+   *  unavailable. Undefined when the question does not arise (a scan that could have observed them,
+   *  read nothing, and was not declared local): that is UNKNOWN, not "unavailable". */
+  platformSignals?: PlatformSignalRecord;
 }
 
 /** Build the model's input from the ingested snapshot + GitHub enrichments. */
@@ -69,20 +85,26 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   const detectorWarnings: string[] = [];
   // Deepening pass: the platform-observed folds (installed Apps, CI health) run AFTER PR + governance
   // so their "only when the file scan found none" guards see the full evidence list.
-  const baseSignals = applyCiHealthSignals(
-    applyAppInventorySignals(
-      applyGovernanceSignals(
-        applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
-          // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
-          // gate is credited positively in the D6 detector from the same commit trailers.
-          offPlatformReview: offPlatformReview(snapshot.commits) != null,
-        }),
-        governance,
-      ),
-      appInventory,
-    ),
-    ciHealth,
+  const preFold = applyGovernanceSignals(
+    applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
+      // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
+      // gate is credited positively in the D6 detector from the same commit trailers.
+      offPlatformReview: offPlatformReview(snapshot.commits) != null,
+    }),
+    governance,
   );
+  // Three readings of the same question — "what can this scan see of GitHub?" — and they are kept
+  // apart because they are three different claims about the score that comes out.
+  const observed = applyPlatformSignals(preFold, appInventory, ciHealth, { observedAt: now });
+  const carry = input.carriedPlatformSignals;
+  const carried = observed.record == null && carry ? carryPlatformFold(preFold, carry, new Date(now)) : null;
+  const baseSignals = carried?.signals ?? observed.signals;
+  const platformSignals =
+    observed.record ??
+    carried?.record ??
+    // Declared local with nothing to carry: D2/D3/D4 were not measurable on this reading, and saying
+    // so is what stops the green predicate demanding an L5 the scan had no way to produce.
+    (input.platformSignalsUnobservable ? platformSignalsUnavailable() : undefined);
   // Security (D9) is scored by the DETERMINISTIC check battery (OpenSSF-Scorecard-style: graded,
   // risk-weighted, auditable) rather than the file-grep detector + LLM blend. It reads the full
   // workflow set + governance + posture + exposure, and its result REPLACES the D9 signal, flagged
@@ -135,5 +157,13 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     ...(techStackPromptEnabled() ? { techStack } : {}),
   };
 
-  return { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings };
+  return {
+    signals,
+    archetype,
+    stackFit,
+    techStack,
+    scoreInput,
+    detectorWarnings,
+    ...(platformSignals ? { platformSignals } : {}),
+  };
 }

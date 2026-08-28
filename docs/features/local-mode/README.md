@@ -47,7 +47,8 @@ can decide anything.
 | `DELETE { fullName, drop?: true }` | unpair; `drop` also leaves scan scope |
 
 The `GET` also carries **greenness** (`src/lib/maturity/green.ts`): the target band, each in-scope
-repo's per-dimension gaps and point debt, and whether the fleet as a whole has arrived. It rides the
+repo's per-dimension gaps and point debt, the dimensions that reading could not measure at all
+(`repos[].unmeasurable` — see the platform fold below), and whether the fleet as a whole has arrived. It rides the
 same read on purpose — "what is mapped" and "where does it stand" are one question for anything
 driving a loop, and asking them separately invites acting on a scope that has moved since the
 standing was measured. Scope is what is **watched**: an unwatched row still appears (it keeps its
@@ -101,6 +102,15 @@ downstream — analyzers, scoring, persistence, the trailer close in `engine.ts`
 - GitHub-side enrichments (PR stats, governance, security posture) are absent, like a token-less
   scan, and the report says so via `scopeCaveat` — a local scan can honestly score a few points
   apart from a cloud scan of the same commit.
+- **The platform fold is carried, or its absence is declared (2026-08-28).** D2/D3/D4 are credited
+  partly for tooling that is *installed rather than committed* (review/CI/coverage Apps posting check
+  suites, default-branch Actions health), which no filesystem scan can see. Both local scan doors —
+  `/api/org/local/rescan` and the loop's own rescan — replay the last scan that DID observe it
+  (`src/lib/analyze/platform-carry.ts`), stamping every borrowed evidence line with
+  `platform signals from scan <id>, <age>` and marking it `stale` past 14 days. When there is nothing
+  to replay the scan records `unavailable`, and those three dimensions are **excluded from the green
+  verdict** rather than scored at a floor the repository cannot raise. Full rationale, and why
+  "folding is not a lift", in [org-planning/live.md](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
 
 `POST /api/org/local/rescan { org, fullName }` runs one paired repo end-to-end (member-gated — a
 scan reads, only pairing decides what may be read). No credit ceremony: behind `selfHostGuard`,
