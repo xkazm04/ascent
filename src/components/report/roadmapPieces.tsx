@@ -1,7 +1,14 @@
 import type { DimensionId, LevelId, LlmRoadmapItem, ScanReport } from "@/lib/types";
 import { DIMENSION_BY_ID, LEVELS } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/engine";
-import { isQuickWin, priorityScore, QuickWinBadge } from "@/components/report/roadmapPriority";
+import {
+  isQuickWin,
+  QuickWinBadge,
+  sortRoadmap,
+  type RoadmapLifts,
+  type RoadmapSortMode,
+} from "@/components/report/roadmapPriority";
+import { ExpectedLiftBasis } from "@/components/report/ExpectedLiftBasis";
 import { EFFORT_CLASS, fastestPathNames, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { Kicker, Surface } from "@/components/ui";
@@ -27,6 +34,90 @@ export function RoadmapMeta({
     <div className={className ?? "flex items-center gap-2 text-sm"}>
       <span className={`${chip} ${IMPACT_CLASS[item.impact]}`}>impact{sep}{item.impact}</span>
       <span className={`${chip} ${EFFORT_CLASS[item.effort]}`}>effort{sep}{item.effort}</span>
+    </div>
+  );
+}
+
+/**
+ * The tracker's triage progress header. Pure relocation out of RecommendationTracker.tsx, which sat at
+ * 296/300 lines and had to shed some before it could carry the measured-sort toggle (AGENTS.md: a file
+ * approaching the limit is the signal to extract). Behaviour is unchanged, including the two corners
+ * this header exists to get right: dismissed items leave the denominator (a fully-triaged backlog must
+ * be able to reach 100%), and ALL-dismissed is not success — it gets a neutral fill and its own
+ * sentence, never a triumphant green bar over work nobody did.
+ */
+export function TrackerProgress({
+  done,
+  actionable,
+  dismissed,
+  allDismissed,
+  pct,
+}: {
+  done: number;
+  actionable: number;
+  dismissed: number;
+  allDismissed: boolean;
+  pct: number;
+}) {
+  return (
+    <Surface radius="xl" className="p-4">
+      <div className="flex items-center justify-between text-base">
+        {allDismissed ? (
+          <span className="font-medium text-slate-400">
+            All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed, nothing left to track
+          </span>
+        ) : (
+          <>
+            <span className="font-medium text-white">
+              {done} of {actionable} done
+              {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
+            </span>
+            <span className="text-slate-400">{pct}%</span>
+          </>
+        )}
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+        {allDismissed ? (
+          <div className="h-full rounded-full bg-slate-700" style={{ width: "100%" }} />
+        ) : (
+          <div className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+/**
+ * The roadmap's ordering switch (moonshot #9). CONTROLLED and hook-free, so it stays in this
+ * server-safe module while its state lives in the client tracker. The caller renders it only when at
+ * least one item has a measured clause: offering "by measured lift" over a ledger that has measured
+ * nothing would advertise evidence that does not exist.
+ */
+export function RoadmapSortToggle({
+  mode,
+  onChange,
+}: {
+  mode: RoadmapSortMode;
+  onChange: (mode: RoadmapSortMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-sm">
+      <Kicker tone="muted" as="span">
+        order
+      </Kicker>
+      {(["priority", "measured"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          aria-pressed={mode === m}
+          onClick={() => onChange(m)}
+          className={`rounded-md border px-2 py-0.5 transition-colors ${
+            mode === m ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-700 text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          {m}
+        </button>
+      ))}
     </div>
   );
 }
@@ -137,9 +228,26 @@ export function NextLevelPath({ report }: { report: ScanReport }) {
   );
 }
 
-/** Prioritized, numbered next-steps for public scans — quick wins first. */
-export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; report: ScanReport }) {
-  const ordered = [...items].sort((a, b) => priorityScore(b) - priorityScore(a));
+/**
+ * Prioritized, numbered next-steps for public scans — quick wins first.
+ *
+ * `lifts` is the org's measured basis map (moonshot #9). It is OPTIONAL and defaults to absent, so an
+ * anonymous public scan — which has no tenant and therefore no ledger — renders exactly the roadmap it
+ * always did. When it is supplied each row gains a basis clause, and `sort` may order by measured
+ * evidence; the default stays `priority`.
+ */
+export function RoadmapSteps({
+  items,
+  report,
+  lifts,
+  sort = "priority",
+}: {
+  items: LlmRoadmapItem[];
+  report: ScanReport;
+  lifts?: RoadmapLifts;
+  sort?: RoadmapSortMode;
+}) {
+  const ordered = sortRoadmap(items, lifts, sort);
   return (
     <ol className="space-y-3">
       {ordered.map((item, i) => {
@@ -163,6 +271,7 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
                 {item.rationale && (
                   <p className="mt-1.5 text-base leading-relaxed text-slate-400">{item.rationale}</p>
                 )}
+                <ExpectedLiftBasis item={item} lifts={lifts} />
                 <ExploreList items={item.explore} />
                 <ExemplarPointer dim={item.dimension} />
                 <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">

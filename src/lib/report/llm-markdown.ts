@@ -16,6 +16,18 @@
 
 import type { ScanReport } from "@/lib/types";
 import { isIncompleteReport } from "@/lib/scoring/gate";
+import type { LiftDistribution } from "@/lib/outcomes/aggregate";
+import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
+import { recommendationMatchKey } from "@/lib/report/rec-identity";
+
+/** Optional context a caller can fold into the briefing. Everything here is additive and omittable. */
+export interface ReportMarkdownOptions {
+  /**
+   * The org's measured lift map (moonshot #9), keyed by `recommendationMatchKey(dimension, title)`.
+   * Absent — the anonymous/public case — renders the briefing exactly as it always rendered.
+   */
+  lifts?: ReadonlyMap<string, LiftDistribution> | null;
+}
 
 /** Impact/effort/level metadata on one line, omitting whatever the roadmap item didn't carry. */
 function roadmapMeta(item: ScanReport["roadmap"][number]): string {
@@ -36,7 +48,7 @@ function cell(s: string): string {
  * empty) when the report carries nothing for them, so a sparse report produces a short honest brief
  * rather than a scaffold of blank headings.
  */
-export function reportLlmMarkdown(report: ScanReport): string {
+export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOptions = {}): string {
   const { repo, level, engine } = report;
   const ref = `${repo.owner}/${repo.name}`;
   const isMock = engine.provider === "mock";
@@ -138,6 +150,12 @@ export function reportLlmMarkdown(report: ScanReport): string {
     report.roadmap.forEach((item, i) => {
       out.push(`${i + 1}. **${item.title}** · ${item.dimension} · ${roadmapMeta(item)}`);
       if (item.rationale) out.push(`   - ${item.rationale}`);
+      // The org's OWN measured basis for this gap, when it has one (moonshot #9). Emitted only when
+      // the clause is non-null: the model reading this must never be handed "+0" where the honest
+      // answer is "nobody has measured this yet" — that is a finding it would then reason from.
+      // The clause always carries its n and its instrument, so the model can weigh it.
+      const clause = expectedLiftClause(options.lifts?.get(recommendationMatchKey(item.dimension, item.title)));
+      if (clause) out.push(`   - _measured:_ ${clause}`);
       for (const q of item.explore ?? []) out.push(`   - _explore:_ ${q}`);
     });
     out.push("");
