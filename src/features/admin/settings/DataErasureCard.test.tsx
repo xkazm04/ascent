@@ -9,57 +9,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { OK, PREVIEW, confirmInput, eraseButton, mockPost, submit } from "./dataErasureTestKit";
 import { DataErasureCard } from "./DataErasureCard";
 import { confirmMatches } from "./DataErasureDialog";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-
-/** The `preview: true` body the dialog fetches on open. The confirm button is dead until this lands,
- *  so every test here has to get past it before it can exercise anything else. */
-const PREVIEW = {
-  orgSlug: "acme",
-  scope: "org" as const,
-  reposProcessed: 3,
-  scansDeleted: 120,
-  dimensionsDeleted: 1080,
-  recommendationsDeleted: 340,
-  recommendationEventsDeleted: 12,
-  auditDeleted: 0,
-  auditRedacted: 0,
-  auditDisposition: "keep" as const,
-  stoppedEarly: false,
-  complete: true,
-  audited: true,
-  dryRun: true,
-};
-
-const OK = {
-  orgSlug: "acme",
-  scope: "org" as const,
-  reposProcessed: 3,
-  scansDeleted: 120,
-  dimensionsDeleted: 1080,
-  recommendationsDeleted: 340,
-  recommendationEventsDeleted: 12,
-  auditDeleted: 0,
-  stoppedEarly: false,
-  complete: true,
-  audited: true,
-};
-
-function mockPost(status: number, body: unknown) {
-  const fetchMock = vi.fn(async () => ({
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-  }));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
-const eraseButton = () => screen.getByRole("button", { name: /erase organization data…/i });
-const confirmInput = () => screen.getByPlaceholderText("acme") as HTMLInputElement;
-const submit = () => screen.getByRole("button", { name: /^erase acme$/i }) as HTMLButtonElement;
 
 beforeEach(async () => {
   // The preview is answered first; each test then re-stubs fetch for the erase itself, so the
@@ -103,75 +57,9 @@ describe("DataErasureCard — typed confirmation gate", () => {
     expect(screen.getByText(/Kept, untouched/i)).toBeTruthy();
     expect(screen.getByText(/Every repository's scan-derived cache/i)).toBeTruthy();
     expect(screen.getByText(/watched, their scan schedules/i)).toBeTruthy();
-    // The audit trail moves columns with the opt-in rather than being described vaguely.
-    expect(screen.getByText(/Tick the box below to erase it too/i)).toBeTruthy();
-  });
-});
-
-describe("DataErasureCard — degraded outcomes", () => {
-  async function runWith(status: number, body: unknown) {
-    const fetchMock = mockPost(status, body);
-    fireEvent.change(confirmInput(), { target: { value: "acme" } });
-    fireEvent.click(submit());
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    return fetchMock;
-  }
-
-  it("renders a 207 partial as RESUMABLE — not success, not failure", async () => {
-    await runWith(207, {
-      ...OK,
-      scansDeleted: 40,
-      stoppedEarly: true,
-      complete: false,
-      resumable: true,
-      error: "Erasure stopped at a safe boundary before finishing — repeat this request to resume.",
-    });
-
-    await screen.findByText(/Stopped at a safe boundary/i);
-    expect(screen.getByText(/Running it again picks up exactly where it stopped/i)).toBeTruthy();
-    // Not success…
-    expect(screen.queryByText(/Every scan in scope is erased/i)).toBeNull();
-    expect(screen.queryByText(/Erased every scan in acme/i)).toBeNull();
-    // …and the way forward is a real control, not prose.
-    const resume = screen.getByRole("button", { name: /continue erasing/i });
-    expect((resume as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByRole("button", { name: /stop here/i })).toBeTruthy();
-  });
-
-  it("resumes with the identical request and accumulates the counts across passes", async () => {
-    const fetchMock = await runWith(207, { ...OK, scansDeleted: 40, stoppedEarly: true, complete: false, resumable: true });
-    await screen.findByRole("button", { name: /continue erasing/i });
-
-    mockPost(200, { ...OK, scansDeleted: 80 });
-    fireEvent.click(screen.getByRole("button", { name: /continue erasing/i }));
-
-    await screen.findByText(/Erased every scan in acme/i);
-    expect(screen.getByText("120")).toBeTruthy(); // 40 + 80 across both passes
-    expect(screen.getByText(/2 passes/i)).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledTimes(1); // the first mock; the resume used the second
-  });
-
-  it("never renders audited:false as a clean success", async () => {
-    await runWith(207, {
-      ...OK,
-      audited: false,
-      error: "Data erased, but the data.erased audit entry could not be written.",
-    });
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/audit entry could not be written/i);
-    expect(alert.textContent).toMatch(/Record it out of band/i);
-    expect(screen.getByText(/the compliance record was not written/i)).toBeTruthy();
-    expect(screen.queryByText(/Every scan in scope is erased/i)).toBeNull();
-    expect(screen.queryByText(/Erasure complete/i)).toBeNull();
-  });
-
-  it("surfaces a 4xx/5xx refusal as an error and keeps the arming dialog", async () => {
-    await runWith(503, { error: "Erasure requires a database." });
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/Erasure requires a database/i);
-    expect(screen.getByText(/Erased, permanently/i)).toBeTruthy(); // still armed, nothing claimed erased
+    // The audit trail moves columns with the opt-in rather than being described vaguely — and it is
+    // described as REDACTION, which is what includeAudit:true actually resolves to.
+    expect(screen.getByText(/Tick the box below to redact it to identifier-only/i)).toBeTruthy();
   });
 });
 

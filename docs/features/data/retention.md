@@ -158,6 +158,16 @@ conflict retries.
   received, and is precisely what would talk an owner into an erasure whose size nobody measured. A
   preview stopped by its own time budget (`complete: false`) is labelled "at least N" rather than
   presented as a total.
+- **The dialog and the receipt describe the SAME disposition.** The manifest calls the audit opt-in
+  what it is — redaction — and puts a row in *both* columns, because that is what redaction does:
+  the actor and every `meta` payload move to "Erased, permanently", while *what happened and when*
+  moves to "Kept, untouched". After the act, the receipt reads `auditDisposition` off the response
+  and reports it in the same words the preview used ("redacted to identifier-only" / "destroyed" /
+  "trail kept"), counting `auditDeleted + auditRedacted`. Until 2026-08-29 it read `auditDeleted`
+  alone — which is 0 on every path the UI can reach, since `includeAudit: true` resolves to
+  `"redact"` — so redacting an entire trail was reported as "Audit rows 0 · audit trail kept", and
+  the arming manifest above it promised that only the `data.erased` entry would survive. Both are
+  pinned by `DataErasureCard.outcomes.test.tsx`.
 - **Bounded + resumable.** Never one mega-transaction: every delete is a small batched transaction,
   the repo enumeration is cursor-paged, and a wall-clock budget (`ERASE_MAX_DURATION_S` − headroom,
   mirroring the cron's derivation and pinned to the route's `maxDuration` by a test) is polled

@@ -23,7 +23,8 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { DataErasureDialog, confirmMatches } from "./DataErasureDialog";
-import { DataErasureOutcome, ZERO_TOTALS, addPass, type EraseResponse, type EraseTotals } from "./DataErasureOutcome";
+import { DataErasureOutcome } from "./DataErasureOutcome";
+import { ZERO_TOTALS, addPass, type EraseResponse, type EraseTotals } from "./eraseTotals";
 import { useErasePreview } from "./DataErasurePreview";
 
 export function DataErasureCard({ slug }: { slug: string }) {

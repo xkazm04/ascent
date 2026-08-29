@@ -14,8 +14,14 @@
 //
 //  2. AN HONEST MANIFEST. The route keeps owner-AUTHORED configuration and the Organization/Repository/
 //     Membership rows, and resets the scan-DERIVED caches so "erased" is not a lie. A vague "this deletes
-//     your data" would leave the owner unable to form intent, so both columns are enumerated by name —
-//     and the audit column moves from "kept" to "erased" the moment the audit opt-in is ticked.
+//     your data" would leave the owner unable to form intent, so both columns are enumerated by name.
+//     The audit opt-in is REDACTION, not destruction — `includeAudit: true` resolves to
+//     `auditDisposition: "redact"` and the route answers a real `"delete"` with 409 unless the
+//     deployment sets ERASE_AUDIT_FORCE=1 (resolveAuditDisposition, src/lib/db/retention.ts). So
+//     ticking it moves the IDENTITIES into the erased column while the account of what happened and
+//     when stays in the kept one — a row appears in both, because that is what redaction does. This
+//     text used to promise that only the `data.erased` entry would survive, which described a
+//     disposition this dialog cannot request, and contradicted the preview panel three lines below it.
 //
 //  3. A COUNT BESIDE THE FIELD. The manifest says WHICH kinds of thing die; the preview panel says HOW
 //     MANY. The confirm button stays disabled until that count has actually rendered (`preview.status
@@ -24,7 +30,7 @@
 //     zero nobody received. See DataErasurePreview.tsx.
 
 import { ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
-import { DataErasureColumn } from "./DataErasureColumn";
+import { DataErasureManifest } from "./DataErasureManifest";
 import { DataErasurePreview, type ErasePreviewState } from "./DataErasurePreview";
 
 /** The typed confirmation gate. Trimmed (a trailing space from a paste is not a different org) but
@@ -63,55 +69,7 @@ export function DataErasureDialog({
     <>
       <ModalHeader kicker="Erase organization data" title={`Erase every scan in ${slug}?`} context={slug} />
       <ModalBody className="space-y-5">
-        <div className="grid gap-5 sm:grid-cols-2">
-          <DataErasureColumn
-            kicker="Erased, permanently"
-            tone="erased"
-            items={[
-              <>
-                <strong className="font-semibold text-white">Every scan in this organization</strong>: each run&apos;s
-                scores, its per-dimension breakdowns, its recommendations, and the accept/dismiss history recorded
-                against them.
-              </>,
-              <>
-                <strong className="font-semibold text-white">Every repository&apos;s scan-derived cache</strong>: the
-                detected tech stack, the passport, the pinned head commit (SHA and ETag), and the last-scan time,
-                status and error.
-              </>,
-              ...(includeAudit
-                ? [
-                    <>
-                      <strong className="font-semibold text-white">This organization&apos;s entire audit trail</strong>:{" "}
-                      every recorded action, with no date cutoff. Only the <code>data.erased</code> entry for this
-                      erasure survives it.
-                    </>,
-                  ]
-                : []),
-            ]}
-          />
-          <DataErasureColumn
-            kicker="Kept, untouched"
-            tone="kept"
-            items={[
-              <>
-                <strong className="font-semibold text-white">The organization, its repositories and its members.</strong>{" "}
-                Erasure removes the data; it does not delete the tenant or sign anyone out.
-              </>,
-              <>
-                <strong className="font-semibold text-white">Everything you configured</strong>: which repos are
-                watched, their scan schedules, your segments and their tags, and any passport overrides.
-              </>,
-              ...(includeAudit
-                ? []
-                : [
-                    <>
-                      <strong className="font-semibold text-white">The audit trail.</strong> Tick the box below to
-                      erase it too; either way a <code>data.erased</code> entry records this erasure.
-                    </>,
-                  ]),
-            ]}
-          />
-        </div>
+        <DataErasureManifest includeAudit={includeAudit} />
 
         <p className="rounded-lg border border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
           Because watch flags and schedules survive, any repo still on a scan cadence will begin building a new
@@ -127,8 +85,8 @@ export function DataErasureDialog({
             className="mt-1 accent-accent"
           />
           <span>
-            Also erase the audit trail (no date cutoff). Destroying the compliance record is a separate decision from
-            erasing scan data. Leave this off unless the request covers it.
+            Also redact the audit trail to identifier-only (no date cutoff). Reducing the compliance record is a
+            separate decision from erasing scan data. Leave this off unless the request covers it.
           </span>
         </label>
 
@@ -176,7 +134,7 @@ export function DataErasureDialog({
             disabled={busy || !armed}
             className="focus-ring rounded-lg bg-danger px-4 py-2 font-mono text-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
           >
-            {busy ? "Erasing…" : includeAudit ? `Erase ${slug} and its audit trail` : `Erase ${slug}`}
+            {busy ? "Erasing…" : includeAudit ? `Erase ${slug} and redact its audit trail` : `Erase ${slug}`}
           </button>
         </div>
       </ModalFooter>

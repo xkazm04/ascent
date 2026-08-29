@@ -22,6 +22,7 @@
 //     stale count beside a changed request.
 
 import { useEffect, useState } from "react";
+import { auditDispositionHint, type AuditDisposition } from "./eraseTotals";
 
 /** The preview body POST /api/org/erase returns for `preview: true` (EraseResult with `dryRun: true`). */
 export interface ErasePreview {
@@ -29,7 +30,7 @@ export interface ErasePreview {
   scansDeleted: number;
   auditDeleted: number;
   auditRedacted: number;
-  auditDisposition: "keep" | "redact" | "delete";
+  auditDisposition: AuditDisposition;
   /** False when the preview's own wall-clock budget stopped the count early — the totals are a FLOOR. */
   complete: boolean;
   dryRun: boolean;
@@ -156,12 +157,9 @@ export function DataErasurePreview({ state }: { state: ErasePreviewState }) {
   // reassurance an unreceived zero would be.
   const floor = counts.complete ? "" : "at least ";
   const auditAffected = counts.auditDeleted + counts.auditRedacted;
-  const auditHint =
-    counts.auditDisposition === "keep"
-      ? "(trail kept)"
-      : counts.auditDisposition === "delete"
-        ? "(destroyed)"
-        : "(redacted to identifier-only)";
+  // Shared with the RECEIPT (DataErasureOutcome) so the same disposition cannot be described one way
+  // before the confirmation and another way after it.
+  const auditHint = auditDispositionHint(counts.auditDisposition);
 
   return (
     <div className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
