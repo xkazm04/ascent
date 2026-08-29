@@ -8,8 +8,10 @@
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 
+import { FEEDBACK_URL } from "@/lib/site";
+
 const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
-const FEEDBACK_URL = "https://github.com/xkazm04/ascent/issues";
+
 
 export const metadata = {
   title: "Terms of service · Ascent",

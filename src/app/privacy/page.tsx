@@ -16,8 +16,10 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { MAX_FILES } from "@/lib/github/source";
 
+import { FEEDBACK_URL } from "@/lib/site";
+
 const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
-const FEEDBACK_URL = "https://github.com/xkazm04/ascent/issues";
+
 
 export const metadata = {
   title: "Privacy policy · Ascent",

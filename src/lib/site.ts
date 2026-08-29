@@ -92,3 +92,22 @@ export function sourceRepoHref(path = ""): string | null {
   const clean = path.replace(/^\/+/, "");
   return clean ? `${SOURCE_REPO_URL}/blob/HEAD/${clean}` : SOURCE_REPO_URL;
 }
+
+/**
+ * Where a visitor reports a problem or asks a question — the public issue tracker of the repository
+ * this deployment runs.
+ *
+ * Derived from {@link SOURCE_REPO_URL} so an operator who has named their own fork gets THEIR tracker,
+ * on the footer of every page and — more importantly — in the "contact us" fallback of the privacy
+ * policy and the terms, where the link is the operator's own contact channel and pointing it at a
+ * stranger's repository is simply wrong. Those three surfaces each hardcoded the upstream URL, so a
+ * fork's users filed the operator's privacy requests against upstream.
+ *
+ * Unlike SOURCE_REPO_URL this DOES fall back to upstream rather than to nothing, and the difference is
+ * deliberate: a wrong "view the source" link makes a licence claim the deployment cannot honour, while
+ * a feedback link to upstream is merely the second-best address — and no feedback channel at all is
+ * worse than a slightly wrong one. An operator who cares sets NEXT_PUBLIC_SOURCE_REPO_URL.
+ */
+const UPSTREAM_ISSUES_URL = "https://github.com/xkazm04/ascent/issues";
+export const FEEDBACK_URL: string = SOURCE_REPO_URL ? `${SOURCE_REPO_URL}/issues` : UPSTREAM_ISSUES_URL;
+

@@ -9,17 +9,18 @@
 // lib/site constants only.
 
 import Link from "next/link";
-import { SITE_TAGLINE_TITLE } from "@/lib/site";
+import { FEEDBACK_URL, SITE_TAGLINE_TITLE } from "@/lib/site";
 
 /** The canonical footer nav, in render order — the default link set (SiteFooter renders it as-is).
- *  Feedback is the public issue tracker (this repo's GitHub issues) — the one always-available
+ *  Feedback is the deployment's own issue tracker (FEEDBACK_URL, derived from SOURCE_REPO_URL in
+ *  lib/site so a fork points at ITS repository rather than upstream's) — the one always-available
  *  feedback channel; Privacy/Terms are the legal pages every public surface must link. */
 export const FOOTER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/badge", label: "Badge" },
   { href: "/connect", label: "Connect" },
   { href: "/usage", label: "Usage" },
-  { href: "https://github.com/xkazm04/ascent/issues", label: "Feedback" },
+  { href: FEEDBACK_URL, label: "Feedback" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
 ];
