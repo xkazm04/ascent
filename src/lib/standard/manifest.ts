@@ -96,10 +96,27 @@ export function buildManifestData(report: ScanReport): ManifestData {
 
 // ---- YAML serialization (a regular, regex-friendly subset the doctor can read zero-dep) ---------
 
+/**
+ * Tokens that are legal in the plain-scalar character class below but are NOT strings to a YAML
+ * parser: the YAML 1.1 booleans and nulls, and anything number-shaped.
+ *
+ * The manifest's whole premise is that "an arbitrary tool must be able to read it", so the on-disk
+ * form has to survive a real YAML parser and not just the doctor's own regex reader (which treats
+ * every value as text and so never saw this). A repository may legally be named `on`, `No`, `true`
+ * or `1.0` — GitHub allows all of them — and `name: on` parses as the boolean true in YAML 1.1
+ * (PyYAML, libyaml, most Ruby/Go readers). Quote those, leave everything else bare.
+ */
+const YAML_AMBIGUOUS =
+  /^(y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF|null|Null|NULL|~)$/;
+const NUMBER_SHAPED = /^[-+]?(\d[\d_]*(\.[\d_]*)?|\.[\d_]+|0x[\dA-Fa-f]+|0o?[0-7]+)([eE][-+]?\d+)?$/;
+
 /** Quote a scalar only when needed, so simple tokens stay clean and diff-friendly. */
-function scalar(v: string): string {
-  return /^[\w./@-]+$/.test(v) ? v : JSON.stringify(v);
+export function yamlScalar(v: string): string {
+  const plain = /^[\w./@-]+$/.test(v) && !YAML_AMBIGUOUS.test(v) && !NUMBER_SHAPED.test(v);
+  return plain ? v : JSON.stringify(v);
 }
+
+const scalar = yamlScalar;
 
 function flowList(items: string[]): string {
   return `[${items.map(scalar).join(", ")}]`;

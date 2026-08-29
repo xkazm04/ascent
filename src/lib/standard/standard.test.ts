@@ -134,6 +134,39 @@ describe("ai-manifest", () => {
     });
   });
 
+  // The manifest promises "an arbitrary tool must be able to read it", so the serialized form has to
+  // survive a real YAML parser — not only the doctor's regex reader, which treats every value as text
+  // and therefore could never have caught this. GitHub allows a repository to be named `on`, `No`,
+  // `true` or `1.0`; emitted bare, a YAML 1.1 parser reads those as a boolean or a number.
+  describe("YAML-ambiguous scalars are quoted", () => {
+    const AMBIGUOUS = ["on", "No", "yes", "n", "true", "FALSE", "off", "null", "~", "123", "1.0", "0x1f"];
+
+    it("quotes a repo name a YAML parser would not read as a string", () => {
+      for (const name of AMBIGUOUS) {
+        const r = makeReport();
+        r.repo.name = name;
+        const yaml = serializeManifestYaml(buildManifestData(r));
+        expect(yaml, name).toContain(`  name: ${JSON.stringify(name)}`);
+        expect(yaml, name).not.toContain(`  name: ${name}\n`);
+      }
+    });
+
+    it("leaves ordinary tokens bare, so the common manifest is unchanged and diff-friendly", () => {
+      const yaml = serializeManifestYaml(buildManifestData(makeReport()));
+      expect(yaml).toContain("  name: api");
+      expect(yaml).toContain("spec: .ai/SPEC.md");
+      expect(yaml).toContain("  memory: .ai/memory/");
+      expect(yaml).toContain("prePush: [lint, typecheck, scan-secrets]");
+    });
+
+    it("the doctor reads a quoted value back as the original string", () => {
+      const r = makeReport();
+      r.repo.name = "on";
+      const yaml = serializeManifestYaml(buildManifestData(r));
+      expect(loadDoctorParsers().sub(yaml, "name")).toBe("on");
+    });
+  });
+
   it("points `spec` at the copy that SHIPS with the foundation, not a path inside Ascent's repo", () => {
     const d = buildManifestData(makeReport());
     expect(d.spec).toBe(".ai/SPEC.md");
