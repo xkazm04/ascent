@@ -162,7 +162,8 @@ export async function POST(request: Request) {
   // ── Propose (+ optional forget pass): zero writes to memory content ────────────────────────
   const working = await lifecycleWorkingSet(body.org, { namespace: body.namespace }, viewer);
 
-  const runner = await resolveMemoryRunner();
+  // #11 (W1-C handoff): the org slug routes this pass's spend to the org's own meter lane.
+  const runner = await resolveMemoryRunner(body.org);
   const result = await proposeReflections(
     working.map((m) => ({
       id: m.id,

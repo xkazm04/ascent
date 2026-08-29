@@ -89,6 +89,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       aiConformance: r.aiConformance,
       lastScanAt: r.lastScanAt,
       engine: r.latest?.engine ?? null,
+      manifest: r.manifest ?? null,
     }),
   );
 

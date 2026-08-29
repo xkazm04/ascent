@@ -10,6 +10,8 @@
 // exactly the drift the one-door design exists to prevent. See `ingestSkillLessons` below for the
 // seam and its current state.
 
+import { setLessonMemoryId } from "@/lib/db/org-skill-lessons";
+import { writeMemoryCandidate } from "@/lib/memory/scan-feed";
 import { SKILL_LESSON_SOURCE } from "./lessons";
 
 /** Newest lessons ingested per skill per pass. The flood mitigation: a `LESSONS.md` with two years
@@ -98,31 +100,30 @@ export interface IngestTally {
 /**
  * Write a skill's lessons into memory through the one door.
  *
- * ── HELD, DELIBERATELY ────────────────────────────────────────────────────────────────────────────
- * The door this needs is `writeMemoryCandidate` in `src/lib/memory/scan-feed.ts` — the generalized
- * form of the existing private `writeScanMemory`, parameterized on kind/source/confidence/tags while
- * keeping its overlap prefilter and its never-throws contract. That generalization belongs to the
- * lane that owns `scan-feed.ts` and is not in this build, so this function is a NO-OP that reports
- * `held: true` rather than a second writer.
+ * Goes through W1-B's `writeMemoryCandidate` — the ONE ingest door (`src/lib/memory/scan-feed.ts`),
+ * which owns the overlap dedup and the never-throws contract; a private writer here would mean two
+ * dedup windows and two confidence conventions for the same table. (#36 shipped this held; wired at
+ * wave-1 integration once both lanes were on the branch.)
  *
- * Writing a private copy here would be the easy thing and the wrong one: two writers to `OrgMemory`
- * means two dedup windows, two confidence conventions and two definitions of "already ingested",
- * and the first symptom would be duplicate memories nobody can attribute to either path.
- *
- * TO WIRE IT (one edit, at the marked line):
- *   import { writeMemoryCandidate } from "@/lib/memory/scan-feed";
- *   const written = await writeMemoryCandidate({ orgId, ...candidate });
- *   if (written) await setLessonMemoryId(candidate.lessonId, written.id);
- *
- * Best-effort by contract either way: a memory outage must never fail an index pass.
+ * Best-effort by contract: `writeMemoryCandidate` never throws, so a memory outage costs candidates,
+ * never the index pass. A written candidate stamps `memoryId` back so the next pass skips it.
  */
 export async function ingestSkillLessons(
-  _orgId: string,
+  orgId: string,
   skillName: string,
   lessons: LessonLike[],
 ): Promise<IngestTally> {
   const candidates = lessonMemoryCandidates(skillName, lessons);
-  // TODO(W1-B door): replace this block with the `writeMemoryCandidate` loop above once
-  // `src/lib/memory/scan-feed.ts` exports it. Nothing else in #36 depends on this.
-  return { offered: candidates.length, written: 0, held: true };
+  // Wired at wave-1 integration: W1-B's `writeMemoryCandidate` door landed, so lessons flow through
+  // the one-door ingest exactly as the header demands — one dedup window, one confidence convention.
+  let written = 0;
+  for (const candidate of candidates) {
+    const { lessonId, ...memory } = candidate;
+    const result = await writeMemoryCandidate({ orgId, ...memory });
+    if (result) {
+      written += 1;
+      await setLessonMemoryId(lessonId, result.id);
+    }
+  }
+  return { offered: candidates.length, written, held: false };
 }

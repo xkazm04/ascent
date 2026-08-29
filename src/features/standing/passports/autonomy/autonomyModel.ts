@@ -15,6 +15,7 @@
 //
 // The scan-side work this surface implies is listed at the bottom of the file (DATA_MODEL_GAPS).
 
+import type { ManifestReadout } from "@/lib/standard/readout";
 import type { AppPassport } from "@/lib/types";
 
 import { ciGate, contextGate, hooksGate, sandboxGate, testsGate } from "./autonomyGateBuilders";
@@ -70,6 +71,8 @@ export interface AutonomyInput {
   aiConformance?: number | null;
   lastScanAt?: string | null;
   engine?: string | null;
+  /** #13 — the scan's readout of this repo's `.ai/manifest.yaml`; null-safe, absent keeps today's scoring. */
+  manifest?: ManifestReadout | null;
 }
 
 const holds = (gates: Map<GateId, AutonomyGate>, tier: AutonomyTier): boolean =>
@@ -85,7 +88,7 @@ export function deriveAutonomy(input: AutonomyInput): RepoAutonomy {
     testsGate(pp),
     ciGate(pp, input.protectedBranch),
     sandboxGate(pp),
-    contextGate(pp, input.aiConformance ?? null, input.fullName),
+    contextGate(pp, input.aiConformance ?? null, input.fullName, input.manifest ?? null),
     hooksGate(pp, input.fullName),
   ];
   const map = new Map(list.map((g) => [g.id, g]));

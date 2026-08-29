@@ -13,7 +13,13 @@ import { authGateEnabled, getViewer, requireViewer, type Viewer } from "@/lib/ac
 import { envBool } from "@/lib/env";
 import { getInstallationIdForOwner, isDbConfigured, isPersonalOrg } from "@/lib/db";
 import { isAppConfigured, isOrgAdminViaInstallation } from "@/lib/github/app";
-import { ensureOwnerMembership, getMembershipRole, normalizeLogin, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
+import { ensureOwnerMembership, getMembershipRole, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
+
+// MOONSHOT integration (W1-D's diagnosis): importing `normalizeLogin` from `@/lib/db/members` put
+// this module on the `auth.ts ↔ authz.ts` init cycle through the db barrel; under some vitest file
+// orders the cycle turned fatal ("Cannot access … before initialization"), flaking auth.test.ts on
+// every wave-1 lane. The helper is one line; inlining it takes this module off the cycle.
+const normalizeLogin = (login: string): string => login.trim().toLowerCase();
 
 /**
  * True when the current session's installations include `org` (case-insensitive).
