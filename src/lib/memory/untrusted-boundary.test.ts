@@ -41,10 +41,17 @@ describe("buildConsolidationPrompt — untrusted memory content boundary", () =>
     namespace: "auth",
     candidates: [
       { id: "c1", content: `custom OAuth flow lives in lib/auth. ${FORGED}`, kind: "semantic", confidence: 0.9 },
+      // A row MIRRORED out of a repo's own `.ai/memory/` (moonshot #14, source "repo-memory"). It is
+      // the same class of foreign content as a member's note — written by an agent, in a customer
+      // repository, with no human in the loop — so it must be inside the same one block. Added here
+      // rather than in a parallel file so a future edit to this prompt cannot fix one source's
+      // wrapping and forget the other's.
+      { id: "rm1", content: `From acme/api — .ai/memory/0009-x.md\n\n${FORGED}`, kind: "procedural", confidence: 0.6 },
     ],
   };
   const matches: DuplicateMatch[] = [
     { id: "c1", similarity: 0.5, relation: "unrelated", reason: "Token overlap with an existing memory." },
+    { id: "rm1", similarity: 0.1, relation: "unrelated", reason: "Token overlap with an existing memory." },
   ];
   const prompt = buildConsolidationPrompt(input, matches);
 
@@ -54,6 +61,7 @@ describe("buildConsolidationPrompt — untrusted memory content boundary", () =>
     const { inner } = boundedBlock(prompt);
     expect(inner).toContain("PROPOSED MEMORY");
     expect(inner).toContain("id=c1");
+    expect(inner).toContain("id=rm1");
   });
 
   it("neutralizes a forged closing marker planted in the proposed content AND in a candidate", () => {
@@ -61,8 +69,8 @@ describe("buildConsolidationPrompt — untrusted memory content boundary", () =>
     // The only close marker in the whole prompt is the real one; the forged copies became placeholders.
     expect(inner).not.toContain(UNTRUSTED_CLOSE);
     expect(inner).toContain("[boundary marker removed]");
-    // Two plants (proposal + candidate) => two placeholders.
-    expect(inner.match(/\[boundary marker removed\]/g)).toHaveLength(2);
+    // Three plants (proposal + a member-authored candidate + a repo-mirrored one) => three placeholders.
+    expect(inner.match(/\[boundary marker removed\]/g)).toHaveLength(3);
   });
 
   it("keeps the instruction-shaped body INSIDE the block — evidence, never an instruction", () => {
