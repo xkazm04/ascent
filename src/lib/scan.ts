@@ -33,6 +33,7 @@ import { runAssessmentPhase } from "@/lib/scan-assess";
 import { buildScanWarnings, captureScanEvalLog, composeScanReport } from "@/lib/scan-compose";
 import { classifyOutputBudget } from "@/lib/llm/output-budget";
 import { recordScanDegraded, recordScanFailure, recordScanStarted } from "@/lib/scan-outcome";
+import { mirrorRepoMemory } from "@/lib/memory/repo-memory-mirror";
 
 // The LLM failure classifiers live with the resilience loop that consumes them; re-exported here so
 // `@/lib/scan` remains the single import surface for the scan pipeline.
@@ -217,6 +218,22 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   const now = opts.now ?? new Date().toISOString();
   // owner/repo — the LightTrack telemetry dimension and the eval-log / matrix-capture repo key.
   const repoFullName = `${parsed.owner}/${parsed.repo}`;
+
+  // The `.ai/memory` mirror (moonshot #14). FIRE AND FORGET, and deliberately not awaited: indexing a
+  // repo's own agent memory is a side benefit of the scan, never a reason for one to be slower or to
+  // fail. `mirrorRepoMemory` never throws and gates itself (org, repo ownership, opt-out, plan, caps).
+  //
+  // It reads `snapshot.memoryFiles` — the QUARANTINED channel — and nothing else in this pipeline may.
+  // Those bodies are untrusted prose from a customer repo; keeping them out of `snapshot.files` (and so
+  // out of Phase 2's scoreInput and Phase 3's prompt) is the guarantee the feature rests on.
+  if (snapshot.memoryFiles?.length) {
+    void mirrorRepoMemory({
+      orgSlug: opts.orgSlug,
+      repoFullName,
+      headSha: snapshot.meta.headSha ?? null,
+      memoryFiles: snapshot.memoryFiles,
+    });
+  }
 
   // ── Phase 2: deterministic signals → the model's input ────────────────────────────────────────
   const { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings } = await buildScanScoreInput({
