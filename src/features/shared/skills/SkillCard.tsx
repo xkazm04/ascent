@@ -9,6 +9,7 @@ import { useState } from "react";
 import { chipButtonClass } from "@/components/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { SkillDormancyBadge, usageDetail } from "@/features/shared/skills/SkillDormancyBadge";
+import { SkillInvokeChip } from "@/features/shared/skills/SkillInvokeChip";
 import { SkillOutcomes } from "@/features/shared/skills/SkillOutcomes";
 import { skillCategoryLabel } from "@/lib/org/skill-categories";
 import type { SkillUsage } from "@/lib/org/skill-usage";
@@ -147,6 +148,9 @@ export function SkillCard({
         <span className="font-mono text-slate-500" title="Total downloads + copies: the same events the status badge folds">
           {s.downloadCount} use{s.downloadCount === 1 ? "" : "s"}
         </span>
+        {/* Beside the use count, never merged into it: reading a skill and running it are different
+            facts, and only one of them is evidence the skill does its job. */}
+        <SkillInvokeChip usage={usage} />
         {usage && (
           <span className="inline-flex items-center gap-1.5 font-mono text-slate-500">
             <SkillDormancyBadge usage={usage} />

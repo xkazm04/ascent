@@ -407,6 +407,22 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
   };
 }
 
+/**
+ * How many `invoke` events THIS org recorded through the events API (sink A) in the last `days`.
+ *
+ * Deliberately separate from the registry lane's `invokes30d`: the two sinks count different
+ * populations (one is the tenant's own hooks/CI/MCP, the other is whatever installations chose to
+ * publish into the registry repo) and summing them would double-count any installation that reports
+ * to both. The Registry tab shows them as two readouts for exactly that reason.
+ *
+ * Null when persistence is off — "not measured", which is not zero.
+ */
+export async function countOrgSkillInvokes(orgId: string, days = 30): Promise<number | null> {
+  if (!isDbConfigured()) return null;
+  const since = new Date(Date.now() - days * 86_400_000);
+  return getPrisma().orgSkillEvent.count({ where: { orgId, type: "invoke", createdAt: { gte: since } } });
+}
+
 /** Record that a repo adopted a skill (idempotent per skill+repo). False if org/skill unknown —
  *  defense-in-depth alongside the route's authz (the org filter is the tenant boundary). */
 export async function adoptOrgSkill(

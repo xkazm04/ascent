@@ -24,6 +24,12 @@ function Readout({ label, value, tone = "plain" }: { label: string; value: strin
 
 export function RegistryInstrumentPanel({ view }: { view: RegistryView }) {
   const r = view.registry;
+  // The lane's counts only mean anything once a pass has READ it. Before that they are column
+  // defaults, and "0 invokes" would be a claim about the fleet that nobody has measured — so the
+  // readout is `—`, in the `off` tone this panel already uses for a fact that does not exist yet.
+  const laneRead = Boolean(r?.lastIndexedAt);
+  const reporting = view.telemetry.reposReporting;
+  const direct = view.telemetry.invokesDirect30d;
   return (
     <div className="space-y-2">
       <Kicker tone="muted">Readouts</Kicker>
@@ -41,7 +47,22 @@ export function RegistryInstrumentPanel({ view }: { view: RegistryView }) {
         <Readout label="catalog sha" value={shortSha(r?.catalogSha)} tone={r?.catalogSha ? "ok" : "off"} />
         <Readout label="webhook" value={r ? (r.webhookHealthy ? "healthy" : "unconfirmed") : "—"} tone={r?.webhookHealthy ? "ok" : "warn"} />
         <Readout label="telemetry sink" value={SINK_LABEL[view.telemetry.sink]} tone={view.telemetry.sink === "off" ? "off" : "ok"} />
-        <Readout label="invokes 30d" value={view.telemetry.invokes30d.toLocaleString()} tone={view.telemetry.invokes30d > 0 ? "plain" : "off"} />
+        {/* The two sinks, never summed: an installation may report to both. */}
+        <Readout
+          label="reporting"
+          value={laneRead ? String(reporting) : "—"}
+          tone={laneRead && reporting > 0 ? "ok" : "off"}
+        />
+        <Readout
+          label="invokes 30d · registry"
+          value={laneRead ? view.telemetry.invokes30d.toLocaleString() : "—"}
+          tone={laneRead && view.telemetry.invokes30d > 0 ? "plain" : "off"}
+        />
+        <Readout
+          label="invokes 30d · direct"
+          value={typeof direct === "number" ? direct.toLocaleString() : "—"}
+          tone={typeof direct === "number" && direct > 0 ? "plain" : "off"}
+        />
         <Readout label="lessons" value={String(view.counts.lessons)} tone={view.counts.lessons > 0 ? "plain" : "off"} />
       </Surface>
       {view.error ? (

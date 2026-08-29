@@ -14,6 +14,8 @@ import { getOrgRollup } from "@/lib/db";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { getOrgRegistry, type OrgRegistryRow } from "@/lib/db/org-registry";
 import { countRegistryMirrors } from "@/lib/db/org-registry-write";
+import { countOrgSkillInvokes } from "@/lib/db/org-skills";
+import { listOrgSkillUsageSamples } from "@/lib/db/org-skill-usage-samples";
 import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/registry/capabilities";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
 import { registryHowTo } from "./registry-howto";
@@ -83,7 +85,27 @@ export type RegistryView = {
   };
   /** Last 20, newest first. */
   activity: RegistryActivityEntry[];
-  telemetry: { invokes30d: number; reposReporting: number; sink: TelemetrySink };
+  /**
+   * The two sinks of the invoke channel (#19), reported SEPARATELY and never summed — an installation
+   * may report to both, and adding them would count it twice.
+   *   `invokes30d` / `reposReporting` — sink B, the registry's own `usage/` lane, as the last index
+   *      pass read it. `measured: false` means no pass has read the lane, which is not "zero usage".
+   *   `invokesDirect30d` — sink A, this org's own events API (hook / CI / MCP), last 30 days. Null
+   *      when persistence is off.
+   *   `invokesBySkill` — sink B per skill NAME (a registry-only skill has no OrgSkill id).
+   *
+   * The two new fields are OPTIONAL so the shaped preview states (registry-view.fixture.ts) stay
+   * valid without asserting a sink they were never written to describe. "Has the lane been read at
+   * all?" is not a field here either: `registry.lastIndexedAt` already answers it, and a second
+   * encoding of the same fact is a second thing to keep in sync.
+   */
+  telemetry: {
+    invokes30d: number;
+    reposReporting: number;
+    sink: TelemetrySink;
+    invokesDirect30d?: number | null;
+    invokesBySkill?: Record<string, number>;
+  };
   /** The knowledge/ lane, one entry per Reference Knowledge Bundle, as that
    *  bundle's own generated index states it. Empty until a pass reads the lane. */
   bundles: OrgRegistryRow["bundles"];
@@ -169,6 +191,16 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
   };
   const zeroes = () => ({ skills: { registry: 0, hostedOnly: 0 }, practices: { registry: 0, hostedOnly: 0 }, memory: { registry: 0, hostedOnly: 0 } });
   const counts = orgId ? await countRegistryMirrors(orgId).catch(zeroes) : zeroes();
+  // Both sinks, read side by side so the panel can say which one is silent (#19). Each degrades on
+  // its own: a failed read is "not measured", never a zero.
+  const [samples, invokesDirect30d] = orgId
+    ? await Promise.all([
+        listOrgSkillUsageSamples(orgId).catch(() => []),
+        countOrgSkillInvokes(orgId).catch(() => null),
+      ])
+    : [[], null];
+  const invokesBySkill: Record<string, number> = {};
+  for (const s of samples) invokesBySkill[s.skillName] = (invokesBySkill[s.skillName] ?? 0) + s.invokes;
   const totals = { skills: counts.skills.hostedOnly, practices: counts.practices.hostedOnly, memory: counts.memory.hostedOnly };
   const fullName = row?.fullName ?? `${slug}/${DEFAULT_REGISTRY_NAME}`;
 
@@ -190,6 +222,8 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
       invokes30d: row?.usage.invokes30d ?? 0,
       reposReporting: row?.usage.contributors ?? 0,
       sink: row?.telemetrySink ?? "off",
+      invokesDirect30d,
+      invokesBySkill,
     },
     howTo: registryHowTo(fullName),
     capabilities: caps,
