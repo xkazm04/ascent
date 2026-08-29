@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { backoffDelayMs, useFleetData } from "./useFleetData";
-import { POLL_BACKOFF_MAX_MS, POLL_INTERVAL_MS, POLL_ORG_CAP, SCAN_SETTLE_MS } from "./FleetMap.constants";
+import { POLL_BACKOFF_MAX_MS, POLL_INTERVAL_MS, POLL_ORG_CAP } from "./FleetMap.constants";
 import type { Constellation } from "./fleetMapStars";
 
 type Body = { repos?: unknown } | null;
