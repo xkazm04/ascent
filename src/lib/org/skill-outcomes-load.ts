@@ -4,6 +4,8 @@
 // skill-outcomes.ts; every read lives here, where only server components reach it.
 
 import { getRepositoryHistory, listOrgSkillAdoptionRows, type HistoryPoint } from "@/lib/db";
+import { recordOutcomes, type OutcomeInput } from "@/lib/db/outcomes";
+import { resolveOrgId } from "@/lib/db/scans-shared";
 import { mapPool } from "@/lib/pool";
 import { skillOutcomesFor, type OutcomeScan, type SkillOutcome } from "@/lib/org/skill-outcomes";
 
@@ -58,5 +60,56 @@ export async function getOrgSkillOutcomes(orgSlug: string): Promise<Record<strin
     const history = await getRepositoryHistory(owner, name, { orgSlug, limit: HISTORY_LIMIT }).catch(() => null);
     scansByRepo.set(fullName, (history?.scans ?? []).map(toOutcomeScan));
   });
-  return skillOutcomesFor(adoptions, scansByRepo);
+  const outcomes = skillOutcomesFor(adoptions, scansByRepo);
+  // Mirror the MEASURED outcomes into the intervention outcome ledger (moonshot #9). `measured` is the
+  // only status that may cross: every other one — no-before-scan, no-after-scan, instrument-mismatch,
+  // instrument-unknown — is an honest gap, and a fact table that accepted them would be diluted by
+  // rows that measured nothing. Fire-and-forget (`void`): this is a page-render read path, and the
+  // write is an upsert on the pair identity, so a re-render adds no rows.
+  void mirrorMeasuredOutcomes(orgSlug, outcomes);
+  return outcomes;
+}
+
+/**
+ * The ledger mirror. Server-only, best-effort, and silent on failure — the Skills page's outcomes are
+ * computed and rendered whether or not the ledger accepts them.
+ */
+async function mirrorMeasuredOutcomes(
+  orgSlug: string,
+  outcomes: Record<string, SkillOutcome[]>,
+): Promise<void> {
+  try {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return;
+    const inputs: OutcomeInput[] = [];
+    for (const [skillId, list] of Object.entries(outcomes)) {
+      for (const o of list) {
+        // Every field below is non-null exactly when the status is `measured` — the pure module
+        // guarantees it — so this never has to invent one.
+        if (o.status !== "measured" || !o.before || !o.after || o.overallDelta === null || !o.instrument) continue;
+        const dim = o.dimensionDeltas[0] ?? null;
+        inputs.push({
+          orgId,
+          repoFullName: o.repoFullName,
+          kind: "skill",
+          identityKey: skillId,
+          // The strongest mover, not a sum: a skill's outcome is attributed to the dimension it moved
+          // most. Null when the pair scored no shared dimension — never a fabricated "D1 0".
+          dimId: dim?.dimId ?? null,
+          dimDelta: dim?.delta ?? null,
+          beforeScanId: o.before.id,
+          afterScanId: o.after.id,
+          interventionAt: new Date(o.adoptedAt),
+          overallDelta: o.overallDelta,
+          rubricVersion: o.instrument.rubricVersion,
+          engineProvider: o.instrument.engineProvider,
+          gapDays: (o.beforeGapDays ?? 0) + (o.afterGapDays ?? 0),
+          withinBound: o.withinPairingBound === true,
+        });
+      }
+    }
+    await recordOutcomes(inputs);
+  } catch {
+    // A ledger mirror is never a reason for the Skills page to lose its outcomes.
+  }
 }

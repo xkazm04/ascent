@@ -397,6 +397,92 @@ export async function backfillOutcomes(orgSlug: string): Promise<{ written: numb
   return { written };
 }
 
+/** Upper bound on the done-recommendations one reconcile tick considers. */
+export const RECONCILE_MAX = 50;
+
+/**
+ * One `done` recommendation with both bookends already located: the scan the gap was FOUND on (the
+ * state before anyone closed it) and the first scan after the close. `null` dimension scores mean the
+ * dimension was absent on that side — the caller classifies that, this function never invents a score.
+ */
+export interface DoneRecCandidate {
+  recommendationId: string;
+  repoFullName: string;
+  dimId: string;
+  title: string;
+  doneAt: Date;
+  beforeScanId: string;
+  beforeDimScore: number | null;
+  afterScanId: string | null;
+  afterDimScore: number | null;
+}
+
+/**
+ * The durable `done` events for an org, resolved into scan pairs.
+ *
+ * Driven off `RecommendationEvent` — the append-only status log — rather than the render-time diff in
+ * report/compare.ts. That diff (`reconcileDoneRec`, `diffScans`) is PURE and client-imported: it runs
+ * inside a page render and has no write seam, and adding one there would mean a page render writing to
+ * a fact table. The events are the same fact, durably, on the server.
+ *
+ * Newest event wins per recommendation: a row toggled done → open → done was closed at the LAST close,
+ * and that is the intervention instant a later scan should be measured against.
+ */
+export async function listDoneRecCandidates(orgId: string, limit = RECONCILE_MAX): Promise<DoneRecCandidate[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe(async () => {
+    const prisma = getPrisma();
+    const events = await prisma.recommendationEvent.findMany({
+      where: { kind: "status", toValue: "done", recommendation: { scan: { repo: { orgId } } } },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        createdAt: true,
+        recommendation: {
+          select: {
+            id: true,
+            dimId: true,
+            title: true,
+            scanId: true,
+            scan: {
+              select: {
+                repoId: true,
+                repo: { select: { fullName: true } },
+                dimensions: { select: { dimId: true, score: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const seen = new Set<string>();
+    const candidates: DoneRecCandidate[] = [];
+    for (const e of events) {
+      const rec = e.recommendation;
+      if (!rec || seen.has(rec.id)) continue;
+      seen.add(rec.id);
+      const after = await prisma.scan.findFirst({
+        where: { repoId: rec.scan.repoId, scannedAt: { gt: e.createdAt } },
+        orderBy: [{ scannedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, dimensions: { select: { dimId: true, score: true } } },
+      });
+      candidates.push({
+        recommendationId: rec.id,
+        repoFullName: rec.scan.repo.fullName,
+        dimId: rec.dimId,
+        title: rec.title,
+        doneAt: e.createdAt,
+        beforeScanId: rec.scanId,
+        beforeDimScore: rec.scan.dimensions.find((d) => d.dimId === rec.dimId)?.score ?? null,
+        afterScanId: after?.id ?? null,
+        afterDimScore: after?.dimensions.find((d) => d.dimId === rec.dimId)?.score ?? null,
+      });
+    }
+    return candidates;
+  }, []);
+}
+
 /**
  * A scenario's identity: the sorted set of roadmap items it modeled, hashed. Sorted so the same
  * selection made in a different click order is the same scenario, and hashed so an unbounded key list
