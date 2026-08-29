@@ -24,6 +24,39 @@ function toCsv(summary: UsageSummary): string {
   return csvTable(header, rows);
 }
 
+/**
+ * The SHOWBACK export (`?view=showback`): one row per inference lane and one per code-owning team,
+ * with the `lane` and `team` columns a finance reader needs to allocate the bill.
+ *
+ * A SEPARATE view rather than columns bolted onto the per-day export, deliberately: the day series is
+ * a reconciliation artifact whose shape (`date,billable,free,total`) downstream sheets already key
+ * on, and a lane is not a property of a day's scan count. Both go through the shared `csvTable`, so
+ * the formula-injection guard and the quoting rules are the same ones every other export uses.
+ *
+ * `team` is OMITTED entirely for the public funnel: the shared anonymous org has no teams, and its
+ * summary is anonymously readable, so it must not carry an attribution column at all.
+ *
+ * `estimatedCostUsd` is EMPTY, never `0`, when a row could not be priced — `unpricedCalls` says how
+ * many calls that was. A zero in a finance export is a claim about money that was not spent.
+ */
+function toShowbackCsv(summary: UsageSummary, isPublic: boolean): string {
+  const header = isPublic
+    ? ["scope", "lane", "calls", "estimatedCostUsd", "unpricedCalls"]
+    : ["scope", "lane", "team", "calls", "estimatedCostUsd", "unpricedCalls"];
+  const money = (v: number | null) => (v == null ? "" : v.toFixed(6));
+  const rows: unknown[][] = summary.byLane.map((l) =>
+    isPublic
+      ? ["lane", l.lane, l.calls, money(l.estimatedCostUsd), l.unpricedCalls]
+      : ["lane", l.lane, "", l.calls, money(l.estimatedCostUsd), l.unpricedCalls],
+  );
+  if (!isPublic) {
+    for (const t of summary.byTeam) {
+      rows.push(["team", "", t.label, t.calls, money(t.estimatedCostUsd), ""]);
+    }
+  }
+  return csvTable(header, rows);
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") ?? "public";
@@ -61,6 +94,16 @@ export async function GET(request: Request) {
     // Sanitize the caller-supplied slug before it reaches the Content-Disposition header (the public
     // org / auth-off path is never membership-checked). 64-char cap preserved from the prior inline copy.
     const fileOrg = safeFilenameSlug(org, "org", 64);
+    // The showback view rides the SAME auth, window and IDOR guard as everything else on this route —
+    // it is a different projection of the summary already computed, not a new surface.
+    if (searchParams.get("view") === "showback") {
+      return new NextResponse(toShowbackCsv(summary, orgLc === "public"), {
+        headers: {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="ascent-showback-${fileOrg}-${stamp}.csv"`,
+        },
+      });
+    }
     if (format === "csv") {
       return new NextResponse(toCsv(summary), {
         headers: {

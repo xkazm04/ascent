@@ -236,3 +236,59 @@ describe("GET /api/usage — public-org day-window cap (#5b)", () => {
     expect(daysPassed()).toBe(365);
   });
 });
+
+// ===========================================================================
+// The showback export (#11): the lane × team allocation a finance reader needs. Same route, same
+// auth, same window — a projection of the summary, not a new surface.
+
+describe("GET /api/usage?view=showback", () => {
+  const SHOWBACK = {
+    daily: [],
+    byLane: [
+      { lane: "scan", calls: 12, inputTokens: 10, outputTokens: 2, estimatedCostUsd: 1.5, unpricedCalls: 0 },
+      { lane: "athena", calls: 4, inputTokens: null, outputTokens: null, estimatedCostUsd: null, unpricedCalls: 4 },
+    ],
+    byTeam: [
+      { teamKey: "@acme/platform", label: "@acme/platform", calls: 12, estimatedCostUsd: 1.5 },
+      { teamKey: null, label: "Org-wide (no repo)", calls: 4, estimatedCostUsd: null },
+    ],
+  } as unknown as Awaited<ReturnType<typeof getUsageSummary>>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockGetUsageSummary.mockResolvedValue(SHOWBACK);
+  });
+
+  it("emits lane AND team columns for a private org, as a CSV download", async () => {
+    const res = await get("?org=acme&view=showback");
+    const text = await res.text();
+    const [header, ...rows] = text.trim().split("\n");
+
+    expect(res.headers.get("content-type")).toMatch(/text\/csv/);
+    expect(header).toBe("scope,lane,team,calls,estimatedCostUsd,unpricedCalls");
+    expect(rows).toHaveLength(4); // two lanes + two teams
+    expect(rows[0]).toBe("lane,scan,,12,1.500000,0");
+    // An unpriceable lane exports an EMPTY cost cell, never 0 — a 0 in a finance export is a claim.
+    expect(rows[1]).toBe("lane,athena,,4,,4");
+    expect(rows[3]).toBe("team,,Org-wide (no repo),4,,");
+  });
+
+  it("omits the team column entirely for the public funnel — it has no teams to attribute to", async () => {
+    const res = await get("?view=showback");
+    const text = await res.text();
+    const [header, ...rows] = text.trim().split("\n");
+
+    expect(header).toBe("scope,lane,calls,estimatedCostUsd,unpricedCalls");
+    expect(header).not.toContain("team");
+    expect(rows.every((r) => r.startsWith("lane,"))).toBe(true);
+  });
+
+  it("is behind the SAME IDOR gate as every other view", async () => {
+    mockRequireOrgRead.mockResolvedValue(deny(403));
+    const res = await get("?org=acme&view=showback");
+    expect(res.status).toBe(403);
+    expect(mockGetUsageSummary).not.toHaveBeenCalled();
+  });
+});
