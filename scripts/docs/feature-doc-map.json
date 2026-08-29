@@ -83,7 +83,8 @@
         "src/app/onboarding/**",
         "src/lib/onboarding/**",
         "src/app/launch/**",
-        "src/components/launch/**"
+        "src/components/launch/**",
+        "src/app/api/report/foundation/**"
       ]
     },
     {
@@ -92,7 +93,8 @@
       "sourceGlobs": [
         "src/lib/standard/**",
         "src/app/api/report/skill/**",
-        "src/app/api/report/foundation/**"
+        "src/app/api/report/foundation/**",
+        "src/app/api/report/conformance/**"
       ]
     },
     {
@@ -127,7 +129,8 @@
       "doc": "docs/features/data/retention.md",
       "sourceGlobs": [
         "src/app/api/cron/purge/**",
-        "src/lib/db/retention.ts"
+        "src/lib/db/retention.ts",
+        "src/lib/db/scan-digest*.ts"
       ]
     },
     {
@@ -245,7 +248,9 @@
         "src/lib/org/memory-kinds.ts",
         "src/features/shared/memory/Memory*.tsx",
         "src/features/shared/memory/memoryCheck.ts",
-        "src/app/api/org/memory/**"
+        "src/app/api/org/memory/**",
+        "src/lib/db/repo-memory.ts",
+        "src/lib/memory/repo-memory-mirror.ts"
       ]
     },
     {
@@ -260,7 +265,8 @@
         "src/app/api/org/skills/**",
         "src/app/api/org/tokens/**",
         "src/lib/mcp/**",
-        "src/app/api/mcp/**"
+        "src/app/api/mcp/**",
+        "src/lib/db/org-skill-usage-samples.ts"
       ]
     },
     {
@@ -291,7 +297,9 @@
         "src/app/api/report/**",
         "src/app/api/history/**",
         "src/lib/register/**",
-        "src/app/scorecard/**"
+        "src/app/scorecard/**",
+        "src/lib/outcomes/**",
+        "src/lib/db/outcomes.ts"
       ]
     },
     {
@@ -317,13 +325,14 @@
       "area": "billing",
       "doc": "docs/features/billing/usage.md",
       "sourceGlobs": [
-        "src/lib/db/usage.ts",
         "src/app/api/usage/**",
         "src/app/usage/**",
         "src/components/usage/**",
         "src/lib/rate-limit*.ts",
         "src/lib/public-scan-quota.ts",
-        "src/components/QuotaMeter.tsx"
+        "src/components/QuotaMeter.tsx",
+        "src/lib/db/usage*.ts",
+        "src/lib/llm/meter.ts"
       ]
     },
     {

@@ -243,3 +243,8 @@ unassessed repositories in a separate band below the table.
 
 _This spec is intentionally small. The discipline is to keep the spine (`manifest.yaml`) thin and let
 everything else be a pointer, so the standard grows by reference, not by accretion._
+
+> **`.ai/memory` is now read, not just counted** (moonshot #14): the scan fetches the newest
+> entries, parses their frontmatter (`src/lib/standard/memory-read.ts`) and mirrors them into
+> Org Memory as untrusted, provenance-stamped candidates. The bodies are quarantined out of the
+> assessment prompt by construction.

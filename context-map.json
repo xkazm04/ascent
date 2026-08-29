@@ -283,7 +283,13 @@
             "src/lib/db/installations.test.ts",
             "src/lib/db/webhook-deliveries.ts",
             "src/lib/viewer-installations.test.ts",
-            "src/lib/viewer-installations.ts"
+            "src/lib/viewer-installations.ts",
+            "src/lib/github/actions-secrets.ts",
+            "src/lib/github/actions-secrets.test.ts",
+            "src/lib/db/org-foundation.ts",
+            "src/lib/db/org-foundation.test.ts",
+            "src/app/api/report/foundation/pr-batch/route.ts",
+            "src/app/api/report/foundation/secrets/route.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -441,7 +447,21 @@
             "src/components/report/SkillDownload.tsx",
             "src/components/report/SkillDownload.test.tsx",
             "src/app/api/report/foundation/pr/route.test.ts",
-            "src/lib/standard/types.test.ts"
+            "src/lib/standard/types.test.ts",
+            "src/lib/standard/read.ts",
+            "src/lib/standard/read.test.ts",
+            "src/lib/standard/readout.ts",
+            "src/lib/standard/check-ids.ts",
+            "src/lib/standard/check-ids.test.ts",
+            "src/lib/standard/control-matrix.ts",
+            "src/lib/standard/control-matrix.test.ts",
+            "src/lib/standard/memory-read.ts",
+            "src/lib/standard/memory-read.test.ts",
+            "src/lib/standard/pr-batch.test.ts",
+            "src/lib/db/org-conformance.ts",
+            "src/lib/db/org-conformance.test.ts",
+            "src/app/api/report/conformance/matrix/route.ts",
+            "src/app/api/report/conformance/matrix/route.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -566,7 +586,9 @@
             "src/lib/first-run.ts",
             "src/lib/first-run.test.ts",
             "src/lib/db/tenants.ts",
-            "src/lib/org/repo-schedule.ts"
+            "src/lib/org/repo-schedule.ts",
+            "src/components/onboarding/OnboardingFoundationPanel.tsx",
+            "src/components/onboarding/OnboardingFoundationPanel.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -1620,7 +1642,15 @@
             "src/app/api/org/memory/[id]/route.test.ts",
             "src/features/shared/knowledge/KnowledgeLedger.tsx",
             "src/features/shared/knowledge/KnowledgeTab.tsx",
-            "src/features/shared/memory/memoryLibraryApi.ts"
+            "src/features/shared/memory/memoryLibraryApi.ts",
+            "src/lib/memory/repo-memory-mirror.ts",
+            "src/lib/memory/repo-memory-mirror.test.ts",
+            "src/lib/memory/repo-memory-untrusted.test.ts",
+            "src/lib/db/repo-memory.ts",
+            "src/features/shared/memory/RepoMemoryDeadEnds.tsx",
+            "src/features/shared/memory/RepoMemoryDeadEnds.test.tsx",
+            "src/lib/db/org-registry-proposals.ts",
+            "src/app/api/org/memory/reflect/proposePr.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1684,7 +1714,20 @@
             "src/lib/org/skill-outcomes-load.test.ts",
             "src/lib/org/timezone.test.ts",
             "src/lib/org/timezone.ts",
-            "src/lib/org/nav-counts.test.ts"
+            "src/lib/org/nav-counts.test.ts",
+            "src/lib/registry/usage-samples.ts",
+            "src/lib/registry/usage-samples.test.ts",
+            "src/lib/db/org-skill-usage-samples.ts",
+            "src/lib/org/skill-event-source.ts",
+            "src/lib/org/skill-event-source.test.ts",
+            "src/features/shared/skills/SkillInvokeChip.tsx",
+            "src/features/shared/skills/SkillLessonList.tsx",
+            "src/features/shared/skills/SkillTracePanel.tsx",
+            "src/features/shared/skills/SkillTracePanel.test.tsx",
+            "src/features/shared/skills/SkillTraceTimeline.tsx",
+            "src/features/shared/skills/skillTrace.ts",
+            "src/lib/db/org-skill-lessons.ts",
+            "src/lib/db/org-skill-trace.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1746,7 +1789,38 @@
             "src/lib/registry/policy.ts",
             "src/lib/registry/read.ts",
             "src/lib/registry/scaffold.ts",
-            "src/lib/registry/usage.test.ts"
+            "src/lib/registry/usage.test.ts",
+            "src/lib/registry/subjects.ts",
+            "src/lib/registry/subjects.test.ts",
+            "src/lib/registry/signals.ts",
+            "src/lib/registry/signals.test.ts",
+            "src/lib/registry/conformance-map.ts",
+            "src/lib/registry/conformance-map.test.ts",
+            "src/lib/registry/conformance-read.ts",
+            "src/lib/registry/conformance-sweep.ts",
+            "src/lib/registry/conformance-sweep.test.ts",
+            "src/lib/registry/signals-contribution.ts",
+            "src/lib/registry/signals-contribution.test.ts",
+            "src/lib/registry/signals-pr.ts",
+            "src/lib/registry/lessons.ts",
+            "src/lib/registry/lessons.test.ts",
+            "src/lib/registry/trace.ts",
+            "src/lib/registry/trace.test.ts",
+            "src/lib/registry/lesson-memory.ts",
+            "src/lib/registry/lesson-memory.test.ts",
+            "src/lib/registry/memory-pr.ts",
+            "src/lib/registry/memory-pr.test.ts",
+            "src/lib/db/org-registry-subjects.ts",
+            "src/lib/db/org-registry-conformance.ts",
+            "src/lib/db/org-registry-signals.ts",
+            "src/app/api/org/[slug]/registry/conformance/route.ts",
+            "src/app/api/org/[slug]/registry/signals/route.ts",
+            "src/app/api/org/[slug]/registry/trace/route.ts",
+            "src/features/shared/registry/RegistryConformanceMap.tsx",
+            "src/features/shared/registry/RegistrySignalsReadout.tsx",
+            "src/features/shared/registry/RegistryWeakGovernance.tsx",
+            "src/features/shared/registry/conformanceModel.ts",
+            "src/features/shared/registry/conformanceModel.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1919,7 +1993,18 @@
             "src/components/report/OrphanedTracking.tsx",
             "src/components/report/OrphanedTracking.dom.test.tsx",
             "src/components/report/recommendationRowUi.tsx",
-            "src/components/report/RecommendationTrackerLifecycle.test.tsx"
+            "src/components/report/RecommendationTrackerLifecycle.test.tsx",
+            "src/lib/outcomes/aggregate.ts",
+            "src/lib/outcomes/aggregate.test.ts",
+            "src/lib/outcomes/expected-lift.ts",
+            "src/lib/outcomes/expected-lift.test.ts",
+            "src/lib/outcomes/expected-lift-load.ts",
+            "src/lib/outcomes/index.ts",
+            "src/lib/outcomes/reconcile-recs.ts",
+            "src/lib/db/outcomes.ts",
+            "src/lib/db/outcomes.test.ts",
+            "src/components/report/ExpectedLiftBasis.tsx",
+            "src/components/report/roadmapPriority.measured.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2126,7 +2211,18 @@
             "src/features/standing/passports/autonomy/autonomyModel.ts",
             "src/features/standing/passports/autonomy/autonomyShared.tsx",
             "src/features/standing/passports/autonomy/autonomyTiers.ts",
-            "src/features/standing/passports/passportBlockerAgg.test.ts"
+            "src/features/standing/passports/passportBlockerAgg.test.ts",
+            "src/features/standing/passports/capabilityAgg.ts",
+            "src/features/standing/passports/capabilityAgg.test.ts",
+            "src/features/standing/passports/CapabilityMatrix.tsx",
+            "src/features/standing/passports/CapabilityMatrix.dom.test.tsx",
+            "src/features/standing/passports/CapabilityMatrixLegend.tsx",
+            "src/features/standing/passports/controls/ControlCell.tsx",
+            "src/features/standing/passports/controls/ControlMatrixGrid.tsx",
+            "src/features/standing/passports/controls/ControlMatrixPanel.tsx",
+            "src/features/standing/passports/controls/ControlMatrixPanel.dom.test.tsx",
+            "src/features/standing/passports/controls/controlMatrixView.ts",
+            "src/features/standing/passports/controls/useControlMatrix.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2290,7 +2386,12 @@
             "src/app/api/kpi/route.test.ts",
             "src/app/api/kpi/route.ts",
             "src/app/usage/creditNotice.test.ts",
-            "src/app/usage/creditNotice.ts"
+            "src/app/usage/creditNotice.ts",
+            "src/lib/db/usage-events.ts",
+            "src/lib/db/usage-events.test.ts",
+            "src/lib/llm/meter.ts",
+            "src/lib/llm/meter.test.ts",
+            "src/app/usage/usageLanePanels.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -2328,7 +2429,10 @@
             "src/app/api/org/erase/route.ts",
             "src/features/admin/settings/LlmProviderSettings.tsx",
             "src/features/admin/settings/SettingsTab.tsx",
-            "src/features/admin/settings/useLlmProviderSettings.ts"
+            "src/features/admin/settings/useLlmProviderSettings.ts",
+            "src/lib/db/scan-digest.ts",
+            "src/lib/db/scan-digest.test.ts",
+            "src/lib/db/scan-digest-read.test.ts"
           ],
           "target": null,
           "apiRoutes": [

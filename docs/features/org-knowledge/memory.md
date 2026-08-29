@@ -660,7 +660,12 @@ distinguishes the two worlds, and the affordances follow it:
 - `origin: "registry"` — a mirror of a file in a repo the customer owns. In-app archive is **replaced**
   by **Open in registry** (a blob deep link built from `registryPath`, rendered only when the indexer
   actually recorded a path, so the link cannot 404 by construction). Editing here would be overwritten
-  by the next index pass, so it is not offered.
+  by the next index pass, so direct editing is not offered — **the change path is a PR** (moonshot #36):
+  a reflect pass over registry-origin rows can materialize its supersede as a draft PR into the
+  registry repo (`memory/<kind>/<slug>.md` with `supersedes:` frontmatter, via
+  `src/app/api/org/memory/reflect/proposePr.ts` + `src/lib/registry/memory-pr.ts`), tracked as an
+  `OrgMemoryProposal` row whose status follows the PR; the merged file supersedes the mirror at the
+  next index pass. Hosted rows keep today's in-DB apply.
 
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
