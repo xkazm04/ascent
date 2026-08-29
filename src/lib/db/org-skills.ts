@@ -410,10 +410,31 @@ export async function adoptOrgSkill(
   return true;
 }
 
-/** Remove a skill→repo adoption. */
-export async function unadoptOrgSkill(skillId: string, repoFullName: string): Promise<void> {
-  if (!isDbConfigured()) return;
-  await getPrisma().orgSkillAdoption.deleteMany({ where: { skillId, repoFullName } });
+/**
+ * Remove a skill→repo adoption. Org-filtered like its `adoptOrgSkill` sibling, and returns whether a
+ * row actually went away.
+ *
+ * Both are deliberate. The tenant filter was missing entirely — `deleteMany({ skillId, repoFullName })`
+ * named no org at all, so the boundary lived only in the calling route's gate. Nothing was exploitable
+ * (the route resolves the skill's own org and gates that), but the route's own header claims "the org
+ * filter inside adoptOrgSkill is the tenant boundary", which was true of the adopt path and false of
+ * this one — and the next caller (a bulk action, an MCP verb) would have inherited no protection at
+ * all. Defense in depth is only depth if both layers are there.
+ *
+ * The boolean closes the second half: the DELETE route answered `{ ok: true }` whether or not anything
+ * matched, while POST answers 404 — so unadopting a repo that never adopted the skill, or a typo'd
+ * repo name, read as success.
+ */
+export async function unadoptOrgSkill(
+  orgSlug: string,
+  skillId: string,
+  repoFullName: string,
+): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
+  const { count } = await getPrisma().orgSkillAdoption.deleteMany({ where: { orgId, skillId, repoFullName } });
+  return count > 0;
 }
 
 /** One light row per non-archived skill for the sync manifest — enough for a client to diff (by
