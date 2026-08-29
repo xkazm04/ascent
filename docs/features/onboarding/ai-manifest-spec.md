@@ -142,6 +142,52 @@ A reimplementation in another language is conformant if it performs checks 1–6
 and reports each one as `pass` / `warn` / `fail` / `unchecked`.
 The check *contract* is language-neutral; `doctor.mjs` is just the reference runner.
 
+## Findings: the per-check contract (v0.3.0)
+
+A run's findings are the half worth keeping. `fails: 3` cannot answer "which control regressed", so
+every finding carries a **stable check id** alongside its message — an id that survives a reworded
+message, so a receiver can follow one clause across runs.
+
+An id is lower-case and dotted; a repo-specific subject (a capability name, a path) is slugged with
+`[^a-z0-9._/-] → -`, truncated to 100 characters, and the whole id is capped at 120. The vocabulary:
+
+| Check id | Judges |
+| --- | --- |
+| `manifest.missing` | there is no `.ai/manifest.yaml` at all |
+| `structure` | the `schema` id is `ai-manifest` |
+| `structure.schema-version` | the manifest's major version vs. the runner's |
+| `pointer.<key>` | a declared `paths.<key>` resolves (`pointer.contextindex`, `pointer.memory`, …) |
+| `guardrail.never-commit` | git does not track a file matching `secrets.neverCommit` |
+| `capability.declared` | the manifest declares any capabilities at all |
+| `capability.<name>` | that capability's command is still a `<placeholder>` |
+| `capability.<name>.run` | `--run` executed the command and it passed |
+| `manifest.write-back` | `--run` wrote the `verified` flags back |
+| `control.prepush` | prePush controls are declared and a local hook exists at all |
+| `control.prepush.<name>` | that control is wired into the local hook |
+| `control.prepush.<name>.backing` | that control has a backing capability |
+| `control.ci` | ciHardPass controls are declared and CI workflows exist |
+| `freshness.<path>` | a `generatedFrom` file changed after `generatedAt` (or is a placeholder) |
+| `freshness.unchecked` | freshness could not be judged here (shallow clone, no git) |
+| `context.index` | `context-index.json` parses |
+| `context.<path>` | a referenced `CONTEXT.md` exists and is not the unfilled template |
+| `manifest.todo` | `TODO` placeholders remain |
+
+A conformant runner may invent ids this document does not list — a reader stores what it does not
+recognize and declines to group it (principle 3). Two entries with the same id inside one report are
+collapsed **worst-level-wins** (`fail > warn > unchecked > pass`), which is deterministic and cannot
+manufacture a pass.
+
+The `--json` payload and the report-back body carry `findings: [{ check, level, message }]` plus
+`scored`, `specVersion` and `runShape` (`"plain"` | `"run"` — the shape that changes the score's
+denominator). All additive: a receiver that does not know them stores the same
+`score` / `fails` / `warns` / `unchecked` it always did. A report that arrives with **no** `findings`
+is stored as *summary-only*, and every per-check cell for it reads **not judged** — an absent finding
+is never a passing control.
+
+**Derived, not signed.** The per-check ledger is derived data. The tamper-evident record of a
+conformance report is the signed audit entry the receiver writes on ingest; nothing in the ledger
+claims provenance, and it must not be presented as an attestation.
+
 ## Read-back: the manifest as a scan input
 
 The contract runs in both directions. A scan **reads** `.ai/manifest.yaml` and keeps what it found as
@@ -188,9 +234,10 @@ unassessed repositories in a separate band below the table.
 
 - Adding an optional field, capability name, or finding level → **patch/minor**, no reader changes.
   (v0.2.0 added the `unchecked` finding level and the `unchecked` / `scored` summary fields; a v0.1.0
-  reader ignores both and reads the same `score` / `fails` / `warns` it always did. v0.3.0 adds the
-  read-back contract above — it introduces no new manifest field, so a v0.2.0 manifest is already a
-  conformant v0.3.0 one.)
+  reader ignores both and reads the same `score` / `fails` / `warns` it always did. v0.3.0 adds check
+  ids + `findings[]` to the report payload and the read-back contract above; it introduces no new
+  manifest field, so a v0.2.0 manifest is already a conformant v0.3.0 one, and a v0.2.0 reader ignores
+  `findings[]` and reads the same summary numbers.)
 - Renaming/removing a field or changing a field's type → **major**, and only then.
 - A reader at version `X.y` MUST parse any `X.*` manifest by ignoring unknown fields.
 

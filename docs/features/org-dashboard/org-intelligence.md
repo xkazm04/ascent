@@ -174,7 +174,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
-| Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix — see below). |
+| Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
 | Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **Control matrix** (`SecurityRiskRegister`); and **Findings to decide** (`SecurityFindings`, see below). |
 | Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. |
 | Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
@@ -321,6 +321,49 @@ the dashboard is built on.
 Capability commands are repo content, so they are redacted at read time (any token- or
 `secret=`-shaped run becomes `«redacted»`), shown only inside the owning org, and never placed on a
 public or cross-tenant surface.
+
+### Passports → Controls: the fleet control matrix, from the repos' own CI (#16, 2026-08-29)
+
+The fourth Passports switcher view, and a deliberate **sibling** of Capabilities rather than a merge
+with it. Capabilities is what a repo *declares* (read from its manifest at scan time); Controls is
+what the repo's own `.ai/doctor.mjs` *judged* in the repo's own pipeline and reported back. Same
+subject, two independent sources of evidence — folding them together would hide which is which.
+
+Where the data comes from: a doctor run POSTs `findings[]` (spec 0.3.0) to
+`/api/report/conformance`; `recordConformance` writes the `Repository.aiConformance*` columns, the
+`ConformanceReport` + `ConformanceFinding` rows and the signed `conformance.reported` audit entry in
+**one transaction**. `ControlMatrixPanel` reads
+`GET /api/report/conformance/matrix?org=<slug>` (org-slug gated with `requireOrgRead` before any
+query runs). Columns are check *families*, collapsed by default and expandable to the individual
+clause (`control.prepush.test`).
+
+Four cell states, and the fourth is why the surface is trustworthy:
+
+| Cell | Means |
+| --- | --- |
+| accent hairline | the clause passed in that repo's own run |
+| amber | it warned |
+| rose | it failed |
+| **dashed "—"** | **this run did not judge the clause** — or the repo never reported it at all |
+
+A repo whose doctor sent only summary numbers is stamped **summary-only (doctor < 0.3.0)** and every
+one of its cells reads "not judged". An absent finding is never rendered as a passing control, and a
+failed request surfaces as an error rather than as an empty grid: an unanswered query is not evidence
+that a fleet has no controls.
+
+`since` is `null` — rendered "—" — whenever the visible window (the last ≤20 reports per repo) holds
+no level change. Printing the oldest report we happen to retain would present the edge of retention
+as a fact about the repo.
+
+Two properties worth stating because they are easy to assume wrongly: the ledger rows are **derived
+data and carry no signature** (the tamper-evident copy is the signed `conformance.reported` audit
+entry), and `detectControlRegressions` — exported from `src/lib/standard/control-matrix.ts` — fires
+only on `pass`/`warn` → `fail`. `unchecked → fail` is not a regression: an environment that just
+started judging a clause has not broken anything.
+
+The GET trend on `/api/report/conformance` reads these rows too. It used to be reconstructed by
+walking up to 1,000 audit rows per request; `loadConformanceTrend` is gone, and `points` keeps its
+exact shape so no client moved with the storage.
 
 ### Tech Stacks — dimension analysis, and what each verdict rests on
 
