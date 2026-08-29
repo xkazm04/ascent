@@ -45,7 +45,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param (the `/api/app/setup` post-install bounce, and any deep link that already knows the account) starts the public path immediately. |
 | **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **360s stall timeout** (`STALL_MS`, sized above one real LLM assessment — see below). |
-| **done** | A **short dashboard handoff** (W6b: the old in-wizard activation checklist is gone; activation continues on the dashboard) + the invite panel (App path) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
+| **done** | A **short dashboard handoff** + the **foundation install panel** and the invite panel (both App path only) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
 
 **Real vs. preview scans.** `resolveScanMode` (`scanMode.ts`) settles this before any POST, and it
 now has **two** real paths:
@@ -122,14 +122,23 @@ Their runs are unchanged.
 repos and re-applying the selection. A refresh or auth bounce lands back on **select**, not step
 one. The snapshot wins over `?org=`; it clears once the scan is saved.
 
-**The done phase no longer carries an activation checklist (W6b).** It used to render
-`OnboardingChecklist` over a wizard-state-derived 5–6 step list (`buildChecklistSteps`, now deleted
-along with its test); the wizard's job ends at the handoff, and activation continues on the
-dashboard, which, since the [zero-repo wall fell](../org-dashboard/org-intelligence.md), renders
-for this org even before the first live scan lands. `OnboardingChecklist` was deleted on 2026-08-29
-with the `/connect` page, the only surface that still rendered it (its three-step funnel progress
-— install → pick → first scan — is now the wizard's own pick step plus the access gate's install
-link).
+**The done phase carries one INSTALLABLE step, not an activation checklist (moonshot #35).** W6b
+deleted the wizard-state-derived 5–6 step list (`buildChecklistSteps`, gone with its test) because it
+duplicated the dashboard. What replaced it is narrower and does real work: `FoundationPanel`
+(`OnboardingFoundationPanel.tsx`) offers **one click that opens a draft PR in every repo that just
+scanned successfully**, seeding the `.ai/` foundation Ascent generated from each scan
+(`POST /api/report/foundation/pr-batch`). It renders on the App path only (`foundationOrg`, gated the
+same way as the invite panel: an installation id means a real org with a token behind it), offers a
+no-op **Skip**, and discloses before sending — that the PR is a draft nobody merges for you, and that
+report-back (the two Actions secrets and the `Secrets: write` permission they need) is *described*
+here but performed on the Repositories tab, behind a typed confirmation and the owner role. A repo
+that errored or was credit-skipped is excluded: it has no saved scan, so no foundation can be
+generated for it. Everything else on the done screen still hands off to the dashboard.
+`OnboardingChecklist` itself stays: the
+[connect page](../github/github-app.md) still renders it over its own three-step funnel progress
+(install → pick → first scan), with a progress bar, the first incomplete step highlighted as the
+next action, and its accessibility intact (`role=progressbar`, `aria-live` announcements, per-step
+focus move, keyboard nav).
 
 The import path powers **free-tier onboarding**: it scans a whole public org without
 requiring the [GitHub App](../github/github-app.md), and feeds straight into the
@@ -229,17 +238,25 @@ checklist in a later lane) ships as two primitives, both deliberately server-own
   every pre-existing membership as completed, so only new memberships see the flow.
   `npm run dev:empty` (fresh memberships) fires it naturally.
 - **Step doneness is derived from real data, never recorded per step.**
-  `GET /api/org/getting-started?org=` (member-gated, polling-safe) serves five typed steps
+  `GET /api/org/getting-started?org=` (member-gated, polling-safe) serves eight typed steps
   mirroring the onboarding narrative: `first-scan` (≥1 persisted scan; personal: a watched
   pointer), `gap-engaged` (rec assigned/done, ImprovementPr, or a personal overlay), `registry`
-  (≥1 live OrgSkill/OrgMemory), `loop` (≥2 of watch schedule · alerts webhook · published AI
-  stance), `team` (≥2 members or a pending invite), each with `{ done, available, tab, anchor }`
+  (≥1 live OrgSkill/OrgMemory), **`foundation`** (≥1 `foundation.pr_opened` audit row — either
+  door, single-repo or batch, writes it), **`conformance`** (≥1 repo with a non-null
+  `aiConformance`; non-null and NOT `> 0`, because a repo that honestly scored 0% has still closed
+  the loop), `loop` (≥2 of watch schedule · alerts webhook · published AI stance), `team` (≥2
+  members or a pending invite), each with `{ done, available, tab, anchor }`
   plus an `allDone` rollup over *available* steps and the caller's own stamp. `available` renders
-  honestly: personal workspaces lose the fleet `loop`/`team` steps, and a role below the step's
-  write gate (member/admin/owner) sees it unavailable instead of a 403. Derivation:
+  honestly: personal workspaces lose the fleet `foundation`/`conformance`/`loop`/`team` steps (no
+  installation token, no fleet), and a role below the step's write gate (member/admin/owner) sees it
+  unavailable instead of a 403. The two fleet-install steps sit **after `registry` and before
+  `loop`**, which is the real dependency order — the fleet has to carry the standard before a doctor
+  run can report anything, and there is nothing to instrument on a cadence until something reports.
+  Both are admin-gated and anchored on the Repositories tab's rollout panel
+  (`foundation-rollout`, `conformance-reported`). Derivation:
   `src/lib/org/getting-started.ts` (pure model) over `getGettingStartedFacts`
   (`src/lib/db/org-onboarding.ts`, one pass of existence-shaped lookups). Anchors are shared
-  constants (`GETTING_STARTED_ANCHORS`), all five now stamped on real controls and consumed by the
+  constants (`GETTING_STARTED_ANCHORS`), all now stamped on real controls and consumed by the
   companion above.
 
 ## Launch / fleet map (`src/app/launch/page.tsx`, `src/components/launch/FleetMap.tsx`)

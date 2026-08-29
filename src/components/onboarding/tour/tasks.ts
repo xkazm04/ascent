@@ -27,6 +27,8 @@ export const PHASE_LABEL: Record<GettingStartedPhase, string> = {
   baseline: "Baseline",
   resolve: "Resolve",
   registry: "Registry",
+  foundation: "Foundation",
+  conformance: "Conformance",
   loop: "Loop",
   team: "Team",
   program: "Programme",
@@ -73,6 +75,18 @@ export const TASK_COPY: Record<GettingStartedStepId, TaskCopy> = {
     body: "Write the fix down once, as a skill or a memory entry, and the next agent starts from it instead of rediscovering it.",
     cta: "Open the registry",
     unavailable: "Needs member access. Ask an owner to raise your role.",
+  },
+  foundation: {
+    title: "Install the standard in the fleet",
+    body: "One click opens a draft PR in every repo that hasn't got the `.ai/` foundation yet — the agent contract, the executable doctor, and its CI backstop. Reviewing and merging stays yours.",
+    cta: "Open the fleet",
+    unavailable: "Installing into repos is an org-with-admin surface.",
+  },
+  conformance: {
+    title: "Let the fleet report back",
+    body: "Provision the two report-back secrets and each repo's CI posts its own conformance score here on every run. Until then the doctor prints `reportSkipped` and Ascent never hears it.",
+    cta: "Open the fleet",
+    unavailable: "Report-back is an org-with-admin surface.",
   },
   loop: {
     title: "Instrument the loop",

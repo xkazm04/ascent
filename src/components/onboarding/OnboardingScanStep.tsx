@@ -2,6 +2,7 @@
 
 import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
+import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPanel";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
@@ -34,6 +35,7 @@ export function ScanStep({
   onRetryRepo,
   inviteOrg = null,
   onInvited,
+  foundationOrg = null,
 }: {
   phase: "scanning" | "done";
   rows: Record<string, ScanRow>;
@@ -64,6 +66,10 @@ export function ScanStep({
   inviteOrg?: string | null;
   /** Called after a successful invite so the wizard can mark the "invite your team" step done. */
   onInvited?: () => void;
+  /** moonshot #35: when set (the GitHub-App path), the done screen offers a one-click install of the
+   *  `.ai/` foundation into the repos that just scanned SUCCESSFULLY. Null on the public funnel, where
+   *  there is no org and no installation token. */
+  foundationOrg?: string | null;
 }) {
   // Skipped (credit-deferred) rows are terminal too, so they count toward completion — otherwise the
   // progress bar would stay stuck below 100% on the done screen when some repos were skipped.
@@ -209,6 +215,18 @@ export function ScanStep({
               ? "Your dashboard is live: the preview above is being upgraded to a full live scan the moment you open it. You can browse every tab while it runs."
               : "Your dashboard is live: alerts, rescan schedules, and the rest of the setup continue there."}
           </p>
+
+          {/* moonshot #35: the wizard's one INSTALLABLE handoff. Only repos that actually produced a
+              level are offered — a repo that errored or was credit-skipped has no saved scan, so the
+              foundation cannot be generated for it and the batch would report it as a failure row. */}
+          {foundationOrg && (
+            <FoundationPanel
+              org={foundationOrg}
+              repos={Object.values(rows)
+                .filter((r) => r.level && !r.error && !r.skipped)
+                .map((r) => r.repo)}
+            />
+          )}
 
           {/* Invite teammates at peak motivation (App path only) — grants viewer access to the
               scanned org via the RBAC backend. No GitHub App install needed for the invitee. */}

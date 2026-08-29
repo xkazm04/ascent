@@ -29,6 +29,7 @@ maturity gate, push-driven re-scan, and "open a practice starter PR") need a lit
 | **Pull requests** | Read & write | PR maturity-gate sticky comment; open starter PRs |
 | **Checks** | Read & write | post the PR maturity-gate Check Run (the merge status); Read also lets the scan see the **installed-App inventory** (check suites on the scored commit) on private repos |
 | **Actions** | Read (optional) | default-branch **CI health** (recent workflow runs) on private repos; without it that enrichment is simply not observed |
+| **Secrets** | Read & write (optional) | let Ascent provision **conformance report-back** — the two Actions secrets (`ASCENT_CONFORMANCE_URL`, `ASCENT_CONFORMANCE_TOKEN`) the `.ai/` foundation's CI job needs to post its doctor score back. Owner-gated and typed-confirmed per repo, and fully reversible from the Repositories tab. Without it, set the two secrets by hand; nothing else degrades |
 
 Grant only what you use: read-only Contents + Metadata is enough for pure scanning.
 

@@ -141,6 +141,47 @@ Read-only REST signals folded into the scan (token, not App JWT, required):
 - `fetchCommitActivity(owner, repo, token)` → 52 weeks of weekly commit totals (retries
   `202 still-computing` with bounded backoff).
 
+## Report-back provisioning (`src/lib/github/actions-secrets.ts`)
+
+Ascent can write **exactly two** GitHub Actions secrets into a customer repo, so the `.ai/`
+foundation's CI job (`node .ai/doctor.mjs --json`) posts its conformance score to
+`/api/report/conformance` instead of printing `reportSkipped`:
+
+| Secret | Value |
+|---|---|
+| `ASCENT_CONFORMANCE_URL` | `<this deployment's origin>/api/report/conformance`, derived **server-side** (configured public origin, else the request's own) and never from the request body — a caller must not be able to point someone else's CI at a host of their choosing. A self-hosted install therefore provisions report-back to *itself*, with no configuration. |
+| `ASCENT_CONFORMANCE_TOKEN` | a freshly minted org API token named `conformance report-back`, scoped `telemetry:write` (it can report a score and nothing else). |
+
+Secrets are sealed with libsodium `crypto_box_seal` against the repo's own public key
+(`node:crypto` has X25519 but neither XSalsa20 nor Poly1305, so there is no stdlib path). The module
+loads libsodium lazily inside `encryptSecret`, through Node's CommonJS resolver — the package's
+published ESM entry imports a file it does not ship — so nothing WASM-shaped enters the build graph.
+
+Four properties make this defensible, and each is structural rather than a convention:
+
+- **The name allowlist is in the TYPE.** `putRepoSecret`/`deleteRepoSecret` accept only
+  `ConformanceSecretName`, a two-literal union, so no call site can write an arbitrary secret without
+  changing that file — and `tsc` is what refuses.
+- **Owner, not admin, plus a typed `owner/repo` confirmation, one repo at a time.** Writing a
+  credential has a larger blast radius than a draft PR and is the one action here that takes effect
+  with no review step after it. `POST`/`DELETE /api/report/foundation/secrets`.
+- **The token is always MINTED, never re-read.** A reused token's raw value cannot be recovered (only
+  its hash is stored), so `ensureOrgApiToken(..., { rotate: true })` retires every live token of that
+  name and mints a new one — the value written into the repo is always one Ascent just produced.
+- **Reversible.** `DELETE` removes both secrets *and* revokes the token, and revokes it even when the
+  secret removal failed: a secret can be deleted by hand in GitHub, but a live bearer token nobody
+  knows about cannot be noticed.
+
+Three audit actions record it — `foundation.batch_opened`, `foundation.reportback_provisioned`,
+`foundation.reportback_revoked` — and the raw token appears in **none** of them; only its `askl_`
+display prefix does. The rollout state the Repositories tab renders is derived from those rows plus
+the existing `Repository.aiConformance` column (`getFoundationRollout`), so this whole feature adds
+no table and no column.
+
+Requires the App's **`Secrets: write`** permission (see [setup.md](./setup.md)). Without it the write
+returns a 403 that surfaces as "The installation lacks Secrets write access. Update the GitHub App's
+permissions." and the two secrets can still be set by hand.
+
 ## Key files
 
 | File | Role |
@@ -152,6 +193,9 @@ Read-only REST signals folded into the scan (token, not App JWT, required):
 | `src/lib/db/installations.ts` | Installation persistence on `Organization`. |
 | `src/lib/github/governance.ts` | Branch-protection + commit-activity signals. |
 | `src/app/onboarding/page.tsx`, `src/components/onboarding/OnboardingGateStep.tsx` | Install entry (the wizard; the access gate carries the install link). |
+| `src/lib/github/actions-secrets.ts` | Sealed-box Actions-secret writer (two allowlisted names). |
+| `src/app/api/report/foundation/{pr-batch,secrets}/route.ts` | Fleet foundation install + report-back provisioning. |
+| `src/lib/db/org-foundation.ts` | Audit-derived fleet rollout status (read-only). |
 
 ## Known gaps
 

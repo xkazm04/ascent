@@ -169,6 +169,10 @@ export function OnboardingFlow({
         upgradePlanned={upgradePlanned}
         creditSkipped={creditSkipped}
         inviteOrg={sourceInstallId ? sourceLabel : null}
+        // Same gate as the invite panel: an installation id means a real org with an installation
+        // token behind it, which is exactly what the batch route needs. The scanned repo list is
+        // derived inside ScanStep from `rows`, so there is one source of "which repos are installable".
+        foundationOrg={sourceInstallId ? sourceLabel : null}
         onInvited={() => setInvitedCount((c) => c + 1)}
         onCancel={cancelScan}
         // Per-repo recovery on the done screen: re-runs ONE errored repo (money gate re-checked, other

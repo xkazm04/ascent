@@ -126,6 +126,13 @@ export interface GettingStartedFacts {
   hasPendingInvite: boolean;
   /** W1c: the org has named a transition programme — the state that outlives this checklist. */
   hasProgram: boolean;
+  /** moonshot #35: ≥1 `foundation.pr_opened` audit row for this org — the `.ai/` standard was actually
+   *  installed somewhere, through EITHER door (single-repo or batch: both write the same action). */
+  foundationInstalled: boolean;
+  /** moonshot #35: ≥1 repo with a non-null conformance score, i.e. some repo's doctor has reported
+   *  back at least once. Non-null, NOT `> 0` — a repo that honestly scored 0% has still closed the
+   *  loop, and treating that as "not reported" would tell the org to redo work that is done. */
+  conformanceReported: boolean;
 }
 
 /** All-false facts for an org row that doesn't exist yet — a checklist with nothing done, which is
@@ -141,6 +148,8 @@ export const EMPTY_GETTING_STARTED_FACTS: GettingStartedFacts = {
   memberCount: 0,
   hasPendingInvite: false,
   hasProgram: false,
+  foundationInstalled: false,
+  conformanceReported: false,
 };
 
 /**
@@ -158,8 +167,22 @@ export async function getGettingStartedFacts(orgSlug: string): Promise<GettingSt
   const orgId = org.id;
   const personal = org.kind === "personal";
 
-  const [scan, watched, engagedRec, overlay, improvementPr, skill, memory, scheduled, stance, memberCount, invite, program] =
-    await Promise.all([
+  const [
+    scan,
+    watched,
+    engagedRec,
+    overlay,
+    improvementPr,
+    skill,
+    memory,
+    scheduled,
+    stance,
+    memberCount,
+    invite,
+    program,
+    foundationPr,
+    conformanceRepo,
+  ] = await Promise.all([
       prisma.scan.findFirst({ where: { repo: { orgId } }, select: { id: true } }),
       prisma.repository.findFirst({ where: { orgId, watched: true }, select: { id: true } }),
       prisma.recommendation.findFirst({
@@ -185,6 +208,10 @@ export async function getGettingStartedFacts(orgSlug: string): Promise<GettingSt
         select: { id: true },
       }),
       prisma.transitionProgram.findUnique({ where: { orgId }, select: { id: true } }),
+      // moonshot #35. Both new facts stay existence-shaped like the rest of this read: one indexed
+      // audit lookup and one indexed repo lookup, no payloads.
+      prisma.auditLog.findFirst({ where: { orgId, action: "foundation.pr_opened" }, select: { id: true } }),
+      prisma.repository.findFirst({ where: { orgId, aiConformance: { not: null } }, select: { id: true } }),
     ]);
 
   return {
@@ -198,5 +225,7 @@ export async function getGettingStartedFacts(orgSlug: string): Promise<GettingSt
     memberCount,
     hasPendingInvite: invite != null,
     hasProgram: program != null,
+    foundationInstalled: foundationPr != null,
+    conformanceReported: conformanceRepo != null,
   };
 }
