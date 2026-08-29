@@ -8,6 +8,15 @@ tree. The Director is the strongest available model (Fable 5) in the main checko
 Opus 5 subagents in isolated worktrees. Deferred (10) and concept-doc (5) items are **out of
 scope** here except where noted._
 
+> **Wave 0 is complete (2026-08-29).** The 22 specs live in `docs/specs/moonshot/`, the 5 concept
+> docs in `docs/resolutions/`, and [`docs/specs/moonshot/00-INDEX.md`](specs/moonshot/00-INDEX.md)
+> now **supersedes §1 and §2 below** for execution: it carries the re-derived write sets, the
+> per-wave conflict resolutions (one merged `ControlObservation` model; the memory reflect route
+> reassigned to W1-D; W1-D before W1-E; #33's hook moved to `scan-finalize.ts`; #16's gate step
+> moved into W4-O), the merge-order constraints, the per-wave schema-pass lists, Director-owned
+> lines, the handoff graph, 20 standalone defects surfaced while premise-checking, and the open
+> owner questions.
+
 ## 0. Principles
 
 1. **Spec before build, write-set before spec.** Every item gets a one-page spec (template §5)
