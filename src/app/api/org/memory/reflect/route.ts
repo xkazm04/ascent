@@ -1,7 +1,9 @@
 // POST /api/org/memory/reflect { org, namespace?, decay?: true, dryRun?: true }
 //   -> { proposals, clusterCount, llmUnavailable, engine, decay? }
 // POST /api/org/memory/reflect { org, apply: { summaryContent, memberIds, confidence, namespace? } }
-//   -> { id, superseded }
+//   -> { id, superseded }   — refused 409 `registry-origin` when any member is a registry mirror
+// POST /api/org/memory/reflect { org, proposePr: { summaryContent, memberIds, namespace?, kind? } }
+//   -> { proposalId, url, number, path }
 //
 // The `reflect` (and, optionally, `forget`) verbs for Shared Org Memory. Reflection is what finally
 // PRODUCES the `summary` kind: it clusters the org's active memories, asks the model for one rollup per
@@ -17,6 +19,13 @@
 // them with nobody in the loop. So the default call PROPOSES (a pure read + one LLM pass, zero writes)
 // and a SECOND, explicit call with `apply` performs the write. Even then nothing is deleted — members
 // are stamped `supersededBy` and stay in the table, linked to the rollup that replaced them.
+//
+// REGISTRY-ORIGIN MEMORY CANNOT BE APPLIED (#36). A registry-origin row is a mirror of a file in a
+// repo the customer owns; writing `supersededBy` on it here would be reverted by the next index
+// pass, so performing the write would be a lie told with a spinner. The apply branch refuses those
+// with `409 registry-origin`, and the `proposePr` branch is the honest path: the rollup becomes a
+// pull request whose frontmatter cites the notes it replaces BY PATH, and a CODEOWNER merging it is
+// what makes the supersession real — read back on the next index pass.
 //
 // `decay: true` runs the forget pass in the same call (they are the same janitorial moment), and
 // `dryRun: true` makes that pass report what it WOULD archive without touching a row.
@@ -38,6 +47,8 @@ import {
 } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
+import { resolveProposalMembers } from "@/lib/db/org-registry-proposals";
+import { proposePrBranch, type ProposePrInput } from "./proposePr";
 import { resolveMemoryRunner } from "@/lib/memory/consolidation-engine";
 import { proposeReflections } from "@/lib/memory/reflection";
 import { archiveDecayed } from "@/lib/memory/decay";
@@ -55,6 +66,15 @@ interface ApplyBody {
   namespace?: string;
 }
 
+/** Both write branches share one shape check, so they cannot drift apart on what a valid body is. */
+function invalidMembers(b: ApplyBody | undefined): string | null {
+  if (!b?.summaryContent?.trim() || !Array.isArray(b.memberIds) || b.memberIds.length < 2) {
+    return "Provide { summaryContent, memberIds: [>=2 ids] }.";
+  }
+  if (!b.memberIds.every((id) => typeof id === "string" && id)) return "memberIds must be strings.";
+  return null;
+}
+
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Memory requires a database." }, { status: 503 });
   const body = (await request.json().catch(() => ({}))) as {
@@ -63,6 +83,7 @@ export async function POST(request: Request) {
     decay?: boolean;
     dryRun?: boolean;
     apply?: ApplyBody;
+    proposePr?: ProposePrInput;
   };
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
   const denied = await requireOrgAccess(body.org);
@@ -76,24 +97,46 @@ export async function POST(request: Request) {
   const viewer = await resolveViewerLogin();
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
 
+  // ── Propose a PR: the ONLY honest path for registry-origin memory ──────────────────────────
+  if (body.proposePr) {
+    return proposePrBranch(body.org, body.proposePr, { orgId, viewer });
+  }
+
   // ── Apply: the explicit, second call that actually writes ──────────────────────────────────
   if (body.apply) {
     const { summaryContent, memberIds, confidence, namespace } = body.apply;
-    if (!summaryContent?.trim() || !Array.isArray(memberIds) || memberIds.length < 2) {
-      return NextResponse.json(
-        { error: "Provide { apply: { summaryContent, memberIds: [>=2 ids] } }." },
-        { status: 400 },
-      );
-    }
-    if (!memberIds.every((id) => typeof id === "string" && id)) {
-      return NextResponse.json({ error: "memberIds must be strings." }, { status: 400 });
+    const invalid = invalidMembers(body.apply);
+    if (invalid) return NextResponse.json({ error: `Provide { apply: … } — ${invalid}` }, { status: 400 });
+    // `invalidMembers` has already proved both are present; TypeScript cannot narrow through a
+    // helper, so the fact is restated once here rather than by duplicating the checks inline.
+    const content = summaryContent!;
+    const ids = memberIds!;
+
+    // The origin check comes BEFORE the write. A registry-origin member's supersession lives in the
+    // customer's repo; stamping it here would be undone by the next index pass, so the refusal names
+    // the path that does work rather than succeeding and quietly reverting.
+    if (orgId) {
+      const members = await resolveProposalMembers(orgId, ids).catch(() => []);
+      const mirrored = members.filter((m) => m.origin === "registry");
+      if (mirrored.length) {
+        return NextResponse.json(
+          {
+            error:
+              `${mirrored.length} of these notes are mirrors of files in your registry. ` +
+              "Applying here would be reverted by the next index pass — propose a pull request instead.",
+            code: "registry-origin",
+            memberIds: mirrored.map((m) => m.id),
+          },
+          { status: 409 },
+        );
+      }
     }
     try {
       const applied = await applyReflection(
         body.org,
         {
-          summaryContent,
-          memberIds,
+          summaryContent: content,
+          memberIds: ids,
           confidence: typeof confidence === "number" ? confidence : 0.6,
           namespace,
         },
@@ -102,7 +145,7 @@ export async function POST(request: Request) {
       if (!applied) return NextResponse.json({ error: "Failed to write the summary." }, { status: 500 });
       await recordAudit(
         "org_memory.reflected",
-        { memoryId: applied.id, superseded: applied.superseded, memberIds },
+        { memoryId: applied.id, superseded: applied.superseded, memberIds: ids },
         { orgId, actorId: viewer ?? undefined },
       );
       return NextResponse.json(applied);
