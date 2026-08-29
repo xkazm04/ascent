@@ -5,8 +5,12 @@
 
 import { useState } from "react";
 import type { OrgLlmConfigPublic } from "@/lib/db";
+import { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock-defaults";
 
-export const DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6";
+// The card's placeholder/pre-fill defaults ARE the provider's defaults — imported, not retyped, so a
+// bump in one place cannot leave this card advertising a model the scans no longer use. The pure
+// `bedrock-defaults` module exists precisely so this client file can reach them (see its header).
+export const DEFAULT_MODEL = DEFAULT_BEDROCK_MODEL;
 
 export function useLlmProviderSettings(slug: string, initial: OrgLlmConfigPublic | null) {
   // An org has ONE active connected provider, and `initial` is that shared config object — so it
@@ -16,7 +20,7 @@ export function useLlmProviderSettings(slug: string, initial: OrgLlmConfigPublic
   // provider", and "configured ••••" AWS fields — none of which are this provider's state.
   const isActive = initial?.provider === "bedrock";
   const [modelId, setModelId] = useState(isActive ? (initial?.modelId ?? DEFAULT_MODEL) : DEFAULT_MODEL);
-  const [region, setRegion] = useState(isActive ? (initial?.region ?? "us-east-1") : "us-east-1");
+  const [region, setRegion] = useState(isActive ? (initial?.region ?? DEFAULT_BEDROCK_REGION) : DEFAULT_BEDROCK_REGION);
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [enabled, setEnabled] = useState(isActive ? (initial?.enabled ?? false) : false);
