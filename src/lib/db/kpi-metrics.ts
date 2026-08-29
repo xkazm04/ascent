@@ -25,6 +25,21 @@ export interface RatioMetric {
 const DAY_MS = 86_400_000;
 const ago = (days: number): Date => new Date(Date.now() - days * DAY_MS);
 
+/**
+ * Rows a KPI reads per page when its cohort is a table that grows without bound.
+ *
+ * GET /api/kpi runs every metric in this module CONCURRENTLY (Promise.all), so a reader that
+ * materializes its whole table decides the memory ceiling of the operator endpoint - and does it at
+ * the moment the fleet is finally large enough for the numbers to matter. Each paged reader below
+ * keeps only counters between pages, so its footprint is a page, not a history. Mirrors
+ * REPO_PAGE_SIZE in db/retention.ts, which pages the repo enumeration for the same reason.
+ */
+const KPI_PAGE_SIZE = 500;
+
+/** Cursor-page arguments, or nothing on the first page. */
+const page = (cursor: string | undefined): { cursor?: { id: string }; skip?: number } =>
+  cursor ? { cursor: { id: cursor }, skip: 1 } : {};
+
 /** A rate over a cohort. A zero denominator yields null, not 0% — "no one has signed up yet" and
  *  "everyone who signed up failed to activate" are opposite facts and must not share a rendering. */
 function rate(numerator: number, denominator: number): RatioMetric | null {
@@ -45,30 +60,62 @@ function rate(numerator: number, denominator: number): RatioMetric | null {
  */
 export async function firstScanActivationRate(windowDays = 7): Promise<RatioMetric | null> {
   if (!isDbConfigured()) return null;
-  const users = await getPrisma().user.findMany({
-    where: { createdAt: { lt: ago(windowDays) } },
-    select: {
-      createdAt: true,
-      memberships: { select: { orgId: true } },
-    },
-  });
-  if (users.length === 0) return null;
-
+  const prisma = getPrisma();
+  const windowMs = windowDays * DAY_MS;
+  let cohort = 0;
   let activated = 0;
-  for (const u of users) {
-    const orgIds = u.memberships.map((m) => m.orgId);
-    if (orgIds.length === 0) continue;
-    const deadline = new Date(u.createdAt.getTime() + windowDays * DAY_MS);
-    const hit = await getPrisma().scan.findFirst({
-      where: {
-        scannedAt: { gte: u.createdAt, lte: deadline },
-        repo: { orgId: { in: orgIds } },
-      },
-      select: { id: true },
+  let cursor: string | undefined;
+
+  for (;;) {
+    // Ordered by SIGNUP TIME, and that is what makes the single scan read below possible: a page is
+    // contiguous in createdAt, so one bounded window covers every user in it. (Was: one
+    // scan.findFirst per user - N+1 round trips against DSQL, on an endpoint that runs nine metrics
+    // at once.)
+    const users = await prisma.user.findMany({
+      where: { createdAt: { lt: ago(windowDays) } },
+      select: { id: true, createdAt: true, memberships: { select: { orgId: true } } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: KPI_PAGE_SIZE,
+      ...page(cursor),
     });
-    if (hit) activated++;
+    if (users.length === 0) break;
+    cohort += users.length;
+
+    const orgIds = [...new Set(users.flatMap((u) => u.memberships.map((m) => m.orgId)))];
+    if (orgIds.length > 0) {
+      const scans = await prisma.scan.findMany({
+        where: {
+          scannedAt: {
+            gte: users[0]!.createdAt,
+            lte: new Date(users[users.length - 1]!.createdAt.getTime() + windowMs),
+          },
+          repo: { orgId: { in: orgIds } },
+        },
+        select: { scannedAt: true, repo: { select: { orgId: true } } },
+      });
+      const byOrg = new Map<string, number[]>();
+      for (const s of scans) {
+        const at = s.scannedAt.getTime();
+        const seen = byOrg.get(s.repo.orgId);
+        if (seen) seen.push(at);
+        else byOrg.set(s.repo.orgId, [at]);
+      }
+      for (const u of users) {
+        const from = u.createdAt.getTime();
+        const to = from + windowMs;
+        // A membership-less user cannot activate and stays in the denominator - the same reading as
+        // before: they signed up and never reached a scored report.
+        const hit = u.memberships.some((m) =>
+          (byOrg.get(m.orgId) ?? []).some((at) => at >= from && at <= to),
+        );
+        if (hit) activated++;
+      }
+    }
+
+    if (users.length < KPI_PAGE_SIZE) break;
+    cursor = users[users.length - 1]!.id;
   }
-  return rate(activated, users.length);
+  return rate(activated, cohort);
 }
 
 // ── KPI: 30-day re-scan rate (target 35%) ─────────────────────────────────────
@@ -83,26 +130,56 @@ export async function firstScanActivationRate(windowDays = 7): Promise<RatioMetr
  */
 export async function reScanRate(windowDays = 30): Promise<RatioMetric | null> {
   if (!isDbConfigured()) return null;
-  const scans = await getPrisma().scan.findMany({
-    select: { repoId: true, scannedAt: true },
-    orderBy: { scannedAt: "asc" },
-  });
-
-  const first = new Map<string, Date>();
-  const second = new Map<string, Date>();
-  for (const s of scans) {
-    if (!first.has(s.repoId)) first.set(s.repoId, s.scannedAt);
-    else if (!second.has(s.repoId)) second.set(s.repoId, s.scannedAt);
-  }
-
+  const prisma = getPrisma();
   const cutoff = ago(windowDays);
+  const windowMs = windowDays * DAY_MS;
   let eligible = 0;
   let reScanned = 0;
-  for (const [repoId, firstAt] of first) {
-    if (firstAt > cutoff) continue; // window has not closed for this repo yet
-    eligible++;
-    const secondAt = second.get(repoId);
-    if (secondAt && secondAt.getTime() - firstAt.getTime() <= windowDays * DAY_MS) reScanned++;
+  let cursor: string | undefined;
+
+  // Walk REPOS, not scans. The metric only ever needed each repo's first two scans, but it read the
+  // entire Scan table - every row, all time - to find them, and built two Maps over the lot. Paging
+  // the repo list and asking for those two rows per repo keeps the working set to a page.
+  for (;;) {
+    const repos = await prisma.repository.findMany({
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: KPI_PAGE_SIZE,
+      ...page(cursor),
+    });
+    if (repos.length === 0) break;
+    const repoIds = repos.map((r) => r.id);
+
+    // `distinct` with an orderBy led by repoId yields the EARLIEST scan per repo. A repo with no scan
+    // simply does not appear, which is how it stays out of the denominator (as before).
+    const firsts = await prisma.scan.findMany({
+      where: { repoId: { in: repoIds } },
+      select: { id: true, repoId: true, scannedAt: true },
+      orderBy: [{ repoId: "asc" }, { scannedAt: "asc" }, { id: "asc" }],
+      distinct: ["repoId"],
+    });
+    // The second scan is the earliest one that is not the first - expressible because the query above
+    // returned ids. The exclusion list is bounded by the page, never by history.
+    const firstIds = firsts.map((f) => f.id);
+    const seconds = firstIds.length
+      ? await prisma.scan.findMany({
+          where: { repoId: { in: repoIds }, id: { notIn: firstIds } },
+          select: { repoId: true, scannedAt: true },
+          orderBy: [{ repoId: "asc" }, { scannedAt: "asc" }, { id: "asc" }],
+          distinct: ["repoId"],
+        })
+      : [];
+    const secondAt = new Map(seconds.map((s) => [s.repoId, s.scannedAt.getTime()]));
+
+    for (const f of firsts) {
+      if (f.scannedAt > cutoff) continue; // window has not closed for this repo yet
+      eligible++;
+      const at = secondAt.get(f.repoId);
+      if (at !== undefined && at - f.scannedAt.getTime() <= windowMs) reScanned++;
+    }
+
+    if (repos.length < KPI_PAGE_SIZE) break;
+    cursor = repos[repos.length - 1]!.id;
   }
   return rate(reScanned, eligible);
 }
@@ -173,20 +250,47 @@ export async function orgFleetScanDepth(minRepos = 3): Promise<RatioMetric | nul
  */
 export async function roadmapEngagementRate(windowDays = 14): Promise<RatioMetric | null> {
   if (!isDbConfigured()) return null;
-  const scans = await getPrisma().scan.findMany({
-    where: { scannedAt: { lt: ago(windowDays) } },
-    select: {
-      scannedAt: true,
-      recommendations: { select: { events: { where: { kind: "status" }, select: { createdAt: true } } } },
-    },
-  });
-  if (scans.length === 0) return null;
-  const engaged = scans.filter((s) =>
-    s.recommendations.some((r) =>
-      r.events.some((e) => e.createdAt.getTime() - s.scannedAt.getTime() <= windowDays * DAY_MS),
-    ),
-  ).length;
-  return rate(engaged, scans.length);
+  const prisma = getPrisma();
+  const windowMs = windowDays * DAY_MS;
+  let delivered = 0;
+  let engaged = 0;
+  let cursor: string | undefined;
+
+  // `scannedAt < ago(windowDays)` is ALL HISTORY minus the last fortnight, and the old read pulled it
+  // in one query with `recommendations.events` joined underneath - every recommendation and every
+  // status event ever recorded, materialized to compute two counters. Paged, the counters are all
+  // that survives a page.
+  for (;;) {
+    const scans = await prisma.scan.findMany({
+      where: { scannedAt: { lt: ago(windowDays) } },
+      select: { id: true, scannedAt: true },
+      orderBy: [{ scannedAt: "asc" }, { id: "asc" }],
+      take: KPI_PAGE_SIZE,
+      ...page(cursor),
+    });
+    if (scans.length === 0) break;
+    delivered += scans.length;
+
+    const events = await prisma.recommendationEvent.findMany({
+      where: { kind: "status", recommendation: { scanId: { in: scans.map((s) => s.id) } } },
+      select: { createdAt: true, recommendation: { select: { scanId: true } } },
+    });
+    const byScan = new Map<string, number[]>();
+    for (const e of events) {
+      const at = e.createdAt.getTime();
+      const seen = byScan.get(e.recommendation.scanId);
+      if (seen) seen.push(at);
+      else byScan.set(e.recommendation.scanId, [at]);
+    }
+    for (const s of scans) {
+      const at = s.scannedAt.getTime();
+      if ((byScan.get(s.id) ?? []).some((e) => e - at <= windowMs)) engaged++;
+    }
+
+    if (scans.length < KPI_PAGE_SIZE) break;
+    cursor = scans[scans.length - 1]!.id;
+  }
+  return rate(engaged, delivered);
 }
 
 // ── KPI: weekly active scanning orgs (target 30) ──────────────────────────────

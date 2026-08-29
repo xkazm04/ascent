@@ -5,7 +5,12 @@
 // ceiling? When they are, the fix is to split the single-call assessment into per-dimension calls,
 // not to buy a bigger model — and that decision needs a fleet-wide trend, not one loud scan.
 //
-// Only `scanOutputBudget` is covered here; the other kpi-metrics readers predate this file.
+// `scanOutputBudget` came with this file. The three PAGED readers below were added when their
+// unbounded reads were replaced (explorer, 2026-08-29): each used to materialize a whole table on an
+// endpoint that runs every metric at once, and each now walks its cohort in KPI_PAGE_SIZE pages. The
+// rewrite had to leave the reported numbers identical, so the tests below are about the ARITHMETIC
+// surviving pagination - the cohort rules, the window edges, and the second-scan identification -
+// not about the query shape.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -16,7 +21,32 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
 
-import { scanOutputBudget } from "./kpi-metrics";
+import {
+  firstScanActivationRate,
+  reScanRate,
+  roadmapEngagementRate,
+  scanOutputBudget,
+} from "./kpi-metrics";
+
+const DAY = 86_400_000;
+const daysAgo = (n: number) => new Date(Date.now() - n * DAY);
+
+/** A prisma double whose findMany calls return fixed rows and record the args they were called
+ *  with, so a test can assert both the number and the fact that the walk terminated. */
+function fakePrisma(models: Record<string, unknown>) {
+  mockIsDbConfigured.mockReturnValue(true);
+  mockGetPrisma.mockReturnValue(models);
+}
+
+/** findMany that serves `rows` on the first call and nothing afterwards — one page, then the end. */
+const onePage = (rows: unknown[]) => {
+  let served = false;
+  return vi.fn(async () => {
+    if (served) return [];
+    served = true;
+    return rows;
+  });
+};
 
 const scan = (outputTokens: number, engineModel = "claude-opus-5") => ({ engineModel, outputTokens });
 
@@ -83,5 +113,142 @@ describe("scanOutputBudget", () => {
     const m = (await scanOutputBudget())!;
     expect(m.p95PctOfCap).toBe(19);
     expect(m.level).toBe("ok");
+  });
+});
+
+describe("firstScanActivationRate", () => {
+  it("returns null with no database", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await firstScanActivationRate()).toBeNull();
+  });
+
+  it("credits a scan inside the window and keeps the rest in the denominator", async () => {
+    const signup = daysAgo(30);
+    fakePrisma({
+      user: {
+        findMany: onePage([
+          { id: "u1", createdAt: signup, memberships: [{ orgId: "o1" }] },
+          { id: "u2", createdAt: signup, memberships: [{ orgId: "o2" }] },
+          // No org at all: cannot activate, still a signup that never reached a report.
+          { id: "u3", createdAt: signup, memberships: [] },
+        ]),
+      },
+      scan: {
+        findMany: vi.fn(async () => [
+          // Inside u1's 7-day window…
+          { scannedAt: new Date(signup.getTime() + 2 * DAY), repo: { orgId: "o1" } },
+          // …and outside u2's.
+          { scannedAt: new Date(signup.getTime() + 9 * DAY), repo: { orgId: "o2" } },
+        ]),
+      },
+    });
+
+    expect(await firstScanActivationRate(7)).toEqual({
+      value: (1 / 3) * 100,
+      numerator: 1,
+      denominator: 3,
+    });
+  });
+
+  it("reads the scans for a whole page in ONE query, not one per user", async () => {
+    const scanFindMany = vi.fn(async () => []);
+    fakePrisma({
+      user: {
+        findMany: onePage(
+          Array.from({ length: 25 }, (_, i) => ({
+            id: `u${i}`,
+            createdAt: daysAgo(30),
+            memberships: [{ orgId: `o${i}` }],
+          })),
+        ),
+      },
+      scan: { findMany: scanFindMany },
+    });
+
+    await firstScanActivationRate(7);
+    expect(scanFindMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null when nobody has signed up outside the window", async () => {
+    fakePrisma({ user: { findMany: vi.fn(async () => []) }, scan: { findMany: vi.fn(async () => []) } });
+    expect(await firstScanActivationRate()).toBeNull();
+  });
+});
+
+describe("reScanRate", () => {
+  it("counts a repo whose second scan landed inside the window", async () => {
+    const first = daysAgo(90);
+    fakePrisma({
+      repository: { findMany: onePage([{ id: "r1" }, { id: "r2" }]) },
+      scan: {
+        findMany: vi
+          .fn()
+          // firsts
+          .mockResolvedValueOnce([
+            { id: "s1", repoId: "r1", scannedAt: first },
+            { id: "s2", repoId: "r2", scannedAt: first },
+          ])
+          // seconds: r1 re-scanned in time, r2 far too late
+          .mockResolvedValueOnce([
+            { repoId: "r1", scannedAt: new Date(first.getTime() + 10 * DAY) },
+            { repoId: "r2", scannedAt: new Date(first.getTime() + 60 * DAY) },
+          ]),
+      },
+    });
+
+    expect(await reScanRate(30)).toEqual({ value: 50, numerator: 1, denominator: 2 });
+  });
+
+  it("excludes a repo whose window has not closed yet", async () => {
+    fakePrisma({
+      repository: { findMany: onePage([{ id: "r1" }]) },
+      scan: {
+        findMany: vi
+          .fn()
+          .mockResolvedValueOnce([{ id: "s1", repoId: "r1", scannedAt: daysAgo(2) }])
+          .mockResolvedValueOnce([]),
+      },
+    });
+
+    expect(await reScanRate(30)).toBeNull(); // no eligible repo — not 0%
+  });
+
+  it("never asks for second scans when no repo in the page has a first", async () => {
+    const scanFindMany = vi.fn(async () => []);
+    fakePrisma({ repository: { findMany: onePage([{ id: "r1" }]) }, scan: { findMany: scanFindMany } });
+
+    expect(await reScanRate(30)).toBeNull();
+    expect(scanFindMany).toHaveBeenCalledTimes(1); // firsts only; the exclusion query is skipped
+  });
+});
+
+describe("roadmapEngagementRate", () => {
+  it("counts a scan whose recommendation moved inside the window", async () => {
+    const delivered = daysAgo(60);
+    fakePrisma({
+      scan: {
+        findMany: onePage([
+          { id: "sc1", scannedAt: delivered },
+          { id: "sc2", scannedAt: delivered },
+        ]),
+      },
+      recommendationEvent: {
+        findMany: vi.fn(async () => [
+          { createdAt: new Date(delivered.getTime() + 3 * DAY), recommendation: { scanId: "sc1" } },
+          // sc2 was acted on, but long after the window closed.
+          { createdAt: new Date(delivered.getTime() + 40 * DAY), recommendation: { scanId: "sc2" } },
+        ]),
+      },
+    });
+
+    expect(await roadmapEngagementRate(14)).toEqual({ value: 50, numerator: 1, denominator: 2 });
+  });
+
+  it("returns null when no scan is old enough to have been acted on", async () => {
+    fakePrisma({
+      scan: { findMany: vi.fn(async () => []) },
+      recommendationEvent: { findMany: vi.fn(async () => []) },
+    });
+    expect(await roadmapEngagementRate()).toBeNull();
   });
 });
