@@ -40,19 +40,28 @@ import type {
   ApiTokenSummary,
   AuditLogEntry,
   AuditLogPage,
+  ComparableScan,
+  HistoryPoint,
   MemoryRow,
   OpsState,
   OrgLlmConfigPublic,
   OrgPractice,
+  OrphanedTrackedRec,
   PlaybookAdoption,
   PlaybookRow,
   PublicScanGallery,
+  RepositoryHistory,
   SegmentSummary,
   SkillAdoption,
   SkillRow,
   TeamRollup,
   UsageDay,
 } from "@/lib/db";
+// Reached by a client through a DEEP path rather than the barrel — the shape of import the first
+// audit missed. See the note on WIRE_TYPES.
+import type { OrgBranding } from "@/lib/db/branding";
+import type { TransitionProgramRow } from "@/lib/db/org-program";
+import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 type DateBearingKeys<T> = {
@@ -67,23 +76,43 @@ type WireSafe<T> = [DateBearingKeys<T>] extends [never]
   ? true
   : ["A Date-typed field crosses the wire on this type:", DateBearingKeys<T>];
 
-// Every type a `"use client"` module imports from `@/lib/db` (audited 2026-08-28). A new one belongs
-// here the moment a client imports it.
+// Every db type a `"use client"` module imports (re-audited 2026-08-29). A new one belongs here the
+// moment a client imports it.
+//
+// SCOPE, and why it widened: the first audit (2026-08-28) enumerated the client imports from the
+// `@/lib/db` BARREL. But a client may also import from a deep path, and eight types did — most of the
+// report surface among them (`HistoryPoint` in DimensionTrendsRange/ScanComparePicker/ReportPanels/
+// ScoringTab, `ComparableScan` in WhatChanged, `RepositoryHistory` in ReportView/DimensionTrends, all
+// via `@/lib/db/scans`). Those are precisely the timestamp-heavy trend/diff types, and the invariant
+// AGENTS.md states as law was unenforced for every one of them. They are all correct today — the
+// mappers already `.toISOString()` — so this closes a guard gap, not a live bug. Enumerate by what a
+// client IMPORTS, never by which module path it came through.
+//
+// Union-typed aliases a client also imports (MemorySort, SkillSort, SkillTokenScope, OrgRole,
+// ProgramCadence, AuditVerdict) are deliberately absent: `keyof` a string union is not a row's field
+// set, so WireSafe says nothing useful about them.
 const WIRE_TYPES = {
   ApiTokenSummary: true satisfies WireSafe<ApiTokenSummary>,
   AuditLogEntry: true satisfies WireSafe<AuditLogEntry>,
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
+  ComparableScan: true satisfies WireSafe<ComparableScan>,
+  HistoryPoint: true satisfies WireSafe<HistoryPoint>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
+  OrgBranding: true satisfies WireSafe<OrgBranding>,
   OrgLlmConfigPublic: true satisfies WireSafe<OrgLlmConfigPublic>,
   OrgPractice: true satisfies WireSafe<OrgPractice>,
+  OrphanedTrackedRec: true satisfies WireSafe<OrphanedTrackedRec>,
   PlaybookAdoption: true satisfies WireSafe<PlaybookAdoption>,
   PlaybookRow: true satisfies WireSafe<PlaybookRow>,
   PublicScanGallery: true satisfies WireSafe<PublicScanGallery>,
+  RepositoryHistory: true satisfies WireSafe<RepositoryHistory>,
+  SandboxScenarioRecord: true satisfies WireSafe<SandboxScenarioRecord>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
   SkillRow: true satisfies WireSafe<SkillRow>,
   TeamRollup: true satisfies WireSafe<TeamRollup>,
+  TransitionProgramRow: true satisfies WireSafe<TransitionProgramRow>,
   UsageDay: true satisfies WireSafe<UsageDay>,
 } as const;
 
@@ -96,6 +125,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(15);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(22);
   });
 });
