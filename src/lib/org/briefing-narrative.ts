@@ -35,6 +35,7 @@
 
 import { briefingMarkdown, briefingNextMove, type ExecBriefing } from "@/lib/org/briefing";
 import { withLlmTimeout } from "@/lib/llm/config";
+import { meter } from "@/lib/llm/meter";
 import { PROSE_STYLE_RULE, deEmDash } from "@/lib/llm/prose";
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
@@ -270,13 +271,43 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
+ * The `provider` id this lane's spend is recorded under.
+ *
+ * This egress does NOT go through `src/lib/llm/transports.ts` — it is a raw fetch against the
+ * first-party Anthropic Messages API on its own `ANTHROPIC_API_KEY` — so it is genuinely a provider
+ * `ProviderName` does not carry. `claude` is the legacy id `PROVIDER_LABEL` already knows, which keeps
+ * the /usage panels able to name it. Re-plumbing this onto the shared seam is BACKLOG C3: it would
+ * change which credential and which vendor an operator's briefing bills to, a design question, not a
+ * wiring task. Metered where it is, until that is decided.
+ */
+const BRIEFING_PROVIDER = "claude";
+
+/**
  * Ask the provider for a narrative. Resolves to the text on success, or null on ANY failure —
  * unconfigured, network, non-2xx, refusal, malformed shape, empty text. Never throws.
+ *
+ * Every outcome is METERED (#11): this was the last real billed call in the app that reached no meter
+ * at all — the response's own `usage` block was parsed by nobody and discarded. `orgSlug` is the
+ * briefing's own org, so the spend shows up under the org that ordered the document.
  */
-async function requestNarrative(facts: string, signal?: AbortSignal): Promise<string | null> {
+async function requestNarrative(facts: string, orgSlug: string | null, signal?: AbortSignal): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   const timeoutMs = Number(process.env.BRIEFING_NARRATIVE_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
+  const model = process.env.BRIEFING_NARRATIVE_MODEL || DEFAULT_MODEL;
+  const startedAt = Date.now();
+  /** One ledger row for this call, whatever its outcome. Never throws (see meter's contract). */
+  const record = (status: "success" | "error" | "timeout", usage?: { inputTokens?: number; outputTokens?: number }) =>
+    meter({
+      orgSlug,
+      lane: "briefing",
+      legKind: "briefing",
+      provider: BRIEFING_PROVIDER,
+      model,
+      usage,
+      status,
+      latencyMs: Date.now() - startedAt,
+    });
   const { signal: combined, clear } = withLlmTimeout(signal, timeoutMs, "Briefing narrative request timed out.");
   try {
     const res = await fetch(ANTHROPIC_MESSAGES_URL, {
@@ -289,7 +320,7 @@ async function requestNarrative(facts: string, signal?: AbortSignal): Promise<st
       // No temperature/top_p (rejected on this model family). Adaptive thinking is the default; a low
       // effort hint keeps a short, factual summary cheap. max_tokens covers thinking + text.
       body: JSON.stringify({
-        model: process.env.BRIEFING_NARRATIVE_MODEL || DEFAULT_MODEL,
+        model,
         max_tokens: 2_000,
         output_config: { effort: "low" },
         system: SYSTEM_PROMPT,
@@ -297,11 +328,24 @@ async function requestNarrative(facts: string, signal?: AbortSignal): Promise<st
       }),
       signal: combined,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      record("error");
+      return null;
+    }
     const data = (await res.json()) as {
       stop_reason?: string;
       content?: { type?: string; text?: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
     };
+    // The Messages API's own usage block, which this module used to discard entirely. Absent fields
+    // stay absent — `meter` writes null, never 0, for anything the provider did not report.
+    const usage = {
+      inputTokens: data.usage?.input_tokens,
+      outputTokens: data.usage?.output_tokens,
+    };
+    // A refusal still SPENT the tokens it took to refuse, so it is metered as a success (the call
+    // completed) and rejected downstream. Recording it as an error would misreport the endpoint's health.
+    record("success", usage);
     // A safety refusal is a normal 200 with an empty/partial body — check it before reading content.
     if (data.stop_reason === "refusal") return null;
     const text = (data.content ?? [])
@@ -316,6 +360,8 @@ async function requestNarrative(facts: string, signal?: AbortSignal): Promise<st
     // delete the feature. The gates below still judge the cleaned text.
     return text ? deEmDash(text) : null;
   } catch {
+    // Our own timer firing is a timeout; anything else (network, a caller disconnect) is an error.
+    record(combined.aborted && !signal?.aborted ? "timeout" : "error");
     return null;
   } finally {
     clear();
@@ -330,7 +376,8 @@ export async function writeBriefingNarrative(b: ExecBriefing, opts: { signal?: A
   const fallback = deterministicNarrative(b);
   if (!briefingNarrativeEnabled()) return fallback;
   const facts = narrativeFacts(b);
-  const text = await requestNarrative(facts, opts.signal);
+  // `b.org` is the org SLUG buildExecBriefing stamped on the briefing — the ledger's tenant key.
+  const text = await requestNarrative(facts, b.org ?? null, opts.signal);
   if (!text) return fallback;
   if (!isWellFormedNarrative(text)) return fallback;
   // The load-bearing gate: no figure the briefing itself doesn't already contain...

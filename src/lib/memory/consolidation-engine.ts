@@ -37,9 +37,10 @@ export interface MemoryRunner {
    *
    * It exists because this seam passed only `timeoutMs`: it never supplied `onUsage`, so the memory
    * write-gate and reflection passes were the one place in the app where real billed tokens reached no
-   * meter at all. There is no write-side LLM ledger table to post to yet (`src/lib/db/usage.ts` derives
-   * everything from Scan rows), so the honest interim is to make the number READABLE at the seam
-   * instead of discarding it — the tracklight mirror already receives it per call.
+   * meter at all. That interim is over: with `orgSlug` supplied these calls now also post a
+   * `UsageEvent` under the `memory` lane (src/lib/llm/meter.ts), so the spend is durable and shows up
+   * on /usage. This field stays because a CALLER still wants the per-pass number in-process (the
+   * reflect route reports it in its response) without a round trip to the ledger.
    */
   usage: TokenUsage;
 }
@@ -49,13 +50,22 @@ export interface MemoryRunner {
  * unset/mock, a missing key, or claude-cli on a production host). Null is a first-class, expected
  * result — `analyzeWrite` treats it as "use the deterministic heuristic", and `proposeReflections`
  * treats it as "propose nothing, and SAY so" (`llmUnavailable: true`).
+ *
+ * `orgSlug` is WHOSE LEDGER the spend lands in. It is optional so a caller with no org context still
+ * works exactly as before — and, exactly as before, an unattributed pass writes no ledger row rather
+ * than being charged to a guess. Both route callers have an already-gated slug in hand, so both pass it.
+ *
+ * Deliberately still `resolveTextRunner`, NOT `resolveTextRunnerForOrg`: routing memory content through
+ * the org's own BYOM provider changes WHICH VENDOR sees it, which is a provider decision, not a
+ * metering one, and is out of this lane's scope.
  */
-export async function resolveMemoryRunner(): Promise<MemoryRunner | null> {
+export async function resolveMemoryRunner(orgSlug?: string | null): Promise<MemoryRunner | null> {
   const usage: TokenUsage = {};
   const runner = await resolveTextRunner({
     // Names the surface that is spending — memory passes are not scans and must not be tagged as such.
     legKind: "memory",
     timeoutMs: CHECK_TIMEOUT_MS,
+    meter: { orgSlug: orgSlug ?? null, lane: "memory" },
     onUsage: (u) => {
       for (const k of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"] as const) {
         const v = u[k];

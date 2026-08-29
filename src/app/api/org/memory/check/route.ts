@@ -56,7 +56,9 @@ export async function POST(request: Request) {
     viewer,
   );
 
-  const runner = await resolveMemoryRunner();
+  // The org is already gated above (requireOrgAccess), so this is the authorized slug — pass it so the
+  // pass's LLM spend lands in THIS org's ledger rather than nowhere (#11).
+  const runner = await resolveMemoryRunner(body.org);
   const verdict = await analyzeWrite(
     { content: body.content, kind, namespace: body.namespace, candidates },
     runner?.run ?? null,
