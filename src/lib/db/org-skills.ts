@@ -423,6 +423,31 @@ export async function countOrgSkillInvokes(orgId: string, days = 30): Promise<nu
   return getPrisma().orgSkillEvent.count({ where: { orgId, type: "invoke", createdAt: { gte: since } } });
 }
 
+/**
+ * The FIRST `invoke` this org recorded per (skill, repo) — the outcome loop's anchor of last resort
+ * (#19). Only sink A can produce these: the registry `usage/` lane carries no repo dimension by
+ * construction, so a sample can never anchor a repo-scoped outcome.
+ *
+ * Rows with a null `repo` are excluded rather than bucketed: an invocation nobody attributed to a
+ * repo cannot be paired against any repo's scan history, and guessing one would attribute a score
+ * movement to a repo that may have had nothing to do with it.
+ */
+export async function listSkillInvokeAnchors(
+  orgSlug: string,
+): Promise<{ skillId: string; repoFullName: string; firstInvokeAt: string }[]> {
+  if (!isDbConfigured()) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const grouped = await getPrisma().orgSkillEvent.groupBy({
+    by: ["skillId", "repo"],
+    where: { orgId, type: "invoke", repo: { not: null } },
+    _min: { createdAt: true },
+  });
+  return grouped
+    .filter((g) => g.repo && g._min.createdAt)
+    .map((g) => ({ skillId: g.skillId, repoFullName: g.repo!, firstInvokeAt: g._min.createdAt!.toISOString() }));
+}
+
 /** Record that a repo adopted a skill (idempotent per skill+repo). False if org/skill unknown —
  *  defense-in-depth alongside the route's authz (the org filter is the tenant boundary). */
 export async function adoptOrgSkill(
