@@ -82,7 +82,9 @@ verification?"*. Here the verification is what produced the false claim.
    hands its own markers to every agent, which then silently produces nothing.
 6. **`L2-B-02` (low)** — `sonnet · low effort` and `engine claude-cli · opus` on one panel,
    unlabelled.
-7. **`L2-E-02` (low, design)** — a drive's debt falls on the lane's worktree rescan, before any merge.
+7. **`L2-C-02` (low)** — a killed lane leaves its temp worktree on disk; `removeLoopWorktree` runs
+   in a `finally` a `taskkill /F` never reaches, and the boot sweep reconciles rows, not files.
+8. **`L2-E-02` (low, design)** — a drive's debt falls on the lane's worktree rescan, before any merge.
 
 ## Fixed in this run
 
