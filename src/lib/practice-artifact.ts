@@ -61,6 +61,18 @@ export interface LangCommands {
    * Never set for the original five — their setup id is derived from `ci`.
    */
   ciSetup?: string;
+  /**
+   * The repo's language manifest — the file these commands are derived FROM (Gemfile, composer.json,
+   * pom.xml, …). Additive and optional for the same reason as `ciSetup`: the extended families all
+   * carry `ci: "generic"`, so anything keyed on `ci` collapses them onto the generic row. Without
+   * this, `standard/manifest.ts` wrote `generatedFrom: ["<your build manifest>"]` — a placeholder
+   * provenance — for every Ruby/PHP/JVM/Swift/Dart/Elixir repo, which is the same guaranteed-noise
+   * failure the extended families were added to remove from `test`/`lint`/`build`.
+   *
+   * Never set for the original five (their file is derived from `ci`) or for the final fallback,
+   * whose build manifest genuinely is unknown.
+   */
+  sourceFile?: string;
 }
 
 /** Map a repo's primary language to its canonical install/test/lint/build commands + CI setup id.
@@ -93,6 +105,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "bundle exec rake build",
         ci: "generic",
         ciSetup: "ruby/setup-ruby",
+        sourceFile: "Gemfile",
       };
     case "php":
       return {
@@ -102,6 +115,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "composer dump-autoload -o",
         ci: "generic",
         ciSetup: "shivammathur/setup-php",
+        sourceFile: "composer.json",
       };
     case "java":
       return {
@@ -111,6 +125,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "mvn -B package",
         ci: "generic",
         ciSetup: "actions/setup-java",
+        sourceFile: "pom.xml",
       };
     case "kotlin":
       return {
@@ -120,6 +135,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "./gradlew build",
         ci: "generic",
         ciSetup: "actions/setup-java",
+        sourceFile: "build.gradle",
       };
     case "scala":
       return {
@@ -129,6 +145,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "sbt package",
         ci: "generic",
         ciSetup: "actions/setup-java",
+        sourceFile: "build.sbt",
       };
     case "c#":
     case "csharp":
@@ -148,6 +165,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "swift build -c release",
         ci: "generic",
         ciSetup: "swift-actions/setup-swift",
+        sourceFile: "Package.swift",
       };
     case "dart":
       return {
@@ -157,6 +175,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "dart compile exe",
         ci: "generic",
         ciSetup: "dart-lang/setup-dart",
+        sourceFile: "pubspec.yaml",
       };
     case "elixir":
       return {
@@ -166,6 +185,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "mix compile --warnings-as-errors",
         ci: "generic",
         ciSetup: "erlef/setup-beam",
+        sourceFile: "mix.exs",
       };
     default:
       return { install: "<install deps>", test: "<run tests>", lint: "<run linter>", build: "<build>", ci: "generic" };

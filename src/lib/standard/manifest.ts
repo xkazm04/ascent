@@ -9,7 +9,15 @@ import { type GeneratedFile, type ManifestData, MANIFEST_SCHEMA_VERSION } from "
 // it used to name a path that only exists in Ascent's own repo.
 import { SPEC_PATH } from "./spec";
 
-/** Language-manifest file a repo's commands derive from — the doctor drift-checks it. */
+/**
+ * Language-manifest file a repo's commands derive from — the doctor drift-checks it.
+ *
+ * Keyed on `ci`, which the extended families (Ruby, PHP, the JVM three, Swift, Dart, Elixir) all set
+ * to "generic" so the exhaustive maps here and in tracks.ts keep compiling. That made this map, and
+ * TYPECHECK below, collapse every one of them onto the generic row: measured before this fix, 6 of 10
+ * sampled languages got `generatedFrom: ["<your build manifest>"]`. `commandsFor` now carries a
+ * `sourceFile` for those families and it wins over this map — see the fallback in buildManifestData.
+ */
 const SOURCE_FILE: Record<LangCommands["ci"], string> = {
   node: "package.json",
   python: "pyproject.toml",
@@ -43,7 +51,10 @@ export function buildManifestData(report: ScanReport): ManifestData {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
     spec: SPEC_PATH,
     generatedAt: report.scannedAt.slice(0, 10),
-    generatedFrom: [SOURCE_FILE[cmd.ci]],
+    // The family's own build manifest when it has one, else the `ci`-keyed row. The placeholder is
+    // the last resort (an unrecognized language, or C#, whose project file name is repo-specific) —
+    // and the doctor now reports it rather than skipping it silently.
+    generatedFrom: [cmd.sourceFile ?? SOURCE_FILE[cmd.ci]],
     repo: {
       name: report.repo.name,
       purpose: report.repo.description?.trim() || "TODO: one line on what this repo is for",
@@ -69,8 +80,15 @@ export function buildManifestData(report: ScanReport): ManifestData {
     // still runs tests in its verify step regardless of where the GATE lives; this is about gates.
     // TUNE per repo: a small test suite can move to prePush; a huge one stays in CI. The doctor
     // reports which prePush controls lack a backing capability or aren't wired into the local hook.
+    //
+    // `typecheck` is listed ONLY when this language has one. The doctor reports a prePush control
+    // with no backing capability so an onboarding track can close the gap — that is real signal for
+    // `scan-secrets` (a track adds the gitleaks hook). It was noise for `typecheck` on every
+    // extended family: TYPECHECK has no row for them, no track supplies one, and the kit offers no
+    // way to fill it, so the warn was permanent and unfixable. Same rule the `evals` pointer and the
+    // `<run tests>` placeholders were fixed under: never emit a finding the reader cannot act on.
     controls: {
-      prePush: ["lint", "typecheck", "scan-secrets"],
+      prePush: ["lint", ...(typecheck ? ["typecheck"] : []), "scan-secrets"],
       ciHardPass: ["test", "sast", "merge-gate"],
     },
   };

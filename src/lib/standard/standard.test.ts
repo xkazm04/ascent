@@ -86,6 +86,54 @@ describe("ai-manifest", () => {
     expect(serializeManifestYaml(d)).not.toMatch(/^\s+evals:/m);
   });
 
+  // The extended language families (Ruby, PHP, the JVM three, Swift, Dart, Elixir) all carry
+  // `ci: "generic"` so the exhaustive `Record<LangCommands["ci"], …>` maps keep compiling — which
+  // silently collapsed every one of them onto the generic row of BOTH maps in manifest.ts. Measured
+  // before the fix: 6 of 10 sampled languages emitted a placeholder provenance and a prePush control
+  // no capability could ever back. Both halves are pinned here because both were invisible: the
+  // manifest still serialized, the doctor still ran, and every existing assertion stayed green.
+  describe("extended language families are not collapsed onto the generic row", () => {
+    const REAL_SOURCE_FILE: [string, string][] = [
+      ["Ruby", "Gemfile"], ["PHP", "composer.json"], ["Java", "pom.xml"],
+      ["Kotlin", "build.gradle"], ["Scala", "build.sbt"], ["Swift", "Package.swift"],
+      ["Dart", "pubspec.yaml"], ["Elixir", "mix.exs"],
+    ];
+
+    it("records the family's REAL build manifest as provenance, not a <placeholder>", () => {
+      for (const [lang, file] of REAL_SOURCE_FILE) {
+        const d = buildManifestData(makeReport(lang));
+        expect(d.generatedFrom, lang).toEqual([file]);
+        expect(d.generatedFrom[0], lang).not.toMatch(/<.*>/);
+      }
+    });
+
+    it("keeps the placeholder ONLY where the build manifest is genuinely unknowable", () => {
+      // C#'s project file is repo-specific (*.sln / *.csproj) and an unrecognized language has none.
+      for (const lang of ["C#", "Brainfuck"]) {
+        expect(buildManifestData(makeReport(lang)).generatedFrom, lang).toEqual(["<your build manifest>"]);
+      }
+    });
+
+    it("never declares a prePush control this language has no way to back", () => {
+      for (const lang of ["TypeScript", "Python", "Go", "Rust", ...REAL_SOURCE_FILE.map(([l]) => l), "C#"]) {
+        const d = buildManifestData(makeReport(lang));
+        const unbacked = d.controls.prePush.filter((c) => !(c in d.capabilities));
+        // scan-secrets is the ONE intentional gap: no capability backs it, and an onboarding track
+        // closes it by adding the hook. typecheck must never join it — no track can supply one.
+        expect(unbacked, lang).toEqual(["scan-secrets"]);
+      }
+    });
+
+    it("still lists typecheck pre-push for every family that HAS one", () => {
+      for (const lang of ["TypeScript", "Python", "Go", "Rust"]) {
+        expect(buildManifestData(makeReport(lang)).controls.prePush, lang).toEqual([
+          "lint", "typecheck", "scan-secrets",
+        ]);
+      }
+      expect(buildManifestData(makeReport("Ruby")).controls.prePush).toEqual(["lint", "scan-secrets"]);
+    });
+  });
+
   it("points `spec` at the copy that SHIPS with the foundation, not a path inside Ascent's repo", () => {
     const d = buildManifestData(makeReport());
     expect(d.spec).toBe(".ai/SPEC.md");
