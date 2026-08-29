@@ -4,8 +4,15 @@
 // Unmeasurable adoptions are shown, not hidden — "no scan since adoption yet" is a truthful, actionable
 // state (it tells the org to re-scan), whereas a silently omitted row reads as "no effect". The wording
 // is deliberately correlational ("since adoption"), never causal: other work lands in the same window.
+//
+// AND THE DISTANCE TRAVELS WITH THE NUMBER. `withinPairingBound` is documented in skill-outcomes.ts as
+// "the delta is still reported, but a consumer that shows the number must show this beside it" — that
+// bound (PAIRING_MAX_DISTANCE_DAYS, 180) exists because an eighteen-month-old "before" scan was being
+// paired as readily as last week's, attributing a year and a half of unrelated work to one practice.
+// It FLAGS rather than filters, deliberately; a flag no consumer renders filters nothing and flags
+// nothing, so the row carries it.
 
-import { outcomeStatusLabel, type SkillOutcome } from "@/lib/org/skill-outcomes";
+import { PAIRING_MAX_DISTANCE_DAYS, outcomeStatusLabel, type SkillOutcome } from "@/lib/org/skill-outcomes";
 
 const fmtDelta = (d: number) => `${d > 0 ? "+" : ""}${d}`;
 
@@ -28,6 +35,14 @@ function DeltaRow({ o }: { o: SkillOutcome }) {
           {top && (
             <span className="font-mono text-slate-500" title="Largest per-dimension move in the same window">
               · {top.dimId} {fmtDelta(top.delta)}
+            </span>
+          )}
+          {o.withinPairingBound === false && (
+            <span
+              className="font-mono text-xs text-amber-300/90"
+              title={`One side of this pair is more than ${PAIRING_MAX_DISTANCE_DAYS} days from the adoption (${o.beforeGapDays ?? "?"}d before, ${o.afterGapDays ?? "?"}d after). The scans are far enough apart that other work dominates the window.`}
+            >
+              · wide window
             </span>
           )}
         </>

@@ -255,7 +255,18 @@ measured…") — the point where selection bias would otherwise enter silently.
 
 `SkillOutcomes` renders this with an explicit disclaimer that the
 movement is correlational, not causal ("Movement in the same window as the
-adoption: correlation, not proof of cause").
+adoption: correlation, not proof of cause"), and — since 2026-08-29 — marks a
+row whose pair straddles the bound with a "wide window" flag carrying both gap
+distances in its title. Until then the bound flagged nothing that reached a
+reader: the module documents `withinPairingBound` as something "a consumer that
+shows the number must show beside it", and the only consumer showed the number
+alone.
+
+**Known gap:** the aggregation half (`aggregateOutcomes`, `coverageLabel`,
+`meanDeltaLine`, `outsidePairingBound`) has no caller anywhere in `src/`. It is
+written and tested so a mean cannot be published without its coverage, but no
+surface publishes a mean yet — so the selection-bias guard is currently a
+guarantee about a number nobody renders.
 
 `skill-outcomes-load.ts` issues one `getRepositoryHistory` read (newest 100
 scans) per **distinct** adopted repo, run through `mapPool` at
