@@ -26,8 +26,14 @@ The vault is the per-project Obsidian folder at `C:/Users/kazda/Documents/Obsidi
 `Lessons/` and `Patterns/` are shared with the other skills.
 
 ## Context sources
-- `context-map.json` — the area taxonomy: 11 groups, 52 contexts. Keys are `filePaths`, `apiRoutes`,
-  `description`; generated 2026-08-04. Phase 2a resolves hints against the full 52-context set.
+- `context-map.json` — the area taxonomy: **11 groups, 55 contexts**, repaired 2026-08-29. Keys are
+  `filePaths`, `apiRoutes`, `description`. Phase 2a resolves hints against the full 55-context set.
+  It is **hand-maintained** despite the vibeman `$schema`/`projectId` — there is no regenerate command,
+  and git history shows contexts renamed and added in ordinary feature commits. Check it with
+  `node scripts/context-map/check-map-drift.mjs` (`--list` to name the unmapped files); it fails on a
+  dead path, a dead route, or unmapped source above a 10% budget. ~7% of source is deliberately
+  unmapped: shared modules in `src/lib/db/` and `src/lib/org/` that a dozen contexts each draw from,
+  where forcing a single owner would make the map less true, not more.
 - `AGENTS.md` — the repo rules file (imported by `CLAUDE.md` via `@AGENTS.md`). Carries the 300-LOC
   `.tsx` cap, the 200-LOC `src/features/**` cap, the `src/features/<group>/<tab>/` mirror rule, the
   doc-sync map and the Stop hook.

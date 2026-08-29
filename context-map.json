@@ -43,7 +43,12 @@
             "src/features/standing/governance/GovernancePanel.tsx",
             "src/features/standing/governance/GovernancePolicyCard.tsx",
             "src/features/standing/governance/governanceReasons.ts",
-            "src/features/standing/governance/GovernanceTab.tsx"
+            "src/features/standing/governance/GovernanceTab.tsx",
+            "src/features/standing/governance/DimensionFloorRows.tsx",
+            "src/features/standing/governance/EvidencePackCard.tsx",
+            "src/features/standing/governance/GatePolicyEditor.floors.test.tsx",
+            "src/features/standing/governance/gatePolicyReconcile.ts",
+            "src/features/standing/governance/governanceReasons.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -100,7 +105,33 @@
             "src/lib/llm/claude-cli.test.ts",
             "src/lib/llm/text.test.ts",
             "src/lib/llm/text.ts",
-            "src/lib/llm/untrusted.ts"
+            "src/lib/llm/untrusted.ts",
+            "src/lib/llm/bedrock-defaults.ts",
+            "src/lib/llm/codex-cli.test.ts",
+            "src/lib/llm/codex-cli.ts",
+            "src/lib/llm/leg.ts",
+            "src/lib/llm/local.test.ts",
+            "src/lib/llm/local.ts",
+            "src/lib/llm/output-budget.test.ts",
+            "src/lib/llm/output-budget.ts",
+            "src/lib/llm/prose.test.ts",
+            "src/lib/llm/prose.ts",
+            "src/lib/llm/schema.test.ts",
+            "src/lib/llm/text-meter.ts",
+            "src/lib/llm/text-org.test.ts",
+            "src/lib/llm/text-org.ts",
+            "src/lib/llm/tool-loop.test.ts",
+            "src/lib/llm/tool-loop.ts",
+            "src/lib/llm/transport/claude.ts",
+            "src/lib/llm/transport/codex.ts",
+            "src/lib/llm/transport/env-strip.test.ts",
+            "src/lib/llm/transport/index.ts",
+            "src/lib/llm/transport/normalize.test.ts",
+            "src/lib/llm/transport/spawn.ts",
+            "src/lib/llm/transport/types.ts",
+            "src/lib/llm/transports.test.ts",
+            "src/lib/llm/transports.ts",
+            "src/lib/llm/untrusted.test.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -293,7 +324,8 @@
             "src/components/auth/usePendingReset.ts",
             "src/components/SupabaseAuthButtons.test.tsx",
             "src/lib/signin-gate.test.ts",
-            "src/lib/signin-gate.ts"
+            "src/lib/signin-gate.ts",
+            "src/app/api/auth/revoke-sessions/route.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -328,7 +360,11 @@
             "src/app/api/dev/seed-vercel-demo/route.ts",
             "src/app/_dev-inspector/devLocate.test.ts",
             "src/lib/dev/fleet-seed.test.ts",
-            "src/lib/dev/fleet-seed.ts"
+            "src/lib/dev/fleet-seed.ts",
+            "src/lib/dev/empty-gate.test.ts",
+            "src/lib/dev/empty-gate.ts",
+            "src/lib/dev/seed-auth.test.ts",
+            "src/lib/dev/seed-auth.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -364,7 +400,10 @@
             "src/components/ui/RouteError.dom.test.tsx",
             "src/lib/og/og-brand.tsx",
             "src/components/TokenNotice.tsx",
-            "src/components/Brand.test.tsx"
+            "src/components/Brand.test.tsx",
+            "src/app/privacy/page.tsx",
+            "src/app/terms/page.tsx",
+            "src/components/header/IdentityMenu.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -403,7 +442,8 @@
             "src/lib/db/skill-history.test.ts",
             "src/components/report/SkillDownload.tsx",
             "src/components/report/SkillDownload.test.tsx",
-            "src/app/api/report/foundation/pr/route.test.ts"
+            "src/app/api/report/foundation/pr/route.test.ts",
+            "src/lib/standard/types.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -529,10 +569,33 @@
             "src/components/onboarding/OnboardingSelectStep.CostDisclosure.dom.test.tsx",
             "src/components/onboarding/OnboardingSelectStep.CostDisclosure.tsx",
             "src/components/onboarding/OnboardingSelectStep.watchOptIn.ts",
-            "src/components/onboarding/useOnboardingFlow.watchOptIn.dom.test.tsx"
+            "src/components/onboarding/useOnboardingFlow.watchOptIn.dom.test.tsx",
+            "src/app/api/org/getting-started/route.test.ts",
+            "src/app/api/org/getting-started/route.ts",
+            "src/app/api/org/onboarding/route.test.ts",
+            "src/app/api/org/onboarding/route.ts",
+            "src/components/onboarding/OnboardingSelectStep.previewFirst.ts",
+            "src/components/onboarding/importPlan.test.ts",
+            "src/components/onboarding/importPlan.ts",
+            "src/components/onboarding/tour/TourChecklist.athena.dom.test.tsx",
+            "src/components/onboarding/tour/TourChecklist.dom.test.tsx",
+            "src/components/onboarding/tour/TourChecklistBody.tsx",
+            "src/components/onboarding/tour/TourDrawerHeader.tsx",
+            "src/components/onboarding/tour/TourNextTask.tsx",
+            "src/components/onboarding/tour/TourStepFooter.tsx",
+            "src/components/onboarding/tour/TourTaskRow.tsx",
+            "src/components/onboarding/tour/tasks.test.ts",
+            "src/components/onboarding/tour/tasks.ts",
+            "src/components/onboarding/tour/useGettingStarted.ts",
+            "src/components/onboarding/upgradeScan.dom.test.ts",
+            "src/components/onboarding/upgradeScan.ts",
+            "src/components/onboarding/useOnboardingFlow.previewFirst.dom.test.tsx"
           ],
           "target": null,
-          "apiRoutes": []
+          "apiRoutes": [
+            "/api/org/getting-started",
+            "/api/org/onboarding"
+          ]
         }
       ]
     },
@@ -627,7 +690,8 @@
             "src/features/admin/members/MembersTable.tsx",
             "src/features/admin/members/MembersTypes.ts",
             "src/features/admin/members/useMembersPanel.ts",
-            "src/lib/email/invite.ts"
+            "src/lib/email/invite.ts",
+            "src/app/api/org/id-routes-gated.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -701,7 +765,9 @@
             "src/features/standing/repositories/RepoRescanButton.test.tsx",
             "src/lib/db/org-watch.test.ts",
             "src/lib/pool.test.ts",
-            "src/features/standing/repositories/MissingReposPanel.tsx"
+            "src/features/standing/repositories/MissingReposPanel.tsx",
+            "src/app/api/org/repos/route.test.ts",
+            "src/app/api/org/scan/route.stages.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -793,11 +859,18 @@
             "src/features/admin/audit/AuditTab.tsx",
             "src/features/admin/audit/useAuditLogFilters.ts",
             "src/features/standing/security/SecurityRiskRegisterParts.tsx",
-            "src/features/standing/security/SecurityTab.tsx"
+            "src/features/standing/security/SecurityTab.tsx",
+            "src/app/api/org/conformance-pack/route.ts",
+            "src/lib/conformance/csv.ts",
+            "src/lib/conformance/pack.test.ts",
+            "src/lib/conformance/pack.ts",
+            "src/lib/conformance/sample.test.ts",
+            "src/lib/conformance/sample.ts"
           ],
           "target": null,
           "apiRoutes": [
-            "/api/audit"
+            "/api/audit",
+            "/api/org/conformance-pack"
           ]
         },
         {
@@ -871,7 +944,14 @@
             "src/features/standing/repositories/useRepoLeaderboard.ts",
             "src/features/standing/tech-stacks/AnalysisPlaybookBoard.dom.test.tsx",
             "src/features/standing/tech-stacks/TechStacksAnalysisPanel.tsx",
-            "src/features/standing/tech-stacks/TechStacksTab.tsx"
+            "src/features/standing/tech-stacks/TechStacksTab.tsx",
+            "src/features/standing/repositories/context-health/ContextHalfLife.tsx",
+            "src/features/standing/repositories/context-health/ContextHealthPanel.tsx",
+            "src/features/standing/repositories/context-health/HalfLifeCurve.tsx",
+            "src/features/standing/repositories/context-health/contextHealthModel.test.ts",
+            "src/features/standing/repositories/context-health/contextHealthModel.ts",
+            "src/features/standing/repositories/context-health/contextHealthSummary.ts",
+            "src/features/standing/tech-stacks/transferPlaybookDims.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -934,12 +1014,31 @@
             "src/features/shared/practices/PracticesTab.tsx",
             "src/features/shared/practices/promotePractice.test.ts",
             "src/features/shared/practices/promotePractice.ts",
-            "src/features/shared/practices/usePlaybookCard.ts"
+            "src/features/shared/practices/usePlaybookCard.ts",
+            "src/app/api/org/ai-stance/ack/route.test.ts",
+            "src/app/api/org/ai-stance/ack/route.ts",
+            "src/app/api/org/ai-stance/apply/route.ts",
+            "src/app/api/org/ai-stance/route.test.ts",
+            "src/app/api/org/ai-stance/route.ts",
+            "src/features/standing/governance/stance/AckButton.tsx",
+            "src/features/standing/governance/stance/CheckpointStrip.tsx",
+            "src/features/standing/governance/stance/SealedZones.tsx",
+            "src/features/standing/governance/stance/StanceApplyControl.tsx",
+            "src/features/standing/governance/stance/StanceEditor.tsx",
+            "src/features/standing/governance/stance/StancePerimeter.tsx",
+            "src/features/standing/governance/stance/StanceSection.tsx",
+            "src/features/standing/governance/stance/perimeterParts.tsx",
+            "src/features/standing/governance/stance/stanceShared.tsx",
+            "src/features/standing/governance/stance/useStanceEditor.test.ts",
+            "src/features/standing/governance/stance/useStanceEditor.ts"
           ],
           "target": null,
           "apiRoutes": [
             "/api/practices/apply",
-            "/api/practices/generate"
+            "/api/practices/generate",
+            "/api/org/ai-stance",
+            "/api/org/ai-stance/ack",
+            "/api/org/ai-stance/apply"
           ]
         },
         {
@@ -999,7 +1098,15 @@
             "src/features/bought/teams/TeamsRollupPanel.tsx",
             "src/features/bought/teams/TeamsTab.tsx",
             "src/lib/db/org-delivery-trend.test.ts",
-            "src/lib/db/org-delivery-trend.ts"
+            "src/lib/db/org-delivery-trend.ts",
+            "src/features/bought/delivery/DeliveryFitReadout.tsx",
+            "src/features/bought/delivery/ai/DeliveryOutcomes.tsx",
+            "src/features/bought/delivery/ai/DeliveryOutcomesPanel.tsx",
+            "src/features/bought/delivery/ai/UnitEconomics.tsx",
+            "src/features/bought/delivery/ai/UnitEconomicsPanel.tsx",
+            "src/features/bought/delivery/ai/aiDeliveryTypes.ts",
+            "src/features/bought/delivery/ai/aiDeliveryVerdict.ts",
+            "src/features/bought/delivery/deliveryTrendMetrics.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -1036,14 +1143,19 @@
             "src/features/admin/integrations/SetupField.tsx",
             "src/lib/integrations/ingest-guard.test.ts",
             "src/lib/integrations/ingest-guard.ts",
-            "src/lib/integrations/ingest-token.test.ts"
+            "src/lib/integrations/ingest-token.test.ts",
+            "src/app/api/integrations/copilot/sync/route.ts",
+            "src/lib/integrations/copilot.ts",
+            "src/lib/integrations/sessions.test.ts",
+            "src/lib/integrations/sessions.ts"
           ],
           "target": null,
           "apiRoutes": [
             "/api/integrations/ingest",
             "/api/integrations/ingest/v1/metrics",
             "/api/integrations/ingest/v1/logs",
-            "/api/dev/seed-ai-usage"
+            "/api/dev/seed-ai-usage",
+            "/api/integrations/copilot/sync"
           ]
         },
         {
@@ -1114,7 +1226,14 @@
             "src/features/standing/overview/overviewStanding.test.ts",
             "src/features/standing/overview/overviewStanding.ts",
             "src/components/org/shared/SnapshotScopeNotice.tsx",
-            "src/components/org/shared/SnapshotScopeNotice.test.tsx"
+            "src/components/org/shared/SnapshotScopeNotice.test.tsx",
+            "src/features/standing/overview/OverviewFixFirst.tsx",
+            "src/features/standing/overview/OverviewFixFirstPanel.tsx",
+            "src/features/standing/overview/PeriodSummary.counts.test.ts",
+            "src/features/standing/overview/PeriodSummary.fixtures.ts",
+            "src/features/standing/overview/fixFirst.test.ts",
+            "src/features/standing/overview/fixFirst.ts",
+            "src/features/standing/overview/repoTrajectoryFilters.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -1181,11 +1300,17 @@
             "src/lib/db/org-share.ts",
             "src/lib/pdf/briefing-document.test.tsx",
             "src/lib/signed-share.ts",
-            "src/app/share/briefing/[token]/page.test.tsx"
+            "src/app/share/briefing/[token]/page.test.tsx",
+            "src/app/api/org/briefing/share/revoke/route.test.ts",
+            "src/app/api/org/briefing/share/revoke/route.ts",
+            "src/app/api/org/briefing/share/route.test.ts",
+            "src/app/api/org/program/route.ts"
           ],
           "target": null,
           "apiRoutes": [
-            "/api/org/briefing/pdf"
+            "/api/org/briefing/pdf",
+            "/api/org/briefing/share/revoke",
+            "/api/org/program"
           ]
         },
         {
@@ -1242,7 +1367,51 @@
             "src/features/inflight/live/LiveWarRoomTvHeader.tsx",
             "src/features/inflight/live/useLiveWarRoomStat.ts",
             "src/features/inflight/live/useTvRotation.ts",
-            "src/features/inflight/live/useTvShareLink.ts"
+            "src/features/inflight/live/useTvShareLink.ts",
+            "src/features/inflight/live/AutopilotBand.tsx",
+            "src/features/inflight/live/AutopilotBandParts.tsx",
+            "src/features/inflight/live/LiveTabView.dom.test.tsx",
+            "src/features/inflight/live/LiveWarRoomGoalBasis.dom.test.tsx",
+            "src/features/inflight/live/cockpit/CockpitBatch.tsx",
+            "src/features/inflight/live/cockpit/CockpitHeader.tsx",
+            "src/features/inflight/live/cockpit/CockpitHistory.tsx",
+            "src/features/inflight/live/cockpit/CockpitInspector.tsx",
+            "src/features/inflight/live/cockpit/CockpitOutcome.dom.test.tsx",
+            "src/features/inflight/live/cockpit/CockpitOutcome.tsx",
+            "src/features/inflight/live/cockpit/CockpitOutcomeLedger.tsx",
+            "src/features/inflight/live/cockpit/CockpitRunPanel.tsx",
+            "src/features/inflight/live/cockpit/CockpitSetup.tsx",
+            "src/features/inflight/live/cockpit/LaneRail.tsx",
+            "src/features/inflight/live/cockpit/LiveCockpit.tsx",
+            "src/features/inflight/live/cockpit/cockpitDimensions.test.ts",
+            "src/features/inflight/live/cockpit/cockpitDimensions.ts",
+            "src/features/inflight/live/cockpit/cockpitDrift.test.ts",
+            "src/features/inflight/live/cockpit/cockpitDrift.ts",
+            "src/features/inflight/live/cockpit/index.ts",
+            "src/features/inflight/live/cockpit/laneStages.test.ts",
+            "src/features/inflight/live/cockpit/laneStages.ts",
+            "src/features/inflight/live/cockpit/loopClient.ts",
+            "src/features/inflight/live/cockpit/loopTypes.ts",
+            "src/features/inflight/live/cockpit/useLoopRun.dom.test.tsx",
+            "src/features/inflight/live/cockpit/useLoopRun.ts",
+            "src/features/inflight/live/liveWarRoomCelebrate.ts",
+            "src/features/inflight/live/liveWarRoomFold.stats.test.ts",
+            "src/features/inflight/live/liveWarRoomKiosk.ts",
+            "src/features/inflight/live/liveWarRoomLaunch.ts",
+            "src/features/inflight/live/observatory/ObservatoryBody.tsx",
+            "src/features/inflight/live/observatory/ObservatoryChrome.tsx",
+            "src/features/inflight/live/observatory/ObservatoryField.dom.test.tsx",
+            "src/features/inflight/live/observatory/ObservatoryField.tsx",
+            "src/features/inflight/live/observatory/ObservatoryLasso.tsx",
+            "src/features/inflight/live/observatory/ObservatoryList.tsx",
+            "src/features/inflight/live/observatory/index.ts",
+            "src/features/inflight/live/observatory/observatoryGeometry.test.ts",
+            "src/features/inflight/live/observatory/observatoryGeometry.ts",
+            "src/features/inflight/live/observatory/observatoryModel.test.ts",
+            "src/features/inflight/live/observatory/observatoryModel.ts",
+            "src/features/inflight/live/observatory/observatoryMotion.ts",
+            "src/features/inflight/live/observatory/observatoryTypes.ts",
+            "src/features/inflight/live/useIsVisible.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1344,11 +1513,66 @@
             "src/components/org/followups/FollowupsFilterBar.tsx",
             "src/components/org/followups/FollowupChips.tsx",
             "src/components/org/followups/followupsModel.ts",
-            "docs/features/org-followups/README.md"
+            "docs/features/org-followups/README.md",
+            "src/components/org/followups/FollowupHistory.tsx",
+            "src/components/org/followups/LocalRescanButton.tsx"
           ],
           "target": null,
           "apiRoutes": [
             "/api/org/followups/handoff"
+          ]
+        },
+        {
+          "name": "Local Autopilot & Loop Engine",
+          "description": "## Purpose\nThe self-hosted half of the loop: a paired local agent that drives real work in a worktree, and the durable LoopRun engine that runs bounded-parallel lanes over it. Self-hosted only by decision — the hosted deployment never spawns a local process.\n\n## Key Flows\n- local/pairing establishes the machine pairing; local/agent + local/drive run the CLI; local/git and local/loop-worktree own the checkout.\n- loop-engine + loop-lane schedule lanes and persist LoopRun/LoopLane rows; /api/org/loop and /api/org/loop/propose are the control surface the war-room cockpit renders.\n\n## Entry Points\n- src/lib/local/loop-engine.ts\n- src/lib/local/autopilot.ts",
+          "businessFeature": "Local autopilot",
+          "category": "feature",
+          "filePaths": [
+            "src/app/api/org/local/autopilot/route.ts",
+            "src/app/api/org/local/drive/route.ts",
+            "src/app/api/org/local/pairing/route.ts",
+            "src/app/api/org/local/projects/route.ts",
+            "src/app/api/org/local/repo/route.ts",
+            "src/app/api/org/local/rescan/route.ts",
+            "src/app/api/org/loop/[id]/route.ts",
+            "src/app/api/org/loop/propose/route.ts",
+            "src/app/api/org/loop/route.test.ts",
+            "src/app/api/org/loop/route.ts",
+            "src/features/admin/pairing/AddRepoForm.tsx",
+            "src/features/admin/pairing/PairingList.tsx",
+            "src/features/admin/pairing/PairingRow.tsx",
+            "src/features/admin/pairing/PairingTab.tsx",
+            "src/features/admin/pairing/pairingClient.ts",
+            "src/lib/local/agent.test.ts",
+            "src/lib/local/agent.ts",
+            "src/lib/local/autopilot.equivalence.test.ts",
+            "src/lib/local/autopilot.ts",
+            "src/lib/local/drive.test.ts",
+            "src/lib/local/drive.ts",
+            "src/lib/local/git.ts",
+            "src/lib/local/loop-engine.test.ts",
+            "src/lib/local/loop-engine.ts",
+            "src/lib/local/loop-lane.release.test.ts",
+            "src/lib/local/loop-lane.ts",
+            "src/lib/local/loop-worktree.ts",
+            "src/lib/local/org.test.ts",
+            "src/lib/local/org.ts",
+            "src/lib/local/pairing.test.ts",
+            "src/lib/local/pairing.ts",
+            "src/lib/local/source.test.ts",
+            "src/lib/local/source.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/local/autopilot",
+            "/api/org/local/drive",
+            "/api/org/local/pairing",
+            "/api/org/local/projects",
+            "/api/org/local/repo",
+            "/api/org/local/rescan",
+            "/api/org/loop",
+            "/api/org/loop/[id]",
+            "/api/org/loop/propose"
           ]
         }
       ]
@@ -1415,7 +1639,11 @@
             "src/features/shared/memory/MemoryTabChunks.tsx",
             "src/features/shared/memory/MemoryTypes.ts",
             "src/features/shared/memory/useMemoryLibrary.test.ts",
-            "src/lib/memory/untrusted-boundary.test.ts"
+            "src/lib/memory/untrusted-boundary.test.ts",
+            "src/app/api/org/memory/[id]/route.test.ts",
+            "src/features/shared/knowledge/KnowledgeLedger.tsx",
+            "src/features/shared/knowledge/KnowledgeTab.tsx",
+            "src/features/shared/memory/memoryLibraryApi.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1506,10 +1734,130 @@
             "src/features/shared/registry/RegistryHowTo.tsx",
             "src/features/shared/registry/RegistryActions.tsx",
             "src/features/shared/registry/registryModel.ts",
-            "src/app/org/[slug]/registry/page.tsx"
+            "src/app/org/[slug]/registry/page.tsx",
+            "src/app/api/org/[slug]/registry/index/route.ts",
+            "src/app/api/org/[slug]/registry/migrate/route.ts",
+            "src/app/api/org/[slug]/registry/route.test.ts",
+            "src/app/api/org/[slug]/registry/route.ts",
+            "src/features/shared/registry/RegistryMapPanel.tsx",
+            "src/features/shared/registry/RegistryOriginTag.tsx",
+            "src/features/shared/registry/RegistryPreviewShell.tsx",
+            "src/features/shared/registry/RegistryRepoPicker.tsx",
+            "src/features/shared/registry/RegistrySetup.tsx",
+            "src/features/shared/registry/RegistrySyncStrip.test.tsx",
+            "src/features/shared/registry/RegistrySyncStrip.tsx",
+            "src/features/shared/registry/registryActionRules.test.ts",
+            "src/features/shared/registry/registryActionRules.ts",
+            "src/features/shared/registry/useRegistryMutation.ts",
+            "src/features/shared/registry/useRegistryRepoOptions.ts",
+            "src/lib/registry/__fixtures__/registry-tree.ts",
+            "src/lib/registry/api.ts",
+            "src/lib/registry/bundles.test.ts",
+            "src/lib/registry/capabilities.test.ts",
+            "src/lib/registry/capabilities.ts",
+            "src/lib/registry/catalog.ts",
+            "src/lib/registry/index-registry.test.ts",
+            "src/lib/registry/index-registry.ts",
+            "src/lib/registry/index-walk.ts",
+            "src/lib/registry/layout.test.ts",
+            "src/lib/registry/layout.ts",
+            "src/lib/registry/migrate.test.ts",
+            "src/lib/registry/migrate.ts",
+            "src/lib/registry/parse.test.ts",
+            "src/lib/registry/parse.ts",
+            "src/lib/registry/policy.test.ts",
+            "src/lib/registry/policy.ts",
+            "src/lib/registry/read.ts",
+            "src/lib/registry/scaffold.ts",
+            "src/lib/registry/usage.test.ts"
           ],
           "target": null,
-          "apiRoutes": []
+          "apiRoutes": [
+            "/api/org/[slug]/registry",
+            "/api/org/[slug]/registry/index",
+            "/api/org/[slug]/registry/migrate"
+          ]
+        },
+        {
+          "name": "Athena Companion",
+          "description": "## Purpose\nThe org-scoped resident companion: a hosted cycle that decides whether it has anything worth saying, grounds every claim in the org's own rows, and proposes actions a human resolves. Absorbs the tour drawer as a drawer posture rather than opening a second surface.\n\n## Key Flows\n- athena/cycle + cycle-signal decide whether a turn is warranted; grounding and prompt assemble what it may claim from; turn runs it.\n- actions/actions-execute hold the action catalog and the single door a proposal passes through once; identity-diff guards the write-locked constitution.\n- /api/athena/threads and /api/athena/[id]/message serve the drawer; /api/athena/proposals/[id]/resolve records the human decision; /api/cron/athena drives the hosted cycle.\n\n## Entry Points\n- src/lib/athena/cycle.ts\n- src/features/shared/athena/AthenaPanel.tsx",
+          "businessFeature": "Athena",
+          "category": "feature",
+          "filePaths": [
+            "src/app/api/athena/[id]/message/route.test.ts",
+            "src/app/api/athena/[id]/message/route.ts",
+            "src/app/api/athena/gate.ts",
+            "src/app/api/athena/proposals/[id]/resolve/route.test.ts",
+            "src/app/api/athena/proposals/[id]/resolve/route.ts",
+            "src/app/api/athena/threads/route.test.ts",
+            "src/app/api/athena/threads/route.ts",
+            "src/app/api/cron/athena/deps.ts",
+            "src/app/api/cron/athena/route.test.ts",
+            "src/app/api/cron/athena/route.ts",
+            "src/features/shared/athena/AthenaChart.tsx",
+            "src/features/shared/athena/AthenaComposer.tsx",
+            "src/features/shared/athena/AthenaPanel.dom.test.tsx",
+            "src/features/shared/athena/AthenaPanel.tsx",
+            "src/features/shared/athena/AthenaProposalCard.tsx",
+            "src/features/shared/athena/AthenaProse.tsx",
+            "src/features/shared/athena/AthenaTable.tsx",
+            "src/features/shared/athena/AthenaTurnView.tsx",
+            "src/features/shared/athena/AthenaWaiting.tsx",
+            "src/features/shared/athena/model.test.ts",
+            "src/features/shared/athena/model.ts",
+            "src/features/shared/athena/restingLine.ts",
+            "src/features/shared/athena/stream.test.ts",
+            "src/features/shared/athena/stream.ts",
+            "src/features/shared/athena/useAthenaThread.ts",
+            "src/features/shared/athena/voice.test.ts",
+            "src/lib/athena/actions-execute.test.ts",
+            "src/lib/athena/actions-execute.ts",
+            "src/lib/athena/actions.test.ts",
+            "src/lib/athena/actions.ts",
+            "src/lib/athena/blocks.test.ts",
+            "src/lib/athena/blocks.ts",
+            "src/lib/athena/cycle-prompt.ts",
+            "src/lib/athena/cycle-signal.test.ts",
+            "src/lib/athena/cycle-signal.ts",
+            "src/lib/athena/cycle.test.ts",
+            "src/lib/athena/cycle.ts",
+            "src/lib/athena/grounding.test.ts",
+            "src/lib/athena/grounding.ts",
+            "src/lib/athena/identity-diff.test.ts",
+            "src/lib/athena/identity-diff.ts",
+            "src/lib/athena/prompt.test.ts",
+            "src/lib/athena/prompt.ts",
+            "src/lib/athena/turn-actions.test.ts",
+            "src/lib/athena/turn.test.ts",
+            "src/lib/athena/turn.ts",
+            "src/lib/db/athena-episodes.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/athena/[id]/message",
+            "/api/athena/proposals/[id]/resolve",
+            "/api/athena/threads",
+            "/api/cron/athena"
+          ]
+        },
+        {
+          "name": "MCP Server",
+          "description": "## Purpose\nThe door that puts the org's own standing in front of the agents writing its code. Ascent already ships the standard as files in a PR, which reaches an agent at setup time; this reaches it at work time, over MCP.\n\n## Key Flows\n- mcp/protocol speaks the wire format; mcp/tools is the tool catalog; mcp/handlers resolves each call against the org's skills, practices and memory.\n- /api/mcp is the single endpoint, authorized by an org API token rather than a cookie session.\n\n## Entry Points\n- src/lib/mcp/tools.ts\n- src/app/api/mcp/route.ts",
+          "businessFeature": "MCP door",
+          "category": "api",
+          "filePaths": [
+            "src/app/api/mcp/route.test.ts",
+            "src/app/api/mcp/route.ts",
+            "src/lib/mcp/handlers.ts",
+            "src/lib/mcp/protocol.test.ts",
+            "src/lib/mcp/protocol.ts",
+            "src/lib/mcp/tools.test.ts",
+            "src/lib/mcp/tools.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/mcp"
+          ]
         }
       ]
     },
@@ -1788,7 +2136,20 @@
             "src/lib/org/decision-map.ts",
             "src/lib/org/passport-display.test.ts",
             "src/lib/org/passport-display.ts",
-            "src/features/standing/passports/PassportsTab.tsx"
+            "src/features/standing/passports/PassportsTab.tsx",
+            "src/features/standing/passports/PassportBlockerPareto.dom.test.tsx",
+            "src/features/standing/passports/PassportDetailLists.tsx",
+            "src/features/standing/passports/PassportRowDetail.dom.test.tsx",
+            "src/features/standing/passports/PassportsSwitcher.tsx",
+            "src/features/standing/passports/PassportsTab.test.tsx",
+            "src/features/standing/passports/autonomy/AutonomyClearance.tsx",
+            "src/features/standing/passports/autonomy/ClearanceCard.tsx",
+            "src/features/standing/passports/autonomy/autonomyGateBuilders.ts",
+            "src/features/standing/passports/autonomy/autonomyGates.ts",
+            "src/features/standing/passports/autonomy/autonomyModel.ts",
+            "src/features/standing/passports/autonomy/autonomyShared.tsx",
+            "src/features/standing/passports/autonomy/autonomyTiers.ts",
+            "src/features/standing/passports/passportBlockerAgg.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1854,13 +2215,21 @@
             "src/components/pricing/CreditMatrixLedger.tsx",
             "src/lib/plans.test.ts",
             "src/lib/polar.test.ts",
-            "src/app/pricing/page.test.ts"
+            "src/app/pricing/page.test.ts",
+            "src/app/api/plan-enquiry/route.test.ts",
+            "src/app/api/plan-enquiry/route.ts",
+            "src/components/pricing/PlanEnquiryCta.dom.test.tsx",
+            "src/components/pricing/PlanEnquiryCta.tsx",
+            "src/components/pricing/PlanEnquiryFields.tsx",
+            "src/components/pricing/SelfHostBand.tsx",
+            "src/components/pricing/creditMatrixData.test.ts"
           ],
           "target": null,
           "apiRoutes": [
             "/api/billing/checkout",
             "/api/billing/webhook",
-            "/api/org/plan"
+            "/api/org/plan",
+            "/api/plan-enquiry"
           ]
         },
         {
@@ -1951,12 +2320,17 @@
             "src/lib/badge.ts",
             "src/lib/badge-svg.ts",
             "src/app/api/scorecard/[owner]/badge/route.ts",
-            "src/app/api/scorecard/[owner]/badge/route.test.ts"
+            "src/app/api/scorecard/[owner]/badge/route.test.ts",
+            "src/app/api/kpi/route.test.ts",
+            "src/app/api/kpi/route.ts",
+            "src/app/usage/creditNotice.test.ts",
+            "src/app/usage/creditNotice.ts"
           ],
           "target": null,
           "apiRoutes": [
             "/api/usage",
-            "/api/badge/[owner]/[repo]"
+            "/api/badge/[owner]/[repo]",
+            "/api/kpi"
           ]
         }
       ]
@@ -2031,7 +2405,8 @@
             "src/lib/db/best-effort.ts",
             "src/lib/db/mode.ts",
             "src/lib/env.ts",
-            "src/lib/db/kpi-metrics.ts"
+            "src/lib/db/kpi-metrics.ts",
+            "prisma/schema.prisma"
           ],
           "target": null,
           "apiRoutes": []
@@ -2112,7 +2487,8 @@
             "src/components/landing/prototypes/index/ScanModal.TriggerFallback.tsx",
             "src/components/landing/prototypes/index/ScanModal.tsx",
             "src/components/landing/prototypes/index/TrajectoryPlaceholder.tsx",
-            "src/components/landing/prototypes/shared/matrixData.test.ts"
+            "src/components/landing/prototypes/shared/matrixData.test.ts",
+            "src/components/landing/prototypes/index/IndexLocal.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -2348,6 +2724,6 @@
     "warnings": 2
   },
   "instructions": "Context map for ascent. Each group is a business domain (domain field); each context is a feature with its files (filePaths) + a technical category. Read this to learn which files belong to which feature BEFORE editing. When you change a context's files, update them here (or run Vibeman's refresh) to keep this fresh.",
-  "generatedAt": "2026-08-04T00:00:00.000Z",
+  "generatedAt": "2026-08-29T15:45:47.106Z",
   "revision": "ecad2b58ad5f"
 }
