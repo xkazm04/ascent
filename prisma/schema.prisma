@@ -28,51 +28,51 @@ datasource db {
 }
 
 model Organization {
-  id                 String   @id @default(uuid())
-  slug               String   @unique
-  name               String
-  plan               String   @default("free") // free | pro | team | enterprise
+  id                    String   @id @default(uuid())
+  slug                  String   @unique
+  name                  String
+  plan                  String   @default("free") // free | pro | team | enterprise
   // Tenant flavor: "org" (a GitHub organization fleet) or "personal" (an individual's workspace,
   // slug = their GitHub login). A personal org holds watch-pointer Repository rows only — a public
   // repo's scan series stays in the shared "public" org (the personal dashboard is a lens over that
   // corpus, never a second copy). Stamped by the identity-bound personal-namespace claim in
   // src/lib/authz.ts; drives the personal nav subset and (later) personal-tier limits.
-  kind               String   @default("org") // org | personal
+  kind                  String   @default("org") // org | personal
   // Prepaid private-scan credit balance. Public scans are free + unmetered; each private (installation)
   // scan that runs real LLM inference debits one credit (see src/lib/db/credits.ts + src/lib/entitlement.ts).
   // `enterprise` plan is treated as unlimited (no debit). Credits are granted out-of-band (a Polar
   // top-up, or an owner/admin grant) — see docs/BILLING.md. The CreditLedger is the audit trail.
-  scanCredits        Int      @default(0)
+  scanCredits           Int      @default(0)
   // Per-org data-retention overrides (enterprise). null = inherit the global env default
   // (RETENTION_MAX_SCANS_PER_REPO / RETENTION_AUDIT_DAYS); 0 = keep everything (unlimited).
   // Enforced by the /api/cron/purge job — see src/lib/db/retention.ts.
-  retentionMaxScans  Int?
-  retentionAuditDays Int?
+  retentionMaxScans     Int?
+  retentionAuditDays    Int?
   // Per-org alert sink (Slack-compatible incoming webhook). Regression alerts, low-credit pushes and
   // the weekly digest route HERE when set, falling back to the global ALERT_WEBHOOK_URL env — so each
   // tenant receives its own fleet intelligence instead of everything landing in the operator's channel.
   // null = inherit the global sink (or a clean no-op when that's unset too). See src/lib/db/org-alerts.ts.
-  alertWebhookUrl    String?
+  alertWebhookUrl       String?
   // Per-org regression sensitivity (points). null = inherit DEFAULT_THRESHOLDS (overall 5 / dim 15).
   // Threaded into detectRegression by checkAndAlertRegression — see src/lib/scan-alerts.ts.
-  alertOverallDrop   Int?
-  alertDimensionDrop Int?
+  alertOverallDrop      Int?
+  alertDimensionDrop    Int?
   // Per-org CI maturity-gate policy (GatePolicy serialized as JSON in a TEXT column — the schema's
   // no-jsonb DSQL-safety contract; parsed at the edge in org-gate.ts). null = archetype default.
   // Honored by the App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
-  gatePolicy         String?
+  gatePolicy            String?
   // White-label branding for the executive briefing (EXEC-5, enterprise) — null = the Ascent default.
   // brandColor is a #rrggbb accent; logoUrl an https image rendered in the PDF header. See briefing.
-  brandName          String?
-  brandColor         String?
-  logoUrl            String?
+  brandName             String?
+  brandColor            String?
+  logoUrl               String?
   // Canonical IANA time zone for THIS org's calendar-day math — window presets, custom-range parsing,
   // trend day-keys and due-date bucketing (see src/lib/org/timezone.ts, which was written parameterized
   // on an explicit `tz` for exactly this column). null = inherit the deployment-wide default
   // (ASCENT_ORG_TZ, else UTC), which is what every existing row does, so behavior is unchanged until an
   // org sets one. Validated against the runtime before use — an unknown zone degrades to the default
   // rather than throwing inside a dashboard render.
-  timezone           String?
+  timezone              String?
   // Low-balance ("auto-recharge") preference as JSON in a TEXT column — the schema's no-jsonb
   // DSQL-safety contract, mirroring `gatePolicy`. Shape: AutoRechargePref
   // { enabled, threshold, packProductId } (src/components/org/shared/CreditsControl.autorecharge.ts).
@@ -80,41 +80,56 @@ model Organization {
   // recent `billing.autorecharge` AuditLog row, which cost a findMany per read and put a user SETTING
   // inside the audit trail, where any retention/purge policy could silently erase it (G1-39). The audit
   // row is still written on every change — as an audit row. Read via src/lib/db/org-settings.ts.
-  autoRechargeJson   String?
+  autoRechargeJson      String?
   // Revocation epoch for the org's OTel ingest token (src/lib/integrations/ingest-token.ts). Same
   // shape as SessionRevocation.version, per-org: the token embeds the epoch it was minted at
   // (`asc_otel.<slug>.e<N>.<mac>`, or the epoch-0 3-segment form), and the ingest guard rejects any
   // token whose epoch is BELOW this value. Bumping it kills a leaked token immediately without
   // rotating the server-wide INTEGRATIONS_INGEST_SECRET — which would silently re-derive every OTHER
   // org's token at the same time. 0 = never rotated, so existing tokens keep working.
-  ingestTokenEpoch   Int      @default(0)
-  githubInstallId    String?
-  createdAt          DateTime @default(now())
+  ingestTokenEpoch      Int      @default(0)
+  // Per-repo `.ai/memory/` mirroring (moonshot #14). null = ON for org-owned repos (the default the
+  // feature ships with); false = the org opted out and no repo-authored memory entry is indexed.
+  // A Boolean?, not a Boolean @default(true): "never chosen" and "chosen ON" are different facts, and
+  // only the former may be changed by a later product decision. NOTE the deliberate name split — this
+  // SCALAR is `repoMemoryMirror`; the back-relation to the mirrored rows is `repoMemoryMirrors`.
+  repoMemoryMirror      Boolean?
+  // Per-org scan COMPACTION overrides (moonshot #32). null = inherit the env default
+  // (RETENTION_COMPACT / RETENTION_DIGEST_MONTHS). retentionDigestMonths keeps the module's
+  // 0-sentinel: 0 = keep digests forever. See src/lib/db/scan-digest.ts.
+  retentionCompact      Boolean?
+  retentionDigestMonths Int?
+  githubInstallId       String?
+  createdAt             DateTime @default(now())
 
-  memberships      Membership[]
-  repositories     Repository[]
-  auditLogs        AuditLog[]
-  alertEvents      AlertEvent[]
-  subscription     Subscription?
-  creditLedger     CreditLedger[]
-  goals            Goal[]
-  initiatives      Initiative[]
-  segments         Segment[]
-  playbooks        Playbook[]
-  invites          Invite[]
-  orgSkills        OrgSkill[]
-  orgApiTokens     OrgApiToken[]
-  orgMemories      OrgMemory[]
-  orgDecisions     OrgDecision[]
-  recOverlays      RecommendationOverlay[]
-  sandboxScenarios SandboxScenario[]
-  program          TransitionProgram?
-  techGroups       TechStackGroup[]
-  llmConfig        OrgLlmConfig?
-  loopRuns         LoopRun[]
-  athenaThreads    AthenaThread[]
-  athenaProposals  AthenaProposal[]
-  athenaIdentity   AthenaIdentity[]
+  memberships       Membership[]
+  repositories      Repository[]
+  auditLogs         AuditLog[]
+  alertEvents       AlertEvent[]
+  subscription      Subscription?
+  creditLedger      CreditLedger[]
+  goals             Goal[]
+  initiatives       Initiative[]
+  segments          Segment[]
+  playbooks         Playbook[]
+  invites           Invite[]
+  orgSkills         OrgSkill[]
+  orgApiTokens      OrgApiToken[]
+  orgMemories       OrgMemory[]
+  orgDecisions      OrgDecision[]
+  recOverlays       RecommendationOverlay[]
+  sandboxScenarios  SandboxScenario[]
+  program           TransitionProgram?
+  techGroups        TechStackGroup[]
+  llmConfig         OrgLlmConfig?
+  loopRuns          LoopRun[]
+  athenaThreads     AthenaThread[]
+  athenaProposals   AthenaProposal[]
+  athenaIdentity    AthenaIdentity[]
+  // Named `repoMemoryMirrors` (plural) because the scalar opt-out flag above already owns the
+  // singular `repoMemoryMirror`. A Prisma model cannot carry two fields of the same name, and the
+  // FLAG is the one the product surface reads by name — so the relation is the one that pluralizes.
+  repoMemoryMirrors RepoMemoryMirror[]
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -319,11 +334,17 @@ model Repository {
   // org's shared-primitive repo (UC2), excluded from fleet scoring and rollups because grading the
   // library against product-delivery dimensions is meaningless. Defaulted, so every existing row is fleet.
   role                  String    @default("fleet") // fleet | registry
+  // Latest `.ai/manifest.yaml` readout (JSON ManifestReadout) cached from the most recent scan,
+  // mirroring techStackJson/passportJson (moonshot #13). DECLARED capability, never proven and never
+  // scored — the Passports capability matrix reads it beside the observed signals. Null until a scan
+  // fetches a manifest; null must render as "no manifest declared", never as "declares nothing".
+  manifestJson          String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
   org          Organization           @relation(fields: [orgId], references: [id])
   scans        Scan[]
+  digests      ScanDigest[]
   contributors RepoContributor[]
   teams        RepoTeam[]
   aiChanges    AiChange[]
@@ -591,6 +612,11 @@ model Scan {
   inputTokens       Int?
   outputTokens      Int?
   llmLatencyMs      Int?
+  // Per-scan `.ai/manifest.yaml` readout — JSON ManifestReadout (moonshot #13). Per-scan history of
+  // what the repo DECLARED, so a later scan can show a capability that was claimed and then dropped;
+  // the latest is cached on Repository.manifestJson. Display-only — never scored (G5). Null = this
+  // scan fetched no manifest (no file, or a pre-#13 scan), which is NOT "declared nothing".
+  manifestJson      String?
   scannedAt         DateTime
   createdAt         DateTime @default(now())
 
@@ -1116,11 +1142,26 @@ model OrgSkillEvent {
   id        String   @id @default(uuid())
   skillId   String
   orgId     String // denormalized for org-scoped rollups
-  type      String // download | sync  (`invoke` retired 2026-07-29 — it had no producer anywhere)
+  // download | sync | invoke. `invoke` was retired 2026-07-29 for having no producer; moonshot #19
+  // gives it one (the CLI/hook/MCP channel), so it is UN-retired rather than re-invented.
+  type      String
   repo      String? // reporting repo full name (owner/name), when known
-  source    String? // reporting client: cli | hook | ci | web
+  // Reporting client, now an enum vocabulary: cli | hook | ci | web | registry | mcp. Legacy rows
+  // carry the free-text form the shipped CLI emits (e.g. "cli:diverged") and are normalized on READ
+  // (normalizeEventSource) — nothing rewrites them, so no destructive migration exists to get wrong.
+  source    String?
+  // The sub-state the CLI used to smuggle into `source` (the drift state after the colon). Its own
+  // column now, so `source` can be an enum without losing what the fleet was already reporting.
+  detail    String?
+  // Producer session, when one exists — the (session, skill, ts) triple is the event's identity.
+  sessionId String?
+  // At-least-once de-duplication key. NULLABLE-unique: Postgres treats NULLs as distinct, so a
+  // producer that supplies no key is unconstrained and keeps today's append behavior, while one that
+  // does gets exactly-once. Same mechanism as Scan.dedupKey.
+  dedupeKey String?
   createdAt DateTime @default(now())
 
+  @@unique([skillId, dedupeKey])
   @@index([skillId])
   @@index([orgId, createdAt])
 }
@@ -1489,42 +1530,48 @@ model PlanEnquiry {
 // `mode` decides who may write: git_native = PR-only (the registry is the source of truth),
 // hosted_mirror = ascent still writes its own tables and the repo is a mirror.
 model OrgRegistry {
-  id             String    @id @default(uuid())
-  orgId          String
-  repositoryId   String? // Repository row of the registry repo (role = "registry"), when one exists
-  fullName       String // "owner/name"
-  defaultBranch  String    @default("main")
-  canonical      Boolean   @default(true)
-  mode           String    @default("git_native") // git_native | hosted_mirror
-  telemetrySink  String    @default("off") // api | registry | off
-  status         String    @default("unmapped") // unmapped | scaffolding | scaffold_pr_open | indexed | error
-  lastIndexedAt  DateTime?
-  lastIndexSha   String? // commit sha the last successful index read
-  catalogSha     String? // sha of the catalog.json ascent last wrote
-  webhookHealthy Boolean   @default(false)
-  policiesJson   String? // JSON of `.ascent/registry.yaml -> policies`
-  migrationJson  String? // JSON Record<"skills"|"practices"|"memory", {state, prUrl?, moved, total}>
-  scaffoldPrUrl  String?
-  lastError      String?
+  id                 String    @id @default(uuid())
+  orgId              String
+  repositoryId       String? // Repository row of the registry repo (role = "registry"), when one exists
+  fullName           String // "owner/name"
+  defaultBranch      String    @default("main")
+  canonical          Boolean   @default(true)
+  mode               String    @default("git_native") // git_native | hosted_mirror
+  telemetrySink      String    @default("off") // api | registry | off
+  status             String    @default("unmapped") // unmapped | scaffolding | scaffold_pr_open | indexed | error
+  lastIndexedAt      DateTime?
+  lastIndexSha       String? // commit sha the last successful index read
+  catalogSha         String? // sha of the catalog.json ascent last wrote
+  webhookHealthy     Boolean   @default(false)
+  policiesJson       String? // JSON of `.ascent/registry.yaml -> policies`
+  migrationJson      String? // JSON Record<"skills"|"practices"|"memory", {state, prUrl?, moved, total}>
+  scaffoldPrUrl      String?
+  lastError          String?
   // Denormalized index result, so the tab's header renders without re-counting mirror rows.
-  skillCount     Int       @default(0)
-  practiceCount  Int       @default(0)
-  memoryCount    Int       @default(0)
-  lessonCount    Int       @default(0)
+  skillCount         Int       @default(0)
+  practiceCount      Int       @default(0)
+  memoryCount        Int       @default(0)
+  lessonCount        Int       @default(0)
   // The `usage/` lane, aggregated at index time. Ascent READS this lane; the installations that run
   // skills are what count invocations, locally, and contribute an aggregate. `usageContributors = 0`
   // means nobody is reporting — which is not the same as a fleet that runs nothing.
-  usageInvokes30d   Int    @default(0)
-  usageContributors Int    @default(0)
+  usageInvokes30d    Int       @default(0)
+  usageContributors  Int       @default(0)
   // The knowledge/ lane as its generated per-bundle indexes state it. JSON rather than columns
   // because the row count is the BUNDLE count (one, today; a handful ever) and every field is
   // owned by the bundle's own generator — normalizing it into tables would make ascent look like
   // an authority for numbers it only reads.
-  bundlesJson       String @default("[]")
-  warningsJson   String    @default("[]") // JSON string[] — files the last index skipped, with why
-  createdBy      String? // GitHub login that mapped it
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  bundlesJson        String    @default("[]")
+  // Denormalized knowledge-lane counts from the last index pass (moonshot #18), so the Registry tab's
+  // header renders without counting OrgKnowledgeSubject rows. `signalsContributor` is the contributor
+  // id THIS org publishes its own signals under (null = the org contributes nothing back).
+  subjectCount       Int       @default(0)
+  signalContributors Int       @default(0)
+  signalsContributor String?
+  warningsJson       String    @default("[]") // JSON string[] — files the last index skipped, with why
+  createdBy          String? // GitHub login that mapped it
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@unique([orgId, fullName])
   @@index([orgId, canonical])
@@ -1673,11 +1720,11 @@ model AthenaThread {
 // One message in a thread. `metaJson` carries everything the transcript needs to REPLAY the turn as
 // it was rendered: blocks, recall chips, proposal ids, the phase trail, `grounding` and `truncated`.
 model AthenaTurn {
-  id       String @id @default(uuid())
-  threadId String
-  role     String // "user" | "assistant"
-  content  String
-  metaJson String @default("{}") // JSON object (TEXT) — blocks, chips, proposalIds, phases, grounding, truncated
+  id           String   @id @default(uuid())
+  threadId     String
+  role         String // "user" | "assistant"
+  content      String
+  metaJson     String   @default("{}") // JSON object (TEXT) — blocks, chips, proposalIds, phases, grounding, truncated
   // TOKEN COUNTS ARE NULLABLE ON PURPOSE, and `null` must never be written as `0`. A provider that
   // reports no usage (a local model, a degraded path) is UNKNOWN, not free — and a `0` would be
   // averaged and summed downstream as if it were a measurement. Unknown is not a value.
@@ -1743,4 +1790,395 @@ model AthenaIdentity {
   // One constitution and one self-model per org — "one mind per organization" as a fact of the
   // schema rather than a convention the read layer hopes for.
   @@unique([orgId, tier])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOONSHOT WAVE 1 — additive models landed by the wave-1 schema pass (docs/specs/moonshot/00-INDEX.md
+// §5). Every one is append- or upsert-shaped, every JSON payload is TEXT (never jsonb — DSQL/PGlite),
+// and every column that reports a MEASUREMENT is nullable: a provider that reported nothing is
+// UNKNOWN, and a 0 written in its place would be summed downstream as if it had been measured.
+// Erase/purge cascades for these tables are hand-written in src/lib/db/retention.ts.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// #9 — MEASURED lift per intervention. The table holds measured FACTS ONLY: a row exists only when
+// both scan bookends exist AND rubricVersion + engineProvider matched on both sides, so the aggregate
+// can never be diluted by a fabricated zero. An unmeasured case produces NO row (its named status
+// lives in the reader that computes it). See src/lib/db/outcomes.ts.
+model InterventionOutcome {
+  id             String   @id @default(uuid())
+  orgId          String // tenant scope; denormalized like ImprovementPr.orgId
+  repoFullName   String // "owner/name"
+  kind           String // practice | skill | recommendation | scenario
+  // practice→practiceId; skill→skillId; recommendation→recommendationMatchKey(dimId,title);
+  // scenario→sorted itemKeys joined and hashed. Must recompute to the same string on the next scan.
+  identityKey    String
+  dimId          String? // HONEST NULL = a whole-scan outcome (scenario), never "0"
+  beforeScanId   String
+  afterScanId    String
+  interventionAt DateTime // merge / adoption / done-event / scenario-save instant
+  overallDelta   Int
+  dimDelta       Int? // null when dimId is null OR the dim is absent on either side
+  rubricVersion  String // the instrument BOTH sides agreed on — a mismatch writes no row at all
+  engineProvider String
+  gapDays        Int // whole days before.scannedAt → after.scannedAt
+  withinBound    Boolean // reuses skill-outcomes.ts' pairing bound
+  isPrivateRepo  Boolean // copied from Repository.isPrivate at write time; the corpus filter
+  sourceRowId    String? // ImprovementPr.id / adoption id / Recommendation.id — provenance
+  recordedAt     DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([orgId, kind, identityKey, beforeScanId, afterScanId])
+  @@index([orgId, kind, dimId])
+  @@index([identityKey, dimId])
+  @@index([orgId, recordedAt])
+}
+
+// #11 — every model call this deployment served, one row per metered leg (or per tool loop).
+// STANDALONE (no Organization relation — additive-only, mirroring QuotaEvent). The `scan` lane keeps
+// its authoritative ledger in Scan and is UNIONed on read; this table carries the lanes that had none.
+model UsageEvent {
+  id               String   @id @default(uuid())
+  orgId            String
+  lane             String // scan | athena | memory | briefing | local
+  legKind          String? // the raw LlmLegKind when one existed; null for lanes off the seam
+  refId            String? // Scan.id / LoopRunLane.id when the caller has one; null is honest
+  repoId           String?
+  repoFullName     String?
+  teamKey          String? // normalized "@org/team" from RepoTeam.slug; null = org-wide work
+  provider         String
+  model            String
+  byom             Boolean? // null = unknown provenance = Ascent's account (Scan.engineByom's rule)
+  inputTokens      Int? // NULL = the provider reported nothing. NEVER write 0.
+  outputTokens     Int?
+  cacheReadTokens  Int?
+  cacheWriteTokens Int?
+  costMicros       Int? // USD micros; NULL when unpriced, BYOM, or a zero-cost provider
+  status           String   @default("success") // success | error | timeout
+  latencyMs        Int?
+  // "<lane>:<refId>" when a caller owns a stable id; else null. Nullable-unique — NULLs are distinct,
+  // which IS the intended at-least-once fallback (Scan.dedupKey precedent). Declared BLOCK-level
+  // (@@unique) rather than inline so init-sql.test.ts' deliberately-pinned inline-@unique roster stays
+  // the reviewed list it is; the emitted constraint (UsageEvent_idemKey_key) is identical either way.
+  idemKey          String?
+  createdAt        DateTime @default(now())
+
+  @@unique([idemKey])
+  @@index([orgId, createdAt])
+  @@index([orgId, lane, createdAt])
+  @@index([orgId, teamKey, createdAt])
+}
+
+// #14 — one entry mirrored out of a repo's `.ai/memory/`. QUARANTINED, repo-authored content: `body`
+// is capped by the parser and never scored, and `skipReason` records why an entry did not reach
+// OrgMemory rather than dropping it silently. See src/lib/memory/repo-memory-mirror.ts.
+model RepoMemoryMirror {
+  id           String   @id @default(uuid())
+  orgId        String
+  repoFullName String // "owner/repo" — also the OrgMemory namespace
+  path         String // ".ai/memory/0007-pglite-drift.md"
+  contentHash  String // sha256(path \0 body) — the idempotency key
+  entryId      String? // frontmatter `id`; null when absent (honest null, never 0)
+  rawKind      String? // open vocabulary as written
+  mappedKind   String // episodic | semantic | procedural
+  scope        String?
+  entryDate    String? // frontmatter date, VERBATIM text (repo-authored, not a timestamp)
+  supersedes   String?
+  refsJson     String   @default("[]") // TEXT, no jsonb (DSQL/PGlite)
+  body         String // capped at 6000 chars by the parser
+  headSha      String?
+  superseded   Boolean  @default(false)
+  orgMemoryId  String? // the OrgMemory row this fed; null = deduped or skipped
+  skipReason   String? // "malformed" | "capped" | "deduped" | null
+  firstSeenAt  DateTime @default(now())
+  lastSeenAt   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, repoFullName, path, contentHash])
+  @@index([orgId, repoFullName])
+  @@index([orgId, mappedKind])
+}
+
+// #16 — one doctor run reported back by a repo (`node .ai/doctor.mjs --json`). The denormalized
+// summary already lives on Repository.aiConformance*; this is the PER-CHECK ledger behind it, which
+// is what turns "78%" into a fleet control matrix. See src/lib/db/org-conformance.ts.
+model ConformanceReport {
+  id           String   @id @default(uuid())
+  orgId        String
+  repoFullName String
+  headSha      String? // null for older/local doctors — see the idempotency key below
+  score        Int
+  fails        Int
+  warns        Int
+  unchecked    Int      @default(0)
+  scored       Int      @default(0) // the score's denominator (spec 0.2.0 field, finally stored)
+  specVersion  String? // schemaVersion the reporter claimed
+  runShape     String   @default("plain") // "plain" | "run"
+  summaryOnly  Boolean  @default(false) // legacy payload: no findings[] travelled
+  reportedAt   DateTime @default(now())
+
+  findings ConformanceFinding[]
+
+  @@unique([orgId, repoFullName, headSha, runShape])
+  @@index([orgId, repoFullName, reportedAt])
+}
+
+// #16 — one check inside a report. This and RepoMemoryMirror are the schema's ONLY `onDelete`
+// declarations (relationMode = "prisma" emulates them in the client, it emits no FK): every other
+// cascade here is hand-written in retention.ts, and retention.ts deletes these two by hand as well
+// rather than relying on the emulation from a bulk deleteMany that never loads the parent rows.
+model ConformanceFinding {
+  id       String @id @default(uuid())
+  reportId String
+  check    String // stable id, e.g. "control.prepush.test"
+  level    String // pass | warn | fail | unchecked
+  message  String @default("")
+
+  report ConformanceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([check])
+}
+
+// #19 — the registry `usage/<contributor>.json` lane, one row per (contributor, skill), UPSERTED on
+// every index pass (a snapshot, never an append). Constitutionally repo-free: that lane forbids
+// repository names and paths, so no repo dimension can ever be derived from it.
+model OrgSkillUsageSample {
+  id          String    @id @default(uuid())
+  registryId  String
+  orgId       String // denormalized for the org-scoped read
+  contributor String // usage/<contributor>.json stem
+  skillName   String // registry skill NAME (a registry-only skill has no OrgSkill id)
+  invokes     Int       @default(0)
+  windowDays  Int       @default(30)
+  lastUsedAt  DateTime? // from the file's optional `lastUsed`; NULL = not reported
+  generatedAt DateTime // the file's own generatedAt — staleness is the reader's problem
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([registryId, contributor, skillName])
+  @@index([orgId, skillName])
+}
+
+// #18 — one subject in a knowledge bundle's generated index. Ascent READS this lane; every field is
+// owned by the bundle's own generator, so nothing here is authored by ascent.
+model OrgKnowledgeSubject {
+  id             String   @id @default(uuid())
+  orgId          String
+  registryId     String
+  bundle         String
+  slug           String
+  category       String?
+  subcategory    String?
+  status         String?
+  file           String
+  techniqueCount Int      @default(0)
+  useWhenJson    String   @default("[]") // TEXT JSON string[]
+  lawsJson       String   @default("[]") // TEXT JSON string[]
+  archived       Boolean  @default(false)
+  indexedAt      DateTime
+
+  @@unique([registryId, bundle, slug])
+  @@index([orgId, bundle])
+}
+
+// #18 — the HEADER of one repo's `.ai/registry-map.json`: the counts and provenance of the map, so a
+// reader can tell "judged 3 of 40 pairs" apart from "conformant". One row per repo.
+model RepoConformanceMap {
+  id                String   @id @default(uuid())
+  orgId             String
+  repositoryId      String
+  mapSha            String
+  schema            String
+  generatedAt       DateTime
+  contexts          Int
+  pairs             Int
+  judged            Int
+  deviations        Int
+  weaklyGoverned    Int
+  unmatched         Int
+  domainsJson       String   @default("[]") // TEXT JSON
+  bundleDigestsJson String   @default("{}") // TEXT JSON
+  consults30d       Int? // NULL = the map carried no consult lane, which is NOT "zero consults"
+  warningsJson      String   @default("[]") // TEXT JSON string[]
+  ingestedAt        DateTime
+
+  // One map header per repo. Block-level for the same reason as UsageEvent.idemKey — the emitted
+  // constraint (RepoConformanceMap_repositoryId_key) is identical to the inline form's.
+  @@unique([repositoryId])
+  // Not in the spec's key list: the org-scoped erase sweep deletes by orgId and would otherwise scan.
+  @@index([orgId])
+}
+
+// #18 — one judged (context × subject) pair from a repo's registry map: the standing deviation
+// backlog, as the repo's own `/conform` runs wrote it.
+model RepoConformance {
+  id               String    @id @default(uuid())
+  orgId            String
+  repositoryId     String
+  contextName      String
+  contextGroup     String?
+  bundle           String
+  subjectSlug      String
+  state            String // conformant | deviation | not-applicable | unevaluated
+  confidence       String?
+  score            Float?
+  evidence         String? // file:line evidence exactly as the map stated it
+  evaluatedAt      DateTime?
+  evaluatedAgainst String?
+  mapSha           String
+  ingestedAt       DateTime
+
+  @@unique([repositoryId, contextName, subjectSlug])
+  @@index([orgId, subjectSlug, state])
+}
+
+// #18 — the `signals/` lane as one contributor published it. EVERY COUNT IS NULLABLE: a key the
+// contributor's payload did not carry is NULL (the lane reported nothing), never 0 (nobody consulted
+// it) — the two read identically in a sum and mean opposite things to a bundle maintainer.
+model RegistrySignal {
+  id          String   @id @default(uuid())
+  orgId       String
+  registryId  String
+  contributor String
+  app         String?
+  bundle      String
+  subjectSlug String
+  consults    Int?
+  deviations  Int?
+  citResolved Int?
+  citMoved    Int?
+  citGone     Int?
+  windowDays  Int
+  generatedAt DateTime
+
+  @@unique([registryId, contributor, bundle, subjectSlug])
+  // Not in the spec's key list: the org-scoped erase sweep deletes by orgId.
+  @@index([orgId, bundle])
+}
+
+// #18 — audit row: one signals contribution ascent opened back to the registry. Append-only, and
+// deliberately WITHOUT a unique key beyond the id — the same payload may legitimately be
+// contributed twice, and collapsing those two acts would erase half the audit trail.
+model RegistrySignalContribution {
+  id            String   @id @default(uuid())
+  orgId         String
+  registryId    String
+  contributor   String
+  prUrl         String?
+  commitSha     String?
+  payloadDigest String
+  bundlesJson   String   @default("[]") // TEXT JSON
+  subjects      Int
+  deviations    Int
+  actor         String
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+// #36 — one `## ` entry in `skills/<name>/LESSONS.md`. Heading slots are stored VERBATIM (a version
+// that did not parse stays "" rather than being guessed) and `headingRaw` keeps the whole line, so a
+// reader can always see what the parser was given.
+model OrgSkillLesson {
+  id           String    @id @default(uuid())
+  registryId   String
+  orgId        String // denormalized for the org-scoped read
+  skillName    String // registry skill NAME (a registry-only skill has no OrgSkill id)
+  registryPath String // "skills/<name>/LESSONS.md"
+  versionUsed  String    @default("") // heading slot 1, VERBATIM ("2.1.0", "0.1-1.0", "" = unparsed)
+  learnedOn    DateTime? // heading slot 2; NULL = the heading carried no readable date
+  project      String    @default("") // heading slot 3, verbatim; "" = absent
+  headingRaw   String // the whole "## …" line, so a reader can see what was parsed
+  body         String    @default("") // the bullets under it, capped 8KB
+  entryHash    String // contentDigest over headingRaw + "\n" + body — the idempotency key
+  position     Int       @default(0) // 0-based order in the file (the lane is append-only)
+  memoryId     String? // the OrgMemory candidate this produced; NULL = not ingested
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([registryId, registryPath, entryHash])
+  @@index([orgId, skillName])
+  @@index([registryId, registryPath])
+}
+
+// #36 — per-skill git timeline cache; one row per registry path, upserted. `headSha` is the cache
+// key: a trace built at a different head is stale and rebuilt rather than served.
+model OrgSkillTrace {
+  id           String   @id @default(uuid())
+  registryId   String
+  orgId        String
+  skillName    String
+  registryPath String // "skills/<name>/SKILL.md"
+  headSha      String // registry head this was built at — the cache key
+  entriesJson  String   @default("[]") // TEXT JSON: [{sha, authoredAt, authorLogin, message, version|null}]
+  truncated    Boolean  @default(false) // more than TRACE_COMMITS commits exist for the path
+  builtAt      DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([registryId, registryPath])
+  @@index([orgId, skillName])
+}
+
+// #36 — a reflection that must land as a PR, and its state. The registry is git-native: ascent may
+// PROPOSE a consolidated memory but never writes one directly, so the proposal is the durable object
+// and the PR is its outcome.
+model OrgMemoryProposal {
+  id              String   @id @default(uuid())
+  orgId           String
+  registryId      String?
+  namespace       String?
+  kind            String   @default("summary")
+  slug            String // memory/<kind>/<slug>.md stem
+  summaryContent  String
+  memberIdsJson   String   @default("[]") // TEXT JSON: OrgMemory ids it would supersede
+  memberPathsJson String   @default("[]") // TEXT JSON: their registryPaths — what the PR's frontmatter cites
+  status          String   @default("proposed") // proposed | pr_open | merged | closed
+  prUrl           String?
+  prNumber        Int?
+  createdBy       String? // GitHub login
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([orgId, status])
+}
+
+// #32 — a compacted month of one repo's scan history. SUMS, not means: an upsert folds a later page
+// exactly, so compaction can run in pages without the arithmetic drifting. `rubricVersion` is
+// NON-NULL with an "unknown" sentinel for legacy rows, because it is part of the identity key and a
+// NULL there would make every legacy month a distinct bucket forever (NULLs are distinct).
+model ScanDigest {
+  id             String   @id @default(uuid())
+  repoId         String
+  period         String // UTC month bucket "YYYY-MM" (digestPeriod)
+  rubricVersion  String // "unknown" sentinel for legacy rows — NEVER null (it is in the unique key)
+  engineProvider String
+  scanCount      Int
+  overallSum     Int
+  adoptionSum    Int
+  rigorSum       Int
+  overallMin     Int
+  overallMax     Int
+  overallLast    Int
+  adoptionLast   Int
+  rigorLast      Int
+  confidenceSum  Float
+  levelLast      String
+  levelNameLast  String
+  postureLast    String
+  firstScannedAt DateTime
+  lastScannedAt  DateTime
+  firstHeadSha   String?
+  lastHeadSha    String?
+  enginesJson    String   @default("[]") // TEXT JSON string[] of distinct engineModel values
+  dimensionsJson String   @default("{}") // TEXT JSON {dimId:{sum,n,last,signalSum,llmSum}} — never jsonb
+  recsOpened     Int      @default(0)
+  recsClosed     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  repo Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, period, rubricVersion, engineProvider])
+  @@index([repoId, lastScannedAt])
 }
