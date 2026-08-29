@@ -41,27 +41,27 @@ describe("commandsFor — language→commands map", () => {
     [
       "ruby",
       "Ruby",
-      { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby" },
+      { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby", sourceFile: "Gemfile" },
     ],
     [
       "php",
       "PHP",
-      { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php" },
+      { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php", sourceFile: "composer.json" },
     ],
     [
       "java",
       "Java",
-      { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java" },
+      { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "pom.xml" },
     ],
     [
       "kotlin",
       "Kotlin",
-      { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java" },
+      { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
     ],
     [
       "scala",
       "Scala",
-      { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java" },
+      { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.sbt" },
     ],
     [
       "c#",
@@ -71,17 +71,17 @@ describe("commandsFor — language→commands map", () => {
     [
       "swift",
       "Swift",
-      { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift" },
+      { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift", sourceFile: "Package.swift" },
     ],
     [
       "dart",
       "Dart",
-      { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart" },
+      { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart", sourceFile: "pubspec.yaml" },
     ],
     [
       "elixir",
       "Elixir",
-      { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam" },
+      { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam", sourceFile: "mix.exs" },
     ],
   ];
 
@@ -150,6 +150,11 @@ describe("commandsFor — language→commands map", () => {
   });
 
   it("stability guard: dropping any language's commands fails this test", () => {
+    // `sourceFile` is pinned per family here as well as in the tuple table above: the extended
+    // families all carry ci: "generic", so anything keyed on `ci` collapses them onto one row —
+    // which is how standard/manifest.ts came to emit a <placeholder> provenance for every one of
+    // them. The field only helps when it is present on the families that have one, so both copies
+    // of the table assert it. C# is deliberately absent: its project file name is repo-specific.
     // Snapshot the FULL map (14 language families + the fallback = 15 tuples) so a regression that
     // drops/alters a case is caught here — the header claim that this file pins the single source of
     // truth only holds if every branch is present.
@@ -163,15 +168,15 @@ describe("commandsFor — language→commands map", () => {
       python: { install: "pip install -e .[dev]", test: "pytest", lint: "ruff check .", build: "python -m build", ci: "python" },
       go: { install: "go mod download", test: "go test ./...", lint: "golangci-lint run", build: "go build ./...", ci: "go" },
       rust: { install: "cargo fetch", test: "cargo test", lint: "cargo clippy -- -D warnings", build: "cargo build --release", ci: "rust" },
-      ruby: { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby" },
-      php: { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php" },
-      java: { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java" },
-      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java" },
-      scala: { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java" },
+      ruby: { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby", sourceFile: "Gemfile" },
+      php: { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php", sourceFile: "composer.json" },
+      java: { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "pom.xml" },
+      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
+      scala: { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.sbt" },
       "c#": { install: "dotnet restore", test: "dotnet test", lint: "dotnet format --verify-no-changes", build: "dotnet build -c Release", ci: "generic", ciSetup: "actions/setup-dotnet" },
-      swift: { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift" },
-      dart: { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart" },
-      elixir: { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam" },
+      swift: { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift", sourceFile: "Package.swift" },
+      dart: { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart", sourceFile: "pubspec.yaml" },
+      elixir: { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam", sourceFile: "mix.exs" },
       fallback: GENERIC,
     });
   });
