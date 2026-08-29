@@ -2,7 +2,9 @@
 // lesson recallable WITHOUT distorting recall — its namespace, its kind, its confidence band and the
 // per-pass cap — are pinned where they are decided rather than inside a writer.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as lessonsDb from "@/lib/db/org-skill-lessons";
+import * as scanFeed from "@/lib/memory/scan-feed";
 import { SKILL_LESSON_SOURCE } from "./lessons";
 import { ingestSkillLessons, LESSON_MEMORY_CAP, lessonMemoryCandidates, type LessonLike } from "./lesson-memory";
 
@@ -76,11 +78,31 @@ describe("lessonMemoryCandidates", () => {
 });
 
 describe("ingestSkillLessons", () => {
-  it("reports HELD rather than writing through a second door", async () => {
-    // The one-door rule: the insert belongs to `writeMemoryCandidate` in scan-feed.ts. A private
-    // copy here would mean two dedup windows and two confidence conventions for one table.
+  // Wired at wave-1 integration: the ingest goes through THE one door (`writeMemoryCandidate` in
+  // scan-feed.ts) — never a private writer. `held: true` (the pre-wiring no-op) is the OLD
+  // expression and is forbidden below; a regression back to the hold would fail these.
+  it("writes through the one door and stamps the lesson with its memory id", async () => {
+    const door = vi.spyOn(scanFeed, "writeMemoryCandidate").mockResolvedValue({ id: "mem-1" });
+    const stamp = vi.spyOn(lessonsDb, "setLessonMemoryId").mockResolvedValue();
     const tally = await ingestSkillLessons("org-1", "forge", [lesson()]);
-    expect(tally).toEqual({ offered: 1, written: 0, held: true });
+    expect(tally).toEqual({ offered: 1, written: 1, held: false });
+    expect(door).toHaveBeenCalledTimes(1);
+    expect(door.mock.calls[0]![0]).toMatchObject({ orgId: "org-1", namespace: "forge", kind: "procedural" });
+    // the door's input must not carry the row id — that is the stamp's job, not the memory's body
+    expect(door.mock.calls[0]![0]).not.toHaveProperty("lessonId");
+    expect(stamp).toHaveBeenCalledWith("l1", "mem-1");
+    door.mockRestore();
+    stamp.mockRestore();
+  });
+
+  it("a declined candidate (door returns null) counts as offered, never as written", async () => {
+    const door = vi.spyOn(scanFeed, "writeMemoryCandidate").mockResolvedValue(null);
+    const stamp = vi.spyOn(lessonsDb, "setLessonMemoryId").mockResolvedValue();
+    const tally = await ingestSkillLessons("org-1", "forge", [lesson()]);
+    expect(tally).toEqual({ offered: 1, written: 0, held: false });
+    expect(stamp).not.toHaveBeenCalled();
+    door.mockRestore();
+    stamp.mockRestore();
   });
 
   it("still counts what it WOULD offer, so the hold is visible rather than silent", async () => {
