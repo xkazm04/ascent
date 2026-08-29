@@ -28,10 +28,12 @@
 import type { ProviderName, TokenUsage } from "@/lib/types";
 import { supportsToolCalling } from "@/lib/llm/config";
 import { trackLlmCall } from "@/lib/llm/tracklight";
+import { meter } from "@/lib/llm/meter";
 import { isToolCallingRejection } from "@/lib/llm/transports";
 import type { ResolvedLegRunner } from "@/lib/llm/text";
-import { resolveLegRunnerForOrg } from "@/lib/llm/text-org";
+import { resolveLegRunnerWithProvenance } from "@/lib/llm/text-org";
 import type { AthenaTool, LegTurn, LlmLegKind, ToolCall, ToolResult } from "@/lib/llm/leg";
+import type { MeterContext } from "@/lib/llm/meter";
 
 export type { AthenaTool, ToolCall } from "@/lib/llm/leg";
 
@@ -85,6 +87,12 @@ export interface ToolLoopOptions {
   budgetMs?: number;
   /** Called ONCE, with the SUM across every leg — never per leg. */
   onUsage?: (usage: TokenUsage) => void;
+  /**
+   * Ledger attribution for the whole loop (repo, team, ref). `orgSlug` defaults to `opts.orgSlug`, so
+   * Athena's two call sites need no change at all: they already pass the org and the leg kind, which
+   * is everything the meter needs to name the lane and its owner.
+   */
+  meter?: MeterContext;
   /** Test seam: supply the runner instead of resolving one from env/BYOM. */
   runner?: ResolvedLegRunner;
 }
@@ -110,7 +118,14 @@ function addUsage(acc: TokenUsage, u: TokenUsage | undefined): void {
  * answer `resolveTextRunner` gives, which the caller must surface rather than conflating with silence.
  */
 export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRun | null> {
-  const runner = opts.runner ?? (await resolveLegRunnerForOrg(opts.orgSlug ?? null, { legKind: opts.legKind }));
+  // `byom` rides along with the runner so the meter can record that Ascent was NOT billed for this
+  // loop — an org on its own Bedrock account paid its vendor directly, and a dollar figure here would
+  // be a number the operator is invited to reconcile against an invoice that does not exist. Unknown
+  // (an injected test runner) stays undefined rather than defaulting to false.
+  const resolved = opts.runner
+    ? { runner: opts.runner, byom: undefined }
+    : await resolveLegRunnerWithProvenance(opts.orgSlug ?? null, { legKind: opts.legKind });
+  const runner = resolved.runner;
   if (!runner) return null;
 
   const maxLegs = Math.max(1, opts.maxLegs ?? ATHENA_MAX_LEGS);
@@ -152,6 +167,20 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRun | 
       surface: opts.legKind,
       operation: "tool-loop",
       tags: [`grounding:${grounding}`, ...(truncated ? ["truncated"] : [])],
+    });
+    // ONE ledger row per LOOP, matching the tracklight event above and carrying the SUMMED usage. A
+    // meter call inside the leg loop would count the same exchange up to four times and quadruple
+    // Athena's apparent cost — honesty rule 3 (usage sums across legs) applies to the ledger too.
+    meter({
+      ...opts.meter,
+      orgSlug: opts.meter?.orgSlug ?? opts.orgSlug ?? null,
+      byom: opts.meter?.byom ?? resolved.byom,
+      legKind: opts.legKind,
+      provider: runner.engine,
+      model: runner.model,
+      usage,
+      status,
+      latencyMs: Date.now() - startedAt,
     });
     opts.onUsage?.(usage);
     return { text, usage, legs, toolCalls, truncated, grounding, engine: runner.engine, model: runner.model };

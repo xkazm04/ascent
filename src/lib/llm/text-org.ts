@@ -37,6 +37,21 @@ export async function resolveLegRunnerForOrg(
   orgSlug: string | undefined | null,
   opts: TextRunnerOptions,
 ): Promise<ResolvedLegRunner | null> {
+  return (await resolveLegRunnerWithProvenance(orgSlug, opts)).runner;
+}
+
+/**
+ * The same resolution, plus WHOSE ACCOUNT answered.
+ *
+ * The meter needs a fact only this function can know: a BYOM call is billed to the org's own vendor,
+ * so Ascent has no cost figure for it and must record `null` rather than pricing the tokens at list
+ * rates the org never paid. `byom` is `true` on the BYOM branch, `false` on the platform branch, and
+ * `undefined` only where the question was never asked — the honest three-state, not a defaulted boolean.
+ */
+export async function resolveLegRunnerWithProvenance(
+  orgSlug: string | undefined | null,
+  opts: TextRunnerOptions,
+): Promise<{ runner: ResolvedLegRunner | null; byom: boolean | undefined }> {
   if (orgSlug && orgSlug !== "public") {
     // Dynamic import so the db layer never lands in a bundle that only wanted the env path — the same
     // discipline getProviderForOrg uses for this exact module.
@@ -45,9 +60,13 @@ export async function resolveLegRunnerForOrg(
     const byom = await resolveByomState(orgSlug);
     if (byom.state === "active") {
       const p = byom.params;
-      return p.kind === "openrouter"
-        ? openRouterLegRunner(p.model, p.apiKey)
-        : bedrockLegRunner(p.model, p.region ?? DEFAULT_BEDROCK_REGION, p.credentials);
+      return {
+        runner:
+          p.kind === "openrouter"
+            ? openRouterLegRunner(p.model, p.apiKey)
+            : bedrockLegRunner(p.model, p.region ?? DEFAULT_BEDROCK_REGION, p.credentials),
+        byom: true,
+      };
     }
     if (byom.state === "unresolvable") {
       throw new Error(
@@ -58,7 +77,8 @@ export async function resolveLegRunnerForOrg(
       );
     }
   }
-  return resolveLegRunner(opts);
+  // The platform account answered: Ascent IS billed, so the meter prices these tokens.
+  return { runner: await resolveLegRunner(opts), byom: false };
 }
 
 /**
@@ -71,6 +91,19 @@ export async function resolveTextRunnerForOrg(
   orgSlug: string | undefined | null,
   opts: TextRunnerOptions,
 ): Promise<ResolvedTextRunner | null> {
-  const leg = await resolveLegRunnerForOrg(orgSlug, opts);
-  return leg ? textRunnerFrom(leg, opts.timeoutMs ?? llmTimeoutMs(), opts) : null;
+  const { runner, byom } = await resolveLegRunnerWithProvenance(orgSlug, opts);
+  if (!runner) return null;
+  // Attribution is filled in HERE rather than at every call site: this function already knows the org
+  // and now knows whose account served it, so a caller that passes neither still meters correctly. An
+  // explicit `opts.meter` always wins — a caller that knows better (a repo, a team, a ref) is not
+  // overridden by a default.
+  const metered: TextRunnerOptions = {
+    ...opts,
+    meter: {
+      ...opts.meter,
+      orgSlug: opts.meter?.orgSlug ?? (orgSlug && orgSlug !== "public" ? orgSlug : null),
+      byom: opts.meter?.byom ?? byom,
+    },
+  };
+  return textRunnerFrom(runner, opts.timeoutMs ?? llmTimeoutMs(), metered);
 }
