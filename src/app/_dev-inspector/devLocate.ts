@@ -79,3 +79,24 @@ export function pickDefaultIndex(chain: LocEntry[]): number {
 export function dedupeChain(chain: LocEntry[]): LocEntry[] {
   return chain.filter((c, i) => i === 0 || c.loc !== chain[i - 1]?.loc);
 }
+
+/**
+ * Horizontal placement of the `File.tsx:LINE` chip, clamped to stay on screen.
+ *
+ * The clamp must use the chip's OWN width, not the maximum a chip may reach: clamping every chip
+ * against the 260px ceiling yanked a short label (`Hero.tsx:9`, ~60px) 200px left of the element it
+ * labels whenever that element sat near the right edge — the chip then points at the wrong region,
+ * which is the one thing it exists not to do. Width is estimated from the text because the chip is
+ * rendered in a fixed 11px monospace face (~0.6em advance) with 6px of padding a side; the estimate
+ * only has to be good enough to keep the chip on screen, and `maxWidth` + ellipsis still enforce the
+ * ceiling. `pad` is the viewport margin the caller keeps on the right.
+ */
+export function chipLeft(
+  rectLeft: number,
+  label: string,
+  viewportWidth: number,
+  opts: { maxWidth: number; charPx?: number; padPx?: number } = { maxWidth: 260 },
+): number {
+  const width = Math.min(opts.maxWidth, Math.ceil(label.length * (opts.charPx ?? 6.6)) + (opts.padPx ?? 12));
+  return Math.max(4, Math.min(rectLeft, viewportWidth - width));
+}

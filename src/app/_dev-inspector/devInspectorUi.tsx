@@ -9,7 +9,7 @@
 
 import { useState, type CSSProperties } from "react";
 
-import { isLibraryPath, type LocEntry } from "./devLocate";
+import { chipLeft, isLibraryPath, type LocEntry } from "./devLocate";
 
 export const Z = 2147483646;
 const ACCENT = "#38bdf8"; // cyan
@@ -55,9 +55,10 @@ export function HighlightBox({
 // Chip layout invariants, named so the placement math and the CSS enforce the SAME numbers.
 // CHIP_H: rendered chip height (11px font × 1.4 line-height + 2×1px padding ≈ 17px, rounded up with
 // margin) — drives the flip-above/below threshold and the vertical offsets. CHIP_MAX_W: the widest
-// the chip may render; the `left` clamp keeps that many px inside the viewport, and maxWidth +
-// ellipsis below ENFORCE it (previously the chip was nowrap with no maxWidth, so a long
-// `SomeVeryLongComponentName.tsx:1234` overflowed the right edge despite the clamp).
+// the chip may render; maxWidth + ellipsis below ENFORCE it (previously the chip was nowrap with no
+// maxWidth, so a long `SomeVeryLongComponentName.tsx:1234` overflowed the right edge). The `left`
+// clamp uses the chip's ESTIMATED OWN width (chipLeft) rather than this ceiling — clamping a short
+// label against 260px pushed it far from the element it labels near the right edge.
 const CHIP_H = 20;
 const CHIP_MAX_W = 260;
 
@@ -66,7 +67,7 @@ export function SourceLabel({ rect, loc }: { rect: DOMRect; loc: string }) {
   const { file } = splitLoc(loc);
   const above = rect.top > CHIP_H + 2; // room for the chip (+2px gap) above the box?
   const top = above ? rect.top - CHIP_H : Math.min(rect.top + 2, window.innerHeight - (CHIP_H + 2));
-  const left = Math.max(4, Math.min(rect.left, window.innerWidth - CHIP_MAX_W));
+  const left = chipLeft(rect.left, file, window.innerWidth, { maxWidth: CHIP_MAX_W });
   return (
     <div
       style={{
