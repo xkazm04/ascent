@@ -139,6 +139,7 @@ function workingDeps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
     laneKind: vi.fn(async () => BACKLOG_LANE),
     install: vi.fn(async () => ({ ok: true, written: [], skipped: [], committed: false, summary: "not used" })),
     runAgent: vi.fn(async () => ({ ok: true, summary: "did the thing" })),
+    commitWork: vi.fn(async () => ({ committed: true, files: 2, resolved: [], summary: "the lane committed the agent's work" })),
     rescan: vi.fn(async ({ repo, onStage }) => {
       onStage("analyze");
       return { scanId: `scan-after-${repo}`, closedIds: [`rec-${repo}`] };

@@ -191,8 +191,19 @@ const EFFORT_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 };
  * One section per repository, ordered by the batch's projected points; items inside a repo by impact
  * (highest first) then effort (cheapest first). Text is plain markdown that reads well pasted into a
  * terminal-side agent.
+ *
+ * `commitPolicy` says WHO commits, and it is not cosmetic. The default (`agent`) is the human's
+ * paste-into-my-own-terminal case, where the agent has a shell and writing its own trailers is the
+ * whole contract. `lane` is the loop's unattended agent, which runs under `--permission-mode
+ * acceptEdits` and CANNOT run git — instructing it to commit is instructing it to fail (L2-A-01,
+ * uat/runs/2026-08-29-loop-l2: five dispatched items written into a worktree and then deleted). For
+ * that caller the lane commits afterwards and writes the trailers itself, so the prompt asks for the
+ * one thing only the session knows: which ids it actually resolved.
  */
-export function buildFixPrompt(items: readonly FollowUpItem[], ctx: { org: string; generatedAt: string; scanNote?: string }): string {
+export function buildFixPrompt(
+  items: readonly FollowUpItem[],
+  ctx: { org: string; generatedAt: string; scanNote?: string; commitPolicy?: "agent" | "lane" },
+): string {
   const byRepo = new Map<string, FollowUpItem[]>();
   for (const it of items) byRepo.set(it.repo, [...(byRepo.get(it.repo) ?? []), it]);
   const repos = [...byRepo.entries()].sort((a, b) => sumPts(b[1]) - sumPts(a[1]));
@@ -206,12 +217,21 @@ export function buildFixPrompt(items: readonly FollowUpItem[], ctx: { org: strin
       "Resolve what you can, in small verifiable changes; skip anything that does not apply and say why.",
   );
   lines.push("");
+  const laneCommits = ctx.commitPolicy === "lane";
   lines.push("Rules:");
   lines.push("- Work one repository at a time, on a branch. Read the repo's own guidance (CLAUDE.md / AGENTS.md / CONTRIBUTING) first.");
   lines.push("- Prefer the smallest change that closes the gap for real; add or extend tests where the gap is about verification.");
-  lines.push(`- In EVERY commit that resolves an item, add a trailer line \`${FOLLOWUP_TRAILER}: <id>\` (several ids: comma-separated). Ascent's next scan of the branch reads it and marks the item resolved.`);
+  lines.push(
+    laneCommits
+      ? `- DO NOT run git. Leave your changes in the working tree: this session has no shell permission, and the Ascent lane commits them for you after you exit and writes the \`${FOLLOWUP_TRAILER}: <id>\` trailers itself.`
+      : `- In EVERY commit that resolves an item, add a trailer line \`${FOLLOWUP_TRAILER}: <id>\` (several ids: comma-separated). Ascent's next scan of the branch reads it and marks the item resolved.`,
+  );
   lines.push("- Do not edit files only to satisfy a scanner. If a gap is already covered another way, leave it and note that in your summary.");
-  lines.push("- End with a short summary: resolved / skipped / needs a human, per id.");
+  lines.push(
+    laneCommits
+      ? "- End with ONE line per item, exactly `RESOLVED: <id> - what changed` or `SKIPPED: <id> - why`. Those ids become the commit's trailers; an id you name as SKIPPED is left out of them."
+      : "- End with a short summary: resolved / skipped / needs a human, per id.",
+  );
   lines.push("");
 
   for (const [repo, list] of repos) {

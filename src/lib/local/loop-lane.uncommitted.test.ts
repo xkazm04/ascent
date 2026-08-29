@@ -1,4 +1,5 @@
-// AN AGENT THAT WORKED AND DID NOT COMMIT (L2 certification, 2026-08-29).
+// AN AGENT THAT WORKED AND DID NOT COMMIT (L2 certification, 2026-08-29) — and what the lane does
+// about it now.
 //
 // The live run this pins: a real `claude -p` session edited files inside the worktree for 5m46s and
 // then could not run `git commit` — `--permission-mode acceptEdits` auto-accepts edits but not Bash,
@@ -6,9 +7,10 @@
 // the SAME line a session that found nothing to do produces, and `removeLoopWorktree`'s `--force`
 // then deleted the evidence. Nothing anywhere told the operator her agent's work had existed.
 //
-// These cases are about the lane's HONESTY, not about saving the work. Fixing the permission mode is
-// a separate decision (recorded as a finding); a lane that cannot distinguish "did nothing" from
-// "did everything and lost it" is wrong either way.
+// THE LANE NOW COMMITS IT (lane-commit.ts). So these cases split in two:
+//   • the lane calls the commit step with the armed batch and the agent's summary, always;
+//   • when that step FAILS anyway, the honest lost-work log from 2959be4c is still the fallback —
+//     it is now the last thing between a failed commit and a silently deleted worktree.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -55,6 +57,14 @@ const batchItem = (id: string) => ({
 
 const wt = { dir: "C:/tmp/wt", branch: "ascent/loop-x", created: true } as never;
 
+/** The lane's commit step, stubbed to FAIL — the fallback path these cases are about. */
+const commitFailed = vi.fn(async () => ({
+  committed: false,
+  files: 3,
+  resolved: [] as string[],
+  summary: "Could not commit the agent's 3 change(s): fatal: cannot lock ref",
+}));
+
 const run = (over: Partial<LaneDeps> = {}) =>
   runLane({
     runId: "run",
@@ -65,6 +75,7 @@ const run = (over: Partial<LaneDeps> = {}) =>
     batch: null,
     deps: {
       runAgent: vi.fn(async () => ({ ok: true, summary: "done" })) as never,
+      commitWork: commitFailed as never,
       rescan: vi.fn(async () => ({ scanId: "scan-after", closedIds: [] })),
       openBatch: vi.fn(async () => [batchItem("a")]),
       ...over,
@@ -74,17 +85,40 @@ const run = (over: Partial<LaneDeps> = {}) =>
 beforeEach(() => {
   logs.length = 0;
   gitState.porcelain = "";
+  commitFailed.mockClear();
 });
 
 describe("a backlog lane whose agent committed nothing", () => {
-  it("names the uncommitted work, the branch it is NOT on, and that it is being discarded", async () => {
+  it("hands the agent's work to the lane's own commit step, with the armed batch", async () => {
+    gitState.porcelain = " M src/index.js\n?? AGENTS.md\n";
+    await run({ runAgent: vi.fn(async () => ({ ok: true, summary: "wrote AGENTS.md" })) as never });
+
+    expect(commitFailed).toHaveBeenCalledTimes(1);
+    const arg = commitFailed.mock.calls[0]![0] as unknown as {
+      dir: string;
+      branch: string;
+      batch: { id: string }[];
+      summary: string;
+    };
+    expect(arg.branch).toBe("ascent/loop-x");
+    expect(arg.batch.map((b) => b.id)).toEqual(["a"]);
+    expect(arg.summary).toBe("wrote AGENTS.md");
+  });
+
+  it("logs why the lane's commit failed, and does not swallow it", async () => {
+    gitState.porcelain = " M src/index.js\n";
+    await run();
+    expect(logs.some((l) => l.includes("cannot lock ref"))).toBe(true);
+  });
+
+  it("names the work still uncommitted, the branch it is NOT on, and that it is being discarded", async () => {
     gitState.porcelain = " M src/index.js\n?? AGENTS.md\n?? test/basic.test.js\n";
     await run();
 
     expect(logs).toContain("0 commit(s) landed this cycle.");
-    const warning = logs.find((l) => l.includes("uncommitted change"));
+    const warning = logs.find((l) => l.includes("still uncommitted"));
     expect(warning, "the lane said nothing about the work it is about to delete").toBeTruthy();
-    expect(warning).toContain("3 uncommitted change(s)");
+    expect(warning).toContain("3 change(s)");
     expect(warning).toContain("ascent/loop-x");
     expect(warning).toContain("discarded");
   });
@@ -94,7 +128,7 @@ describe("a backlog lane whose agent committed nothing", () => {
     await run();
 
     expect(logs).toContain("0 commit(s) landed this cycle.");
-    expect(logs.find((l) => l.includes("uncommitted change"))).toBeUndefined();
+    expect(logs.find((l) => l.includes("still uncommitted"))).toBeUndefined();
   });
 
   it("gives the agent's own first line room to explain itself", async () => {

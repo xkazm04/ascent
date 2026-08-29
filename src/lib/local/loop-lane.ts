@@ -26,6 +26,7 @@ import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
 import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
 import { installInWorktree } from "@/lib/local/lane-install";
+import { commitAgentWork } from "@/lib/local/lane-commit";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
@@ -36,6 +37,8 @@ export interface LaneDeps {
   runAgent: typeof runClaudeAgent;
   /** The deterministic install a `foundation` / `practice` lane does instead of calling an agent. */
   install: typeof installInWorktree;
+  /** Commits what the agent session left behind — see lane-commit.ts for why the LANE does this. */
+  commitWork: typeof commitAgentWork;
   /** Which kind of lane a repo's next cycle should be — read from the paired working copy. */
   laneKind: typeof proposeLaneKind;
   /** Scan a worktree from disk and persist it. Returns the new scan id + the ids its trailers closed. */
@@ -53,6 +56,7 @@ export interface LaneDeps {
 export const defaultLaneDeps: LaneDeps = {
   runAgent: runClaudeAgent,
   install: installInWorktree,
+  commitWork: commitAgentWork,
   laneKind: proposeLaneKind,
   rescan: rescanWorktree,
   openBatch,
@@ -266,9 +270,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }
     } else {
       await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
+      // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
+      // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
+      // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
+      // the session knows — which ids it resolved — and the lane commits below. See lane-commit.ts.
       const prompt =
-        buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle" }) +
-        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\` — commit directly to it, one commit per resolved item, each carrying its trailer.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- In each commit body, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is not resolved.\n`;
+        buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle", commitPolicy: "lane" }) +
+        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n`;
       const result = await deps.runAgent({
         cwd: worktree.dir,
         prompt,
@@ -279,6 +287,18 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
       );
+      // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so
+      // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
+      // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
+      // residue and lands in one commit carrying the armed batch's `Ascent-Resolves:` trailers.
+      const committed = await deps.commitWork({
+        dir: worktree.dir,
+        branch: worktree.branch,
+        cycle,
+        batch,
+        summary: result.summary,
+      });
+      await appendLaneLog(laneId, committed.summary);
     }
 
     const countRes = await runGit(worktree.dir, ["rev-list", "--count", `${before}..HEAD`]);
@@ -289,16 +309,18 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // `removeLoopWorktree`'s `--force` then deleted the evidence on its way out. The L2 certification
     // hit exactly this — a real `claude -p` session edited files for 5m46s, could not run `git
     // commit` under `--permission-mode acceptEdits` (headless `-p` has nobody to grant Bash), and the
-    // branch that is supposed to BE the deliverable ended up carrying none of it. Naming the dirty
-    // worktree is the difference between a legible failure and a silent one; it does not save the
-    // work, which is a decision for whoever fixes the permission mode.
+    // branch that is supposed to BE the deliverable ended up carrying none of it.
+    //
+    // THE LANE NOW COMMITS THAT WORK (lane-commit.ts), so reaching here dirty means the LANE's own
+    // commit failed — a hook, a missing git identity, a locked index. This stays as the fallback,
+    // and it is now the last thing standing between a failed commit and a silently deleted worktree.
     if (kind === "backlog" && commits === 0) {
       const dirty = await runGit(worktree.dir, ["status", "--porcelain"]);
       const changed = dirty.ok ? dirty.stdout.split("\n").filter((l) => l.trim()).length : 0;
       if (changed > 0) {
         await appendLaneLog(
           laneId,
-          `The agent left ${changed} uncommitted change(s) in the worktree and committed none of them — that work is NOT on ${worktree.branch} and is discarded with the worktree. Check the agent summary above for the reason.`,
+          `${changed} change(s) are still uncommitted in the worktree and the lane could not commit them either — that work is NOT on ${worktree.branch} and is discarded with the worktree. Check the commit failure and the agent summary above for the reason.`,
         );
       }
     }
