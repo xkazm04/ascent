@@ -172,6 +172,7 @@ export function InspectorHud({
   copyOk,
   mappingOn,
   crumbs,
+  unstamped,
   defaultLoc,
   onCopy,
 }: {
@@ -179,6 +180,9 @@ export function InspectorHud({
   copyOk: boolean;
   mappingOn: boolean;
   crumbs: LocEntry[];
+  /** The pointer is over an element with no `data-loc` in its ancestry (as opposed to: the pointer
+   *  hasn't moved yet). Two states that both produce an empty crumb list and must NOT look alike. */
+  unstamped: boolean;
   defaultLoc: string | null;
   onCopy: (loc: string) => void;
 }) {
@@ -250,6 +254,16 @@ export function InspectorHud({
             />
           ));
         })()
+      ) : unstamped ? (
+        // Stamps exist in the document (mappingOn) but not on anything under the cursor — a portal, an
+        // unstamped module, or a subtree the transform skipped. Naming it is the whole point: an empty
+        // highlight that reads like "hover something" is indistinguishable from a broken tool.
+        <div style={{ color: "#fbbf24", lineHeight: 1.6 }}>
+          No source stamp on this element.
+          <div style={{ color: "#9ca3af", fontSize: 11 }}>
+            It comes from an unstamped module or a portal — try a parent element.
+          </div>
+        </div>
       ) : (
         <div style={{ color: "#9ca3af" }}>Hover a component…</div>
       )}

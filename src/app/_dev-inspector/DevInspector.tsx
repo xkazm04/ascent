@@ -81,6 +81,11 @@ interface HoverState {
 export function DevInspector() {
   const [mode, setMode] = useState<Mode>("off");
   const [hover, setHover] = useState<HoverState | null>(null);
+  // "The pointer is over an element that carries no `data-loc` anywhere up its ancestry" — a DIFFERENT
+  // state from "you haven't moved the mouse yet", and the HUD must say which. Collapsing them is the
+  // failure uninstrumented-degradation names: the operator cannot tell "I clicked wrong" from "this
+  // element has no source", tries twice, gets nothing twice, and stops reaching for the tool.
+  const [unstamped, setUnstamped] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [copyOk, setCopyOk] = useState(true);
   const [mounted, setMounted] = useState(false);
@@ -165,8 +170,10 @@ export function DevInspector() {
       const chain = buildChain(e.target as Element | null);
       if (chain.length === 0 || !chain[0]) {
         setHover(null);
+        setUnstamped(true);
         return;
       }
+      setUnstamped(false);
       const di = pickDefaultIndex(chain);
       setHover({
         chain,
@@ -224,6 +231,7 @@ export function DevInspector() {
       window.removeEventListener("resize", reposition);
       cancelAnimationFrame(raf);
       setHover(null);
+      setUnstamped(false);
     };
   }, [mode, doCopy]);
 
@@ -267,6 +275,7 @@ export function DevInspector() {
         copyOk={copyOk}
         mappingOn={mappingOn}
         crumbs={crumbs}
+        unstamped={unstamped}
         defaultLoc={defaultLoc}
         onCopy={doCopy}
       />
