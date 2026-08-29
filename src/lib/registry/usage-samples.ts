@@ -1,6 +1,7 @@
-// The registry's `usage/` lane, folded into the dormancy verdict — SINK B of the two-sink telemetry
-// contract (#19). PURE: parsing lives in `aggregateUsage`, persistence in
-// `@/lib/db/org-skill-usage-samples`, and this is only the arithmetic between them.
+// The registry's `usage/` lane — SINK B of the two-sink telemetry contract (#19): parsing it
+// (`aggregateUsage`) and folding it into the dormancy verdict (`sampleEventStats`). PURE; the
+// persistence lives in `@/lib/db/org-skill-usage-samples` and the orchestration in `index-registry`,
+// which re-exports `aggregateUsage` so no call site had to move with it.
 //
 // WHY THIS LANE HAS NO REPO DIMENSION, ever. `../ai-registry/docs/usage-lane.md` forbids repository
 // names, paths and per-project breakdown inside `usage/<contributor>.json`, and the registry's own
@@ -67,4 +68,98 @@ export function sampleEventStats(
     out.push({ skillId, type: "invoke", lastAt: v.lastAt, count: v.count });
   }
   return out.sort((a, b) => a.skillId.localeCompare(b.skillId));
+}
+
+/** Aggregate of the registry's `usage/` lane. */
+export interface RegistryUsage {
+  /** Total invocations across every contributor, over their reported window. */
+  invokes30d: number;
+  /** How many installations contributed a file. Zero means nobody is reporting —
+   *  which is NOT the same as a fleet that runs nothing. */
+  contributors: number;
+  /** Per skill, summed across contributors. */
+  bySkill: Record<string, number>;
+  /**
+   * The same counts UN-summed: one entry per (contributor, skill), which is what the
+   * `OrgSkillUsageSample` snapshot persists (#19).
+   *
+   * `bySkill` alone could not be persisted safely — it is a total with no key, so a second index pass
+   * of the same head has no way to tell "the same 40 invocations again" from "40 more". Keeping the
+   * per-contributor grain gives the upsert a natural identity and makes re-indexing a no-op.
+   */
+  samples: UsageSample[];
+  /** Every contributor whose file this pass actually read — the purge set. */
+  contributorNames: string[];
+}
+
+/**
+ * Sum the usage lane. Tolerant by the same rule as every other read here: a
+ * malformed contribution degrades ITSELF into a warning and the rest still
+ * counts. The registry's own gate is what keeps these files well-formed; this
+ * must never be the thing that fails a whole index pass.
+ */
+export function aggregateUsage(
+  files: { path: string; text: string | null }[],
+  warnings: string[],
+): RegistryUsage {
+  const bySkill: Record<string, number> = {};
+  const samples: UsageSample[] = [];
+  const contributorNames: string[] = [];
+  let contributors = 0;
+  let invokes30d = 0;
+
+  for (const { path, text } of files) {
+    if (text === null) continue;
+    let doc: unknown;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      warnings.push(`${path}: not valid JSON — contribution skipped`);
+      continue;
+    }
+    const record = doc as {
+      skills?: Record<string, { invokes?: unknown; lastUsed?: unknown; windowDays?: unknown }>;
+      generatedAt?: unknown;
+      windowDays?: unknown;
+    };
+    const skills = record?.skills;
+    if (!skills || typeof skills !== "object") {
+      warnings.push(`${path}: no skills object — contribution skipped`);
+      continue;
+    }
+    contributors += 1;
+    // The file's stem IS the contributor id — `usage/acme-ci.json` → `acme-ci`. The lane forbids a
+    // deeper path, and `isUsageFile` already refused anything nested, so this cannot be a repo name.
+    const contributor = path.split("/").pop()!.replace(/\.json$/i, "");
+    contributorNames.push(contributor);
+    const fileWindow = typeof record.windowDays === "number" && record.windowDays > 0 ? Math.floor(record.windowDays) : 30;
+    // An unparseable/absent `generatedAt` becomes the read instant. That is honest for THIS field
+    // (we did read the file now) and is never allowed to stand in for `lastUsed`, which stays null.
+    const generatedAt =
+      typeof record.generatedAt === "string" && Number.isFinite(Date.parse(record.generatedAt))
+        ? record.generatedAt
+        : new Date().toISOString();
+
+    for (const [name, entry] of Object.entries(skills)) {
+      const n = entry?.invokes;
+      if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
+        warnings.push(`${path}: skills["${name}"].invokes is not a count — ignored`);
+        continue;
+      }
+      const whole = Math.floor(n);
+      bySkill[name] = (bySkill[name] ?? 0) + whole;
+      invokes30d += whole;
+      const lastUsed =
+        typeof entry?.lastUsed === "string" && Number.isFinite(Date.parse(entry.lastUsed)) ? entry.lastUsed : null;
+      samples.push({
+        contributor,
+        skillName: name,
+        invokes: whole,
+        windowDays: typeof entry?.windowDays === "number" && entry.windowDays > 0 ? Math.floor(entry.windowDays) : fileWindow,
+        lastUsed,
+        generatedAt,
+      });
+    }
+  }
+  return { invokes30d, contributors, bySkill, samples, contributorNames };
 }
