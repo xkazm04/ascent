@@ -2474,7 +2474,10 @@
             "agent"
           ],
           "confidence": "strong",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "handoff/route.ts realizes handoff-tenancy-and-idempotence: requireOrgAccess + whole-request 403 on any foreign/unknown id (no existence oracle), PUBLIC_ORG refused, MAX_BATCH 50, only open->in_progress with skipped-and-why reported. Wave-3 item 8 closed the one gap: db/scans-recommendations.ts handoffRecommendations now does ONE membership-scoped read and per-row CAS (status+org in the WHERE) in one tx with events+audit, so a row moving open->done mid-request can no longer be silently reopened. Residual tension: the ownership predicate now has two spellings (getRecommendationOrgSlug and the batch read's join), both in the same module.",
+          "evaluatedAt": "2026-08-30",
+          "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
       "governance": "governed"
@@ -3141,8 +3144,8 @@
           ],
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "rate-limit.ts:60-63 trusts x-real-ip under the default hops=1 on the operator's word alone — no runtime witness (cf. the VERCEL gate the technique's exemplar uses) — so an unconfigured self-hosted deploy lets a caller mint a fresh bucket per request; :373-385 also spends per-IP allowance on globally-refused requests. Refusal contract, reaper, and basis labels are all realized.",
-          "evaluatedAt": "2026-08-24",
+          "evidence": "rate-limit.ts:60-63 trusts x-real-ip under the default hops=1 on the operator's word alone — no runtime witness (cf. the VERCEL gate the technique's exemplar uses) — so an unconfigured self-hosted deploy lets a caller mint a fresh bucket per request; :373-385 also spends per-IP allowance on globally-refused requests. Refusal contract, reaper, and basis labels are all realized. (2026-08-30: public-scan-quota's read-decide-write tx moved into db/scan-quota.ts — quota policy unchanged; the deviation above is untouched by it.)",
+          "evaluatedAt": "2026-08-30",
           "evaluatedAgainst": "sha256:1117665ec59c1168"
         }
       ],
