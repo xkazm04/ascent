@@ -675,24 +675,6 @@ CREATE INDEX "Invite_orgId_idx" ON "Invite"("orgId");
 CREATE INDEX "Invite_status_idx" ON "Invite"("status");
 
 -- CreateTable
-CREATE TABLE "BadgeImpression" (
-    "id" TEXT NOT NULL,
-    "repoFullName" TEXT NOT NULL,
-    "refererHost" TEXT NOT NULL,
-    "count" INTEGER NOT NULL DEFAULT 0,
-    "firstSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "lastSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "BadgeImpression_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "BadgeImpression_repoFullName_refererHost_key" ON "BadgeImpression"("repoFullName", "refererHost");
-
--- CreateIndex
-CREATE INDEX "BadgeImpression_repoFullName_idx" ON "BadgeImpression"("repoFullName");
-
--- CreateTable
 CREATE TABLE "QuotaEvent" (
     "id" TEXT NOT NULL,
     "kind" TEXT NOT NULL,

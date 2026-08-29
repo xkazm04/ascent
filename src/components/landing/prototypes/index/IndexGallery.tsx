@@ -109,24 +109,15 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
         ))}
       </div>
 
-      {/* Growth loop: convert a register viewer into a scanned repo + a README badge embed (every embed
-          links back with ?ref=badge, so a published badge feeds the funnel). */}
+      {/* Growth loop: convert a register viewer into a scanned repo. */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">
         <span className="text-sm text-slate-500">Want your repo on the register?</span>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/?scan=1"
-            className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
-          >
-            <span aria-hidden>▸</span> Scan your repo
-          </Link>
-          <Link
-            href="/badge"
-            className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
-          >
-            <span aria-hidden>◆</span> Add a README badge
-          </Link>
-        </div>
+        <Link
+          href="/?scan=1"
+          className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+        >
+          <span aria-hidden>▸</span> Scan your repo
+        </Link>
       </div>
     </DeckSection>
   );

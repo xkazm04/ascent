@@ -260,7 +260,7 @@ export async function lookupPersistedScanByCommit(opts: {
  * Resolve a repo's current head sha for the read-only badge/gate surfaces while reusing the
  * in-memory conditional-request hint. Unlike an unconditional head lookup, this sends the prior
  * ETag (`If-None-Match`): an unchanged repo answers `304 Not Modified`, which GitHub does NOT
- * bill against the REST rate limit, so a README badge polled by every repo viewer re-validates
+ * bill against the REST rate limit, so a public endpoint polled by every repo viewer re-validates
  * for free instead of spending a rate-limit unit per hit. The hint is refreshed on a fresh `200`.
  * Returns null on any failure so the caller falls back to a SHA-less (best-effort) cache key.
  */

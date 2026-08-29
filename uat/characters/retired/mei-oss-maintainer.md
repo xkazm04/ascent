@@ -1,14 +1,33 @@
 ---
 name: Mei (OSS Maintainer)
 role: Solo maintainer of a popular open-source library/framework (~14k stars, run on her own time, day job elsewhere)
-maps_to: / (free public scan, no signup), /report/[owner]/[repo], /badge (grab the README badge), the published GitHub Action PR maturity gate
+maps_to: / (free public scan, no signup), /report/[owner]/[repo], /badge (grab the README badge — REMOVED 2026-08-29), the published GitHub Action PR maturity gate
 tech_level: power-user
-promotion: discovery
+promotion: retired
 references:
   - https://leaddev.com/software-quality/open-source-has-a-big-ai-slop-problem — AI-slop deluge on maintainers: curl's bug bounty dropped to ~5% genuine reports, RubyGems review ballooned 15 min → "a full day"; tldraw closed external contributions. Sets the bar that a maturity signal must be credible, not generic, or it's just more slop — and that her time is the scarce resource.
   - https://github.com/ossf/scorecard/blob/main/README.md — OpenSSF Scorecard README badge: a single paste-ready markdown badge that auto-updates and links to detailed results, "to show off their hard work." Sets the badge-credibility/paste-into-README bar (Shields-style, links to evidence, no signup to read).
   - https://byteiota.com/open-source-maintainer-crisis-60-unpaid-burnout-hits-44/ — Maintainer crisis: ~60% unpaid, 44% burnout, Ingress NGINX / External Secrets retired to burnout; "money doesn't write code." Sets the protective-of-her-time, no-paywall, won't-pay-for-a-personal-OSS-project bar.
+retired: 2026-08-29
+retired_reason: the README badge feature this Character was built around was removed from the product
 ---
+
+> **RETIRED 2026-08-29 — not part of the active roster.** Mei's central job-to-be-done was the
+> README maturity badge (`/badge`, the SVG endpoints, the paste-ready snippet), and the product
+> removed that feature on 2026-08-29. Her acceptance criteria and her whole "would I paste this in
+> front of thousands of developers" bar were written against an artifact that no longer exists, so
+> scoring her would measure a surface the product deliberately dropped rather than a gap it intends
+> to close.
+>
+> **What is preserved and why.** The research below is still sound: OSS maintainers really do read
+> project health through auto-updating, evidence-linked README shields, and the AI-slop and
+> maintainer-crisis grounding is independent of any one Ascent surface. If a public per-repo
+> signalling artifact is ever built again, re-ground this Character against *that* artifact rather
+> than writing a new maintainer from scratch.
+>
+> **What would have to change to un-retire her:** `maps_to`, Jobs to be done, the "What good looks
+> like" paragraph, and every scored criterion mentioning a badge. Her PR-gate job (the published
+> GitHub Action) survives the removal intact and is the natural seed for a narrower successor.
 
 ## Who they are
 Mei maintains a widely-used open-source library (~14k stars, depended on by thousands of projects) largely on her own evenings and weekends — she has a separate day job and no funding to speak of. She's an early, fluent adopter of AI coding tools and uses them daily, but she's the one triaging the firehose of issues and PRs, including a rising tide of AI-generated ones. What she's protecting is her credibility with contributors and downstream users and the little discretionary time she has left.

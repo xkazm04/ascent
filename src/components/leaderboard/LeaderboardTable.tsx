@@ -103,7 +103,7 @@ export function LeaderboardTable({
                     {c.owner}
                   </Link>{" "}
                   · {c.levelName} · {timeAgo(c.scannedAt)}
-                  {/* Provenance, carried onto the public surface exactly as the README badge carries
+                  {/* Provenance, carried onto the public surface exactly as every other public verdict carries
                       it: a deterministic-rubric score is a preview, never a rating. Never silent. */}
                   {!c.verified && (
                     <span

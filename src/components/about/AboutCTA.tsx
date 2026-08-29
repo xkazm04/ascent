@@ -7,12 +7,12 @@ import { GlowBackdrop } from "./GlowBackdrop";
 import { AboutCtaButtons } from "./AboutCtaButtons";
 
 // Deliberately CURATED footer nav for the /about deck's closing screen: the conversion paths
-// (Pricing / Connect) plus a way home — not the full FOOTER_LINKS set (Leaderboard/Badge/Usage),
+// (Pricing / Connect) plus a way home — not the full FOOTER_LINKS set (Leaderboard/Usage),
 // which would dilute the CTA moment. Tagline + attribution still come from SiteFooterCore, so
 // content edits land on both footers; revisit this subset deliberately, not by drift.
 const ABOUT_FOOTER_LINKS = [
   { href: "/pricing", label: "Pricing" },
-  { href: "/connect", label: "Connect" },
+  { href: "/onboarding", label: "Get started" },
   // The sibling deck. /about argues measurement of one repository; a reader who finished it and
   // wants the fleet story has nowhere else on this screen to go.
   { href: "/about-org", label: "For orgs" },

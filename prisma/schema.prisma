@@ -1095,7 +1095,7 @@ model OrgSkillAdoption {
   @@index([orgId])
 }
 
-// One rolling download/use tally row per skill (mirror BadgeImpression/QuotaEvent) — org-internal usage
+// One rolling download/use tally row per skill (mirror QuotaEvent) — org-internal usage
 // counter, bumped fire-and-forget on download or "copy for LLM". `OrgSkill.downloadCount` is the
 // denormalized mirror used for sorting; this row additionally carries `lastSeen` (and is the seam for a
 // future per-day trend). Standalone — keyed by skillId. Block-level @@unique keeps the inline-@unique
@@ -1370,30 +1370,11 @@ model PublicScanQuota {
   updatedAt DateTime @updatedAt
 }
 
-// Best-effort reach tally for the public README badge (USE-1): one row per (repo, embedding host),
-// counted up on each ORIGIN badge GET. Powers the "Badge reach" panel on /usage. Deliberately
-// approximate — README badges are heavily proxy/CDN-cached (GitHub serves them through camo), so the
-// majority of real views never reach the origin and aren't counted; this measures lower-bound reach +
-// where embeds live. `repoFullName` is the lowercased "owner/repo"; `refererHost` the lowercased
-// embedding host (or "direct" when no/unparseable Referer). No FK — keyed by the unique pair.
-// Written fire-and-forget from src/app/api/badge/[owner]/[repo]/route.ts; read by src/lib/db/badge-analytics.ts.
-model BadgeImpression {
-  id           String   @id @default(uuid())
-  repoFullName String // lowercased "owner/repo"
-  refererHost  String // lowercased embedding host, or "direct"
-  count        Int      @default(0)
-  firstSeen    DateTime @default(now())
-  lastSeen     DateTime @default(now())
-
-  @@unique([repoFullName, refererHost])
-  @@index([repoFullName])
-}
-
 // Public-funnel abuse observability (QUOTA-6): a running tally bumped fire-and-forget when the free
 // funnel pushes back — a weekly-quota denial or a rate-limit trip — so /usage can show how often the
 // guardrails fire. `kind` = "quota_deny" | "rate_limit"; `scope` = "anon"/"user" (quota) or the
-// limiter name ("badge", …). No FK; keyed by the unique pair. Written best-effort from
-// src/lib/public-scan-quota.ts + the badge route; read by src/lib/db/quota-events.ts.
+// limiter name ("gate", …). No FK; keyed by the unique pair. Written best-effort from
+// src/lib/public-scan-quota.ts; read by src/lib/db/quota-events.ts.
 model QuotaEvent {
   id        String   @id @default(uuid())
   kind      String

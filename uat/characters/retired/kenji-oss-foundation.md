@@ -1,13 +1,30 @@
 ---
 name: Kenji (OSS foundation steward)
 role: Maintainer / project steward at an Apache/CNCF-style open-source foundation, shepherding many public repos
-maps_to: / (free public scan), /report/[owner]/[repo], /badge, /trends, /api/badge — the entire FREE recurring surface (he never touches the paid /org/* dashboard)
+maps_to: / (free public scan), /report/[owner]/[repo], /badge, /trends, /api/badge (/badge + /api/badge REMOVED 2026-08-29) — the entire FREE recurring surface (he never touches the paid /org/* dashboard)
 tech_level: power-user
-promotion: discovery
+promotion: retired
 references:
   - https://github.com/ossf/scorecard/blob/main/README.md — OpenSSF Scorecard: the de-facto OSS health-badge norm — an auto-updating README badge that links to dated, re-pullable evidence, free for every public repo. Sets Kenji's bar: a recurring health signal across a fleet of public repos is expected to be $0, auto-refreshing, and evidence-backed. (web-confirmed: Scorecard/CII badges are the ecosystem standard, though adoption is still ~0.1–0.2% of packages.)
   - https://openssf.org/projects/scorecard/ — Scorecard / CII Best-Practices badges run continuously over public repos at no cost; foundations expect project-health tooling to be free for OSS. Sets the "I will never pay for a public-repo signal" anchor — and frames his read as a *monetization* question, not a user complaint.
+retired: 2026-08-29
+retired_reason: the README badge feature this Character was built around was removed from the product
 ---
+
+> **RETIRED 2026-08-29 — not part of the active roster.** Kenji's recurring loop was *re-scan the
+> portfolio, refresh the README badges*, and the badge feature was removed from the product on
+> 2026-08-29. His time-saved arithmetic (~2–3 hours per release cycle) is computed against a
+> badge-auto-refresh cadence that no longer exists, so the number would overstate what the product
+> delivers today.
+>
+> **What is preserved and why.** His monetization read — a foundation steward getting real recurring
+> value at $0 and asking where the meter is — does not depend on the badge and remains one of the
+> sharper business findings in the corpus. The OpenSSF Scorecard / CII grounding for "public-repo
+> health tooling is expected to be free" is likewise still true.
+>
+> **What would have to change to un-retire him:** the Jobs to be done and the time-saved paragraph
+> must be re-derived from the surviving free recurring surface (scan → `/trends` trajectory →
+> `/leaderboard`), with no badge-refresh step. The monetization criterion can carry over as-is.
 
 ## Who they are
 Kenji is a project steward at an open-source foundation (think Apache/CNCF) — a part-paid, part-volunteer role where he shepherds dozens of **public** repos across the foundation's portfolio, watching their health so the foundation can vouch for them. He is on **Free forever** and proud of it: every repo he touches is public, so he has never paid Ascent a cent and cannot imagine why he would. His interest here is almost professional curiosity inverted into a business question — *the funnel handed me unlimited recurring value for free; where, if ever, would it ask me to pay?*

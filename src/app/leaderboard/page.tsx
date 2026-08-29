@@ -9,7 +9,7 @@
 //  2. PUBLIC-ONLY. Data comes from `getPublicRegister`, which pins every query to the shared public
 //     org AND `isPrivate:false`, and drops a private row per-row on top of that (see lib/register).
 //  3. HONEST. Mock-engine scans are NEVER ranked. They are drawn below the board, unranked, each
-//     carrying the same `demo` qualifier the README badge uses. A register that silently ranked a
+//     carrying the same `demo` qualifier every unverified public surface uses. A register that silently ranked a
 //     deterministic preview against a model-scored repo would be worse than no register at all.
 
 import Link from "next/link";

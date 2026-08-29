@@ -46,7 +46,7 @@ export const maxDuration = 300;
  * blip yields null).
  *
  * SECURITY — the reason this is ONE function: both callers serve out of the SHARED anonymous store, so
- * a PRIVATE snapshot must never leave here (defense-in-depth, the same gate as the badge), and the read
+ * a PRIVATE snapshot must never leave here (defense-in-depth, the same gate as the CI gate), and the read
  * is confined to the anonymous public funnel (`parsed && !token`; token scans are per-tenant and never
  * share this store). Two copies of that guard meant one could silently drift open.
  */
@@ -200,7 +200,7 @@ async function runScan(
     //   • latest (peek=1&latest=1, the quota-blocked salvage): serve the most recent report at ANY
     //     age, so a quota wall shows the last reading rather than a dead end.
     // Both: anonymous public funnel only (token scans are per-tenant), never a private snapshot
-    // (defense-in-depth on the shared store, same gate as the badge). x-ascent-stale flags that the
+    // (defense-in-depth on the shared store, same gate as the CI gate). x-ascent-stale flags that the
     // served report isn't head-fresh, so the report UI's "Re-test" still forces a re-score.
     if (opts.recent || opts.latest) {
       const last = await latestPublicReport(parsed, token);
@@ -252,7 +252,7 @@ async function runScan(
   }
 
   // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,
-  // so viewing a SAVED report, a permalink, or the badge stays free; only a REAL new scan (which
+  // so viewing a SAVED report or a permalink stays free; only a REAL new scan (which
   // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.
   // Shared with /api/scan/stream via scanAuthGate (which owns the authGateEnabled short-circuit, so a
   // disabled gate still resolves no viewer); this route renders the rejection as JSON.

@@ -5,7 +5,7 @@
 // route; the status-code mapping, the `?mock` parsing, the `?ref=` cache-bypass, and the
 // "rate-limit only when !mock" decision were asserted nowhere.
 //
-// Harness mirrors src/app/api/badge/[owner]/[repo]/route.test.ts: mock next/server's NextResponse,
+// Harness: mock next/server's NextResponse,
 // and mock the scan / cache / scoring / rate-limit boundaries so we control exactly what report and
 // verdict the handler sees. Dynamic params are delivered as a resolved Promise, matching the App
 // Router's `ctx.params: Promise<{ owner, repo }>` contract.
@@ -165,7 +165,7 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
 
     expect(res.status).toBe(200); // the CI "green" status — curl --fail exits 0
     expect(body.pass).toBe(true);
-    // Documented pass body carries the verdict + scored facts CI/badges render.
+    // Documented pass body carries the verdict + scored facts CI renders.
     expect(body.repo).toBe("acme/widget");
     expect(body.level).toBe("L3");
     expect(body.overallScore).toBe(72);

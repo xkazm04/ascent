@@ -1,4 +1,4 @@
-// GET /api/auth/session — lightweight JSON session status for client components, the badge/CLI
+// GET /api/auth/session — lightweight JSON session status for client components, the CLI
 // integrations, and "your session expires in N minutes" nudges. Everything here is already
 // computed on every server render; this just surfaces it to the browser, which previously had no
 // way to ask "am I still signed in / who am I / when does this expire" without scraping a

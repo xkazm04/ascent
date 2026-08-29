@@ -39,14 +39,9 @@ export function RegisterCta({ prompt }: { prompt: string }) {
   return (
     <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-5">
       <span className="text-sm text-slate-500">{prompt}</span>
-      <div className="flex flex-wrap gap-2">
-        <Link href="/?scan=1" className={CHIP}>
-          <span aria-hidden>▸</span> Scan your repo
-        </Link>
-        <Link href="/badge" className={CHIP}>
-          <span aria-hidden>◆</span> Add a README badge
-        </Link>
-      </div>
+      <Link href="/?scan=1" className={CHIP}>
+        <span aria-hidden>▸</span> Scan your repo
+      </Link>
     </div>
   );
 }

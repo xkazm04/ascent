@@ -12,7 +12,6 @@ import {
   ORG_IMPORT_RATE_LIMIT,
   GATE_RATE_LIMIT,
   CONTACT_RATE_LIMIT,
-  BADGE_RATE_LIMIT,
   type RateLimitConfig,
 } from "./rate-limit";
 import {
@@ -321,7 +320,7 @@ describe("rateLimitRequest — enforce-and-trip (critical #1)", () => {
 
   it("different config `name`s do not share a budget (namespacing)", () => {
     const a = makeConfig({ name: freshName("scan"), perIp: 1, global: 1000 });
-    const b = makeConfig({ name: freshName("badge"), perIp: 1, global: 1000 });
+    const b = makeConfig({ name: freshName("bucket-b"), perIp: 1, global: 1000 });
     const req = reqFromIp("203.0.113.20");
 
     expect(rateLimitRequest(req, a).ok).toBe(true);
@@ -420,7 +419,7 @@ describe("rateLimitRequest — spoofing cannot evade the per-IP bucket (critical
 describe("real exported configs pin the as-written limits", () => {
   // Importing the configs after a clean module load uses the env fallbacks (no env overrides set in
   // the test environment), pinning the documented defaults.
-  it("SCAN/ORG_IMPORT/BADGE defaults match the source", async () => {
+  it("SCAN/ORG_IMPORT defaults match the source", async () => {
     const mod = await import("./rate-limit");
     expect(mod.SCAN_RATE_LIMIT).toMatchObject({
       name: "scan",
@@ -432,12 +431,6 @@ describe("real exported configs pin the as-written limits", () => {
       name: "org-import",
       perIp: 3,
       global: 15,
-      windowMs: 60_000,
-    });
-    expect(mod.BADGE_RATE_LIMIT).toMatchObject({
-      name: "badge",
-      perIp: 60,
-      global: 600,
       windowMs: 60_000,
     });
   });
@@ -757,7 +750,6 @@ describe("every limit declares how its number was arrived at (limit-derivation)"
     ORG_IMPORT_RATE_LIMIT,
     GATE_RATE_LIMIT,
     CONTACT_RATE_LIMIT,
-    BADGE_RATE_LIMIT,
   ];
 
   it("declares a basis on every exported budget", () => {
@@ -770,11 +762,6 @@ describe("every limit declares how its number was arrived at (limit-derivation)"
     for (const cfg of inThisModule) {
       expect(cfg.basis, `${cfg.name} claims to be derived; show the arithmetic above it`).toBe("inherited");
     }
-  });
-
-  it("BADGE is inherited by record, not by omission (it was matched to a previous bespoke limit)", () => {
-    expect(BADGE_RATE_LIMIT.basis).toBe("inherited");
-    expect(BADGE_RATE_LIMIT.perIp).toBe(60); // the value it inherited from the badge route
   });
 });
 

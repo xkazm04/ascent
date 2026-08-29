@@ -18,7 +18,7 @@ Visibility of system status · match to the real world (and the Character's voca
 **Trust is first-class for this product.** Ascent's entire value is a *credible score* that an engineering leader will act on or report upward. So the trust bar is high and specific:
 - **Does the score reconcile** — do the per-dimension scores, the posture axes, the overall level, and the evidence cited actually add up and agree with each other?
 - **Is the judgement grounded in real evidence** — does each dimension cite concrete repo signals (`file:line`-style provenance, PR/commit/governance facts), or is it hand-wavy? Ascent surfaces a signal→LLM→blended **provenance track** and LLM-vs-detector discrepancies — a leader needs that to defend the number.
-- **Would they stake their reputation on it** — would this Character paste the badge in a README, show the dashboard to their VP/board, or block a merge on the gate, given what they see?
+- **Would they stake their reputation on it** — would this Character link the report from their README, show the dashboard to their VP/board, or block a merge on the gate, given what they see?
 
 ## 3. The seven acceptance dimensions (the verdict)
 

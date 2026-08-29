@@ -1,6 +1,6 @@
 // GET /api/gate/:owner/:repo  ->  JSON gate result, with an HTTP status CI can branch on:
 //   200 when the repo passes the maturity gate, 422 when it fails (so `curl --fail` exits non-zero).
-// Honors the same policy query params as the gate badge:
+// Policy query params:
 //   ?min_level=L3&min_overall=60&min_dimension=40&no_ungoverned=1
 // Runs a fast deterministic (mock) scan by default; pass ?mock=0 to score with the configured LLM.
 
@@ -30,7 +30,7 @@ export async function GET(
   //   /api/gate/owner/repo?ref=<pr-head-sha>. A ref-scoped scan reflects what the PR changes,
   //   not the default branch — so a PR that adds tests/CI/agent-guidance can clear the gate.
   const ref = searchParams.get("ref") || undefined;
-  // Normalize so the gate shares one cache-key scheme with the scan flow and the badge —
+  // Normalize so the gate shares one cache-key scheme with the scan flow —
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
@@ -40,7 +40,7 @@ export async function GET(
   // anonymous caller could enumerate PRIVATE repos' full gate verdicts through the operator's
   // credentials. Token-less ingestion of a private repo 404s, which we surface honestly below.
   // Private repos are gated through the authenticated GitHub App check-run path (/api/app/webhook),
-  // not this endpoint. Same construction as the public badge route.
+  // not this endpoint. Same construction as the public scan routes.
   // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
   //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
   //    spends both LLM budget and a full GitHub ingest.
@@ -105,7 +105,7 @@ export async function GET(
       }
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
-      // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
+      // flow — a push misses the cache and re-evaluates against fresh signals instead
       // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). CONDITIONAL
       // via the shared head-hint store (free 304 on an unchanged repo). Null on failure → a
       // SHA-less key (best-effort).

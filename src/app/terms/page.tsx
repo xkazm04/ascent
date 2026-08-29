@@ -101,7 +101,7 @@ export default function TermsPage() {
         <p className={P}>
           Your code stays yours. Ascent claims no ownership of anything it reads from your repositories, stores
           no source code, and uses repository data only to produce your reports, as described in the privacy
-          policy. Reports and badges for public repositories may appear on public surfaces of the service, such
+          policy. Reports for public repositories may appear on public surfaces of the service, such
           as the leaderboard, which reflect data that is already public on GitHub.
         </p>
 

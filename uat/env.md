@@ -33,7 +33,7 @@ product and report nonsense findings.
 - Note: the **UAT Character driver is a separate capable LLM** driving the browser — it does not collide with the app's claude-cli provider.
 
 ## Data / persistence / seed
-- **No DB needed for the public funnel.** Single-repo scan, report, badge, gate all work with `DATABASE_URL` unset — every db helper is a safe no-op.
+- **No DB needed for the public funnel.** Single-repo scan, report and gate all work with `DATABASE_URL` unset — every db helper is a safe no-op.
 - **Authed/org features need persistence** (history, trends, org rollups, usage, audit). Easiest local path is the **embedded in-process PGlite** (Postgres-in-WASM, no install, no separate server):
   ```
   PGLITE_DATA_DIR=.pglite/ascent
@@ -73,7 +73,7 @@ node scripts/seed-org.mjs vercel 12      # seed an org → /org/vercel  (add --l
 ## Surfaces
 
 ### Public (free funnel — no auth)
-`/` (landing + ScanForm) · `/launch` (fleet-map experience) · `/about` · `/pricing` · `/badge` (badge generator) ·
+`/` (landing + ScanForm) · `/launch` (fleet-map experience) · `/about` · `/pricing` ·
 `/report` + `/report/[owner]/[repo]` (report) · `/report/compare` (diff two scans) · `/trends` (history) ·
 `/onboarding` (scan a whole public org) · `/connect` (pick watched repos) ·
 share/invite links: `/live/shared/[token]`, `/share/briefing/[token]`, `/invite/[token]`

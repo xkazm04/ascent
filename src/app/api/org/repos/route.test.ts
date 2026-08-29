@@ -3,7 +3,7 @@
 // This route is deliberately unauthenticated, which is why the limiter matters: `listOrgRepos` pages
 // up to 5 x 100 repos against the server's AMBIENT GITHUB_TOKEN, so an anonymous loop over invented
 // org names spends the OPERATOR's GitHub quota rather than the caller's. It was the last public
-// endpoint without a limiter while its siblings (badge, gate, scorecard) all had one.
+// endpoint without a limiter while its siblings (gate, scorecard) all had one.
 // Architect ADR 2026-08-28-boundary-residuals.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";

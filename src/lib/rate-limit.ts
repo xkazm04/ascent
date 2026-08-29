@@ -19,7 +19,6 @@
 // Operators who prefer availability can set ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN=1 to degrade to the
 // in-memory ceiling instead. Note the per-IP burst cap is in-memory and keeps working either way,
 // so failing open is a bounded (not unlimited) degradation.
-// (The badge route also uses this shared limiter via BADGE_RATE_LIMIT.)
 
 import { sharedWindowStore, SHARED_STORE_BREAKER_MS } from "@/lib/rate-limit-store";
 
@@ -598,7 +597,7 @@ export const ORG_IMPORT_RATE_LIMIT: RateLimitConfig = {
 // once per event, redo this — at one poll per 10s per open PR (6/min/PR), 60/min/IP is exhausted by
 // 10 concurrent PRs behind one egress IP, which is an ordinary Monday, not an attack.
 // NOT DERIVED: the ~1-call-per-PR-event cadence is real, but 60 was not computed from it — it is the
-// same round 60/600 used by PEEK and BADGE.
+// same round 60/600 used by PEEK.
 export const GATE_RATE_LIMIT: RateLimitConfig = {
   name: "gate",
   perIp: envInt("RATE_LIMIT_GATE_PER_IP", 60),
@@ -625,25 +624,7 @@ export const CONTACT_RATE_LIMIT: RateLimitConfig = {
   basis: "inherited",
 };
 
-// The public README badge is hammered by crawlers/READMEs; the limit gates only the EXPENSIVE
-// cache-miss scan (a cheap static badge is still returned). Env-overridable.
-// INHERITED, AND THE CLEAREST CASE OF IT: nobody computed this budget. The 60/min/IP was "matched to
-// the badge route's previous bespoke 60/min/IP" when the route adopted the shared limiter, and the
-// 600 global was filled in to match its neighbours — yet it sits in the same list, in the same shape,
-// and so reads with the same authority as a limit somebody argued for. That is precisely what the
-// `basis` field is for: an operator tuning under load can see this one is inherited and may be moved
-// with far less argument than a derived ceiling.
-// A REAL derivation would start from badge impressions per minute on a busy README times the
-// cache-miss rate; neither has been measured, so do NOT write one — see LimitBasis.
-export const BADGE_RATE_LIMIT: RateLimitConfig = {
-  name: "badge",
-  perIp: envInt("RATE_LIMIT_BADGE_PER_IP", 60),
-  global: envInt("RATE_LIMIT_BADGE_GLOBAL", 600),
-  windowMs: 60_000,
-  basis: "inherited",
-};
-
-// GET /api/org/repos was the last PUBLIC endpoint with no limiter — its siblings badge, gate and
+// GET /api/org/repos was the last PUBLIC endpoint with no limiter — its siblings gate and
 // scorecard all have one. It is the most expensive of them per call: `listOrgRepos` pages up to
 // MAX_LIST_PAGES (5) x 100 repos against the server's AMBIENT `GITHUB_TOKEN`, so one anonymous
 // request costs up to 5 upstream calls on a shared credential nobody is authenticated against. An

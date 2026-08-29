@@ -968,7 +968,7 @@ export interface ScanReport {
   warnings?: string[];
   /** NOTHING could be scored: every detector failed or returned no data, so `dimensions` is empty and
    *  `overallScore`/`level` are the renormalized floor (0 / L1) — NOT a genuine "Manual" verdict.
-   *  Numeric consumers (badge, CI gate, fleet rollup) read the numbers, not `warnings`, so they must
+   *  Numeric consumers (CI gate, fleet rollup) read the numbers, not `warnings`, so they must
    *  read this flag and refuse to present or enforce the result. Absent on a normal scan; a
    *  reconstructed report may predate it, so consumers should treat an empty `dimensions` array as
    *  incomplete too (see `isIncompleteReport` in scoring/gate.ts). */

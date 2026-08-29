@@ -132,7 +132,7 @@ export function creditGrantsEnabled(): boolean {
  *
  * UAT TOMAS-L1-01 (blocker). The public funnel used to inherit the general sign-in wall, so in
  * production `POST /api/scan` on a public repo answered
- * `401 {"code":"auth_required"}` — while everything READ-ONLY stayed open (saved report 200, badge
+ * `401 {"code":"auth_required"}` — while everything READ-ONLY stayed open (saved report 200, gate
  * 200, gate 422). The one walled action was the only one that converts a buyer, under a landing CTA
  * reading "Scan a repository" and a README section headed "Free & public — no signup: everything
  * here works anonymously". The scan route's own comment two hundred lines above the wall already

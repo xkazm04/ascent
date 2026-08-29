@@ -72,8 +72,6 @@
         "src/lib/github/**",
         "src/lib/viewer-installations.ts",
         "src/app/api/app/**",
-        "src/app/connect/**",
-        "src/components/connect/**",
         "src/lib/db/installations.ts"
       ]
     },
@@ -326,19 +324,6 @@
         "src/lib/rate-limit*.ts",
         "src/lib/public-scan-quota.ts",
         "src/components/QuotaMeter.tsx"
-      ]
-    },
-    {
-      "area": "billing",
-      "doc": "docs/features/billing/badge.md",
-      "sourceGlobs": [
-        "src/app/api/badge/**",
-        "src/app/badge/**",
-        "src/components/badge/**",
-        "src/lib/badge.ts",
-        "src/lib/db/badge-analytics.ts",
-        "src/lib/badge-svg.ts",
-        "src/app/api/scorecard/**"
       ]
     },
     {

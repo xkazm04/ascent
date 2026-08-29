@@ -25,8 +25,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 | Route | What it is |
 | --- | --- |
 | `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, and `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows) — plus page copy stating every score is computed outside-in from public artifacts. |
-| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, its own OG card, and a copy-paste badge embed. |
-| `GET /api/scorecard/[owner]/badge` | The org-level SVG badge (see [badge.md](../billing/badge.md)). |
+| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. |
 
 **Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
 
@@ -35,7 +34,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
    row per-row on top of that. "The query returned it" is never treated as proof it may be published.
 2. **Provenance.** A `engineProvider === "mock"` scan had no model contribution, so it is **never
    ranked**. It is carried out as `verified: false`, rendered in a separate "Preview scans (not
-   ranked)" section with the same `demo` qualifier the README badge uses, and excluded from every
+   ranked)" section with the same `demo` qualifier every unverified row carries, and excluded from every
    scorecard average. An owner whose public scans are *all* previews gets an explicit "No published
    score yet" state, not an average over previews.
 
@@ -107,7 +106,6 @@ fresh scan in place.
 10. **Next-level path**: fastest dimensions to close, then either `RoadmapSteps` (no DB)
     or the interactive `RecommendationTracker` (DB-backed, see below).
 11. **Discrepancies**: claims where the LLM questioned a deterministic signal.
-12. **Badge share**: level + gate badges with copy buttons (see [badge.md](../billing/badge.md)).
 
 `ReportView` also reconciles the live report against persisted history on mount: it fetches
 `/api/history` + `/api/recommendations`, builds the chronological trend points (appending
@@ -542,8 +540,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked. |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row. |
-| `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan/badge CTA. |
-| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard + badge embed snippet. |
+| `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
+| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. |
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews. |
 

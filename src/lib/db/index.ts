@@ -69,7 +69,6 @@ export {
   type EraseOutcome,
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
-export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
 export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
 // The adopted product KPIs, measured from the data already stored (see the module header).
 export {
@@ -400,3 +399,4 @@ export {
   setRepoLocalPath,
   type LocalPairing,
 } from "@/lib/db/org-local";
+export { countTenantOrgs } from "@/lib/db/tenants";

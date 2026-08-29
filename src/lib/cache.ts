@@ -144,17 +144,17 @@ function scoringFingerprint(useLLM: boolean, identity?: ScoringIdentity): string
 
 /**
  * Canonical scan-cache key. EVERY surface that reads or writes the scan cache (the scan
- * routes, the public badge, the CI gate) must build keys through this, so a single repo maps
+ * routes, the CI gate) must build keys through this, so a single repo maps
  * to a single entry regardless of casing or percent-encoding. Otherwise `Facebook/React`,
  * `facebook/react`, and `facebook%2Freact` fragment into separate entries — and a README
- * badge can keep showing a stale mock level even after a real LLM scan exists.
+ * public surface can keep showing a stale mock level even after a real LLM scan exists.
  *
  * Pass the repo's current head commit `sha` to pin the entry to that commit
  * (`owner/repo@sha::mode#fp`). A new push changes the sha, so a re-scan after a commit naturally
  * misses the cache instead of serving the pre-push score for up to the TTL. Omit it (or pass
  * null when a cheap head lookup failed) to fall back to the un-pinned `owner/repo::mode#fp` form
  * — best-effort caching rather than no caching. Callers MUST resolve the sha through the same
- * resolveHead path (lookupCachedScan for the scan routes, resolveHeadWithHint for badge/gate) so
+ * resolveHead path (lookupCachedScan for the scan routes, resolveHeadWithHint for the gate) so
  * a reader and writer of the same commit produce the same key.
  *
  * The trailing `#fp` is a short fingerprint of the {provider, model, rubric} identity (see

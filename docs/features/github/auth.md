@@ -10,7 +10,7 @@ no working sign-in.
 | Custom GitHub OAuth | **Dormant** (kept, unconfigured in production) | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `AUTH_SECRET` | `src/lib/auth.ts`, `src/app/api/auth/*` |
 
 Auth is **optional** in either case. With neither stack configured the whole app
-works anonymously: public scans, badges, gate, even DB-backed reads of public
+works anonymously: public scans, the gate, even DB-backed reads of public
 orgs. No GitHub access token is ever persisted to the client.
 
 Supabase dashboard setup is a one-time manual prerequisite: Authentication →
@@ -190,12 +190,12 @@ What each stack gets differs, and the difference is intrinsic:
   revocation-version stamping, and the `resync=1` round-trip. Linking in particular
   **cannot** simply be ported: it needs an App-client token, which Supabase's
   `provider_token` is not.
-- **Discovered org suggestions aren't surfaced under the wall.** `connect/page.tsx`
+- **Discovered org suggestions aren't surfaced under the wall.** `onboarding/page.tsx`
   reads `seededOrg`/`suggestedOrgs` off the dormant session cookie, so a production
   viewer gets the seeding but never sees the "you might want to install on…" list.
   Needs a render-side change to read discovery from somewhere the live stack has.
 - **The "sign out everywhere else" button is unreachable in production.**
-  `/api/auth/revoke-sessions` now works on both stacks, but `connect/page.tsx` renders
+  `/api/auth/revoke-sessions` now works on both stacks, but `SessionControls` (on `/onboarding`) renders
   its form only inside a `{session && …}` block (the dormant cookie), so a Supabase
   viewer cannot click it.
 - **Read scope only**: the dormant stack requests `read:user read:org`; repo writes

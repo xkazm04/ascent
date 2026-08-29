@@ -230,7 +230,7 @@ describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", ()
 // Cache-identity invariant (scan-pipeline #5): the whole pipeline (scan routes, public badge, CI gate)
 // keys through normalizeRepoName/makeCacheKey, so a single logical repo+commit+mode MUST collapse to
 // exactly ONE key regardless of casing / percent-encoding / whitespace — otherwise `Facebook/React`,
-// `facebook/react`, and `facebook%2Freact` fragment into separate entries and a README badge can keep
+// `facebook/react`, and `facebook%2Freact` fragment into separate entries and a public surface can keep
 // serving a stale mock level after a real LLM scan already exists.
 describe("normalizeRepoName — casing/encoding/whitespace collapse (scan-pipeline #5)", () => {
   it("lowercases so `Owner` and `owner` collapse to one token", () => {

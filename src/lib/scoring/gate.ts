@@ -1,7 +1,7 @@
 // Maturity Gate — turn a maturity report into an enforceable pass/fail policy (à la SonarQube
 // Quality Gates / OpenSSF Scorecard thresholds). evaluateGate() checks a configurable policy
 // and returns the specific failing conditions; defaults are archetype-aware (a solo repo is
-// held to a lower bar than an org/platform). Consumed by the public badge and the CI endpoint.
+// held to a lower bar than an org/platform). Consumed by the public CI endpoint.
 
 import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
 import { LEVELS, DIMENSION_BY_ID } from "@/lib/maturity/model";
@@ -478,7 +478,7 @@ export function explicitPolicyFromParams(params: URLSearchParams): GatePolicy {
 
 /**
  * Build a policy from URL query params, falling back to the archetype default for anything
- * unset — so the badge and CI endpoint accept e.g. `?min_level=L4&min_dimension=50&no_ungoverned=1`.
+ * unset — so the CI endpoint accepts e.g. `?min_level=L4&min_dimension=50&no_ungoverned=1`.
  */
 export function policyFromParams(params: URLSearchParams, archetype: RepoArchetype): GatePolicy {
   const base = defaultGatePolicy(archetype);

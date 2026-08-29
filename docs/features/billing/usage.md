@@ -60,7 +60,7 @@ day key isn't on the axis), so the billing page disagreed with itself.
 ## Rate limits & the spend ceiling (`src/lib/rate-limit.ts`)
 
 Every public, unauthenticated endpoint that can cost money (`/api/scan`, `/api/scan/stream`,
-`/api/org/import`, `/api/gate/*`, `/api/badge/*`, `/api/quota`, `/api/plan-enquiry`,
+`/api/org/import`, `/api/gate/*`, `/api/quota`, `/api/plan-enquiry`,
 `/api/org/repos`) is charged against a sliding window with **two halves**:
 
 - **Per-IP burst**: always in-process. A burst is seconds long and normally pinned to one
@@ -74,7 +74,7 @@ Every public, unauthenticated endpoint that can cost money (`/api/scan`, `/api/s
 | `ASCENT_RATE_LIMIT_STORE` | `memory` | `memory` (per-instance, no infrastructure) or `upstash` (fleet-wide global ceiling). |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | Required for `upstash`. Spoken over `fetch` against the REST `/pipeline` endpoint: **no npm client dependency**. If either is missing the store falls back to `memory` rather than failing requests. |
 | `ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN` | unset (fail **closed**) | When the shared store is unreachable, `1` degrades to the in-memory ceiling (availability) instead of returning 429 (safety). |
-| `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,BADGE,CONTACT,ORG_REPOS}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
+| `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,CONTACT,ORG_REPOS}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
 
 `ORG_REPOS` (`10`/min per IP, `60`/min global) covers `GET /api/org/repos`, the App-free public org
 listing behind the onboarding selector — added 2026-08-28, when it was the last public endpoint with
@@ -105,9 +105,6 @@ that are not "not migrated yet":
   `scanRateLimitGate()` (`src/lib/scan-gates.ts`), whose `ScanRateLimitRejection` carries only
   `retryAfterSec` — the scope is discarded inside the gate, before either route sees it. Enriching
   these means widening that gate's rejection type, not editing the routes.
-- **The badge endpoint** (`/api/badge/[owner]/[repo]`) never used this helper and must not start: it
-  answers a throttle with a *rate limited* SVG so a README embed keeps rendering an image. A JSON
-  body there would break every embed that renders it as `<img>`.
 
 ### Where a limit's number comes from
 
@@ -118,8 +115,7 @@ Every `RateLimitConfig` declares a required `basis`:
   (`src/lib/integrations/ingest-guard.ts`) qualifies: 13 pushes/min/machine × 200 seats behind one
   egress IP ≈ 2,600/min → `perIp` 3,000.
 - **`inherited`** — chosen, or matched to a previous bespoke limit, and never computed. Every budget
-  in `src/lib/rate-limit.ts` is inherited today (`BADGE_RATE_LIMIT` most explicitly: it was matched
-  to the badge route's old 60/min/IP). Their comments now state what call pattern each number
+  in `src/lib/rate-limit.ts` is inherited today. Their comments now state what call pattern each number
   *clears*, which is a headroom check, not a derivation. An operator tuning under load should move
   these before a derived one — and promoting one to `derived` means measuring the client and
   rewriting the number, not reverse-engineering arithmetic that lands on the value already there.

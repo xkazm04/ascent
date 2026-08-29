@@ -107,7 +107,7 @@ export const SCORE_BLEND = 0.6;
  * WAS 25, WHICH WAS THE VERDICT AND NOT A NUANCE BUDGET. The published levels below are 25, 20, 20,
  * 20 and 16 points wide, so a band of 25 let model influence ALONE carry a repository across a level
  * boundary — and a dimension whose band is doubled by a `discrepancies` entry (see
- * scoring/discrepancy-policy.ts) could cross two. The level is the number that reaches badges, gates
+ * scoring/discrepancy-policy.ts) could cross two. The level is the number that reaches gates
  * and executive briefings, so at ±25 the level was model-controlled and every upstream protection
  * (the prompt boundary, the discrepancy budget) was decoration. The size of a guardband is settled
  * against the width of the tiers it feeds, not against how far the model usually wants to move.

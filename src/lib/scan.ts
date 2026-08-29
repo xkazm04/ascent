@@ -59,9 +59,9 @@ export interface ScanOptions {
   decisionOrgSlug?: string;
   /**
    * When true, do NOT fall back to the ambient `process.env.GITHUB_TOKEN` if no explicit `token`
-   * is given. Public, unauthenticated surfaces (the README badge) set this so a private repo can't
+   * is given. Public, unauthenticated surfaces (the CI gate) set this so a private repo can't
    * be ingested with the operator's server PAT — otherwise an anonymous caller could read a
-   * private repo's maturity. Token-less ingestion of a private repo simply 404s → neutral badge.
+   * private repo's maturity. Token-less ingestion of a private repo simply 404s → neutral result.
    */
   noAmbientToken?: boolean;
   source?: RepoSource;

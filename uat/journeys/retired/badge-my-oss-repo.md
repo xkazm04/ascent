@@ -1,13 +1,28 @@
 ---
 character: Mei (OSS Maintainer)
 goal: "Scan my own public repo for free, no signup, get a maturity score I'd actually trust, and grab a README badge I can paste in front of thousands of devs."
-promotion: discovery
+promotion: retired
 seed: no auth/DB — a public repo scan + the /badge generator. See uat/env.md
 references:
   - https://github.com/ossf/scorecard/blob/main/README.md — OpenSSF Scorecard badge: one paste-ready, auto-updating Markdown badge that links to detailed results, readable with no signup. Sets the definition-of-done for what a good README maturity badge looks like.
   - https://leaddev.com/software-quality/open-source-has-a-big-ai-slop-problem — AI-slop deluge (curl ~5% genuine, RubyGems 15 min → a full day, tldraw closed contributions). Sets the bar that the score must be credible/specific or it's worse than no badge, and motivates the PR maturity gate.
   - https://byteiota.com/open-source-maintainer-crisis-60-unpaid-burnout-hits-44/ — Maintainer crisis (~60% unpaid, 44% burnout). Sets the no-account / no-paywall trigger: a personal OSS project won't pay or sign in for a badge.
+retired: 2026-08-29
+retired_reason: the /badge generator and both SVG endpoints this journey exercises were removed from the product
 ---
+
+> **RETIRED 2026-08-29 — not part of the active journey set.** Every surface in this journey's
+> definition-of-done — the `/badge` generator, the paste-ready snippet, the level and gate SVGs —
+> was removed from the product on 2026-08-29, along with its Character
+> ([Mei](../../characters/retired/mei-oss-maintainer.md)). Running it would score a 404.
+>
+> **What is preserved and why.** The cited research and the definition-of-done still describe what a
+> credible public per-repo signalling artifact would have to do — no signup, evidence a reader can
+> click into, paste-ready, honest about staleness. If such an artifact is ever built again, this is
+> the acceptance bar to re-ground against rather than re-derive.
+>
+> **Still live, and orphaned by this retirement:** the final clause — wiring up the published GitHub
+> Action PR maturity gate — tests a feature that still ships. It has no journey of its own now.
 
 ## Trigger (why now)
 Mei's README is a wall of hand-curated badges and her issue/PR queue is filling with AI-generated, test-less PRs she has to triage on her own time. She wants a single, honest signal of how AI-native and healthy her project actually is — something she can paste in the README like her OpenSSF Scorecard badge, and maybe enforce on incoming PRs. She has maybe ninety minutes tonight. She heard Ascent does a free public scan with no signup and emits a Shields-style badge, and she's testing whether that's real or just another funnel.

@@ -22,7 +22,7 @@ Her CEO co-founder asked, again, in a board-prep doc: "are we AI-native enough t
 ## Out of scope
 - Buying credits / completing a paid B2B checkout (she may glance at /pricing to size it, but purchasing is a separate journey).
 - Configuring real Bedrock/Gemini keys or actually routing live private code through a provider (she only needs to *confirm the privacy path exists and is legible* — the run itself can be mock/public).
-- The PR CI gate / badge embedding (a different job than the "are we keeping up?" read).
+- The PR CI gate (a different job than the "are we keeping up?" read).
 - Multi-org admin, team/member management, audit log, billing metering internals.
 - Comparing two historical scans / long-run trend analysis (this is a first read, not a trend study).
 

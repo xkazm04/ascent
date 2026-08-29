@@ -1,5 +1,5 @@
-// Forgiving GitHub repo-reference parsing, shared by every repo input surface (the hero ScanForm,
-// the badge generator) so a paste that works in one place is never rejected by another. Pure and
+// Forgiving GitHub repo-reference parsing, shared by every repo input surface (the hero ScanForm
+// among them) so a paste that works in one place is never rejected by another. Pure and
 // client-safe — deliberately independent of the server-side ingestion module.
 
 /**
@@ -45,3 +45,16 @@ export function normalizeRepo(raw: string): string | null {
   const parsed = parseOwnerRepo(raw);
   return parsed ? `${parsed.owner}/${parsed.repo}` : null;
 }
+
+/**
+ * GitHub's name grammar for a single segment (owner or repo): `[A-Za-z0-9._-]`, never starting with
+ * a dot, and never containing two consecutive dots. Single-sourced here so every surface that
+ * validates a pasted or routed name — the public `/scorecard/{owner}` page among them — accepts
+ * exactly one set; a name like `owner/.git` must be rejected identically everywhere. Callers layer
+ * their own per-segment length caps (39 for an owner, 100 for a repo) on top of this predicate.
+ */
+export function validRepoNamePart(s: string): boolean {
+  return Boolean(s) && NAME_RE.test(s) && !s.startsWith(".") && !s.includes("..");
+}
+
+const NAME_RE = /^[A-Za-z0-9_.-]+$/;

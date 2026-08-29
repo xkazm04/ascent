@@ -193,8 +193,8 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
     billing: "free",
     seats: 1,
     retentionDays: 30,
-    blurb: "Private scans every month, and public scans are always free, with the full report and badge.",
-    extras: ["Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
+    blurb: "Private scans every month, and public scans are always free, with the full report and roadmap.",
+    extras: ["Unlimited free public scans", "Maturity report + roadmap", "Public report permalink", "1 member"],
   },
   // Stored id `pro`, shown as "Starter" — the same display-only rename as `enterprise`/"Custom" (see
   // the TIER ID vs TIER LABEL note atop this file). The id is on Organization.plan and in the

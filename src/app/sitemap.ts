@@ -5,10 +5,10 @@ import { publicBaseUrl } from "@/lib/site";
 // (many gated), so they're left to crawlers following links rather than enumerated here. A sitemap
 // needs absolute URLs, so with no public base configured (publicBaseUrl() === "") we emit nothing.
 //
-// SHELL-5: the badge generator, pricing, trends and usage are public, indexable marketing routes that
+// SHELL-5: pricing, trends and usage are public, indexable marketing routes that
 // were missing — a crawler reached them only by following links.
 //
-// SEO #1: /connect and /launch are intentionally DISALLOWED in robots.ts (private per-user funnels
+// SEO #1: /launch is intentionally DISALLOWED in robots.ts (private per-user funnels
 // with no indexable content), so they must NOT appear here — advertising a robots-blocked URL produces
 // "Submitted URL blocked by robots.txt" warnings in Search Console. The two SEO contracts must stay
 // disjoint; seo.test.ts asserts that invariant. /onboarding used to sit on the disallow side, but it
@@ -19,9 +19,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const routes: { path: string; priority: number }[] = [
     { path: "/", priority: 1 },
     { path: "/report", priority: 0.7 },
-    // The public AI-native leaderboard is a prime indexable/viral surface (README badge → report →
+    // The public AI-native leaderboard is a prime indexable/viral surface (shared report →
     // scan-your-own), but it was reachable only by following links. It is public and NOT robots-blocked
-    // (robots.ts disallows /api/, /connect and /launch — /onboarding left that list when it became the
+    // (robots.ts disallows /api/ and /launch — /onboarding left that list when it became the
     // public guided funnel, see SEO #1 above), so list it for discovery.
     { path: "/leaderboard", priority: 0.6 },
     { path: "/pricing", priority: 0.6 },
@@ -30,7 +30,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // a crawler following links from "/". /about-org is the org edition's only entry point.
     { path: "/about", priority: 0.6 },
     { path: "/about-org", priority: 0.6 },
-    { path: "/badge", priority: 0.5 },
     { path: "/trends", priority: 0.5 },
     { path: "/usage", priority: 0.5 },
     // Guided onboarding entry — public explanatory funnel, no longer robots-blocked (see SEO #1 above).

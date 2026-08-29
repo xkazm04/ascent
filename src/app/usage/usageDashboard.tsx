@@ -2,8 +2,8 @@ import { UsageTrend } from "@/components/usage/UsageTrend";
 import { Surface } from "@/components/ui";
 import { AllotmentPanel } from "./AllotmentPanel";
 import { Stat, Bar, providerMeta } from "./usagePanels";
-import { BadgeReachPanel, AbuseLimitsPanel } from "./usageAllTimePanels";
-import type { BadgeReach, CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
+import { AbuseLimitsPanel } from "./usageAllTimePanels";
+import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
 
@@ -11,7 +11,6 @@ export function UsageDashboard({
   org,
   usage,
   credit,
-  badgeReach,
   recon,
   quotaEvents,
   billable,
@@ -21,7 +20,6 @@ export function UsageDashboard({
   org: string;
   usage: UsageSummary;
   credit: CreditState | null;
-  badgeReach: BadgeReach | null;
   recon: CreditReconciliation | null;
   quotaEvents: QuotaEventTotals | null;
   billable: number;
@@ -205,8 +203,6 @@ export function UsageDashboard({
           </div>
         </Surface>
       )}
-
-      <BadgeReachPanel badgeReach={badgeReach} />
 
       <AbuseLimitsPanel quotaEvents={quotaEvents} />
 

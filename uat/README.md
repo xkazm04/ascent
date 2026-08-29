@@ -15,7 +15,9 @@ Ascent is **the maturity index for AI-native engineering**: point it at a GitHub
 | Path | What it is |
 |------|------------|
 | `characters/*.md` | Durable representative users (eng leaders + developers + an external buyer). The reusable IP. |
+| `characters/retired/` | Characters whose job-to-be-done depended on a product surface that no longer exists. **Out of the roster** (`characters/*.md` doesn't match them) and never scored, but kept so their research and the runs citing them stay readable. See [`characters/retired/README.md`](characters/retired/README.md). |
 | `journeys/*.md` | Goals (not scripts) with a user-POV definition-of-done. |
+| `journeys/retired/` | Journeys whose definition-of-done depends on a removed surface. Out of the active set, kept as the acceptance bar to re-ground against if the surface returns. |
 | `rubric.md` | The evaluation lens (7 dimensions) + severity scale + finding types. |
 | `env.md` | How to reach a known, reproducible start state (the per-app file). |
 | `accepted-gaps.md` | Baseline of known/accepted issues (suppressed in runs). |

@@ -51,7 +51,7 @@ import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/sca
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
-import { SCHEDULES as SCAN_SCHEDULES } from "@/components/connect/installationRepoTypes";
+import { SCHEDULES as SCAN_SCHEDULES } from "@/lib/org/repo-schedule";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,7 +150,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // Public surfaces are token-less by construction (the README-badge convention,
+  // Public surfaces are token-less by construction (the public-surface convention,
   // ScanOptions.noAmbientToken): the ambient GITHUB_TOKEN is an operator PAT that commonly
   // carries private `repo` scope, and this route is a deliberately anonymous funnel that accepts
   // an explicit `repos[]` list — scanning with the PAT would let an anonymous caller name
