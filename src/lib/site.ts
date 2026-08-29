@@ -136,3 +136,26 @@ export function sourceRepoHref(path = ""): string | null {
 const UPSTREAM_ISSUES_URL = "https://github.com/xkazm04/ascent/issues";
 export const FEEDBACK_URL: string = SOURCE_REPO_URL ? `${SOURCE_REPO_URL}/issues` : UPSTREAM_ISSUES_URL;
 
+/**
+ * Serialize a JSON-LD payload for inlining into a `<script type="application/ld+json">`.
+ *
+ * `JSON.stringify` alone is NOT safe inside an HTML script element: the HTML parser terminates the
+ * block at the first literal `</script`, wherever it appears — including inside a JSON string — so a
+ * value carrying that sequence closes the tag and everything after it is parsed as markup. Escaping
+ * `<` as `<` keeps the JSON semantically identical (JSON.parse decodes the escape) while making
+ * the sequence unrepresentable in the output. U+2028/U+2029 are escaped for the same reason: legal in
+ * JSON, but line terminators to a JavaScript parser.
+ *
+ * The three call sites (the root layout's Organization+SoftwareApplication graph, the landing FAQ,
+ * the /about-org FAQ) each carried a comment asserting their payload was static and therefore safe.
+ * Two were; the root layout's interpolates `publicBaseUrl()` — an env-derived value — so the claim was
+ * already false there, and the next contributor to add a dynamic field to any of them would have read
+ * "safe to inline" and had no reason to check. One escaping door instead of three re-derived proofs.
+ */
+export function jsonLdScript(data: unknown): string {
+  return JSON.stringify(data)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+

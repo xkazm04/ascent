@@ -4,6 +4,7 @@ import { getPublicScanGallery, recordQuotaEvent } from "@/lib/db";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
+import { jsonLdScript } from "@/lib/site";
 import { authGateEnabled } from "@/lib/access";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
 
@@ -97,8 +98,9 @@ export default async function Home() {
 
   return (
     <>
-      {/* SHELL-4: FAQ rich-result data. Static rubric/copy-derived strings — safe to inline. */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_LD) }} />
+      {/* SHELL-4: FAQ rich-result data. Rubric/copy-derived, and inlined through the shared
+          jsonLdScript escaper so this stays safe if a dynamic field is ever added (lib/site). */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(FAQ_LD) }} />
       <SiteHeader />
       <IndexLanding gallery={gallery} exampleRepos={exampleRepos} auth={auth} gated={gated} />
       {/* snap-end makes the trailing footer its own snap point (aligned to the viewport bottom) so the

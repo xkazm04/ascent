@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/Brand";
 import { AboutOrgLanding } from "@/components/about-org/AboutOrgLanding";
 import { MODULE_COUNT, VIEW_COUNT } from "@/components/about-org/orgModules";
-import { publicBaseUrl } from "@/lib/site";
+import { jsonLdScript, publicBaseUrl } from "@/lib/site";
 
 const TITLE = "Ascent for organizations, the AI-native index for your whole engineering fleet";
 const DESCRIPTION = `Score every repository in your GitHub organization and roll it into one governed operating picture: ${MODULE_COUNT} modules and ${VIEW_COUNT} views, from the executive briefing to the audit trail.`;
@@ -71,8 +71,9 @@ function faqLd() {
 export default function AboutOrgPage() {
   return (
     <>
-      {/* Static, page-derived strings — safe to inline. */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd()) }} />
+      {/* Page-derived strings, inlined through the shared jsonLdScript escaper (lib/site) so this
+          stays safe if a dynamic field is ever added. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(faqLd()) }} />
       <SiteHeader />
       <AboutOrgLanding />
     </>

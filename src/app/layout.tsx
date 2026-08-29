@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { BRAND_INK, publicBaseUrl, siteDescription, SITE_TAGLINE } from "@/lib/site";
+import { BRAND_INK, jsonLdScript, publicBaseUrl, siteDescription, SITE_TAGLINE } from "@/lib/site";
 import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
 import "./globals.css";
@@ -72,9 +72,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {/* SHELL-4: JSON-LD for the org + app. Safe: the payload is static rubric-derived strings
-            with no user input, so it can't break out of the script. */}
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
+        {/* SHELL-4: JSON-LD for the org + app. The payload is rubric-derived, but NOT static — it
+            interpolates publicBaseUrl(), an env-derived value — so it goes through jsonLdScript,
+            which escapes `<` and cannot emit a tag-terminating `</script`. */}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(STRUCTURED_DATA) }} />
         <a
           href="#main"
           className="focus-ring sr-only rounded-md bg-accent px-3 py-2 text-on-accent focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"

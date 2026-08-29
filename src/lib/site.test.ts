@@ -12,6 +12,7 @@ import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import {
   DIMENSION_COUNT,
   FEEDBACK_URL,
+  jsonLdScript,
   LEVEL_COUNT,
   SITE_TAGLINE,
   SITE_TAGLINE_TITLE,
@@ -59,5 +60,38 @@ describe("tagline casing is derived, not re-typed", () => {
 describe("FEEDBACK_URL follows the deployment's own repository", () => {
   it("is an absolute https issues URL", () => {
     expect(FEEDBACK_URL).toMatch(/^https:\/\/\S+\/issues$/);
+  });
+});
+
+// The HTML parser ends a <script> block at the first literal `</script`, wherever it occurs —
+// including inside a JSON string. Three surfaces inline JSON-LD this way; the root layout's payload
+// interpolates an env-derived base URL, so "static, no user input" was already untrue there.
+describe("jsonLdScript — a value can never terminate the script block", () => {
+  it("escapes `<` so `</script>` in a value cannot close the tag", () => {
+    const out = jsonLdScript({ name: "</script><script>alert(1)</script>" });
+    expect(out).not.toContain("</script");
+    expect(out).not.toContain("<");
+  });
+
+  it("round-trips: the escape is JSON, so the parsed value is unchanged", () => {
+    const value = { name: "a</script>b", url: "https://x.dev/<>" };
+    expect(JSON.parse(jsonLdScript(value))).toEqual(value);
+  });
+
+  it("escapes the JS line terminators U+2028/U+2029, which are legal inside JSON strings", () => {
+    // Built from char codes: a literal U+2028 in this file would be invisible in review and could
+    // be normalised away by an editor, turning this case green without testing anything.
+    const LS = String.fromCharCode(0x2028);
+    const PS = String.fromCharCode(0x2029);
+    const value = { name: `a${LS}b${PS}c` };
+    const out = jsonLdScript(value);
+    expect(out).not.toContain(LS);
+    expect(out).not.toContain(PS);
+    expect(JSON.parse(out)).toEqual(value);
+  });
+
+  it("leaves an ordinary payload byte-identical to JSON.stringify", () => {
+    const value = { "@context": "https://schema.org", name: "Ascent" };
+    expect(jsonLdScript(value)).toBe(JSON.stringify(value));
   });
 });
