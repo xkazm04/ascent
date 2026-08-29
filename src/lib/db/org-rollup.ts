@@ -10,6 +10,7 @@ import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
+import { parseManifestReadoutJson, type ManifestReadout } from "@/lib/standard/readout";
 import type { AppPassport, ContextHealth, PrStats, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
@@ -165,6 +166,11 @@ export interface OrgRepoRow {
    *  Half-life panel's per-repo input. Null when the latest scan PREDATES the signal (or on parse
    *  failure), which the UI must render as "not assessed by this scan — re-scan", never as absent. */
   contextHealth: ContextHealth | null;
+  /** What the latest scan read in this repo's OWN `.ai/manifest.yaml` (#13) — declared capabilities,
+   *  the doctor's proven `verified` flags, and where each control is placed. Null when the latest scan
+   *  predates the signal or the blob is unparseable, which the UI must render as "not assessed —
+   *  re-scan" and exclude from every denominator, never as a repo that declares nothing. */
+  manifest: ManifestReadout | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -476,6 +482,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         return pp ? applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) : null;
       })(),
       contextHealth: parseContextHealthJson(r.contextHealthJson),
+      manifest: parseManifestReadoutJson(r.manifestJson),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

@@ -305,6 +305,40 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     expect(res!.repos.find((r) => r.fullName === "acme/r3")!.contextHealth).toBeNull();
   });
 
+  it("carries the manifest readout off Repository.manifestJson (#13) — null for pre-#13/malformed rows", async () => {
+    const mf = {
+      status: "ok",
+      readAt: "2026-05-12T12:00:00.000Z",
+      generatedAt: "2026-05-01",
+      schemaVersion: "0.3.0",
+      schemaAhead: false,
+      capabilities: [{ name: "test", command: "npm test", verified: true, placeholder: false, wiredAt: ["ciHardPass"] }],
+      controls: { prePush: [], ciHardPass: ["test"] },
+      paths: {},
+      agents: [],
+      purpose: null,
+      boundaries: { neverTouch: [], secretsFrom: null },
+      placeholders: [],
+      unbacked: [],
+      notes: [],
+    };
+    const { prisma } = fakePrisma([]);
+    prisma.repository.findMany = vi.fn(async () => [
+      { ...repoRow("r1", new Date("2026-05-12T12:00:00Z")), manifestJson: JSON.stringify(mf) },
+      { ...repoRow("r2", new Date("2026-05-12T12:00:00Z")), manifestJson: "{ truncated" },
+      { ...repoRow("r3", new Date("2026-05-12T12:00:00Z")) }, // pre-#13 row: no column value at all
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/r1")!.manifest).toEqual(mf);
+    // Both degrade to null, which the capability matrix lists as "not assessed — re-scan" and keeps
+    // out of every denominator. A parse failure must never surface as a repo declaring nothing.
+    expect(res!.repos.find((r) => r.fullName === "acme/r2")!.manifest).toBeNull();
+    expect(res!.repos.find((r) => r.fullName === "acme/r3")!.manifest).toBeNull();
+  });
+
   it("flags a scan that scored NOTHING as latest.incomplete (incomplete-invisible-in-rollup)", async () => {
     // The fleet gate scores from these persisted numbers alone, so an ingestion failure (0 / L1 with
     // no dimension rows) is indistinguishable from a genuinely bad repo unless the shape travels with

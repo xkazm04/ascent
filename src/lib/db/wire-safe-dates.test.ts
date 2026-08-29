@@ -62,6 +62,10 @@ import type {
 import type { OrgBranding } from "@/lib/db/branding";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
+// Not a db module, but a db ROW TYPE all the same: ManifestReadout is parsed off
+// Repository.manifestJson in org-rollup and crosses to the Passports client via OrgRepoRow.manifest.
+// It declares two timestamps (`readAt`, `generatedAt`) and both are deliberately `string` — see #13.
+import type { CapabilityReadout, ManifestReadout } from "@/lib/standard/readout";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 type DateBearingKeys<T> = {
@@ -95,8 +99,10 @@ const WIRE_TYPES = {
   ApiTokenSummary: true satisfies WireSafe<ApiTokenSummary>,
   AuditLogEntry: true satisfies WireSafe<AuditLogEntry>,
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
+  CapabilityReadout: true satisfies WireSafe<CapabilityReadout>,
   ComparableScan: true satisfies WireSafe<ComparableScan>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
+  ManifestReadout: true satisfies WireSafe<ManifestReadout>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
@@ -125,6 +131,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(22);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(24);
   });
 });
