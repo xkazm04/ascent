@@ -15,6 +15,8 @@ import {
   planScanLine,
   scanAllowance,
   decideScanCharge,
+  decideCharge,
+  resolveLaneCharge,
   PLAN_FEATURES,
   PLAN_ORDER,
   UNLIMITED_PLAN_LABEL,
@@ -114,6 +116,42 @@ describe("decideScanCharge — hybrid: allowance, then a credit, then denied", (
   it("a zero allowance falls straight to credits / denied", () => {
     expect(decideScanCharge({ unlimited: false, allowance: 0, usageThisMonth: 0, balance: 1 })).toBe("credit");
     expect(decideScanCharge({ unlimited: false, allowance: 0, usageThisMonth: 0, balance: 0 })).toBe("denied");
+  });
+});
+
+// #11 ships the lane-aware generalization and NO repricing: every tier's laneAllowances is `{}`, so
+// nothing but a scan is billed on any plan. These two tests are what makes that claim checkable —
+// the second one would fail the moment `decideCharge("scan", …)` stopped being `decideScanCharge`.
+describe("decideCharge — lane-aware, and deliberately a no-op today", () => {
+  const CASES = [
+    { unlimited: true, allowance: 0, usageThisMonth: 9999, balance: 0 },
+    { unlimited: false, allowance: 10, usageThisMonth: 0, balance: 0 },
+    { unlimited: false, allowance: 10, usageThisMonth: 9, balance: 0 },
+    { unlimited: false, allowance: 10, usageThisMonth: 10, balance: 3 },
+    { unlimited: false, allowance: 10, usageThisMonth: 10, balance: 0 },
+    { unlimited: false, allowance: 0, usageThisMonth: 0, balance: 1 },
+    { unlimited: false, allowance: 0, usageThisMonth: 0, balance: 0 },
+  ] as const;
+
+  it("is byte-identical to decideScanCharge for the scan lane, across the whole table", () => {
+    for (const c of CASES) expect(decideCharge("scan", c)).toBe(decideScanCharge(c));
+  });
+
+  it("answers 'unlimited' for every non-scan lane on every tier under today's empty allowances", () => {
+    for (const plan of PLAN_ORDER) {
+      expect(PLAN_FEATURES[plan].laneAllowances).toEqual({}); // no tier prices a lane — yet
+      for (const lane of ["athena", "memory", "briefing", "local"] as const) {
+        expect(resolveLaneCharge(lane, { plan, usageThisMonth: 9_999, balance: 0 })).toBe("unlimited");
+      }
+    }
+  });
+
+  it("meters a lane only once a plan opts it in — the shape is ready, the price is not set", () => {
+    const opted = { unlimited: false, allowance: 10, usageThisMonth: 5, balance: 0, laneAllowances: { athena: 3 } };
+    expect(decideCharge("athena", opted)).toBe("denied"); // 5 used against an allowance of 3, no credits
+    expect(decideCharge("athena", { ...opted, usageThisMonth: 1 })).toBe("allowance");
+    // An explicit null is "included, unlimited" — different from absent, which is "not metered".
+    expect(decideCharge("athena", { ...opted, laneAllowances: { athena: null } })).toBe("unlimited");
   });
 });
 
