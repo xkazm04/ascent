@@ -77,6 +77,10 @@ const nextConfig: NextConfig = {
     "@aws-sdk/dsql-signer",
     "@electric-sql/pglite",
     "pglite-prisma-adapter",
+    // MOONSHOT #35: libsodium-wrappers 0.7.16 ships a broken ESM entry (imports a ./libsodium.mjs
+    // it does not contain); actions-secrets.ts loads it via createRequire, and externalizing stops
+    // the bundler from re-resolving the broken ESM entry at build time.
+    "libsodium-wrappers",
   ],
 };
 
