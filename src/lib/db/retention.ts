@@ -162,11 +162,12 @@ async function pruneRepoScans(
   batchSize: number,
   budgetExceeded?: () => boolean,
   countOnly = false,
-): Promise<{ scans: number; dimensions: number; recommendations: number; events: number }> {
+): Promise<{ scans: number; dimensions: number; recommendations: number; events: number; outcomes: number }> {
   let scans = 0;
   let dimensions = 0;
   let recommendations = 0;
   let events = 0;
+  let outcomes = 0;
   // ONE definition of "which scans are in scope", used by BOTH the delete selection below and the
   // preview count (data-retention 07-16 #20). A preview computed from a SECOND, separately-written
   // predicate is worse than no preview at all: it licenses an irreversible act with a number that can
@@ -179,7 +180,7 @@ async function pruneRepoScans(
     // (reported 0), matching purgeExpiredData's dry run — the scan count is the decision-relevant
     // number, and counting three more tables per repo would triple a preview's cost for no new decision.
     const total = await prisma.scan.count({ where });
-    return { scans: Math.max(0, total - max), dimensions: 0, recommendations: 0, events: 0 };
+    return { scans: Math.max(0, total - max), dimensions: 0, recommendations: 0, events: 0, outcomes: 0 };
   }
   // Page the SELECTION too, not just the deletes. The prior code did one UNBOUNDED findMany(skip:max)
   // pulling every stale id into memory before the batched delete loop — on a long-watched repo with a
@@ -204,7 +205,7 @@ async function pruneRepoScans(
       // Delete the whole scan sub-graph for this batch in ONE transaction so a mid-batch timeout can't
       // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
       // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever.
-      // Order: grandchildren (events) → children (dimensions, recommendations) → parent (scan).
+      // Order: grandchildren (events) → children (dimensions, recommendations, outcomes) → parent (scan).
       const counts = await withRetry(
         () =>
           prisma.$transaction(async (tx) => {
@@ -216,21 +217,67 @@ async function pruneRepoScans(
               : 0;
             const dim = (await tx.scanDimension.deleteMany({ where: { scanId: { in: ids } } })).count;
             const rec = (await tx.recommendation.deleteMany({ where: { scanId: { in: ids } } })).count;
+            // MOONSHOT #9. An InterventionOutcome is a MEASUREMENT pinned to two scan bookends: it
+            // only exists because both scans existed and agreed on the instrument. Once either
+            // bookend is purged the row can no longer be re-derived, re-verified, or audited — it
+            // becomes an unfalsifiable claim of lift with nothing behind it, which for a measurement
+            // ledger is worse than an absent row. It is NOT scan-id-shaped debris to be swept later:
+            // it dies with its evidence, inside the same transaction, so no window exists in which
+            // the aggregate reads a delta whose scans are already gone.
+            const out = (
+              await tx.interventionOutcome.deleteMany({
+                where: { OR: [{ beforeScanId: { in: ids } }, { afterScanId: { in: ids } }] },
+              })
+            ).count;
             const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
-            return { ev, dim, rec, sc };
+            return { ev, dim, rec, out, sc };
           }),
         { label: "retention.prune-scans" },
       );
       events += counts.ev;
       dimensions += counts.dim;
       recommendations += counts.rec;
+      outcomes += counts.out;
       scans += counts.sc;
       return counts.sc; // progress count → zero stops the loop (a delete that removed no scan rows)
     },
     batchSize,
     budgetExceeded, // stop between batches once the run is over budget (data-retention #1)
   );
-  return { scans, dimensions, recommendations, events };
+  return { scans, dimensions, recommendations, events, outcomes };
+}
+
+/**
+ * Batched delete over one AUDIT-SHAPED wave-1 ledger (moonshot #11 / #16), oldest first.
+ *
+ * These two tables are aged on `Organization.retentionAuditDays`, NOT on the scan keep-window, and
+ * that choice is deliberate: a `UsageEvent` is a billing/telemetry record of an inference this
+ * deployment served and a `ConformanceReport` is a control attestation a repo sent back — both are
+ * records of what HAPPENED, like an AuditLog row, and neither is a derivative of a scan that a
+ * scan-count window could sensibly bound. Sharing `pruneAudit`'s horizon means an operator has ONE
+ * number to reason about for "how long do we keep the evidence", instead of three.
+ *
+ * Generic over the delegate so the caller supplies the finder/deleter pair; the paging, the
+ * budget yield and the conflict retry are the same ones every other sweep in this module uses.
+ */
+async function pruneAgedLedger(
+  find: (take: number) => Promise<{ id: string }[]>,
+  del: (ids: string[]) => Promise<number>,
+  batchSize: number,
+  budgetExceeded?: () => boolean,
+): Promise<number> {
+  let total = 0;
+  await deleteInPages(
+    async () => (await find(batchSize)).map((r) => r.id),
+    async (ids) => {
+      const count = await del(ids);
+      total += count;
+      return count;
+    },
+    batchSize,
+    budgetExceeded,
+  );
+  return total;
 }
 
 /** Batched delete of audit entries matching `where` (oldest first), DSQL-friendly. */
@@ -270,6 +317,16 @@ export interface OrgPurgeResult {
   recommendationsDeleted: number;
   recommendationEventsDeleted: number;
   auditDeleted: number;
+  /** InterventionOutcome rows that died with their scan bookends (moonshot #9). Not enumerated in a
+   *  dry run (0), for the same reason dimensions/recommendations aren't. */
+  outcomesDeleted: number;
+  /** UsageEvent rows aged out on the org's `retentionAuditDays` horizon (moonshot #11). */
+  usageEventsDeleted: number;
+  /** ConformanceReport rows aged out on the same horizon (moonshot #16). */
+  conformanceReportsDeleted: number;
+  /** ConformanceFinding rows removed with those reports — deleted BEFORE their parent by hand: the
+   *  schema's onDelete: Cascade is client-side emulation that a bulk deleteMany does not run. */
+  conformanceFindingsDeleted: number;
 }
 
 /** Roll-up of a full purge run across every org. */
@@ -280,6 +337,10 @@ export interface PurgeSummary {
   recommendationsDeleted: number;
   recommendationEventsDeleted: number;
   auditDeleted: number;
+  outcomesDeleted: number;
+  usageEventsDeleted: number;
+  conformanceReportsDeleted: number;
+  conformanceFindingsDeleted: number;
   results: OrgPurgeResult[];
   errors: string[];
   /** True when the wall-clock budget stopped the run before every org/sweep was reached this tick — a
@@ -459,6 +520,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     let recommendationsDeleted = 0;
     let recommendationEventsDeleted = 0;
     let auditDeleted = 0;
+    let outcomesDeleted = 0;
+    let usageEventsDeleted = 0;
+    let conformanceReportsDeleted = 0;
+    let conformanceFindingsDeleted = 0;
 
     try {
       // Preview mode (data-retention 07-16 #2): count what the policy WOULD delete — per-repo scan
@@ -476,6 +541,15 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         if (policy.auditDays > 0) {
           const cutoff = new Date(now() - policy.auditDays * DAY_MS);
           auditDeleted = await prisma.auditLog.count({ where: { orgId: org.id, at: { lt: cutoff } } });
+          // Counted over the SAME predicates the real sweeps below use, so the preview is the number
+          // that dies. Findings are NOT enumerated (0) — like dimensions/recommendations, they are a
+          // dependent row count that would triple the preview's cost for no new decision.
+          usageEventsDeleted = await prisma.usageEvent.count({
+            where: { orgId: org.id, createdAt: { lt: cutoff } },
+          });
+          conformanceReportsDeleted = await prisma.conformanceReport.count({
+            where: { orgId: org.id, reportedAt: { lt: cutoff } },
+          });
         }
         results.push({
           orgSlug: org.slug,
@@ -485,6 +559,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           recommendationsDeleted,
           recommendationEventsDeleted,
           auditDeleted,
+          outcomesDeleted,
+          usageEventsDeleted,
+          conformanceReportsDeleted,
+          conformanceFindingsDeleted,
         });
         continue;
       }
@@ -527,6 +605,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
             dimensionsDeleted += r.dimensions;
             recommendationsDeleted += r.recommendations;
             recommendationEventsDeleted += r.events;
+            outcomesDeleted += r.outcomes;
           }
           if (repos.length < REPO_PAGE_SIZE) break;
           repoCursor = repos[repos.length - 1]!.id;
@@ -539,6 +618,67 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         const cutoff = new Date(now() - policy.auditDays * DAY_MS);
         auditDeleted = await pruneAudit(prisma, { orgId: org.id, at: { lt: cutoff } }, policy.batchSize, overBudget);
         if (overBudget()) budgetStopped = true;
+
+        // MOONSHOT #11 — the LLM meter. One row per metered inference leg, so this table grows with
+        // TRAFFIC rather than with the fleet: an org whose scans are all inside the keep-window can
+        // still accumulate millions of rows the scan prune never reaches. Aged on the audit horizon
+        // (see pruneAgedLedger's header for why that horizon and not the scan one).
+        if (!budgetStopped) {
+          usageEventsDeleted = await pruneAgedLedger(
+            (take) =>
+              prisma.usageEvent.findMany({
+                where: { orgId: org.id, createdAt: { lt: cutoff } },
+                orderBy: { createdAt: "asc" },
+                take,
+                select: { id: true },
+              }),
+            async (ids) =>
+              (
+                await withRetry(() => prisma.usageEvent.deleteMany({ where: { id: { in: ids } } }), {
+                  label: "retention.prune-usage-events",
+                })
+              ).count,
+            policy.batchSize,
+            overBudget,
+          );
+          if (overBudget()) budgetStopped = true;
+        }
+
+        // MOONSHOT #16 — the doctor per-check ledger. Findings are deleted BEFORE their report in the
+        // SAME transaction: `onDelete: Cascade` on ConformanceFinding.report is Prisma CLIENT-side
+        // emulation (relationMode = "prisma" emits no FK), and the client only runs it for deletes it
+        // can resolve to parent rows — a bulk deleteMany like this one does not, so an unassisted
+        // report sweep would orphan every finding permanently. The order is the same delete-graph
+        // convention pruneRepoScans follows: children, then parent.
+        if (!budgetStopped) {
+          conformanceReportsDeleted = await pruneAgedLedger(
+            (take) =>
+              prisma.conformanceReport.findMany({
+                where: { orgId: org.id, reportedAt: { lt: cutoff } },
+                orderBy: { reportedAt: "asc" },
+                take,
+                select: { id: true },
+              }),
+            async (ids) => {
+              const counts = await withRetry(
+                () =>
+                  prisma.$transaction(async (tx) => {
+                    const findings = (
+                      await tx.conformanceFinding.deleteMany({ where: { reportId: { in: ids } } })
+                    ).count;
+                    const reports = (await tx.conformanceReport.deleteMany({ where: { id: { in: ids } } })).count;
+                    return { findings, reports };
+                  }),
+                { label: "retention.prune-conformance" },
+              );
+              conformanceFindingsDeleted += counts.findings;
+              return counts.reports;
+            },
+            policy.batchSize,
+            overBudget,
+          );
+          if (overBudget()) budgetStopped = true;
+        }
       }
 
       // The purge job records its own audit entry (compliance trace of what was removed).
@@ -552,7 +692,15 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       // row for every configured org every cron tick, forever — noise that obscures the real trail in an
       // audit product. Mirrors the orphan sweep's `auditDeleted > 0` gate below.
       const totalDeleted =
-        scansDeleted + dimensionsDeleted + recommendationsDeleted + recommendationEventsDeleted + auditDeleted;
+        scansDeleted +
+        dimensionsDeleted +
+        recommendationsDeleted +
+        recommendationEventsDeleted +
+        auditDeleted +
+        outcomesDeleted +
+        usageEventsDeleted +
+        conformanceReportsDeleted +
+        conformanceFindingsDeleted;
       if (totalDeleted > 0) {
         const audited = await recordAudit(
           PURGE_ACTION,
@@ -562,6 +710,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
             recommendationsDeleted,
             recommendationEventsDeleted,
             auditDeleted,
+            outcomesDeleted,
+            usageEventsDeleted,
+            conformanceReportsDeleted,
+            conformanceFindingsDeleted,
             policy: { maxScansPerRepo: policy.maxScansPerRepo, auditDays: policy.auditDays },
           },
           { orgId: org.id, actorId: opts.actorId },
@@ -579,6 +731,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         recommendationsDeleted,
         recommendationEventsDeleted,
         auditDeleted,
+        outcomesDeleted,
+        usageEventsDeleted,
+        conformanceReportsDeleted,
+        conformanceFindingsDeleted,
       });
 
       if (budgetStopped) {
@@ -602,7 +758,15 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       // on the success path, so this never double-counts. The self-audit trace is skipped on a throw; the
       // error string is what pages an operator.
       const partialDeleted =
-        scansDeleted + dimensionsDeleted + recommendationsDeleted + recommendationEventsDeleted + auditDeleted;
+        scansDeleted +
+        dimensionsDeleted +
+        recommendationsDeleted +
+        recommendationEventsDeleted +
+        auditDeleted +
+        outcomesDeleted +
+        usageEventsDeleted +
+        conformanceReportsDeleted +
+        conformanceFindingsDeleted;
       if (partialDeleted > 0) {
         results.push({
           orgSlug: org.slug,
@@ -612,6 +776,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           recommendationsDeleted,
           recommendationEventsDeleted,
           auditDeleted,
+          outcomesDeleted,
+          usageEventsDeleted,
+          conformanceReportsDeleted,
+          conformanceFindingsDeleted,
         });
       }
       errors.push(`${org.slug}: ${err instanceof Error ? err.message : "purge failed"}`);
@@ -649,6 +817,13 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           recommendationsDeleted: 0,
           recommendationEventsDeleted: 0,
           auditDeleted,
+          // The orphan sweep is AuditLog-only by definition: a UsageEvent, a ConformanceReport and an
+          // InterventionOutcome all carry a required orgId, so none of them can be org-less. These
+          // zeros are a fact about the sweep's scope, not an unmeasured value.
+          outcomesDeleted: 0,
+          usageEventsDeleted: 0,
+          conformanceReportsDeleted: 0,
+          conformanceFindingsDeleted: 0,
         });
       }
     } catch (err) {
@@ -678,6 +853,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     recommendationsDeleted: results.reduce((a, r) => a + r.recommendationsDeleted, 0),
     recommendationEventsDeleted: results.reduce((a, r) => a + r.recommendationEventsDeleted, 0),
     auditDeleted: results.reduce((a, r) => a + r.auditDeleted, 0),
+    outcomesDeleted: results.reduce((a, r) => a + r.outcomesDeleted, 0),
+    usageEventsDeleted: results.reduce((a, r) => a + r.usageEventsDeleted, 0),
+    conformanceReportsDeleted: results.reduce((a, r) => a + r.conformanceReportsDeleted, 0),
+    conformanceFindingsDeleted: results.reduce((a, r) => a + r.conformanceFindingsDeleted, 0),
     results,
     errors,
     stoppedEarly,
@@ -982,6 +1161,181 @@ async function eraseOrgAthena(
   return { threads, turns, proposals, identity, memories };
 }
 
+/**
+ * Erase the ORG-SCOPED wave-1 ledgers: the outcome ledger (#9), the LLM meter (#11), the repo-memory
+ * mirror (#14), the doctor control ledger (#16), the registry knowledge/conformance/signals tables
+ * (#18), the skill usage samples (#19) and the lessons / trace / memory-proposal lane (#36).
+ *
+ * WHY EACH ONE IS TENANT DATA, since an erase that leaves any of them behind is not an erasure:
+ * an InterventionOutcome names the repo and the measured lift; a UsageEvent names the repo, the team
+ * and the model spend; a RepoMemoryMirror IS the tenant's own repo-authored prose; a
+ * ConformanceReport is the tenant's control posture per repo; the #18 tables carry the tenant's
+ * context names, deviation evidence and the file:line citations behind them; a RegistrySignal names
+ * the contributor; and an OrgSkillLesson body is text a tenant's engineer wrote.
+ *
+ * NOT declarative. `RepoMemoryMirror.org` declares `onDelete: Cascade`, but relationMode = "prisma"
+ * emits no FK — the cascade is Prisma CLIENT-side emulation, it only runs for deletes the client
+ * resolves through the relation, and nothing here ever deletes the Organization row (an erase
+ * deliberately leaves the tenant existing). So the sweep is written by hand, exactly like every other
+ * cascade in this module. Same for ConformanceFinding → ConformanceReport: children first, in one
+ * transaction, then the parent.
+ *
+ * Bounded and resumable like every other loop here: each table is drained in batched, retried
+ * transactions with the budget polled between batches, so a stop leaves whole batches deleted and
+ * the resume call simply continues (deleted rows leave the predicate, so no cursor is needed).
+ *
+ * Org scope ONLY. The per-repo half of the mirror is handled beside the scan graph in `eraseRepo`,
+ * because a repo removed from the org must take its mirrored memory with it without the whole tenant
+ * being erased.
+ */
+async function eraseOrgLedgers(
+  prisma: PrismaLike,
+  orgId: string,
+  batchSize: number,
+  overBudget: () => boolean,
+  dryRun: boolean,
+): Promise<{
+  outcomes: number;
+  usageEvents: number;
+  memoryMirrors: number;
+  conformanceReports: number;
+  conformanceFindings: number;
+  skillLessons: number;
+  skillTraces: number;
+  memoryProposals: number;
+  registryLedger: number;
+}> {
+  const totals = {
+    outcomes: 0,
+    usageEvents: 0,
+    memoryMirrors: 0,
+    conformanceReports: 0,
+    conformanceFindings: 0,
+    skillLessons: 0,
+    skillTraces: 0,
+    memoryProposals: 0,
+    registryLedger: 0,
+  };
+
+  /** Drain one flat org-scoped table. Counts in a preview; batched deletes otherwise. */
+  const drain = async (
+    find: (take: number) => Promise<{ id: string }[]>,
+    count: () => Promise<number>,
+    del: (ids: string[]) => Promise<number>,
+    label: string,
+  ): Promise<number> => {
+    if (overBudget()) return 0;
+    if (dryRun) return count();
+    return pruneAgedLedger(find, (ids) => withRetry(() => del(ids), { label }), batchSize, overBudget);
+  };
+
+  const where = { orgId };
+  const page = (take: number) => ({ where, orderBy: { id: "asc" } as const, take, select: { id: true } });
+
+  totals.outcomes = await drain(
+    (take) => prisma.interventionOutcome.findMany(page(take)),
+    () => prisma.interventionOutcome.count({ where }),
+    async (ids) => (await prisma.interventionOutcome.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.outcomes",
+  );
+
+  totals.usageEvents = await drain(
+    (take) => prisma.usageEvent.findMany(page(take)),
+    () => prisma.usageEvent.count({ where }),
+    async (ids) => (await prisma.usageEvent.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.usage-events",
+  );
+
+  totals.memoryMirrors = await drain(
+    (take) => prisma.repoMemoryMirror.findMany(page(take)),
+    () => prisma.repoMemoryMirror.count({ where }),
+    async (ids) => (await prisma.repoMemoryMirror.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.repo-memory-mirror",
+  );
+
+  // Findings before their report, in one transaction — see the header note on the emulated cascade.
+  totals.conformanceReports = await drain(
+    (take) => prisma.conformanceReport.findMany(page(take)),
+    () => prisma.conformanceReport.count({ where }),
+    async (ids) =>
+      prisma.$transaction(async (tx) => {
+        totals.conformanceFindings += (await tx.conformanceFinding.deleteMany({ where: { reportId: { in: ids } } }))
+          .count;
+        return (await tx.conformanceReport.deleteMany({ where: { id: { in: ids } } })).count;
+      }),
+    "erase.conformance",
+  );
+  if (dryRun && !overBudget()) {
+    // Preview: the findings count is the one number the delete's inner deleteMany would remove.
+    totals.conformanceFindings = await prisma.conformanceFinding.count({
+      where: { report: { orgId } },
+    });
+  }
+
+  totals.skillLessons = await drain(
+    (take) => prisma.orgSkillLesson.findMany(page(take)),
+    () => prisma.orgSkillLesson.count({ where }),
+    async (ids) => (await prisma.orgSkillLesson.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.skill-lessons",
+  );
+
+  totals.skillTraces = await drain(
+    (take) => prisma.orgSkillTrace.findMany(page(take)),
+    () => prisma.orgSkillTrace.count({ where }),
+    async (ids) => (await prisma.orgSkillTrace.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.skill-traces",
+  );
+
+  totals.memoryProposals = await drain(
+    (take) => prisma.orgMemoryProposal.findMany(page(take)),
+    () => prisma.orgMemoryProposal.count({ where }),
+    async (ids) => (await prisma.orgMemoryProposal.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.memory-proposals",
+  );
+
+  // The registry ledger, reported as ONE figure: six tables that only ever exist together (they are
+  // written by a single index pass and read as one view), so six separate counters on the erase
+  // receipt would be six numbers no reader can act on differently.
+  totals.registryLedger += await drain(
+    (take) => prisma.orgKnowledgeSubject.findMany(page(take)),
+    () => prisma.orgKnowledgeSubject.count({ where }),
+    async (ids) => (await prisma.orgKnowledgeSubject.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.knowledge-subjects",
+  );
+  totals.registryLedger += await drain(
+    (take) => prisma.repoConformance.findMany(page(take)),
+    () => prisma.repoConformance.count({ where }),
+    async (ids) => (await prisma.repoConformance.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.repo-conformance",
+  );
+  totals.registryLedger += await drain(
+    (take) => prisma.repoConformanceMap.findMany(page(take)),
+    () => prisma.repoConformanceMap.count({ where }),
+    async (ids) => (await prisma.repoConformanceMap.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.repo-conformance-map",
+  );
+  totals.registryLedger += await drain(
+    (take) => prisma.registrySignal.findMany(page(take)),
+    () => prisma.registrySignal.count({ where }),
+    async (ids) => (await prisma.registrySignal.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.registry-signals",
+  );
+  totals.registryLedger += await drain(
+    (take) => prisma.registrySignalContribution.findMany(page(take)),
+    () => prisma.registrySignalContribution.count({ where }),
+    async (ids) => (await prisma.registrySignalContribution.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.registry-contributions",
+  );
+  totals.registryLedger += await drain(
+    (take) => prisma.orgSkillUsageSample.findMany(page(take)),
+    () => prisma.orgSkillUsageSample.count({ where }),
+    async (ids) => (await prisma.orgSkillUsageSample.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.skill-usage-samples",
+  );
+
+  return totals;
+}
+
 /** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
  *  config to be a literal, so the route can't import this — a route test pins the two together instead
  *  (same contract as {@link PURGE_MAX_DURATION_S}). */
@@ -1046,6 +1400,28 @@ export interface EraseResult {
    *  covered by any erase path yet. See eraseOrgAthena's scoping caveat before reading this as
    *  "memory is now erased". */
   athenaMemoriesDeleted: number;
+  /** InterventionOutcome rows removed (moonshot #9) — org scope removes them all; a repo-scoped
+   *  erase removes the ones whose scan bookends died with the repo's scan graph. */
+  outcomesDeleted: number;
+  /** UsageEvent rows removed — the org's whole metered-inference ledger (moonshot #11). */
+  usageEventsDeleted: number;
+  /** RepoMemoryMirror rows removed (moonshot #14). Repo-scoped erases remove only that repo's. */
+  memoryMirrorsDeleted: number;
+  /** ConformanceReport rows removed (moonshot #16), org scope only. */
+  conformanceReportsDeleted: number;
+  /** ConformanceFinding rows removed with them — by hand, before their parent (the schema's
+   *  onDelete: Cascade is client-side emulation a bulk deleteMany never runs). */
+  conformanceFindingsDeleted: number;
+  /** OrgSkillLesson rows removed (moonshot #36), org scope only. */
+  skillLessonsDeleted: number;
+  /** OrgSkillTrace rows removed (moonshot #36), org scope only. */
+  skillTracesDeleted: number;
+  /** OrgMemoryProposal rows removed (moonshot #36), org scope only. */
+  memoryProposalsDeleted: number;
+  /** The registry ledger as ONE figure (moonshot #18/#19): OrgKnowledgeSubject + RepoConformance +
+   *  RepoConformanceMap + RegistrySignal + RegistrySignalContribution + OrgSkillUsageSample. They are
+   *  written by a single index pass and read as one view, so they are reported as one number. */
+  registryLedgerDeleted: number;
   /** Audit rows DESTROYED (only ever non-zero for `auditDisposition: "delete"`). */
   auditDeleted: number;
   /** Audit rows reduced to identifier-only form — the historical account that SURVIVED the erasure. */
@@ -1137,19 +1513,49 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let athenaProposalsDeleted = 0;
   let athenaIdentityDeleted = 0;
   let athenaMemoriesDeleted = 0;
+  let outcomesDeleted = 0;
+  let usageEventsDeleted = 0;
+  let memoryMirrorsDeleted = 0;
+  let conformanceReportsDeleted = 0;
+  let conformanceFindingsDeleted = 0;
+  let skillLessonsDeleted = 0;
+  let skillTracesDeleted = 0;
+  let memoryProposalsDeleted = 0;
+  let registryLedgerDeleted = 0;
   let stoppedEarly = false;
 
   // Erase ONE repo's scan graph + reset its scan-derived caches. Each batch inside pruneRepoScans is
   // its own committed transaction (bounded); the cache reset follows the deletes so a mid-erase stop
   // never leaves "no scans but a stale passport" — worst case the caches are reset on the resume call.
   // In a preview, the SAME call counts instead of deleting (countOnly) and the cache reset is skipped.
-  const eraseRepo = async (repoId: string) => {
+  const eraseRepo = async (repoId: string, repoName?: string) => {
     const r = await pruneRepoScans(prisma, repoId, 0, batchSize, overBudget, dryRun);
     scansDeleted += r.scans;
     dimensionsDeleted += r.dimensions;
     recommendationsDeleted += r.recommendations;
     recommendationEventsDeleted += r.events;
+    outcomesDeleted += r.outcomes;
     reposProcessed++;
+    // MOONSHOT #14 — the repo's mirrored `.ai/memory/` entries, keyed by (orgId, repoFullName) and
+    // NOT by repoId. The org-wide sweep below reaches them for a full erase, but a REPO-scoped erase
+    // (and, later, a repo removed from the org) would otherwise leave the tenant's own repo-authored
+    // prose readable in the Memory tab after the repo it came from is gone — an "erasure" that still
+    // reads back what the repo said. The declared `onDelete: Cascade` does not help here: it hangs off
+    // the Organization relation, and this path deletes no Organization row.
+    if (repoName) {
+      if (dryRun) {
+        memoryMirrorsDeleted += await prisma.repoMemoryMirror.count({
+          where: { orgId: org.id, repoFullName: repoName },
+        });
+      } else {
+        memoryMirrorsDeleted += (
+          await withRetry(
+            () => prisma.repoMemoryMirror.deleteMany({ where: { orgId: org.id, repoFullName: repoName } }),
+            { label: "erase.repo-memory-mirror-by-repo" },
+          )
+        ).count;
+      }
+    }
     if (dryRun) return;
     await withRetry(() => prisma.repository.update({ where: { id: repoId }, data: { ...ERASED_REPO_CACHE_RESET } }), {
       label: "erase.reset-repo-cache",
@@ -1162,7 +1568,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       select: { id: true },
     });
     if (!repo) return { ok: false, reason: "unknown-repo" };
-    await eraseRepo(repo.id);
+    await eraseRepo(repo.id, repoFullName);
     if (overBudget()) stoppedEarly = true;
   } else {
     // Cursor-paged repo enumeration (never one unbounded read), budget polled between repos.
@@ -1181,6 +1587,9 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
           stoppedEarly = true;
           break repoPages;
         }
+        // No repo name passed on the ORG path on purpose: eraseOrgLedgers below sweeps the whole
+        // org's mirror in one predicate. Doing both would make a PREVIEW count the same rows twice
+        // (the real deletes wouldn't double-count, which is exactly what makes that bug quiet).
         await eraseRepo(repo.id);
       }
       if (repos.length < REPO_PAGE_SIZE) break;
@@ -1207,6 +1616,24 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       athenaProposalsDeleted = athena.proposals;
       athenaIdentityDeleted = athena.identity;
       athenaMemoriesDeleted = athena.memories;
+      if (overBudget()) stoppedEarly = true;
+    }
+
+    // The wave-1 ledgers: outcomes, the LLM meter, the memory mirror, the control ledger, the
+    // registry knowledge/conformance/signals tables and the lessons/trace/proposal lane. Org-scoped
+    // and always erased for the same reason the loop history is — tenant data, not compliance
+    // evidence, so there is no disposition to choose. See eraseOrgLedgers.
+    if (!stoppedEarly) {
+      const led = await eraseOrgLedgers(prisma, org.id, batchSize, overBudget, dryRun);
+      outcomesDeleted += led.outcomes;
+      usageEventsDeleted = led.usageEvents;
+      memoryMirrorsDeleted += led.memoryMirrors;
+      conformanceReportsDeleted = led.conformanceReports;
+      conformanceFindingsDeleted = led.conformanceFindings;
+      skillLessonsDeleted = led.skillLessons;
+      skillTracesDeleted = led.skillTraces;
+      memoryProposalsDeleted = led.memoryProposals;
+      registryLedgerDeleted = led.registryLedger;
       if (overBudget()) stoppedEarly = true;
     }
 
@@ -1248,6 +1675,15 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       athenaProposalsDeleted,
       athenaIdentityDeleted,
       athenaMemoriesDeleted,
+      outcomesDeleted,
+      usageEventsDeleted,
+      memoryMirrorsDeleted,
+      conformanceReportsDeleted,
+      conformanceFindingsDeleted,
+      skillLessonsDeleted,
+      skillTracesDeleted,
+      memoryProposalsDeleted,
+      registryLedgerDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -1282,6 +1718,15 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       athenaProposalsDeleted,
       athenaIdentityDeleted,
       athenaMemoriesDeleted,
+      outcomesDeleted,
+      usageEventsDeleted,
+      memoryMirrorsDeleted,
+      conformanceReportsDeleted,
+      conformanceFindingsDeleted,
+      skillLessonsDeleted,
+      skillTracesDeleted,
+      memoryProposalsDeleted,
+      registryLedgerDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -1306,6 +1751,15 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     athenaProposalsDeleted,
     athenaIdentityDeleted,
     athenaMemoriesDeleted,
+    outcomesDeleted,
+    usageEventsDeleted,
+    memoryMirrorsDeleted,
+    conformanceReportsDeleted,
+    conformanceFindingsDeleted,
+    skillLessonsDeleted,
+    skillTracesDeleted,
+    memoryProposalsDeleted,
+    registryLedgerDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,
