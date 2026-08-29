@@ -4,6 +4,8 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { segmentScope } from "@/lib/db/org-shared";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
+import { writeConformanceReport } from "@/lib/db/org-conformance";
+import type { CheckLevel } from "@/lib/standard/check-ids";
 import type { Schedule } from "@/lib/org/repo-schedule";
 
 // Keyed on the canonical Schedule vocabulary (installationRepoTypes) so the cadence set can't drift
@@ -462,7 +464,19 @@ export interface ConformanceOutcome {
 export async function recordConformance(
   orgSlug: string,
   fullName: string,
-  c: { score: number; fails: number; warns: number; headSha?: string | null },
+  c: {
+    score: number;
+    fails: number;
+    warns: number;
+    headSha?: string | null;
+    /** #16 — the run's SHAPE and the per-check findings. All optional: a doctor older than spec
+     *  0.3.0 sends none of them, and its report is stored as `summaryOnly` rather than rejected. */
+    unchecked?: number;
+    scored?: number;
+    specVersion?: string | null;
+    runShape?: "plain" | "run";
+    findings?: { check: string; level: CheckLevel; message?: string }[] | null;
+  },
 ): Promise<ConformanceOutcome> {
   if (!isDbConfigured()) return { recorded: false, stale: false };
   const prisma = getPrisma();
@@ -500,14 +514,39 @@ export async function recordConformance(
   const score = Math.min(100, clamp(c.score));
   const fails = clamp(c.fails);
   const warns = clamp(c.warns);
-  const res = await prisma.repository.updateMany({
-    where: { orgId, fullName },
-    data: {
-      aiConformance: score,
-      aiConformanceFails: fails,
-      aiConformanceWarns: warns,
-      aiConformanceAt: new Date(),
-    },
+  const unchecked = clamp(c.unchecked ?? 0);
+  const scored = clamp(c.scored ?? 0);
+  const runShape = c.runShape === "run" ? "run" : "plain";
+  // ONE transaction for all three writes. The denormalized Repository columns, the per-check ledger
+  // and the signed audit row are three views of the same event, and a crash between them would leave
+  // a dashboard number with no evidence behind it (or evidence for a number that was never applied).
+  const res = await prisma.$transaction(async (tx) => {
+    const updated = await tx.repository.updateMany({
+      where: { orgId, fullName },
+      data: {
+        aiConformance: score,
+        aiConformanceFails: fails,
+        aiConformanceWarns: warns,
+        aiConformanceAt: new Date(),
+      },
+    });
+    if (updated.count > 0) {
+      await writeConformanceReport(tx, orgId, {
+        repoFullName: fullName,
+        headSha,
+        score,
+        fails,
+        warns,
+        unchecked,
+        scored,
+        specVersion: c.specVersion ?? null,
+        runShape,
+        // `undefined` (no key) means the reporter sent no findings at all -> summaryOnly. An empty
+        // ARRAY is a different statement (a run that judged nothing) and is stored as such.
+        findings: c.findings === undefined ? null : c.findings,
+      });
+    }
+    return updated;
   });
   if (res.count > 0) {
     // Append to the ledger AFTER a successful row update, so untracked-repo reports (recorded:false)
