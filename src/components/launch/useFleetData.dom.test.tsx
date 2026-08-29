@@ -122,6 +122,52 @@ describe("useFleetData — the 90s poll cycle", () => {
     expect(calls).toHaveLength(2);
   });
 
+  // The interval paces itself; the visibilitychange listener did not. Alt-tabbing back and forth fired
+  // a complete fleet fan-out on EVERY focus — one /api/app/repos call per org, each a live GitHub App
+  // listing plus two DB queries — which is the same cost POLL_ORG_CAP and the per-org backoff exist to
+  // bound, bypassed by frequency instead of by concurrency.
+  it("does not re-pull the fleet on every focus within one poll interval", async () => {
+    mount(["acme", "globex"]);
+    await tick();
+    expect(calls).toHaveLength(2); // the mount fetch, one per org
+
+    // Six rapid focus events inside the window (a user flicking between tabs).
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+    }
+    // The FIRST focus is a legitimate pull (nothing had refreshed yet, so the stars could be stale);
+    // the other five are inside its window and cost nothing. Before this guard: 2 + 6*2 = 14 calls.
+    expect(calls).toHaveLength(4);
+  });
+
+  it("still re-pulls immediately on a focus AFTER the interval has elapsed", async () => {
+    mount(["acme"]);
+    await tick();
+    expect(calls).toHaveLength(1);
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls).toHaveLength(2); // first focus pulls
+
+    // A full interval passes with the tab hidden, so the scheduled tick no-ops...
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    await tick(POLL_INTERVAL_MS);
+    expect(calls).toHaveLength(2);
+
+    // ...and coming back is worth a pull again: the throttle measures REFRESHES, not focus events.
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls).toHaveLength(3);
+  });
+
   it("stops polling and detaches its listener on unmount", async () => {
     const { view } = mount(["acme"]);
     await tick();
