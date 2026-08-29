@@ -7,8 +7,11 @@ writes are plan-gated.
 
 ## UI entry point
 
-`src/app/org/[slug]/memory/page.tsx` (server component, `dynamic =
-"force-dynamic"`). It resolves the viewer's login first (so private rows can
+`src/features/shared/memory/MemoryTab.tsx` (server component), rendered by the
+org dashboard's single `?tab=memory` shell. `src/app/org/[slug]/memory/page.tsx`
+still exists but is only a permanent redirect to that tab, kept forever because
+58 link sites (the weekly digest, the alert pushes) point at the old segment.
+It resolves the viewer's login first (so private rows can
 be scoped to their author), then in parallel loads the memory list, the
 distinct namespaces in use, credit/plan state, membership/admin role, whether
 the org is a personal workspace, and a coverage summary (`getMemoryCoverage`,
@@ -22,8 +25,8 @@ another author's private notes — the name is often the most revealing part of 
 private note, and an unscoped dropdown also offered a filter that then matched
 nothing for that viewer. Guarded by two cases in `src/lib/db/org-memory.test.ts`.
 
-Above the memory list, `MemoryCoverageStrip` (`src/app/org/[slug]/memory/
-MemoryCoverageStrip.tsx`) renders three tiles: "Memory coverage" (percentage
+Above the memory list, `MemoryCoverageStrip`
+(`src/features/shared/memory/MemoryCoverageStrip.tsx`) renders three tiles: "Memory coverage" (percentage
 of the org's tracked repos with a fresh memory), "Repos with fresh memory"
 (`fresh/total`), and "Going quiet" (count of repos with no recent memory),
 plus up to 5 stale-repo chips. It only renders when the org has at least one
@@ -83,11 +86,16 @@ Each memory also carries:
 ### Browse and filter
 
 `MemoryPanel` debounces (250ms) a server-side refetch of `GET
-/api/org/memory` on search text, namespace, kind, or sort changes (sort:
-"recent" / "confidence" / "recalls"). Rows render in a table; clicking a row
+/api/org/memory` on search text, namespace, kind, source, or sort changes (sort:
+"recent" / "confidence" / "recalls"). The **Source** select filters by
+provenance — All sources / From scans / From repos — which is the
+anti-poisoning control made browsable: "a colleague claimed this", "the pipeline
+observed this" and "an agent wrote this in a repo" are three different levels of
+evidence wearing the same card. Rows render in a table; clicking a row
 expands a `MemoryCard` beneath it (one expanded row at a time). `MemoryCard`
 shows kind/namespace/confidence badges, a `private` badge if applicable, an
-"auto · scan" badge for scan-pipeline rows, a `v{n}` version badge if the
+"auto · scan" badge for scan-pipeline rows, an "auto · repo" badge for rows
+mirrored from a repo's `.ai/memory`, a `v{n}` version badge if the
 memory has been edited/corrected more than once, author, source, recall
 count, last-updated date, and an `expires` badge if the row has a TTL. Its
 "Copy" button fires a background `POST /api/org/memory/:id/recall` to record
@@ -391,12 +399,153 @@ writer wraps its database call in try/catch and returns `null` on failure
 without throwing: a memory write is treated as decoration on a scan that
 already succeeded, never something that can break it.
 
+## Repo-sourced memory (the `.ai/memory` mirror)
+
+Every repo that adopted the `.ai/` standard is already writing durable memory:
+`.ai/memory/NNNN-slug.md`, one fact per file, with frontmatter and an
+append-only, supersede-never-edit contract (`docs/features/onboarding/
+ai-manifest-spec.md`; the seed is written by `src/lib/standard/memory.ts`).
+Until this landed, Ascent only *counted* those files for D8. The mirror reads
+them back and indexes them org-wide.
+
+### The read path, end to end
+
+1. **Fetch.** `pickFilesToFetch` (`src/lib/github/source.ts`) gains a final,
+   reserved step that picks the newest 12 numbered entries
+   (`MAX_MEMORY_FILES`, `MEMORY_ENTRY_RE`). Reserved means it is not gated by
+   the 50-slot `MAX_FILES` budget, so a manifest-heavy monorepo can't starve it;
+   `README.md` and unnumbered files are never picked.
+2. **Quarantine.** `fetchSnapshot` partitions the fetched contents through
+   `quarantineMemoryFiles` before the snapshot exists: a memory body lands in
+   `RepoSnapshot.memoryFiles` and is **removed from `RepoSnapshot.files`**.
+   `LocalFsSource` calls the same function, so the two ingestion paths cannot
+   drift on it. Coverage is computed over the non-memory picks, so the mirror
+   cannot move `estimateCoverage` (and through it, the cache-pinning threshold).
+3. **Parse.** `src/lib/standard/memory-read.ts` — a line parser, not a YAML
+   dependency, for the same reason `skill-frontmatter.ts` is one: the input is
+   untrusted text from a customer repo. `date` stays **verbatim text** (a
+   repo-authored claim, not a timestamp), the open `kind` vocabulary maps onto
+   the curated enum without losing `rawKind`, bodies cap at 6,000 chars, and an
+   entry with no block / an unclosed block / an empty body is **skipped with a
+   reason**, never guessed at.
+4. **Mirror.** `src/lib/memory/repo-memory-mirror.ts`, called fire-and-forget
+   from `src/lib/scan.ts` after Phase 1. Never throws, idempotent.
+5. **Ingest.** Each newly-mirrored entry goes through `writeMemoryCandidate`
+   (below) into `OrgMemory` with `source: "repo-memory"`.
+
+### The five gates, all fail-closed
+
+| # | Gate | Why |
+| --- | --- | --- |
+| 1 | A non-blank `orgSlug`, and not the `public` pseudo-org | An anonymous/public-funnel scan must leave no trace of a repo's prose. |
+| 2 | A `Repository` row for this coordinate **in that org** | An org scanning a third party's public repo does not get to ingest that repo's agent prose. The tenancy boundary is a DB fact, never the caller's string. |
+| 3 | `Organization.repoMemoryMirror !== false` | The opt-out. `null` = never chosen = **ON**, the default the feature ships with. |
+| 4 | `workspaceAllowsMemory(slug, plan)` | The same gate every memory *write* route uses. Routing around the entitlement because the writer is a machine would be a back door. `selfHosted()` already turns the plan half off inside `planAllows`. |
+| 5 | 12 entries per scan, 200 live rows per `(org, repo)` | Newest win. The overflow is **ledgered** with `skipReason: "capped"`, not dropped — a cap that deletes evidence of itself is a data-loss bug. |
+
+Self-hosted collapses gates 3–5 to on/uncapped; nothing else changes, and in
+particular the confidence band does not.
+
+### Confidence is 0.6, deliberately
+
+A scan-pipeline memory is something the platform **observed** (1.0). An
+`.ai/memory` entry is something an agent **claimed** in a file. Recording a
+claim in the "verified" band would poison the trust score that ranking and
+pruning depend on, so mirrored rows sit at 0.6 — "medium: probable,
+unverified". `MemoryCard` shows them as **`auto · repo`**, a separate badge from
+`auto · scan`: collapsing the two would be exactly the provenance loss the badge
+exists to prevent.
+
+### The untrusted-content rule
+
+Mirrored bodies are agent-written prose from a customer repository — the
+textbook injection carrier. Three **positional** guarantees, each with a test in
+`src/lib/memory/repo-memory-untrusted.test.ts`:
+
+1. They never enter `RepoSnapshot.files`, so they never reach
+   `buildScanScoreInput` / `buildAssessmentPrompt`.
+2. They never reach `aiStandard()`. `src/lib/analyze/index.ts` is untouched and
+   its `.ai/memory` count reads the **tree**, not any content. The mirror feeds
+   no score, ever.
+3. Once in `OrgMemory` they inherit the store's existing boundary (see "The
+   untrusted-content boundary on both memory prompts" above), which the guard
+   exercises with a repo-memory candidate carrying a forged close marker.
+
+### The ledger, superseding, and the dead-ends panel
+
+`RepoMemoryMirror` rows are keyed `(orgId, repoFullName, path, contentHash)`
+where `contentHash` = first 32 hex of `sha256(path \0 body)`. An unchanged entry
+re-seen next scan only bumps `lastSeenAt`; an edited one lands beside the old
+claim rather than overwriting it. `orgMemoryId` links the row it fed;
+`skipReason` (`capped` / `truncated` / `deduped`) records the ones that fed
+none.
+
+An entry whose `supersedes` names a mirrored `entryId` in the same repo flags
+that row `superseded` and **archives** its `OrgMemory` row — never a hard
+delete, per this file's supersede-not-edit contract.
+
+`RepoMemoryDeadEnds` (above the library on the Memory tab) shows the live
+`procedural` rows whose repo-declared `rawKind` was a failed approach, grouped
+by repo. It filters on `rawKind`, not `mappedKind`: `procedural` also holds
+conventions and gotchas, which are advice, not warnings. It renders **nothing**
+at zero rows — an empty "no dead ends yet" card would assert that nothing has
+ever failed.
+
+Nothing mirrored is public: there is no aggregate or cross-tenant surface, so
+`CHAMPION_MIN_POP` does not apply. Publishing customer prose out of the tenant
+(the registry `memory/` candidate idea) needs a consent-bearing signal writer
+and is deliberately not here.
+
+### Did the onboarding skill change anything?
+
+`getSkillGenerationOutcomes(repoFullName, orgId)`
+(`src/lib/db/skill-history.ts`) joins a `SkillGeneration` to the mirrored
+**progress** notes (`mappedKind: "episodic"`) whose body names one of that
+generation's track ids by **exact token match** — a near-miss is not evidence of
+work. `verifiedDelta` is the overall-score change between the last scan before
+the generation and the first scan after the newest matching note, and it is
+`null` (rendered "—") unless there is a scan on both sides. An unmeasured
+outcome degrades to absence, never to `0`.
+
+## One ingest door for machine-written memory
+
+`writeMemoryCandidate({ orgId, namespace, content, kind, source, confidence,
+tags })` in `src/lib/memory/scan-feed.ts` is the single write path for every
+machine producer. It is the old private `writeScanMemory` body with
+kind/source/confidence/tags parameterized; `writeScanMemory` is now a call into
+it, and `ingestObservedMemory` is a thin alias for observation-shaped callers.
+The dedup prefilter is unchanged and still scoped to
+`(orgId, namespace, source)`.
+
+The door exists because two dedup implementations writing into one memory store
+is the failure to avoid: they disagree at the margin, and the margin is exactly
+where a duplicate memory does its damage. Producers today are the scan feed
+(`source: "scan-pipeline"`) and the `.ai/memory` mirror
+(`source: "repo-memory"`).
+
+**Handoff — `source: "loop-lesson"` and the candidate inbox (#25).** A third
+producer is planned: lessons harvested from a loop run. It goes through this
+same door with its own `source` constant added to `memory-kinds.ts` beside
+`SCAN_PIPELINE_SOURCE` / `REPO_MEMORY_SOURCE`, and its own confidence band
+chosen on the same honesty rule (a harvested lesson is a claim, not an
+observation). A "candidate inbox" — machine-written rows held for a human to
+promote rather than landing live — is a policy on top of this door, not a second
+door: it belongs as a flag on the write, so there stays exactly one place that
+knows how to dedup into `OrgMemory`.
+
+**Handoff — the skill-lessons channel (#36).** Skill lessons ingest through
+`writeMemoryCandidate` with `source: "skill-lessons"`, namespaced to the SKILL
+NAME rather than a repo (a lesson is about the skill, not about where it ran) and
+`kind: "procedural"`. That is why the door takes `namespace` and `kind` as
+parameters rather than deriving them: the scan feed's "namespace is the repo,
+kind is episodic" assumption is the scan feed's, not the store's.
+
 ## API surface
 
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/api/org/memory` | `POST` | Create a memory (optionally as a supersede). |
-| `/api/org/memory` | `GET` | List/filter/sort memories (`namespace`, `kind`, `search`, `sort`). |
+| `/api/org/memory` | `GET` | List/filter/sort memories (`namespace`, `kind`, `source`, `search`, `sort`). `source` is an EXACT match, AND-ed into the same `where` as everything else so it composes with `visibilityScope` rather than widening it. |
 | `/api/org/memory/check` | `POST` | Write-intelligence pass: duplicate/supersede/novel verdict. |
 | `/api/org/memory/recall` | `GET`/`POST` | Score + budget-pack memories for agent context. |
 | `/api/org/memory/reflect` | `POST` | Propose consolidation clusters, or apply an approved one. |
@@ -420,7 +569,7 @@ guessing an id from another org 404s rather than leaking existence via a
 | `content` | Capped at 20,000 chars at the write layer. |
 | `kind` | `episodic` \| `semantic` \| `procedural` \| `summary`; default `semantic`. |
 | `visibility` | `shared` \| `private`; default `shared`. |
-| `source` | Free-text provenance, or `"scan-pipeline"`. |
+| `source` | Free-text provenance, or a stamped machine constant: `"scan-pipeline"` (observed) / `"repo-memory"` (mirrored from `.ai/memory`). |
 | `confidence` | Float 0–1, default 1.0. |
 | `tags` | JSON string array stored as text (not `jsonb`), capped at 20 tags × 40 chars. |
 | `supersededBy` | Bare id of the replacing memory, or `null`; not a modeled Prisma relation. |
@@ -431,6 +580,33 @@ guessing an id from another org 404s rather than leaking existence via a
 | `createdBy` | GitHub login of the author, or `null` for scan-fed rows. |
 
 Indexes: `[orgId, archived]`, `[orgId, namespace]`, `[orgId, kind]`.
+
+`RepoMemoryMirror` (`prisma/schema.prisma`) — one row per `.ai/memory` entry a
+scan has seen:
+
+| Field | Notes |
+| --- | --- |
+| `orgId` / `repoFullName` | Owning org and the repo the entry was read from; `repoFullName` doubles as the `OrgMemory` namespace. |
+| `path` / `contentHash` | `.ai/memory/0007-slug.md` and the first 32 hex of `sha256(path \0 body)` — together with `orgId`/`repoFullName`, the unique key that makes the upsert idempotent. |
+| `entryId` | Frontmatter `id`, or `null` when absent. An honest null, never `0`, and never derived from the filename. |
+| `rawKind` / `mappedKind` | The open vocabulary as written, and the curated `episodic`/`semantic`/`procedural` it maps to. The raw value is never lost. |
+| `scope` / `entryDate` / `supersedes` / `refsJson` | The rest of the frontmatter. `entryDate` is **verbatim repo text**, not a timestamp. |
+| `body` | Capped at 6,000 chars by the parser. Untrusted repo prose — never scored, never in a scan prompt. |
+| `headSha` | The commit the entry was last read at, when known. |
+| `superseded` | Set when a later entry's `supersedes` named this one's `entryId`. |
+| `orgMemoryId` | The `OrgMemory` row this fed; `null` when deduped or skipped. |
+| `skipReason` | `capped` / `truncated` / `deduped` / `null` — why an entry fed no memory row. |
+| `firstSeenAt` / `lastSeenAt` | First sighting, and `@updatedAt` on every re-sighting. |
+
+Unique: `[orgId, repoFullName, path, contentHash]`. Indexes:
+`[orgId, repoFullName]`, `[orgId, mappedKind]`. Rows cascade with the org
+(`onDelete: Cascade`).
+
+`Organization.repoMemoryMirror` is the per-org opt-out: `Boolean?`, where `null`
+means "never chosen" (mirroring is ON) and `false` means the org opted out.
+"Never chosen" and "chosen ON" are different facts and only the former may be
+changed by a later product decision, which is why it is not a
+`Boolean @default(true)`.
 
 ## Tier gating
 
@@ -446,11 +622,24 @@ count against the cap. A Team+ org has no such row cap. Attempting to write
 without either condition returns `403` ("Shared Org Memory is a Team-plan
 feature."); exceeding the personal cap returns `402`.
 
+The `.ai/memory` mirror applies the **same** `workspaceAllowsMemory` gate (gate 4
+above) rather than a machine exemption, so a workspace that cannot write memory
+by hand does not accumulate it by scan either.
+
 ## Known gaps
 
 - No scheduled/cron job invoking decay or reflection automatically was found
   in the files read; decay only runs as a side effect of an explicit
   `POST /api/org/memory/reflect { decay: true }` call.
+- **The `.ai/memory` mirror's opt-out has no UI yet.** The column
+  (`Organization.repoMemoryMirror`) and the gate that reads it both ship, and
+  `false` genuinely stops all mirroring — but there is no admin control that
+  writes it, so today it can only be set out-of-band. The `memory.mirror.toggled`
+  audit row lands with that control, not before it: an audit row for an action
+  nobody can perform would be a claim about a surface that doesn't exist.
+- **A repo removed from an org keeps its mirrored rows.** `onDelete: Cascade`
+  covers deleting the whole org; an explicit per-repo delete belongs in
+  `src/lib/db/retention.ts`, which this lane does not own.
 
 ## Registry-backed state (UC2, 2026-08-18)
 
@@ -506,5 +695,10 @@ only news once the other world exists.
 | `src/lib/llm/text.ts` | Shared "prompt in → text out" seam over the provider selection. |
 | `src/lib/llm/untrusted.ts` | The shared untrusted-content boundary. |
 | `src/features/shared/memory/memoryCheck.ts` | Client fetch helper + copy for the check verdict. |
-| `src/app/org/[slug]/memory/page.tsx` | Page composition. |
-| `src/app/org/[slug]/memory/MemoryCoverageStrip.tsx` | Fleet-wide freshness strip. |
+| `src/features/shared/memory/MemoryTab.tsx` | Tab composition (server). |
+| `src/app/org/[slug]/memory/page.tsx` | Permanent redirect to `?tab=memory`. |
+| `src/features/shared/memory/MemoryCoverageStrip.tsx` | Fleet-wide freshness strip. |
+| `src/lib/standard/memory-read.ts` | Parses a repo's `.ai/memory/` entries. |
+| `src/lib/memory/repo-memory-mirror.ts` | The mirror: gates, parse, upsert, ingest, supersede. |
+| `src/lib/db/repo-memory.ts` | `RepoMemoryMirror` reads/writes + the dead-ends read. |
+| `src/features/shared/memory/RepoMemoryDeadEnds.tsx` | "Dead ends other repos already hit". |
