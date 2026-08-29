@@ -46,6 +46,18 @@ a parallel run has already swept an in-flight version bump into its own commit h
 
 ## Skill improvement log
 
+- **2026-08-29 (moonshot round)** — `--develop --ideas-only` over ALL 54 contexts with `feature-scout` +
+  `moonshot-architect` (operator-defined; not in `references/lenses.md`), L/XL only. Method that worked:
+  one fresh scout subagent per **context group** (11 in parallel, ~200k tokens each) with a shared brief
+  (`BRIEF.md`: product docs to read first, never-re-propose list, finding form), 3-5 findings per group
+  → 45 findings → 37 deck items after merging cross-group duplicates → in-terminal triage 4 per screen.
+  Two hazards: (1) **subagent `.output` transcript files are EMPTY for most completed agents** — the
+  result exists only in the completion notification, so persist each result to the scratchpad the
+  moment it arrives or it is lost when context compacts; (2) the outbox is now 719 lines (30 of 45
+  findings emitted per the 30-per-pass cap; the 15 skipped are all deferred/concept-doc items and are
+  fully recorded in `docs/BACKLOG.md`'s round table). The decision record lives in BACKLOG.md, not only
+  in the outbox, because the outbox is not being drained.
+
 - **2026-08-29** — `.personas/memory-outbox.jsonl` has not been drained since 2026-08-10 and stands
   at ~369 lines, well past the 200-line / 30-finding ingest cap. Rounds keep appending because losing
   the record is worse than exceeding a cap nothing is currently reading — but until Personas ingests

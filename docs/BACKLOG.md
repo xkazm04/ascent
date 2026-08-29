@@ -81,3 +81,67 @@ analysis doc §"Strengths → do-not-touch guardrails"):
 |---|---|---|---|
 | M2 | **`env.md` fixture gap.** A seeded org with **≥3 scans of one repo across ≥2 calendar days (≥14-day span)** is required before B9 can reach `resolved-verified`. `seed-org.mjs` scans in a single pass, so `forecastTrajectory` returns null and six generated board PDFs contained zero `Trajectory:` lines. | `DANA-L1-001`/`-002` resolved `uncertain — not reproducible on this host` | open |
 | M3 | Next run should emit `resolution` on **every** `findings.json` row, including plain `open` ones: 30 of 37 rows carried `null`, so drain §1 had to be reconstructed from prose. | drain §3 | open |
+
+---
+
+## scan-sweep `--develop --ideas-only` moonshot round (2026-08-29)
+
+Lenses: `feature-scout` + `moonshot-architect` (operator-defined: architecture-grade, category-defining capabilities) over **all 11 context groups / 54 contexts**, L/XL findings only. 45 findings from 11 parallel group scouts, merged into **37 deck items** and triaged one by one in the terminal. Tally: **22 accepted · 5 concept-doc first · 10 deferred · 0 declined**. Full finding bodies (Summary/Description/Flow/Impact/Evaluation, `file:line` evidence) are in `.personas/memory-outbox.jsonl` (30 of 45 emitted — the outbox is past its ingest cap; see the overlay note) and the per-context coverage ledger in `.claude/scan-history/scan-sweep.jsonl`.
+
+Convergence worth noting: four scouts independently proposed the open benchmark corpus (#2), three the control/governance event ledger (#1), two each the forge layer (#4), the guidance arbiter (#15) and GitHub Teams identity/scoping (#21).
+
+| # | Item | Contexts (scout src) | Size | Gate | Decision |
+|---|---|---|---|---|---|
+| 1 | Governance Evidence Ledger (event-sourced control timeline, as-of-merge pack, control-failed alerts) | GitHub App Installation & Webhooks (02#1); Fleet Alerts & Digests (04#1); Security Posture & Audit Log (05#2) | XL | policy | **accepted** |
+| 2 | Open benchmark corpus: rubric-versioned snapshots, public dataset + percentile API, federation, consent | Fleet Rollups & Insights (04#4); Portfolio & Public Leaderboard (08#4); Database Client & Schema (10#3); Landing Page Prototypes (11#1) | XL | policy/contract | concept-doc first |
+| 3 | Agent-neutral work protocol: claim/brief/report follow-ups over MCP + tokens | Follow-ups Ledger (06#1) | XL | policy | **accepted** |
+| 4 | Forge-neutral ingestion: GitLab / Bitbucket / Azure DevOps behind the RepoSource seam | Scan Pipeline & Ingestion (01#3); GitHub Repo Data Access (02#3) | XL | contract | **accepted** |
+| 5 | Gate-as-code: manifest-declared bar, ratchet/no-regression, one evaluator at pre-push/CI/check-run | CI Gate & Status Checks (01#2) | XL | contract | concept-doc first |
+| 6 | Signed maturity attestation (in-toto/DSSE) + verify CLI | PDF & LLM Export (08#2) | L | policy | deferred |
+| 7 | AI Trust Center: opt-in tenant-published governance scorecard with signed digest | Marketing About Page (11#2) | XL | policy | concept-doc first |
+| 8 | Agent-admission compiler: stance + autonomy tier become enforced per-repo controls | Practices, Governance & Adoption (05#1) | XL | policy | **accepted** |
+| 9 | Intervention Outcome Ledger: measured lift per recommendation, fleet- and corpus-wide | Roadmap & Recommendation Tracking (08#1) | XL | policy | **accepted** |
+| 10 | Two-speed fleet: durable scan queue + credit-free control probes | Org Import, Scan & Watchlist (04#2) | XL | contract | **accepted** |
+| 11 | Unified LLM meter: every inference lane priced, team/segment showback | Usage Metering (09#1) | XL | policy | **accepted** |
+| 12 | Purchasable artifacts: one-time Polar products that fulfil an entitlement | Checkout & Plans (Polar) (09#2) | L | contract | deferred |
+| 13 | Manifest-as-scan-input: declared-vs-proven capability conformance | AI-Native Standard & Onboarding Skill (03#1) | L | contract | **accepted** |
+| 14 | `.ai/memory` comes home: per-repo agent memory indexed into Org Memory | AI-Native Standard & Onboarding Skill (03#2) | XL | policy | **accepted** |
+| 15 | Guidance arbiter / guidance graph: canonical source, projections, verified contradictions, D1 coherence | Maturity Model & Scoring Engine (01#5); AI-Native Standard & Onboarding Skill (03#3) | L | contract | **accepted** |
+| 16 | Doctor findings as fleet control telemetry: per-check ledger, control matrix | AI-Native Standard & Onboarding Skill (03#4) | L | contract | **accepted** |
+| 17 | Work-time registry over MCP: skills, governing subjects, invoke/citation write-back | MCP Server (07#3) | XL | policy | **accepted** |
+| 18 | Standards conformance ledger: registry signals + registry-map as a fleet dimension | AI Registry Repo (Onboarding & Index) (07#1) | XL | contract | **accepted** |
+| 19 | Live invoke channel: per-skill/per-repo usage feeding dormancy and outcomes | Skills Registry & API Tokens (07#2) | L | contract | **accepted** |
+| 20 | Athena as registry curator: PR-proposing actions | Athena Companion (07#4) | XL | policy | deferred |
+| 21 | GitHub identity graph sync + scoped membership (teams, auto-RBAC, self scope) | GitHub App Installation & Webhooks (02#2); Members & Access Control (04#3) | L | policy | deferred |
+| 22 | Developer-held credential lane: user-to-server GitHub tokens for UC3 | GitHub OAuth & Session (02#4) | L | policy | concept-doc first |
+| 23 | Agent behaviour ledger: OTLP sessions as UC3's second sensor | Developer home (UC3 individual care) (05#3) | XL | policy | concept-doc first |
+| 24 | Billing account above the tenant: pooled credits, sponsored orgs, resellers | Credits & Entitlements (09#3) | XL | policy | deferred |
+| 25 | Org-brief for every lane: playbooks/house pattern/memory in; lessons and declines out | Playbooks (06#4) | XL | contract | **accepted** |
+| 26 | One improvement ledger: loop lanes become Bought/programme/conformance evidence | Executive Briefing (06#3) | L | contract | **accepted** |
+| 27 | Remediation economics: cost per verified dimension point, per model, per lane | Local Autopilot & Loop Engine (06#2) | L | contract | **accepted** |
+| 28 | Durable scheduled drives bound to the programme's cadence and pace | Local Autopilot & Loop Engine (06#5) | L | policy | deferred |
+| 29 | Score-input ledger: persisted scan inputs for offline re-score and rubric migration | Scan Pipeline & Ingestion (01#1) | L | policy | deferred |
+| 30 | Reproducibility certificate: measured per-model noise bands on anchored scores | LLM Provider Abstraction (01#4) | L | policy | deferred |
+| 31 | Signed tenant history bundle: export + import of a scan time series | Scan Persistence & History (10#1) | XL | policy | deferred |
+| 32 | Retention compaction: pruned scans age into rubric-tagged digests | Data Retention & Purge (10#2) | L | contract | **accepted** |
+| 33 | Practice adoption ledger: post-merge drift, versioned house patterns, fleet rollout | Practices, Governance & Adoption (05#4) | L | contract | **accepted** |
+| 34 | Exemplar Diff: signal-level comparison against a peer repo or cohort | Trends & Comparison (08#3) | L | contract | **accepted** |
+| 35 | Fleet foundation rollout with self-provisioned report-back | First-Run Onboarding Wizard (03#5) | L | policy | **accepted** |
+| 36 | Git-native improvement channel: lessons mirror, skill Trace, reflect-as-PR | Org Memory (07#5) | L | contract | **accepted** |
+| 37 | Data-bound deck diagrams: every marketing figure is a live public read model | Design System: UI Primitives & Deck (11#3) | L | contract | deferred |
+
+Deferred and concept-doc items stay on this list so they cannot be re-proposed as new; an accepted item is a build direction, not a shipped feature — each still needs its own design/ship-loop milestone and (most carry a `contract` or `policy` gate) a reviewer who is not the author.
+
+### S/M defects the scouts noted in passing (not built — ideas-only round)
+
+- **group 10:** docs/features/data/README.md says 40 models vs data-model.md 48 (drift); ScanDimension lacks (scanId,dimId) index (schema.prisma:640); erase/purge preview reports dims/recs as 0 by design (retention.ts:174-183) but field names imply real counts.
+- **group 11:** IndexOrg.tsx:46-48 sells an 'ROI-ranked backlog' while the plan forbids leading with ROI (XS); leaderboard/page.tsx:79-81 promises a link with a plain span (XS); feature-doc-map + AGENTS.md still list src/app/api/badge/** though badge routes are deleted (S).
+- **group 01:** noise.ts:9-10 still says guardband ±25 (r8 = 6; stale); context-map brief says 8 dimensions, code has 9; llm-providers.md:739 vs config.ts:81 disagree on which providers are reproducible.
+- **group 02:** DEFAULT_TTL_MS in webhook-deliveries.ts is 10 min while the route passes 24h (S); github-app.md/setup.md omit installation_repositories and check_run from the events list (S); source.ts:55-58 comment cites the deleted /connect PrivacyNotice (XS).
+- **group 03:** GET /api/report/conformance trend walks up to 1,000 audit rows per request with substring meta match (unindexed); docs/features/onboarding/README.md:31-33 still lists 'Connect & Repo Selection' though /connect was retired; manifest.ts generatedAt is the scan date so a repo can start 'stale' on first doctor run (doctor.ts:233-234).
+- **group 04:** reconcileListedRepos never runs for App-installed orgs so renamed/archived private repos burn rescan slots forever; RepoTeam.source github_teams declared with no writer; docs/features/fleet/enterprise.md cites advanceSchedule which no longer exists.
+- **group 05:** gate `policyFromParams` drops `minAiGovernedRate` on the no-org-policy path (src/lib/scoring/gate.ts:483-496 vs :474-475); practices.md W6 deviation text says `minedStarter` is not wired into apply, but it is via `resolveHousePattern` (src/lib/practices/apply.ts:72-76, src/lib/practice-artifact.ts:499-513) — doc drift; conformance pack limitations omit that `environment` is latest-scan not as-of-merge (src/lib/conformance/pack.ts:270-299 vs src/lib/db/ai-changes.ts:138-141); `StanceFinding.advisory` is never emitted true so `compliant` is degenerate (src/lib/org/stance.ts:222,238,248,259,274); `TeamStandingSnapshot.standingsJson` is written and never read (src/lib/db/team-standings.ts:59-62); `transferPlaybook` output is ephemeral despite copy promising a Goal/Initiative handoff (src/features/standing/tech-stacks/transferPlaybook.ts:35-80).
+- **group 06:** agent.ts:98-103 drops cost/usage/turns from the claude -p envelope; docs/features/org-planning/README.md cites retired routes (/api/org/initiatives, /api/org/simulate) and old component paths; context-map entry points for Live/Playbooks no longer match the feature tree.
+- **group 07:** `bySkill` from the usage lane is dropped after the catalog (src/lib/db/org-registry-write.ts:61 persists totals only) so the Registry tab's `invokes30d` can never be attributed; `POST /api/mcp` checks only `mcp:read` and has no memory plan gate (src/lib/athena/grounding.ts:19-24 names it, src/app/api/mcp/route.ts:97-104); `OrgSkillEvent.source` still free text (src/app/api/org/skills/events/route.ts:39); GOLDEN-USE-CASES Phase A telemetry contract (`telemetry/<repo>/<yyyy-mm>.jsonl`) diverges from the shipped `usage/<contributor>.json` lane the indexer reads (src/lib/registry/index-walk.ts:51-58).
+- **group 08:** RoadmapSandboxScenarioBar shows projected-vs-actual but nothing writes back to the recommendation timeline; trends/annotations.ts says 'no deploy feed yet' while Deployment rows are persisted and unread; llm-markdown.ts omits scoreIntegrity, governance and aiChanges (relates to B6).
+- **group 09:** getCreditReconciliation classifies reversals with /refund/i (credits.ts:508) despite the CREDIT_REASON contract (M); Subscription rows are written by nothing so freeToPaidConversion (kpi-metrics.ts:197-221) can only report 0 (M); public-scan-quota.ts:1,55 says Free is 5 scans/month while plans.ts:190 is 20 (S, adjacent to B8).
