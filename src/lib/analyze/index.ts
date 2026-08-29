@@ -16,6 +16,7 @@ import type {
 import { clamp } from "@/lib/maturity/model";
 import { facetPoints } from "@/lib/scoring/claims";
 import { AI_TRAILER_SOURCE } from "./ai-tools";
+import { readManifestYaml } from "@/lib/standard/read";
 
 // ---------------------------------------------------------------------------
 // Analysis context — precomputed views over the snapshot for cheap querying.
@@ -155,8 +156,16 @@ function aiStandard(idx: RepoIndex): {
   const d8: { points: number; label: string }[] = [];
   if (idx.has(/^\.ai\/manifest\.ya?ml$/)) {
     d1.push({ points: 2, label: "Found .ai/manifest.yaml (agent-facing contract)" });
-    const m = idx.content(".ai/manifest.yaml") || "";
-    if (/schema:\s*ai-manifest/.test(m) && /\ncapabilities:/.test(m) && /\ncontrols:/.test(m))
+    // #13 — sourced through the shared reader instead of three inline regexes, so the ONE place that
+    // decides what a manifest says is the same one the readout, the skill and the fleet matrix use.
+    // Points and label text are unchanged and pinned byte-for-byte by signals.test.ts: this lane
+    // moves no number. What it does change is REACHABILITY — this +4 was dead code for as long as
+    // `pickFilesToFetch` never requested the file (idx.content only sees fetched files), so the award
+    // starts firing on repos it never fired on before. That is disclosed, not hidden: see the
+    // score-movement rule in docs/specs/moonshot/13-manifest-as-scan-input.md.
+    const readout = readManifestYaml(idx.content(".ai/manifest.yaml") ?? idx.content(".ai/manifest.yml"));
+    const placed = readout.controls.prePush.length > 0 || readout.controls.ciHardPass.length > 0;
+    if (readout.status === "ok" && readout.capabilities.length > 0 && placed)
       d1.push({ points: 4, label: "Manifest declares capabilities + control placement" });
   }
   if (idx.has(/^\.ai\/doctor\.mjs$/)) {

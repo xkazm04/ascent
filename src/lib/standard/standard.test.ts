@@ -16,6 +16,8 @@ import {
   buildMaintain,
   buildFoundation,
 } from "./index";
+import { readManifestYaml } from "./read";
+import { isKnownCheckId, isValidCheckId, slugSubject } from "./check-ids";
 import { buildOnboardingSkill } from "@/lib/onboarding/skill";
 import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
@@ -609,6 +611,117 @@ describe("manifest <-> doctor round-trip", () => {
   });
 });
 
+// #13 — REGENERATION over a repo that already declares a contract. The whole point is that running
+// the generator a second time is never a downgrade: the maintainer's corrected commands, the doctor's
+// proven flags, and the answers they wrote into the TODO seeds all survive. Without this, "re-run the
+// onboarding skill" silently reverted a repo's contract to Ascent's guesses.
+// #16 — the doctor's findings are the fleet's control telemetry, so their IDS are a contract. The
+// template embeds the vocabulary as literals (it can neither import nor be imported), which is
+// exactly the shape that drifts silently; these assertions are what makes that impossible.
+describe("doctor check ids (the vocabulary the ledger keys on)", () => {
+  const body = buildDoctor().body;
+
+  it("every add()/check() call site carries an id — no two-argument add survives", () => {
+    // A two-arg `add('warn', '…')` means a finding with no id, which lands in the ledger as an
+    // unkeyable row. Before this change EVERY call site had that shape, so this assertion is the
+    // proof the conversion is complete rather than partial.
+    const twoArg = body.match(/\badd\('(pass|warn|fail|unchecked)'/g) ?? [];
+    expect(twoArg).toEqual([]);
+    // …and the definitions themselves take the id first.
+    expect(body).toContain("const add = (check, level, msg) =>");
+    expect(body).toContain("const check = (checkId, ok, label, miss) =>");
+  });
+
+  it("every literal id in the template is in the shared vocabulary", () => {
+    const ids = [...body.matchAll(/\b(?:add|check)\('([a-z][a-z0-9.-]*)'/g)].map((m) => m[1]!);
+    expect(ids.length).toBeGreaterThan(15);
+    for (const id of ids) {
+      // A templated id appears in the source as its PREFIX (`'capability.' + slug(n)`), so complete
+      // it with a stand-in subject before checking the wire shape.
+      const full = id.endsWith(".") ? id + "x" : id;
+      expect(isValidCheckId(full)).toBe(true);
+      expect(isKnownCheckId(full)).toBe(true);
+    }
+  });
+
+  it("the doctor's own slug() agrees with the shared slugSubject()", () => {
+    const m = /const slug = \((.*?)\) => (.*?);\n/.exec(body);
+    expect(m).toBeTruthy();
+    const slug = new Function("return (" + m![0].replace(/^const slug = /, "").replace(/;\n$/, "") + ")")() as (s: string) => string;
+    for (const sample of ["test", "Next.js Build", "src/generated/CONTEXT.md", "<your build manifest>", "scan-secrets", "a".repeat(150)])
+      expect(slug(sample)).toBe(slugSubject(sample));
+  });
+
+  it("the template still contains NO backtick and NO ${ — it must embed verbatim", () => {
+    expect(body).not.toContain("`");
+    expect(body).not.toContain("${");
+  });
+});
+
+describe("buildManifestData(report, { observed }) — the repo's own contract wins", () => {
+  /** A manifest a maintainer has tuned and a `--run` doctor has proven, read back. */
+  const tuned = () =>
+    readManifestYaml(
+      serializeManifestYaml({
+        ...buildManifestData(makeReport("TypeScript")),
+        repo: { ...buildManifestData(makeReport("TypeScript")).repo, purpose: "Ledger service for billing" },
+        capabilities: {
+          test: { command: "pnpm vitest run --project unit", verified: true },
+          lint: { command: "pnpm lint", verified: false },
+          build: { command: "pnpm build", verified: false },
+          typecheck: { command: "pnpm tsc -b", verified: true },
+          fuzz: { command: "pnpm fuzz", verified: false },
+        },
+        boundaries: { neverTouch: ["src/generated/"], secretsFrom: "1Password: engineering vault" },
+        agents: [{ id: "primary", kind: "cli", entrypoint: "make agent" }],
+        controls: { prePush: ["lint", "typecheck"], ciHardPass: ["test", "fuzz"] },
+      }),
+    );
+
+  it("with NO observed readout, the output is byte-identical to today's generator", () => {
+    const report = makeReport("Python");
+    expect(serializeManifestYaml(buildManifestData(report, { observed: null }))).toBe(
+      serializeManifestYaml(buildManifestData(report)),
+    );
+    // An unreadable readout carries no intent, so it must degrade to the same first-install output.
+    expect(serializeManifestYaml(buildManifestData(report, { observed: readManifestYaml("garbage") }))).toBe(
+      serializeManifestYaml(buildManifestData(report)),
+    );
+  });
+
+  it("the maintainer's commands beat the language guess, and a PROVEN verified flag survives", () => {
+    const d = buildManifestData(makeReport("TypeScript"), { observed: tuned() });
+    expect(d.capabilities.test!.command).toBe("pnpm vitest run --project unit");
+    expect(d.capabilities.test!.verified).toBe(true);
+    expect(d.capabilities.typecheck!.verified).toBe(true);
+    expect(d.capabilities.lint!.verified).toBe(false);
+    // A capability the repo invented is carried, not deleted — the map is open by contract.
+    expect(d.capabilities.fuzz!.command).toBe("pnpm fuzz");
+  });
+
+  it("hand-edited TODO seeds (purpose, secretsFrom, neverTouch, agents) are NOT regressed", () => {
+    const d = buildManifestData(makeReport("TypeScript"), { observed: tuned() });
+    expect(d.repo.purpose).toBe("Ledger service for billing");
+    expect(d.boundaries.secretsFrom).toBe("1Password: engineering vault");
+    expect(d.boundaries.neverTouch).toEqual(["src/generated/"]);
+    expect(d.agents).toEqual([{ id: "primary", kind: "cli", entrypoint: "make agent" }]);
+    // …and a TUNED control split is a decision, so it replaces the recommendation wholesale.
+    expect(d.controls).toEqual({ prePush: ["lint", "typecheck"], ciHardPass: ["test", "fuzz"] });
+  });
+
+  it("regeneration is a fixed point: read(serialize(build(observed))) equals what was observed", () => {
+    const first = tuned();
+    const again = readManifestYaml(serializeManifestYaml(buildManifestData(makeReport("TypeScript"), { observed: first })));
+    // Key ORDER is the generator's (build/test/lint/typecheck, then the repo's own), so the fixed
+    // point is over the set, not the sequence — a re-ordered map is the same contract.
+    const byName = (r: typeof first) => [...r.capabilities].sort((a, b) => a.name.localeCompare(b.name));
+    expect(byName(again)).toEqual(byName(first));
+    expect(again.controls).toEqual(first.controls);
+    expect(again.boundaries).toEqual(first.boundaries);
+    expect(again.purpose).toBe(first.purpose);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------------
 // The conformance SCORE and EXIT CODE are the CI merge gate every adopting repo runs. The round-trip
 // block above proves the doctor's PARSERS read the serializer's manifest; this block proves the whole
@@ -923,7 +1036,7 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     // ignores. Anything else appearing here is contract drift.
     writeConformantRepo(tmp);
     const { json } = runDoctor(tmp);
-    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "score", "scored", "unchecked", "warns"]);
+    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "runShape", "score", "scored", "specVersion", "unchecked", "warns"]);
     expect(typeof json.score).toBe("number");
     expect(typeof json.fails).toBe("number");
     expect(typeof json.warns).toBe("number");
@@ -935,6 +1048,10 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     for (const f of json.findings) {
       expect(["pass", "warn", "fail", "unchecked"]).toContain(f.level);
       expect(typeof f.msg).toBe("string");
+      // #16 — every finding also carries a STABLE id, so a receiver can follow one clause across
+      // runs and rewordings instead of keying on the rendered sentence.
+      expect(typeof f.check).toBe("string");
+      expect(isValidCheckId(f.check)).toBe(true);
     }
     // The reported counts agree with the findings array (the numbers the route trusts are derived,
     // not free-floating).

@@ -8,7 +8,7 @@ Context-map group: **Onboarding, Shell & AI Standard** (`feature`).
 | Doc | Covers | Freshness (audited 2026-07-28) |
 | --- | --- | --- |
 | [wizard.md](wizard.md) | First-run wizard: pick → select → scanning → done, tour, FleetMap | STALE: incomplete, not wrong |
-| [ai-manifest-spec.md](ai-manifest-spec.md) | `.ai/manifest.yaml` spec v0.1.0 + doctor conformance checks | CURRENT |
+| [ai-manifest-spec.md](ai-manifest-spec.md) | `.ai/manifest.yaml` spec v0.3.0 + doctor conformance checks + the read-back contract | CURRENT |
 
 ## Implementation roots
 

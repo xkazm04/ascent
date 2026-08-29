@@ -38,8 +38,9 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(),
   recordConformance: vi.fn(),
   verifyOrgApiToken: vi.fn(),
-  getAuditLog: vi.fn(),
 }));
+// #16 — the trend is read from the per-check ledger, not reconstructed by walking the audit log.
+vi.mock("@/lib/db/org-conformance", () => ({ listConformanceReports: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: vi.fn() }));
 // G2-32: spy on the crypto primitive so the legacy-token test can assert the COMPARISON FUNCTION USED
 // (constant-time), not the timing — a plain `===` on a deployment-wide credential is a timing oracle.
@@ -52,7 +53,8 @@ vi.mock("node:crypto", async (importOriginal) => {
 
 import { GET, POST } from "./route";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
-import { isDbConfigured, recordConformance, verifyOrgApiToken, getAuditLog } from "@/lib/db";
+import { isDbConfigured, recordConformance, verifyOrgApiToken } from "@/lib/db";
+import { listConformanceReports } from "@/lib/db/org-conformance";
 import { readableOrgForOwner } from "@/lib/auth";
 
 const mockRequireOrgAccess = vi.mocked(requireOrgAccess);
@@ -60,7 +62,7 @@ const mockRequireOrgRead = vi.mocked(requireOrgRead);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockRecord = vi.mocked(recordConformance);
 const mockVerifyToken = vi.mocked(verifyOrgApiToken);
-const mockGetAuditLog = vi.mocked(getAuditLog);
+const mockList = vi.mocked(listConformanceReports);
 const mockReadableOrgForOwner = vi.mocked(readableOrgForOwner);
 
 /** A verified org token principal, as verifyOrgApiToken would return it. */
@@ -94,7 +96,7 @@ beforeEach(() => {
   mockRecord.mockResolvedValue({ recorded: true, stale: false });
   mockVerifyToken.mockResolvedValue(null);
   mockReadableOrgForOwner.mockResolvedValue("acme");
-  mockGetAuditLog.mockResolvedValue({ entries: [], nextCursor: null });
+  mockList.mockResolvedValue([]);
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -107,7 +109,7 @@ describe("POST /api/report/conformance — org-scoped API token (G2-02: a token 
 
     expect(res.status).toBe(200);
     expect(mockRequireOrgAccess).not.toHaveBeenCalled();
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("REFUSES to write another org's score with a valid token bound elsewhere", async () => {
@@ -152,7 +154,7 @@ describe("POST /api/report/conformance — org-scoped API token (G2-02: a token 
   it("clamps on the org-token path too", async () => {
     mockVerifyToken.mockResolvedValue(orgToken("acme"));
     await post({ ...OK, score: 999 }, { authorization: "Bearer askl_acme" });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 });
 
@@ -219,7 +221,7 @@ describe("POST /api/report/conformance — auth (CI token vs org access)", () =>
 
     expect(res.status).toBe(200);
     expect(mockRequireOrgAccess).not.toHaveBeenCalled(); // the unattended path is not org-gated
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("matches the Bearer prefix case-insensitively (curl/doctor header casing varies)", async () => {
@@ -276,33 +278,33 @@ describe("POST /api/report/conformance — auth (CI token vs org access)", () =>
 describe("POST /api/report/conformance — clamping the self-attested values", () => {
   it("clamps an absurd score to 0..100 instead of persisting it", async () => {
     await post({ ...OK, score: 999999 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("clamps a negative score to 0", async () => {
     await post({ ...OK, score: -50 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 0, fails: 1, warns: 3, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 0, fails: 1, warns: 3, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("clamps fails/warns to a non-negative, sanely-capped count", async () => {
     await post({ ...OK, fails: -7, warns: 5_000_000 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 0, warns: 100_000, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 0, warns: 100_000, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("truncates fractional values rather than persisting a float", async () => {
     await post({ ...OK, score: 82.9, fails: 1.7, warns: 3.2 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("clamps on the CI-TOKEN path too — the unattended reporter is not more trusted", async () => {
     vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
     await post({ ...OK, score: 12345, fails: -1, warns: -1 }, { authorization: "Bearer s3cret" });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 0, warns: 0, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 0, warns: 0, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 
   it("accepts numeric STRINGS (a shell-built JSON payload) and still bounds them", async () => {
     await post({ ...OK, score: "150", fails: "2", warns: "0" });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 2, warns: 0, headSha: null });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 2, warns: 0, headSha: null, unchecked: 0, scored: 0, specVersion: null, runShape: "plain", findings: undefined });
   });
 });
 
@@ -387,28 +389,42 @@ describe("POST /api/report/conformance — validation and the recorded:false pat
   });
 });
 
-// GET /api/report/conformance — the trend read (G7-23). The Repository row only ever holds the
-// LATEST reported score, but every accepted POST above also appends a `conformance.reported` row to
-// the org's audit ledger — so history already exists with no schema change, and this walks it back
-// via the shared getAuditLog reader (the same one /api/audit uses), action-filtered and then
-// repo-filtered client-side (getAuditLog has no per-repo filter of its own).
-import type { AuditLogEntry } from "@/lib/db";
+// GET /api/report/conformance — the trend read.
+//
+// It used to be RECONSTRUCTED: up to 10 pages x 100 audit rows per request, filtered down to the one
+// repo, because the signed `conformance.reported` ledger was the only per-report history that existed.
+// #16 gives the reports their own table, so this is an indexed read and the audit walk is deleted.
+// The assertions below that the route never touches `getAuditLog` ARE that deletion's proof — this
+// file imported and mocked it before, and it does not exist here any more.
 
 function get(url: string) {
   return GET(new Request(`http://localhost${url}`));
 }
 
-/** A `conformance.reported` audit row, as getAuditLog would return it (newest reports first). */
-function conformanceRow(over: { at: string; repo: string; score: number; fails?: number; warns?: number; sha?: string | null }): AuditLogEntry {
+/** One stored report, as listConformanceReports returns it (newest first). */
+function reportRow(over: {
+  at: string;
+  score: number;
+  fails?: number;
+  warns?: number;
+  sha?: string | null;
+  summaryOnly?: boolean;
+  findings?: { check: string; level: "pass" | "warn" | "fail" | "unchecked"; message: string }[];
+}) {
   return {
-    id: `row_${over.at}`,
-    action: "conformance.reported",
-    actorId: null,
-    orgId: "org_1",
-    at: over.at,
-    meta: { repo: over.repo, sha: over.sha ?? null, score: over.score, fails: over.fails ?? 0, warns: over.warns ?? 0 },
-    scan: null,
-    integrity: "ok",
+    id: `rep_${over.at}`,
+    repoFullName: "acme/api",
+    headSha: over.sha ?? null,
+    score: over.score,
+    fails: over.fails ?? 0,
+    warns: over.warns ?? 0,
+    unchecked: 0,
+    scored: 5,
+    specVersion: "0.3.0",
+    runShape: "plain",
+    summaryOnly: over.summaryOnly ?? false,
+    reportedAt: over.at,
+    findings: over.findings ?? [],
   };
 }
 
@@ -423,14 +439,14 @@ describe("GET /api/report/conformance — trend history", () => {
   it("returns 400 for a missing/unusable repo query param", async () => {
     const res = await get("/api/report/conformance?repo=not-a-repo");
     expect(res.status).toBe(400);
-    expect(mockGetAuditLog).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
   });
 
   it("refuses public-org (unowned) repos — history is an org-only surface", async () => {
     mockReadableOrgForOwner.mockResolvedValue("public");
     const res = await get("/api/report/conformance?repo=acme/api");
     expect(res.status).toBe(403);
-    expect(mockGetAuditLog).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
   });
 
   it("returns the read-gate's denial verbatim and never queries the ledger", async () => {
@@ -438,66 +454,59 @@ describe("GET /api/report/conformance — trend history", () => {
     mockRequireOrgRead.mockResolvedValue(denial);
     const res = await get("/api/report/conformance?repo=acme/api");
     expect(res).toBe(denial);
-    expect(mockGetAuditLog).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
   });
 
-  it("filters the org-wide ledger down to just this repo's reports, newest-first", async () => {
-    mockGetAuditLog.mockResolvedValue({
-      entries: [
-        conformanceRow({ at: "2026-07-20T00:00:00.000Z", repo: "acme/other", score: 10 }), // different repo
-        conformanceRow({ at: "2026-07-19T00:00:00.000Z", repo: "acme/api", score: 90, sha: "abc1234" }),
-        conformanceRow({ at: "2026-07-12T00:00:00.000Z", repo: "acme/api", score: 82 }),
-      ],
-      nextCursor: null,
-    });
+  it("reads this repo's own reports directly — no org-wide scan, no client-side filtering", async () => {
+    mockList.mockResolvedValue([
+      reportRow({ at: "2026-07-19T00:00:00.000Z", score: 90, sha: "abc1234" }),
+      reportRow({ at: "2026-07-12T00:00:00.000Z", score: 82 }),
+    ]);
 
     const res = await get("/api/report/conformance?repo=acme/api");
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.repo).toBe("acme/api");
+    // The ConformanceTrendPoint shape is UNCHANGED, so no client had to move with the storage.
     expect(body.points).toEqual([
       { at: "2026-07-19T00:00:00.000Z", score: 90, fails: 0, warns: 0, sha: "abc1234" },
       { at: "2026-07-12T00:00:00.000Z", score: 82, fails: 0, warns: 0, sha: null },
     ]);
-    expect(mockGetAuditLog).toHaveBeenCalledWith("acme", { action: "conformance.reported", cursor: null, limit: 100 });
+    expect(mockList).toHaveBeenCalledWith("acme", "acme/api", 50);
   });
 
-  it("paginates the ledger via cursor when the first page has no matching rows for this repo", async () => {
-    mockGetAuditLog
-      .mockResolvedValueOnce({ entries: [conformanceRow({ at: "t2", repo: "acme/other", score: 1 })], nextCursor: "c1" })
-      .mockResolvedValueOnce({ entries: [conformanceRow({ at: "t1", repo: "acme/api", score: 77 })], nextCursor: null });
+  it("returns the latest report's per-check state as the additive `checks` field", async () => {
+    mockList.mockResolvedValue([
+      reportRow({
+        at: "t2",
+        score: 60,
+        findings: [{ check: "control.prepush.lint", level: "fail", message: "not wired" }],
+      }),
+    ]);
+    const body = await (await get("/api/report/conformance?repo=acme/api")).json();
+    expect(body.checks).toEqual([{ check: "control.prepush.lint", level: "fail", message: "not wired" }]);
+    expect(body.summaryOnly).toBe(false);
+  });
 
-    const res = await get("/api/report/conformance?repo=acme/api");
-    const body = await res.json();
-
-    expect(body.points).toEqual([{ at: "t1", score: 77, fails: 0, warns: 0, sha: null }]);
-    expect(mockGetAuditLog).toHaveBeenNthCalledWith(2, "acme", { action: "conformance.reported", cursor: "c1", limit: 100 });
+  it("a summary-only latest report yields NO checks — an old reporter is not a clean one", async () => {
+    mockList.mockResolvedValue([reportRow({ at: "t2", score: 60, summaryOnly: true })]);
+    const body = await (await get("/api/report/conformance?repo=acme/api")).json();
+    expect(body.checks).toEqual([]);
+    expect(body.summaryOnly).toBe(true);
   });
 
   it("flags a regression when the newest report scored lower than the one before it", async () => {
-    mockGetAuditLog.mockResolvedValue({
-      entries: [
-        conformanceRow({ at: "t2", repo: "acme/api", score: 60 }),
-        conformanceRow({ at: "t1", repo: "acme/api", score: 90 }),
-      ],
-      nextCursor: null,
-    });
+    mockList.mockResolvedValue([reportRow({ at: "t2", score: 60 }), reportRow({ at: "t1", score: 90 })]);
     const body = await (await get("/api/report/conformance?repo=acme/api")).json();
     expect(body.regressed).toBe(true);
   });
 
   it("does not flag a regression on an improvement, a flat score, or a single-point history", async () => {
-    mockGetAuditLog.mockResolvedValue({
-      entries: [
-        conformanceRow({ at: "t2", repo: "acme/api", score: 95 }),
-        conformanceRow({ at: "t1", repo: "acme/api", score: 90 }),
-      ],
-      nextCursor: null,
-    });
+    mockList.mockResolvedValue([reportRow({ at: "t2", score: 95 }), reportRow({ at: "t1", score: 90 })]);
     expect((await (await get("/api/report/conformance?repo=acme/api")).json()).regressed).toBe(false);
 
-    mockGetAuditLog.mockResolvedValue({ entries: [conformanceRow({ at: "t1", repo: "acme/api", score: 90 })], nextCursor: null });
+    mockList.mockResolvedValue([reportRow({ at: "t1", score: 90 })]);
     expect((await (await get("/api/report/conformance?repo=acme/api")).json()).regressed).toBe(false);
   });
 
@@ -505,6 +514,67 @@ describe("GET /api/report/conformance — trend history", () => {
     const res = await get("/api/report/conformance?repo=acme/api");
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toEqual({ repo: "acme/api", points: [], regressed: false });
+    expect(body).toEqual({ repo: "acme/api", points: [], regressed: false, checks: [], summaryOnly: null });
+  });
+});
+
+// #16 ingest validation. The findings array is SELF-REPORTED by a repo's CI, so a malformed payload
+// must 400 rather than land unqueryable rows — and a reporter that sends nothing must still work.
+describe("POST /api/report/conformance — findings[] validation (#16)", () => {
+  it("passes valid findings through, with the run shape and the claimed spec version", async () => {
+    const res = await post({
+      ...OK,
+      unchecked: 2,
+      scored: 7,
+      specVersion: "0.3.0",
+      runShape: "run",
+      findings: [{ check: "capability.test.run", level: "pass", message: "verified" }],
+    });
+    expect(res.status).toBe(200);
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", {
+      score: 82,
+      fails: 1,
+      warns: 3,
+      headSha: null,
+      unchecked: 2,
+      scored: 7,
+      specVersion: "0.3.0",
+      runShape: "run",
+      findings: [{ check: "capability.test.run", level: "pass", message: "verified" }],
+    });
+  });
+
+  it("a LEGACY payload with no findings still records — and is stored as summary-only", async () => {
+    const res = await post(OK);
+    expect(res.status).toBe(200);
+    // `findings: undefined` is what recordConformance turns into summaryOnly. An empty ARRAY would be
+    // a different statement (a run that judged nothing) and must not be substituted here.
+    expect(mockRecord.mock.calls[0]![2].findings).toBeUndefined();
+  });
+
+  it("400s on a malformed check id, an unknown level, a non-array, or more than 500 entries", async () => {
+    for (const bad of [
+      { findings: [{ check: "Not An Id", level: "pass" }] },
+      { findings: [{ check: "control.prepush.lint", level: "green" }] },
+      { findings: "control.prepush.lint" },
+      { findings: Array.from({ length: 501 }, () => ({ check: "structure", level: "pass" })) },
+    ]) {
+      mockRecord.mockClear();
+      const res = await post({ ...OK, ...bad });
+      expect(res.status).toBe(400);
+      expect(mockRecord).not.toHaveBeenCalled();
+    }
+  });
+
+  it("400s on an unknown runShape rather than silently storing the wrong denominator", async () => {
+    const res = await post({ ...OK, runShape: "verbose" });
+    expect(res.status).toBe(400);
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("truncates an over-long message instead of rejecting the whole report", async () => {
+    const res = await post({ ...OK, findings: [{ check: "structure", level: "warn", message: "x".repeat(900) }] });
+    expect(res.status).toBe(200);
+    expect(mockRecord.mock.calls[0]![2].findings![0]!.message).toHaveLength(300);
   });
 });

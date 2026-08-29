@@ -21,7 +21,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
-import { getAuditLog, isDbConfigured, recordConformance } from "@/lib/db";
+import { isDbConfigured, recordConformance } from "@/lib/db";
+import { listConformanceReports } from "@/lib/db/org-conformance";
+import { CHECK_LEVELS, isValidCheckId, type CheckLevel } from "@/lib/standard/check-ids";
 import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
@@ -80,6 +82,15 @@ export async function POST(request: Request) {
     score?: unknown;
     fails?: unknown;
     warns?: unknown;
+    // #16 — the run's shape and its per-check findings. Every one is OPTIONAL: a doctor older than
+    // spec 0.3.0 sends none of them and must keep working, so absence is stored as `summaryOnly`
+    // rather than rejected. Absence is never read as a pass, which is the whole reason the flag
+    // exists (see the matrix's honest `unchecked` cells).
+    unchecked?: unknown;
+    scored?: unknown;
+    specVersion?: unknown;
+    runShape?: unknown;
+    findings?: unknown;
   };
   const parsed = parseRepoUrl(body.repo ?? "");
   if (!parsed) return NextResponse.json({ error: "Provide { repo: 'owner/name' }." }, { status: 400 });
@@ -108,6 +119,45 @@ export async function POST(request: Request) {
   const boundedScore = clamp(score, 0, 100);
   const boundedFails = clamp(fails, 0, 100_000);
   const boundedWarns = clamp(warns, 0, 100_000);
+  const boundedUnchecked = clamp(int(body.unchecked) ?? 0, 0, 100_000);
+  const boundedScored = clamp(int(body.scored) ?? 0, 0, 100_000);
+  if (body.runShape !== undefined && body.runShape !== "plain" && body.runShape !== "run") {
+    return NextResponse.json({ error: "runShape must be 'plain' or 'run'." }, { status: 400 });
+  }
+  const runShape: "plain" | "run" = body.runShape === "run" ? "run" : "plain";
+  const specVersion =
+    typeof body.specVersion === "string" && /^\d+\.\d+\.\d+$/.test(body.specVersion.trim())
+      ? body.specVersion.trim()
+      : null;
+
+  // Findings are SELF-REPORTED by a repo's CI, so every field is validated rather than trusted: a
+  // malformed id would become an unqueryable ledger column, and an unbounded array is a write
+  // amplification an org token should not be able to buy. A 400 (not a silent drop) so a broken
+  // reporter learns it is broken instead of appearing to report cleanly forever.
+  let findings: { check: string; level: CheckLevel; message?: string }[] | undefined;
+  if (body.findings !== undefined && body.findings !== null) {
+    if (!Array.isArray(body.findings)) {
+      return NextResponse.json({ error: "findings must be an array." }, { status: 400 });
+    }
+    if (body.findings.length > 500) {
+      return NextResponse.json({ error: "findings may hold at most 500 entries." }, { status: 400 });
+    }
+    findings = [];
+    for (const raw of body.findings as unknown[]) {
+      const f = raw as { check?: unknown; level?: unknown; message?: unknown };
+      if (typeof f.check !== "string" || !isValidCheckId(f.check)) {
+        return NextResponse.json({ error: "Each finding needs a check id matching /^[a-z][a-z0-9]*(\\.[a-z0-9._/-]+)*$/ (max 120 chars)." }, { status: 400 });
+      }
+      if (typeof f.level !== "string" || !(CHECK_LEVELS as readonly string[]).includes(f.level)) {
+        return NextResponse.json({ error: "Each finding's level must be pass | warn | fail | unchecked." }, { status: 400 });
+      }
+      findings.push({
+        check: f.check,
+        level: f.level as CheckLevel,
+        message: typeof f.message === "string" ? f.message.slice(0, 300) : "",
+      });
+    }
+  }
 
   // Auth. The legacy shared token is checked FIRST only so we can log/refuse it explicitly; every
   // other credential (org token or session) goes through authorizeOrgApi, which binds the caller to
@@ -145,6 +195,11 @@ export async function POST(request: Request) {
     fails: boundedFails,
     warns: boundedWarns,
     headSha,
+    unchecked: boundedUnchecked,
+    scored: boundedScored,
+    specVersion,
+    runShape,
+    findings,
   });
   // `stale:true` = this sha was already reported before a newer commit — the score was deliberately
   // NOT overwritten. `recorded:false` (without stale) means the repo isn't tracked under this org
@@ -152,43 +207,16 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true, recorded, stale, repo: fullName });
 }
 
-// GET /api/report/conformance?repo=owner/name[&limit=50] -> { repo, points, regressed }
+// GET /api/report/conformance?repo=owner/name[&limit=50] -> { repo, points, regressed, checks }
 //
-// The Continuous Conformance trend (G7-23): every accepted POST above already appends a
-// `conformance.reported` row to the org's audit ledger (recordConformance, in src/lib/db/org-watch.ts)
-// — the Repository row itself only holds the LATEST score, but the ledger is real per-report history,
-// so a trend can be read back with no schema change. This walks that ledger (via the existing
-// getAuditLog reader, action-filtered) and picks out the rows for THIS repo, since getAuditLog has no
-// per-repo filter of its own. `regressed` is a computed signal only — it is not dispatched anywhere;
-// wiring it to a push notification belongs to the alerts system (G7-03), which this change does not
-// touch.
-async function loadConformanceTrend(org: string, fullName: string, limit: number): Promise<ConformanceTrendPoint[]> {
-  const points: ConformanceTrendPoint[] = [];
-  let cursor: string | null = null;
-  // Bound the ledger scan: a busy org's audit trail can be large, and most of it is other actions or
-  // other repos' conformance reports. 10 pages of 100 (the max page size getAuditLog allows) is enough
-  // to surface a meaningful trend for any one repo without an unbounded read on a shared table.
-  const MAX_PAGES = 10;
-  for (let page = 0; page < MAX_PAGES && points.length < limit; page++) {
-    const res = await getAuditLog(org, { action: "conformance.reported", cursor, limit: 100 });
-    if (!res || res.entries.length === 0) break;
-    for (const e of res.entries) {
-      const meta = e.meta as { repo?: string; sha?: string | null; score?: number; fails?: number; warns?: number };
-      if (meta.repo !== fullName) continue;
-      points.push({
-        at: e.at,
-        score: Number(meta.score) || 0,
-        fails: Number(meta.fails) || 0,
-        warns: Number(meta.warns) || 0,
-        sha: typeof meta.sha === "string" ? meta.sha : null,
-      });
-      if (points.length >= limit) break;
-    }
-    if (!res.nextCursor) break;
-    cursor = res.nextCursor;
-  }
-  return points; // newest-first, matching getAuditLog's own ordering
-}
+// The Continuous Conformance trend. It used to be RECONSTRUCTED by walking up to 1,000 audit rows per
+// request — the ledger was the only per-report history there was, so the trend was assembled by
+// filtering a shared, org-wide table for `conformance.reported` rows belonging to one repo. #16 gives
+// the reports their own table, so this is now an indexed read of exactly the rows asked for, and the
+// audit walk is gone. The `conformance.reported` AuditLog row still exists and is still signed — it is
+// the tamper-evident copy; only the READER moved off it.
+//
+// `points` keeps its exact ConformanceTrendPoint shape so no client changes; `checks` is additive.
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) {
@@ -210,14 +238,32 @@ export async function GET(request: Request) {
   const limit = Math.min(200, Math.max(1, Number(searchParams.get("limit")) || 50));
   const fullName = `${parsed.owner}/${parsed.repo}`;
   try {
-    const points = await loadConformanceTrend(org, fullName, limit);
+    const reports = (await listConformanceReports(org, fullName, limit)) ?? [];
+    const points: ConformanceTrendPoint[] = reports.map((r) => ({
+      at: r.reportedAt,
+      score: r.score,
+      fails: r.fails,
+      warns: r.warns,
+      sha: r.headSha,
+    }));
     // Regression: the newest report scored lower than the one immediately before it (points are
     // newest-first). A single-point history has nothing to regress against.
     // Destructured rather than indexed: `length >= 2` does not narrow index access under
     // noUncheckedIndexedAccess, and an explicit pair reads as the comparison it is.
     const [newest, prior] = points;
     const regressed = newest !== undefined && prior !== undefined && newest.score < prior.score;
-    return NextResponse.json({ repo: fullName, points, regressed });
+    // The per-check state of the LATEST report. A summary-only report (a doctor older than spec
+    // 0.3.0) carries no findings, so `checks` is empty and the client says "summary-only" — it must
+    // never render an absent finding as a passing control.
+    const latest = reports[0];
+    const checks = latest && !latest.summaryOnly ? latest.findings : [];
+    return NextResponse.json({
+      repo: fullName,
+      points,
+      regressed,
+      checks,
+      summaryOnly: latest ? latest.summaryOnly : null,
+    });
   } catch (err) {
     console.error("[conformance] trend query failed", err);
     return NextResponse.json({ error: "Failed to load conformance history." }, { status: 500 });

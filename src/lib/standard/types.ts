@@ -105,7 +105,7 @@ export interface ManifestData {
  *
  * Contrast `GUARDRAILS_SCHEMA_VERSION` below, which is deliberately independent and stays at 0.1.0.
  */
-export const MANIFEST_SCHEMA_VERSION = "0.2.0";
+export const MANIFEST_SCHEMA_VERSION = "0.3.0";
 
 /** Semver of the `.ai/guardrails.yaml` invariants schema (versioned independently of the spine). */
 export const GUARDRAILS_SCHEMA_VERSION = "0.1.0";

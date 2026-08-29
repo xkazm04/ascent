@@ -67,6 +67,13 @@ import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { UsageEventRow } from "@/lib/db/usage-events";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
+// Not a db module, but a db ROW TYPE all the same: ManifestReadout is parsed off
+// Repository.manifestJson in org-rollup and crosses to the Passports client via OrgRepoRow.manifest.
+// It declares two timestamps (`readAt`, `generatedAt`) and both are deliberately `string` — see #13.
+import type { CapabilityReadout, ManifestReadout } from "@/lib/standard/readout";
+// #16 — the conformance ledger's two row types. Both declare `reportedAt` / `since` as strings and
+// are mapped with .toISOString() in org-conformance.ts, and both cross to the Passports client.
+import type { ConformanceReportRow, ControlMatrixRow } from "@/lib/db/org-conformance";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 type DateBearingKeys<T> = {
@@ -107,7 +114,12 @@ const WIRE_TYPES = {
   ComparableScan: true satisfies WireSafe<ComparableScan>,
   // MOONSHOT #35: the rollout rows render in the Repositories tab; timestamps are ISO strings.
   FoundationRolloutRow: true satisfies WireSafe<FoundationRolloutRow>,
+  CapabilityReadout: true satisfies WireSafe<CapabilityReadout>,
+  ComparableScan: true satisfies WireSafe<ComparableScan>,
+  ConformanceReportRow: true satisfies WireSafe<ConformanceReportRow>,
+  ControlMatrixRow: true satisfies WireSafe<ControlMatrixRow>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
+  ManifestReadout: true satisfies WireSafe<ManifestReadout>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
@@ -139,7 +151,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(26);
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(26);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(31);
   });
 });

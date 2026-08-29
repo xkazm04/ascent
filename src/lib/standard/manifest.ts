@@ -8,6 +8,13 @@ import { type GeneratedFile, type ManifestData, MANIFEST_SCHEMA_VERSION } from "
 // The spec ships INSIDE the foundation (.ai/SPEC.md), so this pointer resolves in the adopting repo —
 // it used to name a path that only exists in Ascent's own repo.
 import { SPEC_PATH } from "./spec";
+import type { ManifestReadout } from "./readout";
+
+/** A `TODO:`/`<placeholder>` string is a seed, not an answer — treat it as absent. */
+function nonPlaceholder(v: string | null | undefined): string | null {
+  const t = v?.trim();
+  return t && !/^TODO/.test(t) && !/<.*>/.test(t) ? t : null;
+}
 
 /**
  * Language-manifest file a repo's commands derive from — the doctor drift-checks it.
@@ -35,16 +42,44 @@ const TYPECHECK: Record<LangCommands["ci"], string | null> = {
   generic: null,
 };
 
-export function buildManifestData(report: ScanReport): ManifestData {
+/**
+ * Build the manifest for a repo — optionally REGENERATING over what the repo already declares.
+ *
+ * Without `opts.observed` this is byte-for-byte the original generator: a first install has nothing
+ * to read back. With a readable observed readout (#13) the repo's own contract wins over every guess:
+ * a command the maintainer corrected is not re-guessed from the primary language, a `verified: true`
+ * the doctor PROVED is not erased by a regeneration that never ran anything, and the blocks the
+ * generator seeds with `TODO` markers (purpose, boundaries, agents) keep the human's answer.
+ *
+ * The rule behind all of it: regeneration must never be a downgrade. A tool that silently discards
+ * the edits a maintainer made to its output only gets run once.
+ */
+export function buildManifestData(report: ScanReport, opts?: { observed?: ManifestReadout | null }): ManifestData {
   const cmd = commandsFor(report.repo.primaryLanguage);
   const typecheck = TYPECHECK[cmd.ci];
+  // Only a READABLE manifest is allowed to win. An `absent` or `unreadable` readout carries no
+  // information about the repo's intent, so falling back to the guess is the honest move — merging a
+  // half-parsed document would be worse than regenerating from scratch.
+  const observed = opts?.observed?.status === "ok" ? opts.observed : null;
+  const seen = new Map((observed?.capabilities ?? []).map((c) => [c.name, c]));
+  /** The observed command/verified pair for a capability, else the freshly guessed one. */
+  const cap = (name: string, guess: string): { command: string; verified: boolean } => {
+    const o = seen.get(name);
+    // A placeholder that survived in the repo is not an edit worth preserving — the guess is better.
+    if (!o || o.placeholder) return { command: guess, verified: o?.verified === true };
+    return { command: o.command, verified: o.verified === true };
+  };
 
   const capabilities: ManifestData["capabilities"] = {
-    build: { command: cmd.build, verified: false },
-    test: { command: cmd.test, verified: false },
-    lint: { command: cmd.lint, verified: false },
+    build: cap("build", cmd.build),
+    test: cap("test", cmd.test),
+    lint: cap("lint", cmd.lint),
   };
-  if (typecheck) capabilities.typecheck = { command: typecheck, verified: false };
+  if (typecheck) capabilities.typecheck = cap("typecheck", typecheck);
+  // Capabilities the repo invented that this generator knows nothing about. Dropping them would make
+  // regeneration a deletion, which is the one thing an open map must never be.
+  for (const [name, o] of seen)
+    if (!(name in capabilities)) capabilities[name] = { command: o.command, verified: o.verified === true };
 
   return {
     schema: "ai-manifest",
@@ -57,7 +92,10 @@ export function buildManifestData(report: ScanReport): ManifestData {
     generatedFrom: [cmd.sourceFile ?? SOURCE_FILE[cmd.ci]],
     repo: {
       name: report.repo.name,
-      purpose: report.repo.description?.trim() || "TODO: one line on what this repo is for",
+      // The human's own sentence outranks GitHub's description, which outranks the TODO seed.
+      purpose:
+        nonPlaceholder(observed?.purpose) ??
+        (report.repo.description?.trim() || "TODO: one line on what this repo is for"),
       languages: report.repo.primaryLanguage ? [report.repo.primaryLanguage.toLowerCase()] : [],
       archetype: report.archetype,
     },
@@ -66,16 +104,26 @@ export function buildManifestData(report: ScanReport): ManifestData {
     // pointer to something we never generate (the old `evals: "evals/"`) was a guaranteed warn on
     // every fresh install for a subsystem a scan cannot synthesize. Declare `evals` when you have one.
     paths: {
-      contextIndex: ".ai/context-index.json",
-      memory: ".ai/memory/",
-      guardrails: ".ai/guardrails.yaml",
+      contextIndex: observed?.paths.contextIndex ?? ".ai/context-index.json",
+      memory: observed?.paths.memory ?? ".ai/memory/",
+      guardrails: observed?.paths.guardrails ?? ".ai/guardrails.yaml",
+      // Pointers the repo added itself (an `evals:` it grew, or a key it invented) — carried through
+      // so regeneration never quietly un-declares a subsystem the doctor was already checking.
+      ...Object.fromEntries(
+        Object.entries(observed?.paths ?? {}).filter(([k]) => !["contextIndex", "memory", "guardrails"].includes(k)),
+      ),
     },
     context: { rule: "every module directory over 12 files has a CONTEXT.md" },
     boundaries: {
-      neverTouch: [], // TODO: generated/vendored paths the agent must not hand-edit
-      secretsFrom: "TODO: where secrets legitimately come from (a vault/keyring name)",
+      // TODO: generated/vendored paths the agent must not hand-edit — kept once the human fills it.
+      neverTouch: observed?.boundaries.neverTouch ?? [],
+      secretsFrom:
+        nonPlaceholder(observed?.boundaries.secretsFrom) ??
+        "TODO: where secrets legitimately come from (a vault/keyring name)",
     },
-    agents: [], // TODO: register any coding agents (id/kind/entrypoint), vendor-neutral
+    // TODO: register any coding agents (id/kind/entrypoint), vendor-neutral. A repo that registered
+    // its agents keeps them: re-emitting `[]` here would delete a human's registry on every re-scan.
+    agents: observed?.agents ?? [],
     // Recommended shift-left placement — fast checks pre-push, slow/clean-room ones in CI. The agent
     // still runs tests in its verify step regardless of where the GATE lives; this is about gates.
     // TUNE per repo: a small test suite can move to prePush; a huge one stays in CI. The doctor
@@ -87,10 +135,13 @@ export function buildManifestData(report: ScanReport): ManifestData {
     // extended family: TYPECHECK has no row for them, no track supplies one, and the kit offers no
     // way to fill it, so the warn was permanent and unfixable. Same rule the `evals` pointer and the
     // `<run tests>` placeholders were fixed under: never emit a finding the reader cannot act on.
-    controls: {
-      prePush: ["lint", ...(typecheck ? ["typecheck"] : []), "scan-secrets"],
-      ciHardPass: ["test", "sast", "merge-gate"],
-    },
+    // TUNED placement is a decision, not a default: once the repo has one, it wins outright.
+    controls: observed?.controls.prePush.length || observed?.controls.ciHardPass.length
+      ? { prePush: observed.controls.prePush, ciHardPass: observed.controls.ciHardPass }
+      : {
+          prePush: ["lint", ...(typecheck ? ["typecheck"] : []), "scan-secrets"],
+          ciHardPass: ["test", "sast", "merge-gate"],
+        },
   };
 }
 
@@ -186,7 +237,10 @@ controls:
 export function buildManifest(report: ScanReport): GeneratedFile {
   return {
     path: ".ai/manifest.yaml",
-    body: serializeManifestYaml(buildManifestData(report)),
+    // The scan's readout is the observed half, so every generation path (the onboarding skill, the
+    // foundation PR) regenerates OVER the repo's existing contract without any of them opting in.
+    // A first install carries no readout and gets exactly today's output.
+    body: serializeManifestYaml(buildManifestData(report, { observed: report.manifest ?? null })),
     purpose: "The agent-facing contract: capabilities, pointers, boundaries, control placement.",
     lang: "yaml",
   };

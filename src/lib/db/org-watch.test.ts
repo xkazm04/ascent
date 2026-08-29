@@ -316,7 +316,24 @@ describe("recordConformance stale-re-run guard (conformance.reported ledger)", (
       create: vi.fn(async () => ({ id: "audit_1" })),
     };
     const repository = { updateMany: vi.fn(async () => ({ count: 1 })) };
-    return { prisma: { auditLog, repository }, auditLog, repository };
+    // #16 — the Repository update and the per-check ledger write now share ONE interactive
+    // transaction, so the fake has to offer `$transaction` and the tx-scoped models the writer uses.
+    // The assertions below still key on `repository.updateMany` and `auditLog.create`, which is the
+    // point: moving the writes into a transaction changed no outcome any of them describe.
+    const conformanceReport = {
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async () => ({ id: "rep_1" })),
+      delete: vi.fn(async () => ({})),
+    };
+    const conformanceFinding = { deleteMany: vi.fn(async () => ({ count: 0 })), createMany: vi.fn(async () => ({ count: 0 })) };
+    const prisma = {
+      auditLog,
+      repository,
+      conformanceReport,
+      conformanceFinding,
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ auditLog, repository, conformanceReport, conformanceFinding })),
+    };
+    return { prisma, auditLog, repository, conformanceReport, conformanceFinding };
   }
 
   it("SKIPS a stale re-run: a sha already superseded by a newer report is not persisted (stale:true)", async () => {
@@ -332,6 +349,40 @@ describe("recordConformance stale-re-run guard (conformance.reported ledger)", (
     expect(out).toEqual({ recorded: false, stale: true });
     expect(repository.updateMany).not.toHaveBeenCalled(); // the newest score survives
     expect(auditLog.create).not.toHaveBeenCalled(); // a skipped report never seeds ordering state
+  });
+
+  // #16 — the Repository columns and the per-check ledger are two views of one event. If they can
+  // land apart, a dashboard number can exist with no evidence behind it (or evidence for a number
+  // that was rolled back), which is precisely the thing a control matrix is supposed to prove.
+  it("writes the Repository columns and the per-check report inside ONE transaction", async () => {
+    const { prisma, conformanceReport } = fakeConformancePrisma([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await recordConformance("acme", REPO, {
+      score: 95,
+      fails: 0,
+      warns: 1,
+      headSha: "c".repeat(40),
+      unchecked: 2,
+      scored: 7,
+      specVersion: "0.3.0",
+      runShape: "run",
+      findings: [{ check: "capability.test.run", level: "pass", message: "verified" }],
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    const created = conformanceReport.create.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(created.data).toMatchObject({ repoFullName: REPO, runShape: "run", scored: 7, unchecked: 2, summaryOnly: false });
+  });
+
+  it("a report with NO findings lands as summaryOnly — an old doctor is not a clean one", async () => {
+    const { prisma, conformanceReport } = fakeConformancePrisma([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await recordConformance("acme", REPO, { score: 50, fails: 1, warns: 2, headSha: "d".repeat(40) });
+
+    const created = conformanceReport.create.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(created.data.summaryOnly).toBe(true);
   });
 
   it("records a NEW commit and appends it to the ledger", async () => {

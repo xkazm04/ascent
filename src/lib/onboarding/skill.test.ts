@@ -345,3 +345,78 @@ describe("footer back-link follows the deployment, never a hardcoded product dom
     expect(body).not.toContain("[Ascent](");
   });
 });
+
+// #13 — the skill stops re-guessing what the repo already told us. This is the primary journey the
+// item exists for: a staff engineer with a tuned `.ai/manifest.yaml` runs the onboarding skill and
+// gets HIS commands back, not `npm test`.
+describe("the skill reads the repo's own declared contract", () => {
+  const readout = (over: Partial<NonNullable<ScanReport["manifest"]>> = {}): NonNullable<ScanReport["manifest"]> => ({
+    status: "ok",
+    readAt: "2026-06-10T00:00:00.000Z",
+    generatedAt: "2026-06-01",
+    schemaVersion: "0.3.0",
+    schemaAhead: false,
+    capabilities: [
+      { name: "test", command: "pnpm vitest run --project unit", verified: true, placeholder: false, wiredAt: ["ciHardPass"] },
+      { name: "lint", command: "pnpm biome check", verified: null, placeholder: false, wiredAt: ["prePush"] },
+    ],
+    controls: { prePush: ["lint", "scan-secrets"], ciHardPass: ["test"] },
+    paths: {},
+    agents: [],
+    purpose: null,
+    boundaries: { neverTouch: [], secretsFrom: null },
+    placeholders: [],
+    unbacked: ["scan-secrets"],
+    notes: [],
+    ...over,
+  });
+
+  it("quotes the manifest's commands and NOT the language guess", () => {
+    const report = { ...makeReport({ D3: 30 }), manifest: readout() };
+    const body = buildOnboardingSkill(report).body;
+    expect(body).toContain("pnpm vitest run --project unit");
+    expect(body).toContain("## What this repo has already proven");
+    expect(body).toContain(".ai/manifest.yaml");
+    // The language guess for a TypeScript repo is `npm test`. It must not appear as THIS repo's
+    // test command anywhere the skill instructs — the CI recipe is where it used to. (The embedded
+    // SPEC.md and doctor bodies mention `npm test` as documentation examples; those are not claims
+    // about this repo, which is why the assertion is scoped to the generated recipe.)
+    expect(body).toMatch(/ci\.yml \([^)]*pnpm vitest run --project unit/);
+    expect(body).not.toMatch(/ci\.yml \([^)]*npm test/);
+    expect(body).toContain("from this repo's .ai/manifest.yaml");
+  });
+
+  it("keeps proven / failed / not-run distinct, and never prints a proof that was not run", () => {
+    const body = buildOnboardingSkill({ ...makeReport({}), manifest: readout() }).body;
+    expect(body).toMatch(/`test`.*proven/);
+    expect(body).toMatch(/`lint`.*not run yet/);
+    const failed = buildOnboardingSkill({
+      ...makeReport({}),
+      manifest: readout({
+        capabilities: [{ name: "test", command: "pnpm test", verified: false, placeholder: false, wiredAt: [] }],
+      }),
+    }).body;
+    expect(failed).toMatch(/`test`.*FAILED its last run/);
+    expect(failed).not.toContain("not run yet");
+  });
+
+  it("names a control with no backing capability as a gap a track should close", () => {
+    const body = buildOnboardingSkill({ ...makeReport({}), manifest: readout() }).body;
+    expect(body).toContain("no backing capability");
+    expect(body).toContain("`scan-secrets`");
+  });
+
+  it("with NO readout the section is ABSENT, not an empty or zeroed one", () => {
+    const body = buildOnboardingSkill(makeReport({})).body;
+    // Asserted on the HEADING, not the phrase: the skill embeds .ai/SPEC.md verbatim, and the spec's
+    // own read-back section names this section by name. A bare substring check passed in isolation
+    // and failed the moment the doc gained that sentence.
+    expect(body).not.toContain("## What this repo has already proven");
+    // …and an unreadable manifest is treated the same way: nothing is asserted about the repo.
+    const unreadable = buildOnboardingSkill({
+      ...makeReport({}),
+      manifest: readout({ status: "unreadable", capabilities: [] }),
+    }).body;
+    expect(unreadable).not.toContain("## What this repo has already proven");
+  });
+});

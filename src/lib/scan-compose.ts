@@ -9,6 +9,7 @@
 import { detectAiUsage } from "@/lib/analyze";
 import { buildPassport } from "@/lib/analyze/passport";
 import { deriveContextHealth } from "@/lib/analyze/context-health";
+import { buildManifestReadout } from "@/lib/standard/readout";
 import { outputBudgetWarning, type OutputBudget } from "@/lib/llm/output-budget";
 import { extractPracticeShape } from "@/lib/analyze/practice-shape";
 import type { StackFit } from "@/lib/analyze/stack-fit";
@@ -101,6 +102,11 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
     commitActivity: report.commitActivity ?? null,
     now,
   });
+  // #13 — the repo's OWN declared contract, read back. Display/persist-only exactly like
+  // contextHealth above: never scored, never in the prompt. `absent` (not an empty readout) whenever
+  // `.ai/manifest.yaml` is not among the fetched files, which is the honest state until the fetch
+  // list carries it — a null readout must never render as "0/0 verified".
+  report.manifest = buildManifestReadout(snapshot, now);
   // W6 — the repo's practice SHAPE, from the same snapshot. Display/reuse-only like contextHealth
   // above: never scored, never in the prompt. Structure only (heading outlines, path layouts); no
   // artifact body is read, which is what makes an org's own pattern safe to move between its repos.

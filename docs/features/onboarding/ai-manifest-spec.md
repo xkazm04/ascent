@@ -1,4 +1,4 @@
-# The AI-Native Repo Standard: `.ai/` (spec v0.2.0)
+# The AI-Native Repo Standard: `.ai/` (spec v0.3.0)
 
 > A small, **vendor-neutral** standard for making a codebase *legible, verifiable, and
 > self-maintaining* for coding agents. Ascent authors and versions it; any agent or tool can read
@@ -42,9 +42,11 @@ scaffolds is noise, not conformance.
    `generatedAt`. The manifest is *regenerable*, not hand-canon.
 6. **Vendor-neutral.** The home is `.ai/` (not a brand), the agent registry is `{id, kind,
    entrypoint}` for any agent, and `schema` is a stable id (`ai-manifest`) rather than a URL that can rot.
-7. **Declared, then proven.** The manifest *claims* (`verified: false`); `doctor.mjs` *proves* by
-   running the commands. The truth of a capability is established in-repo, pre-push; the maturity
-   check shifts left, out of the remote scanner and into the repo.
+7. **Declared, then proven — and then read back.** The manifest *claims* (`verified: false`);
+   `doctor.mjs` *proves* by running the commands. The truth of a capability is established in-repo,
+   pre-push; the maturity check shifts left, out of the remote scanner and into the repo. The loop
+   closes because the proof travels: a scan READS this file and scores the repo against the contract
+   *the repo itself wrote*, not against a vendor's checklist. See "Read-back" below.
 
 ## `manifest.yaml` fields
 
@@ -140,11 +142,102 @@ A reimplementation in another language is conformant if it performs checks 1–6
 and reports each one as `pass` / `warn` / `fail` / `unchecked`.
 The check *contract* is language-neutral; `doctor.mjs` is just the reference runner.
 
+## Findings: the per-check contract (v0.3.0)
+
+A run's findings are the half worth keeping. `fails: 3` cannot answer "which control regressed", so
+every finding carries a **stable check id** alongside its message — an id that survives a reworded
+message, so a receiver can follow one clause across runs.
+
+An id is lower-case and dotted; a repo-specific subject (a capability name, a path) is slugged with
+`[^a-z0-9._/-] → -`, truncated to 100 characters, and the whole id is capped at 120. The vocabulary:
+
+| Check id | Judges |
+| --- | --- |
+| `manifest.missing` | there is no `.ai/manifest.yaml` at all |
+| `structure` | the `schema` id is `ai-manifest` |
+| `structure.schema-version` | the manifest's major version vs. the runner's |
+| `pointer.<key>` | a declared `paths.<key>` resolves (`pointer.contextindex`, `pointer.memory`, …) |
+| `guardrail.never-commit` | git does not track a file matching `secrets.neverCommit` |
+| `capability.declared` | the manifest declares any capabilities at all |
+| `capability.<name>` | that capability's command is still a `<placeholder>` |
+| `capability.<name>.run` | `--run` executed the command and it passed |
+| `manifest.write-back` | `--run` wrote the `verified` flags back |
+| `control.prepush` | prePush controls are declared and a local hook exists at all |
+| `control.prepush.<name>` | that control is wired into the local hook |
+| `control.prepush.<name>.backing` | that control has a backing capability |
+| `control.ci` | ciHardPass controls are declared and CI workflows exist |
+| `freshness.<path>` | a `generatedFrom` file changed after `generatedAt` (or is a placeholder) |
+| `freshness.unchecked` | freshness could not be judged here (shallow clone, no git) |
+| `context.index` | `context-index.json` parses |
+| `context.<path>` | a referenced `CONTEXT.md` exists and is not the unfilled template |
+| `manifest.todo` | `TODO` placeholders remain |
+
+A conformant runner may invent ids this document does not list — a reader stores what it does not
+recognize and declines to group it (principle 3). Two entries with the same id inside one report are
+collapsed **worst-level-wins** (`fail > warn > unchecked > pass`), which is deterministic and cannot
+manufacture a pass.
+
+The `--json` payload and the report-back body carry `findings: [{ check, level, message }]` plus
+`scored`, `specVersion` and `runShape` (`"plain"` | `"run"` — the shape that changes the score's
+denominator). All additive: a receiver that does not know them stores the same
+`score` / `fails` / `warns` / `unchecked` it always did. A report that arrives with **no** `findings`
+is stored as *summary-only*, and every per-check cell for it reads **not judged** — an absent finding
+is never a passing control.
+
+**Derived, not signed.** The per-check ledger is derived data. The tamper-evident record of a
+conformance report is the signed audit entry the receiver writes on ingest; nothing in the ledger
+claims provenance, and it must not be presented as an attestation.
+
+## Read-back: the manifest as a scan input
+
+The contract runs in both directions. A scan **reads** `.ai/manifest.yaml` and keeps what it found as
+a *readout* — display-only, never scored beyond the two long-standing D1 awards, and never placed in
+an LLM prompt. This is what completes principle 7: the repo declares, its own doctor proves, and the
+proof is then legible outside the repo without any of it being re-derived by a vendor.
+
+What a conformant reader takes from the file:
+
+| Read | From | Rule |
+| --- | --- | --- |
+| capabilities | `capabilities` | name, command, `verified`, and whether the command is still a `<placeholder>` |
+| proof | `capabilities.*.verified` | `true` = PROVEN · `false` = ran and FAILED · **absent = not run**, which is not `false` |
+| control placement | `controls.prePush` / `controls.ciHardPass` | a capability's placement, plus any control with **no backing capability** |
+| pointers | `paths` | read as strings; a reader does not follow them |
+| provenance | `generatedAt`, `generatedFrom` | placeholder entries are reported as unfilled, never as fresh |
+| identity | `repo.purpose`, `boundaries`, `agents` | carried through regeneration so a human's edit is never reset to a `TODO` seed |
+
+Three rules govern the reader, and each exists because its opposite would be a lie a dashboard tells:
+
+- **Absent, unreadable and empty are three different states.** No manifest in the scan is `absent`;
+  a manifest that could not be parsed (bad YAML, or truncated by the fetch byte budget) is
+  `unreadable` with a note; a readable manifest that declares nothing is neither. A surface must
+  render an unread repo as "not assessed — re-scan" and keep it out of every denominator; `0/0` for
+  a repo nobody looked at is a fabricated measurement.
+- **A malformed manifest never fails the scan and never scores 0.** Reading is best-effort.
+- **A command is repo content, so it is redacted before it is stored.** Any token- or
+  `secret=`-shaped run in a declared command is replaced with `«redacted»` and a note is added.
+  Commands are shown only inside the owning organization, never on a public or aggregate surface.
+
+**Regeneration is never a downgrade.** When Ascent regenerates the manifest for a repo that already
+has one, the repo's own declarations win: corrected commands are not re-guessed from the primary
+language, a `verified: true` the doctor proved is not erased by a regeneration that ran nothing, a
+capability the repo invented is preserved (the map is open by contract), and a tuned `controls` split
+replaces the recommendation wholesale. The generated onboarding skill quotes **the repo's own
+commands** and carries a "What this repo has already proven" section; where the repo declared no
+readable contract, that section is **absent** rather than empty.
+
+Where the fleet sees it: **Standing › Passports › Capabilities** renders repo × capability as
+declared / proven / placeholder / absent with each declaration's control placement, and lists
+unassessed repositories in a separate band below the table.
+
 ## Versioning policy
 
 - Adding an optional field, capability name, or finding level → **patch/minor**, no reader changes.
   (v0.2.0 added the `unchecked` finding level and the `unchecked` / `scored` summary fields; a v0.1.0
-  reader ignores both and reads the same `score` / `fails` / `warns` it always did.)
+  reader ignores both and reads the same `score` / `fails` / `warns` it always did. v0.3.0 adds check
+  ids + `findings[]` to the report payload and the read-back contract above; it introduces no new
+  manifest field, so a v0.2.0 manifest is already a conformant v0.3.0 one, and a v0.2.0 reader ignores
+  `findings[]` and reads the same summary numbers.)
 - Renaming/removing a field or changing a field's type → **major**, and only then.
 - A reader at version `X.y` MUST parse any `X.*` manifest by ignoring unknown fields.
 
