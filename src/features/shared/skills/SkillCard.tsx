@@ -10,6 +10,7 @@ import { chipButtonClass } from "@/components/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { SkillDormancyBadge, usageDetail } from "@/features/shared/skills/SkillDormancyBadge";
 import { SkillInvokeChip } from "@/features/shared/skills/SkillInvokeChip";
+import { SkillTracePanel } from "@/features/shared/skills/SkillTracePanel";
 import { SkillOutcomes } from "@/features/shared/skills/SkillOutcomes";
 import { skillCategoryLabel } from "@/lib/org/skill-categories";
 import type { SkillUsage } from "@/lib/org/skill-usage";
@@ -158,6 +159,10 @@ export function SkillCard({
           </span>
         )}
       </div>
+
+      {/* Registry-origin only: a hosted skill lives in ascent's own table and has no git history,
+          so offering it a Trace would be a promise the shape of the data cannot keep. */}
+      {s.origin === "registry" && <SkillTracePanel slug={slug} skill={s.name} />}
 
       <SkillOutcomes outcomes={outcomes} />
 

@@ -19,6 +19,7 @@ import { listOrgSkillUsageSamples } from "@/lib/db/org-skill-usage-samples";
 import { listConformance, listConformanceMaps, type ConformanceMapRow, type ConformanceRow } from "@/lib/db/org-registry-conformance";
 import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
 import { listRegistrySignals } from "@/lib/db/org-registry-signals";
+import { listRecentLessons, type SkillLessonRow } from "@/lib/db/org-skill-lessons";
 import { summarizeSignals, type SignalSummary } from "@/lib/registry/signals";
 import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/registry/capabilities";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
@@ -191,8 +192,15 @@ const registryOf = (row: OrgRegistryRow): NonNullable<RegistryView["registry"]> 
   webhookHealthy: row.webhookHealthy,
 });
 
-/** Activity ascent can actually attest to: its own index passes and the catalog it wrote. */
-function activityOf(row: OrgRegistryRow | null): RegistryActivityEntry[] {
+/**
+ * Activity ascent can actually attest to: its own index passes, the catalog it wrote, and — since
+ * #36 — the lessons it mirrored.
+ *
+ * The `lesson` kind has been in the union (and in the label map, and in the fixtures) since the tab
+ * shipped, emitted by nothing. A vocabulary with a dead member teaches a reader that the feed is
+ * decorative; this makes the existing kind real rather than adding one.
+ */
+function activityOf(row: OrgRegistryRow | null, lessons: SkillLessonRow[] = []): RegistryActivityEntry[] {
   if (!row?.lastIndexedAt) return [];
   const url = `https://github.com/${row.fullName}`;
   const sha = row.lastIndexSha ? row.lastIndexSha.slice(0, 7) : "HEAD";
@@ -211,7 +219,18 @@ function activityOf(row: OrgRegistryRow | null): RegistryActivityEntry[] {
   if (row.catalogSha) {
     out.push({ at: row.lastIndexedAt, kind: "catalog", title: "catalog.json indexed", url: `${url}/blob/${row.defaultBranch}/catalog.json` });
   }
-  return out;
+  for (const l of lessons) {
+    // `learnedOn` is the lesson's own claim about when the run happened and is what a reader means
+    // by "when"; a lesson whose heading carried no readable date falls back to when ascent mirrored
+    // it, which is a different and weaker fact — so it is never presented as the run's date.
+    out.push({
+      at: l.learnedOn ?? l.createdAt,
+      kind: "lesson",
+      title: `${l.skillName}${l.versionUsed ? ` v${l.versionUsed}` : ""}${l.project ? ` — ${l.project}` : ""}`,
+      url: `${url}/blob/${row.defaultBranch}/${l.registryPath}`,
+    });
+  }
+  return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
 /**
@@ -244,14 +263,15 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
 
   // #18. Every read degrades on its own: a failed conformance read must not cost the tab its
   // telemetry, and vice versa. All three are absent-not-zero when the org has never swept.
-  const [maps, pairs, subjects, signalRows] = orgId
+  const [maps, pairs, subjects, signalRows, recentLessons] = orgId
     ? await Promise.all([
         listConformanceMaps(orgId).catch(() => []),
         listConformance(orgId, { limit: CONFORMANCE_PAIR_CAP + 1 }).catch(() => []),
         listOrgKnowledgeSubjects(orgId).catch(() => []),
         listRegistrySignals(orgId).catch(() => []),
+        listRecentLessons(orgId, 10).catch(() => []),
       ])
-    : [[], [], [], []];
+    : [[], [], [], [], []];
   const totals = { skills: counts.skills.hostedOnly, practices: counts.practices.hostedOnly, memory: counts.memory.hostedOnly };
   const fullName = row?.fullName ?? `${slug}/${DEFAULT_REGISTRY_NAME}`;
 
@@ -263,7 +283,7 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     // Fleet sync is not observable until the adoption pass (R5) hashes each repo's skills against
     // the catalog; reported as zero rather than estimated.
     fleet: { reposTotal: rollup?.repos?.length ?? 0, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } },
-    activity: activityOf(row),
+    activity: activityOf(row, recentLessons),
     // Read from the registry's own `usage/` lane at index time, not counted here.
     // `reposReporting` is how many installations CONTRIBUTED a file — a zero with
     // invokes 0 means nobody is reporting, which is a different fact from a fleet
