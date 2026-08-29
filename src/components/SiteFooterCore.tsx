@@ -16,7 +16,15 @@ import { FEEDBACK_URL, SITE_TAGLINE_TITLE } from "@/lib/site";
  *  lib/site so a fork points at ITS repository rather than upstream's) — the one always-available
  *  feedback channel; Privacy/Terms are the legal pages every public surface must link. */
 export const FOOTER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
+  // The four MARKETING_NAV destinations lead, because below `sm` the header nav hides ALL of them
+  // (`hidden ... sm:inline` in StaticNav) with no menu behind it — so on a phone the footer is the
+  // only global chrome that can reach them. Leaderboard was already here; Pricing, For orgs and
+  // About were not, which left three of the four marketing pages unreachable from any persistent
+  // chrome on a phone. SiteFooterCore.test.ts pins the coupling to MARKETING_NAV.
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/about-org", label: "For orgs" },
+  { href: "/about", label: "About" },
   { href: "/badge", label: "Badge" },
   { href: "/connect", label: "Connect" },
   { href: "/usage", label: "Usage" },
