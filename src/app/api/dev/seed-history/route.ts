@@ -55,6 +55,14 @@ export async function POST(req: NextRequest) {
       owner: true,
       name: true,
       primaryLanguage: true,
+      // The generated reports go through persistScanReport, whose repo upsert writes url/language/
+      // stars/visibility back UNCONDITIONALLY (scans-persist.ts:114-119). So every field the spec
+      // fabricates lands on the org's REAL Repository row. Read the real values here and hand them
+      // straight back, or seeding history silently rewrites the fleet it was meant to illustrate
+      // (demo-data-plane / fake-surface-honesty-contract: the containment half — a real tenant is
+      // never shown fabricated data).
+      stars: true,
+      isPrivate: true,
       scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true } },
     },
   });
@@ -68,7 +76,8 @@ export async function POST(req: NextRequest) {
       owner: r.owner,
       name: r.name,
       primaryLanguage: r.primaryLanguage ?? "TypeScript",
-      stars: 1000,
+      stars: r.stars,
+      isPrivate: r.isPrivate,
       archetype: "org" as RepoArchetype,
       target,
       trendPoints: 6 + (r.name.length % 10), // a gentle, per-repo-varied climb up to `target`

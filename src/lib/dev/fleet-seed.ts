@@ -103,6 +103,10 @@ interface RepoSpec {
   name: string;
   primaryLanguage: string;
   stars: number;
+  /** Visibility to stamp on the generated reports. Defaults to public. The seeders that run over an
+   *  org's REAL repositories must pass the row's own value: persistScanReport writes `isPrivate` back
+   *  onto the Repository row, so a fabricated `false` would relabel a private repo as public. */
+  isPrivate?: boolean;
   archetype: RepoArchetype;
   /** Newest-scan overall target (0..100). */
   target: number;
@@ -216,7 +220,7 @@ export function reportsForRepo(spec: RepoSpec, scansPerRepo: number, weeksBack: 
         primaryLanguage: spec.primaryLanguage,
         defaultBranch: "main",
         headSha: fakeSha(`${spec.owner}/${spec.name}#${i}`),
-        isPrivate: false,
+        isPrivate: spec.isPrivate ?? false,
       },
       overallScore,
       level,

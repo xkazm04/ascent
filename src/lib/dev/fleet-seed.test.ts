@@ -47,6 +47,23 @@ describe("fleet-seed generator", () => {
     expect(specs.every((s) => s.owner === "acme")).toBe(true);
   });
 
+  // The history seeder (/api/dev/seed-history) runs over an org's REAL repositories and persists
+  // through persistScanReport, whose repo upsert writes stars/visibility back unconditionally. So the
+  // generator must carry the caller's values through rather than fabricate them, or seeding history
+  // rewrites the fleet: every repo's stars collapse to the spec constant and a private repo is
+  // relabelled public.
+  it("carries the spec's stars and visibility onto every generated report (no fabricated metadata)", () => {
+    const base = fleetSpecs("acme", 1)[0]!;
+    const reports = reportsForRepo({ ...base, stars: 121_000, isPrivate: true }, 3, 4, 1_700_000_000_000);
+    expect(reports.every((r) => r.repo.stars === 121_000)).toBe(true);
+    expect(reports.every((r) => r.repo.isPrivate === true)).toBe(true);
+  });
+
+  it("defaults visibility to public when the spec omits it", () => {
+    const spec = fleetSpecs("acme", 1)[0]!;
+    expect(reportsForRepo(spec, 2, 4, 1_700_000_000_000).every((r) => r.repo.isPrivate === false)).toBe(true);
+  });
+
   it("curatedPublicSpecs includes the sample hero repo for the landing register", () => {
     const names = curatedPublicSpecs().map((s) => `${s.owner}/${s.name}`);
     expect(names).toContain("vercel/next.js");
