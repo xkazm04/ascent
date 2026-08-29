@@ -15,6 +15,10 @@
 // without a cycle.
 
 import type { ProviderName, TokenUsage } from "@/lib/types";
+// TYPE-ONLY, and deliberately so: meter.ts imports this module's `LlmLegKind`, so a runtime import in
+// this direction would close a cycle. `import type` is erased, and this file stays the leaf it says
+// it is in the header.
+import type { MeterContext } from "@/lib/llm/meter";
 
 /**
  * Which surface a model call belongs to.
@@ -23,8 +27,15 @@ import type { ProviderName, TokenUsage } from "@/lib/types";
  *   - `memory`       — Shared Org Memory's write-gate + reflection passes (src/lib/memory/**).
  *   - `athena_turn`  — one interactive Athena reply to an operator's message.
  *   - `athena_cycle` — Athena's unattended background pass (no human waiting on it).
+ *   - `briefing`     — the executive briefing's one LLM-written paragraph (src/lib/org/briefing-narrative.ts).
+ *                      It does NOT run through this seam's transports (it calls the Anthropic Messages
+ *                      API directly), so the kind exists to NAME the surface in the meter, not to route
+ *                      it. Like `scan` and `memory` it is deliberately ABSENT from LEG_TEMPERATURE_ENV /
+ *                      LEG_TEMPERATURE_DEFAULT (src/lib/llm/config.ts): adding a row there would change
+ *                      a resolved temperature, which is a scoring-reproducibility decision (D29), not a
+ *                      metering one.
  */
-export type LlmLegKind = "scan" | "memory" | "athena_turn" | "athena_cycle";
+export type LlmLegKind = "scan" | "memory" | "athena_turn" | "athena_cycle" | "briefing";
 
 /** A tool Athena may call. `inputSchema` is a JSON Schema object, the same source of truth every
  *  provider's own function-calling envelope wraps (Bedrock `inputSchema.json`, Gemini
@@ -133,4 +144,12 @@ export interface TextRunnerOptions {
   onUsage?: (usage: TokenUsage) => void;
   /** Override the tracklight tag. Defaults to `legKind`, which is what a caller almost always wants. */
   surface?: string;
+  /**
+   * WHOSE LEDGER this call lands in — the org, and optionally the row/repo/team it belongs to. The
+   * seam derives the lane from `legKind`, so a caller usually supplies only `{ orgSlug }`.
+   *
+   * Optional, and its absence is not a silent free pass: `meter()` writes NOTHING for an org it
+   * cannot name (see its own contract). An unattributable event is worth less than the row it costs.
+   */
+  meter?: MeterContext;
 }

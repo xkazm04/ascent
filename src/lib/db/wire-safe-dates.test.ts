@@ -61,6 +61,7 @@ import type {
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
+import type { UsageEventRow } from "@/lib/db/usage-events";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
@@ -114,6 +115,8 @@ const WIRE_TYPES = {
   TeamRollup: true satisfies WireSafe<TeamRollup>,
   TransitionProgramRow: true satisfies WireSafe<TransitionProgramRow>,
   UsageDay: true satisfies WireSafe<UsageDay>,
+  // #11 — one metered model call. `createdAt` is the ISO string `listUsageEvents` maps it to.
+  UsageEventRow: true satisfies WireSafe<UsageEventRow>,
 } as const;
 
 describe("wire-safe dates (structural guard)", () => {
@@ -125,6 +128,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(22);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(23);
   });
 });
