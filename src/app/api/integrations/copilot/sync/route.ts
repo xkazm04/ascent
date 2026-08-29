@@ -59,16 +59,31 @@ export async function POST(request: Request) {
   const pulled = await fetchCopilot(org, token);
   const records = buildCopilotUsage(org, pulled);
 
-  // Both halves empty is the diagnosable case, and the cause is nearly always scope: the Ascent App
-  // installation does not carry Copilot admin permission by default. Say that, rather than 200-ing
-  // with zero rows and letting the operator conclude the org has no Copilot.
+  // Both halves empty is the diagnosable case. ghJson now reports WHY (typed: denied / absent /
+  // unreachable), so answer from that fact — rather than 200-ing with zero rows, or the old blanket
+  // "nearly always scope" 422 guess that sent a GitHub outage's operator off to audit permissions.
   if (records.length === 0 && !pulled.seats) {
+    if (pulled.seatsFailure === "denied" || pulled.metricsFailure === "denied") {
+      return NextResponse.json(
+        {
+          error:
+            "GitHub denied the Copilot reads: the credential needs Copilot admin access " +
+            "(manage_billing:copilot / read:enterprise). Grant it to the Ascent App installation and re-sync.",
+        },
+        { status: 403 },
+      );
+    }
+    if (pulled.seatsFailure === "unreachable" || pulled.metricsFailure === "unreachable") {
+      return NextResponse.json(
+        { error: "GitHub's Copilot API could not be reached (or errored). Nothing was stored; try again shortly." },
+        { status: 502 },
+      );
+    }
     return NextResponse.json(
       {
         error:
-          "GitHub returned no Copilot seats or metrics for this organization. The credential needs Copilot admin " +
-          "access (manage_billing:copilot / read:enterprise), and the Metrics API only returns data for orgs with " +
-          "at least 5 active Copilot users.",
+          "GitHub reports no Copilot data for this organization (the credential was accepted). The org may have no " +
+          "Copilot subscription, and the Metrics API only returns data for orgs with at least 5 active Copilot users.",
       },
       { status: 422 },
     );
