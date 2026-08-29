@@ -32,11 +32,20 @@ CREATE TABLE "Organization" (
     "timezone" TEXT,
     "autoRechargeJson" TEXT,
     "ingestTokenEpoch" INTEGER NOT NULL DEFAULT 0,
+    "repoMemoryMirror" BOOLEAN,
+    "retentionCompact" BOOLEAN,
+    "retentionDigestMonths" INTEGER,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column (moonshot wave 1): pglite-boot rewrites CREATE TABLE -> IF NOT EXISTS, so an
+-- EXISTING local .pglite DB needs the new columns applied explicitly. All three are NULLABLE, so the
+-- boot-time reconcile can add them to a populated dev DB without a backfill.
+ALTER TABLE "Organization" ADD COLUMN IF NOT EXISTS "repoMemoryMirror" BOOLEAN;
+ALTER TABLE "Organization" ADD COLUMN IF NOT EXISTS "retentionCompact" BOOLEAN;
+ALTER TABLE "Organization" ADD COLUMN IF NOT EXISTS "retentionDigestMonths" INTEGER;
 
 -- CreateTable
 CREATE TABLE "CreditLedger" (
@@ -133,6 +142,7 @@ CREATE TABLE "Repository" (
     "aiConformanceAt" TIMESTAMP(3),
     "missingSince" TIMESTAMP(3),
     "role" TEXT NOT NULL DEFAULT 'fleet',
+    "manifestJson" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -143,6 +153,7 @@ CREATE TABLE "Repository" (
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "missingSince" TIMESTAMP(3);
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "role" TEXT NOT NULL DEFAULT 'fleet';
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "manifestJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "Segment" (
@@ -261,6 +272,7 @@ CREATE TABLE "Scan" (
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
+    "manifestJson" TEXT,
     "scannedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -274,6 +286,7 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineByom" BOOLEAN;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "manifestJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (
@@ -792,10 +805,22 @@ CREATE TABLE "OrgSkillEvent" (
     "type" TEXT NOT NULL,
     "repo" TEXT,
     "source" TEXT,
+    "detail" TEXT,
+    "sessionId" TEXT,
+    "dedupeKey" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OrgSkillEvent_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column (moonshot #19): the drift state the CLI used to smuggle into "source", the
+-- producer session, and the at-least-once dedupe key. All nullable, so the boot reconcile self-repairs.
+ALTER TABLE "OrgSkillEvent" ADD COLUMN IF NOT EXISTS "detail" TEXT;
+ALTER TABLE "OrgSkillEvent" ADD COLUMN IF NOT EXISTS "sessionId" TEXT;
+ALTER TABLE "OrgSkillEvent" ADD COLUMN IF NOT EXISTS "dedupeKey" TEXT;
+
+-- CreateIndex: nullable-unique — NULLs are distinct in Postgres, so a producer that supplies no key
+-- keeps today's append behavior and only a keyed producer gets exactly-once.
+CREATE UNIQUE INDEX "OrgSkillEvent_skillId_dedupeKey_key" ON "OrgSkillEvent"("skillId", "dedupeKey");
 
 -- CreateIndex
 CREATE INDEX "OrgSkillEvent_skillId_idx" ON "OrgSkillEvent"("skillId");
@@ -1226,6 +1251,10 @@ CREATE TABLE "OrgRegistry" (
     -- knowledge/ lane summary, one entry per Reference Knowledge Bundle, as read from each
     -- bundle's generated index. Ascent reads these numbers; it does not produce them.
     "bundlesJson" TEXT NOT NULL DEFAULT '[]',
+    -- Denormalized knowledge-lane counts from the last index pass (moonshot #18).
+    "subjectCount" INTEGER NOT NULL DEFAULT 0,
+    "signalContributors" INTEGER NOT NULL DEFAULT 0,
+    "signalsContributor" TEXT,
     "warningsJson" TEXT NOT NULL DEFAULT '[]',
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1233,6 +1262,12 @@ CREATE TABLE "OrgRegistry" (
 
     CONSTRAINT "OrgRegistry_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column (moonshot #18). The two counts carry a DEFAULT 0 because they are
+-- denormalized cache counts an index pass overwrites, not measurements — "not yet indexed" is
+-- already expressed by `status`. signalsContributor is nullable: null = the org contributes nothing.
+ALTER TABLE "OrgRegistry" ADD COLUMN IF NOT EXISTS "subjectCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "OrgRegistry" ADD COLUMN IF NOT EXISTS "signalContributors" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "OrgRegistry" ADD COLUMN IF NOT EXISTS "signalsContributor" TEXT;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OrgRegistry_orgId_fullName_key" ON "OrgRegistry"("orgId", "fullName");
@@ -1399,6 +1434,457 @@ CREATE TABLE "AthenaIdentity" (
 -- CreateIndex: one constitution and one self-model per org — "one mind per organization" as a fact
 -- of the schema, not a convention the read layer hopes for.
 CREATE UNIQUE INDEX "AthenaIdentity_orgId_tier_key" ON "AthenaIdentity"("orgId", "tier");
+
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+-- MOONSHOT WAVE 1 (docs/specs/moonshot/00-INDEX.md §5). Every JSON payload below is TEXT, never
+-- jsonb (DSQL/PGlite). Every column that reports a MEASUREMENT is nullable — a provider or a payload
+-- that reported nothing is UNKNOWN, and a 0 in its place would be summed as if it had been measured.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+-- CreateTable: #9 measured lift per intervention. Rows are written ONLY when both scan bookends
+-- exist and the rubric + engine matched on both sides, so the aggregate can hold no fabricated zero.
+CREATE TABLE "InterventionOutcome" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "identityKey" TEXT NOT NULL,
+    -- HONEST NULL: a whole-scan outcome (a scenario) has no dimension, which is not dimension "0".
+    "dimId" TEXT,
+    "beforeScanId" TEXT NOT NULL,
+    "afterScanId" TEXT NOT NULL,
+    "interventionAt" TIMESTAMP(3) NOT NULL,
+    "overallDelta" INTEGER NOT NULL,
+    "dimDelta" INTEGER,
+    "rubricVersion" TEXT NOT NULL,
+    "engineProvider" TEXT NOT NULL,
+    "gapDays" INTEGER NOT NULL,
+    "withinBound" BOOLEAN NOT NULL,
+    "isPrivateRepo" BOOLEAN NOT NULL,
+    "sourceRowId" TEXT,
+    "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "InterventionOutcome_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: the idempotency key — recordOutcome upserts on it, so re-running a read path that
+-- mirrors outcomes writes nothing new.
+CREATE UNIQUE INDEX "InterventionOutcome_orgId_kind_identityKey_beforeScanId_afterScanId_key" ON "InterventionOutcome"("orgId", "kind", "identityKey", "beforeScanId", "afterScanId");
+
+-- CreateIndex
+CREATE INDEX "InterventionOutcome_orgId_kind_dimId_idx" ON "InterventionOutcome"("orgId", "kind", "dimId");
+
+-- CreateIndex
+CREATE INDEX "InterventionOutcome_identityKey_dimId_idx" ON "InterventionOutcome"("identityKey", "dimId");
+
+-- CreateIndex
+CREATE INDEX "InterventionOutcome_orgId_recordedAt_idx" ON "InterventionOutcome"("orgId", "recordedAt");
+
+-- CreateTable: #11 one row per metered LLM leg (or per tool loop). The token and cost columns are
+-- NULLABLE on purpose — a provider that reports no usage is UNKNOWN, not zero.
+CREATE TABLE "UsageEvent" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "lane" TEXT NOT NULL,
+    "legKind" TEXT,
+    "refId" TEXT,
+    "repoId" TEXT,
+    "repoFullName" TEXT,
+    "teamKey" TEXT,
+    "provider" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "byom" BOOLEAN,
+    "inputTokens" INTEGER,
+    "outputTokens" INTEGER,
+    "cacheReadTokens" INTEGER,
+    "cacheWriteTokens" INTEGER,
+    "costMicros" INTEGER,
+    "status" TEXT NOT NULL DEFAULT 'success',
+    "latencyMs" INTEGER,
+    "idemKey" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "UsageEvent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: nullable-unique. NULLs are distinct, so an unkeyed caller is unconstrained (the
+-- intended at-least-once fallback) and a keyed one is exactly-once. Scan.dedupKey's precedent.
+CREATE UNIQUE INDEX "UsageEvent_idemKey_key" ON "UsageEvent"("idemKey");
+
+-- CreateIndex
+CREATE INDEX "UsageEvent_orgId_createdAt_idx" ON "UsageEvent"("orgId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "UsageEvent_orgId_lane_createdAt_idx" ON "UsageEvent"("orgId", "lane", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "UsageEvent_orgId_teamKey_createdAt_idx" ON "UsageEvent"("orgId", "teamKey", "createdAt");
+
+-- CreateTable: #14 one entry mirrored out of a repo's .ai/memory/. Repo-authored content, held in
+-- quarantine: capped by the parser, never scored, and skipReason records why an entry stopped here.
+CREATE TABLE "RepoMemoryMirror" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "path" TEXT NOT NULL,
+    "contentHash" TEXT NOT NULL,
+    "entryId" TEXT,
+    "rawKind" TEXT,
+    "mappedKind" TEXT NOT NULL,
+    "scope" TEXT,
+    -- VERBATIM frontmatter text, not a timestamp: it is repo-authored and may not be a date at all.
+    "entryDate" TEXT,
+    "supersedes" TEXT,
+    "refsJson" TEXT NOT NULL DEFAULT '[]',
+    "body" TEXT NOT NULL,
+    "headSha" TEXT,
+    "superseded" BOOLEAN NOT NULL DEFAULT false,
+    "orgMemoryId" TEXT,
+    "skipReason" TEXT,
+    "firstSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RepoMemoryMirror_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoMemoryMirror_orgId_repoFullName_path_contentHash_key" ON "RepoMemoryMirror"("orgId", "repoFullName", "path", "contentHash");
+
+-- CreateIndex
+CREATE INDEX "RepoMemoryMirror_orgId_repoFullName_idx" ON "RepoMemoryMirror"("orgId", "repoFullName");
+
+-- CreateIndex
+CREATE INDEX "RepoMemoryMirror_orgId_mappedKind_idx" ON "RepoMemoryMirror"("orgId", "mappedKind");
+
+-- CreateTable: #16 one doctor run reported back by a repo. The denormalized summary already lives on
+-- Repository.aiConformance*; this is the per-check ledger that turns "78%" into a control matrix.
+CREATE TABLE "ConformanceReport" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "headSha" TEXT,
+    "score" INTEGER NOT NULL,
+    "fails" INTEGER NOT NULL,
+    "warns" INTEGER NOT NULL,
+    "unchecked" INTEGER NOT NULL DEFAULT 0,
+    "scored" INTEGER NOT NULL DEFAULT 0,
+    "specVersion" TEXT,
+    "runShape" TEXT NOT NULL DEFAULT 'plain',
+    "summaryOnly" BOOLEAN NOT NULL DEFAULT false,
+    "reportedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ConformanceReport_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ConformanceReport_orgId_repoFullName_headSha_runShape_key" ON "ConformanceReport"("orgId", "repoFullName", "headSha", "runShape");
+
+-- CreateIndex
+CREATE INDEX "ConformanceReport_orgId_repoFullName_reportedAt_idx" ON "ConformanceReport"("orgId", "repoFullName", "reportedAt");
+
+-- CreateTable: #16 one check inside a report. relationMode = "prisma" emits no FK here, so the
+-- schema's onDelete: Cascade is client-side only and retention.ts deletes findings by hand.
+CREATE TABLE "ConformanceFinding" (
+    "id" TEXT NOT NULL,
+    "reportId" TEXT NOT NULL,
+    "check" TEXT NOT NULL,
+    "level" TEXT NOT NULL,
+    "message" TEXT NOT NULL DEFAULT '',
+
+    CONSTRAINT "ConformanceFinding_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "ConformanceFinding_reportId_idx" ON "ConformanceFinding"("reportId");
+
+-- CreateIndex
+CREATE INDEX "ConformanceFinding_check_idx" ON "ConformanceFinding"("check");
+
+-- CreateTable: #19 the registry usage/<contributor>.json lane, upserted per index pass. No repo
+-- dimension exists here and none can be derived — that lane forbids repository names and paths.
+CREATE TABLE "OrgSkillUsageSample" (
+    "id" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "contributor" TEXT NOT NULL,
+    "skillName" TEXT NOT NULL,
+    "invokes" INTEGER NOT NULL DEFAULT 0,
+    "windowDays" INTEGER NOT NULL DEFAULT 30,
+    -- NULL = the file reported no lastUsed. Not "never used".
+    "lastUsedAt" TIMESTAMP(3),
+    "generatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgSkillUsageSample_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgSkillUsageSample_registryId_contributor_skillName_key" ON "OrgSkillUsageSample"("registryId", "contributor", "skillName");
+
+-- CreateIndex
+CREATE INDEX "OrgSkillUsageSample_orgId_skillName_idx" ON "OrgSkillUsageSample"("orgId", "skillName");
+
+-- CreateTable: #18 one subject in a knowledge bundle's generated index. Ascent reads this lane; the
+-- bundle's own generator owns every field, so nothing here is authored by ascent.
+CREATE TABLE "OrgKnowledgeSubject" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "bundle" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "category" TEXT,
+    "subcategory" TEXT,
+    "status" TEXT,
+    "file" TEXT NOT NULL,
+    "techniqueCount" INTEGER NOT NULL DEFAULT 0,
+    "useWhenJson" TEXT NOT NULL DEFAULT '[]',
+    "lawsJson" TEXT NOT NULL DEFAULT '[]',
+    "archived" BOOLEAN NOT NULL DEFAULT false,
+    "indexedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgKnowledgeSubject_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgKnowledgeSubject_registryId_bundle_slug_key" ON "OrgKnowledgeSubject"("registryId", "bundle", "slug");
+
+-- CreateIndex
+CREATE INDEX "OrgKnowledgeSubject_orgId_bundle_idx" ON "OrgKnowledgeSubject"("orgId", "bundle");
+
+-- CreateTable: #18 the HEADER of one repo's .ai/registry-map.json — the counts and provenance, so a
+-- reader can tell "judged 3 of 40 pairs" apart from "conformant".
+CREATE TABLE "RepoConformanceMap" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repositoryId" TEXT NOT NULL,
+    "mapSha" TEXT NOT NULL,
+    "schema" TEXT NOT NULL,
+    "generatedAt" TIMESTAMP(3) NOT NULL,
+    "contexts" INTEGER NOT NULL,
+    "pairs" INTEGER NOT NULL,
+    "judged" INTEGER NOT NULL,
+    "deviations" INTEGER NOT NULL,
+    "weaklyGoverned" INTEGER NOT NULL,
+    "unmatched" INTEGER NOT NULL,
+    "domainsJson" TEXT NOT NULL DEFAULT '[]',
+    "bundleDigestsJson" TEXT NOT NULL DEFAULT '{}',
+    -- NULL = the map carried no consult lane. That is NOT "zero consults".
+    "consults30d" INTEGER,
+    "warningsJson" TEXT NOT NULL DEFAULT '[]',
+    "ingestedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RepoConformanceMap_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoConformanceMap_repositoryId_key" ON "RepoConformanceMap"("repositoryId");
+
+-- CreateIndex
+CREATE INDEX "RepoConformanceMap_orgId_idx" ON "RepoConformanceMap"("orgId");
+
+-- CreateTable: #18 one judged (context x subject) pair — the standing deviation backlog, as the
+-- repo's own /conform runs wrote it.
+CREATE TABLE "RepoConformance" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repositoryId" TEXT NOT NULL,
+    "contextName" TEXT NOT NULL,
+    "contextGroup" TEXT,
+    "bundle" TEXT NOT NULL,
+    "subjectSlug" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "confidence" TEXT,
+    "score" DOUBLE PRECISION,
+    "evidence" TEXT,
+    "evaluatedAt" TIMESTAMP(3),
+    "evaluatedAgainst" TEXT,
+    "mapSha" TEXT NOT NULL,
+    "ingestedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RepoConformance_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoConformance_repositoryId_contextName_subjectSlug_key" ON "RepoConformance"("repositoryId", "contextName", "subjectSlug");
+
+-- CreateIndex
+CREATE INDEX "RepoConformance_orgId_subjectSlug_state_idx" ON "RepoConformance"("orgId", "subjectSlug", "state");
+
+-- CreateTable: #18 the signals/ lane as one contributor published it. EVERY COUNT IS NULLABLE: a key
+-- the payload did not carry is NULL (nothing was reported), never 0 (nobody consulted it).
+CREATE TABLE "RegistrySignal" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "contributor" TEXT NOT NULL,
+    "app" TEXT,
+    "bundle" TEXT NOT NULL,
+    "subjectSlug" TEXT NOT NULL,
+    "consults" INTEGER,
+    "deviations" INTEGER,
+    "citResolved" INTEGER,
+    "citMoved" INTEGER,
+    "citGone" INTEGER,
+    "windowDays" INTEGER NOT NULL,
+    "generatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RegistrySignal_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RegistrySignal_registryId_contributor_bundle_subjectSlug_key" ON "RegistrySignal"("registryId", "contributor", "bundle", "subjectSlug");
+
+-- CreateIndex
+CREATE INDEX "RegistrySignal_orgId_bundle_idx" ON "RegistrySignal"("orgId", "bundle");
+
+-- CreateTable: #18 audit row for one signals contribution ascent opened back to the registry.
+-- Deliberately WITHOUT a unique key beyond the id: the same payload may legitimately be contributed
+-- twice, and collapsing those two acts would erase half the trail.
+CREATE TABLE "RegistrySignalContribution" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "contributor" TEXT NOT NULL,
+    "prUrl" TEXT,
+    "commitSha" TEXT,
+    "payloadDigest" TEXT NOT NULL,
+    "bundlesJson" TEXT NOT NULL DEFAULT '[]',
+    "subjects" INTEGER NOT NULL,
+    "deviations" INTEGER NOT NULL,
+    "actor" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RegistrySignalContribution_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "RegistrySignalContribution_orgId_createdAt_idx" ON "RegistrySignalContribution"("orgId", "createdAt");
+
+-- CreateTable: #36 one "## " entry in skills/<name>/LESSONS.md. Heading slots are stored VERBATIM —
+-- a version that did not parse stays '' rather than being guessed — and headingRaw keeps the line.
+CREATE TABLE "OrgSkillLesson" (
+    "id" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "skillName" TEXT NOT NULL,
+    "registryPath" TEXT NOT NULL,
+    "versionUsed" TEXT NOT NULL DEFAULT '',
+    -- NULL = the heading carried no readable date.
+    "learnedOn" TIMESTAMP(3),
+    "project" TEXT NOT NULL DEFAULT '',
+    "headingRaw" TEXT NOT NULL,
+    "body" TEXT NOT NULL DEFAULT '',
+    "entryHash" TEXT NOT NULL,
+    "position" INTEGER NOT NULL DEFAULT 0,
+    "memoryId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgSkillLesson_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgSkillLesson_registryId_registryPath_entryHash_key" ON "OrgSkillLesson"("registryId", "registryPath", "entryHash");
+
+-- CreateIndex
+CREATE INDEX "OrgSkillLesson_orgId_skillName_idx" ON "OrgSkillLesson"("orgId", "skillName");
+
+-- CreateIndex
+CREATE INDEX "OrgSkillLesson_registryId_registryPath_idx" ON "OrgSkillLesson"("registryId", "registryPath");
+
+-- CreateTable: #36 per-skill git timeline cache, one row per registry path. headSha is the cache
+-- key: a trace built at a different head is stale and rebuilt rather than served.
+CREATE TABLE "OrgSkillTrace" (
+    "id" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "skillName" TEXT NOT NULL,
+    "registryPath" TEXT NOT NULL,
+    "headSha" TEXT NOT NULL,
+    "entriesJson" TEXT NOT NULL DEFAULT '[]',
+    "truncated" BOOLEAN NOT NULL DEFAULT false,
+    "builtAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgSkillTrace_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgSkillTrace_registryId_registryPath_key" ON "OrgSkillTrace"("registryId", "registryPath");
+
+-- CreateIndex
+CREATE INDEX "OrgSkillTrace_orgId_skillName_idx" ON "OrgSkillTrace"("orgId", "skillName");
+
+-- CreateTable: #36 a reflection that must land as a PR, and its state. The registry is git-native:
+-- ascent PROPOSES a consolidated memory and never writes one directly.
+CREATE TABLE "OrgMemoryProposal" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "registryId" TEXT,
+    "namespace" TEXT,
+    "kind" TEXT NOT NULL DEFAULT 'summary',
+    "slug" TEXT NOT NULL,
+    "summaryContent" TEXT NOT NULL,
+    "memberIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "memberPathsJson" TEXT NOT NULL DEFAULT '[]',
+    "status" TEXT NOT NULL DEFAULT 'proposed',
+    "prUrl" TEXT,
+    "prNumber" INTEGER,
+    "createdBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrgMemoryProposal_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgMemoryProposal_orgId_slug_key" ON "OrgMemoryProposal"("orgId", "slug");
+
+-- CreateIndex
+CREATE INDEX "OrgMemoryProposal_orgId_status_idx" ON "OrgMemoryProposal"("orgId", "status");
+
+-- CreateTable: #32 a compacted month of one repo's scan history. SUMS, not means, so an upsert folds
+-- a later page exactly. rubricVersion is NOT NULL with an 'unknown' sentinel — it sits in the unique
+-- key, and NULLs being distinct would make every legacy month its own bucket forever.
+CREATE TABLE "ScanDigest" (
+    "id" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+    "period" TEXT NOT NULL,
+    "rubricVersion" TEXT NOT NULL,
+    "engineProvider" TEXT NOT NULL,
+    "scanCount" INTEGER NOT NULL,
+    "overallSum" INTEGER NOT NULL,
+    "adoptionSum" INTEGER NOT NULL,
+    "rigorSum" INTEGER NOT NULL,
+    "overallMin" INTEGER NOT NULL,
+    "overallMax" INTEGER NOT NULL,
+    "overallLast" INTEGER NOT NULL,
+    "adoptionLast" INTEGER NOT NULL,
+    "rigorLast" INTEGER NOT NULL,
+    "confidenceSum" DOUBLE PRECISION NOT NULL,
+    "levelLast" TEXT NOT NULL,
+    "levelNameLast" TEXT NOT NULL,
+    "postureLast" TEXT NOT NULL,
+    "firstScannedAt" TIMESTAMP(3) NOT NULL,
+    "lastScannedAt" TIMESTAMP(3) NOT NULL,
+    "firstHeadSha" TEXT,
+    "lastHeadSha" TEXT,
+    "enginesJson" TEXT NOT NULL DEFAULT '[]',
+    "dimensionsJson" TEXT NOT NULL DEFAULT '{}',
+    "recsOpened" INTEGER NOT NULL DEFAULT 0,
+    "recsClosed" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ScanDigest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ScanDigest_repoId_period_rubricVersion_engineProvider_key" ON "ScanDigest"("repoId", "period", "rubricVersion", "engineProvider");
+
+-- CreateIndex
+CREATE INDEX "ScanDigest_repoId_lastScannedAt_idx" ON "ScanDigest"("repoId", "lastScannedAt");
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
