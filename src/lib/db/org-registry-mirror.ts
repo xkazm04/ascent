@@ -34,6 +34,9 @@ export interface MirrorMemoryInput {
   confidence: number;
   source: string | null;
   tags?: string[];
+  /** Repo-relative paths of the notes this one replaces (#36). Resolved to sibling mirror rows at
+   *  upsert time and stamped as `supersededBy`. Empty/absent for a note that replaces nothing. */
+  supersedes?: string[];
 }
 
 export interface MirrorPracticeInput {
@@ -141,12 +144,29 @@ export async function upsertRegistryMemory(
     registryHash: input.hash,
   };
   const existing = await findByPath("orgMemory", registryId, input.path);
-  if (existing) {
-    await prisma.orgMemory.update({ where: { id: existing.id }, data });
-    return existing.id;
+  const id = existing
+    ? ((await prisma.orgMemory.update({ where: { id: existing.id }, data })) && existing.id)
+    : (await prisma.orgMemory.create({ data })).id;
+
+  // #36 — the round trip that gives a merged PR its effect. The successor note names its
+  // predecessors by PATH in its own frontmatter; here those paths are resolved, inside this
+  // registry only, and the old rows are pointed at the new one.
+  //
+  // NOTHING IS DELETED, in the repo or here: `supersededBy` is a pointer, the old note stays in git,
+  // and the recall query is what stops reading it. A destructive alternative would make a reviewer's
+  // merge irreversible, which is precisely the property a pull request exists to avoid.
+  const supersedes = (input.supersedes ?? []).filter((p) => p && p !== input.path).slice(0, 20);
+  if (supersedes.length) {
+    await prisma.orgMemory
+      .updateMany({
+        // Scoped to `registryId`: a path is only meaningful inside the registry that published it,
+        // and an unscoped match would let one org's note retire another's.
+        where: { registryId, registryPath: { in: supersedes }, supersededBy: null },
+        data: { supersededBy: id },
+      })
+      .catch(() => {});
   }
-  const created = await prisma.orgMemory.create({ data });
-  return created.id;
+  return id;
 }
 
 /** Upsert one `practices/<slug>/PRACTICE.md` mirror row. */
