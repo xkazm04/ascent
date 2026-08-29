@@ -90,15 +90,31 @@ model or from the mock-engine e2e suite:
 
 - **L1: not yet run** as a Character walk. The seam table above is the checklist a run would grade
   against; the machine-checked subset noted under it is green as of the branch that added this file.
-- **L2: not yet run.** No live drive has been exercised end to end since the restart-survival and
-  resume work landed, and no agent lane has been graded by a Character at all. Until L2-A/B/C are run,
-  the honest verdict for this journey is **unproven**, not "passing with caveats": the mock-engine
-  e2e suite proves the loop's *mechanics* and its *honesty about not knowing*, which is exactly the
-  half that does not require a model.
+- **L2: RUN 2026-08-29** — `uat/runs/2026-08-29-loop-l2/` (report `loop-to-l5-l2.md`, scorecard
+  `SUMMARY.md`). Journey verdict **`L2-conditional`**. The loop *around* the agent works live and
+  survives having its process killed; the agent lane does not produce its deliverable.
+
+  | # | confirmation | verdict | the one fact it turns on |
+  |---|---|---|---|
+  | **L2-A** | a real agent lane | **fail** | A real `claude -p` session (sonnet/low) worked 5m46s, wrote `AGENTS.md` + `test/`, and **could not commit**: `--permission-mode acceptEdits` grants edits, not Bash, and headless `-p` has nobody to ask. `removeLoopWorktree --force` then deleted the only copy. Reproduced outside Ascent in 22s for $0.03. |
+  | **L2-B** | an attributable lift | **pass (partial)** | Real engine both ends (`claude-cli/opus`, `engineDegraded:false`): **4 → 19, ▲+15**, outside ±2, backed by a real commit — and the ledger volunteered `widened D2, D3`, `blend 95%`, `D2/D3/D4 not measurable locally` unprompted. But the same run printed **`▲+24 ATTRIBUTABLE LIFT`** beside **`0 commits`** for the lost lane. The `within noise` twice-in-a-row half was not driven. |
+  | **L2-C** | a live drive, killed and resumed | **pass** | Killed 3.5s into a drive with a run in flight → `[loop] boot sweep: 1 loop run stopped, 1 drive marked interrupted`; run `stopped`, drive `interrupted`, banner reading "was not resumed on its own · 0/3 runs spent" above a still-usable inspector; Resume produced a new drive with `resumedFrom` set and `runsBefore` carried. Claim release measured separately: `inProgress 0 → 5 → (kill, restart) → 0`. |
+  | **L2-D** | the GitHub-side carry | **not run** | Both fixtures are local-only repos and every scan ran `noAmbientToken`, so there was never an observed fold to replay. The *absence* half held on every scan (`platformSignals.source: "unavailable"`, D2/D3/D4 excluded rather than floored). |
+  | **L2-E** | merge and iterate | **pass** | Five rounds: `foundation → practice(agent-guidance) → practice(docs-adrs) → practice(legible-history) → backlog`, 19 → 38, L1 → L2, debt 419 → 293. The kind changed under the rule each time because it re-reads the paired working copy. |
+  | **L2-F** | the blocked states | **pass (1 of 5)** | `autopilot-off` driven for real against a server booted without the flag: names `ASCENT_AUTOPILOT=1`, says "Restart the server after setting it.", leaves the chart readable, and the drive door answers 409 rather than 500. The other four need a different deployment shape, org or session. |
+
+  Two defects were fixed at source during the run (`044d7dc5` the run-branch collision a drive
+  produces by construction — which the drive then reported as `dry`, i.e. as a plateau in the
+  operator's repository; `2959be4c` a lane that lost its agent's work logging the same line as a lane
+  that had none). Seven findings are open, ranked in `SUMMARY.md`; `L2-A-01` (the agent cannot
+  commit) and `L2-B-01` (an attributable lift printed for a lane with zero commits, its scan then
+  adopted as the repo's standing) are the two that decide this journey.
 - Known holes this journey will meet and should record rather than re-derive: no hosted dispatch; a
-  retried lane lands on a second branch; the agent's `--effort` is passed unprobed; `curating` is a
-  reserved phase nothing writes. All four are documented in
-  `docs/features/org-planning/live.md` § Known gaps.
+  retried lane lands on a second branch; ~~the agent's `--effort` is passed unprobed~~ — **probed
+  2026-08-29**: the orphaned agent process's argv read
+  `-p --output-format json --permission-mode acceptEdits --model sonnet --effort low`, so the
+  operator's pick does reach the CLI; `curating` is a reserved phase nothing writes. All are
+  documented in `docs/features/org-planning/live.md` § Known gaps.
 
 ## Frozen happy path  (filled in only on `promote`)
 <!-- not yet promoted — discovery only. The e2e spec is the closest thing to a frozen path today, and
