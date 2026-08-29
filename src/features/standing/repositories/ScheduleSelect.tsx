@@ -8,7 +8,11 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { SCHEDULES as OPTIONS, type Schedule } from "@/components/connect/installationRepoTypes";
+// `scheduleLabel` travels with SCHEDULES for a reason: it is the ONE user-facing name for a cadence
+// id, and "off" is the id, not the label. The connect page's two selects render through it ("no
+// autoscan"); this one shipped later and rendered the raw id, so the same setting read as two
+// different words depending on which surface you were standing on.
+import { SCHEDULES as OPTIONS, scheduleLabel, type Schedule } from "@/components/connect/installationRepoTypes";
 
 function normalize(s: string): Schedule {
   return (OPTIONS as readonly string[]).includes(s) ? (s as Schedule) : "off";
@@ -84,7 +88,7 @@ export function ScheduleSelect({
       >
         {OPTIONS.map((o) => (
           <option key={o} value={o}>
-            {o}
+            {scheduleLabel(o)}
           </option>
         ))}
       </select>
