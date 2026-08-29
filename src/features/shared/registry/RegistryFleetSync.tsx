@@ -22,6 +22,12 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
   const pointPct = reposTotal === 0 ? 0 : Math.round((reposPointing / reposTotal) * 100);
   const syncPct = reposPointing === 0 ? 0 : Math.round((reposSynced30d / reposPointing) * 100);
   const totalStates = SYNC_STATES.reduce((s, x) => s + adoption[x.key], 0);
+  // Reporting is a DIFFERENT population from pointing: an installation contributes to the registry's
+  // usage lane whether or not its repo carries the pointer, so this is measured against the fleet
+  // total and sits beside the other two meters rather than inside them. It is also the only one of
+  // the three that is real today — pointing/synced stay at zero until the adoption pass (#18).
+  const reporting = view.telemetry.reposReporting;
+  const reportPct = reposTotal === 0 ? 0 : Math.round((reporting / reposTotal) * 100);
 
   return (
     <div className="space-y-3">
@@ -48,6 +54,14 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
           display={`${syncPct}%`}
           color={scoreHex(syncPct)}
           ariaLabel="Pointing repos that synced in the last 30 days"
+        />
+        <MeterRow
+          layout="stacked"
+          label={`Reporting · ${reporting}/${reposTotal}`}
+          value={reportPct}
+          display={`${reportPct}%`}
+          color={scoreHex(reportPct)}
+          ariaLabel="Installations contributing to the registry usage lane"
         />
       </div>
 

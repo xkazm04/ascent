@@ -42,6 +42,77 @@ const scan = (
 const ADOPTED = "2026-04-10T00:00:00.000Z";
 const adoption = { skillId: "s1", repoFullName: "acme/api", adoptedAt: ADOPTED };
 
+describe("first-invoke anchors (#19)", () => {
+  const scans = new Map<string, OutcomeScan[]>([
+    [
+      "acme/api",
+      [
+        { id: "before", scannedAt: "2026-04-01T00:00:00.000Z", overallScore: 60, dimensions: [], rubricVersion: "r10", engineProvider: "claude" },
+        { id: "after", scannedAt: "2026-06-01T00:00:00.000Z", overallScore: 71, dimensions: [], rubricVersion: "r10", engineProvider: "claude" },
+      ],
+    ],
+  ]);
+  const anchor = { skillId: "s1", repoFullName: "acme/api", firstInvokeAt: "2026-05-01T00:00:00.000Z" };
+
+  it("pairs a repo that ran the skill but was never marked adopted", () => {
+    const out = skillOutcomesFor([], scans, { invokeAnchors: [anchor] });
+    expect(out.s1).toHaveLength(1);
+    expect(out.s1![0]!.anchor).toBe("first-invoke");
+    expect(out.s1![0]!.status).toBe("measured");
+    expect(out.s1![0]!.overallDelta).toBe(11);
+    expect(out.s1![0]!.adoptedAt).toBe("2026-05-01T00:00:00.000Z");
+  });
+
+  it("NEVER re-dates an existing adoption for the same (skill, repo)", () => {
+    // The human record wins. An invocation moving somebody's anchor would silently rewrite the
+    // window their outcome was measured over.
+    const out = skillOutcomesFor(
+      [{ skillId: "s1", repoFullName: "acme/api", adoptedAt: "2026-04-15T00:00:00.000Z" }],
+      scans,
+      { invokeAnchors: [anchor] },
+    );
+    expect(out.s1).toHaveLength(1);
+    expect(out.s1![0]!.anchor).toBe("adoption");
+    expect(out.s1![0]!.adoptedAt).toBe("2026-04-15T00:00:00.000Z");
+  });
+
+  it("adds a row for a DIFFERENT repo of an already-adopted skill", () => {
+    const out = skillOutcomesFor(
+      [{ skillId: "s1", repoFullName: "acme/web", adoptedAt: "2026-04-15T00:00:00.000Z" }],
+      scans,
+      { invokeAnchors: [anchor] },
+    );
+    expect(out.s1!.map((r) => [r.repoFullName, r.anchor])).toEqual([
+      ["acme/web", "adoption"],
+      ["acme/api", "first-invoke"],
+    ]);
+  });
+
+  it("keeps one row per pair even if the caller repeats an anchor", () => {
+    expect(skillOutcomesFor([], scans, { invokeAnchors: [anchor, anchor] }).s1).toHaveLength(1);
+  });
+
+  it("still refuses a delta across a rubric bump — the instrument rule is not relaxed", () => {
+    const mismatched = new Map<string, OutcomeScan[]>([
+      [
+        "acme/api",
+        [
+          { id: "before", scannedAt: "2026-04-01T00:00:00.000Z", overallScore: 60, dimensions: [], rubricVersion: "r9", engineProvider: "claude" },
+          { id: "after", scannedAt: "2026-06-01T00:00:00.000Z", overallScore: 71, dimensions: [], rubricVersion: "r10", engineProvider: "claude" },
+        ],
+      ],
+    ]);
+    const out = skillOutcomesFor([], mismatched, { invokeAnchors: [anchor] });
+    expect(out.s1![0]!.status).toBe("instrument-mismatch");
+    expect(out.s1![0]!.overallDelta).toBeNull();
+  });
+
+  it("marks an adoption-anchored row as such by default", () => {
+    const out = skillOutcomesFor([{ skillId: "s1", repoFullName: "acme/api", adoptedAt: "2026-05-01T00:00:00.000Z" }], scans);
+    expect(out.s1![0]!.anchor).toBe("adoption");
+  });
+});
+
 describe("pairScansAroundAdoption", () => {
   const scans = [scan("s4", "6-01", 71), scan("s3", "4-20", 68), scan("s2", "4-01", 60), scan("s1", "1-05", 55)];
 
@@ -277,11 +348,10 @@ describe("getOrgSkillOutcomes", () => {
     // The fold still runs once per distinct repo and pairs both adoptions…
     expect(out.s1[0].before?.id).toBe("b");
     expect(out.s1[0].after?.id).toBe("a");
-    // …but a HistoryPoint carries no `rubricVersion` today, so the pair is honestly NOT COMPARABLE.
-    // This is the D11 contract, and it pins the remaining wiring: once HistoryPoint carries the scan's
-    // rubric version (Scan.rubricVersion is already persisted — prisma/schema.prisma) and
-    // skill-outcomes-load's toOutcomeScan passes it through, these become `measured` again. Until then,
-    // no number is published for a pair whose comparability nobody can assert.
+    // …but THESE FIXTURE scans declare no instrument, so the pair is honestly NOT COMPARABLE. That is
+    // the D11 contract. (The wiring this comment used to say was missing has since landed:
+    // `HistoryPoint.rubricVersion` exists and `toOutcomeScan` passes it through, so a real pair whose
+    // scans were stamped does read `measured`. What is asserted here is the SILENT case.)
     expect(out.s1[0].status).toBe("instrument-unknown");
     expect(out.s1[0].overallDelta).toBeNull();
     expect(out.s2[0].overallDelta).toBeNull();

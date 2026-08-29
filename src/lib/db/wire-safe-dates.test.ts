@@ -64,6 +64,13 @@ import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 // MOONSHOT #32. Deep-path until the barrel line lands; it reaches a client through `HistoryPoint`.
 import type { CompactedPoint } from "@/lib/db/scan-digest";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
+import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
+import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
+import type { RegistrySignalRow, SignalContributionRow } from "@/lib/db/org-registry-signals";
+import type { MemoryProposalRow } from "@/lib/db/org-registry-proposals";
+import type { SkillLessonRow } from "@/lib/db/org-skill-lessons";
+import type { SkillTraceRow } from "@/lib/db/org-skill-trace";
+import type { SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { UsageEventRow } from "@/lib/db/usage-events";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
@@ -120,6 +127,12 @@ const WIRE_TYPES = {
   ControlMatrixRow: true satisfies WireSafe<ControlMatrixRow>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
   ManifestReadout: true satisfies WireSafe<ManifestReadout>,
+  // The five #18 row types. All reach a client through RegistryView, which RegistryPanel renders.
+  ConformanceMapRow: true satisfies WireSafe<ConformanceMapRow>,
+  ConformanceRow: true satisfies WireSafe<ConformanceRow>,
+  HistoryPoint: true satisfies WireSafe<HistoryPoint>,
+  KnowledgeSubjectRow: true satisfies WireSafe<KnowledgeSubjectRow>,
+  MemoryProposalRow: true satisfies WireSafe<MemoryProposalRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
@@ -130,11 +143,17 @@ const WIRE_TYPES = {
   PlaybookRow: true satisfies WireSafe<PlaybookRow>,
   PublicScanGallery: true satisfies WireSafe<PublicScanGallery>,
   RepoMemoryEntryRow: true satisfies WireSafe<RepoMemoryEntryRow>,
+  RegistrySignalRow: true satisfies WireSafe<RegistrySignalRow>,
   RepositoryHistory: true satisfies WireSafe<RepositoryHistory>,
   SandboxScenarioRecord: true satisfies WireSafe<SandboxScenarioRecord>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
+  SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
+  SkillLessonRow: true satisfies WireSafe<SkillLessonRow>,
   SkillRow: true satisfies WireSafe<SkillRow>,
+  SkillTraceRow: true satisfies WireSafe<SkillTraceRow>,
+  // Reaches a client inside SkillUsageRows, which skill-usage.ts (imported by SkillsPanel) types against.
+  SkillUsageSampleRow: true satisfies WireSafe<SkillUsageSampleRow>,
   TeamRollup: true satisfies WireSafe<TeamRollup>,
   TransitionProgramRow: true satisfies WireSafe<TransitionProgramRow>,
   UsageDay: true satisfies WireSafe<UsageDay>,
@@ -151,6 +170,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(31);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(41);
   });
 });

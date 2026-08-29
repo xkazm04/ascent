@@ -174,6 +174,10 @@ export function parseRegistryMemory(path: string, content: string): ParseOutcome
       confidence,
       source: (fm.raw.source ?? "").trim() || `registry:${path}`,
       tags: tags.slice(0, 20),
+      // #36 — repo-relative PATHS of the notes this one replaces, never DB uuids: the registry is a
+      // tenant-free artifact and a uuid means nothing to whoever reviews the PR that adds this note.
+      // A merged PR carrying `supersedes:` is what retires the old notes, on the next index pass.
+      supersedes: splitList(fm.raw.supersedes).slice(0, 20),
     },
   };
 }

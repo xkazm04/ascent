@@ -4,10 +4,13 @@
 // JSON string[]; this module is the single place skill fields are (de)serialized + bounded. DISTINCT
 // from src/lib/db/skill-history.ts (the per-repo onboarding-SKILL.md generation log) — no coupling.
 
+import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
+import { normalizeEventSource } from "@/lib/org/skill-event-source";
+import { listOrgSkillUsageSamples, type SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
 import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
 import { digestVerdict, isLegacyDigest } from "@/lib/registry/catalog";
 import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
@@ -345,7 +348,14 @@ export async function listOrgSkillAdoptionRows(orgSlug: string): Promise<SkillAd
 export interface SkillEventStat {
   skillId: string;
   type: string;
-  lastAt: string;
+  /**
+   * When that kind of use last happened. NULL = the count is real but the recency is genuinely
+   * unknown — the shape the registry's `usage/` lane produces when a contributor reports `invokes`
+   * without a `lastUsed`. The event rollup itself never yields null (an `OrgSkillEvent` always has a
+   * `createdAt`); the nullability exists so a sample cannot be forced to invent a timestamp, which is
+   * the one substitution that would make every skill in a regenerated registry read `active` forever.
+   */
+  lastAt: string | null;
   count: number;
 }
 
@@ -356,21 +366,26 @@ export interface SkillUsageRows {
   skills: { id: string; name: string; createdAt: string }[];
   events: SkillEventStat[];
   adoptions: SkillAdoptionRow[];
+  /** The registry `usage/` lane's snapshot rows (sink B), folded read-time into `invoke` stats. Empty
+   *  when no registry is mapped or nobody contributes. Never turned into synthetic `OrgSkillEvent`
+   *  rows: a snapshot re-read on every index pass would double-count the moment it were. */
+  samples: SkillUsageSampleRow[];
 }
 
 export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageRows | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
-  if (!orgId) return { skills: [], events: [], adoptions: [] };
+  const empty = { skills: [], events: [], adoptions: [], samples: [] };
+  if (!orgId) return empty;
   const skills = await prisma.orgSkill.findMany({
     where: { orgId, archived: false },
     orderBy: { name: "asc" },
     select: { id: true, name: true, createdAt: true },
   });
-  if (!skills.length) return { skills: [], events: [], adoptions: [] };
+  if (!skills.length) return empty;
   const ids = skills.map((s) => s.id);
-  const [grouped, adoptions] = await Promise.all([
+  const [grouped, adoptions, samples] = await Promise.all([
     prisma.orgSkillEvent.groupBy({
       by: ["skillId", "type"],
       where: { orgId, skillId: { in: ids } },
@@ -378,6 +393,9 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
       _count: { _all: true },
     }),
     listOrgSkillAdoptionRows(orgSlug),
+    // Best-effort: the registry lane is a second sink, so an unreadable one must cost the page its
+    // extra evidence and nothing else.
+    listOrgSkillUsageSamples(orgId).catch(() => []),
   ]);
   return {
     skills: skills.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt.toISOString() })),
@@ -385,7 +403,49 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
       .filter((g) => g._max.createdAt)
       .map((g) => ({ skillId: g.skillId, type: g.type, lastAt: g._max.createdAt!.toISOString(), count: g._count._all })),
     adoptions: adoptions.filter((a) => ids.includes(a.skillId)),
+    samples,
   };
+}
+
+/**
+ * How many `invoke` events THIS org recorded through the events API (sink A) in the last `days`.
+ *
+ * Deliberately separate from the registry lane's `invokes30d`: the two sinks count different
+ * populations (one is the tenant's own hooks/CI/MCP, the other is whatever installations chose to
+ * publish into the registry repo) and summing them would double-count any installation that reports
+ * to both. The Registry tab shows them as two readouts for exactly that reason.
+ *
+ * Null when persistence is off — "not measured", which is not zero.
+ */
+export async function countOrgSkillInvokes(orgId: string, days = 30): Promise<number | null> {
+  if (!isDbConfigured()) return null;
+  const since = new Date(Date.now() - days * 86_400_000);
+  return getPrisma().orgSkillEvent.count({ where: { orgId, type: "invoke", createdAt: { gte: since } } });
+}
+
+/**
+ * The FIRST `invoke` this org recorded per (skill, repo) — the outcome loop's anchor of last resort
+ * (#19). Only sink A can produce these: the registry `usage/` lane carries no repo dimension by
+ * construction, so a sample can never anchor a repo-scoped outcome.
+ *
+ * Rows with a null `repo` are excluded rather than bucketed: an invocation nobody attributed to a
+ * repo cannot be paired against any repo's scan history, and guessing one would attribute a score
+ * movement to a repo that may have had nothing to do with it.
+ */
+export async function listSkillInvokeAnchors(
+  orgSlug: string,
+): Promise<{ skillId: string; repoFullName: string; firstInvokeAt: string }[]> {
+  if (!isDbConfigured()) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const grouped = await getPrisma().orgSkillEvent.groupBy({
+    by: ["skillId", "repo"],
+    where: { orgId, type: "invoke", repo: { not: null } },
+    _min: { createdAt: true },
+  });
+  return grouped
+    .filter((g) => g.repo && g._min.createdAt)
+    .map((g) => ({ skillId: g.skillId, repoFullName: g.repo!, firstInvokeAt: g._min.createdAt!.toISOString() }));
 }
 
 /** Record that a repo adopted a skill (idempotent per skill+repo). False if org/skill unknown —
@@ -547,29 +607,67 @@ export async function pushOrgSkill(
 }
 
 /**
- * The closed set of usage events. `invoke` was retired on 2026-07-29: it ranked highest in the dormancy
- * verdict yet had NO producer anywhere in the app, the CLI, or the hooks — so the only signal that could
- * mark a skill `active` was unproducible, and every skill in the library eventually read "dormant". A
- * documented-but-unemittable event type is worse than none. Legacy rows are rewritten to `download` by
- * prisma/migrations/20260729150000_retire_skill_invoke_event.
+ * The closed set of usage events.
+ *
+ * `invoke` was retired on 2026-07-29 for having no producer: it ranked highest in the dormancy verdict
+ * yet nothing in the app, the CLI or the hooks emitted it, so `active` was unreachable for every skill
+ * in the library. Moonshot #19 UN-retires it because that producer now exists — the `Skill` PreToolUse
+ * hook `ascent-skills hooks install` writes, drained by `ascent-skills report`, plus the MCP tool path
+ * (#17). The rule the retirement encoded still holds and is why this comment stays: a type with no
+ * producer must not exist. This one has two.
  */
-export type SkillEventType = "download" | "sync";
+export type SkillEventType = "download" | "sync" | "invoke";
 export function isSkillEventType(v: string): v is SkillEventType {
-  return v === "download" || v === "sync";
+  return v === "download" || v === "sync" || v === "invoke";
 }
 export interface SkillEventInput {
   skillId: string;
   type: SkillEventType;
   repo?: string | null;
+  /** Reporting client — normalized against the closed vocabulary (see normalizeEventSource). */
   source?: string | null;
+  /** Producer session id. With `ts` it forms the event's identity, which is what makes a retried
+   *  batch idempotent; absent, the event keeps the old at-least-once behaviour. */
+  session?: string | null;
+  /** When the event HAPPENED (ISO). Clamped to {@link EVENT_BACKDATE_MAX_DAYS} — see the clamp. */
+  ts?: string | null;
+}
+
+/**
+ * How far back a producer may date an event. A hook drains asynchronously, so a genuinely older
+ * timestamp is normal; ninety days is the outer edge of useful (three dormancy windows) and, more to
+ * the point, it is a FLOOR against clock skew. Without it a machine whose clock reads 2019 could push
+ * a live skill into dormancy, and one reading 2031 could pin a dead one to `active` forever.
+ */
+export const EVENT_BACKDATE_MAX_DAYS = 90;
+
+/** Parse and clamp a producer-supplied `ts` into `[now - 90d, now]`. Unparseable → `now`. */
+export function clampEventTs(raw: string | null | undefined, now: Date): Date {
+  if (typeof raw !== "string" || !raw.trim()) return now;
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return now;
+  const floor = now.getTime() - EVENT_BACKDATE_MAX_DAYS * 86_400_000;
+  return new Date(Math.min(now.getTime(), Math.max(floor, t)));
+}
+
+/** The event's identity: `(session, skill, ts)`. Null when the producer supplied no session, which
+ *  leaves the row unconstrained — `OrgSkillEvent.dedupeKey` is NULLABLE-unique, and Postgres treats
+ *  NULLs as distinct, so an un-sessioned producer keeps appending exactly as it did before. */
+export function skillEventDedupeKey(sessionId: string | null, skillId: string, ts: Date): string | null {
+  if (!sessionId) return null;
+  return createHash("sha256").update(`${sessionId} ${skillId} ${ts.toISOString()}`).digest("hex");
 }
 
 /**
  * Record a BATCH of usage events (the telemetry endpoint). Events are filtered to skills that actually
- * belong to `orgSlug` — the tenant boundary, and it drops forged/unknown ids. A real use (`download`)
- * additionally bumps the rolling `OrgSkillDownload` tally + the denormalized `downloadCount` sort key; a
- * passive `sync` is logged but never inflates "most used". Best-effort throughout (mirrors
- * recordSkillDownload) — telemetry must never fail the caller's real work.
+ * belong to `orgSlug` — the tenant boundary, and it drops forged/unknown ids. A real use (`download`
+ * or `invoke`) additionally bumps the rolling `OrgSkillDownload` tally + the denormalized
+ * `downloadCount` sort key; a passive `sync` is logged but never inflates "most used". Best-effort
+ * throughout (mirrors recordSkillDownload) — telemetry must never fail the caller's real work.
+ *
+ * IDEMPOTENCY (#19): a sessioned event carries a `dedupeKey`, and duplicates are dropped BEFORE the
+ * insert as well as by `skipDuplicates` at it. The pre-filter is not redundant with the constraint —
+ * it is what keeps a retried batch from double-bumping the use tally, which the constraint cannot see.
  */
 export async function recordSkillEvents(orgSlug: string, events: SkillEventInput[]): Promise<{ recorded: number }> {
   if (!isDbConfigured()) return { recorded: 0 };
@@ -583,14 +681,48 @@ export async function recordSkillEvents(orgSlug: string, events: SkillEventInput
   const valid = events.filter((e) => ownedSet.has(e.skillId) && isSkillEventType(e.type));
   if (!valid.length) return { recorded: 0 };
   const clip = (v?: string | null) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
+  // What actually LANDED, not what was submitted: a caller retrying a batch must be told "0 recorded"
+  // rather than a second confirmation of writes that were suppressed.
+  let recorded = 0;
   try {
     const now = new Date();
-    await prisma.orgSkillEvent.createMany({
-      data: valid.map((e) => ({ skillId: e.skillId, orgId, type: e.type, repo: clip(e.repo), source: clip(e.source), createdAt: now })),
+    const rows = valid.map((e) => {
+      const at = clampEventTs(e.ts, now);
+      const { source, detail } = normalizeEventSource(e.source);
+      return {
+        skillId: e.skillId,
+        orgId,
+        type: e.type,
+        repo: clip(e.repo),
+        source,
+        detail,
+        sessionId: clip(e.session),
+        dedupeKey: skillEventDedupeKey(clip(e.session), e.skillId, at),
+        createdAt: at,
+      };
     });
+    // Within-batch dedupe first, then against what already landed. Both halves exist so the tally
+    // below counts what was actually inserted rather than what was submitted.
+    const seenKeys = new Set<string>();
+    const batch = rows.filter((r) => !r.dedupeKey || (!seenKeys.has(r.dedupeKey) && seenKeys.add(r.dedupeKey)));
+    const keys = batch.map((r) => r.dedupeKey).filter((k): k is string => Boolean(k));
+    const already = keys.length
+      ? new Set(
+          (
+            await prisma.orgSkillEvent.findMany({
+              where: { orgId, dedupeKey: { in: keys } },
+              select: { dedupeKey: true },
+            })
+          ).map((r) => r.dedupeKey),
+        )
+      : new Set<string | null>();
+    const fresh = batch.filter((r) => !r.dedupeKey || !already.has(r.dedupeKey));
+    if (!fresh.length) return { recorded: 0 };
+    await prisma.orgSkillEvent.createMany({ data: fresh, skipDuplicates: true });
+    recorded = fresh.length;
     const useCounts = new Map<string, number>();
-    for (const e of valid) {
-      if (e.type === "download") useCounts.set(e.skillId, (useCounts.get(e.skillId) ?? 0) + 1);
+    for (const e of fresh) {
+      if (e.type === "download" || e.type === "invoke") useCounts.set(e.skillId, (useCounts.get(e.skillId) ?? 0) + 1);
     }
     for (const [skillId, count] of useCounts) {
       await prisma.$transaction([
@@ -601,7 +733,7 @@ export async function recordSkillEvents(orgSlug: string, events: SkillEventInput
   } catch {
     /* telemetry is best-effort — never surface to the caller */
   }
-  return { recorded: valid.length };
+  return { recorded };
 }
 
 /**

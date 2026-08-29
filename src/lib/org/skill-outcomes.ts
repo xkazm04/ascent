@@ -71,6 +71,14 @@ export interface SkillOutcome {
   withinPairingBound: boolean | null;
   /** The instrument identity both sides had to agree on, when both sides declared one. */
   instrument: { rubricVersion: string; engineProvider: string } | null;
+  /**
+   * What `adoptedAt` actually is (#19).
+   *   `adoption`     — an `OrgSkillAdoption` row: somebody marked this repo as using the skill.
+   *   `first-invoke` — no such row exists, and the anchor is the FIRST time this repo reported
+   *                    running the skill through the events API. Weaker provenance, identical
+   *                    pairing: a consumer that distinguishes them should say so.
+   */
+  anchor: "adoption" | "first-invoke";
 }
 
 /** Why a delta is missing (or how far apart the pair sits), in one line for the UI. */
@@ -187,6 +195,24 @@ const lite = (s: OutcomeScan) => ({ id: s.id, scannedAt: s.scannedAt, overallSco
 export interface OutcomeOptions {
   /** Override for {@link PAIRING_MAX_DISTANCE_DAYS} — see that constant for the basis of the default. */
   maxPairingDistanceDays?: number;
+  /** What the anchor IS, for the returned row. Callers other than {@link skillOutcomesFor} never
+   *  need this; it exists so the pairing core stays ignorant of where its anchor came from. */
+  anchor?: SkillOutcome["anchor"];
+}
+
+/**
+ * The first time a repo reported RUNNING a skill (#19). An anchor of last resort: it is used only
+ * where no adoption row exists for that exact (skill, repo), never to override one.
+ *
+ * The order matters and is not arbitrary. An adoption is a deliberate statement by a person that this
+ * repo took the skill on; a first invocation is a machine's observation. Where both exist they
+ * usually agree, and where they disagree the human record is the one the org will recognise. Letting
+ * an invocation move an existing anchor would silently re-date somebody's outcome — so it cannot.
+ */
+export interface InvokeAnchor {
+  skillId: string;
+  repoFullName: string;
+  firstInvokeAt: string;
 }
 
 /** The pure core: one adoption + that repo's scan history → an outcome (or an honest gap). */
@@ -232,19 +258,41 @@ export function skillOutcomeFor(
       comparable && after!.rubricVersion && after!.engineProvider
         ? { rubricVersion: after!.rubricVersion, engineProvider: after!.engineProvider }
         : null,
+    anchor: opts.anchor ?? "adoption",
   };
 }
 
-/** Fold a whole org's adoptions against a repo→scans lookup. Pure — the fetching is the caller's. */
+/**
+ * Fold a whole org's adoptions against a repo→scans lookup. Pure — the fetching is the caller's.
+ *
+ * `invokeAnchors` fills the gap where a repo demonstrably USES a skill but nobody ever marked it
+ * adopted — the common case for a fleet driven by the hook rather than by the tab. Each anchor is
+ * taken only when the (skill, repo) pair has no adoption of its own, so this can add rows and can
+ * never re-date one. The pairing, the statuses and the instrument-match rule are untouched: an
+ * invoke-anchored row is subject to every check an adoption-anchored row is.
+ */
 export function skillOutcomesFor(
   adoptions: { skillId: string; repoFullName: string; adoptedAt: string }[],
   scansByRepo: Map<string, OutcomeScan[]>,
-  opts: OutcomeOptions = {},
+  opts: OutcomeOptions & { invokeAnchors?: InvokeAnchor[] } = {},
 ): Record<string, SkillOutcome[]> {
   const out: Record<string, SkillOutcome[]> = {};
+  const paired = new Set<string>();
   for (const a of adoptions) {
+    paired.add(`${a.skillId}\u0000${a.repoFullName}`);
     const outcome = skillOutcomeFor(a, scansByRepo.get(a.repoFullName) ?? [], opts);
     (out[a.skillId] ??= []).push(outcome);
+  }
+  for (const anchor of opts.invokeAnchors ?? []) {
+    if (paired.has(`${anchor.skillId}\u0000${anchor.repoFullName}`)) continue;
+    // De-duplicated against itself too: one anchor per pair, whatever the caller handed over.
+    paired.add(`${anchor.skillId}\u0000${anchor.repoFullName}`);
+    const outcome = skillOutcomeFor(
+      { skillId: anchor.skillId, repoFullName: anchor.repoFullName, adoptedAt: anchor.firstInvokeAt },
+      scansByRepo.get(anchor.repoFullName) ?? [],
+      { ...opts, anchor: "first-invoke" },
+    );
+    (out[anchor.skillId] ??= []).push(outcome);
   }
   return out;
 }

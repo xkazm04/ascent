@@ -26,7 +26,31 @@ export const REGISTRY_SCAFFOLD_BRANCH = "ascent/registry-scaffold";
 export const REGISTRY_SPINE_PATH = ".ascent/registry.yaml";
 
 /** Top-level directories the indexer walks, in ledger order. */
-export const REGISTRY_DIRS = { skills: "skills", practices: "practices", memory: "memory" } as const;
+export const REGISTRY_DIRS = {
+  skills: "skills",
+  practices: "practices",
+  memory: "memory",
+  /** `signals/<contributor>.json` — what each installation LEARNED about the corpus: how often a
+   *  subject was consulted, how often a repo deviated from it, and whether its citations still
+   *  resolve. Counts only; the lane's contract forbids anything repo-shaped (#18). */
+  signals: "signals",
+} as const;
+
+/** `knowledge/<domain>/index.json` — the generated index of one Reference Knowledge Bundle. */
+export const REGISTRY_KNOWLEDGE_DIR = "knowledge";
+
+/** The schema tag every `signals/<contributor>.json` must declare. A file without it is not this
+ *  lane's document and is skipped with a warning rather than parsed hopefully. */
+export const SIGNALS_SCHEMA = "rkb-signals/1";
+
+/** In a MANAGED repo (not the registry): the generated join between that repo's contexts and the
+ *  registry's subjects, with a verdict per pair. Read out-of-band — it is far too large for the
+ *  scan's per-file budget (see conformance-read.ts). */
+export const REGISTRY_MAP_PATH = ".ai/registry-map.json";
+
+/** In a managed repo: the append-only log of knowledge consults. Absent ⇒ `consults30d` is NULL,
+ *  which is "the lane was never written", not "nobody consulted". */
+export const REPO_CONSULTS_PATH = ".ai/consults.jsonl";
 
 export const REGISTRY_CATALOG_PATH = "catalog.json";
 export const REGISTRY_SKILL_FILE = "SKILL.md";

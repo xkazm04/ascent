@@ -29,6 +29,9 @@ import { RegistryStepperIndex } from "./RegistryStepperIndex";
 import { RegistryFleetSync } from "./RegistryFleetSync";
 import { RegistryActivity } from "./RegistryActivity";
 import { RegistryHowTo } from "./RegistryHowTo";
+import { RegistryConformanceMap } from "./RegistryConformanceMap";
+import { RegistryWeakGovernance } from "./RegistryWeakGovernance";
+import { RegistrySignalsReadout } from "./RegistrySignalsReadout";
 import { RegistryHeaderActions } from "./RegistryActions";
 
 const STATUS_READ: Record<RegistryView["status"], string> = {
@@ -147,6 +150,17 @@ function IdentifiedPanel({ view, slug }: { view: RegistryView; slug: string }) {
       <section className="grid gap-8 sm:grid-cols-2">
         <RegistryFleetSync view={view} slug={slug} layout="rows" />
         <Telemetry view={view} />
+      </section>
+
+      {/* #18 — the fourth fleet instrument, beside maturity, gate and adoption: which of the org's
+          OWN written standards each repo knowingly departs from, and whether the standard itself is
+          still being reached for. Placed under the machine and above the how-to, because it is a
+          reading OF the registry rather than a step in setting one up. */}
+      <RegistryConformanceMap view={view} />
+
+      <section className="grid gap-8 sm:grid-cols-2">
+        <RegistryWeakGovernance view={view} />
+        <RegistrySignalsReadout view={view} />
       </section>
 
       <RegistryActivity view={view} limit={10} />

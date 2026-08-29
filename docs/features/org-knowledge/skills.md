@@ -150,36 +150,117 @@ Two routes exist specifically for a non-interactive client:
   rather than the personal-workspace-inclusive `workspaceAllowsSkills`; the
   CLI/CI push path does not extend the personal-workspace free tier.
 
-### Usage telemetry
+### Usage telemetry — one event contract, two sinks, one repo rule
 
-`POST /api/org/skills/events` accepts a batch (`{ org, events: [{ skillId,
-type, repo?, source? }] }`, capped at 500 per call) under a distinct
-`telemetry:write` token scope. `type` must be `download` or `sync`; anything
-else is dropped (a batch containing at least one valid event is still
-recorded; a batch of only invalid events is a 400). Events for skill ids
-outside the caller's org are silently dropped (tenant boundary). Only
-`download` events bump the rolling use counters; `sync` events are logged but
-never count toward "most used," since a background CLI sync would otherwise
-make every adopted skill look permanently active. The whole handler is
-best-effort: telemetry failures never fail the caller's real work.
+The event is `{ skill, version?, event: "invoke" | "download" | "sync", ts,
+session?, source, repo? }`, identified by `(session, skill, ts)`. Every
+producer emits that shape; it lands in one of two places, and only one of them
+may carry `repo`.
 
-A third type, `invoke`, was **retired on 2026-07-29**. It ranked highest in
-the dormancy verdict but had no producer anywhere: not the app, not the
-distributed CLI (`scripts/ascent-skills.mjs` emits `sync` only), not the
-hooks, so `active` was unreachable for every skill in production. It is gone
-from the type union, its validator, this route and every reader;
-`prisma/migrations/20260729150000_retire_skill_invoke_event` folds any legacy
-row into `download` so historical activity keeps counting. The CLI's wire
-contract is unaffected (it never sent `invoke`).
+**Sink A — the events API.** `POST /api/org/skills/events` accepts a batch
+(`{ org, events: [{ skillId, type, repo?, source?, session?, ts? }] }`, capped
+at 500 per call) under a distinct `telemetry:write` token scope. Tenant-private:
+it lands in the org's own database, and it is the **only** sink that may carry a
+repo name. Events for skill ids outside the caller's org are silently dropped
+(the tenant boundary). An unknown `type` is dropped without rejecting its
+batch-mates; a batch of only invalid events is a 400. The whole handler is
+best-effort — telemetry failures never fail the caller's real work.
+
+**Sink B — the registry's `usage/` lane.** `ascent-skills report --to-registry`
+aggregates the same events into `usage/<contributor>.json` in the customer's
+registry repo: **counts only — no repo, no path, no login, no per-project
+breakdown.** The registry's own contract
+(`docs/usage-lane.md`) forbids all of it and its `scripts/check-usage.mjs` gate
+enforces it on what is usually a public repo; the CLI refuses to write a payload
+containing any `/`- or `@`-shaped value rather than scrubbing one. Ascent READS
+that lane at index time (`aggregateUsage`) and never writes to it from the
+server.
+
+The two are reported **separately and never summed** — an installation may
+contribute to both, and adding them would count it twice. `telemetry/<repo>/<yyyy-mm>.jsonl`
+(sketched in `docs/GOLDEN-USE-CASES.md`) is deliberately **not built**: it is
+repo-dimensioned data in a repo whose privacy the operator does not control, and
+sink A already serves that need.
+
+**`invoke` is back (2026-08-29).** It was retired on 2026-07-29 for having no
+producer: nothing in the app, the CLI or the hooks emitted it, so `active` was
+unreachable for every skill in production, and a documented-but-unemittable type
+is worse than none. That reasoning still stands and is why the type only
+returned once producers existed — the `Skill` PreToolUse hook (below), the MCP
+tool path, and the registry lane read as samples. `invoke` and `download` both
+count as real uses and both bump the rolling use counters; `sync` is logged but
+never counts toward "most used," since a background CLI sync would otherwise
+make every adopted skill look permanently active.
+
+Three writer invariants make a chatty producer safe:
+
+- **`source` is a closed vocabulary** — `cli | hook | ci | web | registry | mcp`
+  (`src/lib/org/skill-event-source.ts`), validated in `recordSkillEvents` rather
+  than at each call site. The shipped CLI reported `cli:<drift state>`, so an
+  unrecognized value is **normalized by prefix** (`cli:diverged` → `source: "cli"`,
+  `detail: "diverged"`) rather than rejected; a value with no recognizable prefix
+  still records the event with `source: null` and the raw text in `detail`.
+  Nothing rewrites the rows already written — legacy strings are normalized on
+  read, so there is no destructive migration.
+- **`ts` is clamped** to `[now − 90d, now]`. A hook drains asynchronously, so an
+  older timestamp is normal; the clamp is a floor against clock skew, which could
+  otherwise bury a live skill in dormancy or pin a dead one to `active` forever.
+- **`(session, skill, ts)` is the event's identity.** A sessioned event carries a
+  `dedupeKey`; duplicates are filtered before the insert *and* by a nullable-unique
+  constraint at it. The pre-filter is what keeps a retried batch from double-bumping
+  the use tally. A producer that supplies no session keeps today's at-least-once
+  behaviour.
+
+### The invoke hook (`ascent-skills hooks`)
+
+`ascent-skills hooks install` writes a `PreToolUse` matcher on `Skill` into the
+project's `.claude/settings.json`, marked `_ascent: true`, and generates
+`.ascent/skill-hook.mjs` from an embedded template (so the hook never depends on
+where the CLI lives). The hook appends one line
+`{skill, event:"invoke", ts, session}` to `.ascent/skill-events.jsonl` and
+**exits 0 unconditionally**: it never blocks a tool call, never reads a prompt or
+file content, records no user or path, and never phones home. `hooks remove`
+deletes only entries carrying the marker — a project's own `Skill` hook is not
+ours to take away — and leaves the spool alone, since it may hold unreported
+events. `hooks status` prints installed/absent plus the pending count.
+
+`ascent-skills report` drains the spool by **byte watermark**
+(`.ascent/skill-events.offset`), not by truncation, so the hook may append while
+a report is running. It dedupes on `(session, skill, ts)`, resolves skill names
+to ids through the manifest (a name the library does not publish is reported as
+skipped, never guessed at), and posts batches of ≤500 to sink A with
+`source: "hook"`. The watermark advances only after the server acknowledges, so
+a failed report re-sends — at-least-once, which the dedupe key turns into
+exactly-once. `--dry-run` prints and drains nothing.
+
+### Registry usage samples (sink B, persisted)
+
+Each index pass snapshots the `usage/` lane into `OrgSkillUsageSample`, upserted
+on `(registryId, contributor, skillName)` — **a snapshot, never an append**, so
+re-indexing the same head is a no-op and cannot double-count. Contributors whose
+file vanished are purged in the same pass, mirroring `archiveVanishedRegistryRows`;
+the write and the purge are both skipped wholesale when GitHub truncated the tree,
+because "not in this pass" would otherwise delete a live installation's counts.
+
+`lastUsedAt` is `NULL` when the file omitted `lastUsed`, and **`generatedAt` is
+never substituted for it**. A sample with no reported instant contributes a count
+and no recency, so a skill whose only evidence is such a sample stays `unused`
+rather than flipping to `active` every time the registry regenerates its files.
+The samples are folded into the verdict at **read** time (`skillUsageMap`), never
+materialized as `OrgSkillEvent` rows — the registry publishes a running total with
+no event identity, so an append-shaped mirror would inflate on the second pass.
 
 ### Dormancy status
 
 `src/lib/org/skill-usage.ts` classifies each skill as `new`, `active`, or
 `dormant`:
 
-1. A real use (`download`, a copy or download from the web UI or a CLI, but
-   never a `sync`) within the last 30 days (`DORMANCY_WINDOW_DAYS`) →
-   **active**.
+1. A real use — `invoke` (the skill RAN) or `download` (a copy or download from
+   the web UI or a CLI), but never a `sync` — within the last 30 days
+   (`DORMANCY_WINDOW_DAYS`) → **active**. Where both exist, the **more recent**
+   decides `lastUsedType`; `invoke` outranks `download` only on an exact tie,
+   because running a skill is stronger evidence than reading it while a later
+   download is still the last thing that happened.
 2. Otherwise, if the skill has never been used and is younger than 30 days
    (measured from creation, or from its most recent adoption if that's
    later, since re-adopting an old skill into a new repo restarts its chance to
@@ -211,8 +292,15 @@ never be `new` and `dormant` at once.
 `SkillDormancyBadge` renders this with `active` in emerald, `dormant` in
 amber, and `new` deliberately neutral (slate) rather than green, since it
 hasn't earned "active" yet. The badge and the "N uses" counter beside it are
-folded from the same `download` events, so `active` is reachable through a
-path that exists today (a web copy/download, or a CLI-reported `download`).
+folded from the same events, so `active` is reachable through every path that
+exists: a web copy/download, a CLI-reported `download`, a hook/MCP `invoke`, or
+a registry sample. The badge says "invoked", "used" or "synced" for the three
+kinds rather than collapsing them.
+
+`SkillInvokeChip` shows how often a skill actually **ran**, beside how often it
+was read. It is deliberately not labelled "30d": the rollup has no window and
+each registry contributor counts over one it chose for itself, so it is a volume,
+not a rate — the windowed claim lives in the badge next to it.
 
 ### Outcome tracking (score movement since adoption)
 
@@ -236,11 +324,15 @@ silence about provenance is not evidence of comparability). Both null out
 declared equivalence table and is deliberately **empty**: an unjustified
 entry would restore the silent error under a legitimising label.
 
-*Known gap:* `HistoryPoint` does not yet carry `rubricVersion` (the column
-`Scan.rubricVersion` is persisted), so `skill-outcomes-load.ts` cannot pass
-it and every production pair currently reads `instrument-unknown`. Threading
-that one field through `getRepositoryHistory` → `toOutcomeScan` restores the
-`measured` status for same-rubric pairs.
+**First-invoke anchors (2026-08-29).** A repo that demonstrably *runs* a skill but
+was never marked adopted — the common case for a fleet driven by the hook rather
+than by the tab — is anchored at its **first reported invocation**
+(`listSkillInvokeAnchors`, sink A only: the registry lane has no repo dimension by
+construction). The anchor is used **only** where that `(skill, repo)` pair has no
+adoption row, so an invocation can add an outcome and can never silently re-date
+one: the human record always wins. Every check an adoption-anchored row faces —
+the pairing bound, the statuses, the instrument match — applies unchanged, and
+`SkillOutcome.anchor` says which of the two it was.
 
 **Pairing distance and coverage (2026-08-20).** Each outcome carries
 `beforeGapDays` / `afterGapDays` and `withinPairingBound`
@@ -319,7 +411,7 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `/api/org/skills/manifest` | `GET` | `skills:read` | Lockfile-style index for sync clients. |
 | `/api/org/skills/[id]/adopt` | `POST`/`DELETE` | member session only | Adopt/unadopt against a repo. |
 | `/api/org/skills/[id]/download` | `GET`/`POST` | `skills:read` | Serve/copy the skill body; counts a use. |
-| `/api/org/skills/events` | `POST` | `telemetry:write` | Batch usage events (`download`/`sync`). |
+| `/api/org/skills/events` | `POST` | `telemetry:write` | Batch usage events (`invoke`/`download`/`sync`), sink A. |
 | `/api/org/tokens` | `POST`/`GET` | member session only | Mint/list org API tokens. |
 | `/api/org/tokens/[id]` | `DELETE` | member session only | Revoke a token. |
 
@@ -330,13 +422,13 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `OrgSkill` | The library entry. | `name` (unique per org), `description`, `content`, `category`, `tags` (JSON string), `version`, `contentHash`, `archived`, `downloadCount` (denormalized), `createdBy`. |
 | `OrgSkillAdoption` | One row per (skill, repo). | `skillId`, `repoFullName`, `adoptedBy`, `adoptedAt`; unique on `[skillId, repoFullName]`. |
 | `OrgSkillDownload` | Rolling per-skill use tally. | `skillId` (unique), `count`, `lastSeen`. |
-| `OrgSkillEvent` | Append-only per-use event log. | `skillId`, `orgId`, `type` (`download`/`sync`), `repo`, `source`, `createdAt`. |
+| `OrgSkillEvent` | Append-only per-use event log. | `skillId`, `orgId`, `type` (`invoke`/`download`/`sync`), `repo`, `source` (enum), `detail`, `sessionId`, `dedupeKey` (nullable-unique with `skillId`), `createdAt`. |
+| `OrgSkillUsageSample` | Snapshot of the registry `usage/` lane, one row per (registry, contributor, skill). | `registryId`, `orgId`, `contributor`, `skillName`, `invokes`, `windowDays`, `lastUsedAt` (nullable), `generatedAt`; unique on `[registryId, contributor, skillName]`. |
 | `OrgApiToken` | Machine-access credential. | `orgId`, `name`, `tokenHash` (unique), `tokenPrefix`, `scopes` (comma-joined), `lastUsedAt`, `revokedAt`. |
 | `SkillGeneration` | A standalone log of per-repo onboarding-`SKILL.md` generations. | `repoFullName`, `headSha`, `trackIds`, `generatedAt`. No relation fields to `OrgSkill` or an org. |
 
-`OrgSkillEvent.source` is documented in the schema comment as one of `cli |
-hook | ci | web`, but it is not enum-validated in code: it's clipped to 200
-characters as free text, not enforced as a closed set.
+`OrgSkillEvent.source` is a validated closed set — `cli | hook | ci | web |
+registry | mcp` — normalized in `recordSkillEvents` (see *Usage telemetry*).
 
 ## Tier gating
 
@@ -447,18 +539,26 @@ distinguishes the two worlds, and the affordances follow it:
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
 
-## Known gaps
+### Trace — a registry skill's own history (2026-08-30)
 
-- `OrgSkillEvent.source` is documented as `cli | hook | ci | web` but is
-  never validated against that set in code; any string up to 200 characters
-  is accepted. Whether real CLI/CI clients consistently send one of those
-  four values could not be confirmed, since the sync client's own source
-  code was not part of the files examined.
-- The relationship between the `SkillGeneration` Prisma model and the
-  onboarding-skill generation log referenced in a comment in
-  `src/lib/db/org-skills.ts` (as `src/lib/db/skill-history.ts`) is unclear;
-  it was not established from the files read whether these are the same
-  store viewed two ways or two separate logs.
+A **registry-origin** skill card carries a `Trace` disclosure: the commits over
+`skills/<name>/SKILL.md`, grouped by the version each declared, with the lessons
+from `LESSONS.md` hanging on the version they were learned against. It is
+fetched on open, served from a cache keyed on the registry head, and it renders
+`—` wherever a version could not be resolved rather than carrying the
+neighbouring one backwards. Full contract:
+[`docs/features/org-registry/README.md`](../org-registry/README.md) §The
+improvement channel.
+
+A **hosted** skill is offered no Trace. It lives in ascent's own table and has no
+git history; offering one would be a promise the shape of the data cannot keep.
+
+`SkillGeneration` is a different store and always was: `src/lib/db/skill-history.ts`
+is its only accessor and it logs per-repo onboarding-`SKILL.md` **generations**
+(STD-6), not registry skill versions. **Registry skill history is git**, surfaced
+as Trace.
+
+## Known gaps
 
 ## Key files
 
@@ -476,6 +576,10 @@ only news once the other world exists.
 | `src/lib/org/skill-frontmatter.ts` | Frontmatter parse/backfill/reconcile contract. |
 | `src/lib/org/skill-promote.ts` | Promotion naming/description/tag derivation. |
 | `src/lib/org/skill-usage.ts` / `skill-usage-load.ts` | Dormancy classification (pure logic / Prisma read split). |
+| `src/lib/org/skill-event-source.ts` | The closed `source` vocabulary + prefix normalizer. |
+| `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). |
+| `src/lib/db/org-skill-usage-samples.ts` | `OrgSkillUsageSample` snapshot read/upsert/purge. |
+| `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
 | `src/lib/org/skill-outcomes.ts` / `skill-outcomes-load.ts` | Before/after adoption score deltas. |
 | `src/lib/org/skill-categories.ts` | Closed category set. |
 | `src/lib/org/skill-templates.ts` | Author-form starter templates. |
@@ -485,6 +589,7 @@ only news once the other world exists.
 | `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. |
 | `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt/copy/download/archive actions. |
 | `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip. |
+| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" — the invocation half of the use count. |
 | `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |

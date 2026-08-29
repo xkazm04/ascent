@@ -2,8 +2,10 @@
 //   - pushOrgSkill: create when absent; idempotent `unchanged` on an identical body; `conflict` when the
 //     supplied baseVersion is stale (no write); `updated` (version bumped) on a real change;
 //   - recordSkillEvents: forged/other-org skillIds are dropped (tenant boundary), and only a real use
-//     (`download`) bumps the rolling tally + downloadCount — a passive `sync` does not. (`invoke` was
-//     retired 2026-07-29: it had no producer, so it could never mark anything active.)
+//     (`download` or `invoke`) bumps the rolling tally + downloadCount — a passive `sync` does not.
+//     `invoke` is back (moonshot #19) now that the hook/MCP channel produces it, and it arrives with
+//     the three writer invariants that make a chatty producer safe: a normalized `source`, a clamped
+//     `ts`, and idempotency on (session, skill, ts).
 
 import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
@@ -13,7 +15,7 @@ const { mockGetPrisma } = vi.hoisted(() => ({ mockGetPrisma: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: () => true }));
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: async (slug: string) => (slug === "acme" ? "org_acme" : null) }));
 
-import { pushOrgSkill, recordSkillEvents } from "@/lib/db/org-skills";
+import { pushOrgSkill, recordSkillEvents, skillEventDedupeKey } from "@/lib/db/org-skills";
 
 /** The canonical digest a row carries today — one shared function with the registry catalog. */
 const hash = (s: string) => contentDigest(s);
@@ -96,14 +98,30 @@ describe("pushOrgSkill", () => {
   });
 });
 
-function eventsPrisma(ownedIds: string[]) {
-  const captured = { events: [] as unknown[], txns: 0 };
+type EventRow = {
+  skillId: string;
+  type: string;
+  source: string | null;
+  detail: string | null;
+  sessionId: string | null;
+  dedupeKey: string | null;
+  createdAt: Date;
+};
+
+function eventsPrisma(ownedIds: string[], alreadyStored: string[] = []) {
+  const captured = { events: [] as EventRow[], txns: 0 };
   const prisma = {
     orgSkill: {
       findMany: vi.fn(async () => ownedIds.map((id) => ({ id }))),
       update: vi.fn(async () => ({})),
     },
-    orgSkillEvent: { createMany: vi.fn(async (a: { data: unknown[] }) => { captured.events = a.data; return { count: a.data.length }; }) },
+    orgSkillEvent: {
+      // The pre-insert existence probe: what this org has already recorded under those dedupe keys.
+      findMany: vi.fn(async (a: { where: { dedupeKey: { in: string[] } } }) =>
+        a.where.dedupeKey.in.filter((k) => alreadyStored.includes(k)).map((dedupeKey) => ({ dedupeKey })),
+      ),
+      createMany: vi.fn(async (a: { data: EventRow[] }) => { captured.events = a.data; return { count: a.data.length }; }),
+    },
     orgSkillDownload: { upsert: vi.fn(async () => ({})) },
     $transaction: vi.fn(async () => { captured.txns++; return []; }),
   };
@@ -130,5 +148,75 @@ describe("recordSkillEvents", () => {
     ]);
     // Only s1 (a real use) triggers a counter transaction; s2's sync is logged but not counted.
     expect(cap.txns).toBe(1);
+  });
+
+  it("records an `invoke` and counts it as a real use", async () => {
+    // FAIL-BEFORE: `invoke` was not in SkillEventType, so this event was filtered out entirely and
+    // `recorded` was 0 with no counter transaction.
+    const cap = eventsPrisma(["s1"]);
+    const r = await recordSkillEvents("acme", [{ skillId: "s1", type: "invoke" }]);
+    expect(r.recorded).toBe(1);
+    expect(cap.events[0]!.type).toBe("invoke");
+    expect(cap.txns).toBe(1);
+  });
+
+  it("normalizes the shipped CLI's `cli:<state>` source into source + detail", async () => {
+    const cap = eventsPrisma(["s1"]);
+    await recordSkillEvents("acme", [{ skillId: "s1", type: "sync", source: "cli:diverged" }]);
+    expect(cap.events[0]!.source).toBe("cli");
+    expect(cap.events[0]!.detail).toBe("diverged");
+  });
+
+  it("clamps a backdated `ts` to the 90-day floor instead of trusting a skewed clock", async () => {
+    const cap = eventsPrisma(["s1"]);
+    const twoYearsAgo = new Date(Date.now() - 730 * 86_400_000).toISOString();
+    await recordSkillEvents("acme", [{ skillId: "s1", type: "invoke", ts: twoYearsAgo }]);
+    const age = Date.now() - cap.events[0]!.createdAt.getTime();
+    // Landed at the floor, not two years back — a clock-skewed client cannot bury a live skill.
+    expect(age).toBeGreaterThan(89 * 86_400_000);
+    expect(age).toBeLessThan(91 * 86_400_000);
+  });
+
+  it("clamps a forward-dated `ts` to now, so no skill can be pinned active forever", async () => {
+    const cap = eventsPrisma(["s1"]);
+    const nextYear = new Date(Date.now() + 365 * 86_400_000).toISOString();
+    await recordSkillEvents("acme", [{ skillId: "s1", type: "invoke", ts: nextYear }]);
+    expect(cap.events[0]!.createdAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it("dedupes a repeated (session, skill, ts) inside one batch", async () => {
+    const cap = eventsPrisma(["s1"]);
+    const ts = new Date().toISOString();
+    const r = await recordSkillEvents("acme", [
+      { skillId: "s1", type: "invoke", session: "sess-1", ts },
+      { skillId: "s1", type: "invoke", session: "sess-1", ts },
+    ]);
+    expect(r.recorded).toBe(1);
+    expect(cap.events).toHaveLength(1);
+    // The tally must follow the INSERT, not the submission, or a retry inflates "N uses".
+    expect(cap.txns).toBe(1);
+  });
+
+  it("records nothing when the whole batch was already stored under those keys", async () => {
+    const ts = new Date();
+    const key = skillEventDedupeKey("sess-1", "s1", ts)!;
+    const cap = eventsPrisma(["s1"], [key]);
+    const r = await recordSkillEvents("acme", [
+      { skillId: "s1", type: "invoke", session: "sess-1", ts: ts.toISOString() },
+    ]);
+    expect(r.recorded).toBe(0);
+    expect(cap.events).toHaveLength(0);
+    expect(cap.txns).toBe(0);
+  });
+
+  it("leaves an un-sessioned event unconstrained (today's at-least-once behaviour)", async () => {
+    const cap = eventsPrisma(["s1"]);
+    const ts = new Date().toISOString();
+    const r = await recordSkillEvents("acme", [
+      { skillId: "s1", type: "invoke", ts },
+      { skillId: "s1", type: "invoke", ts },
+    ]);
+    expect(r.recorded).toBe(2);
+    expect(cap.events.every((e) => e.dedupeKey === null)).toBe(true);
   });
 });

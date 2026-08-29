@@ -22,7 +22,9 @@ export function usageDetail(u: SkillUsage): string {
     return `never used · added ${u.ageDays === 0 ? "today" : `${u.ageDays}d ago`}`;
   }
   const when = u.daysSinceUse === 0 ? "today" : u.daysSinceUse === 1 ? "yesterday" : `${u.daysSinceUse}d ago`;
-  const kind = u.lastUsedType === "download" ? "used" : "synced";
+  // Three verbs for three facts. `invoked` is the strongest — the skill RAN — and must not collapse
+  // into "used", which is what a copy/download is; `synced` is a pull and stays visibly weaker.
+  const kind = u.lastUsedType === "invoke" ? "invoked" : u.lastUsedType === "download" ? "used" : "synced";
   return `${kind} ${when}`;
 }
 

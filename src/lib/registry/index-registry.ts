@@ -12,16 +12,28 @@
 
 import type { OrgRegistryRow } from "@/lib/db/org-registry";
 import { archiveVanishedRegistryRows, recordIndexError, recordIndexResult } from "@/lib/db/org-registry-write";
+import { purgeUsageSamples, recordUsageSamples } from "@/lib/db/org-skill-usage-samples";
+import { replaceRegistrySubjects } from "@/lib/db/org-registry-subjects";
+import { recordRegistrySignals } from "@/lib/db/org-registry-signals";
+import { purgeSkillLessons, replaceSkillLessons } from "@/lib/db/org-skill-lessons";
 import { upsertRegistryMemory, upsertRegistryPractice, upsertRegistrySkill } from "@/lib/db/org-registry-mirror";
 import { buildCatalog, shortDigest, type RegistryCatalog } from "./catalog";
 import { REGISTRY_CATALOG_PATH, REGISTRY_LESSONS_FILE, REGISTRY_SKILL_FILE, REGISTRY_SPINE_PATH } from "./layout";
 import { cappedReader, countLessons, selectArtifacts, type RegistrySource } from "./index-walk";
 import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistrySkill } from "./parse";
 import { modeToYaml, parseRegistryYaml, type RegistryDeclaration } from "./policy";
+import { aggregateUsage, type RegistryUsage } from "./usage-samples";
+import { readBundleSubjects, type KnowledgeSubject } from "./subjects";
+import { lessonWarning, splitLessonEntries } from "./lessons";
+import { aggregateSignals, type SignalRow } from "./signals";
 import type { RegistryTree } from "./read";
 
 export type { RegistrySource } from "./index-walk";
 export { githubSource } from "./index-walk";
+// Re-exported so every existing caller of `aggregateUsage`/`RegistryUsage` keeps its import path:
+// the function moved to ./usage-samples (beside the type it produces) to keep THIS file orchestration.
+export { aggregateUsage } from "./usage-samples";
+export type { RegistryUsage } from "./usage-samples";
 
 export interface IndexRegistryResult {
   kind: "ok" | "error";
@@ -51,6 +63,17 @@ export interface IndexRegistryResult {
    * one file already states would be both expensive and a second authority.
    */
   bundles?: RegistryBundle[];
+  /**
+   * The `knowledge/` lane read one level deeper than `bundles`: one entry per SUBJECT (#18).
+   * `bundles` says a domain has 151 subjects; this says which, and what governs them.
+   */
+  subjects?: KnowledgeSubject[];
+  /**
+   * The `signals/` lane: what contributors learned about the corpus — consults, deviations and
+   * citation health per subject. Empty on a registry nobody contributes to, which is a different
+   * fact from a corpus nobody consults, and every reader of this says so.
+   */
+  signals?: { rows: SignalRow[]; contributors: number };
 }
 
 /** One Reference Knowledge Bundle, as its generated index states it. */
@@ -111,60 +134,6 @@ export function readBundles(
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Aggregate of the registry's `usage/` lane. */
-export interface RegistryUsage {
-  /** Total invocations across every contributor, over their reported window. */
-  invokes30d: number;
-  /** How many installations contributed a file. Zero means nobody is reporting —
-   *  which is NOT the same as a fleet that runs nothing. */
-  contributors: number;
-  /** Per skill, summed across contributors. */
-  bySkill: Record<string, number>;
-}
-
-/**
- * Sum the usage lane. Tolerant by the same rule as every other read here: a
- * malformed contribution degrades ITSELF into a warning and the rest still
- * counts. The registry's own gate is what keeps these files well-formed; this
- * must never be the thing that fails a whole index pass.
- */
-export function aggregateUsage(
-  files: { path: string; text: string | null }[],
-  warnings: string[],
-): RegistryUsage {
-  const bySkill: Record<string, number> = {};
-  let contributors = 0;
-  let invokes30d = 0;
-
-  for (const { path, text } of files) {
-    if (text === null) continue;
-    let doc: unknown;
-    try {
-      doc = JSON.parse(text);
-    } catch {
-      warnings.push(`${path}: not valid JSON — contribution skipped`);
-      continue;
-    }
-    const skills = (doc as { skills?: Record<string, { invokes?: unknown }> })?.skills;
-    if (!skills || typeof skills !== "object") {
-      warnings.push(`${path}: no skills object — contribution skipped`);
-      continue;
-    }
-    contributors += 1;
-    for (const [name, entry] of Object.entries(skills)) {
-      const n = entry?.invokes;
-      if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
-        warnings.push(`${path}: skills["${name}"].invokes is not a count — ignored`);
-        continue;
-      }
-      const whole = Math.floor(n);
-      bySkill[name] = (bySkill[name] ?? 0) + whole;
-      invokes30d += whole;
-    }
-  }
-  return { invokes30d, contributors, bySkill };
-}
-
 /**
  * A mirror write that reports its own failure instead of aborting the pass.
  *
@@ -194,6 +163,8 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   const catalogSkills: RegistryCatalog["skills"] = [];
   const catalogPractices: RegistryCatalog["practices"] = [];
   const catalogMemory: RegistryCatalog["memory"] = [];
+  /** Every `LESSONS.md` this pass actually read — the purge set for vanished lesson rows (#36). */
+  const seenLessonPaths: string[] = [];
   let lessons = 0;
 
   let tree: RegistryTree;
@@ -235,6 +206,16 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
         lessonCount = countLessons(lessonText);
         lessonsHash = shortDigest(contentDigest(lessonText));
         lessons += lessonCount;
+        // #36 — the ROWS behind that number. `splitLessonEntries` cuts on the SAME regex, so the
+        // ledger and `counts.lessons` are equal by construction rather than by agreement.
+        const lessonEntries = splitLessonEntries(lessonText);
+        const warn = lessonWarning(lessonsEntry.path, lessonEntries);
+        if (warn) warnings.push(warn);
+        seenLessonPaths.push(lessonsEntry.path);
+        await mirror(lessonsEntry.path, warnings, tally, async () => {
+          await replaceSkillLessons(registry.id, registry.orgId, parsed.value.name, lessonsEntry.path, lessonEntries);
+          return lessonsEntry.path;
+        });
       }
     }
 
@@ -328,8 +309,16 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   }
 
   // ── knowledge/<domain>/index.json ──
-  const bundles = readBundles(
-    await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await read(e) }))),
+  // ONE read feeds two readers: `readBundles` takes the `meta` counts, `readBundleSubjects` takes
+  // the subject map. Fetching the same file twice for two shapes of the same document would be a
+  // second request per bundle for no new information.
+  const bundleFiles = await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await read(e) })));
+  const bundles = readBundles(bundleFiles, warnings);
+  const subjects = readBundleSubjects(bundleFiles, warnings);
+
+  // ── signals/<contributor>.json ──
+  const signals = aggregateSignals(
+    await Promise.all(picked.signals.map(async (e) => ({ path: e.path, text: await read(e) }))),
     warnings,
   );
 
@@ -360,6 +349,47 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     generatedBy: "ascent",
   });
 
+  // ── #36: purge lesson rows whose LESSONS.md vanished ─────────────────────────────────────────
+  // Same truncated-tree guard as every other purge here: "not in this pass" is evidence of deletion
+  // only when the pass saw the whole tree.
+  if (!tree.truncated) {
+    try {
+      await purgeSkillLessons(registry.id, seenLessonPaths);
+    } catch (err) {
+      warnings.push(`LESSONS.md: stale rows not purged (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
+  // ── #18: persist the knowledge subjects and the signals lane ─────────────────────────────────
+  // Skipped wholesale on a truncated tree, for the same reason as the usage samples below: both
+  // writers treat "absent from this pass" as "gone", and a truncated tree is exactly the case where
+  // the pass's own inventory is not evidence of absence.
+  if (!tree.truncated) {
+    try {
+      await replaceRegistrySubjects(registry.id, registry.orgId, subjects);
+    } catch (err) {
+      warnings.push(`knowledge/: subjects not persisted (${err instanceof Error ? err.message : String(err)})`);
+    }
+    try {
+      await recordRegistrySignals(registry.id, registry.orgId, signals.rows);
+    } catch (err) {
+      warnings.push(`signals/: not persisted (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
+  // ── #19: persist the usage lane per (contributor, skill) ─────────────────────────────────────
+  // Skipped WHOLESALE on a truncated tree. `purgeUsageSamples` treats "not in this pass" as "gone",
+  // and a truncated tree is precisely the case where the pass's own contributor list is unreliable —
+  // acting on it would delete a live installation's counts because GitHub cut the listing short.
+  if (!tree.truncated) {
+    try {
+      await recordUsageSamples(registry.id, registry.orgId, usage.samples);
+      await purgeUsageSamples(registry.id, usage.contributorNames);
+    } catch (err) {
+      warnings.push(`usage/: samples not persisted (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
   await recordIndexResult(registry.id, {
     headSha: tree.headSha,
     counts,
@@ -367,7 +397,22 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     catalogSha: picked.byPath.get(REGISTRY_CATALOG_PATH)?.sha ?? null,
     usage: { invokes30d: usage.invokes30d, contributors: usage.contributors },
     bundles,
+    // Omitted rather than zeroed on a truncated tree, by the same rule the usage counts follow:
+    // "not measured this pass" must never overwrite a good reading with an empty one.
+    ...(tree.truncated ? {} : { subjectCount: subjects.length, signalContributors: signals.contributors }),
   }).catch(() => {});
 
-  return { kind: "ok", headSha: tree.headSha, counts, warnings, archived, declaration, catalog, usage, bundles };
+  return {
+    kind: "ok",
+    headSha: tree.headSha,
+    counts,
+    warnings,
+    archived,
+    declaration,
+    catalog,
+    usage,
+    bundles,
+    subjects,
+    signals,
+  };
 }

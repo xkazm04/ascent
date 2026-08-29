@@ -4,6 +4,7 @@
 // skill-outcomes.ts; every read lives here, where only server components reach it.
 
 import { getRepositoryHistory, listOrgSkillAdoptionRows, type HistoryPoint } from "@/lib/db";
+import { listSkillInvokeAnchors } from "@/lib/db/org-skills";
 import { mapPool } from "@/lib/pool";
 import { skillOutcomesFor, type OutcomeScan, type SkillOutcome } from "@/lib/org/skill-outcomes";
 
@@ -46,9 +47,18 @@ const toOutcomeScan = (p: HistoryPoint): OutcomeScan => ({
  * flight, never on how many are visited. {} when persistence is off or nothing has been adopted.
  */
 export async function getOrgSkillOutcomes(orgSlug: string): Promise<Record<string, SkillOutcome[]>> {
-  const adoptions = await listOrgSkillAdoptionRows(orgSlug);
-  if (!adoptions.length) return {};
-  const repos = Array.from(new Set(adoptions.map((a) => a.repoFullName)));
+  // Both anchors, read together (#19): an adoption row where a person recorded one, and the first
+  // reported invocation where nobody did. Best-effort on the second — a fleet that never adopted
+  // anything through the tab should still see its outcomes, but a failed read of the weaker anchor
+  // must not cost the page the stronger one.
+  const [adoptions, invokeAnchors] = await Promise.all([
+    listOrgSkillAdoptionRows(orgSlug),
+    listSkillInvokeAnchors(orgSlug).catch(() => []),
+  ]);
+  if (!adoptions.length && !invokeAnchors.length) return {};
+  const repos = Array.from(
+    new Set([...adoptions.map((a) => a.repoFullName), ...invokeAnchors.map((a) => a.repoFullName)]),
+  );
   const scansByRepo = new Map<string, OutcomeScan[]>();
   // mapPool's `fn` must never throw or it rejects the whole pool (see src/lib/pool.ts) — the per-repo
   // .catch keeps one unreadable repo from costing the whole page its outcomes, exactly as before.
@@ -58,5 +68,5 @@ export async function getOrgSkillOutcomes(orgSlug: string): Promise<Record<strin
     const history = await getRepositoryHistory(owner, name, { orgSlug, limit: HISTORY_LIMIT }).catch(() => null);
     scansByRepo.set(fullName, (history?.scans ?? []).map(toOutcomeScan));
   });
-  return skillOutcomesFor(adoptions, scansByRepo);
+  return skillOutcomesFor(adoptions, scansByRepo, { invokeAnchors });
 }
