@@ -61,6 +61,16 @@ Each memory also carries:
   (author-only; used for agent/personal scratch notes). Schema default is
   `shared`; the memory page passes `defaultVisibility="private"` for personal
   workspaces.
+
+  `private` is enforced on **reads and writes alike**, and the write half is the
+  part worth stating: membership does not entitle a member to another author's
+  private scratch, so `PATCH` and `DELETE` on `/api/org/memory/[id]` answer `404`
+  for one — the same response `GET` gives, so a caller who may not know the row
+  exists cannot learn it from the write path. The author gate binds `admin` too:
+  an admin can archive any *shared* memory, and a compliance erase has
+  `/api/org/erase`, but neither is a reason to reach inside a colleague's notes.
+  Before 2026-08-29 only reads were scoped, which meant a member who got a 404
+  reading a private memory could still overwrite it or flip it to `shared`.
 - **Confidence**: a 0–1 float. The author form offers three bands: High
   (1.0, "verified/decided"), Medium (0.6, "probable, unverified"), Low (0.3,
   "a hunch, needs checking").
@@ -388,8 +398,8 @@ already succeeded, never something that can break it.
 | `/api/org/memory/recall` | `GET`/`POST` | Score + budget-pack memories for agent context. |
 | `/api/org/memory/reflect` | `POST` | Propose consolidation clusters, or apply an approved one. |
 | `/api/org/memory/[id]` | `GET` | Fetch one memory (404s if the viewer can't see a private row). |
-| `/api/org/memory/[id]` | `PATCH` | Edit a memory (member, Team+); bumps `version`. |
-| `/api/org/memory/[id]` | `DELETE` | Archive a memory (admin-only, soft-delete). |
+| `/api/org/memory/[id]` | `PATCH` | Edit a memory (member, Team+); bumps `version`. 404s another author's private row. |
+| `/api/org/memory/[id]` | `DELETE` | Archive a memory (admin-only, soft-delete). 404s another author's private row. |
 | `/api/org/memory/[id]/recall` | `POST` | Record a recall/use of a single memory. |
 
 All routes resolve the memory's owning org from its id before authorizing, so
