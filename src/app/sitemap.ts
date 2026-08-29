@@ -21,7 +21,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/report", priority: 0.7 },
     // The public AI-native leaderboard is a prime indexable/viral surface (README badge → report →
     // scan-your-own), but it was reachable only by following links. It is public and NOT robots-blocked
-    // (robots.ts disallows only /api, /connect, /onboarding, /launch), so list it for discovery.
+    // (robots.ts disallows /api/, /connect and /launch — /onboarding left that list when it became the
+    // public guided funnel, see SEO #1 above), so list it for discovery.
     { path: "/leaderboard", priority: 0.6 },
     { path: "/pricing", priority: 0.6 },
     // The two marketing decks. Both are public, indexable, linked from the header nav, and carry the
