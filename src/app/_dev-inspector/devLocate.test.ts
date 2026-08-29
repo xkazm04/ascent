@@ -4,8 +4,11 @@
 // (e.g. src/components/landing/hooks/) as library code, silently redirecting the default
 // right-click copy target to a parent file — the exact wrong-file paste the tool exists to prevent.
 
+import { existsSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, it, expect } from "vitest";
-import { isLibraryPath, pickDefaultIndex, type LocEntry } from "./devLocate";
+import { isLibraryPath, LIBRARY_ROOTS, pickDefaultIndex, type LocEntry } from "./devLocate";
 
 const entry = (path: string, line = 1): LocEntry =>
   ({ el: null as unknown as Element, path, line, loc: `${path}:${line}` });
@@ -51,5 +54,31 @@ describe("pickDefaultIndex — default copy target", () => {
   it("falls back to the innermost entry when the whole chain is library code", () => {
     const chain = [entry("src/components/ui/Modal.tsx"), entry("src/lib/ui.ts")];
     expect(pickDefaultIndex(chain)).toBe(0);
+  });
+});
+
+// LIBRARY_ROOTS is a hand-maintained snapshot of the repo's shared roots, and its own comment says it
+// MUST track layout when shared code moves. Nothing enforced that: every other case in this file
+// re-types the same four prefixes, so a renamed or deleted root would leave the suite fully green
+// while the default copy target silently stopped being redirected — the exact dev-inspector #1
+// regression, arriving invisibly. This case reads the list itself and checks it against the tree.
+describe("LIBRARY_ROOTS — the list tracks the real repo layout", () => {
+  it("every declared shared root exists as a directory", () => {
+    const missing = LIBRARY_ROOTS.filter((root) => {
+      const abs = resolve(process.cwd(), root);
+      return !existsSync(abs) || !statSync(abs).isDirectory();
+    });
+    expect(missing).toEqual([]);
+  });
+
+  it("every entry is an anchored, slash-terminated repo-relative prefix", () => {
+    for (const root of LIBRARY_ROOTS) {
+      expect(root.startsWith("src/")).toBe(true);
+      expect(root.endsWith("/")).toBe(true);
+    }
+  });
+
+  it("the inspector's own source is a shared root, so a resolution can never land on the tool", () => {
+    expect(isLibraryPath("src/app/_dev-inspector/DevInspector.tsx")).toBe(true);
   });
 });

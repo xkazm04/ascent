@@ -28,9 +28,11 @@ export interface LocEntry {
  * substring heuristic classified it as library — silently redirecting the
  * default right-click copy to a parent file with no HUD signal. This list is a
  * positive allowlist of the repo's shared roots and MUST track repo layout
- * when shared code moves (it is a snapshot, not a convention detector).
+ * when shared code moves (it is a snapshot, not a convention detector). Exported so the guard in
+ * devLocate.test.ts can check each entry against the filesystem rather than re-typing the list —
+ * a moved shared root would otherwise silently stop being skipped, with every assertion still green.
  */
-const LIBRARY_ROOTS = [
+export const LIBRARY_ROOTS = [
   "src/lib/",
   "src/components/ui/",
   "src/components/org/shared/",
