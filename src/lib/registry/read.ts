@@ -138,3 +138,32 @@ export async function listPathCommits(
   }));
   return { commits, truncated: (raw ?? []).length > capped };
 }
+
+/**
+ * One file's content AT A GIVEN REF (a commit sha, tag or branch) — the Trace's version resolver.
+ *
+ * `readBlob` above is keyed on a blob sha from the tree walk, which is the right shape for indexing
+ * HEAD and the wrong one here: the whole point is to read the same PATH at several past commits,
+ * whose blob shas nobody has. Null for absent/unreadable/oversized, so a commit that predates the
+ * file resolves to "no version" rather than failing the timeline.
+ */
+export async function readFileAtRef(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string,
+): Promise<string | null> {
+  try {
+    const file = await githubAppFetch<{ content?: string; encoding?: string; size?: number; type?: string }>(
+      `/repos/${owner}/${repo}/contents/${encodePathSegments(path)}?ref=${encodeURIComponent(ref)}`,
+      token,
+    );
+    if (file.type !== "file" || !file.content) return null;
+    if ((file.size ?? 0) > MAX_FILE_BYTES) return null;
+    if (file.encoding && file.encoding !== "base64") return null;
+    return Buffer.from(file.content, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
