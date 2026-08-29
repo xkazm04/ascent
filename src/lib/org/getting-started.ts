@@ -22,10 +22,26 @@ import {
 } from "@/lib/db/org-onboarding";
 import type { OrgTabId } from "@/lib/org/orgTabs";
 
-export type GettingStartedStepId = "first-scan" | "gap-engaged" | "registry" | "loop" | "team" | "program";
+export type GettingStartedStepId =
+  | "first-scan"
+  | "gap-engaged"
+  | "registry"
+  | "foundation"
+  | "conformance"
+  | "loop"
+  | "team"
+  | "program";
 
 /** The onboarding narrative's phases, in order. Each step belongs to exactly one. */
-export type GettingStartedPhase = "baseline" | "resolve" | "registry" | "loop" | "team" | "program";
+export type GettingStartedPhase =
+  | "baseline"
+  | "resolve"
+  | "registry"
+  | "foundation"
+  | "conformance"
+  | "loop"
+  | "team"
+  | "program";
 
 /**
  * The `data-tour` anchor each step spotlights. `first-scan` reuses the anchor that already exists in
@@ -36,6 +52,8 @@ export const GETTING_STARTED_ANCHORS: Record<GettingStartedStepId, string> = {
   "first-scan": "results-view",
   "gap-engaged": "backlog-recs",
   registry: "skills-registry",
+  foundation: "foundation-rollout",
+  conformance: "conformance-reported",
   loop: "watch-schedule",
   team: "invite-member",
   program: "transition-program",
@@ -123,6 +141,30 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       available: can(role, "member"),
       tab: "skills",
       anchor: GETTING_STARTED_ANCHORS.registry,
+    },
+    {
+      // moonshot #35 — install → report → instrument. These two sit AFTER `registry` and BEFORE
+      // `loop` because that is the actual dependency order: the fleet has to carry the `.ai/`
+      // foundation before a doctor run can report anything, and there is nothing to instrument on a
+      // cadence until something reports.
+      id: "foundation",
+      phase: "foundation",
+      done: facts.foundationInstalled,
+      // Fleet-only and a customer-repo WRITE: the batch route is admin-gated, and a personal
+      // workspace has no installation token and no fleet to roll out to.
+      available: !personal && can(role, "admin"),
+      tab: "repositories",
+      anchor: GETTING_STARTED_ANCHORS.foundation,
+    },
+    {
+      id: "conformance",
+      phase: "conformance",
+      done: facts.conformanceReported,
+      // Same reach as `foundation`: provisioning report-back is owner-gated, but an ADMIN can
+      // complete this step honestly by wiring the two secrets by hand, so admin is the right bar.
+      available: !personal && can(role, "admin"),
+      tab: "repositories",
+      anchor: GETTING_STARTED_ANCHORS.conformance,
     },
     {
       id: "loop",

@@ -16,6 +16,8 @@ const baseFacts: GettingStartedFacts = {
   memberCount: 1,
   hasPendingInvite: false,
   hasProgram: false,
+  foundationInstalled: false,
+  conformanceReported: false,
 };
 
 const facts = (over: Partial<GettingStartedFacts> = {}): GettingStartedFacts => ({ ...baseFacts, ...over });
@@ -114,6 +116,52 @@ describe("availability honesty — viewer role", () => {
   });
 });
 
+// moonshot #35 — the two fleet-install steps. Both are derived from real data (an audit row, a
+// non-null conformance column), so doing the work through ANY door ticks them; and both are OFF on a
+// personal workspace, which has no installation token and no fleet, so they can never make a personal
+// checklist permanently unfinishable.
+describe("foundation + conformance steps", () => {
+  it("flip on their own facts and nothing else", () => {
+    const m0 = buildGettingStartedModel(facts(), null);
+    expect(step(m0, "foundation").done).toBe(false);
+    expect(step(m0, "conformance").done).toBe(false);
+    const m = buildGettingStartedModel(facts({ foundationInstalled: true, conformanceReported: true }), null);
+    expect(step(m, "foundation").done).toBe(true);
+    expect(step(m, "conformance").done).toBe(true);
+  });
+
+  it("are independent — reporting back without an Ascent-opened PR is a real state", () => {
+    // A team that hand-committed `.ai/` and wired the secrets themselves has closed the loop; the
+    // install step is honestly not done, and the conformance step honestly is.
+    const m = buildGettingStartedModel(facts({ conformanceReported: true }), null);
+    expect(step(m, "foundation").done).toBe(false);
+    expect(step(m, "conformance").done).toBe(true);
+  });
+
+  it("are unavailable on a personal workspace at any role", () => {
+    const m = buildGettingStartedModel(facts({ kind: "personal" }), "owner");
+    expect(step(m, "foundation").available).toBe(false);
+    expect(step(m, "conformance").available).toBe(false);
+  });
+
+  it("need admin on a real org — a member sees them as unavailable, not as work they can do", () => {
+    const member = buildGettingStartedModel(facts(), "member");
+    expect(step(member, "foundation").available).toBe(false);
+    expect(step(member, "conformance").available).toBe(false);
+    const admin = buildGettingStartedModel(facts(), "admin");
+    expect(step(admin, "foundation").available).toBe(true);
+    expect(step(admin, "conformance").available).toBe(true);
+  });
+
+  it("never block a personal workspace's allDone", () => {
+    const m = buildGettingStartedModel(
+      facts({ kind: "personal", hasCompletedScan: true, gapEngaged: true, registrySeeded: true }),
+      "owner",
+    );
+    expect(m.allDone).toBe(true);
+  });
+});
+
 describe("allDone rollup", () => {
   const allTrue = facts({
     hasCompletedScan: true,
@@ -123,6 +171,8 @@ describe("allDone rollup", () => {
     loopAlerts: true,
     memberCount: 3,
     hasProgram: true,
+    foundationInstalled: true,
+    conformanceReported: true,
   });
 
   it("true when every AVAILABLE step is done", () => {
@@ -150,7 +200,18 @@ describe("allDone rollup", () => {
 describe("navigation targets", () => {
   it("phases mirror the onboarding narrative in order", () => {
     const m = buildGettingStartedModel(facts(), null);
-    expect(m.steps.map((s) => s.phase)).toEqual(["baseline", "resolve", "registry", "loop", "team", "program"]);
+    expect(m.steps.map((s) => s.phase)).toEqual([
+      "baseline",
+      "resolve",
+      "registry",
+      // moonshot #35 — install then report, BEFORE instrumenting: there is nothing to put on a
+      // cadence until the fleet carries the standard and something reports against it.
+      "foundation",
+      "conformance",
+      "loop",
+      "team",
+      "program",
+    ]);
   });
 
   it("each step points at its org tab and shared anchor constant", () => {
@@ -159,6 +220,8 @@ describe("navigation targets", () => {
       ["first-scan", "overview", GETTING_STARTED_ANCHORS["first-scan"]],
       ["gap-engaged", "followups", GETTING_STARTED_ANCHORS["gap-engaged"]],
       ["registry", "skills", GETTING_STARTED_ANCHORS.registry],
+      ["foundation", "repositories", GETTING_STARTED_ANCHORS.foundation],
+      ["conformance", "repositories", GETTING_STARTED_ANCHORS.conformance],
       ["loop", "repositories", GETTING_STARTED_ANCHORS.loop],
       ["team", "members", GETTING_STARTED_ANCHORS.team],
       ["program", "executive", GETTING_STARTED_ANCHORS.program],
