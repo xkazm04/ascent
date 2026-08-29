@@ -17,6 +17,7 @@ import {
   buildFoundation,
 } from "./index";
 import { readManifestYaml } from "./read";
+import { isKnownCheckId, isValidCheckId, slugSubject } from "./check-ids";
 import { buildOnboardingSkill } from "@/lib/onboarding/skill";
 import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
@@ -614,6 +615,49 @@ describe("manifest <-> doctor round-trip", () => {
 // the generator a second time is never a downgrade: the maintainer's corrected commands, the doctor's
 // proven flags, and the answers they wrote into the TODO seeds all survive. Without this, "re-run the
 // onboarding skill" silently reverted a repo's contract to Ascent's guesses.
+// #16 — the doctor's findings are the fleet's control telemetry, so their IDS are a contract. The
+// template embeds the vocabulary as literals (it can neither import nor be imported), which is
+// exactly the shape that drifts silently; these assertions are what makes that impossible.
+describe("doctor check ids (the vocabulary the ledger keys on)", () => {
+  const body = buildDoctor().body;
+
+  it("every add()/check() call site carries an id — no two-argument add survives", () => {
+    // A two-arg `add('warn', '…')` means a finding with no id, which lands in the ledger as an
+    // unkeyable row. Before this change EVERY call site had that shape, so this assertion is the
+    // proof the conversion is complete rather than partial.
+    const twoArg = body.match(/\badd\('(pass|warn|fail|unchecked)'/g) ?? [];
+    expect(twoArg).toEqual([]);
+    // …and the definitions themselves take the id first.
+    expect(body).toContain("const add = (check, level, msg) =>");
+    expect(body).toContain("const check = (checkId, ok, label, miss) =>");
+  });
+
+  it("every literal id in the template is in the shared vocabulary", () => {
+    const ids = [...body.matchAll(/\b(?:add|check)\('([a-z][a-z0-9.-]*)'/g)].map((m) => m[1]!);
+    expect(ids.length).toBeGreaterThan(15);
+    for (const id of ids) {
+      // A templated id appears in the source as its PREFIX (`'capability.' + slug(n)`), so complete
+      // it with a stand-in subject before checking the wire shape.
+      const full = id.endsWith(".") ? id + "x" : id;
+      expect(isValidCheckId(full)).toBe(true);
+      expect(isKnownCheckId(full)).toBe(true);
+    }
+  });
+
+  it("the doctor's own slug() agrees with the shared slugSubject()", () => {
+    const m = /const slug = \((.*?)\) => (.*?);\n/.exec(body);
+    expect(m).toBeTruthy();
+    const slug = new Function("return (" + m![0].replace(/^const slug = /, "").replace(/;\n$/, "") + ")")() as (s: string) => string;
+    for (const sample of ["test", "Next.js Build", "src/generated/CONTEXT.md", "<your build manifest>", "scan-secrets", "a".repeat(150)])
+      expect(slug(sample)).toBe(slugSubject(sample));
+  });
+
+  it("the template still contains NO backtick and NO ${ — it must embed verbatim", () => {
+    expect(body).not.toContain("`");
+    expect(body).not.toContain("${");
+  });
+});
+
 describe("buildManifestData(report, { observed }) — the repo's own contract wins", () => {
   /** A manifest a maintainer has tuned and a `--run` doctor has proven, read back. */
   const tuned = () =>
@@ -992,7 +1036,7 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     // ignores. Anything else appearing here is contract drift.
     writeConformantRepo(tmp);
     const { json } = runDoctor(tmp);
-    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "score", "scored", "unchecked", "warns"]);
+    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "runShape", "score", "scored", "specVersion", "unchecked", "warns"]);
     expect(typeof json.score).toBe("number");
     expect(typeof json.fails).toBe("number");
     expect(typeof json.warns).toBe("number");
@@ -1004,6 +1048,10 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     for (const f of json.findings) {
       expect(["pass", "warn", "fail", "unchecked"]).toContain(f.level);
       expect(typeof f.msg).toBe("string");
+      // #16 — every finding also carries a STABLE id, so a receiver can follow one clause across
+      // runs and rewordings instead of keying on the rendered sentence.
+      expect(typeof f.check).toBe("string");
+      expect(isValidCheckId(f.check)).toBe(true);
     }
     // The reported counts agree with the findings array (the numbers the route trusts are derived,
     // not free-floating).
