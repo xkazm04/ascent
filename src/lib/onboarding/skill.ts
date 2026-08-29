@@ -57,10 +57,15 @@ export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): Gen
   const tracks = isRefinement
     ? selectTracks(report, { include: refinementTargets(report, opts?.max ?? REFINEMENT_COUNT) })
     : selected;
+  // #13 — the repo's own contract, read back. Absent (not an empty heading) when this scan saw none:
+  // a section that says "0 capabilities proven" would be indistinguishable from a repo that declared
+  // a contract and failed every check, which is a different and much worse fact.
+  const proven = alreadyProven(report);
   const body = [
     frontmatter(report, tracks),
     mission(report),
     currentState(report, tracks),
+    ...(proven ? [proven] : []),
     controlModel(),
     foundation(report),
     tracksMenu(tracks, isRefinement),
@@ -136,6 +141,46 @@ ${rows}
 
 **Already strong here — keep it:**
 ${strengths || "- (the scan surfaced no standout strengths yet)"}`;
+}
+
+/**
+ * What this repo has ALREADY PROVEN about itself (#13) — its declared capabilities, which of them the
+ * doctor actually ran and passed, and where each is enforced.
+ *
+ * Three states, kept distinct on purpose: `verified: true` is PROVEN (the doctor ran the command and
+ * it passed), `false` is FAILED (it ran and did not), and an absent flag is NOT RUN. Collapsing the
+ * last two into "unverified" is the single most tempting simplification here and it would let a
+ * broken command read exactly like an unexercised one.
+ *
+ * Returns null when this scan read no manifest, so the section is absent rather than empty.
+ */
+function alreadyProven(report: ScanReport): string | null {
+  const m = report.manifest;
+  if (!m || m.status !== "ok" || m.capabilities.length === 0) return null;
+  const placement = (c: (typeof m.capabilities)[number]) =>
+    c.wiredAt.length === 0
+      ? "declared nowhere"
+      : c.wiredAt.map((w) => (w === "prePush" ? "pre-push" : "CI hard pass")).join(" + ");
+  const mark = (v: boolean | null) => (v === true ? "proven" : v === false ? "FAILED its last run" : "not run yet");
+  const rows = m.capabilities
+    .map((c) => `| \`${c.name}\` | \`${c.command}\` | ${mark(c.verified)} | ${placement(c)} |`)
+    .join("\n");
+  const provenCount = m.capabilities.filter((c) => c.verified === true).length;
+  const lead =
+    provenCount > 0
+      ? `${provenCount} of ${m.capabilities.length} declared capabilities have been RUN and passed by this repo's own doctor.`
+      : `This repo declares ${m.capabilities.length} capabilities but none has been proven yet — run \`node .ai/doctor.mjs --run\` to prove them.`;
+  const gap = m.unbacked.length
+    ? `\n\nDeclared as a control with **no backing capability**: ${m.unbacked.map((u) => `\`${u}\``).join(", ")} — a track below should add one.`
+    : "";
+  return `## What this repo has already proven
+
+${lead} These are YOUR commands, read from \`.ai/manifest.yaml\` — use them, do not re-derive them
+from the language, and correct the manifest rather than this file when one is wrong.
+
+| Capability | Command | Proof | Enforced at |
+|---|---|---|---|
+${rows}${gap}`;
 }
 
 function controlModel(): string {

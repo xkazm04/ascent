@@ -23,6 +23,14 @@ export interface StackContext {
   commands: LangCommands;
   /** True when `commands` are real (not the `<run tests>` placeholder tuple). */
   concrete: boolean;
+  /**
+   * WHERE the commands came from, so the generated track can say so instead of asserting them
+   * anonymously. `"manifest"` = this repo's own `.ai/manifest.yaml` declared them (#13) — the
+   * strongest source there is, because it is the maintainer's answer rather than our inference;
+   * `"language"` = inferred from the detected stack; `"placeholder"` = nothing was recognized and
+   * the tuple is the `<run tests>` seed the reader must fill in.
+   */
+  source: "manifest" | "language" | "placeholder";
   /** Detected frameworks / notable tools, most-notable first (empty when techStack is absent). */
   frameworks: string[];
   roles: StackRole[];
@@ -50,13 +58,50 @@ export function resolveStack(report: ScanReport): StackContext {
   const ts = safeStack(report.techStack);
   const frameworks = ts.frameworks;
   const roles = ts.roles;
+
+  // #13 — the repo's OWN declared contract outranks every inference below it. Ascent authored
+  // `.ai/manifest.yaml` and then re-guessed the same commands from the primary language on the next
+  // scan, so a maintainer who fixed `test: pnpm vitest run` got told to run `npm test` forever. A
+  // declared command is the maintainer's answer; an inferred one is our guess. Placeholders in the
+  // manifest are NOT an answer, so `<...>` values fall through to the language walk.
+  const declared = declaredCommands(report);
+  if (declared)
+    return {
+      language: report.repo.primaryLanguage ?? null,
+      commands: declared,
+      concrete: true,
+      frameworks,
+      roles,
+      source: "manifest",
+    };
+
   const candidates = [report.repo.primaryLanguage, ...ts.languages, ts.backendLanguage];
   for (const candidate of candidates) {
     if (!candidate) continue;
     const commands = commandsFor(candidate);
-    if (hasConcreteCommands(commands)) return { language: candidate, commands, concrete: true, frameworks, roles };
+    if (hasConcreteCommands(commands))
+      return { language: candidate, commands, concrete: true, frameworks, roles, source: "language" };
   }
-  return { language: null, commands: commandsFor(null), concrete: false, frameworks, roles };
+  return { language: null, commands: commandsFor(null), concrete: false, frameworks, roles, source: "placeholder" };
+}
+
+/**
+ * The repo's declared `test`/`build`/`lint` commands, or null when it declares no readable manifest
+ * (or declares only placeholders). Every field the manifest does NOT declare keeps the language
+ * guess: a partial contract is a partial win, never a reason to discard what we do know.
+ */
+function declaredCommands(report: ScanReport): LangCommands | null {
+  const readout = report.manifest;
+  if (!readout || readout.status !== "ok") return null;
+  const real = new Map(readout.capabilities.filter((c) => !c.placeholder && c.command.trim()).map((c) => [c.name, c.command]));
+  if (!real.has("test") && !real.has("build") && !real.has("lint")) return null;
+  const base = commandsFor(report.repo.primaryLanguage);
+  return {
+    ...base,
+    test: real.get("test") ?? base.test,
+    build: real.get("build") ?? base.build,
+    lint: real.get("lint") ?? base.lint,
+  };
 }
 
 // ── Coverage / CI recipes ─────────────────────────────────────────────────────────────────────────
@@ -280,8 +325,12 @@ export function stackNotesFor(dimId: DimensionId, stack: StackContext): string[]
   return notes;
 }
 
-/** One-line description of the detected stack for the track header, or null when nothing was detected. */
+/** One-line description of the detected stack for the track header, or null when nothing was detected.
+ *  When the commands came from the repo's own manifest, SAY SO: "tuned to this stack" reads as our
+ *  inference, and the reader is entitled to know the instruction is quoting their own contract back. */
 export function stackLabel(stack: StackContext): string | null {
   const parts = [stack.language, ...stack.frameworks].filter(Boolean) as string[];
-  return parts.length ? [...new Set(parts)].join(" · ") : null;
+  const base = parts.length ? [...new Set(parts)].join(" · ") : null;
+  if (stack.source !== "manifest") return base;
+  return base ? `${base} · from this repo's .ai/manifest.yaml` : "from this repo's .ai/manifest.yaml";
 }

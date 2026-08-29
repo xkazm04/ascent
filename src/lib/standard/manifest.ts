@@ -237,7 +237,10 @@ controls:
 export function buildManifest(report: ScanReport): GeneratedFile {
   return {
     path: ".ai/manifest.yaml",
-    body: serializeManifestYaml(buildManifestData(report)),
+    // The scan's readout is the observed half, so every generation path (the onboarding skill, the
+    // foundation PR) regenerates OVER the repo's existing contract without any of them opting in.
+    // A first install carries no readout and gets exactly today's output.
+    body: serializeManifestYaml(buildManifestData(report, { observed: report.manifest ?? null })),
     purpose: "The agent-facing contract: capabilities, pointers, boundaries, control placement.",
     lang: "yaml",
   };
