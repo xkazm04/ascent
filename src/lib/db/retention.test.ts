@@ -65,6 +65,10 @@ const WAVE1_LEDGERS = [
   "registrySignal",
   "registrySignalContribution",
   "orgSkillUsageSample",
+  // MOONSHOT #32 — a ScanDigest is repo-scoped rather than org-scoped, but it rides in this fixture
+  // set for the same reason the others do: `eraseRepo` now drains it, and a fake that omits the
+  // delegate makes the sweep THROW rather than silently skip.
+  "scanDigest",
 ] as const;
 type Wave1Ledger = (typeof WAVE1_LEDGERS)[number];
 type LedgerDelegate = {
@@ -776,7 +780,7 @@ function fakeAuditPrisma(opts: {
   const deletedBatches: string[][] = [];
   let pageIdx = 0;
 
-  const findMany = vi.fn(async (_args: unknown) => {
+  const findMany = vi.fn(async () => {
     const page = pages[pageIdx] ?? [];
     pageIdx += 1;
     return page.map((id) => ({ id }));
@@ -2446,6 +2450,9 @@ function fakeWave1ErasePrisma() {
     registrySignal: ["rs_1"],
     registrySignalContribution: ["rsc_1"],
     orgSkillUsageSample: ["us_1"],
+    // MOONSHOT #32 — the repo's compacted tail. A DSR erase must take it too: a stored monthly
+    // summary of the erased scans is still that data's shadow.
+    scanDigest: ["dg_1", "dg_2"],
   });
   const tx = {
     ...ledgers.delegates,
@@ -2573,5 +2580,323 @@ describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
     // the same rows twice — a quiet inflation that only ever shows up in the number a human reads.
     expect(ledgers.rows.repoMemoryMirror).toEqual(["mm_1", "mm_2", "mm_3"]);
     for (const name of WAVE1_LEDGERS) expect(ledgers.rows[name].length).toBeGreaterThan(0);
+  });
+});
+
+// ── MOONSHOT #32 — retention compaction ────────────────────────────────────────────────────────
+// Compaction is OFF by default, so every test ABOVE this line is the regression proof: the purge
+// path's page select, transaction and counters are unchanged for a deployment that never asks for it.
+
+/**
+ * A purge fixture with real scan rows (the widened fold select) and a stateful `scanDigest` table,
+ * so the fold's write is observable and the transaction boundary is real.
+ */
+function fakeCompactionPrisma(opts: {
+  scans: Array<{
+    id: string;
+    scannedAt: string;
+    overallScore: number;
+    rubricVersion?: string | null;
+    engineProvider?: string;
+  }>;
+  org?: { retentionCompact: boolean | null; retentionDigestMonths: number | null };
+  failDelete?: boolean;
+}) {
+  const digests: Array<Record<string, unknown>> = [];
+  const alive = new Set(opts.scans.map((s) => s.id));
+
+  const scanRow = (s: (typeof opts.scans)[number]) => ({
+    id: s.id,
+    scannedAt: new Date(s.scannedAt),
+    headSha: `sha_${s.id}`,
+    overallScore: s.overallScore,
+    adoptionScore: 50,
+    rigorScore: 60,
+    confidence: 0.7,
+    level: "L3",
+    levelName: "Practicing",
+    posture: "balanced",
+    rubricVersion: s.rubricVersion === undefined ? "r9" : s.rubricVersion,
+    engineProvider: s.engineProvider ?? "bedrock",
+    engineModel: "sonnet",
+    dimensions: [{ dimId: "D1", score: s.overallScore, signalScore: 10, llmScore: 20 }],
+    recommendations: [{ status: "open" }, { status: "done" }],
+  });
+
+  const scanDigest = {
+    findUnique: vi.fn(
+      async ({
+        where,
+      }: {
+        where: Record<string, { period: string; rubricVersion: string; engineProvider: string }>;
+      }) => {
+        const k = where.repoId_period_rubricVersion_engineProvider!;
+        return (
+          digests.find(
+            (d) =>
+              d.period === k.period && d.rubricVersion === k.rubricVersion && d.engineProvider === k.engineProvider,
+          ) ?? null
+        );
+      },
+    ),
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      digests.push({ id: `dg_${digests.length + 1}`, ...data });
+      return data;
+    }),
+    update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      const at = digests.findIndex((d) => d.id === where.id);
+      digests[at] = { ...digests[at], ...data };
+      return data;
+    }),
+    findMany: vi.fn(async () => [] as { id: string }[]),
+    deleteMany: vi.fn(async () => ({ count: 0 })),
+    count: vi.fn(async () => digests.length),
+  };
+
+  const tx = {
+    ...wave1Delegates(),
+    scanDigest,
+    recommendation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    recommendationEvent: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    scanDimension: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    scan: {
+      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+        if (opts.failDelete) throw new Error("delete exploded");
+        for (const id of where.id.in) alive.delete(id);
+        return { count: where.id.in.length };
+      }),
+    },
+  };
+
+  const prisma = {
+    ...wave1Delegates(),
+    scanDigest,
+    organization: {
+      findMany: vi.fn(async () => [
+        {
+          id: "org_1",
+          slug: "acme",
+          retentionMaxScans: 1,
+          retentionAuditDays: 0,
+          // `??` would swallow an explicit `null` (the "inherit the env default" case this file
+          // tests) into the fixture's default — the org override has to be passed through verbatim.
+          retentionCompact: opts.org === undefined ? true : opts.org.retentionCompact,
+          retentionDigestMonths: opts.org === undefined ? null : opts.org.retentionDigestMonths,
+        },
+      ]),
+    },
+    repository: { findMany: vi.fn(async () => [{ id: "repo_1" }]) },
+    scan: {
+      // Newest-first, then `skip: max` — the same window the production selector pages over.
+      findMany: vi.fn(async ({ skip }: { skip?: number; select?: unknown }) =>
+        opts.scans
+          .filter((s) => alive.has(s.id))
+          .sort((a, b) => Date.parse(b.scannedAt) - Date.parse(a.scannedAt))
+          .slice(skip ?? 0)
+          .map(scanRow),
+      ),
+      count: vi.fn(async () => [...alive].length),
+      groupBy: vi.fn(async () => [{ repoId: "repo_1", _count: { _all: [...alive].length } }]),
+    },
+    // Rolls the digest table back with the deletes, exactly as a real transaction does.
+    $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => {
+      const before = digests.map((d) => ({ ...d }));
+      try {
+        return await fn(tx);
+      } catch (err) {
+        digests.length = 0;
+        digests.push(...before);
+        throw err;
+      }
+    }),
+  };
+
+  return { prisma, digests, alive, scanDigest };
+}
+
+describe("purgeExpiredData — compaction (moonshot #32)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+    delete process.env.RETENTION_COMPACT;
+    delete process.env.RETENTION_DIGEST_MONTHS;
+  });
+  afterEach(() => {
+    delete process.env.RETENTION_COMPACT;
+    delete process.env.RETENTION_DIGEST_MONTHS;
+    vi.clearAllMocks();
+  });
+
+  it("is OFF by default: the page select stays `{ id: true }` and no digest is written", async () => {
+    const { prisma, digests } = fakeCompactionPrisma({
+      org: { retentionCompact: null, retentionDigestMonths: null },
+      scans: [
+        { id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 },
+        { id: "s2", scannedAt: "2026-03-10T00:00:00Z", overallScore: 60 },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary!.digestsWritten).toBe(0);
+    expect(summary!.scansCompacted).toBe(0);
+    expect(digests).toEqual([]);
+    expect(prisma.scan.findMany.mock.calls[0]![0]!.select).toEqual({ id: true });
+  });
+
+  it("folds one digest per (period, rubric, provider) and commits it WITH the delete", async () => {
+    const { prisma, digests, alive } = fakeCompactionPrisma({
+      scans: [
+        { id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 }, // kept (max = 1)
+        { id: "s2", scannedAt: "2026-03-10T00:00:00Z", overallScore: 60 },
+        { id: "s3", scannedAt: "2026-03-02T00:00:00Z", overallScore: 40 },
+        { id: "s4", scannedAt: "2026-02-02T00:00:00Z", overallScore: 30, rubricVersion: "r8" },
+        { id: "s5", scannedAt: "2026-02-05T00:00:00Z", overallScore: 20, engineProvider: "gemini" },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary!.scansDeleted).toBe(4);
+    expect(summary!.scansCompacted).toBe(4);
+    // 2026-03/r9/bedrock, 2026-02/r8/bedrock, 2026-02/r9/gemini
+    expect(digests).toHaveLength(3);
+    expect(summary!.digestsWritten).toBe(3);
+    const march = digests.find((d) => d.period === "2026-03")!;
+    expect(march.scanCount).toBe(2);
+    expect(march.overallSum).toBe(100); // sums, never means
+    expect(march.overallMin).toBe(40);
+    expect(march.overallMax).toBe(60);
+    expect(march.recsOpened).toBe(4); // 2 recs per folded scan
+    expect(march.recsClosed).toBe(2);
+    // The newest scan itself is untouched — compaction is not a licence to lower the keep-window.
+    expect([...alive]).toEqual(["s1"]);
+  });
+
+  it("stamps the 'unknown' rubric sentinel rather than a null key column", async () => {
+    const { prisma, digests } = fakeCompactionPrisma({
+      scans: [
+        { id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 },
+        { id: "s2", scannedAt: "2026-03-10T00:00:00Z", overallScore: 60, rubricVersion: null },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    await purgeExpiredData();
+    // Postgres treats NULLs as DISTINCT: a nullable key column would insert a fresh row every tick.
+    expect(digests[0]!.rubricVersion).toBe("unknown");
+  });
+
+  it("rolls the fold back when the delete throws — a fold outside the transaction would double-count", async () => {
+    const { prisma, digests, alive } = fakeCompactionPrisma({
+      failDelete: true,
+      scans: [
+        { id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 },
+        { id: "s2", scannedAt: "2026-03-10T00:00:00Z", overallScore: 60 },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    // FAIL-BEFORE: with `upsertDigests` called beside the transaction rather than inside it, the
+    // digest survives the aborted delete and the next tick folds the SAME scans into it again.
+    expect(digests).toEqual([]);
+    expect(summary!.digestsWritten).toBe(0);
+    expect([...alive].sort()).toEqual(["s1", "s2"]); // nothing died either
+    expect(summary!.errors[0]).toContain("delete exploded");
+  });
+
+  it("ages digests out on retentionDigestMonths, and never when it is 0 (keep forever)", async () => {
+    const base = fakeCompactionPrisma({
+      org: { retentionCompact: true, retentionDigestMonths: 0 },
+      scans: [{ id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 }],
+    });
+    mockGetPrisma.mockReturnValue(base.prisma);
+    await purgeExpiredData();
+    expect(base.scanDigest.findMany).not.toHaveBeenCalled();
+
+    const aged = fakeCompactionPrisma({
+      org: { retentionCompact: true, retentionDigestMonths: 24 },
+      scans: [{ id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 }],
+    });
+    aged.scanDigest.findMany.mockImplementationOnce(async () => [{ id: "dg_old" }]);
+    aged.scanDigest.deleteMany.mockImplementationOnce(async () => ({ count: 1 }));
+    mockGetPrisma.mockReturnValue(aged.prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary!.digestsDeleted).toBe(1);
+    const where = aged.scanDigest.findMany.mock.calls[0]![0] as { where: { lastScannedAt: { lt: Date } } };
+    expect(where.where.lastScannedAt.lt).toBeInstanceOf(Date);
+  });
+
+  it("dry run reports digestsWouldWrite over the same window — and null past the preview cap", async () => {
+    const scans = [
+      { id: "s1", scannedAt: "2026-03-20T00:00:00Z", overallScore: 70 },
+      { id: "s2", scannedAt: "2026-03-10T00:00:00Z", overallScore: 60 },
+      { id: "s3", scannedAt: "2026-02-10T00:00:00Z", overallScore: 60 },
+    ];
+    const { prisma } = fakeCompactionPrisma({ scans });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true });
+    expect(summary!.scansDeleted).toBe(2); // 3 − max(1)
+    expect(summary!.digestsWouldWrite).toBe(2); // 2026-03 and 2026-02
+
+    // Past the cap the answer is UNKNOWN, never an extrapolation — and the SCAN count stays exact.
+    const big = fakeCompactionPrisma({ scans });
+    big.prisma.scan.groupBy.mockImplementation(async () => [{ repoId: "repo_1", _count: { _all: 10_001 } }]);
+    mockGetPrisma.mockReturnValue(big.prisma);
+    const capped = await purgeExpiredData({ dryRun: true });
+    expect(capped!.scansDeleted).toBe(10_000);
+    expect(capped!.digestsWouldWrite).toBeNull();
+  });
+});
+
+describe("eraseOrgData — compaction refusal (moonshot #32)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    process.env.RETENTION_COMPACT = "1"; // even with compaction ON deployment-wide
+  });
+  afterEach(() => {
+    delete process.env.RETENTION_COMPACT;
+    vi.clearAllMocks();
+  });
+
+  it("writes NO digest and deletes the tail that already exists", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // A DSR erase must not mint a summary of the data it is erasing — the fixture's digest delegate
+    // has no `create`/`update` at all, so any fold attempt would throw rather than pass quietly.
+    expect(outcome.digestsDeleted).toBe(2);
+    expect(ledgers.rows.scanDigest).toEqual([]);
+    expect(recordAudit).toHaveBeenCalledWith(
+      ERASE_ACTION,
+      expect.objectContaining({ digestsDeleted: 2 }),
+      expect.anything(),
+    );
+  });
+
+  it("a preview counts the tail over the same predicate and removes nothing", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.digestsDeleted).toBe(2);
+    expect(ledgers.rows.scanDigest).toEqual(["dg_1", "dg_2"]);
   });
 });

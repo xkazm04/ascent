@@ -455,3 +455,86 @@ describe("GET /api/history — CSV export escaping (cell-shift / injection)", ()
     expect(unquote(fields[3])).toBe("'=cmd(),evil");
   });
 });
+
+// ── MOONSHOT #32 — the compacted tail ────────────────────────────────────────────────────────────
+// `?compacted=1` opts into periods whose scans retention already deleted. Off by default, so every
+// existing caller of this endpoint keeps getting retained scans only — and the CSV says out loud
+// which rows are a summary, because a spreadsheet has no dashed line to look at.
+
+describe("GET /api/history — ?compacted=1", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue("alice");
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+  });
+
+  it("does NOT request the tail without the param", async () => {
+    await get("?repo=acme/repo");
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ includeCompacted: false }));
+  });
+
+  it("passes the opt-in through to the reader", async () => {
+    await get("?repo=acme/repo&compacted=1");
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ includeCompacted: true }));
+  });
+
+  it("only accepts the exact `1` — a truthy-looking value is not an opt-in", async () => {
+    await get("?repo=acme/repo&compacted=yes");
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ includeCompacted: false }));
+  });
+
+  it("gives the compacted and plain series DIFFERENT ETags — two modes never share one validator", async () => {
+    const plain = await get("?repo=acme/repo");
+    const compacted = await get("?repo=acme/repo&compacted=1");
+    expect(plain.headers.get("etag")).not.toBe(compacted.headers.get("etag"));
+  });
+
+  it("labels compacted rows in the CSV with `compacted` and a scan count", async () => {
+    mockGetHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "repo", fullName: "acme/repo" },
+      scans: [
+        {
+          id: "s1",
+          scannedAt: "2026-06-01T00:00:00.000Z",
+          overallScore: 80,
+          level: "L4",
+          levelName: "Integrated",
+          engineProvider: "openai",
+          engineModel: "gpt-4o",
+          dimensions: [],
+        },
+        {
+          id: "digest:dg_1",
+          scannedAt: "2026-03-28T00:00:00.000Z",
+          overallScore: 50,
+          level: "L2",
+          levelName: "Emerging",
+          engineProvider: "bedrock",
+          engineModel: "mixed",
+          dimensions: [],
+          compacted: true,
+          scanCount: 6,
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof getRepositoryHistory>>);
+
+    const res = await get("?repo=acme/repo&format=csv&compacted=1");
+    const rows = splitCsvRows(await res.text());
+    const header = splitCsvFields(rows[0]!);
+    expect(header).toContain("compacted");
+    expect(header).toContain("scans");
+
+    // Rows are oldest → newest, so the compacted period comes first.
+    const older = splitCsvFields(rows[1]!);
+    const newer = splitCsvFields(rows[2]!);
+    expect(older[header.indexOf("compacted")]).toBe("yes");
+    expect(older[header.indexOf("scans")]).toBe("6");
+    // A real scan is blank rather than "no": an empty cell filters cleanly and claims nothing.
+    expect(newer[header.indexOf("compacted")]).toBe("");
+    expect(newer[header.indexOf("scans")]).toBe("1");
+  });
+});

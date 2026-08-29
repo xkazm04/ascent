@@ -8,11 +8,12 @@ import { useId } from "react";
 import { useRouter } from "next/navigation";
 import type { TrendAnnotation } from "@/app/trends/annotations";
 import { scoreHex } from "@/lib/ui";
-import { levelForScore } from "@/lib/maturity/model";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
 import { MOCK_POINT_NOTE, hasMockPoint, isMockEngine } from "@/components/report/chartEngine";
 import { shortDateSafe } from "@/components/ui/format";
+import { CompactedNote, CompactedTooltipLines, trendPaths } from "@/components/report/TrendChart.CompactedBand";
+import { TrendSrTable } from "@/components/report/TrendChart.SrTable";
 
 export interface TrendPoint {
   score: number;
@@ -27,6 +28,14 @@ export interface TrendPoint {
   /** External GitHub commit URL (githubCommitUrl) — shift-click on the hovered point opens it in
    *  a new tab, closing the "what landed here?" investigation loop. Omitted = no external jump. */
   commitUrl?: string;
+  /** MOONSHOT #32 — this point is a COMPACTED period average, not a scan: retention deleted the
+   *  scans behind it and kept their fold. Drawn dashed + hollow and never linked (there is no
+   *  report to open), so the encoding says what the data is rather than flattening it into a peer. */
+  compacted?: boolean;
+  /** How many scans a compacted point summarises. */
+  scans?: number;
+  /** Rubric revision the compacted period was scored under; null when the scans carried no stamp. */
+  rubric?: string | null;
 }
 
 // Sparkline lives in a co-located file to keep this file within the 300-LOC limit; re-exported
@@ -70,9 +79,8 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
     .map((ann) => ({ ann, i: indexByAt.get(ann.at) }))
     .filter((m): m is { ann: TrendAnnotation; i: number } => m.i !== undefined);
 
-  const linePath = points
-    .map((p, i) => `${i === 0 ? "M" : "L"}${xFor(i).toFixed(1)},${yFor(p.score).toFixed(1)}`)
-    .join(" ");
+  // One dashed run over the compacted head, one solid run over the retained tail (see trendPaths).
+  const { dashed: dashedPath, solid: linePath } = trendPaths(points, xFor, yFor);
 
   // Mock (keyless, deterministic-rubric) scans are not comparable to model-scored ones — see
   // chartEngine. Any mock point in the series arms the footnote below, which is the legend for the
@@ -152,7 +160,18 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
         )}
         {/* line + points */}
         {/* Line color follows the latest score (red→green ramp), matching DimLine + Sparkline. */}
-        {points.length > 1 && (
+        {points.length > 1 && dashedPath && (
+          // safe: length > 1, so the last index is in-bounds
+          <path
+            data-compacted-path
+            d={dashedPath}
+            fill="none"
+            stroke={scoreHex(points[points.length - 1]!.score)}
+            strokeWidth={2.5}
+            strokeDasharray="6 5"
+          />
+        )}
+        {points.length > 1 && linePath && (
           // safe: length > 1, so the last index is in-bounds
           <path d={linePath} fill="none" stroke={scoreHex(points[points.length - 1]!.score)} strokeWidth={2.5} />
         )}
@@ -176,8 +195,8 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
                 solid: the model contributed nothing to it, so it must not read as a measured value
                 on the same footing as its neighbours. The hue stays the score's, so the value ramp
                 and CVD-safety are unchanged — the caveat rides on the mark, not the colour. */}
-            {isMockEngine(p.engine) ? (
-              <circle data-mock cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill="var(--color-surface-strong)" stroke={scoreHex(p.score)} strokeWidth={2} />
+            {isMockEngine(p.engine) || p.compacted ? (
+              <circle data-mock={isMockEngine(p.engine) || undefined} data-compacted={p.compacted || undefined} cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill="var(--color-surface-strong)" stroke={scoreHex(p.score)} strokeWidth={2} />
             ) : (
               <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="var(--color-surface-strong)" strokeWidth={1.5} />
             )}
@@ -228,8 +247,10 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
             linked={Boolean(points[a]!.href)}
             commitLinked={Boolean(points[a]!.commitUrl)}
           />
+          {points[a]!.compacted && <CompactedTooltipLines point={points[a]!} />}
         </ChartTooltip>
       )}
+      <CompactedNote points={points} />
       {showEngineNote && (
         <p className="mt-2 flex items-start gap-2 text-sm text-slate-500">
           <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
@@ -238,51 +259,7 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
           <span>{MOCK_POINT_NOTE}</span>
         </p>
       )}
-      {/* Screen-reader equivalent of the chart — the bands/points convey meaning visually, so mirror
-          the series as a table referenced by the svg's aria-describedby (matches the radar chart).
-          The svg is role="img" + pointer-only click, so the per-point "open this scan" deep links
-          would otherwise be mouse-only (WCAG 2.1.1 / 4.1.2). Expose them here as real focusable
-          links so keyboard and screen-reader users can reach the same target without a pointer. */}
-      <table id={tableId} className="sr-only">
-        <caption>Overall maturity score over time</caption>
-        <thead>
-          <tr>
-            <th>Scan date</th>
-            <th>Score</th>
-            <th>Level</th>
-            {/* Provenance is a caveat, not trivia: the hollow-mark encoding is pointer-only, so the
-                table carries which points a model actually scored. */}
-            <th>Scored by</th>
-            <th>Report</th>
-          </tr>
-        </thead>
-        <tbody>
-          {points.map((p, i) => {
-            const lvl = levelForScore(p.score);
-            return (
-              <tr key={i}>
-                <td>{shortDateSafe(p.at)}</td>
-                <td>{p.score}</td>
-                <td>
-                  {lvl.id} {lvl.name}
-                </td>
-                <td>{isMockEngine(p.engine) ? "demo scan: deterministic rubric, no model" : (p.engine ?? "—")}</td>
-                <td>
-                  {p.href ? <a href={p.href}>Open this scan&apos;s report</a> : "—"}
-                  {p.commitUrl && (
-                    <>
-                      {p.href ? " · " : ""}
-                      <a href={p.commitUrl} target="_blank" rel="noopener noreferrer">
-                        GitHub commit
-                      </a>
-                    </>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <TrendSrTable id={tableId} points={points} />
     </div>
   );
 }

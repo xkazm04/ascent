@@ -61,6 +61,8 @@ import type {
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
+// MOONSHOT #32. Deep-path until the barrel line lands; it reaches a client through `HistoryPoint`.
+import type { CompactedPoint } from "@/lib/db/scan-digest";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 
@@ -96,6 +98,10 @@ const WIRE_TYPES = {
   ApiTokenSummary: true satisfies WireSafe<ApiTokenSummary>,
   AuditLogEntry: true satisfies WireSafe<AuditLogEntry>,
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
+  // MOONSHOT #32: a compacted history point reaches the trend charts through `HistoryPoint`, and
+  // its three timestamps come off Prisma `DateTime` columns — so it is exactly the shape this guard
+  // exists for. `toDigestRow` does the `.toISOString()`.
+  CompactedPoint: true satisfies WireSafe<CompactedPoint>,
   ComparableScan: true satisfies WireSafe<ComparableScan>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
@@ -127,6 +133,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(23);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(24);
   });
 });

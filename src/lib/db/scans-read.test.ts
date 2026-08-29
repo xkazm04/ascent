@@ -106,6 +106,7 @@ import {
   findScanByDedupKey,
   findScanByScannedAt,
   getLatestRecommendations,
+  getRepositoryHistory,
   getScanReportByCommit,
   scanContentKey,
   scanDedupKey,
@@ -622,5 +623,147 @@ describe("scanDedupKey — persisted idempotency identity for sha-less scans", (
     mockIsDbConfigured.mockReturnValue(false);
     await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
     mockIsDbConfigured.mockReturnValue(true);
+  });
+});
+
+// ── getRepositoryHistory — the compacted tail (MOONSHOT #32) ──────────────────────────────────────
+// Retention compaction lets a purged page of scans survive as a `ScanDigest`. The reader serves that
+// tail ONLY when asked, and serves it visibly labelled: a compacted point is a period average with no
+// scan behind it, so it must never be handed to a consumer as if it were one.
+
+describe("getRepositoryHistory — includeCompacted", () => {
+  function historyPrisma(opts: { scans?: number; digests?: number; isPrivate?: boolean } = {}) {
+    const scanRows = Array.from({ length: opts.scans ?? 2 }, (_, i) => ({
+      id: `scan_${i}`,
+      headSha: `sha_${i}`,
+      overallScore: 70 - i,
+      level: "L3",
+      levelName: "Practicing",
+      confidence: 0.9,
+      engineProvider: "bedrock",
+      engineModel: "sonnet",
+      rubricVersion: "r9",
+      scannedAt: new Date(Date.UTC(2026, 5, 20 - i)),
+    }));
+    const digestRows = Array.from({ length: opts.digests ?? 1 }, (_, i) => ({
+      id: `dg_${i}`,
+      repoId: "repo_1",
+      period: `2026-0${3 - i}`,
+      rubricVersion: i === 0 ? "r8" : "unknown",
+      engineProvider: "bedrock",
+      scanCount: 4,
+      overallSum: 200,
+      adoptionSum: 180,
+      rigorSum: 220,
+      overallMin: 40,
+      overallMax: 60,
+      overallLast: 55,
+      adoptionLast: 45,
+      rigorLast: 60,
+      confidenceSum: 2.8,
+      levelLast: "L2",
+      levelNameLast: "Emerging",
+      postureLast: "balanced",
+      firstScannedAt: new Date(Date.UTC(2026, 2 - i, 1)),
+      lastScannedAt: new Date(Date.UTC(2026, 2 - i, 28)),
+      firstHeadSha: "sha_old",
+      lastHeadSha: "sha_older",
+      enginesJson: '["sonnet","haiku"]',
+      dimensionsJson: '{"ci":{"sum":200,"n":4,"last":55,"signalSum":0,"llmSum":0}}',
+      recsOpened: 4,
+      recsClosed: 2,
+    }));
+    return {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
+      repository: {
+        findUnique: vi.fn(async () => ({
+          id: "repo_1",
+          owner: "acme",
+          name: "widget",
+          isPrivate: opts.isPrivate ?? false,
+        })),
+      },
+      scan: { findMany: vi.fn(async () => scanRows) },
+      scanDigest: { findMany: vi.fn(async () => digestRows) },
+    };
+  }
+
+  it("is byte-identical to today by DEFAULT: the digest table is never read", async () => {
+    const prisma = historyPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const withoutOpt = await getRepositoryHistory("acme", "widget", { orgSlug: "acme-corp" });
+    const explicitOff = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeCompacted: false,
+    });
+
+    expect(withoutOpt).toEqual(explicitOff);
+    expect(withoutOpt!.scans).toHaveLength(2);
+    expect(withoutOpt!.scans.every((s) => s.compacted === undefined)).toBe(true);
+    expect(prisma.scanDigest.findMany).not.toHaveBeenCalled();
+  });
+
+  it("appends a labelled tail with NO permalink handle and a 'digest:' id", async () => {
+    const prisma = historyPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeCompacted: true,
+      limit: 10,
+    });
+
+    expect(history!.scans).toHaveLength(3);
+    const tail = history!.scans[2]!;
+    expect(tail.compacted).toBe(true);
+    expect(tail.id).toBe("digest:dg_0");
+    // The Scan row is gone, so reportPermalink would 404 — the sha is withheld, not stale.
+    expect(tail.headSha).toBeNull();
+    expect(tail.scanCount).toBe(4);
+    expect(tail.overallScore).toBe(50); // 200 / 4
+    expect(tail.engineModel).toBe("mixed"); // two models scored the period
+    // The real scans in front of it are untouched.
+    expect(history!.scans[0]!.compacted).toBeUndefined();
+    expect(history!.scans[0]!.headSha).toBe("sha_0");
+  });
+
+  it("bounds the tail by the oldest RETAINED scan, so a straddling period is not counted twice", async () => {
+    const prisma = historyPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRepositoryHistory("acme", "widget", { orgSlug: "acme-corp", includeCompacted: true, limit: 10 });
+
+    const args = prisma.scanDigest.findMany.mock.calls[0]![0]!;
+    expect(args.where.repoId).toBe("repo_1");
+    expect(args.where.lastScannedAt.lt).toEqual(new Date(Date.UTC(2026, 5, 19)));
+    // The combined length honours `limit`: 10 asked for, 2 retained, so at most 8 digests.
+    expect(args.take).toBe(8);
+  });
+
+  it("does not read the tail once the retained scans already fill the limit", async () => {
+    const prisma = historyPrisma({ scans: 2 });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeCompacted: true,
+      limit: 2,
+    });
+
+    expect(history!.scans).toHaveLength(2);
+    expect(prisma.scanDigest.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a PRIVATE repo under the shared public org — the tail is not a way around it", async () => {
+    const prisma = historyPrisma({ isPrivate: true });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // No orgSlug → the anonymous "public" org.
+    const history = await getRepositoryHistory("acme", "widget", { includeCompacted: true });
+
+    expect(history).toBeNull();
+    expect(prisma.scanDigest.findMany).not.toHaveBeenCalled();
+    expect(prisma.scan.findMany).not.toHaveBeenCalled();
   });
 });

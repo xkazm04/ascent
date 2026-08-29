@@ -75,3 +75,67 @@ describe("TrendChart mock-vs-model point provenance", () => {
     expect(screen.queryByText(/demo scan/i)).not.toBeInTheDocument();
   });
 });
+
+// ── MOONSHOT #32 — compacted points ───────────────────────────────────────────────────────────────
+// A compacted point is a period AVERAGE of scans retention deleted. Drawn as an ordinary solid dot on
+// the same solid line it would read as a measured scan with a measured slope into its neighbour, and
+// its (absent) permalink would look like a bug rather than a fact about the data.
+
+const cpt = (score: number, day: number, scans: number, rubric: string | null = "r9"): TrendPoint => ({
+  score,
+  at: at(day),
+  engine: "bedrock",
+  compacted: true,
+  scans,
+  rubric,
+});
+
+describe("TrendChart compacted points", () => {
+  const MIXED_COMPACTED: TrendPoint[] = [cpt(40, 1, 6), cpt(45, 2, 4), pt(70, 3, "claude-cli"), pt(72, 4, "claude-cli")];
+
+  const paths = (container: HTMLElement) =>
+    Array.from(container.querySelector('svg[role="img"]')!.querySelectorAll("path[d]"));
+
+  it("draws EXACTLY ONE dashed segment over the compacted run, and a solid one over the rest", () => {
+    const { container } = render(<TrendChart points={MIXED_COMPACTED} />);
+    const dashed = paths(container).filter((p) => p.hasAttribute("data-compacted-path"));
+    expect(dashed).toHaveLength(1);
+    // The dashed run covers the two compacted points AND the join into the first real scan (3 points,
+    // 2 segments): a slope that starts at a summarised point is not a measured slope.
+    expect(dashed[0]!.getAttribute("d")!.match(/L/g)).toHaveLength(2);
+    const solid = paths(container).filter((p) => !p.hasAttribute("data-compacted-path"));
+    expect(solid).toHaveLength(1);
+    expect(solid[0]!.getAttribute("stroke-dasharray")).toBeNull();
+  });
+
+  it("draws a compacted point HOLLOW, on the score's own hue", () => {
+    const { container } = render(<TrendChart points={MIXED_COMPACTED} />);
+    const compacted = marks(container).filter((c) => c.hasAttribute("data-compacted"));
+    expect(compacted).toHaveLength(2);
+    expect(compacted[0]!.getAttribute("fill")).toBe("var(--color-surface-strong)");
+    expect(compacted[0]!.getAttribute("stroke")).toMatch(/^#[0-9a-f]{6}$/i);
+    // It is NOT flagged as a demo scan — two different caveats must not collapse into one mark.
+    expect(compacted[0]!.hasAttribute("data-mock")).toBe(false);
+  });
+
+  it("renders the legend once, naming the average, the scan count and the missing permalink", () => {
+    render(<TrendChart points={MIXED_COMPACTED} />);
+    const note = screen.getByText(/dashed = compacted/i);
+    expect(note.textContent).toMatch(/10 scans/); // 6 + 4
+    expect(note.textContent).toMatch(/no report permalink/i);
+  });
+
+  it("stays silent — no dashed path, no legend — on a series with no compacted point", () => {
+    const { container } = render(<TrendChart points={MIXED} />);
+    expect(container.querySelectorAll("[data-compacted-path]")).toHaveLength(0);
+    expect(container.querySelectorAll("[data-compacted-note]")).toHaveLength(0);
+    expect(screen.queryByText(/dashed = compacted/i)).not.toBeInTheDocument();
+  });
+
+  it("names a compacted point for what it is in the screen-reader table (the encoding is visual only)", () => {
+    render(<TrendChart points={MIXED_COMPACTED} />);
+    expect(screen.getByRole("cell", { name: /compacted: period average of 6 scans/i })).toBeInTheDocument();
+    // No permalink to offer — the row says so rather than linking somewhere that 404s.
+    expect(screen.queryByRole("link", { name: /open this scan/i })).not.toBeInTheDocument();
+  });
+});

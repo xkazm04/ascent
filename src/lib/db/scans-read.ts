@@ -31,6 +31,7 @@ import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
@@ -285,6 +286,14 @@ export interface HistoryPoint {
   rubricVersion: string | null;
   scannedAt: string;
   dimensions: { dimId: string; score: number }[];
+  /** MOONSHOT #32 — set only on a COMPACTED point: one period's summary served in place of scans
+   *  retention already deleted. Absent (not `false`) on a real scan, so an existing consumer that
+   *  never heard of compaction reads exactly what it always did. A compacted point carries
+   *  `headSha: null` and an `id` prefixed `digest:`, so nothing can build a permalink from it. */
+  compacted?: true;
+  /** How many scans a compacted point summarises. Absent on a real scan (where it would be 1 and
+   *  therefore noise). */
+  scanCount?: number;
 }
 
 export interface RepositoryHistory {
@@ -344,11 +353,17 @@ function historyPointFrom(s: {
  * the OVERALL line (a first paint, an embed, the /api/history `?dims=0` mode) doesn't need them.
  * Passing `false` skips that select entirely and returns empty `dimensions` arrays — a lighter query
  * for the overall-only path, with the by-dimension data fetched separately when actually shown.
+ *
+ * `includeCompacted` (default **false**) appends the repo's compacted tail — the `ScanDigest` rows
+ * retention wrote for periods whose scans it deleted (MOONSHOT #32) — after the real scans, as one
+ * ordered newest-first series. Off by default on purpose: every existing caller (the compare picker,
+ * `skill-outcomes-load`, `/api/history` without the param) keeps reading retained scans only, and a
+ * consumer that would treat a period average as a scan never receives one by accident.
  */
 export async function getRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean } = {},
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
   // DB-DOWN DEGRADE, deliberately uniform (scan-persistence-history 07-16 #4): every reader in this
@@ -365,7 +380,7 @@ export async function getRepositoryHistory(
 async function loadRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean },
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean },
 ): Promise<RepositoryHistory | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
@@ -399,6 +414,19 @@ async function loadRepositoryHistory(
         })
       ).map(historyPointFrom)
     : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
+
+  // MOONSHOT #32 — the compacted tail, appended AFTER the retained scans so the array stays one
+  // newest-first series. `before` is the oldest RETAINED scan: a period straddling the retention
+  // horizon must not appear twice, once as its surviving scans and once as a summary of them. The
+  // combined length still honours `limit`, so the tail extends the reach of a page, not its size.
+  if (opts.includeCompacted && scans.length < limit) {
+    const oldestRetained = scans[scans.length - 1];
+    const tail = await readDigestTail(repo.id, {
+      before: oldestRetained ? new Date(oldestRetained.scannedAt) : undefined,
+      limit: limit - scans.length,
+    });
+    for (const row of tail) scans.push(digestToPoint(row));
+  }
 
   return {
     repo: { owner: repo.owner, name: repo.name, fullName },

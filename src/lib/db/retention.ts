@@ -27,6 +27,17 @@ import { recordAudit } from "@/lib/db/scans";
 import { redactAuditIdentity } from "@/lib/db/audit-integrity";
 import { ATHENA_MEMORY_SOURCE } from "@/lib/db/athena-episodes";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
+import {
+  DIGEST_PREVIEW_MAX_SCANS,
+  digestPeriod,
+  digestScans,
+  monthsBefore,
+  pruneDigests,
+  resolveCompaction,
+  UNKNOWN_RUBRIC,
+  upsertDigests,
+  type DigestInputScan,
+} from "@/lib/db/scan-digest";
 
 /** Audit action recorded by the purge job for each org it enforces a policy on. */
 export const PURGE_ACTION = "retention.purged";
@@ -154,6 +165,42 @@ async function deleteInPages(
   }
 }
 
+/** The Scan columns the digest fold reads (MOONSHOT #32) — selected only when compaction is on. */
+const DIGEST_SCAN_SELECT = {
+  id: true,
+  scannedAt: true,
+  headSha: true,
+  overallScore: true,
+  adoptionScore: true,
+  rigorScore: true,
+  confidence: true,
+  level: true,
+  levelName: true,
+  posture: true,
+  rubricVersion: true,
+  engineProvider: true,
+  engineModel: true,
+  dimensions: { select: { dimId: true, score: true, signalScore: true, llmScore: true } },
+  recommendations: { select: { status: true } },
+} as const;
+
+/** What one pruned repo removed — and, when compaction is on, what SURVIVED as a digest. */
+interface RepoPruneResult {
+  scans: number;
+  dimensions: number;
+  recommendations: number;
+  events: number;
+  outcomes: number;
+  /** Digest rows created or updated by this repo's fold (0 when compaction is off). */
+  digestsWritten: number;
+  /** Scans that were folded before they were deleted (0 when compaction is off). */
+  scansCompacted: number;
+  /** Dry run only: distinct (period, rubric, provider) keys the fold WOULD touch. `null` = unknown,
+   *  because the stale window is past {@link DIGEST_PREVIEW_MAX_SCANS} and an estimate would be a
+   *  guess wearing a number's clothes (G4). Always `null` outside a dry run / with compaction off. */
+  digestsWouldWrite: number | null;
+}
+
 /** Per-repo: delete every scan beyond the newest `max`, with its dimensions + recommendations. */
 async function pruneRepoScans(
   prisma: PrismaLike,
@@ -162,12 +209,18 @@ async function pruneRepoScans(
   batchSize: number,
   budgetExceeded?: () => boolean,
   countOnly = false,
-): Promise<{ scans: number; dimensions: number; recommendations: number; events: number; outcomes: number }> {
+  /** MOONSHOT #32: fold each page into a `ScanDigest` inside the transaction that deletes it.
+   *  OFF by default, so an existing deployment's purge — and its page SELECT — is unchanged. */
+  compact = false,
+): Promise<RepoPruneResult> {
   let scans = 0;
   let dimensions = 0;
   let recommendations = 0;
   let events = 0;
   let outcomes = 0;
+  let digestsWritten = 0;
+  let scansCompacted = 0;
+  let digestsWouldWrite: number | null = null;
   // ONE definition of "which scans are in scope", used by BOTH the delete selection below and the
   // preview count (data-retention 07-16 #20). A preview computed from a SECOND, separately-written
   // predicate is worse than no preview at all: it licenses an irreversible act with a number that can
@@ -180,7 +233,18 @@ async function pruneRepoScans(
     // (reported 0), matching purgeExpiredData's dry run — the scan count is the decision-relevant
     // number, and counting three more tables per repo would triple a preview's cost for no new decision.
     const total = await prisma.scan.count({ where });
-    return { scans: Math.max(0, total - max), dimensions: 0, recommendations: 0, events: 0, outcomes: 0 };
+    const stale = Math.max(0, total - max);
+    if (compact && stale > 0) digestsWouldWrite = await previewDigestKeys(prisma, where, max, stale, batchSize);
+    return {
+      scans: stale,
+      dimensions: 0,
+      recommendations: 0,
+      events: 0,
+      outcomes: 0,
+      digestsWritten: 0,
+      scansCompacted: 0,
+      digestsWouldWrite,
+    };
   }
   // Page the SELECTION too, not just the deletes. The prior code did one UNBOUNDED findMany(skip:max)
   // pulling every stale id into memory before the batched delete loop — on a long-watched repo with a
@@ -190,18 +254,31 @@ async function pruneRepoScans(
   // to the next stale window. Stop when a page is short. Rank by DB-authoritative `createdAt` (insertion
   // order), NOT report `scannedAt`: a backdated/skewed scannedAt could otherwise drop a live newer scan.
   // deleteInPages owns the short-page/empty-page/zero-progress termination (the `counts.sc === 0` guard).
+  // The page the digest fold reads, captured by the selector for the deleter below. Only populated
+  // when `compact` — with compaction off the select is byte-for-byte the `{ id: true }` it always was.
+  let foldPage: DigestInputScan[] = [];
   await deleteInPages(
-    async () =>
-      (
-        await prisma.scan.findMany({
-          where,
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          skip: max,
-          take: batchSize,
-          select: { id: true },
-        })
-      ).map((s) => s.id),
+    async () => {
+      const order = [{ createdAt: "desc" as const }, { id: "desc" as const }];
+      if (!compact) {
+        return (
+          await prisma.scan.findMany({ where, orderBy: order, skip: max, take: batchSize, select: { id: true } })
+        ).map((s) => s.id);
+      }
+      const rows = await prisma.scan.findMany({
+        where,
+        orderBy: order,
+        skip: max,
+        take: batchSize,
+        select: DIGEST_SCAN_SELECT,
+      });
+      foldPage = rows.map(toDigestInput);
+      return rows.map((s) => s.id);
+    },
     async (ids) => {
+      // Computed OUTSIDE the transaction but re-read INSIDE it (upsertDigests does its own
+      // findUnique), so a conflict retry re-merges against whatever the winning tick committed.
+      const drafts = compact ? digestScans(foldPage) : [];
       // Delete the whole scan sub-graph for this batch in ONE transaction so a mid-batch timeout can't
       // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
       // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever.
@@ -209,6 +286,12 @@ async function pruneRepoScans(
       const counts = await withRetry(
         () =>
           prisma.$transaction(async (tx) => {
+            // MOONSHOT #32 — the fold is committed by the SAME transaction as the deletes that
+            // remove its inputs. That, and nothing else, is what makes it idempotent: a retried
+            // batch rolls back both halves and re-selects only surviving rows, so no scan can be
+            // folded twice and none can die without its summary. A fold written outside this
+            // transaction would survive an aborted delete and double-count on the retry.
+            const dg = drafts.length ? await upsertDigests(tx, repoId, drafts) : 0;
             const recIds = (
               await tx.recommendation.findMany({ where: { scanId: { in: ids } }, select: { id: true } })
             ).map((r) => r.id);
@@ -230,7 +313,7 @@ async function pruneRepoScans(
               })
             ).count;
             const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
-            return { ev, dim, rec, out, sc };
+            return { ev, dim, rec, out, sc, dg };
           }),
         { label: "retention.prune-scans" },
       );
@@ -239,12 +322,77 @@ async function pruneRepoScans(
       recommendations += counts.rec;
       outcomes += counts.out;
       scans += counts.sc;
+      digestsWritten += counts.dg;
+      if (compact) scansCompacted += counts.sc;
       return counts.sc; // progress count → zero stops the loop (a delete that removed no scan rows)
     },
     batchSize,
     budgetExceeded, // stop between batches once the run is over budget (data-retention #1)
   );
-  return { scans, dimensions, recommendations, events, outcomes };
+  return { scans, dimensions, recommendations, events, outcomes, digestsWritten, scansCompacted, digestsWouldWrite };
+}
+
+/** Map a widened page row to the fold's input shape (the rec statuses collapse to two counters). */
+function toDigestInput(s: {
+  id: string;
+  scannedAt: Date;
+  headSha: string | null;
+  overallScore: number;
+  adoptionScore: number;
+  rigorScore: number;
+  confidence: number;
+  level: string;
+  levelName: string;
+  posture: string;
+  rubricVersion: string | null;
+  engineProvider: string;
+  engineModel: string;
+  dimensions: { dimId: string; score: number; signalScore: number; llmScore: number }[];
+  recommendations: { status: string }[];
+}): DigestInputScan {
+  return {
+    ...s,
+    dimensions: s.dimensions,
+    // "Opened" is every recommendation the scan raised; "closed" is the ones that were resolved. A
+    // dismissed rec is neither work done nor work outstanding, so it counts only in the opened total.
+    recsOpened: s.recommendations.length,
+    recsClosed: s.recommendations.filter((r) => r.status === "done").length,
+  };
+}
+
+/**
+ * Dry-run preview of how many digest ROWS a fold would touch, over the same paged stale window the
+ * delete selection walks — three narrow columns, no dimensions, no recommendations.
+ *
+ * Past {@link DIGEST_PREVIEW_MAX_SCANS} it returns `null` (unknown) rather than extrapolating: a
+ * preview's whole value is that the number shown is the number that happens, and an estimate quietly
+ * breaks that. The SCAN count is unaffected — it still comes from the single shared `where`.
+ */
+async function previewDigestKeys(
+  prisma: PrismaLike,
+  where: Prisma.ScanWhereInput,
+  max: number,
+  stale: number,
+  batchSize: number,
+): Promise<number | null> {
+  if (stale > DIGEST_PREVIEW_MAX_SCANS) return null;
+  const keys = new Set<string>();
+  for (let seen = 0; seen < stale; seen += batchSize) {
+    const rows = await prisma.scan.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      // Nothing is deleted in a preview, so the window is advanced by hand rather than by the
+      // shrinking table the real loop relies on.
+      skip: max + seen,
+      take: Math.min(batchSize, stale - seen),
+      select: { scannedAt: true, rubricVersion: true, engineProvider: true },
+    });
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      keys.add(`${digestPeriod(r.scannedAt)} ${r.rubricVersion ?? UNKNOWN_RUBRIC} ${r.engineProvider}`);
+    }
+  }
+  return keys.size;
 }
 
 /**
@@ -327,6 +475,16 @@ export interface OrgPurgeResult {
   /** ConformanceFinding rows removed with those reports — deleted BEFORE their parent by hand: the
    *  schema's onDelete: Cascade is client-side emulation that a bulk deleteMany does not run. */
   conformanceFindingsDeleted: number;
+  /** MOONSHOT #32 — `ScanDigest` rows created or updated by the fold. The compliance trace has to
+   *  say what SURVIVED, not only what died: these are the summaries the deleted scans became. */
+  digestsWritten: number;
+  /** Scans that were folded into a digest before they were deleted (0 when compaction is off). */
+  scansCompacted: number;
+  /** Digest rows aged out past `retentionDigestMonths` (0 = keep digests forever, so no sweep). */
+  digestsDeleted: number;
+  /** Dry run only: digest rows the fold would touch, or `null` when the stale window is past the
+   *  preview cap. `null` is "we did not count", never "none" — see {@link previewDigestKeys}. */
+  digestsWouldWrite: number | null;
 }
 
 /** Roll-up of a full purge run across every org. */
@@ -341,6 +499,12 @@ export interface PurgeSummary {
   usageEventsDeleted: number;
   conformanceReportsDeleted: number;
   conformanceFindingsDeleted: number;
+  digestsWritten: number;
+  scansCompacted: number;
+  digestsDeleted: number;
+  /** Dry run only. `null` when ANY repo's window was past the preview cap: one unknown makes the
+   *  fleet total unknown, and a partial sum presented as a total is the failure the cap exists for. */
+  digestsWouldWrite: number | null;
   results: OrgPurgeResult[];
   errors: string[];
   /** True when the wall-clock budget stopped the run before every org/sweep was reached this tick — a
@@ -433,7 +597,16 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const startedAt = now();
 
   const orgs = await prisma.organization.findMany({
-    select: { id: true, slug: true, retentionMaxScans: true, retentionAuditDays: true },
+    select: {
+      id: true,
+      slug: true,
+      retentionMaxScans: true,
+      retentionAuditDays: true,
+      // MOONSHOT #32 — resolved ONCE per org and passed down, so the fold decision is made in one
+      // place and every repo of the org is pruned under the same policy.
+      retentionCompact: true,
+      retentionDigestMonths: true,
+    },
     // Stable ordering so the run is deterministic and the per-run rotation below has a fixed point to
     // rotate from; without an explicit orderBy the DB row order is undefined (no cursor to resume from).
     orderBy: { createdAt: "asc" },
@@ -485,6 +658,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     }
     const org = orgs[i]!; // safe: i < orgs.length
     const policy = resolveRetention(defaults, org);
+    // MOONSHOT #32. Off unless this org (or the deployment) asked for it: with `compact: false` the
+    // page SELECT, the transaction and the counts below are exactly what they were before compaction
+    // existed — which is what makes "an existing deployment's purge is unchanged" a fact, not a hope.
+    const compaction = resolveCompaction(org);
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
 
@@ -524,6 +701,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     let usageEventsDeleted = 0;
     let conformanceReportsDeleted = 0;
     let conformanceFindingsDeleted = 0;
+    let digestsWritten = 0;
+    let scansCompacted = 0;
+    let digestsDeleted = 0;
+    let digestsWouldWrite: number | null = compaction.compact && opts.dryRun ? 0 : null;
 
     try {
       // Preview mode (data-retention 07-16 #2): count what the policy WOULD delete — per-repo scan
@@ -537,6 +718,23 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
             _count: { _all: true },
           });
           for (const row of perRepo) scansDeleted += Math.max(0, row._count._all - policy.maxScansPerRepo);
+          // MOONSHOT #32 — what the fold would WRITE, over the same per-repo stale window the scan
+          // count above is derived from. One repo past the cap makes the org's figure unknown: a
+          // partial sum shown as a total is exactly the reassurance the cap exists to refuse.
+          if (compaction.compact) {
+            for (const row of perRepo) {
+              const stale = Math.max(0, row._count._all - policy.maxScansPerRepo);
+              if (stale === 0) continue;
+              const keys = await previewDigestKeys(
+                prisma,
+                { repoId: row.repoId },
+                policy.maxScansPerRepo,
+                stale,
+                policy.batchSize,
+              );
+              digestsWouldWrite = keys == null || digestsWouldWrite == null ? null : digestsWouldWrite + keys;
+            }
+          }
         }
         if (policy.auditDays > 0) {
           const cutoff = new Date(now() - policy.auditDays * DAY_MS);
@@ -563,6 +761,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           usageEventsDeleted,
           conformanceReportsDeleted,
           conformanceFindingsDeleted,
+          digestsWritten,
+          scansCompacted,
+          digestsDeleted,
+          digestsWouldWrite,
         });
         continue;
       }
@@ -600,12 +802,34 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
               budgetStopped = true;
               break repoPages;
             }
-            const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize, overBudget);
+            const r = await pruneRepoScans(
+              prisma,
+              repo.id,
+              policy.maxScansPerRepo,
+              policy.batchSize,
+              overBudget,
+              false,
+              compaction.compact,
+            );
             scansDeleted += r.scans;
             dimensionsDeleted += r.dimensions;
             recommendationsDeleted += r.recommendations;
             recommendationEventsDeleted += r.events;
             outcomesDeleted += r.outcomes;
+            digestsWritten += r.digestsWritten;
+            scansCompacted += r.scansCompacted;
+            // Digest retention (MOONSHOT #32), after this repo's scan prune. Gated on the horizon
+            // ALONE, not on `compact`: an org that turned compaction off still has digests, and they
+            // must keep ageing out. `0` = keep them forever, so there is no call at all.
+            if (compaction.digestMonths > 0) {
+              digestsDeleted += await pruneDigests(
+                prisma,
+                repo.id,
+                monthsBefore(new Date(now()), compaction.digestMonths),
+                policy.batchSize,
+                overBudget,
+              );
+            }
           }
           if (repos.length < REPO_PAGE_SIZE) break;
           repoCursor = repos[repos.length - 1]!.id;
@@ -700,7 +924,12 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         outcomesDeleted +
         usageEventsDeleted +
         conformanceReportsDeleted +
-        conformanceFindingsDeleted;
+        conformanceFindingsDeleted +
+        // Digests can age out on a tick where nothing else did (an org that turned compaction off
+        // still drains its tail), and a destructive act with no trace is what the gate exists to
+        // prevent — so it counts as "something happened". `digestsWritten` deliberately does not:
+        // a fold only ever happens beside the scan deletes already counted above.
+        digestsDeleted;
       if (totalDeleted > 0) {
         const audited = await recordAudit(
           PURGE_ACTION,
@@ -714,6 +943,9 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
             usageEventsDeleted,
             conformanceReportsDeleted,
             conformanceFindingsDeleted,
+            digestsWritten,
+            scansCompacted,
+            digestsDeleted,
             policy: { maxScansPerRepo: policy.maxScansPerRepo, auditDays: policy.auditDays },
           },
           { orgId: org.id, actorId: opts.actorId },
@@ -735,6 +967,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         usageEventsDeleted,
         conformanceReportsDeleted,
         conformanceFindingsDeleted,
+        digestsWritten,
+        scansCompacted,
+        digestsDeleted,
+        digestsWouldWrite,
       });
 
       if (budgetStopped) {
@@ -766,7 +1002,12 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         outcomesDeleted +
         usageEventsDeleted +
         conformanceReportsDeleted +
-        conformanceFindingsDeleted;
+        conformanceFindingsDeleted +
+        // Digests can age out on a tick where nothing else did (an org that turned compaction off
+        // still drains its tail), and a destructive act with no trace is what the gate exists to
+        // prevent — so it counts as "something happened". `digestsWritten` deliberately does not:
+        // a fold only ever happens beside the scan deletes already counted above.
+        digestsDeleted;
       if (partialDeleted > 0) {
         results.push({
           orgSlug: org.slug,
@@ -780,6 +1021,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           usageEventsDeleted,
           conformanceReportsDeleted,
           conformanceFindingsDeleted,
+          digestsWritten,
+          scansCompacted,
+          digestsDeleted,
+          digestsWouldWrite,
         });
       }
       errors.push(`${org.slug}: ${err instanceof Error ? err.message : "purge failed"}`);
@@ -824,6 +1069,12 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           usageEventsDeleted: 0,
           conformanceReportsDeleted: 0,
           conformanceFindingsDeleted: 0,
+          // A ScanDigest hangs off a Repository, which carries a required org — so, like the three
+          // above, these zeros are a fact about the orphan sweep's SCOPE, not an unmeasured value.
+          digestsWritten: 0,
+          scansCompacted: 0,
+          digestsDeleted: 0,
+          digestsWouldWrite: null,
         });
       }
     } catch (err) {
@@ -857,6 +1108,14 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     usageEventsDeleted: results.reduce((a, r) => a + r.usageEventsDeleted, 0),
     conformanceReportsDeleted: results.reduce((a, r) => a + r.conformanceReportsDeleted, 0),
     conformanceFindingsDeleted: results.reduce((a, r) => a + r.conformanceFindingsDeleted, 0),
+    digestsWritten: results.reduce((a, r) => a + r.digestsWritten, 0),
+    scansCompacted: results.reduce((a, r) => a + r.scansCompacted, 0),
+    digestsDeleted: results.reduce((a, r) => a + r.digestsDeleted, 0),
+    // One unknown poisons the fleet total: `null` here means "at least one org's window was past the
+    // preview cap", which is a different statement from "no digests would be written".
+    digestsWouldWrite: results.some((r) => r.digestsWouldWrite === null && r.scansDeleted > 0)
+      ? null
+      : results.reduce((a, r) => a + (r.digestsWouldWrite ?? 0), 0),
     results,
     errors,
     stoppedEarly,
@@ -1422,6 +1681,9 @@ export interface EraseResult {
    *  RepoConformanceMap + RegistrySignal + RegistrySignalContribution + OrgSkillUsageSample. They are
    *  written by a single index pass and read as one view, so they are reported as one number. */
   registryLedgerDeleted: number;
+  /** `ScanDigest` rows removed (moonshot #32). An erase both REFUSES to compact and deletes the
+   *  compacted tail: a summary of erased data is still that data's shadow. */
+  digestsDeleted: number;
   /** Audit rows DESTROYED (only ever non-zero for `auditDisposition: "delete"`). */
   auditDeleted: number;
   /** Audit rows reduced to identifier-only form — the historical account that SURVIVED the erasure. */
@@ -1522,6 +1784,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let skillTracesDeleted = 0;
   let memoryProposalsDeleted = 0;
   let registryLedgerDeleted = 0;
+  let digestsDeleted = 0;
   let stoppedEarly = false;
 
   // Erase ONE repo's scan graph + reset its scan-derived caches. Each batch inside pruneRepoScans is
@@ -1529,13 +1792,39 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   // never leaves "no scans but a stale passport" — worst case the caches are reset on the resume call.
   // In a preview, the SAME call counts instead of deleting (countOnly) and the cache reset is skipped.
   const eraseRepo = async (repoId: string, repoName?: string) => {
-    const r = await pruneRepoScans(prisma, repoId, 0, batchSize, overBudget, dryRun);
+    // MOONSHOT #32 — `compact: false`, ALWAYS, and not merely because the org's policy might say so:
+    // a right-to-erasure request must not mint a durable summary of the very data it is erasing. An
+    // erase that left behind "here is the monthly average of what we deleted" would be an erasure in
+    // name only, so the existing digests are deleted below instead.
+    const r = await pruneRepoScans(prisma, repoId, 0, batchSize, overBudget, dryRun, false);
     scansDeleted += r.scans;
     dimensionsDeleted += r.dimensions;
     recommendationsDeleted += r.recommendations;
     recommendationEventsDeleted += r.events;
     outcomesDeleted += r.outcomes;
     reposProcessed++;
+    // The repo's compacted tail. Batched and budget-polled like every other loop here; in a preview
+    // it is counted over the SAME `{ repoId }` predicate the delete uses.
+    if (dryRun) {
+      digestsDeleted += await prisma.scanDigest.count({ where: { repoId } });
+    } else {
+      for (;;) {
+        if (overBudget()) break;
+        const page = await prisma.scanDigest.findMany({
+          where: { repoId },
+          orderBy: { id: "asc" },
+          take: batchSize,
+          select: { id: true },
+        });
+        if (page.length === 0) break;
+        const ids = page.map((d) => d.id);
+        digestsDeleted += (
+          await withRetry(() => prisma.scanDigest.deleteMany({ where: { id: { in: ids } } }), {
+            label: "erase.scan-digests",
+          })
+        ).count;
+      }
+    }
     // MOONSHOT #14 — the repo's mirrored `.ai/memory/` entries, keyed by (orgId, repoFullName) and
     // NOT by repoId. The org-wide sweep below reaches them for a full erase, but a REPO-scoped erase
     // (and, later, a repo removed from the org) would otherwise leave the tenant's own repo-authored
@@ -1680,6 +1969,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       memoryMirrorsDeleted,
       conformanceReportsDeleted,
       conformanceFindingsDeleted,
+      digestsDeleted,
       skillLessonsDeleted,
       skillTracesDeleted,
       memoryProposalsDeleted,
@@ -1723,6 +2013,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       memoryMirrorsDeleted,
       conformanceReportsDeleted,
       conformanceFindingsDeleted,
+      digestsDeleted,
       skillLessonsDeleted,
       skillTracesDeleted,
       memoryProposalsDeleted,
@@ -1756,6 +2047,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     memoryMirrorsDeleted,
     conformanceReportsDeleted,
     conformanceFindingsDeleted,
+    digestsDeleted,
     skillLessonsDeleted,
     skillTracesDeleted,
     memoryProposalsDeleted,
