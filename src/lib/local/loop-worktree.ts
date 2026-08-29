@@ -24,9 +24,26 @@ export interface LoopWorktree {
   pairedPath: string;
 }
 
-/** A branch stamp shared by every lane of one run, so the run's branches read as a set. */
+/**
+ * A branch stamp shared by every lane of one run, so the run's branches read as a set.
+ *
+ * SECONDS, not minutes — `slice(0, 12)` (`YYYYMMDDHHmm`) was the resolution until 2026-08-29, and a
+ * DRIVE is precisely the thing that defeats it: it dispatches its runs back to back, so run 2 of a
+ * drive lands in the same clock minute as run 1, asks for a branch name that already exists, and the
+ * lane dies with `fatal: a branch named '…' already exists` before it ever gets a worktree. Measured
+ * in the L2 certification (uat/runs/2026-08-29-loop-l2): a 2-run drive on one repo took 12 seconds
+ * end to end and its second run produced nothing.
+ *
+ * The reason that is worse than an ordinary lane error is what the DRIVE then concludes. Zero
+ * commits means zero debt movement, `driveVerdict` reads that as `dry` — "a whole run moved nothing,
+ * so the drive stopped rather than spend the rest of its rope proving it again" — and the operator is
+ * told her repository plateaued when in fact the run never started. An infrastructure failure was
+ * being reported as a finding about her code.
+ *
+ * Seconds close it for the drive; `createLoopWorktree`'s collision suffix closes the class.
+ */
 export function runStamp(now: Date = new Date()): string {
-  return now.toISOString().replace(/[-:T]/g, "").slice(0, 12);
+  return now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 }
 
 /** Branch names are git refs, not free text: fold "owner/name" to a single safe segment. */
@@ -42,15 +59,29 @@ export async function createLoopWorktree(
   /** Overrides the branch name — the autopilot shim keeps its historical `ascent/autopilot-<stamp>`. */
   branchFor: (repo: string, stamp: string) => string = branchNameFor,
 ): Promise<LoopWorktree> {
-  const branch = branchFor(repo, stamp);
+  const base = branchFor(repo, stamp);
   const dir = await mkdtemp(join(tmpdir(), "ascent-loop-"));
-  const added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"]);
+  // A NAME COLLISION IS NOT A FAILURE — it is the same repo getting a second run inside one stamp
+  // tick, and the right answer is the next name, not a dead lane. Only the "already exists" refusal
+  // is retried: every other git failure (a corrupt repo, a missing HEAD, no disk) still throws on the
+  // first attempt, because retrying those would just produce the same error N times more slowly.
+  let branch = base;
+  let added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"]);
+  for (let n = 2; !added.ok && BRANCH_EXISTS.test(added.stderr || added.stdout) && n <= BRANCH_SUFFIX_CAP; n += 1) {
+    branch = `${base}-${n}`;
+    added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"]);
+  }
   if (!added.ok) {
     await rm(dir, { recursive: true, force: true }).catch(() => null);
     throw new Error(`Could not create the worktree for ${repo}: ${added.stderr || added.stdout}`);
   }
   return { dir, branch, pairedPath };
 }
+
+/** git's own refusal when `-b <name>` names an existing branch. */
+const BRANCH_EXISTS = /a branch named .* already exists/i;
+/** How many suffixed names to try. Small on purpose: past a handful, something else is wrong. */
+const BRANCH_SUFFIX_CAP = 20;
 
 /** Best-effort teardown of the temp checkout. The branch is deliberately left behind. */
 export async function removeLoopWorktree(wt: LoopWorktree): Promise<void> {

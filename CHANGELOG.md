@@ -83,6 +83,16 @@ versioned for release.
   briefing, deterministic CI gate, fleet intelligence); GOLDEN-TRIO T1/T2 marked roadmap.
 
 ### Fixed (since 2026-07-28)
+- **The loop's run branch could collide with itself, and a drive read the wreck as a plateau
+  (2026-08-29).** The branch stamp was minute-resolution (`ascent/loop-YYYYMMDDHHmm-<repo>`), so any
+  two runs of one repo inside a clock minute asked for one branch name — which a **drive** produces
+  by construction, dispatching its runs back to back. The second lane died on `fatal: a branch named
+  '…' already exists` before it had a worktree, committed nothing, and the drive then read the
+  resulting zero debt movement as `dry` — "a whole run moved nothing" — telling the operator her
+  repository had plateaued when the run had never started. Measured in the L2 certification: a
+  2-run drive on one repo finished in 12 seconds and its second run produced nothing. The stamp now
+  carries seconds, and `createLoopWorktree` takes the next suffixed name on a collision instead of
+  failing the lane.
 - **Security** — closed high-severity access-control and money-path (billing) gaps; untrusted-content
   boundary + canonical time zone + producer-level privacy floors in scoring/org; follow-up migrations
   authored for the deferred schema fixes.
