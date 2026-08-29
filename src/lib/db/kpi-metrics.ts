@@ -236,17 +236,14 @@ export async function avgLlmCostPerScan(windowDays = 30): Promise<ScanCostMetric
   let priced = 0;
   let unpriced = 0;
   for (const s of scans) {
+    const inputTokens = s.inputTokens ?? 0;
+    const outputTokens = s.outputTokens ?? 0;
+    if (inputTokens + outputTokens === 0) continue; // mock / token-less — skip BEFORE building `usage`
     const usage: ModelTokenUsage[] = [
       // `provider` carried through so a local ($0) engine prices as zero rather than falling into the
       // `unpriced` bucket — otherwise a self-hosted fleet would look like a fleet Ascent can't cost.
-      {
-        model: s.engineModel,
-        provider: s.engineProvider,
-        inputTokens: s.inputTokens ?? 0,
-        outputTokens: s.outputTokens ?? 0,
-      },
+      { model: s.engineModel, provider: s.engineProvider, inputTokens, outputTokens },
     ];
-    if ((s.inputTokens ?? 0) + (s.outputTokens ?? 0) === 0) continue; // mock / token-less
     const cost = estimateLlmCostFromTable(usage);
     if (cost === null) {
       unpriced++;
