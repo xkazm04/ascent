@@ -90,9 +90,11 @@ export function authBypassEnabled(): boolean {
 }
 ```
 
-`src/lib/env.ts` applies this to `authBypassEnabled()` (`:88`), `creditGrantsEnabled()` (`:96`) and
-`registryPreviewEnabled()` (`:141`), and each comments the reason: a stray or leaked env var on a real
-deployment must be **inert**, not merely unused-by-convention.
+`src/lib/env.ts` applies this to `authBypassEnabled()`, `creditGrantsEnabled()` and
+`registryPreviewEnabled()`, and each comments the reason: a stray or leaked env var on a real
+deployment must be **inert**, not merely unused-by-convention. (Grep the names. This paragraph
+used to carry line numbers; the functions moved and the citations did not, which is the failure
+mode of citing a line in a file that grows — a name is the stable address.)
 
 Why the placement is the whole point: a flag whose floor lives at the call site is one careless
 `process.env.X === "1"` away from being lost, and the person who writes that line will not know the
@@ -101,7 +103,7 @@ floor existed. Putting it in the definition means there is no way to read the fl
 **When you add an escape hatch:** put the `NODE_ENV === "production"` check inside its definition,
 before reading the variable, and never read the raw `process.env` value anywhere else.
 
-Note the deliberate exception: `selfHosted()` (`src/lib/env.ts:69`) has a *three-state* read and no
+Note the deliberate exception: `selfHosted()` in the same file has a *three-state* read and no
 production floor, because self-hosting in production is a legitimate mode. It instead warns once when
 production falls through to inference — a fail-open it makes **loud** rather than forbidden.
 
