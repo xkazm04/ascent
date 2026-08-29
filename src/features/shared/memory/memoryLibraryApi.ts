@@ -19,6 +19,8 @@ export type MemoryListFilters = {
   sort: MemorySort;
   namespace: string;
   kind: string;
+  /** Provenance (moonshot #14): "" = every source, else an exact `OrgMemory.source` value. */
+  source: string;
   search: string;
 };
 
@@ -33,6 +35,7 @@ export async function fetchMemoryList(
   const params = new URLSearchParams({ org: slug, sort: filters.sort });
   if (filters.namespace) params.set("namespace", filters.namespace);
   if (filters.kind) params.set("kind", filters.kind);
+  if (filters.source) params.set("source", filters.source);
   if (filters.search.trim()) params.set("search", filters.search.trim());
   const res = await fetch(`/api/org/memory?${params.toString()}`, { signal });
   if (!res.ok) return null;

@@ -7,7 +7,12 @@
 
 import { OpenInRegistry, registryBlobHref } from "@/features/shared/registry/RegistryOriginTag";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { confidenceLabel, isScanPipelineSource, memoryKindLabel } from "@/lib/org/memory-kinds";
+import {
+  confidenceLabel,
+  isRepoMemorySource,
+  isScanPipelineSource,
+  memoryKindLabel,
+} from "@/lib/org/memory-kinds";
 import type { MemoryRow } from "@/lib/db";
 
 const CONFIDENCE_TONE: Record<string, string> = {
@@ -34,7 +39,12 @@ export function MemoryCard({
   const mine = Boolean(viewerLogin && m.createdBy === viewerLogin);
   // Machine-observed vs. human-claimed is the first thing a reader needs from provenance — an
   // auto-fed row has no author, so "by unknown" alone would read as a gap rather than a robot.
-  const autoFed = isScanPipelineSource(m.source);
+  const fromScan = isScanPipelineSource(m.source);
+  // Mirrored out of a repo's own `.ai/memory/` (moonshot #14). A SEPARATE badge from "auto · scan" on
+  // purpose: both are machine-written, but one is a platform OBSERVATION and the other is an agent's
+  // CLAIM quoted out of a repository. Collapsing them would be the exact provenance loss the badge
+  // exists to prevent — and it is why these rows carry the medium trust band, not the high one.
+  const fromRepo = isRepoMemorySource(m.source);
 
   // Count a "Copy for LLM" as a recall (best-effort, fire-and-forget — never block the copy).
   function countRecall() {
@@ -67,12 +77,20 @@ export function MemoryCard({
               private
             </span>
           )}
-          {autoFed && (
+          {fromScan && (
             <span
               className="rounded border border-sky-500/40 px-1.5 py-0.5 font-mono text-xs text-sky-300"
               title="Recorded automatically by the scan pipeline: an observed fact, not a human claim."
             >
               auto · scan
+            </span>
+          )}
+          {fromRepo && (
+            <span
+              className="rounded border border-sky-500/40 px-1.5 py-0.5 font-mono text-xs text-sky-300"
+              title="Mirrored from this repository's own .ai/memory: what an agent working there wrote down. A claim from the repo, not a verified fact — recorded at the medium trust band."
+            >
+              auto · repo
             </span>
           )}
           {m.version > 1 && (
@@ -126,7 +144,10 @@ export function MemoryCard({
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 font-mono text-sm text-slate-500">
         {/* Provenance — the design doc's answer to memory poisoning: always show who/what wrote this. */}
         <span title="Who recorded this memory">
-          by <span className="text-slate-300">{m.createdBy ?? (autoFed ? "the scan pipeline" : "unknown")}</span>
+          by{" "}
+          <span className="text-slate-300">
+            {m.createdBy ?? (fromRepo ? "an agent in the repo" : fromScan ? "the scan pipeline" : "unknown")}
+          </span>
           {mine && <span className="ml-1 text-slate-600">(you)</span>}
         </span>
         {m.source && (

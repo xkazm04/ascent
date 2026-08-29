@@ -51,6 +51,9 @@ export async function GET(request: Request) {
       {
         namespace: url.searchParams.get("namespace") ?? undefined,
         kind: url.searchParams.get("kind") ?? undefined,
+        // Provenance filter (moonshot #14). Passed through as an EXACT match by the db layer, so an
+        // unknown value narrows to nothing rather than widening to everything.
+        source: url.searchParams.get("source") ?? undefined,
         search: url.searchParams.get("search") ?? undefined,
         sort: isSort(sortParam) ? sortParam : undefined,
       },
