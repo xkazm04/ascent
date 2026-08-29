@@ -117,12 +117,16 @@ export async function POST(req: NextRequest) {
     ok: true,
     org: { slug, name: DEMO_ORG.name, renamedFrom: renamed.count > 0 ? DEMO_ORG.fromSlug : null, plan: DEMO_ORG.plan },
     seeded: { segmentsCreated, repoTags, skillsCreated, goalsCreated, membersSet },
+    // Every tab link goes through orgTabHref — "THE helper every internal link to an org tab uses"
+    // (orgTabs.ts). The hand-built `/org/<slug>/<segment>` forms only still resolved because those
+    // routes are kept as permanent redirect stubs, so each one cost the operator a bounce to reach a
+    // `?tab=` URL the helper returns directly.
     view: {
       dashboard: `/org/${slug}`,
-      segments: `/org/${slug}/segments`,
-      skills: `/org/${slug}/skills`,
+      segments: orgTabHref(slug, "segments"),
+      skills: orgTabHref(slug, "skills"),
       followups: orgTabHref(slug, "followups"),
-      members: `/org/${slug}/members`,
+      members: orgTabHref(slug, "members"),
     },
   });
 }
