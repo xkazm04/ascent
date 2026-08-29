@@ -375,7 +375,7 @@ describe("the skill reads the repo's own declared contract", () => {
     const report = { ...makeReport({ D3: 30 }), manifest: readout() };
     const body = buildOnboardingSkill(report).body;
     expect(body).toContain("pnpm vitest run --project unit");
-    expect(body).toContain("What this repo has already proven");
+    expect(body).toContain("## What this repo has already proven");
     expect(body).toContain(".ai/manifest.yaml");
     // The language guess for a TypeScript repo is `npm test`. It must not appear as THIS repo's
     // test command anywhere the skill instructs — the CI recipe is where it used to. (The embedded
@@ -408,12 +408,15 @@ describe("the skill reads the repo's own declared contract", () => {
 
   it("with NO readout the section is ABSENT, not an empty or zeroed one", () => {
     const body = buildOnboardingSkill(makeReport({})).body;
-    expect(body).not.toContain("What this repo has already proven");
+    // Asserted on the HEADING, not the phrase: the skill embeds .ai/SPEC.md verbatim, and the spec's
+    // own read-back section names this section by name. A bare substring check passed in isolation
+    // and failed the moment the doc gained that sentence.
+    expect(body).not.toContain("## What this repo has already proven");
     // …and an unreadable manifest is treated the same way: nothing is asserted about the repo.
     const unreadable = buildOnboardingSkill({
       ...makeReport({}),
       manifest: readout({ status: "unreadable", capabilities: [] }),
     }).body;
-    expect(unreadable).not.toContain("What this repo has already proven");
+    expect(unreadable).not.toContain("## What this repo has already proven");
   });
 });
