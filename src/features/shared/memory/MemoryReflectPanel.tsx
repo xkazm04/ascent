@@ -58,8 +58,13 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
         setError(e instanceof Error ? e.message : "The reflection pass failed.");
       }
     } finally {
-      if (abort.current === ac) abort.current = null;
-      setRunning(false);
+      // BOTH inside the guard: a superseded run's `finally` lands AFTER the new run's setRunning(true),
+      // so clearing the flag unconditionally re-enabled the button and stopped the spinner while the
+      // live request was still in flight. Only the run that is still current may say it has stopped.
+      if (abort.current === ac) {
+        abort.current = null;
+        setRunning(false);
+      }
     }
   }
 
