@@ -1,5 +1,5 @@
 // Demo dataset for the "Vercel Demo" org — the example values that scans DON'T produce (segments,
-// skills, goals, initiatives, members), applied by the sibling route.ts. Kept as plain typed consts
+// skills, goals, members), applied by the sibling route.ts. Kept as plain typed consts
 // (co-located, no logic) so the demo content is easy to read and edit. The repo fullNames below MUST
 // match repositories actually imported for the org (see scripts/seed-org.mjs vercel) — an unknown
 // fullName is silently ignored by setRepoSegmentsBulk.
