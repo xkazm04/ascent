@@ -215,6 +215,18 @@ if (!existsSync(path)) {
   // the run's environment, and a per-file wall would bury the findings that are about the repo.
   const uncomparable = [];
   for (const f of flow(text, 'generatedFrom')) {
+    // A <placeholder> is not a file that happens to be absent - it is an UNFILLED field, and the
+    // capability check already treats the same marker that way. Skipping it silently (which is what
+    // the existsSync guard below did) made a manifest with no provenance at all read exactly like one
+    // whose provenance was checked and fresh, which is the whole point of check 5.
+    if (/<.*>/.test(f)) {
+      add('warn', 'generatedFrom is still a placeholder (' + f + ') - name the file these commands were derived from, or drift detection cannot run at all');
+      continue;
+    }
+    // A NAMED file that is simply absent stays SILENT on purpose. It is tempting to warn (the
+    // provenance would be wrong), but the generator emits a repo-root name and a monorepo can
+    // legitimately keep its build manifest in a subdirectory - so the warn would fire on fresh
+    // installs its reader could not act on, which is the failure this check is being fixed for.
     if (!existsSync(f)) continue;
     const cd = gen ? commitDate(f) : '';
     if (!cd) { uncomparable.push(f); continue; }

@@ -849,6 +849,44 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     expect(runDoctor(tmp).json.findings.some((f) => f.level === "pass" && /declared path evals/.test(f.msg))).toBe(true);
   });
 
+  // Check 5 is drift detection, and it used to `continue` past any generatedFrom entry that wasn't on
+  // disk. Two very different situations landed in that silence: an unfilled `<placeholder>` (the field
+  // was never populated, so drift detection is not merely uncheckable — it does not exist), and a
+  // named file the repo does not have (the provenance is wrong). Both looked identical to a manifest
+  // whose provenance was checked and fresh. The capability check already treats the same `<...>`
+  // marker as a warn; this brings the sibling field in line.
+  it("an UNFILLED <placeholder> provenance warns instead of being skipped in silence", () => {
+    writeFreshInstall(tmp);
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    const before = runDoctor(tmp).json;
+    expect(before.findings.some((f) => /generatedFrom/.test(f.msg))).toBe(false);
+
+    const withPlaceholder = readFileSync(manifestPath, "utf8").replace(
+      /^generatedFrom: .*$/m,
+      'generatedFrom: ["<your build manifest>"]',
+    );
+    expect(withPlaceholder).toContain("<your build manifest>"); // the edit actually applied
+    writeFileSync(manifestPath, withPlaceholder, "utf8");
+
+    const json = runDoctor(tmp).json;
+    expect(json.findings.some((f) => f.level === "warn" && /generatedFrom is still a placeholder/.test(f.msg))).toBe(true);
+  });
+
+  it("a NAMED provenance file that is merely absent stays silent (a monorepo keeps it in a subdir)", () => {
+    // The counterpart to the case above, pinned so the placeholder warn is never widened into one
+    // that fires on fresh installs. The generator emits a repo-ROOT name; a repo whose build manifest
+    // lives one directory down is not misconfigured, and a warn it cannot act on is the exact noise
+    // the evals pointer and the <run tests> placeholders were removed for.
+    writeFreshInstall(tmp);
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    writeFileSync(
+      manifestPath,
+      readFileSync(manifestPath, "utf8").replace(/^generatedFrom: .*$/m, "generatedFrom: [Gemfile]"),
+      "utf8",
+    );
+    expect(runDoctor(tmp).json.findings.some((f) => /Gemfile/.test(f.msg))).toBe(false);
+  });
+
   it("--run writes the verify outcome back into manifest.yaml: pass → verified: true, fail → verified: false", () => {
     // The contract three docs promise (doctor banner, manifest comment, Capability type): `verified`
     // is a claim the doctor's --run flips to the ACTUAL run outcome. Before this write-back existed,
