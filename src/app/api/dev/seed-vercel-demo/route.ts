@@ -12,6 +12,7 @@
 // Prereq: the org must already be imported (scripts/seed-org.mjs vercel) so its repos exist to tag.
 
 import { NextResponse, type NextRequest } from "next/server";
+import { seedRequestAuthorized } from "@/lib/dev/seed-auth";
 import {
   createGoal,
   createOrgSkill,
@@ -29,18 +30,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ASCENT_SEED_SECRET?.trim();
-  if (secret) {
-    const provided = req.headers.get("x-seed-secret") ?? new URL(req.url).searchParams.get("secret");
-    return provided === secret;
-  }
-  // No secret configured → allow only outside production, so a bare prod deploy can't be seeded by anyone.
-  return process.env.NODE_ENV !== "production";
-}
-
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!seedRequestAuthorized(req)) {
     return NextResponse.json(
       { error: "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
       { status: 403 },

@@ -9,6 +9,7 @@
 // only outside production (local dev / preview), never on a bare prod deploy.
 
 import { NextResponse, type NextRequest } from "next/server";
+import { seedRequestAuthorized } from "@/lib/dev/seed-auth";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
 import type { ScanReport } from "@/lib/types";
 import { curatedPublicSpecs, fleetSpecs, reportsForRepo } from "@/lib/dev/fleet-seed";
@@ -18,17 +19,6 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const DEFAULT_ORG = "acme";
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ASCENT_SEED_SECRET?.trim();
-  if (secret) {
-    const provided =
-      req.headers.get("x-seed-secret") ?? new URL(req.url).searchParams.get("secret");
-    return provided === secret;
-  }
-  // No secret configured → allow only outside production, so a bare prod deploy can't be seeded by anyone.
-  return process.env.NODE_ENV !== "production";
-}
 
 function clampInt(v: unknown, dflt: number, min: number, max: number): number {
   const n = Math.floor(Number(v));
@@ -46,7 +36,7 @@ async function persistAll(reports: ScanReport[], orgSlug: string): Promise<numbe
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!seedRequestAuthorized(req)) {
     return NextResponse.json(
       { error: "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
       { status: 403 },
