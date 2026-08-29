@@ -13,7 +13,7 @@
 
 import { githubAppFetch, AppApiError } from "@/lib/github/app";
 import { encodePathSegments } from "@/lib/github/host";
-import { REGISTRY_MAP_PATH, REPO_CONSULTS_PATH } from "./layout";
+import { REGISTRY_MAP_PATH, REGISTRY_SPINE_PATH, REPO_CONSULTS_PATH } from "./layout";
 
 /** Hard ceiling per file. The map is the big one (~113KB here); half a megabyte is generous headroom
  *  and still bounds the memory a fleet-wide sweep can hold at once. */
@@ -89,4 +89,16 @@ export async function readRepoStandardsFiles(
   // not cost us the map we already hold.
   const consults = await readFile(token, owner, repo, REPO_CONSULTS_PATH, ref).catch(() => null);
   return { map: map.text, consults: consults?.text ?? null, mapSha: map.sha, reason: null };
+}
+
+/**
+ * The registry's own spine (`.ascent/registry.yaml`), read LIVE.
+ *
+ * The signals writer gates on it, and a gate that read a cached copy would publish against a
+ * declaration the customer may have revoked since the last index pass. Null when the file is absent,
+ * which the caller must treat as "not declared" — the fail-closed reading.
+ */
+export async function readRegistrySpine(token: string, owner: string, repo: string, ref?: string): Promise<string | null> {
+  const file = await readFile(token, owner, repo, REGISTRY_SPINE_PATH, ref);
+  return file?.text ?? null;
 }

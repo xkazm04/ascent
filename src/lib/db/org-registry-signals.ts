@@ -31,6 +31,20 @@ export interface SignalContributionRow {
   createdAt: string;
 }
 
+/**
+ * The contributor id this org publishes under, when its owner set one. Null falls back to the
+ * derived opaque id — deliberately, so an org that never chose one still publishes under something
+ * stable that is provably not a name.
+ */
+export async function getSignalsContributor(registryId: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const row = await getPrisma().orgRegistry.findUnique({
+    where: { id: registryId },
+    select: { signalsContributor: true },
+  });
+  return row?.signalsContributor?.trim() || null;
+}
+
 /** Every signal row for one org. [] when persistence is off or nobody has contributed. */
 export async function listRegistrySignals(orgId: string): Promise<RegistrySignalRow[]> {
   if (!isDbConfigured()) return [];
