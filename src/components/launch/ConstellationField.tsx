@@ -59,6 +59,15 @@ export function ConstellationField({
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
   const total = c.status === "done" ? c.repos.length : 0;
   const overflow = Math.max(0, baseRepos.length - MAX_STARS);
+  // The SVG's accessible name used to count the RENDERED stars, which the MAX_STARS slice truncates.
+  // A 100-repo org therefore announced "100 repositories"'s worth of chrome as "80 repositories" —
+  // directly contradicting the "56/100 scanned" line read out immediately before it and the
+  // "+20 more stars" line after it. Name the real total, and say what is actually drawn when the two
+  // differ, so the sighted and the announced readings of the same card agree.
+  const fieldLabel =
+    overflow > 0
+      ? `${c.login} constellation: ${total} repositories, ${repos.length} brightest shown`
+      : `${c.login} constellation with ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`;
   // Single-sourced with fleetStats/orderConstellations's mean (G8-16) — see fleetMapDerive.meanOverall.
   const avg = c.status === "done" ? meanOverall(c.repos) : null;
   // Per-star derivations (position, look, dim) shared by BOTH the lines pass and the stars pass below —
@@ -142,7 +151,7 @@ export function ConstellationField({
         {/* role="group" (not "img"): the map contains interactive per-star <a> report links — role="img"
             collapses the whole SVG to one image and makes every star link (+ its aria-label) unreachable
             to screen readers. A group keeps the label AND exposes the links. */}
-        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={`${c.login} constellation with ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`}>
+        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={fieldLabel}>
           {/* constellation lines from the org core to each scanned repo star */}
           {c.status === "done" &&
             starData.map(({ r, cx, cy, look, dim }) => {

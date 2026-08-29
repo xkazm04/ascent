@@ -9,7 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { ConstellationField } from "./ConstellationField";
-import type { Constellation } from "./fleetMapStars";
+import { MAX_STARS, type Constellation } from "./fleetMapStars";
 
 function doneConstellation(): Constellation {
   return {
@@ -132,5 +132,39 @@ describe("ConstellationField large-fleet twinkle cap (#7)", () => {
     // Still `launch-star` (look/opacity preserved) but also `launch-star-static` (animation: none) — the
     // large-fleet steady-state-repaint cap FleetMap applies past DENSE_FLEET_STARS.
     for (const s of stars) expect(s.classList.contains("launch-star-static")).toBe(true);
+  });
+});
+
+// The SVG carries the card's accessible name, and it counted the RENDERED stars — which the
+// MAX_STARS slice truncates. A 100-repo org announced 80 while the status line beside it said
+// "56/100 scanned" and the footer said "+20 more stars": the sighted and the announced readings
+// of one card disagreed about how big the org is.
+describe("ConstellationField accessible name", () => {
+  const fieldLabel = (c: Constellation) =>
+    render(<ConstellationField c={c} />).container
+      .querySelector("svg[role='group']")!
+      .getAttribute("aria-label");
+
+  it("names the org and its repo count when everything fits", () => {
+    expect(fieldLabel(doneConstellation())).toBe("acme constellation with 3 repositories");
+  });
+
+  it("singularises a one-repo org", () => {
+    const c = doneConstellation();
+    if (c.status === "done") c.repos = c.repos.slice(0, 1);
+    expect(fieldLabel(c)).toBe("acme constellation with 1 repository");
+  });
+
+  it("states the TRUE total past the MAX_STARS cap, not the truncated one", () => {
+    const repos = Array.from({ length: MAX_STARS + 20 }, (_, i) => ({
+      fullName: `acme/r${i}`,
+      overall: 50,
+      level: "L3",
+      dOverall: null,
+      watched: false,
+    }));
+    const label = fieldLabel({ id: 1, login: "acme", status: "done", repos });
+    expect(label).toContain(String(MAX_STARS + 20)); // the org is this big...
+    expect(label).toContain(`${MAX_STARS} brightest shown`); // ...and this much of it is drawn
   });
 });
