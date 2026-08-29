@@ -61,6 +61,7 @@ import type {
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
+import type { InterventionOutcomeRow } from "@/lib/db/outcomes";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
@@ -97,6 +98,7 @@ const WIRE_TYPES = {
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
   ComparableScan: true satisfies WireSafe<ComparableScan>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
+  InterventionOutcomeRow: true satisfies WireSafe<InterventionOutcomeRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
@@ -125,6 +127,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(22);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(23);
   });
 });
