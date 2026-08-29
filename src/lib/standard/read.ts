@@ -133,6 +133,8 @@ export function readManifestYaml(text: string | undefined): ManifestReadout {
     controls: { prePush: [], ciHardPass: [] },
     paths: {},
     agents: [],
+    purpose: null,
+    boundaries: { neverTouch: [], secretsFrom: null },
     placeholders: [],
     unbacked: [],
     notes,
@@ -208,6 +210,10 @@ export function readManifestYaml(text: string | undefined): ManifestReadout {
     controls,
     paths,
     agents: agentLines(text),
+    // The two blocks the generator seeds with TODO markers and a human then fills in. Read back so
+    // regeneration carries the human's answer forward instead of resetting it to the seed.
+    purpose: sub(text, "purpose"),
+    boundaries: { neverTouch: flow(text, "neverTouch"), secretsFrom: sub(text, "secretsFrom") },
     placeholders,
     unbacked,
   };

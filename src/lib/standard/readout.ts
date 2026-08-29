@@ -42,6 +42,12 @@ export interface ManifestReadout {
   controls: { prePush: string[]; ciHardPass: string[] };
   paths: Record<string, string>;
   agents: { id: string; kind: string; entrypoint: string }[];
+  /** `repo.purpose` as the human wrote it, or null. Carried so REGENERATION cannot overwrite a real
+   *  sentence with the generator's `TODO:` placeholder — a round-trip that loses the human's edit is
+   *  the fastest way to teach a maintainer never to re-run the tool. */
+  purpose: string | null;
+  /** `boundaries`, likewise carried through regeneration rather than reset to the TODO seed. */
+  boundaries: { neverTouch: string[]; secretsFrom: string | null };
   /** `generatedFrom` entries that are still `<placeholder>` shaped. */
   placeholders: string[];
   /** `controls.*` entries with no backing capability — the declared-vs-declared gap. */
@@ -87,6 +93,8 @@ export function absentReadout(readAt: string): ManifestReadout {
     controls: { prePush: [], ciHardPass: [] },
     paths: {},
     agents: [],
+    purpose: null,
+    boundaries: { neverTouch: [], secretsFrom: null },
     placeholders: [],
     unbacked: [],
     notes: [],
@@ -118,6 +126,11 @@ export function parseManifestReadoutJson(raw: string | null | undefined): Manife
       },
       paths: v.paths && typeof v.paths === "object" ? v.paths : {},
       agents: Array.isArray(v.agents) ? v.agents : [],
+      purpose: typeof v.purpose === "string" ? v.purpose : null,
+      boundaries: {
+        neverTouch: Array.isArray(v.boundaries?.neverTouch) ? v.boundaries.neverTouch : [],
+        secretsFrom: typeof v.boundaries?.secretsFrom === "string" ? v.boundaries.secretsFrom : null,
+      },
       placeholders: Array.isArray(v.placeholders) ? v.placeholders : [],
       unbacked: Array.isArray(v.unbacked) ? v.unbacked : [],
       notes: Array.isArray(v.notes) ? v.notes : [],

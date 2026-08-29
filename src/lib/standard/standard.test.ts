@@ -16,6 +16,7 @@ import {
   buildMaintain,
   buildFoundation,
 } from "./index";
+import { readManifestYaml } from "./read";
 import { buildOnboardingSkill } from "@/lib/onboarding/skill";
 import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
@@ -606,6 +607,74 @@ describe("manifest <-> doctor round-trip", () => {
     const yaml = serializeManifestYaml(data);
     const repoBlock = (yaml.split(/\nrepo:\n/)[1] || "").split(/\n[a-z]/i)[0];
     expect(parsers.sub(repoBlock, "purpose")).toBe("Billing: API, v2 (prod)");
+  });
+});
+
+// #13 — REGENERATION over a repo that already declares a contract. The whole point is that running
+// the generator a second time is never a downgrade: the maintainer's corrected commands, the doctor's
+// proven flags, and the answers they wrote into the TODO seeds all survive. Without this, "re-run the
+// onboarding skill" silently reverted a repo's contract to Ascent's guesses.
+describe("buildManifestData(report, { observed }) — the repo's own contract wins", () => {
+  /** A manifest a maintainer has tuned and a `--run` doctor has proven, read back. */
+  const tuned = () =>
+    readManifestYaml(
+      serializeManifestYaml({
+        ...buildManifestData(makeReport("TypeScript")),
+        repo: { ...buildManifestData(makeReport("TypeScript")).repo, purpose: "Ledger service for billing" },
+        capabilities: {
+          test: { command: "pnpm vitest run --project unit", verified: true },
+          lint: { command: "pnpm lint", verified: false },
+          build: { command: "pnpm build", verified: false },
+          typecheck: { command: "pnpm tsc -b", verified: true },
+          fuzz: { command: "pnpm fuzz", verified: false },
+        },
+        boundaries: { neverTouch: ["src/generated/"], secretsFrom: "1Password: engineering vault" },
+        agents: [{ id: "primary", kind: "cli", entrypoint: "make agent" }],
+        controls: { prePush: ["lint", "typecheck"], ciHardPass: ["test", "fuzz"] },
+      }),
+    );
+
+  it("with NO observed readout, the output is byte-identical to today's generator", () => {
+    const report = makeReport("Python");
+    expect(serializeManifestYaml(buildManifestData(report, { observed: null }))).toBe(
+      serializeManifestYaml(buildManifestData(report)),
+    );
+    // An unreadable readout carries no intent, so it must degrade to the same first-install output.
+    expect(serializeManifestYaml(buildManifestData(report, { observed: readManifestYaml("garbage") }))).toBe(
+      serializeManifestYaml(buildManifestData(report)),
+    );
+  });
+
+  it("the maintainer's commands beat the language guess, and a PROVEN verified flag survives", () => {
+    const d = buildManifestData(makeReport("TypeScript"), { observed: tuned() });
+    expect(d.capabilities.test!.command).toBe("pnpm vitest run --project unit");
+    expect(d.capabilities.test!.verified).toBe(true);
+    expect(d.capabilities.typecheck!.verified).toBe(true);
+    expect(d.capabilities.lint!.verified).toBe(false);
+    // A capability the repo invented is carried, not deleted — the map is open by contract.
+    expect(d.capabilities.fuzz!.command).toBe("pnpm fuzz");
+  });
+
+  it("hand-edited TODO seeds (purpose, secretsFrom, neverTouch, agents) are NOT regressed", () => {
+    const d = buildManifestData(makeReport("TypeScript"), { observed: tuned() });
+    expect(d.repo.purpose).toBe("Ledger service for billing");
+    expect(d.boundaries.secretsFrom).toBe("1Password: engineering vault");
+    expect(d.boundaries.neverTouch).toEqual(["src/generated/"]);
+    expect(d.agents).toEqual([{ id: "primary", kind: "cli", entrypoint: "make agent" }]);
+    // …and a TUNED control split is a decision, so it replaces the recommendation wholesale.
+    expect(d.controls).toEqual({ prePush: ["lint", "typecheck"], ciHardPass: ["test", "fuzz"] });
+  });
+
+  it("regeneration is a fixed point: read(serialize(build(observed))) equals what was observed", () => {
+    const first = tuned();
+    const again = readManifestYaml(serializeManifestYaml(buildManifestData(makeReport("TypeScript"), { observed: first })));
+    // Key ORDER is the generator's (build/test/lint/typecheck, then the repo's own), so the fixed
+    // point is over the set, not the sequence — a re-ordered map is the same contract.
+    const byName = (r: typeof first) => [...r.capabilities].sort((a, b) => a.name.localeCompare(b.name));
+    expect(byName(again)).toEqual(byName(first));
+    expect(again.controls).toEqual(first.controls);
+    expect(again.boundaries).toEqual(first.boundaries);
+    expect(again.purpose).toBe(first.purpose);
   });
 });
 
