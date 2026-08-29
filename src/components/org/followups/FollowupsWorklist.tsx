@@ -70,7 +70,12 @@ export function FollowupsWorklist({ org, rows, initialDim }: { org: string; rows
   };
 
   return (
-    <div className="space-y-4">
+    // data-tour: the getting-started `gap-engaged` step spotlights this ledger — engaging with a gap
+    // IS assigning, resolving or handing off a row here. The anchor was declared in
+    // GETTING_STARTED_ANCHORS and never stamped, so the step pointed at nothing (anchors.test.ts now
+    // gates that). The whole worklist carries it rather than the table alone: the filter bar and the
+    // bulk bar are part of the same act.
+    <div data-tour="backlog-recs" className="space-y-4">
       <FollowupsFilterBar rows={rows} filters={filters} onChange={setFilters} shown={shown.length} orgWideDims={orgWideDims} />
 
       {shown.length === 0 ? (
