@@ -218,8 +218,17 @@ export async function listOrgMemories(
  * The distinct namespaces an org has used, for the filter dropdown. Cheap (indexed on
  * [orgId, namespace]) and scoped to non-archived, current rows so a dropdown never offers a value
  * that matches nothing. [] when off / unknown org.
+ *
+ * VIEWER-SCOPED, like every other read here. Without `visibilityScope` this returned namespaces used
+ * ONLY by other authors' private memories: the rows stayed protected, but the namespace — a name
+ * somebody chose, and often the most revealing part of a private note — was offered to every member
+ * in the filter dropdown. It also offered a filter that then matched nothing for them, because
+ * `listOrgMemories` (which the same page calls in the same Promise.all) IS scoped.
  */
-export async function listOrgMemoryNamespaces(orgSlug: string): Promise<string[]> {
+export async function listOrgMemoryNamespaces(
+  orgSlug: string,
+  viewerLogin?: string | null,
+): Promise<string[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({
@@ -228,7 +237,13 @@ export async function listOrgMemoryNamespaces(orgSlug: string): Promise<string[]
   });
   if (!org) return [];
   const rows = await prisma.orgMemory.findMany({
-    where: { orgId: org.id, archived: false, supersededBy: null, namespace: { not: null } },
+    where: {
+      orgId: org.id,
+      archived: false,
+      supersededBy: null,
+      namespace: { not: null },
+      AND: [visibilityScope(viewerLogin)],
+    },
     select: { namespace: true },
     distinct: ["namespace"],
   });

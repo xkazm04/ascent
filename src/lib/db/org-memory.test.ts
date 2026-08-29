@@ -18,6 +18,7 @@ import {
   candidateOrgMemories,
   createOrgMemory,
   listOrgMemories,
+  listOrgMemoryNamespaces,
   recordMemoryRecall,
 } from "@/lib/db/org-memory";
 
@@ -165,6 +166,28 @@ describe("listOrgMemories — the read rules", () => {
     mockGetPrisma.mockReturnValue(prisma);
     expect(await listOrgMemories("ghost")).toEqual([]);
     expect(calls.findMany).toHaveLength(0);
+  });
+});
+
+describe("listOrgMemoryNamespaces — the filter dropdown is viewer-scoped too", () => {
+  // REGRESSION (explorer, 2026-08-29): this read had no visibility filter, so a namespace used ONLY by
+  // another author's private memories was offered to every member in the dropdown. The rows stayed
+  // protected; the NAME — often the most revealing part of a private note — did not, and the filter it
+  // offered then matched nothing, because the list beside it in the same Promise.all IS scoped.
+  it("shows a viewer shared namespaces plus their OWN private ones", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemoryNamespaces("acme", "alice");
+    expect(andOf(calls.findMany[0]!.where)[0]).toEqual({
+      OR: [{ visibility: "shared" }, { visibility: "private", createdBy: "alice" }],
+    });
+  });
+
+  it("shows an anonymous reader shared namespaces only", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemoryNamespaces("acme");
+    expect(andOf(calls.findMany[0]!.where)[0]).toEqual({ visibility: "shared" });
   });
 });
 

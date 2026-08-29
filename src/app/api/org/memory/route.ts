@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       },
       viewer,
     ),
-    listOrgMemoryNamespaces(org),
+    listOrgMemoryNamespaces(org, viewer),
   ]);
   return NextResponse.json({ memories: memories ?? [], kinds: MEMORY_KINDS, namespaces });
 }

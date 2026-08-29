@@ -14,6 +14,14 @@ distinct namespaces in use, credit/plan state, membership/admin role, whether
 the org is a personal workspace, and a coverage summary (`getMemoryCoverage`,
 degrades to `null` on failure rather than breaking the page).
 
+The viewer is resolved **once for the whole tab** and handed to both reads as a
+promise, so the fan-out still streams. Both are scoped by it: `listOrgMemories`
+and `listOrgMemoryNamespaces` each compose `visibilityScope(viewer)`, which is
+what keeps the filter dropdown from naming a namespace whose only members are
+another author's private notes — the name is often the most revealing part of a
+private note, and an unscoped dropdown also offered a filter that then matched
+nothing for that viewer. Guarded by two cases in `src/lib/db/org-memory.test.ts`.
+
 Above the memory list, `MemoryCoverageStrip` (`src/app/org/[slug]/memory/
 MemoryCoverageStrip.tsx`) renders three tiles: "Memory coverage" (percentage
 of the org's tracked repos with a fresh memory), "Repos with fresh memory"
