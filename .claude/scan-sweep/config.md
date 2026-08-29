@@ -68,3 +68,12 @@ a parallel run has already swept an in-flight version bump into its own commit h
   When touching a generator, ask what the emitted artifact would do elsewhere, and pin the generated
   value against this repo's own equivalent declaration (`CI_NODE_VERSION` vs `package.json` engines
   is the worked example).
+- **2026-08-29** — commit with `git commit -m "..." -- <paths>` and never `git add` at all. The
+  `git add -- <paths> && git commit` shape looks scoped but the commit takes the whole INDEX, and a
+  sibling session staging between the two commands lands in your commit. It happened twice in one
+  sweep here; the second time it swallowed another session's new script, its test and a 444-line
+  `context-map.json` edit. Recover with `git reset --soft HEAD~1` then a pathspec commit — their
+  files return to the index untouched — but only if you read the diffstat before moving on.
+- **2026-08-29** — run the AGENTS.md LOC check on any file you GREW, in the same breath as the
+  commit, not at the end of the round. Two added test cases took a `.tsx` from 291 to 307 and the
+  round-closing gate found it after the commit had landed.
