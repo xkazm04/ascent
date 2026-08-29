@@ -96,7 +96,7 @@ model or from the mock-engine e2e suite:
 
   | # | confirmation | verdict | the one fact it turns on |
   |---|---|---|---|
-  | **L2-A** | a real agent lane | **fail** | A real `claude -p` session (sonnet/low) worked 5m46s, wrote `AGENTS.md` + `test/`, and **could not commit**: `--permission-mode acceptEdits` grants edits, not Bash, and headless `-p` has nobody to ask. `removeLoopWorktree --force` then deleted the only copy. Reproduced outside Ascent in 22s for $0.03. |
+  | **L2-A** | a real agent lane | ~~fail~~ → **pass** (re-run 2026-08-29, after the fix) | A real `claude -p` session (sonnet/low) worked 5m46s, wrote `AGENTS.md` + `test/`, and **could not commit**: `--permission-mode acceptEdits` grants edits, not Bash, and headless `-p` has nobody to ask. `removeLoopWorktree --force` then deleted the only copy. Reproduced outside Ascent in 22s for $0.03. **Re-verified live after `58cb4b34`:** the permission posture is unchanged (the session again reported "no shell approval was available"), the LANE committed its 5 files as `b6907978` carrying 4 `Ascent-Resolves:` trailers parsed from the session's own RESOLVED lines, the rescan ran, and 4 follow-ups closed. See the re-verdict in the run report. |
   | **L2-B** | an attributable lift | **pass (partial)** | Real engine both ends (`claude-cli/opus`, `engineDegraded:false`): **4 → 19, ▲+15**, outside ±2, backed by a real commit — and the ledger volunteered `widened D2, D3`, `blend 95%`, `D2/D3/D4 not measurable locally` unprompted. But the same run printed **`▲+24 ATTRIBUTABLE LIFT`** beside **`0 commits`** for the lost lane. The `within noise` twice-in-a-row half was not driven. |
   | **L2-C** | a live drive, killed and resumed | **pass** | Killed 3.5s into a drive with a run in flight → `[loop] boot sweep: 1 loop run stopped, 1 drive marked interrupted`; run `stopped`, drive `interrupted`, banner reading "was not resumed on its own · 0/3 runs spent" above a still-usable inspector; Resume produced a new drive with `resumedFrom` set and `runsBefore` carried. Claim release measured separately: `inProgress 0 → 5 → (kill, restart) → 0`. |
   | **L2-D** | the GitHub-side carry | **not run** | Both fixtures are local-only repos and every scan ran `noAmbientToken`, so there was never an observed fold to replay. The *absence* half held on every scan (`platformSignals.source: "unavailable"`, D2/D3/D4 excluded rather than floored). |
@@ -106,9 +106,14 @@ model or from the mock-engine e2e suite:
   Two defects were fixed at source during the run (`044d7dc5` the run-branch collision a drive
   produces by construction — which the drive then reported as `dry`, i.e. as a plateau in the
   operator's repository; `2959be4c` a lane that lost its agent's work logging the same line as a lane
-  that had none). Seven findings are open, ranked in `SUMMARY.md`; `L2-A-01` (the agent cannot
-  commit) and `L2-B-01` (an attributable lift printed for a lane with zero commits, its scan then
-  adopted as the repo's standing) are the two that decide this journey.
+  that had none). ~~Seven findings are open~~ — **three more closed 2026-08-29, in a follow-up pass
+  on this same branch:** `58cb4b34` L2-A-01 (the lane commits the agent's work), `9033308b` L2-B-01
+  (a lane with no commits contributes nothing to the lift and its scan is never adopted), `0a8be67b`
+  L2-C-02 (the boot sweep removes the temp worktrees its stopped runs stranded). Both were
+  re-verified live — see "The L2-A re-verdict" in the run report. **Four findings remain open**
+  (L2-C-01, L2-E-01, L2-F-02, L2-B-02), none of which decides this journey; with L2-A passing and
+  L2-B's counter-case closed, the journey verdict moves from `L2-conditional` to **`L2-pass`** on
+  everything that was driven, with L2-D and four of five `CockpitSetup` states still not run.
 - Known holes this journey will meet and should record rather than re-derive: no hosted dispatch; a
   retried lane lands on a second branch; ~~the agent's `--effort` is passed unprobed~~ — **probed
   2026-08-29**: the orphaned agent process's argv read

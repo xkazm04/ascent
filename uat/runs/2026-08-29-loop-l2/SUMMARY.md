@@ -9,15 +9,25 @@ Full report: [`loop-to-l5-l2.md`](./loop-to-l5-l2.md).
 
 | | Confirmation | Verdict |
 |---|---|---|
-| **L2-A** | a real agent lane | **FAIL** |
+| **L2-A** | a real agent lane | ~~FAIL~~ -> **PASS** (re-run after the fix) |
 | **L2-B** | an attributable lift | **pass (partial)** |
 | **L2-C** | a live drive, killed and resumed | **pass** |
 | **L2-D** | the GitHub-side carry, end to end | **not run** |
 | **L2-E** | merge and iterate | **pass** |
 | **L2-F** | the blocked states, for real | **pass (1 of 5 states)** |
 
-**Journey verdict: `L2-conditional`.** Everything the loop does *around* the agent works, live, and
-survives having its process killed. The agent lane itself does not produce its deliverable.
+**Journey verdict at the time of the run: `L2-conditional`.** Everything the loop does *around* the
+agent works, live, and survives having its process killed. The agent lane itself does not produce its
+deliverable.
+
+> **Re-run 2026-08-29, after the fix — L2-A passes.** `58cb4b34` (the lane commits the agent's work),
+> `9033308b` (a lane with no commits contributes nothing and its scan is never adopted) and
+> `0a8be67b` (the boot sweep removes the worktrees its stopped runs stranded) landed on this branch,
+> and one further live agent session confirmed it: the permission wall is unchanged, the LANE
+> committed the session's 5 files as `b6907978` carrying 4 `Ascent-Resolves:` trailers taken from
+> the session's own RESOLVED lines, the fifth item was honoured as SKIPPED, the rescan ran and closed
+> exactly those four. Everything below is the record of the run that found the failure, and is left
+> as it was; the re-verdict is the last section of the full report.
 
 ## The one that decides the journey
 

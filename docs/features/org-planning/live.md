@@ -18,7 +18,7 @@ select ──▶ curate ──▶ run ──▶ rescan ──▶ outcome
   │          │         │        │           └─ per-lane before/after diff + closed follow-ups
   │          │         │        └─ scan the WORKTREE from disk; `Ascent-Resolves:` trailers close rows
   │          │         └─ N lanes, bounded parallelism. Each lane is one of three KINDS:
-  │          │            backlog → worktree → local `claude -p` → rescan
+  │          │            backlog → worktree → local `claude -p` → LANE commits → rescan
   │          │            foundation / practice → worktree → generated files + commit → rescan
   │          └─ GET /api/org/loop/propose: the batch AND the kind each lane would get, editable
   └─ repos picked in the cockpit (the Observatory's adoption × rigor field)
@@ -162,9 +162,10 @@ detached and the cockpit polls `GET /api/org/loop`.
 - **A lane** (`loop-lane.ts`) is one repo for one cycle: pick the batch → claim the rows
   (`status: in_progress`, so the rescan's trailer/restatement feedback applies to them —
   `scans-persist` only resolves *claimed* rows) → `git rev-parse HEAD` → one headless `claude -p`
-  session in the worktree with `buildFixPrompt` + an autopilot context block → count commits →
-  rescan the worktree from disk → record what the trailers closed. `runLane` **never throws**: every
-  outcome, including a failed agent or a failed rescan, is lane data.
+  session in the worktree with `buildFixPrompt` + an autopilot context block → **the lane commits
+  what the session left** (below) → count commits → rescan the worktree from disk → record what the
+  trailers closed. `runLane` **never throws**: every outcome, including a failed agent or a failed
+  rescan, is lane data.
 - **Bounded parallelism**: `mapPool(activeTargets, run.concurrency, …)` — default 2, hard cap 4.
   Four local `claude -p` sessions already saturate a developer box.
 - **A worktree per repo per RUN** (not per cycle): `git worktree add -b <branch> <tmp> HEAD` off the
@@ -180,6 +181,46 @@ detached and the cockpit polls `GET /api/org/loop`.
 - **Per-lane early stop.** A cycle that produced neither a commit nor a closed row drops that repo
   out of the next cycle. This is the autopilot's no-progress rule applied *per lane* instead of per
   run, so one stalled repo no longer ends the whole fleet's pass.
+- **A lane with zero commits does not rescan.** See [Durability](#durability-the-lane-commits-and-a-lane-that-did-not-contributes-nothing).
+
+### Durability: the lane commits, and a lane that did not contributes nothing
+
+Both halves of this come from the 2026-08-29 L2 certification
+([`uat/runs/2026-08-29-loop-l2`](../../../uat/runs/2026-08-29-loop-l2/loop-to-l5-l2.md)), where a real
+`claude -p` session worked for 5m46s and the loop kept none of it.
+
+**The lane commits the agent's work** (`lane-commit.ts`). `runClaudeAgent` spawns with
+`--permission-mode acceptEdits`, which auto-accepts *edits* and **not Bash** — and headless `-p` has
+nobody to answer the permission prompt `git commit` raises instead. So the brief's old instruction
+("commit directly to it, one commit per resolved item") asked for the one action the flags make
+impossible, and `removeLoopWorktree --force` then deleted the only copy. The fix keeps the narrow
+permission and moves the commit to the lane, which is what `lane-install.ts` has always done for the
+deterministic kinds. Widening `--allowedTools` was the alternative and was **declined**: worktree
+isolation is the blast-radius bound and an unattended agent that may execute git is a materially
+wider grant.
+
+- The brief (`buildFixPrompt`, `commitPolicy: "lane"`) now tells the session **not** to run git, and
+  asks it to end with `RESOLVED: <id>` / `SKIPPED: <id>` lines — the one fact only the session knows.
+  The human paste-into-my-terminal prompt is unchanged (`commitPolicy: "agent"`, the default), where
+  writing your own trailers is the whole contract.
+- The lane stages the worktree diff **by path** (never `add -A`; `-z` porcelain, so a quoted path
+  cannot be mis-staged) and writes one `Ascent-Resolves:` trailer per claimed id. Named RESOLVED ids
+  win; naming only SKIPPED ones trails the rest; naming nothing trails the whole armed batch. An id
+  the lane never armed is ignored, and a trailer line inside the agent's own prose is stripped — a
+  session cannot enlarge its own batch. The trailer is still a **claim**: a row closes only when the
+  next scan says its dimension moved.
+- If the agent *did* commit (a future mode with a wider grant), the lane commits only the residue.
+- If the lane's own commit fails, the lane names the uncommitted change count and the branch the work
+  is **not** on before the worktree is deleted.
+
+**A lane that committed nothing rescans nothing.** The loop scans a *worktree* that is about to be
+deleted, so that scan describes the repository only for what the lane committed. In the L2 run it did
+not: the cockpit printed `▲+24 · ATTRIBUTABLE LIFT` three lines above `0 commits`, and the after-scan
+became the repo's **latest** reading, so the fleet's greenness and debt credited it with a standard
+that existed nowhere on disk. `runLane` now skips the rescan entirely at zero commits (nothing is
+persisted, so nothing is adopted; the claims are released, since a rescan was the only thing that
+would ever adjudicate them) — and it also stops paying for an assessment of a directory about to be
+removed. The read side refuses the same pair independently; see the `undelivered` verdict below.
 - **Stop semantics.** `stopLoopRun` sets a cooperative flag on the in-memory `LiveRun`; lanes check
   it *between* phases, never mid-agent-session. An in-flight lane finishes its agent session, skips
   its rescan, and the run winds down to `stopped`. Stopping a run this process does not own (already
@@ -207,6 +248,21 @@ otherwise a single crash would bar the org from ever starting another run.
 The `isLive(id)` predicate is what separates the three. The two request-path callers pass
 `isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
 The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
+
+**The boot sweep also reconciles the filesystem** (L2-C-02). `removeLoopWorktree` runs in the lane's
+`finally`, which a `taskkill /F` never reaches, so every hard kill stranded a ~15 MB temp checkout in
+`%TEMP%` forever — the L2 run left 3, and the operator's machine was already carrying 4 more from
+three days earlier. `sweepInterruptedWork` now reads the in-flight lanes **before**
+`markStaleRunsStopped` (afterwards a lane this process interrupted is indistinguishable from one that
+errored last week), then removes their worktrees from the paired working copy.
+
+It is driven **from the branch**, not from a directory listing: a branch name is unique to one lane
+of one run, so `git worktree list --porcelain` can be *asked* which checkout belongs to a run the
+sweep just stopped. A live run's worktree can never match, because a live run is not in the set. The
+`%TEMP%` + `ascent-loop-*` shape is a **second** condition checked before anything is deleted, so an
+operator whose own checkout happens to sit on a matching branch is untouched. `git worktree prune`
+afterwards clears the administrative files for directories somebody already removed by hand. The
+branch itself is left behind, exactly as `removeLoopWorktree` leaves it — it is the deliverable.
 
 ### Outcome: what the lane moved
 
@@ -242,6 +298,14 @@ totals, the history strip's per-run lift (`listLoopRuns`), and the follow-up res
 | `mock-scan` | either end has `engineProvider = "mock"` | *not attributable: mock scan* — or *the model failed and this scan fell to the deterministic floor* when `engineDegraded` |
 | `within-noise` | real pair, movement inside the band (including zero) | *within noise (±2)* |
 | `unmeasured` | one end missing (first-ever scan, lane never rescanned) | *not measured* |
+| `undelivered` | a real pair, and the lane that produced it committed **nothing** | *not attributable: nothing was committed, so what this measured no longer exists* |
+
+`undelivered` is the one verdict that is not a fact about the *measurement* — the measurement was
+fine. It is a fact about the lane: the loop scans a worktree it then deletes, so a pair with no
+commits behind it describes a state that no longer exists. `attributeDelivered` takes the lane's
+commit count for exactly this and is what `laneAttribution` and `listLoopRuns` call. `runLane`
+already refuses to produce such a pair (above), but the rows written before that gate existed are
+still in the database and this ledger renders them, so the refusal lives on both sides.
 
 `SCORE_NOISE_BAND` is **2**, from that UAT measurement, and the band is **exclusive** — a movement of
 exactly 2 is noise. The rule is **symmetric**: a small regression is refused on the same grounds,
@@ -254,8 +318,9 @@ Two consequences worth stating plainly:
 
 - **The run's headline lift sums only the attributable lanes.** A run that moved four repos by one
   point each reads `—`, not `+4`. `runAttribution` returns the excluded counts beside the number, so
-  "no lift, three noise lanes" and "no lift, three mock lanes" stay distinguishable — they call for
-  opposite next moves.
+  "no lift, three noise lanes", "no lift, three mock lanes" and "no lift, one uncommitted" stay
+  distinguishable — they call for opposite next moves. The lane is still **rendered**, labeled: a
+  lost deliverable that the ledger says nothing about is the failure this rule exists to end.
 - **A follow-up never closes on an unattributable movement.** The 2026-08-26 rule already refused to
   let a trailer close a row the rescan still restated; this refuses the other half — a claimed row
   whose dimension "moved" only within the band, or across a mock rescan, stays in progress with a
@@ -840,3 +905,20 @@ Two causes, both now fixed:
 - **The agent's `--effort` flag is passed only when a level is chosen.** A `claude` build that does
   not know the flag is therefore unaffected, but there is also no probe: if a build rejects it, the
   session fails with the CLI's own message rather than falling back to no-effort.
+- **One commit per lane cycle, not per resolved item.** The lane commits the session's whole residue
+  in a single commit carrying every claimed trailer. Per-item commits would need the agent to
+  delimit its own work item by item, which nothing currently asks it to do.
+- **The lane's commit runs the repo's hooks and needs a git identity.** It is an ordinary
+  `git commit` in the worktree, so a `commit-msg`/`pre-commit` hook or a missing `user.email` fails
+  it — and that falls back to the lost-work log rather than to a retry.
+- **A `backlog` lane can still be proposed with an empty batch** (L2-E-01). The curation panel offers
+  an agent lane with nothing to dispatch instead of saying there is nothing left to work; the run
+  then early-stops. Seen only under the deterministic mock, whose recommendation set is a corpus
+  property, but the proposal has no guard either way.
+- **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
+  enabled, so a click landing before React attaches its handler is swallowed with no request and no
+  error. Generic Next.js behaviour, unusually expensive on this particular control.
+- **`agent.ts` does not strip `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the spawn env** (L2-F-02).
+  It strips `ANTHROPIC_API_KEY`; a self-hosted Ascent started from inside a Claude Code session hands
+  the harness's own markers to every agent it spawns, and a nested `claude` that inherits them
+  produces nothing, silently.

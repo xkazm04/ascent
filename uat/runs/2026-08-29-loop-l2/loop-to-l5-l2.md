@@ -51,6 +51,11 @@ Two of those matter to the product, not just to the harness:
 | **L2-E** | merge and iterate | **pass** | Five consecutive iterations, lane kind changing under the rule each time, fleet score 19 → 38. |
 | **L2-F** | the blocked states, for real | **pass (1 of 5 states)** | `autopilot-off` driven for real against a server booted without the flag. |
 
+> **L2-A was re-driven on 2026-08-29 after the fix and PASSES.** The table above is left exactly as
+> the run found it — see [The L2-A re-verdict](#the-l2-a-re-verdict--2026-08-29-after-the-fix) at the
+> end of this report for the second live agent session, the commit the lane made, and the two other
+> findings (L2-B-01, L2-C-02) closed with it.
+
 ---
 
 ## L2-C — a live drive, killed and resumed
@@ -411,3 +416,171 @@ which the junction points at the main checkout — so the regeneration landed in
 `node_modules/.prisma/client`. That is strictly additive (`master`'s schema is a superset of the
 sibling branch's, added fields only) and it also unblocks the operator's own `run-master` server,
 which shares the same junction and would have hit the identical error on any local scan.
+
+---
+
+# The L2-A re-verdict — 2026-08-29, after the fix
+
+The three product findings this run could fix without a second certification were fixed on this same
+branch, and the blocker was **re-driven live, once**. This section is appended rather than woven in:
+the run above is a record of what was true that afternoon, and editing it to read as though the
+failure never happened would destroy the only thing it is for.
+
+| commit | finding | what changed |
+|---|---|---|
+| `58cb4b34` | **L2-A-01** | The LANE commits the agent's work. The agent's permission grant is unchanged. |
+| `9033308b` | **L2-B-01** | A lane with zero commits does not rescan, so nothing it measured is adopted; and on the read side such a pair is refused with its own verdict (`undelivered`) instead of counting toward the lift. |
+| `0a8be67b` | **L2-C-02** | The boot sweep removes the temp worktrees belonging to the runs it just stopped. |
+
+## The decision on L2-A-01, recorded because it is reversible
+
+The finding named two candidate fixes: **(a)** widen `--allowedTools` so the agent may run `git add`
+/ `git commit`, or **(b)** have the lane commit on the agent's behalf, as `lane-install.ts` already
+does for the deterministic kinds.
+
+**(b) was taken, as the reversible default.** `agent.ts`'s own header chose `acceptEdits` over
+`--dangerously-skip-permissions` deliberately, calling worktree isolation "the real blast-radius
+bound" and the flag "the second belt"; an unattended agent that may execute git is a materially wider
+grant than one that may only write files, and this run is not the place to widen it. (b) also costs
+nothing the loop was relying on — it is the agent lane adopting the shape its two siblings had.
+
+The cost (b) had to pay was the one the finding predicted: the per-item `Ascent-Resolves:` trailers
+are what the adjudication reads, and only the session knows which items it resolved. So the brief now
+asks it to end with `RESOLVED: <id>` / `SKIPPED: <id>` lines, and the lane turns those into trailers.
+Naming nothing trails the whole armed batch; naming only skips trails the rest. That is a claim, not
+a verdict — the movement-gated resolve rule still decides.
+
+## How the re-verification was run
+
+Same isolation discipline as the run above, a **second** throwaway everything:
+
+| | |
+|---|---|
+| Server | `npx next dev --webpack -p **3221**`, started and killed by this pass. The operator's `:3210` was never touched, and neither was the L2 run's `:3220`. |
+| Database | `PGLITE_DATA_DIR=%TEMP%\ascent-l2b\pglite` — a third scratch dir. |
+| Env | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SSE_PORT -u CLAUDE_EFFORT -u CLAUDE_CODE_SESSION_ID -u ANTHROPIC_API_KEY -u CLAUDE_MODEL -u ASCENT_AGENT_EFFORT`, then `ASCENT_LOCAL_ORG=l2bloop ASCENT_SELF_HOSTED=1 ASCENT_AUTOPILOT=1 ASCENT_AUTH_BYPASS=1 ASCENT_OPEN_ORG_DASHBOARDS=1 GITHUB_TOKEN="" LLM_PROVIDER=claude-cli`. |
+| Subject | `ascent-l2b/agentfix` — a new scratch repo: two pure functions (`subtotal`, `total`), a README, a `package.json` with no `test` script, **no tests, no CI, no `CLAUDE.md`**. It carries `.ai/manifest.yaml` and a `docs/TESTING.md` scaffold deliberately, so `proposeLaneKind` skips the foundation and practice rules and proposes the **`backlog`** lane on cycle 1 — the agent lane, which is the only thing under test. |
+| Run | `POST /api/org/loop {"action":"start","org":"l2bloop","repos":["ascent-l2b/agentfix"],"maxCycles":1,"concurrency":1,"model":"sonnet","effort":"low"}` |
+
+First scan: **95 s**, overall **5**, **L1**, `claude-cli` / opus, `engineDegraded:false`.
+
+## What happened — L2-A: **PASS**
+
+The run: armed `12:31:01Z`, ended `12:35:38Z` (**4 m 37 s**). The agent session ran `12:31:02 ->
+12:32:59` (**1 m 57 s**); the rescan `12:32:59 -> 12:35:38` (**2 m 39 s**).
+
+**The permission posture is unchanged, and the session said so itself.** Verbatim from the lane log:
+
+```
+12:31:02  Cycle 1: dispatching 5 follow-up(s) to a local agent…
+12:32:59  Agent finished: Given no shell approval was available in this session, I could not
+          execute `npm test` to confirm the suite passes, but the assertions are straightforward
+          and the one floating-point value is the well-known IEEE-754 result of `0.1+0.1+0.1`.
+12:32:59  The lane committed the agent's 5 change(s) on
+          ascent/loop-20260829123101-ascent-l2b-agentfix — 4 Ascent-Resolves trailer(s) from the
+          session's own RESOLVED/SKIPPED lines.
+12:32:59  1 commit(s) landed this cycle.
+12:32:59  Rescanning the worktree from disk…
+12:35:38  4 follow-up(s) closed by trailer
+```
+
+That first line is the same wall the L2 run hit — the agent still cannot run a shell. The difference
+is the second one.
+
+**The deliverable is on the branch.** In the operator's own repository, after the run and after
+`removeLoopWorktree --force`:
+
+```
+$ git log -1 ascent/loop-20260829123101-ascent-l2b-agentfix
+b690797828341b05e20088b9b78297619a161a5b
+
+$ git show --stat --format= b6907978
+ .github/workflows/ci.yml | 43 ++++++++++++++++++
+ CLAUDE.md                | 40 ++++++++++++++++
+ docs/TESTING.md          | 13 ++++--
+ package.json             |  3 ++-
+ src/index.test.js        | 31 +++++++++++++
+ 5 files changed, 125 insertions(+), 5 deletions(-)
+```
+
+**The trailers, verbatim from the commit body** — four, and *not* five:
+
+```
+Ascent-Resolves: 6a2f4a23-b15e-405c-a631-29ad7c59dfaa
+Ascent-Resolves: 9e5d47c6-a244-4228-b4a5-72123dea001c
+Ascent-Resolves: 80704f35-0136-4fd9-a380-3a4b44a1a239
+Ascent-Resolves: 91a34e78-593c-4c71-a4c3-d116b946a950
+```
+
+The armed batch was **five** rows. The session wrote `RESOLVED:` for four and `SKIPPED:` for the
+fifth (`72be4dd8`, D4), and the lane honoured that: the skipped id carries no trailer, and the commit
+body says so in prose. **This is the second half of L2-A, which the original run could not reach at
+all** ("no commit means no trailer to adjudicate") — the claim was made per item, by the agent, and
+the adjudication read it.
+
+**And the adjudication then did its job, in both directions.** `closedIds` on the lane:
+
+```
+6a2f4a23…  9e5d47c6…  80704f35…  91a34e78…
+```
+
+Four claimed, four closed by trailer. The fifth was never claimed, so it is still open. The rescan
+moved the repo **5 -> 38**, engine `claude-cli` / opus on both ends, `engineDegraded:false`.
+
+**The ledger includes it, and the history strip agrees.** `GET /api/org/loop?org=l2bloop`:
+
+```
+{"id":"908f26bc","phase":"done","lift":33,"model":"sonnet","effort":"low",
+ "repos":["ascent-l2b/agentfix"]}
+```
+
+`lift: 33` is the run's headline, and it is there *because* `commits: 1`. Driving the same real scan
+pair through the rule with the commit count forced to zero — the L2 run's exact situation — shows the
+other side:
+
+```
+live lane   commits=1 -> {"kind":"attributable","delta":33}  | label: ""
+same pair,  commits=0 -> {"kind":"undelivered","delta":33}   | label: "not attributable: nothing
+                                                                was committed, so what this
+                                                                measured no longer exists"
+```
+
+So **L2-B-01's headline is closed at the read side as well as the write side**: the number the L2 run
+printed beside `0 commits` can no longer be printed, and the scan behind it is no longer taken at all.
+
+## L2-C-02, re-driven for free
+
+Verified in the same instance with **zero model spend**, using the same stub trick as L2-C.2:
+`CLAUDE_CLI_PATH` pointed at a node script that drains its prompt and never answers, so a lane sits
+holding a real worktree indefinitely.
+
+| moment | observation |
+|---|---|
+| lane in flight | `git worktree list` in the paired repo: `%TEMP%\ascent-loop-8b8qtd  [ascent/loop-20260829123739-ascent-l2b-agentfix]` |
+| `taskkill /F` at `12:37:57.101Z` | the directory is still on disk and populated (`README.md`, `docs/`, `package.json`, `src/`) — the `finally` never ran, exactly as the finding says |
+| restart | `[loop] boot sweep: 1 loop run stopped, 1 stranded worktree removed — a previous process died while they were in flight.` |
+| after the sweep | `ascent-loop-8b8qtd` **gone**; `git worktree list` back to the paired checkout alone; **both branches still present** |
+
+And the negative half, which is the one that matters: the machine was carrying **four** other
+`%TEMP%\ascent-loop-*` directories dated 2026-08-26, from the operator's own earlier runs. **All four
+are untouched.** They belong to no run in this database, so the branch-driven sweep never considers
+them — which is precisely the property that makes it safe to run at every boot.
+
+## What this pass did NOT establish
+
+- **L2-D is still not run.** Nothing here involved GitHub or a token.
+- **The `within noise` half of L2-B is still not driven.** It needs two real scans of an identical
+  commit and the `deduped` path defeated first.
+- **The four un-driven `CockpitSetup` states** are unchanged.
+- **The lane's commit runs the repo's hooks and needs a git identity.** The fixture had both. A repo
+  with a failing `pre-commit` hook, or no `user.email`, falls back to the lost-work log rather than
+  to a retry — recorded in `live.md` § Known gaps rather than fixed speculatively.
+- **One commit per lane cycle, not per resolved item.** The old brief asked for one commit per item;
+  the lane writes one commit carrying every claimed trailer. Per-item commits would need the session
+  to delimit its own work item by item, which nothing asks it to do.
+
+## A new finding this re-run produced
+
+| id | severity | finding |
+|---|---|---|
+| **L2-A-02** | low | **The lane's commit subject is the agent's first line, and an agent's first line is often a caveat.** This run's read `fix: Given no shell approval was available in this session, I could not` — a truncated apology standing where a summary belongs, on a commit whose body is excellent. The subject is bounded, de-marked-down and skips `RESOLVED:`/`SKIPPED:` lines, but it cannot tell a summary from a hedge. Either ask the session for an explicit one-line subject, or compose one from the closed items' titles. |
