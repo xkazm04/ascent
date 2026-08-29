@@ -21,7 +21,13 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/github/source";
-import { GitHubError, MAX_FILES, estimateCoverage, pickFilesToFetch } from "@/lib/github/source";
+import {
+  GitHubError,
+  MAX_FILES,
+  estimateCoverage,
+  pickFilesToFetch,
+  quarantineMemoryFiles,
+} from "@/lib/github/source";
 import { runGit } from "@/lib/local/git";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
 
@@ -117,13 +123,24 @@ export class LocalFsSource implements RepoSource {
     // files[] is already in pick order (the sequential loop preserves it) — the property the prompt's
     // byte window depends on; GitHubPublicSource re-sorts because its pool fills out of order.
 
+    // The `.ai/memory` quarantine (moonshot #14), byte-for-byte the GitHub source's: a local scan of a
+    // repo with agent memory must mirror it and must ALSO keep it out of the prompt. Sharing the
+    // partition function is what stops the two ingestion paths from drifting on the guarantee.
+    const { files: promptFiles, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(files, picks);
+
     return {
       meta,
       tree,
-      files,
+      files: promptFiles,
       commits,
       truncated: false,
-      coverage: estimateCoverage(tree.length, files.length, Math.min(picks.length, MAX_FILES), false),
+      coverage: estimateCoverage(
+        tree.length,
+        promptFiles.length,
+        Math.min(nonMemoryAttempted, MAX_FILES),
+        false,
+      ),
+      memoryFiles,
     };
   }
 }

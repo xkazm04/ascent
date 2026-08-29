@@ -516,6 +516,10 @@ export interface RepoSnapshot {
   truncated: boolean;
   /** 0..1 estimate of how much of the repo we could inspect. */
   coverage: number;
+  /** QUARANTINED repo-authored `.ai/memory/` entries (moonshot #14). Deliberately NOT part of `files`:
+   *  these bodies are agent-written prose from a customer repository and must never reach the
+   *  assessment prompt or any scorer. Only `src/lib/memory/repo-memory-mirror.ts` reads them. */
+  memoryFiles?: FetchedFile[];
 }
 
 // ---------------------------------------------------------------------------
