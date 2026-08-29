@@ -6,6 +6,54 @@ deduplicated and not double-counted (see [data-model.md](../data/data-model.md))
 splits billable vs free scans, breaks them down by LLM provider, and charts a per-day trend.
 Requires `DATABASE_URL`.
 
+Since #11 the **metered** unit is wider than the **billable** one: the billable unit is still a
+`Scan`, but every model call the deployment serves — Athena's turns, org memory's passes, the
+briefing narrative, the local agent — is now recorded in a `UsageEvent` ledger and shown per lane
+and per code-owning team. Nothing about what an org is *charged* changed (see
+[No repricing](#no-repricing)).
+
+## Metered lanes (`src/lib/llm/meter.ts`)
+
+| Lane | What spends it | Where the row comes from |
+| --- | --- | --- |
+| `scan` | the scoring pipeline | **`Scan` rows** — not mirrored into `UsageEvent`; that lane already has an authoritative ledger and a copy would drift |
+| `athena` | the companion's interactive turns *and* its unattended cycles (both leg kinds fold to one lane) | `runToolLoop`, **one event per loop**, never per leg |
+| `memory` | Shared Org Memory's write-gate + reflection passes | the single-shot seam, via `resolveMemoryRunner(orgSlug)` |
+| `briefing` | the executive briefing's LLM-written paragraph | metered **in place** in `briefing-narrative.ts` (its own Anthropic egress; re-plumbing it is BACKLOG C3) |
+| `local` | the local remediation agent | the agent supplies its own cost envelope and idempotency key |
+
+`meter()` rides beside `trackLlmCall` at the two seams — `withTimeout()` in `text-meter.ts` and
+`runToolLoop()` in `tool-loop.ts` — and nowhere else. It returns `void`, is never awaited, and
+**cannot throw or reject**: a mis-wired meter must not be able to take down the surface it observes.
+An event with no org (or the public funnel) writes nothing.
+
+**Honest nulls.** `inputTokens` / `outputTokens` / `costMicros` are `null` — *never* `0` — when the
+provider reported nothing (the `claude-cli` path reports no usage at all and still writes a
+token-less row, so the *call* is visible even when its cost is not), when the org runs BYOM (it paid
+its own vendor; Ascent has no figure), or when the model has no `MODEL_PRICES` rate. `unpricedCalls`
+is reported per lane so a `$0.00` line reads as "nothing to price", not "free".
+
+**Idempotency.** `idemKey` is `"<lane>:<refId>"` when the caller owns a stable id, else `null`
+(NULLs are distinct under the unique index — the same at-least-once fallback `Scan.dedupKey` uses).
+A retried write collides on P2002 and is swallowed by the best-effort writer: no double count.
+
+**Privacy.** `teamKey` is a CODEOWNERS *team* slug, never a person — no contributor login, email or
+individual attribution enters `UsageEvent`, and no prompt or response text is stored (token counts,
+model id and status only). The team view is omitted entirely for the public funnel, whose summary is
+anonymously readable.
+
+**Audit.** Spend-shaped, so `UsageEvent` *is* the audit row; there is no `AuditLog` entry per metered
+call (one row per model call would drown the trail).
+
+<a id="no-repricing"></a>
+**No repricing.** `PlanFeature.laneAllowances` ships `{}` on every tier, so `decideCharge(lane, …)`
+answers `"unlimited"` for every non-scan lane on every plan and delegates verbatim to
+`decideScanCharge` for `"scan"` (pinned by a test that diffs the two across the whole table).
+Opting a lane in is a pricing decision to be made *with* the numbers this ledger produces, not
+alongside the instrument that first measures them. Self-hosted: the meter always writes (it is
+observability, and a self-hoster wants their own lane costs most of all) while every *gate* stays off
+through the existing `selfHosted()` short-circuits.
+
 ## What counts as billable
 
 `isBillableScan()` (exported from `src/lib/db/usage.ts`) is the **single** definition, and
@@ -40,6 +88,13 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
     so `privateScans + publicScans === periodScans` and the tiles equal the chart's stacked
     totals by construction.
 - `byProvider`: count per `engineProvider`.
+- `byLane`: per-lane calls, tokens, estimated cost and `unpricedCalls`. A **UNION**: the `scan` lane
+  is folded from the same `Scan` groupBy the headline figures use (so it cannot double-count or
+  disagree with them), every other lane comes from `UsageEvent` over the same window.
+- `byTeam`: per-code-owning-team calls and cost. A **LEFT** join (`Scan → Repository →
+  RepoTeam(isDefaultOwner)`); a repo with no owning team lands in an explicit `Org-wide (no repo)`
+  bucket rather than dropping out — an inner join would silently shrink the org's own total. Empty
+  for the public funnel.
 - `daily`: a **zero-filled** per-day series (stable x-axis even with gaps), aggregated per
   UTC day in SQL (`date_trunc`, portable to Aurora DSQL) with a JS row-bucketing fallback.
 - `firstScanAt` / `lastScanAt` (all-time).
@@ -55,6 +110,7 @@ day key isn't on the axis), so the billing page disagreed with itself.
 | --- | --- |
 | `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`?days=`, default 30, max 365). |
 | `GET /api/usage` | `?org=` (default `public`), `?days=`, `?format=json\|csv`. Returns `UsageSummary` JSON, or a CSV/JSON file download. `503` without DB. **IDOR guard:** when auth is on, a private org requires a session with an installation in it; public is readable by any signed-in user. |
+| `GET /api/usage?view=showback` | The lane × team allocation as CSV (`scope,lane,team,calls,estimatedCostUsd,unpricedCalls`), for finance. Same route, same auth, same window — a projection, not a new surface. A row that could not be priced exports an **empty** cost cell, never `0`. The `team` column is omitted entirely for the public funnel. Kept separate from `?format=csv` on purpose: the per-day export's shape is a reconciliation artifact downstream sheets key on, and a lane is not a property of a day's scan count. |
 | `src/components/usage/UsageTrend.tsx` | Stacked-bar chart (free under billable), dependency-free SVG, auto-scaled label cadence, CSV/JSON export buttons, legend + summary. |
 
 ## Rate limits & the spend ceiling (`src/lib/rate-limit.ts`)
@@ -151,7 +207,11 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 
 | File | Role |
 | --- | --- |
-| `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series. |
+| `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series, the lane + team folds. |
+| `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor`), fire-and-forget `meter()`. |
+| `src/lib/db/usage-events.ts` | `recordUsageEvent()` (best-effort writer) + `laneTotals()` / `teamTotals()` / `listUsageEvents()`. |
+| `src/app/usage/usageLanePanels.tsx` | The "Spend by lane" / "Spend by team" server panels. |
+| `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
 | `src/lib/rate-limit-store.ts` | Shared-store adapter: in-memory default, fetch-based Upstash REST driver. |
 | `src/app/usage/page.tsx` | Usage dashboard. |
@@ -164,5 +224,11 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
   [billing.md](billing.md)), which is wired end-to-end (plans, checkout, webhook
   fulfilment, refunds); this page only surfaces scan counts/trends and doesn't
   itself drive invoicing.
-- **Single-org attribution**: multi-org installations don't yet attribute usage
-  per-repo-owner.
+- **The briefing narrative is metered where it stands, not on the shared seam.** It calls the
+  Anthropic Messages API directly on its own `ANTHROPIC_API_KEY`, so its lane is recorded under the
+  legacy `claude` provider id. Routing it through `src/lib/llm/transports.ts` would change which
+  credential and which vendor an operator's briefing bills to — an open design question (BACKLOG C3),
+  not a wiring task.
+- **No lane but `scan` is billed.** `laneAllowances` is `{}` on every tier, so the other four lanes
+  are measured and shown but never charged. That is deliberate, and it is the state until a pricing
+  decision is made on this data.

@@ -22,6 +22,7 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
 
 import {
+  avgLlmCostPerActiveOrg,
   firstScanActivationRate,
   reScanRate,
   roadmapEngagementRate,
@@ -250,5 +251,56 @@ describe("roadmapEngagementRate", () => {
       recommendationEvent: { findMany: vi.fn(async () => []) },
     });
     expect(await roadmapEngagementRate()).toBeNull();
+  });
+});
+
+// ── avgLlmCostPerActiveOrg (#11) ────────────────────────────────────────────────────────────────
+//
+// The per-TENANT cost across every lane, not the per-scan cost. Two properties: an org that only ran
+// non-scan work is still active (it is spending), and an unpriceable call is excluded from the mean
+// rather than entering it at zero — which would drag the average down exactly when an unrecognised
+// (usually newer, pricier) model shows up.
+
+describe("avgLlmCostPerActiveOrg", () => {
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReset();
+  });
+
+  it("folds scan cost and ledger cost over the SAME set of active orgs", async () => {
+    fakePrisma({
+      scan: {
+        findMany: vi.fn(async () => [
+          // 1M in + 1M out on Gemini 3 Flash = $0.50 + $3.00.
+          {
+            engineProvider: "gemini",
+            engineModel: "gemini-3-flash-preview",
+            inputTokens: 1_000_000,
+            outputTokens: 1_000_000,
+            repo: { orgId: "org1" },
+          },
+        ]),
+      },
+      usageEvent: {
+        groupBy: vi.fn(async (args: { where: Record<string, unknown> }) =>
+          "costMicros" in args.where
+            ? [{ orgId: "org2", _count: 3 }]
+            : [
+                { orgId: "org1", _sum: { costMicros: 1_500_000 } }, // $1.50 of Athena on org1
+                { orgId: "org2", _sum: { costMicros: null } }, // org2 spent, but unpriceably
+              ],
+        ),
+      },
+    });
+    const m = (await avgLlmCostPerActiveOrg(30))!;
+    // org2 is ACTIVE even though it ran no scan — the denominator is tenants, not scanners.
+    expect(m.activeOrgs).toBe(2);
+    expect(m.value).toBeCloseTo((0.5 + 3 + 1.5) / 2, 6);
+    expect(m.unpricedCalls).toBe(3);
+  });
+
+  it("returns null — not 0 — when nothing consumed inference in the window", async () => {
+    fakePrisma({ scan: { findMany: vi.fn(async () => []) }, usageEvent: { groupBy: vi.fn(async () => []) } });
+    expect(await avgLlmCostPerActiveOrg()).toBeNull();
   });
 });

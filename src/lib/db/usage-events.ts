@@ -22,7 +22,29 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { bumpCounter } from "@/lib/db/best-effort";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { isUsageLane, type UsageEventInput, type UsageLane } from "@/lib/llm/meter";
+// TYPE-ONLY, and load-bearing: a RUNTIME import of `@/lib/llm/meter` here would put the whole llm
+// module graph under the `@/lib/db` barrel, which every route and page already imports. That extra
+// depth is enough to change module INITIALIZATION ORDER inside the existing `auth.ts` ↔ `authz.ts`
+// cycle, and the symptom is a "Cannot access '...' before initialization" that appears in unrelated
+// tests, intermittently. The meter imports THIS module lazily for the same family of reason
+// (`build-not-in-gate`), so the dependency runs one way only, and at runtime only.
+import type { UsageEventInput, UsageLane } from "@/lib/llm/meter";
+
+/** The lane vocabulary, restated for the runtime check below. Kept in sync by a compile-time
+ *  assertion rather than by discipline: a lane added to `UsageLane` and not here fails `tsc`. */
+const LANES = ["scan", "athena", "memory", "briefing", "local"] as const;
+const _laneVocabularyIsComplete: UsageLane extends (typeof LANES)[number]
+  ? (typeof LANES)[number] extends UsageLane
+    ? true
+    : ["a lane in this list is not a UsageLane"]
+  : ["a UsageLane is missing from LANES"] = true;
+void _laneVocabularyIsComplete;
+
+/** Whether a persisted lane string is one this build knows. A row from a future (or rolled-back)
+ *  version is data, not a type — it is dropped from the typed view rather than widening it. */
+function isUsageLane(v: string | null | undefined): v is UsageLane {
+  return v != null && (LANES as readonly string[]).includes(v);
+}
 
 /** One persisted metered call, as it crosses to a client. `createdAt` is an ISO STRING — the wire
  *  never carries a `Date` (src/lib/db/wire-safe-dates.test.ts). */

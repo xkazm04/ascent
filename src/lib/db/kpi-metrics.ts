@@ -360,6 +360,85 @@ export async function avgLlmCostPerScan(windowDays = 30): Promise<ScanCostMetric
   return { value: total / priced, pricedScans: priced, unpricedScans: unpriced };
 }
 
+// ── KPI: average LLM cost per ACTIVE org, across every lane (#11) ─────────────
+
+export interface OrgCostMetric {
+  /** Mean USD per active org over the window, across every inference lane. */
+  value: number;
+  /** Orgs that consumed inference in the window — the denominator. */
+  activeOrgs: number;
+  /** Calls whose cost could not be established and are therefore NOT in the numerator. */
+  unpricedCalls: number;
+}
+
+/**
+ * Mean LLM spend per ACTIVE ORG over the trailing window, across every lane — scans plus Athena, org
+ * memory, the briefing narrative and the local agent.
+ *
+ * Why this exists beside `avgLlmCostPerScan`: that metric answers "what does a scan cost", which was
+ * the whole COGS question while scanning was the only thing the product spent money on. It is not any
+ * more. A companion that answers questions all day costs real money against the same subscription and
+ * appears in no per-scan figure at all, so a fleet could be priced on a scan number while its actual
+ * bill per tenant moved somewhere else entirely. This is the per-tenant number a packaging decision
+ * needs.
+ *
+ * HONEST DENOMINATOR: an org is "active" if it consumed inference in the window, in ANY lane. HONEST
+ * NUMERATOR: an unpriceable call is excluded and counted in `unpricedCalls` rather than entering the
+ * mean at zero — which would pull the average DOWN exactly when an unrecognised (often newer, pricier)
+ * model appears. Null when nothing was active: not measurable, which is not $0.
+ */
+export async function avgLlmCostPerActiveOrg(windowDays = 30): Promise<OrgCostMetric | null> {
+  if (!isDbConfigured()) return null;
+  const since = ago(windowDays);
+  const prisma = getPrisma();
+  const [scans, eventGroups, unpricedGroups] = await Promise.all([
+    prisma.scan.findMany({
+      where: { scannedAt: { gte: since } },
+      select: {
+        engineProvider: true,
+        engineModel: true,
+        inputTokens: true,
+        outputTokens: true,
+        repo: { select: { orgId: true } },
+      },
+    }),
+    // The other lanes are already priced at write time (costMicros), so they fold by summation.
+    prisma.usageEvent.groupBy({ by: ["orgId"], where: { createdAt: { gte: since } }, _sum: { costMicros: true } }),
+    prisma.usageEvent.groupBy({
+      by: ["orgId"],
+      where: { createdAt: { gte: since }, costMicros: null },
+      _count: true,
+    }),
+  ]);
+
+  const orgs = new Set<string>();
+  let total = 0;
+  let unpriced = 0;
+  for (const s of scans) {
+    orgs.add(s.repo.orgId);
+    const inputTokens = s.inputTokens ?? 0;
+    const outputTokens = s.outputTokens ?? 0;
+    if (inputTokens + outputTokens === 0) continue; // mock / token-less — no COGS to fold
+    const usage: ModelTokenUsage[] = [
+      { model: s.engineModel, provider: s.engineProvider, inputTokens, outputTokens },
+    ];
+    const cost = estimateLlmCostFromTable(usage);
+    if (cost === null) {
+      unpriced++;
+      continue;
+    }
+    total += cost;
+  }
+  for (const g of eventGroups) {
+    orgs.add(g.orgId);
+    total += (g._sum.costMicros ?? 0) / 1_000_000;
+  }
+  for (const g of unpricedGroups) unpriced += g._count;
+
+  if (orgs.size === 0) return null;
+  return { value: total / orgs.size, activeOrgs: orgs.size, unpricedCalls: unpriced };
+}
+
 // ── KPI: scan pipeline error rate (target 3%) ─────────────────────────────────
 
 export interface ScanErrorRateMetric extends RatioMetric {
