@@ -174,7 +174,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
-| Standing | Passports | `org/[slug]/passports` | `src/app/org/[slug]/passports/` | Repo passports. |
+| Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix — see below). |
 | Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **Control matrix** (`SecurityRiskRegister`); and **Findings to decide** (`SecurityFindings`, see below). |
 | Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. |
 | Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
@@ -284,6 +284,43 @@ and its `contextHealthMock` synthesis are deleted; every number now comes from t
   lower bounds labeled with a `+`); a degraded freshness lookup renders potency **"?" (unknown)**,
   never a fabricated band; and a repo whose latest scan **predates W4** renders as
   *"Not assessed by this scan — re-scan to measure context health"*, never as absent context.
+
+### Passports → Capabilities: declared vs proven vs wired (#13, 2026-08-29)
+
+The third Passports switcher view (`CapabilityMatrix.tsx` over the pure `capabilityAgg.ts`) answers a
+question no vendor scorecard can: **which repositories have PROVEN the things they themselves claim
+they can do.** Every other maturity view scores a repo against Ascent's criteria; this one scores it
+against the contract the repo wrote — its `.ai/manifest.yaml` — and shows which of those declarations
+its own `doctor.mjs` has actually run and passed.
+
+Where the data comes from: the scan reads the manifest into a `ManifestReadout`
+(`src/lib/standard/readout.ts`), persists it as `Scan.manifestJson` with the latest cached on
+`Repository.manifestJson`, and `getOrgRollup` parses it back onto `OrgRepoRow.manifest`. It is
+display-only — it feeds no score beyond the two long-standing D1 manifest awards, and never the LLM
+prompt (the same discipline Context Health follows).
+
+The matrix is repo × capability, with four cell states and each declaration's control placement:
+
+| Cell | Means |
+| --- | --- |
+| **verified** | the repo's own doctor ran this command and it passed |
+| **declared** | declared in the manifest; not run, or its last run **failed** (the cell marks the failure) |
+| **placeholder** | declared but still a `<placeholder>` — not fillable yet |
+| **absent** | this repo does not declare this capability at all |
+
+A solid underline means the capability is enforced **pre-push**; a dotted one, as a **CI hard pass**.
+A repo's row also names any control it declares with no backing capability.
+
+**Unassessed repositories are separated, never folded in.** A repo whose latest scan read no manifest
+(or whose blob was unparseable) is listed in a dashed *"not assessed — re-scan"* band **below** the
+table and is excluded from every count and ratio above it. The fleet ratio is rendered as `—`, not
+`0%`, when nothing was assessed. Rendering an unread repo as `0/0` would make "we have not looked"
+and "this repo declares nothing" the same number, which is precisely the honest-null rule the rest of
+the dashboard is built on.
+
+Capability commands are repo content, so they are redacted at read time (any token- or
+`secret=`-shaped run becomes `«redacted»`), shown only inside the owning org, and never placed on a
+public or cross-tenant surface.
 
 ### Tech Stacks — dimension analysis, and what each verdict rests on
 

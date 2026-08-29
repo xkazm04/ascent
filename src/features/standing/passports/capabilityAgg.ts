@@ -125,6 +125,19 @@ export function buildCapabilityMatrix(repos: CapabilityMatrixInput[]): Capabilit
 }
 
 /**
+ * The one place a cell state becomes a mark and a colour — shared by the grid and the legend, so a
+ * legend can never describe a state the table renders differently. The palette is the brand accent at
+ * four weights (no hand-picked hexes); `absent` is deliberately the quietest and reads as "—", never
+ * as a zero or a failure.
+ */
+export const CELL_STYLE: Record<CapabilityState, { mark: string; className: string; label: string }> = {
+  verified: { mark: "✓", className: "bg-accent/20 text-accent", label: "proven by the repo's own doctor" },
+  declared: { mark: "·", className: "bg-accent/10 text-slate-300", label: "declared, not proven" },
+  placeholder: { mark: "?", className: "bg-accent/5 text-slate-400", label: "declared as a placeholder" },
+  absent: { mark: "—", className: "text-slate-600", label: "not declared" },
+};
+
+/**
  * The fleet verified ratio as a percentage, or NULL when nothing was assessed. Null is the point:
  * a caller that renders `0%` for an unassessed fleet is asserting a measurement it never took.
  */

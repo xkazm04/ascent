@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManifestReadout } from "@/lib/standard/readout";
-import { buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityMatrix";
+import { buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityAgg";
 
 function readout(over: Partial<ManifestReadout> = {}): ManifestReadout {
   return {

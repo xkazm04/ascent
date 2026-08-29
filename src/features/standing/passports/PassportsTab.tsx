@@ -92,6 +92,11 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     }),
   );
 
+  // #13 — the capability matrix is built over EVERY repo in scope, not just the ones with a passport:
+  // a repo whose scan read no manifest has to appear in the "not assessed" band, and filtering it out
+  // here would silently shrink the fleet to the subset that happens to look good.
+  const capabilities = (rollup?.repos ?? []).map((r) => ({ fullName: r.fullName, name: r.name, manifest: r.manifest }));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -107,7 +112,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
           No passports yet for this view. Passports are produced by scans, so scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
-        <PassportsSwitcher rows={rows} autonomy={autonomy} org={slug} decisions={decisions} />
+        <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} org={slug} decisions={decisions} />
       )}
     </div>
   );
