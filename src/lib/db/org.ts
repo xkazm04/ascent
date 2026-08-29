@@ -131,3 +131,5 @@ export {
   type OrgTeamRollup,
   type TeamRollupRepoInput,
 } from "@/lib/db/org-teams";
+// MOONSHOT #16 (W1-A): the conformance ledger reads/writes.
+export { listConformanceReports, loadControlMatrix, writeConformanceReport, type ConformanceReportRow, type ControlMatrixRow } from "@/lib/db/org-conformance";

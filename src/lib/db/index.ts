@@ -403,3 +403,14 @@ export {
   type LocalPairing,
 } from "@/lib/db/org-local";
 export { countTenantOrgs } from "@/lib/db/tenants";
+// ── MOONSHOT wave 1 — barrel lines landed by the Director at integration ─────────────────────────
+export { getCompactionCoverage, digestPeriod, digestScans, type CompactedPoint, type ScanDigestRow } from "@/lib/db/scan-digest";
+export { getFoundationRollout, type FoundationRolloutRow } from "@/lib/db/org-foundation";
+export { ensureOrgApiToken, revokeOrgApiTokensByName } from "@/lib/db/org-api-tokens";
+export { recordOutcome, recordOutcomes, listOrgOutcomes, backfillOutcomes, type InterventionOutcomeRow, type OutcomeKind } from "@/lib/db/outcomes";
+export { recordUsageEvent, laneTotals, teamTotals, listUsageEvents, type UsageEventRow, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
+export { upsertMirrorEntries, listRepoDeadEnds, countMirrored, type RepoMemoryEntryRow } from "@/lib/db/repo-memory";
+export { listOrgSkillUsageSamples, recordUsageSamples, purgeUsageSamples, type SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
+export { listSkillLessons, replaceSkillLessons, purgeSkillLessons, type SkillLessonRow } from "@/lib/db/org-skill-lessons";
+export { getSkillTrace, putSkillTrace, type SkillTraceRow } from "@/lib/db/org-skill-trace";
+export { createMemoryProposal, setMemoryProposalPr, type MemoryProposalRow } from "@/lib/db/org-registry-proposals";

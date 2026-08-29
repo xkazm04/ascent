@@ -204,7 +204,7 @@ export function digestScans(rows: readonly DigestInputScan[]): DigestDraft[] {
   for (const s of ordered) {
     const period = digestPeriod(s.scannedAt);
     const rubricVersion = s.rubricVersion ?? UNKNOWN_RUBRIC;
-    const k = `${period} ${rubricVersion} ${s.engineProvider}`;
+    const k = `${period}\u0000${rubricVersion}\u0000${s.engineProvider}`;
     const d = byKey.get(k);
     if (!d) {
       byKey.set(k, {
