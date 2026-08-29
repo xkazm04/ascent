@@ -684,8 +684,8 @@
           ],
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "scan-ingest.ts:81 swallows a thrown PR fetch to null; buildScanWarnings warns only when the token is absent, so a failed sensor scores and persists as 'repo has no PRs'.",
-          "evaluatedAt": "2026-08-23",
+          "evidence": "PR-sensor swallow FIXED (c3e99594: prFetchFailed flag + persisted warning distinguishes a failed fetch from 'repo has no PRs'). Remaining: governance/posture/exposure fetches still .catch(()=>null) with score-bearing folds.",
+          "evaluatedAt": "2026-08-29",
           "evaluatedAgainst": "sha256:1117665ec59c1168"
         },
         {
@@ -1866,8 +1866,8 @@
           ],
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "SECRET FALLBACK FIXED (ba86700e: fails closed + 503 refusals + documented). Remaining: ingest-guard.ts:32 envInt silently defaults a malformed limit; copilot.ts:109 collapses denied with unreachable; Copilot card advertises a capability with no affordance.",
-          "evaluatedAt": "2026-08-23",
+          "evidence": "envInt malformed-silent-default FIXED (c2408869: refuses, naming var+value); copilot denied/unreachable collapse FIXED (bc759bca: typed GhFailureReason, honest 403/502/422). Remaining: Copilot card advertises a capability with no affordance.",
+          "evaluatedAt": "2026-08-29",
           "evaluatedAgainst": "sha256:1117665ec59c1168"
         },
         {
