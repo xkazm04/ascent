@@ -40,9 +40,34 @@ export const DIMENSION_COUNT = DIMENSIONS.length;
  */
 export const BRAND_INK = "#080d1a";
 
-/** The canonical search/share description — count-derived so the snippet can never contradict the model. */
+/**
+ * The product description, in the three voices the shell needs. ONE sentence shape, count-derived, so
+ * the search snippet, the PWA install card and the social card cannot contradict each other or the
+ * model — this file's header has claimed that single-sourcing since the counts were centralized, but
+ * only the counts were: layout read `siteDescription()` while manifest.ts and the root OG route each
+ * re-typed the sentence, in three different wordings, for the same slot.
+ *
+ * They differ only where the surface forces it, and each says why:
+ *   - `siteDescription()`      meta description + JSON-LD. The full sentence; search snippets truncate
+ *                              around 160 chars and this is written to survive that.
+ *   - `siteDescriptionShort()` Web App Manifest. Shown in install prompts and app listings with a much
+ *                              tighter budget, so it drops the trailing clause.
+ *   - `siteDescriptionCard()`  the OG card body, which addresses the reader in the second person
+ *                              ("any GitHub repo") because a social card is an invitation, not a
+ *                              catalogue entry.
+ */
 export function siteDescription(): string {
   return `Score how AI-native your engineering org is from a GitHub repo: a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap to the next level.`;
+}
+
+/** Install-prompt copy (manifest). The full sentence minus its trailing clause. */
+export function siteDescriptionShort(): string {
+  return `Score how AI-native your engineering org is from a GitHub repo. A ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap.`;
+}
+
+/** Social-card body (the root OG route). Second person — a card is an invitation. */
+export function siteDescriptionCard(): string {
+  return `Score any GitHub repo on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence and a route to the next level.`;
 }
 
 // ── Curated demo org ─────────────────────────────────────────────────────────
