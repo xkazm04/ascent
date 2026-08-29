@@ -175,10 +175,115 @@ spans, so the digest a CLI compared against the catalog was never comparable wit
   bodies differing only past the 50KB storage cap read as different. Both are loud false positives,
   chosen over the silent false "in sync" the capped/stripped spans produced.
 
+## The conformance ledger (2026-08-30)
+
+The registry's fourth instrument, beside maturity, gate and adoption: **which of the org's own
+written standards does each repo knowingly deviate from, and is the standard itself still true?**
+Nothing here grades a repo against a vendor rubric — the corpus being measured against is the
+customer's own.
+
+### Two artifacts nobody was reading
+
+| Artifact | Where it lives | What ascent takes from it |
+| --- | --- | --- |
+| `.ai/registry-map.json` | each MANAGED repo | the generated join between that repo's contexts and the registry's subjects, with a `/conform`-written verdict per pair |
+| `knowledge/<domain>/index.json` | the registry | one row per SUBJECT, not just the seven `meta` integers per bundle |
+| `signals/<contributor>.json` | the registry | per subject: consults, deviations, citation health — counts only |
+
+The map is read **out of band**, with the App token under its own 512KB cap
+(`src/lib/registry/conformance-read.ts`), never through the scan's file budget. That budget truncates
+every file at 14,000 bytes inside a 50-file allowance because what it fetches feeds an assessment
+prompt; this repo's own map is 113KB, so a scan fetch would deliver unparseable JSON *and* spend a
+prompt slot a source file should have had.
+
+### The verdict vocabulary, and the three absences
+
+`state` is closed: `conformant | deviation | not-applicable | unjudged`. The generator writes
+`unknown` for a pair nobody has evaluated; that stores as `unjudged` and renders **"—"**. It must
+never fall through to `conformant`, because "nobody looked" and "this follows the standard" are
+opposite facts and only one of them is an achievement.
+
+Three different absences reach the UI and each reads differently:
+
+| Absence | What it means | How it renders |
+| --- | --- | --- |
+| never swept | no sweep has run for this org | *"No sweep has run yet"* — not a clean fleet |
+| no map | the repo was visited and has no `.ai/registry-map.json` | counted beside the mapped repos |
+| unjudged | the pair exists, nobody has judged it | `—` |
+
+`consults30d` is `null` when `.ai/consults.jsonl` is absent — the lane was never written, which is not
+"nobody consulted". Every `RegistrySignal` count is nullable for the same reason: a contributor may
+report consults without ever running a citation check, and a `0` there is an argument for deleting
+good knowledge, made out of silence.
+
+### The sweep
+
+`POST /api/org/:slug/registry/conformance` (admin) reads each repo in the org and ingests what it
+finds; `GET` returns the matrix. Pairs upsert on `(repositoryId, contextName, subjectSlug)` and pairs
+absent from a newer map are deleted for that repo, so a re-sweep at the same `mapSha` is a no-op and a
+vanished context leaves no stale row.
+
+One repo never fails the fleet, and the two failure shapes are kept apart:
+
+- **no map** — the repo has stopped claiming those verdicts, so its rows are cleared.
+- **unreadable** (a 404 on a file that should be there, a truncated document, a revoked permission) —
+  a warning, and **the previous conformance is kept**. Deleting a repo's standing deviation backlog
+  because GitHub timed out is the worst outcome available here.
+
+The matrix folds a subject's several contexts **worst-wins**: one evidenced deviation makes the cell a
+deviation even where four sibling contexts conform. `evidence` (the repo's own `file:line` text) is
+stored for the org's own UI, capped at 2,000 characters, truncated to 400 on the wire — and it **never
+leaves the deployment**.
+
+### Contributing signals back
+
+`POST /api/org/:slug/registry/signals` publishes `signals/<contributor>.json` into the customer's
+registry as a **pull request** — a CODEOWNER merging it is the act of accepting the contribution. It
+is off by default and gated four ways: same-origin, the admin write guard, the registry's own spine
+declaring ascent a `writer` of the `signals` lane **and** `telemetry: registry` (both re-read live, so
+a revoked declaration cannot be published against a cached yes), and a typed confirm (`contribute`).
+
+`contributor` is the org's configured id if it set one, else `ascent-<12 hex of sha256(orgId:registryId)>`
+— stable, opaque, and not derived from anyone's name. A configured id containing a `/` or `@` is
+**refused rather than slugified**, since slugifying `acme/dev` would publish an org name.
+
+The payload is built key-closed (`schema`, `contributor`, `app`, `generatedAt`, `windowDays`, optional
+`stack`, `bundles.*.subjects.*`) and then re-checked by `assertNoLeaks`, which **refuses** a payload
+carrying anything path-, URL-, address- or repo-shaped. It does not scrub: a scrub publishes whatever
+it missed. A key nobody measured is omitted rather than zeroed.
+
+`RegistrySignalContribution` records actor, payload digest, bundle list and counts, written **before**
+the GitHub call — an attempt to publish is the auditable act, and recording only successes would hide
+exactly the cases anyone would later want to look at. `openOrUpdateSignalsPr` is a sibling of
+`openDraftPr` rather than a change to it: that helper refuses when the path already exists on base,
+which is right for seeding a starter artifact and would 409 every contribution after the first for a
+file ascent is the sole author of.
+
+### Data model
+
+| Model | Purpose |
+| --- | --- |
+| `OrgKnowledgeSubject` | one subject per bundle, from the generated index; soft-archived when it leaves the corpus, because a conformance row may still cite it |
+| `RepoConformanceMap` | one repo's map header — the counts and provenance it asserts about itself |
+| `RepoConformance` | one judged (context × subject) pair, with its evidence |
+| `RegistrySignal` | the `signals/` lane as one contributor published it; every count nullable |
+| `RegistrySignalContribution` | append-only audit of every contribution ascent attempted |
+
 ## Known gaps
 
-- **Fleet adoption is not measured.** `fleet.reposPointing`, `reposSynced30d`, the adoption breakdown
-  and `telemetry.invokes30d` are reported as **zero**, not estimated (R4/R5).
+- **Fleet SYNC adoption is not measured.** `fleet.reposPointing`, `reposSynced30d` and the adoption
+  breakdown are reported as **zero**, not estimated (R5) — the pass that hashes each repo's
+  `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-08-30: `telemetry.invokes30d`
+  is now real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE
+  adoption is measured — see the conformance ledger above.)*
+- **Which contexts are weakly governed is not stored.** Each repo's map states `governance` per
+  context and the ingest keeps only the COUNT (`RepoConformanceMap.weaklyGoverned`), so the panel
+  ranks repos rather than listing contexts. It is genuinely not derivable: classifying by match
+  confidence would put 18 of this repo's 52 contexts in the wrong bucket, which is why the field is
+  read rather than inferred. Closing it needs one column (`weaklyGovernedJson`).
+- **Nothing consumes `OrgKnowledgeSubject` as a row vocabulary yet.** The subjects are mirrored and
+  readable (`listSubjectsForContext`), but the matrix's rows come from the pairs the maps assert, so a
+  subject no repo matched is invisible there.
 - **`catalog.json` is built but not committed back.** `indexRegistry` returns the catalog it would
   write; the policy-gated writer (`catalogWrites: bot | pr`) is not implemented.
 - **No push-webhook wiring.** Indexing runs from `POST .../registry/index` only.

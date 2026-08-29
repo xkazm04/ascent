@@ -60,6 +60,9 @@ import type {
 // Reached by a client through a DEEP path rather than the barrel — the shape of import the first
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
+import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
+import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
+import type { RegistrySignalRow, SignalContributionRow } from "@/lib/db/org-registry-signals";
 import type { SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
@@ -97,7 +100,11 @@ const WIRE_TYPES = {
   AuditLogEntry: true satisfies WireSafe<AuditLogEntry>,
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
   ComparableScan: true satisfies WireSafe<ComparableScan>,
+  // The five #18 row types. All reach a client through RegistryView, which RegistryPanel renders.
+  ConformanceMapRow: true satisfies WireSafe<ConformanceMapRow>,
+  ConformanceRow: true satisfies WireSafe<ConformanceRow>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
+  KnowledgeSubjectRow: true satisfies WireSafe<KnowledgeSubjectRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
@@ -107,9 +114,11 @@ const WIRE_TYPES = {
   PlaybookAdoption: true satisfies WireSafe<PlaybookAdoption>,
   PlaybookRow: true satisfies WireSafe<PlaybookRow>,
   PublicScanGallery: true satisfies WireSafe<PublicScanGallery>,
+  RegistrySignalRow: true satisfies WireSafe<RegistrySignalRow>,
   RepositoryHistory: true satisfies WireSafe<RepositoryHistory>,
   SandboxScenarioRecord: true satisfies WireSafe<SandboxScenarioRecord>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
+  SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
   SkillRow: true satisfies WireSafe<SkillRow>,
   // Reaches a client inside SkillUsageRows, which skill-usage.ts (imported by SkillsPanel) types against.
@@ -128,6 +137,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(23);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(28);
   });
 });
