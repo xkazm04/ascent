@@ -11,12 +11,14 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { isPersonalOrg } from "@/lib/db";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
 import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
+import { FoundationRolloutPanel } from "./FoundationRolloutPanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -55,6 +57,8 @@ export async function RepositoriesTab({
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <RepositoriesLeaderboardPanel slug={slug} sp={sp} />
       </Suspense>
+      {/* Foundation rollout (moonshot #35): install `.ai/` across the fleet and provision report-back. */}
+      <FoundationRolloutPanel slug={slug} rows={await getFoundationRollout(slug)} />
       {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
           layer. Fed by each scan's persisted contextHealthJson. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
