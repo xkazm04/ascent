@@ -58,6 +58,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org_memory.archived", label: "Memory archived", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "org_memory.reflected", label: "Memory reflected", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org_memory.decayed", label: "Memory decayed", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  // Publication-shaped: this one opens a pull request in the customer's own registry repo, so it
+  // reads as an outbound act rather than as another edit to the memory table (#36).
+  { value: "org_memory.pr_proposed", label: "Memory PR proposed", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org_decision.recorded", label: "Decision recorded", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   // Athena's action door. The ACCEPT is emerald because something was actually performed on the org's
   // behalf — it is the one place a companion's suggestion turns into a write, and the trail is the
