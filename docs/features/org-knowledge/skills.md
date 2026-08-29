@@ -539,13 +539,26 @@ distinguishes the two worlds, and the affordances follow it:
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
 
-## Known gaps
+### Trace — a registry skill's own history (2026-08-30)
 
-- The relationship between the `SkillGeneration` Prisma model and the
-  onboarding-skill generation log referenced in a comment in
-  `src/lib/db/org-skills.ts` (as `src/lib/db/skill-history.ts`) is unclear;
-  it was not established from the files read whether these are the same
-  store viewed two ways or two separate logs.
+A **registry-origin** skill card carries a `Trace` disclosure: the commits over
+`skills/<name>/SKILL.md`, grouped by the version each declared, with the lessons
+from `LESSONS.md` hanging on the version they were learned against. It is
+fetched on open, served from a cache keyed on the registry head, and it renders
+`—` wherever a version could not be resolved rather than carrying the
+neighbouring one backwards. Full contract:
+[`docs/features/org-registry/README.md`](../org-registry/README.md) §The
+improvement channel.
+
+A **hosted** skill is offered no Trace. It lives in ascent's own table and has no
+git history; offering one would be a promise the shape of the data cannot keep.
+
+`SkillGeneration` is a different store and always was: `src/lib/db/skill-history.ts`
+is its only accessor and it logs per-repo onboarding-`SKILL.md` **generations**
+(STD-6), not registry skill versions. **Registry skill history is git**, surfaced
+as Trace.
+
+## Known gaps
 
 ## Key files
 

@@ -269,6 +269,78 @@ file ascent is the sole author of.
 | `RegistrySignal` | the `signals/` lane as one contributor published it; every count nullable |
 | `RegistrySignalContribution` | append-only audit of every contribution ascent attempted |
 
+## The improvement channel (2026-08-30)
+
+`LESSONS.md` used to be a number on a dashboard. It is now a ledger, a version timeline read straight
+from git, and — for memory — a pull request instead of a dead end.
+
+### Lessons as rows
+
+Each index pass splits every `skills/<name>/LESSONS.md` into one `OrgSkillLesson` per `## ` heading.
+`splitLessonEntries` cuts on the **same regex** `countLessons` uses, so the row count and
+`counts.lessons` are equal by construction — two surfaces disagreeing about how many lessons a skill
+has is the failure this closes.
+
+The heading contract is `## <version used> - <YYYY-MM-DD> - <project>`, separator `-` or an em dash,
+version optionally a range (`0.1-1.0`). Parsing is tolerant and every gap is honest:
+
+| Slot | When it does not parse |
+| --- | --- |
+| version | `""` — **never** the skill's current version, which would attribute a lesson to a method that did not produce it |
+| date | `learnedOn: null` — never "today" |
+| project | `""` |
+
+The date is found by SHAPE rather than by position, so a heading that omitted its version does not
+shift a project name into a date field. A heading that matches nothing **still produces a row**, with
+`headingRaw` carrying what the parser was given: losing somebody's written reflection because its
+heading is odd is the worse failure. One warning per FILE, never per entry.
+
+Rows upsert on `(registryId, registryPath, entryHash)` — re-indexing the same head writes nothing, an
+edited entry replaces itself, a removed entry disappears — and `memoryId` is deliberately absent from
+the update, so a lesson already ingested as memory is never re-ingested. A `LESSONS.md` that vanished
+has its rows purged: these are mirror rows and git remains the record.
+
+### Trace: the version timeline
+
+`GET /api/org/:slug/registry/trace?skill=<name>` returns the commits over `skills/<name>/SKILL.md`
+with their versions, plus that skill's lessons grouped by version. It is **on demand, per skill, and
+cached per registry head** — building it in the index pass would cost a blob read per commit per
+skill on every push, thousands of reads at the 500-skill ceiling. A cache hit is one database read.
+
+- `TRACE_COMMITS = 30` commits, `TRACE_VERSION_READS = 6` blob reads (newest first).
+- Everything older carries `version: null` and renders `—`. The neighbouring version is **never**
+  carried backwards; that would look like more history and be a fabrication.
+- A lesson hangs on the version **it declares**, never on commit proximity. One whose version matches
+  no resolved commit lands in an explicit *"version not in the last 30 commits"* group — a
+  nearest-commit heuristic would misfile every lesson whose run lagged its release, which is the
+  common case, and the result would look authoritative.
+- A GitHub failure returns `error` and the panel says *"history unavailable"*, or serves the stale
+  cache labelled stale. An empty timeline would be a claim about the skill rather than the request.
+
+The Skills tab shows Trace on **registry-origin rows only** — a hosted skill has no git history, and
+offering it one would be a promise the data cannot keep — and the disclosure fetches on open, not on
+mount. `RegistryActivity` now emits real `lesson` entries; that kind had been in the union, the label
+map and the fixtures since the tab shipped, emitted by nothing.
+
+### Reflect-as-PR
+
+A memory note in the registry is a mirror of a file the customer owns, so consolidating one in
+ascent's table would be reverted by the next index pass. `POST /api/org/memory/reflect` therefore
+**refuses** an `apply` whose members are registry-origin (`409 registry-origin`) and offers
+`proposePr` instead:
+
+1. the rollup is written as `memory/<kind>/<slug>.md`, frontmatter `kind`, `namespace`, `confidence`,
+   `source: ascent:reflection` and `supersedes:` — a list of **repo-relative paths**, never DB uuids,
+   because a uuid in a reviewer's diff is a token they cannot open;
+2. an `OrgMemoryProposal` row is written **before** the GitHub call and survives a failed PR;
+3. a draft PR opens on `ascent/memory-<slug>` (a stable branch, so a retry updates its own PR);
+4. a CODEOWNER merging it is what makes the supersession real: the next index pass reads
+   `supersedes:` and stamps `supersededBy` on the sibling mirror rows.
+
+Nothing is deleted, in the repo or in the database — the old notes stay in git and the frontmatter is
+the link. The role floor is **member**, not admin: nothing lands in the registry without a review, and
+requiring admin to *propose* would lock out the people who write the memory.
+
 ## Known gaps
 
 - **Fleet SYNC adoption is not measured.** `fleet.reposPointing`, `reposSynced30d` and the adoption
@@ -284,6 +356,11 @@ file ascent is the sole author of.
 - **Nothing consumes `OrgKnowledgeSubject` as a row vocabulary yet.** The subjects are mirrored and
   readable (`listSubjectsForContext`), but the matrix's rows come from the pairs the maps assert, so a
   subject no repo matched is invisible there.
+- **Lessons do not reach Memory yet.** The mapping (`lesson-memory.ts`: the skill as namespace,
+  `procedural`, confidence 0.6, ten newest per pass) is written and tested, but the insert goes
+  through the one ingest door in `src/lib/memory/scan-feed.ts` and that door's generalized form
+  (`writeMemoryCandidate`) is not in this build. `ingestSkillLessons` reports `held: true` rather
+  than writing through a second door, which would mean two dedup windows for one table.
 - **`catalog.json` is built but not committed back.** `indexRegistry` returns the catalog it would
   write; the policy-gated writer (`catalogWrites: bot | pr`) is not implemented.
 - **No push-webhook wiring.** Indexing runs from `POST .../registry/index` only.
