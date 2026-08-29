@@ -25,6 +25,8 @@ Policy is global env defaults, overridable per org:
 | Max scans kept per repo | `RETENTION_MAX_SCANS_PER_REPO` (0 = unlimited) | `retentionMaxScans` (null = inherit) |
 | Audit-log age | `RETENTION_AUDIT_DAYS` (0 = unlimited) | `retentionAuditDays` (null = inherit) |
 | Delete batch size | `RETENTION_BATCH_SIZE` (clamped 500–5000) | — |
+| Compact pruned scans into digests | `RETENTION_COMPACT` (**default off**) | `retentionCompact` (null = inherit) |
+| Digest age | `RETENTION_DIGEST_MONTHS` (0 = keep digests forever) | `retentionDigestMonths` (null = inherit) |
 
 `resolveRetention(defaults, org)` merges them (a per-org override wins when set, including an
 explicit `0` for unlimited; `null` inherits the default).
@@ -45,15 +47,18 @@ The on-demand erase path carries the same shape of floor over its own destructiv
 
 Per org enforcing a policy:
 
-1. **Prune scans** beyond the newest *N* per repo (ordered `createdAt desc, id desc`),
-   deleting grandchild `RecommendationEvent`, then child `ScanDimension` +
-   `Recommendation`, then the parent `Scan` (no FK cascades under `relationMode = "prisma"`).
-   Both the repo enumeration and the stale-scan selection are paged, not read unbounded, so a
-   huge fleet org doesn't blow a single read past a statement timeout.
-2. **Prune audit** entries older than the cutoff (per-org scoped), oldest first.
-3. Record a `retention.purged` audit entry (the job audits itself), only when something was
+1. **Prune scans** beyond the newest *N* per repo (ordered `createdAt desc, id desc`), **folding each
+   page into a `ScanDigest` first when compaction is on** (see below), then deleting grandchild
+   `RecommendationEvent`, then child `ScanDimension` + `Recommendation`, then the parent `Scan` (no
+   FK cascades under `relationMode = "prisma"`). Fold and deletes share **one transaction**. Both the
+   repo enumeration and the stale-scan selection are paged, not read unbounded, so a huge fleet org
+   doesn't blow a single read past a statement timeout.
+2. **Prune digests** older than `retentionDigestMonths` (skipped entirely at the `0` sentinel).
+3. **Prune audit** entries older than the cutoff (per-org scoped), oldest first.
+4. Record a `retention.purged` audit entry (the job audits itself), only when something was
    actually deleted, so a configured-but-currently-idle policy doesn't write an all-zero row
-   every tick.
+   every tick. Its `meta` carries `digestsWritten` / `scansCompacted` / `digestsDeleted` beside the
+   delete counts — the compliance trace has to say what **survived**, not only what died.
 
 It also sweeps org-less audit entries (anonymous public scans) under the global default, and
 sweeps expired `PublicScanQuota` rows on every pass.
@@ -74,7 +79,61 @@ of the same prefix winning every run.
 **Dry run:** `?dryRun=1` (or `true`) on the route counts what every effective policy *would*
 delete (per-repo stale-scan totals, in-window audit rows) without deleting anything or writing
 an audit entry; the summary carries `dryRun: true`. The safety floor above is not enforced in
-a dry run.
+a dry run. With compaction on it also reports `digestsWouldWrite` — or **`null`** once the stale
+window passes `DIGEST_PREVIEW_MAX_SCANS` (5000), because past that an estimate would be a guess
+wearing a number's clothes. The **scan** count is unaffected: it still comes from the one shared
+`where`, so "the number you were shown is the number that dies" still holds.
+
+## Compaction: a pruned scan ages into a digest
+
+Retention used to be a choice between keeping every `Scan` row forever and deleting the timeline that
+trends, forecasts and outcome deltas stand on. With `RETENTION_COMPACT` on, a purged page of scans is
+**folded into a `ScanDigest`** — one row per repo × month × rubric version × engine provider — inside
+the same transaction that deletes it, and readers can serve that tail explicitly labelled
+`compacted`. Implementation: `src/lib/db/scan-digest.ts`.
+
+**Off by default.** With nothing configured a deployment's purge is byte-for-byte what it always was —
+the page `SELECT` is still `{ id: true }` and no digest table is touched.
+
+**The keys.** `(repoId, period, rubricVersion, engineProvider)` is unique. `period` is a UTC month
+bucket (`YYYY-MM`) so a boundary never moves with a viewer's timezone. `rubricVersion` is **non-null
+by construction**: a legacy scan with no rubric stamp folds into the literal `"unknown"`, because
+Postgres treats NULLs as distinct and a nullable key column would make the upsert insert a fresh row
+on every tick. The sentinel exists for the constraint, not to claim knowledge — the reader maps
+`"unknown"` straight back to `rubricVersion: null` on the wire, so anything that refuses to compare
+across instruments keeps refusing.
+
+**Sums, not means.** A later tick folds more scans of the same period into the row an earlier tick
+wrote, so the row stores `*Sum` + `scanCount` (plus min/max and timestamp-governed first/last). That
+makes the merge exact and order-independent; a stored mean would drift the moment two pages had
+unequal sizes. Means are derived on read.
+
+**Idempotency is atomicity.** The fold is committed by the same `$transaction` as the `deleteMany`
+that removes its inputs, so a retried batch (a DSQL OC###/40P01 conflict through `withRetry`) rolls
+back both halves and re-selects only surviving rows. No scan can be folded twice, and none can die
+without its summary.
+
+**Unknown ≠ 0.** A dimension no scan in the period carried is absent from `dimensionsJson`, and the
+reader emits no entry for it — so a dimension line renders a gap, never a fabricated floor.
+
+**A compacted point has no permalink.** `getRepositoryHistory(owner, name, { includeCompacted: true })`
+appends the tail after the retained scans, bounded by the oldest retained scan so a straddling period
+is never counted twice. Each point carries `compacted: true`, a `scanCount`, an `id` of
+`digest:<row.id>`, and **`headSha: null`** — the `Scan` row is gone, so a report permalink built from
+the stored sha would 404. Withholding the handle is what makes the point non-navigable in the chart
+and the CSV with no change to their link logic. `engineModel` reads `"mixed"` when more than one
+model scored the period. Default is **off**: the compare picker, the skill-outcome loader and
+`/api/history` without the param are unchanged.
+
+**Where it surfaces.** `/trends` requests the tail; `TrendChart` draws the compacted run as a single
+dashed segment with hollow points and one legend line, and names it in the screen-reader table (the
+encoding is visual only). `/api/history?compacted=1` opts in over the API, and the CSV export gains
+`compacted` + `scans` columns so a spreadsheet is honest about which row is a summary.
+`forecastBasis(forecast)` states how many of a fit's days were compacted; `getCompactionCoverage(org)`
+reports how far the tail reaches beyond the retained scans (both degrade to `null`, never zeros).
+`MIN_FORECAST_POINTS` and the `lowData` rule are untouched — a compacted day counts as one day.
+
+**Erasure refuses to compact.** See below.
 
 ## On-demand erasure (DSR / right-to-erasure)
 
@@ -126,6 +185,11 @@ conflict retries.
   never touches them: a run belongs to the org, not to a repo. Counted as `loopRunsDeleted` /
   `loopLanesDeleted` on the result (and in the `data.erased` audit entry); a **preview** counts them
   without deleting.
+- **Compacted tail (moonshot #32).** An erase passes `compact: false` **always**, whatever the org's
+  policy says — a right-to-erasure request must not mint a durable summary of the very data it is
+  erasing — and deletes the repo's existing `ScanDigest` rows beside the scan graph, batched and
+  budget-polled like every other loop. Counted as `digestsDeleted` on the result and in the
+  `data.erased` audit entry; a preview counts them over the same `{ repoId }` predicate.
 - **Audit trail — three dispositions, org scope only** (audit rows are not repo-scoped). The
   interactive path reaches the same HMAC-signed compliance evidence the cron does, so it now carries
   the same kind of destructive-override floor the cron has had (`RETENTION_FORCE`):
@@ -195,6 +259,10 @@ conflict retries.
   recommendationsDeleted: number,
   recommendationEventsDeleted: number,
   auditDeleted: number,
+  digestsWritten: number,      // ScanDigest rows the fold created or updated (0 with compaction off)
+  scansCompacted: number,      // scans that were folded before they were deleted
+  digestsDeleted: number,      // digests aged out past retentionDigestMonths
+  digestsWouldWrite: number | null,  // dry run only; null = past the preview cap, i.e. NOT counted
   results: OrgPurgeResult[],   // per-org (or "(orphan)") breakdown, each with its resolved policy
   errors: string[],
   stoppedEarly: boolean,       // the wall-clock budget stopped the run before every org/sweep was reached
@@ -215,7 +283,10 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
 | `src/app/api/cron/purge/route.ts` | Route handler: auth, DB-configured gate, dry-run flag, degraded-status (207) mapping. |
 | `src/app/api/org/erase/route.ts` | On-demand DSR erasure: CSRF + typed-confirmation + owner gates, 207 degraded mapping. |
 | `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`. |
-| `src/lib/db/retention.test.ts` | Policy + purge + erasure tests. |
+| `src/lib/db/retention.test.ts` | Policy + purge + erasure + compaction tests. |
+| `src/lib/db/scan-digest.ts` | The digest fold (pure), the in-transaction upsert, the tail read, digest ageing, and `getCompactionCoverage`. |
+| `src/lib/db/scan-digest.test.ts` / `scan-digest-read.test.ts` | The pure fold's exactness + the persistence half. |
+| `src/components/report/TrendChart.CompactedBand.tsx` | The dashed-run path split, the legend, and the compacted tooltip lines. |
 | `src/features/admin/settings/DataErasureCard.tsx` | Org-settings entry point: owns the erase request, and the preview hook that arms the confirmation. |
 | `src/features/admin/settings/DataErasureDialog.tsx` | The arming dialog: destroyed/kept manifest, typed confirmation, preview-gated confirm button. |
 | `src/features/admin/settings/DataErasurePreview.tsx` | `preview: true` fetch (re-run on disposition change) + the counts panel; unknown-on-failure, never zeros. |
@@ -223,8 +294,21 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
 
 ## Known gaps
 
-- **With no retention env set, nothing is deleted**: existing deployments keep all
-  history by default (opt-in). On-demand erasure (above) does not depend on a policy.
+- **With no retention env set, nothing is deleted**: existing deployments keep all history by default
+  (opt-in), and **compaction is off by default** on top of that, so an existing purge is byte-for-byte
+  unchanged. An operator who wants a bounded scan table *and* a long trajectory now has a third
+  option — `RETENTION_COMPACT=1`, which keeps the timeline as digests rather than choosing between
+  storage and history. On-demand erasure (above) does not depend on a policy.
+- **A compacted point is not a scan, and cannot be turned back into one.** It carries no permalink,
+  no per-dimension evidence, no recommendations, no head sha, and its `overallMin`/`Max` are a range
+  within the period, **not** a measured noise band. Surfaces that read retained scans only — the org
+  rollup trend, the plan simulator, delivery trends, skill outcomes and the compare picker — still do;
+  wiring them to the tail is a follow-on, and the per-repo reader plus `getCompactionCoverage` are
+  what it needs.
+- **The per-dimension small-multiples on `/trends` cover retained scans only.** The lazy
+  `/api/history` fetch behind them does not request the tail (the client-side history validator does
+  not yet carry the `compacted` flag through), so the page says so above the grid rather than letting
+  the two charts disagree silently.
 - **Redaction rewrites `meta` wholesale, not field-by-field.** Identifier-only erasure keeps
   *action + timestamp + tenant* and drops the entire payload, because `AuditLog.meta` is one
   free-form JSON string with no schema separating a subject reference from operational detail.

@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  forecastBasis,
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,
+  isProjectable,
   projectGoal,
   type SeriesPoint,
 } from "./forecast";
@@ -292,5 +294,54 @@ describe("forecastHeadline", () => {
     expect(forecastHeadline(forecastTrajectory(rise, 90, atLast(rise))!)).toMatch(/On track to reach L4/);
     expect(forecastHeadline(forecastTrajectory(fall, 90, atLast(fall))!)).toMatch(/At risk of slipping to L2/);
     expect(forecastHeadline(forecastTrajectory(series(50, 0, 11))!)).toMatch(/Holding around/);
+  });
+});
+
+// ── MOONSHOT #32 — compacted observations and the basis line ──────────────────────────────────────
+// A compacted point is a period average of scans retention deleted. It is a legitimate observation of
+// where the repo was, so it fits like any other — but the fit has to be able to SAY that it did, and
+// the sample floors must not be softened by it (a summarised day is still one day).
+
+describe("forecastTrajectory — compactedPoints", () => {
+  it("is 0 for an all-scan series", () => {
+    expect(forecastTrajectory(series(50, 1, 5))!.compactedPoints).toBe(0);
+  });
+
+  it("counts DAY-KEYS that carried at least one compacted observation, not observations", () => {
+    const pts = series(50, 1, 5).map((p, i) => (i < 2 ? { ...p, compacted: true } : p));
+    // Two same-day compacted readings must still count as ONE compacted day.
+    pts.push({ ...pts[0]!, value: 51, compacted: true });
+    const f = forecastTrajectory(pts)!;
+    expect(f.points).toBe(5);
+    expect(f.compactedPoints).toBe(2);
+  });
+
+  it("does not soften the sample floors: a compacted day is one day, no more", () => {
+    const two = forecastTrajectory(series(50, 1, 2).map((p) => ({ ...p, compacted: true })))!;
+    expect(two.points).toBe(2);
+    expect(two.lowData).toBe(true); // MIN_FORECAST_POINTS is untouched by compaction
+    expect(isProjectable(two)).toBe(false);
+    // …and the slope itself is the same one the identical non-compacted series produces.
+    expect(two.perDay).toBe(forecastTrajectory(series(50, 1, 2))!.perDay);
+  });
+});
+
+describe("forecastBasis", () => {
+  it("states days and span, and omits the compaction clause when there is none", () => {
+    const f = forecastTrajectory(series(50, 1, 5))!;
+    expect(forecastBasis(f)).toBe("fit over 5 scan days across 4 days");
+  });
+
+  it("names the compacted share when the fit rests on one", () => {
+    const f = forecastTrajectory(series(50, 1, 5).map((p, i) => (i < 3 ? { ...p, compacted: true } : p)))!;
+    expect(forecastBasis(f)).toBe("fit over 5 scan days across 4 days, 3 of them compacted");
+  });
+
+  it("singularises a one-day fit", () => {
+    const f = forecastTrajectory([
+      { date: "2026-01-01T01:00:00Z", value: 50 },
+      { date: "2026-01-02T01:00:00Z", value: 51 },
+    ])!;
+    expect(forecastBasis(f)).toBe("fit over 2 scan days across 1 day");
   });
 });

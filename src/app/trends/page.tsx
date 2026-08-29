@@ -91,10 +91,15 @@ export default async function TrendsPage({
   // `?format=csv` pulled 200, so "All" was a silent truncation: the chart and the spreadsheet
   // downloaded from the button beside it described different histories, with nothing saying so
   // (G5-24). One cap now, and `historyCapNote` says out loud when even that cap is binding.
+  // MOONSHOT #32 — ask for the compacted tail. This is the ONE surface whose job is "how has this
+  // repo moved over time", so it is the one that should not silently begin at whatever date the
+  // purge job last reached. A compacted point is labelled on the chart, carries no permalink, and
+  // extends the series without ever pretending to be a scan.
   const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
     limit: HISTORY_SCAN_CAP,
     orgSlug,
     includeDimensions: false,
+    includeCompacted: true,
   });
   if (!history || history.scans.length === 0) {
     return (
@@ -109,6 +114,10 @@ export default async function TrendsPage({
   }
 
   const latest = history.scans[0]!; // safe: history.scans.length === 0 returned above
+  // The compare view diffs two real scans, so the "Compare →" affordance counts real scans only: a
+  // compacted point has no scan behind it to pick, and offering the link on the strength of one
+  // would land the reader on a picker with a single option.
+  const retainedCount = history.scans.filter((s) => !s.compacted).length;
 
   // Forward-looking GPS for THIS repo. Fit over the FULL fetched history — deliberately NOT over the
   // 5d/30d/90d slice the chart below renders. The range toggle is a zoom control; a projection that
@@ -132,7 +141,7 @@ export default async function TrendsPage({
           </div>
           <div className="flex items-center gap-2">
             <LevelBadge id={latest.level as LevelId} name={latest.levelName} />
-            {history.scans.length >= 2 && (
+            {retainedCount >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(history.repo.fullName)}`}
                 className={HEADER_ACTION_LINK_CLASS}
@@ -150,7 +159,9 @@ export default async function TrendsPage({
           </div>
         </div>
 
-        {history.scans.length === 1 && (
+        {/* One retained scan AND nothing compacted behind it: with a compacted tail present the trend
+            lines are already drawn, so the "run another scan" nudge would contradict the chart. */}
+        {retainedCount === 1 && history.scans.length === 1 && (
           <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-base text-slate-400">
             Only a baseline scan so far. The trend lines fill in after the next scan.
           </p>

@@ -124,6 +124,13 @@ export function DimensionTrends({
     href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
     sha: s.headSha ? s.headSha.slice(0, 7) : undefined,
     commitUrl: githubCommitUrl(history.repo.fullName, s.headSha) ?? undefined,
+    // MOONSHOT #32 — a compacted point is a period average of scans retention deleted. It carries no
+    // headSha, so the two link fields above resolve to `undefined` on their own: the chart draws it
+    // dashed + hollow and non-navigable with NO change to the link logic. That is exactly why the
+    // reader withholds the sha rather than passing the digest's stored one through.
+    compacted: s.compacted,
+    scans: s.scanCount,
+    rubric: s.rubricVersion,
   }));
 
   // Per-dimension rows — from the full payload once loaded, sliced by the SAME range. The meta
@@ -193,6 +200,15 @@ export function DimensionTrends({
 
             {/* One legend for the whole small-multiples grid — every card shares the same scan meta,
                 so repeating the hollow-point key on nine cards would be noise. */}
+            {/* The per-dimension fetch deliberately does NOT ask for the compacted tail: these cards
+                plot retained scans only, so when the overall chart above is showing a compacted head
+                the two cover different spans and the reader has to be told which. */}
+            {dimState === "done" && overall.some((p) => p.compacted) && (
+              <p className="mt-2 text-sm text-slate-500">
+                The cards below cover the retained scans only — the compacted periods on the overall
+                chart keep no per-dimension detail at this depth.
+              </p>
+            )}
             {dimState === "done" && hasMockPoint(meta.map((m) => m.engine)) && (
               <p className="mt-2 flex items-start gap-2 text-sm text-slate-500">
                 <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">

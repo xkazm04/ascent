@@ -18,6 +18,10 @@ import { LEVELS, LEVEL_BY_ID, clamp, levelForScore } from "@/lib/maturity/model"
 export interface SeriesPoint {
   date: string;
   value: number;
+  /** MOONSHOT #32 — this observation came from a COMPACTED period (a digest of scans retention
+   *  deleted), not from a single scan. It counts as exactly what it is: one observation on its day,
+   *  no more. The sample floors below are untouched by it — a compacted day is not worth two days. */
+  compacted?: boolean;
 }
 
 export type Trajectory = "rising" | "falling" | "flat";
@@ -39,6 +43,10 @@ export interface LevelEta {
 export interface Forecast {
   /** Distinct calendar days the fit used. */
   points: number;
+  /** How many of those day-keys included at least one COMPACTED observation (MOONSHOT #32). 0 when
+   *  the series is all real scans. Surfaced so a basis line can say what the fit stands on, rather
+   *  than presenting a partly-summarised trajectory as if every point were a measured scan. */
+  compactedPoints: number;
   /** Calendar span of the series in days (last − first). */
   spanDays: number;
   /** Least-squares slope, in score-points per day. */
@@ -118,7 +126,7 @@ export function meanPerDayKey<T extends { value: number }, K>(items: readonly T[
  */
 export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowMs: number = Date.now()): Forecast | null {
   const parsed = series
-    .map((p) => ({ t: Date.parse(p.date), value: p.value }))
+    .map((p) => ({ t: Date.parse(p.date), value: p.value, compacted: p.compacted === true }))
     .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.value))
     .sort((a, b) => a.t - b.t);
   if (parsed.length < 2) return null;
@@ -129,6 +137,11 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowM
   const xs = [...dayMeans.keys()].sort((a, b) => a - b);
   if (xs.length < 2) return null; // every observation landed on one day → no slope to read
   const ys = xs.map((d) => dayMeans.get(d)!); // safe: d ∈ dayMeans.keys()
+  // A day-key counts as compacted when ANY observation on it was: one summarised reading is enough
+  // to stop the day's mean being a straight measurement. Counted, never weighted — MIN_FORECAST_POINTS
+  // and the lowData rule see the same n they always did.
+  const compactedDays = new Set<number>();
+  for (const p of parsed) if (p.compacted) compactedDays.add(Math.floor((p.t - firstT) / DAY_MS));
 
   // Ordinary least squares over (dayOffset, score).
   const n = xs.length;
@@ -164,6 +177,7 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowM
 
   return {
     points: n,
+    compactedPoints: compactedDays.size,
     spanDays,
     perDay: round2(perDay),
     perWeek,
@@ -358,6 +372,20 @@ export function humanizeDays(days: number): string {
   if (days < 14) return `~${days} days`;
   if (days < 60) return `~${Math.round(days / 7)} weeks`;
   return `~${Math.round(days / 30)} months`;
+}
+
+/**
+ * The fit's BASIS, stated in one line — what the projection actually stands on.
+ *
+ * The compaction half is OMITTED when `compactedPoints === 0`: a caveat printed on every forecast,
+ * including the ones it does not apply to, stops being read. Pure; the caller renders it verbatim.
+ * (Called by the executive briefing's trajectory clause — moonshot #26.)
+ */
+export function forecastBasis(f: Forecast): string {
+  const days = `${f.points} scan ${f.points === 1 ? "day" : "days"}`;
+  const span = `${f.spanDays} ${f.spanDays === 1 ? "day" : "days"}`;
+  const base = `fit over ${days} across ${span}`;
+  return f.compactedPoints > 0 ? `${base}, ${f.compactedPoints} of them compacted` : base;
 }
 
 /** One-line, leader-facing read of a forecast — the headline for the trajectory GPS. */
