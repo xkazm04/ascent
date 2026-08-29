@@ -177,7 +177,12 @@ export function TourChecklist({ slug }: { slug: string }) {
           invisibly, over whatever the dashboard put in that band: on the Overview that was the Fleet
           card's Type/Stack/Level group buttons, which read as dead. The panel is only translated
           off-screen, so `inert` already handles focus; this handles the mouse. */}
-      <div className="pointer-events-none fixed right-0 top-1/2 z-[55] -translate-y-1/2">
+      {/* z-[46]: just above the spotlight ring (z-[45]) and the header popovers (z-40), and BELOW the
+          modal band (z-50 — ui/Modal, ScanModal). It sat at z-[55], so the coaching drawer and its pull
+          tab painted on top of every dialog's backdrop: a panel floating over a modal the user opened,
+          still clickable, while the dialog dimmed everything else. Coaching is the most interruptible
+          content in the product — a dialog outranks it, always. (overlayBands.test.ts gates the order.) */}
+      <div className="pointer-events-none fixed right-0 top-1/2 z-[46] -translate-y-1/2">
         <div
           className={`relative transition-transform duration-300 ease-out motion-reduce:transition-none ${
             open ? "translate-x-0" : "translate-x-full"
