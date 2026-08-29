@@ -26,6 +26,11 @@ import { Prisma } from "@prisma/client";
 import { clientIp, tooManyResponse } from "@/lib/rate-limit";
 import { envBool } from "@/lib/env";
 import { isDbConfigured, withDb, withRetry } from "@/lib/db";
+// TODO(layering-rules) [A4]: this module is the ONE place outside src/lib/db that imports the raw
+// client module and runs $transaction directly (consume + refund below, with quotaTxOptions'
+// isolation selection). It is grandfathered in eslint.config.mjs; the fix is a data-layer home for
+// the quota's read-decide-write (a repository function taking the decide callback), which is more
+// than a mechanical move — needs a spec.
 import { readDsqlConfig } from "@/lib/db/client";
 import { recordQuotaEvent } from "@/lib/db/quota-events";
 
