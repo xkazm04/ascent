@@ -161,6 +161,8 @@ export interface ScanWarningsInput {
   snapshotCoverage: number;
   stackFit: StackFit | null;
   prPartial: boolean;
+  /** A token was present but PR ingestion threw — the PR sensor FAILED (vs. the keyless skip). */
+  prFetchFailed: boolean;
   /**
    * Prose caveat for a SCOPED scan (a non-default ref and/or a monorepo sub-path — see
    * `scopeWarning` in src/lib/scan-scope.ts), or null for an ordinary whole-repo default-branch scan.
@@ -194,6 +196,12 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
   if (!input.hasToken) {
     warnings.push(
       "Pull-request signals were skipped: they need a GitHub token (GraphQL has no anonymous access).",
+    );
+  } else if (input.prFetchFailed) {
+    // Failure is not empty success: a failed PR sensor must persist as a broken sensor, never read
+    // as "this repository has no pull requests" (which deflates Review/Velocity/Delivery silently).
+    warnings.push(
+      "Pull-request ingestion FAILED during this scan, so PR-derived signals (Review, Velocity, Delivery) are missing — this reflects a failed read, not a repository without pull requests.",
     );
   }
   if (input.llmFailed) {

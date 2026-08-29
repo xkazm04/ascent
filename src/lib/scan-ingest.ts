@@ -44,6 +44,10 @@ export interface IngestPhaseResult {
   prStats: PrStats | null;
   /** The PR page came back truncated — the scan must not be cached/persisted as authoritative. */
   prPartial: boolean;
+  /** A token was present but PR ingestion THREW — the sensor failed. Distinguishable from the
+   *  anonymous skip (no token) and from a genuinely PR-less repo: prStats:null alone conflates all
+   *  three, and a failed sensor must not persist as "repo has no PRs". */
+  prFetchFailed: boolean;
   governance: Governance | null;
   /** W4 — recent deployments with their latest status. Empty on an anonymous scan, or on a repo that
    *  doesn't use GitHub Deployments; emptiness means "not observable here", never "never deployed". */
@@ -76,9 +80,13 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // Pull-request ingestion (GraphQL) runs in parallel with the REST snapshot fetch, then is
   // awaited before analysis so PR signals fold into the dimension scores (F4). GraphQL needs a
   // token — skip gracefully (null) when scanning anonymously.
+  let prFetchFailed = false;
   const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] } | null> = token
     ? fetchPrStats(parsed.owner, parsed.repo, token, signal).catch((err) => {
+        // The sensor failed — record the fact so it persists with the scan (a caveat via
+        // buildScanWarnings), instead of degrading to a null indistinguishable from "no PRs".
         console.error("[scan] PR ingestion failed:", err);
+        prFetchFailed = true;
         return null;
       })
     : Promise.resolve(null);
@@ -171,6 +179,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     // authoritative — instead of a truncated slice silently deflating D6/D7/D8 on large or
     // rate-limited repos.
     prPartial: prResult?.partial ?? false,
+    prFetchFailed,
     // The AI-attributed PRs as EVIDENCE ROWS (the population behind aiInvolvedRate/aiGovernedRate),
     // extracted from the same fetched nodes. Empty on an anonymous scan — GraphQL needs a token — and
     // that emptiness means "not observable here", never "this repo has no AI changes".

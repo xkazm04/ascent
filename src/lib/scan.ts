@@ -200,7 +200,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   signal?.throwIfAborted();
 
   // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
-  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
+  const { snapshot, prStats, prPartial, prFetchFailed, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
     await ingestRepository({
       parsed,
       source,
@@ -320,6 +320,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     snapshotCoverage: snapshot.coverage,
     stackFit,
     prPartial,
+    prFetchFailed,
     // The god-scan indicator: how much of the model's output ceiling this single assessment call
     // used. Measured from the usage the winning provider reported, against that provider's model.
     outputBudget: classifyOutputBudget(report.usage?.outputTokens, report.engine?.model),
