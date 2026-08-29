@@ -7,6 +7,9 @@
 // Language-neutral: the gate only needs Node to run the in-repo doctor, so it works for any stack.
 
 import type { GeneratedFile } from "./types";
+// One Node major for every workflow Ascent generates - shared with the practice-artifact CI recipe
+// and asserted against this repo's own package.json engines, so the two cannot drift again.
+import { CI_NODE_VERSION } from "@/lib/practice-artifact";
 
 export function buildConformanceWiring(): GeneratedFile {
   // Trigger on pull_request (the merge gate) AND a weekly schedule (the CONTINUOUS half — G7-23).
@@ -45,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${CI_NODE_VERSION}
       - name: .ai conformance gate
         run: node .ai/doctor.mjs
   # Scheduled/manual re-check: never fails the run (report-only), and self-reports to Ascent via
@@ -61,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${CI_NODE_VERSION}
       - name: .ai conformance report (continuous)
         env:
           ASCENT_CONFORMANCE_URL: \${{ secrets.ASCENT_CONFORMANCE_URL }}

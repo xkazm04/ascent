@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, it, expect } from "vitest";
-import { buildArtifact, commandsFor, type LangCommands } from "./practice-artifact";
+import { buildArtifact, CI_NODE_VERSION, commandsFor, type LangCommands } from "./practice-artifact";
+import { buildConformanceWiring } from "@/lib/standard/wiring";
 import { PRACTICES } from "@/lib/practices";
 
 const ctx = { fullName: "acme/api", name: "api", description: "Billing API", primaryLanguage: "TypeScript", defaultBranch: "main" };
@@ -359,5 +363,24 @@ describe("house pattern + provenance", () => {
     const nasty = { lines: ["<script>alert(1)</script>"], exemplars: ["acme/api", "acme/core"] };
     const a = buildArtifact("agent-guidance", { ...ctx, house: nasty })!;
     expect(a.body).not.toContain("<script>");
+  });
+});
+
+// The generated workflows run in SOMEONE ELSE's CI, so this repo's own green build says nothing
+// about the runtime they pin. That is how ascent came to ship node-version: 20 - EOL since April
+// 2026 - into every adopting repo while pinning 24 for itself in .nvmrc, package.json engines and
+// its own two workflows. Derived from package.json rather than re-typed, so the next bump carries.
+describe("generated workflows pin the Node major this repo actually runs", () => {
+  it("CI_NODE_VERSION matches package.json engines.node", () => {
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+    const major = String(pkg.engines?.node ?? "").match(/^(\d+)/)?.[1];
+    expect(major, "package.json engines.node must pin a major").toBeTruthy();
+    expect(CI_NODE_VERSION).toBe(major);
+  });
+
+  it("the generated CI recipe and the .ai conformance workflow use it, not a literal", () => {
+    const wf = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "TypeScript" })!.body;
+    expect(wf).toContain("node-version: " + CI_NODE_VERSION);
+    expect(buildConformanceWiring().body).toContain("node-version: " + CI_NODE_VERSION);
   });
 });

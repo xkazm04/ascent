@@ -244,13 +244,23 @@ function ciSetupStep(action: string): string {
   return `      - uses: ${action}@${spec.ref}\n${inputs ? `        with:\n${inputs}` : ""}`;
 }
 
+/**
+ * The Node major every workflow Ascent GENERATES pins, and the one this repo runs itself.
+ *
+ * They were different: ascent pinned 24 in its own CI, `.nvmrc` and `package.json` engines while
+ * shipping `node-version: 20` into every adopting repo — a runtime whose maintenance window closed in
+ * April 2026. Nobody noticed because the generated file runs in someone else's CI, so this repo's own
+ * green build says nothing about it. One constant, asserted against `package.json` in the tests.
+ */
+export const CI_NODE_VERSION = "24";
+
 function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
   // The extended families carry `ciSetup` (and keep `ci: "generic"`), so the ciSetup branch must be
   // consulted BEFORE the generic fallback — otherwise a Ruby/Java/… repo gets real commands under a
   // "# TODO: add the language setup step" placeholder, i.e. a workflow that cannot run.
   const setup =
     cmd.ci === "node"
-      ? "      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n"
+      ? `      - uses: actions/setup-node@v4\n        with:\n          node-version: ${CI_NODE_VERSION}\n`
       : cmd.ci === "python"
         ? "      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n"
         : cmd.ci === "go"
