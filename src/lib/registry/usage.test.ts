@@ -50,11 +50,50 @@ describe("aggregateUsage", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("also keeps the counts UN-summed, one sample per (contributor, skill)", () => {
+    // `bySkill` is a total with no key: a second pass over the same head cannot tell "the same 40
+    // invocations again" from "40 more", so it can never be persisted. The per-contributor grain is
+    // what gives the OrgSkillUsageSample upsert an identity (#19).
+    const usage = aggregateUsage(
+      [
+        file("usage/dev-box.json", contribution("dev-box", { perfect: 10, uat: 2 })),
+        file("usage/team-a.json", contribution("team-a", { perfect: 5 })),
+      ],
+      [],
+    );
+    expect(usage.contributorNames).toEqual(["dev-box", "team-a"]);
+    expect(usage.samples).toEqual([
+      { contributor: "dev-box", skillName: "perfect", invokes: 10, windowDays: 30, lastUsed: null, generatedAt: "2026-08-19T12:00:00Z" },
+      { contributor: "dev-box", skillName: "uat", invokes: 2, windowDays: 30, lastUsed: null, generatedAt: "2026-08-19T12:00:00Z" },
+      { contributor: "team-a", skillName: "perfect", invokes: 5, windowDays: 30, lastUsed: null, generatedAt: "2026-08-19T12:00:00Z" },
+    ]);
+  });
+
+  it("takes the contributor from the FILE STEM, which the lane guarantees is not a repo", () => {
+    // The usage lane forbids repository names and nested paths, and `isUsageFile` already refused
+    // anything deeper — so the stem is an installation id and there is no repo dimension to recover.
+    const usage = aggregateUsage([file("usage/ci-runner-7.json", contribution("x", { perfect: 1 }))], []);
+    expect(usage.samples[0]!.contributor).toBe("ci-runner-7");
+  });
+
+  it("carries a reported lastUsed through, and leaves it NULL when the file omits it", () => {
+    const withLast = {
+      app: "personas",
+      generatedAt: "2026-08-19T12:00:00Z",
+      windowDays: 30,
+      skills: { perfect: { invokes: 4, lastUsed: "2026-08-18T09:00:00Z" }, uat: { invokes: 1 } },
+    };
+    const usage = aggregateUsage([file("usage/dev-box.json", withLast)], []);
+    expect(usage.samples.map((s) => s.lastUsed)).toEqual(["2026-08-18T09:00:00Z", null]);
+    // `generatedAt` rides along as its own fact and is NEVER substituted for the missing instant.
+    expect(usage.samples[1]!.generatedAt).toBe("2026-08-19T12:00:00Z");
+  });
+
   it("reports nobody-reporting as zero contributors, not zero usage", () => {
     // The distinction the UI depends on: an empty lane means no witness, which
     // is a different fact from a fleet that runs nothing.
     const usage = aggregateUsage([], []);
-    expect(usage).toEqual({ invokes30d: 0, contributors: 0, bySkill: {} });
+    expect(usage).toEqual({ invokes30d: 0, contributors: 0, bySkill: {}, samples: [], contributorNames: [] });
   });
 
   it("degrades ONE malformed contribution, never the pass", () => {

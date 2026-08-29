@@ -12,12 +12,14 @@
 
 import type { OrgRegistryRow } from "@/lib/db/org-registry";
 import { archiveVanishedRegistryRows, recordIndexError, recordIndexResult } from "@/lib/db/org-registry-write";
+import { purgeUsageSamples, recordUsageSamples } from "@/lib/db/org-skill-usage-samples";
 import { upsertRegistryMemory, upsertRegistryPractice, upsertRegistrySkill } from "@/lib/db/org-registry-mirror";
 import { buildCatalog, shortDigest, type RegistryCatalog } from "./catalog";
 import { REGISTRY_CATALOG_PATH, REGISTRY_LESSONS_FILE, REGISTRY_SKILL_FILE, REGISTRY_SPINE_PATH } from "./layout";
 import { cappedReader, countLessons, selectArtifacts, type RegistrySource } from "./index-walk";
 import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistrySkill } from "./parse";
 import { modeToYaml, parseRegistryYaml, type RegistryDeclaration } from "./policy";
+import type { UsageSample } from "./usage-samples";
 import type { RegistryTree } from "./read";
 
 export type { RegistrySource } from "./index-walk";
@@ -120,6 +122,17 @@ export interface RegistryUsage {
   contributors: number;
   /** Per skill, summed across contributors. */
   bySkill: Record<string, number>;
+  /**
+   * The same counts UN-summed: one entry per (contributor, skill), which is what the
+   * `OrgSkillUsageSample` snapshot persists (#19).
+   *
+   * `bySkill` alone could not be persisted safely — it is a total with no key, so a second index pass
+   * of the same head has no way to tell "the same 40 invocations again" from "40 more". Keeping the
+   * per-contributor grain gives the upsert a natural identity and makes re-indexing a no-op.
+   */
+  samples: UsageSample[];
+  /** Every contributor whose file this pass actually read — the purge set. */
+  contributorNames: string[];
 }
 
 /**
@@ -133,6 +146,8 @@ export function aggregateUsage(
   warnings: string[],
 ): RegistryUsage {
   const bySkill: Record<string, number> = {};
+  const samples: UsageSample[] = [];
+  const contributorNames: string[] = [];
   let contributors = 0;
   let invokes30d = 0;
 
@@ -145,12 +160,29 @@ export function aggregateUsage(
       warnings.push(`${path}: not valid JSON — contribution skipped`);
       continue;
     }
-    const skills = (doc as { skills?: Record<string, { invokes?: unknown }> })?.skills;
+    const record = doc as {
+      skills?: Record<string, { invokes?: unknown; lastUsed?: unknown; windowDays?: unknown }>;
+      generatedAt?: unknown;
+      windowDays?: unknown;
+    };
+    const skills = record?.skills;
     if (!skills || typeof skills !== "object") {
       warnings.push(`${path}: no skills object — contribution skipped`);
       continue;
     }
     contributors += 1;
+    // The file's stem IS the contributor id — `usage/acme-ci.json` → `acme-ci`. The lane forbids a
+    // deeper path, and `isUsageFile` already refused anything nested, so this cannot be a repo name.
+    const contributor = path.split("/").pop()!.replace(/\.json$/i, "");
+    contributorNames.push(contributor);
+    const fileWindow = typeof record.windowDays === "number" && record.windowDays > 0 ? Math.floor(record.windowDays) : 30;
+    // An unparseable/absent `generatedAt` becomes the read instant. That is honest for THIS field
+    // (we did read the file now) and is never allowed to stand in for `lastUsed`, which stays null.
+    const generatedAt =
+      typeof record.generatedAt === "string" && Number.isFinite(Date.parse(record.generatedAt))
+        ? record.generatedAt
+        : new Date().toISOString();
+
     for (const [name, entry] of Object.entries(skills)) {
       const n = entry?.invokes;
       if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
@@ -160,9 +192,19 @@ export function aggregateUsage(
       const whole = Math.floor(n);
       bySkill[name] = (bySkill[name] ?? 0) + whole;
       invokes30d += whole;
+      const lastUsed =
+        typeof entry?.lastUsed === "string" && Number.isFinite(Date.parse(entry.lastUsed)) ? entry.lastUsed : null;
+      samples.push({
+        contributor,
+        skillName: name,
+        invokes: whole,
+        windowDays: typeof entry?.windowDays === "number" && entry.windowDays > 0 ? Math.floor(entry.windowDays) : fileWindow,
+        lastUsed,
+        generatedAt,
+      });
     }
   }
-  return { invokes30d, contributors, bySkill };
+  return { invokes30d, contributors, bySkill, samples, contributorNames };
 }
 
 /**
@@ -359,6 +401,19 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     generatedAt: new Date().toISOString(),
     generatedBy: "ascent",
   });
+
+  // ── #19: persist the usage lane per (contributor, skill) ─────────────────────────────────────
+  // Skipped WHOLESALE on a truncated tree. `purgeUsageSamples` treats "not in this pass" as "gone",
+  // and a truncated tree is precisely the case where the pass's own contributor list is unreliable —
+  // acting on it would delete a live installation's counts because GitHub cut the listing short.
+  if (!tree.truncated) {
+    try {
+      await recordUsageSamples(registry.id, registry.orgId, usage.samples);
+      await purgeUsageSamples(registry.id, usage.contributorNames);
+    } catch (err) {
+      warnings.push(`usage/: samples not persisted (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
 
   await recordIndexResult(registry.id, {
     headSha: tree.headSha,

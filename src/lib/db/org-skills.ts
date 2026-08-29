@@ -10,6 +10,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
 import { normalizeEventSource } from "@/lib/org/skill-event-source";
+import { listOrgSkillUsageSamples, type SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
 import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
 import { digestVerdict, isLegacyDigest } from "@/lib/registry/catalog";
 import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
@@ -347,7 +348,14 @@ export async function listOrgSkillAdoptionRows(orgSlug: string): Promise<SkillAd
 export interface SkillEventStat {
   skillId: string;
   type: string;
-  lastAt: string;
+  /**
+   * When that kind of use last happened. NULL = the count is real but the recency is genuinely
+   * unknown — the shape the registry's `usage/` lane produces when a contributor reports `invokes`
+   * without a `lastUsed`. The event rollup itself never yields null (an `OrgSkillEvent` always has a
+   * `createdAt`); the nullability exists so a sample cannot be forced to invent a timestamp, which is
+   * the one substitution that would make every skill in a regenerated registry read `active` forever.
+   */
+  lastAt: string | null;
   count: number;
 }
 
@@ -358,21 +366,26 @@ export interface SkillUsageRows {
   skills: { id: string; name: string; createdAt: string }[];
   events: SkillEventStat[];
   adoptions: SkillAdoptionRow[];
+  /** The registry `usage/` lane's snapshot rows (sink B), folded read-time into `invoke` stats. Empty
+   *  when no registry is mapped or nobody contributes. Never turned into synthetic `OrgSkillEvent`
+   *  rows: a snapshot re-read on every index pass would double-count the moment it were. */
+  samples: SkillUsageSampleRow[];
 }
 
 export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageRows | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
-  if (!orgId) return { skills: [], events: [], adoptions: [] };
+  const empty = { skills: [], events: [], adoptions: [], samples: [] };
+  if (!orgId) return empty;
   const skills = await prisma.orgSkill.findMany({
     where: { orgId, archived: false },
     orderBy: { name: "asc" },
     select: { id: true, name: true, createdAt: true },
   });
-  if (!skills.length) return { skills: [], events: [], adoptions: [] };
+  if (!skills.length) return empty;
   const ids = skills.map((s) => s.id);
-  const [grouped, adoptions] = await Promise.all([
+  const [grouped, adoptions, samples] = await Promise.all([
     prisma.orgSkillEvent.groupBy({
       by: ["skillId", "type"],
       where: { orgId, skillId: { in: ids } },
@@ -380,6 +393,9 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
       _count: { _all: true },
     }),
     listOrgSkillAdoptionRows(orgSlug),
+    // Best-effort: the registry lane is a second sink, so an unreadable one must cost the page its
+    // extra evidence and nothing else.
+    listOrgSkillUsageSamples(orgId).catch(() => []),
   ]);
   return {
     skills: skills.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt.toISOString() })),
@@ -387,6 +403,7 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
       .filter((g) => g._max.createdAt)
       .map((g) => ({ skillId: g.skillId, type: g.type, lastAt: g._max.createdAt!.toISOString(), count: g._count._all })),
     adoptions: adoptions.filter((a) => ids.includes(a.skillId)),
+    samples,
   };
 }
 

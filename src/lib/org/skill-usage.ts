@@ -30,6 +30,8 @@
 // Types only: this module is imported by client components, so it must never pull a runtime `@/lib/db`
 // symbol into the browser bundle. The reads live in skill-usage-load.ts.
 import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
+// Pure module, safe for the client bundle — see its header.
+import { sampleEventStats } from "@/lib/registry/usage-samples";
 
 /** `new` = arrived recently, never invoked. `active` = used inside the window. `dormant` = past the
  *  window with no use since. The COARSE badge vocabulary — see {@link SkillUsageState} for the state
@@ -159,6 +161,13 @@ function laterOf(a: string, b: string | null | undefined): string {
   return tb > Date.parse(a) ? b : a;
 }
 
+/** Later of two instants either of which may be genuinely unknown. Null only when BOTH are — an
+ *  unknown recency never displaces a known one, and never invents one. */
+function laterOfNullable(a: string | null, b: string | null): string | null {
+  if (!a) return b ?? null;
+  return laterOf(a, b);
+}
+
 export interface SkillUsageInput {
   skillId: string;
   /** When the skill was authored. */
@@ -198,23 +207,29 @@ export interface SkillUsageInput {
  * stops a skill from being simultaneously "new" (young) and "dormant" (silent).
  */
 export function skillUsage(input: SkillUsageInput, now: Date = new Date()): SkillUsage {
-  const byType = new Map<string, { lastAt: string; count: number }>();
+  const byType = new Map<string, { lastAt: string | null; count: number }>();
   for (const e of input.events) {
     const prev = byType.get(e.type);
     // Defensive fold: the DB rollup is already one row per (skill,type), but a caller-built list may not be.
-    byType.set(e.type, { lastAt: laterOf(prev?.lastAt ?? e.lastAt, e.lastAt), count: (prev?.count ?? 0) + e.count });
+    byType.set(e.type, {
+      lastAt: laterOfNullable(prev?.lastAt ?? null, e.lastAt),
+      count: (prev?.count ?? 0) + e.count,
+    });
   }
   const invoke = byType.get("invoke");
   const download = byType.get("download");
   const sync = byType.get("sync");
   // Recency decides; the rank only breaks an exact tie. Sorted rather than branched so adding a third
   // real-use type later cannot silently reorder the other two.
+  // A real use with an UNKNOWN instant is evidence that it happened, not evidence of when — so it is
+  // excluded from the recency ranking while still counting toward `useCount` below. This is what keeps
+  // a registry sample that reports `invokes` without a `lastUsed` from claiming the skill is `active`.
   const real: [SkillUsage["lastUsedType"], { lastAt: string; count: number }][] = [];
-  if (invoke) real.push(["invoke", invoke]);
-  if (download) real.push(["download", download]);
+  if (invoke?.lastAt) real.push(["invoke", { lastAt: invoke.lastAt, count: invoke.count }]);
+  if (download?.lastAt) real.push(["download", { lastAt: download.lastAt, count: download.count }]);
   const realUse = real.sort((a, b) => Date.parse(b[1].lastAt) - Date.parse(a[1].lastAt))[0];
-  const picked: [SkillUsage["lastUsedType"], { lastAt: string; count: number } | undefined] =
-    realUse ?? (sync ? ["sync", sync] : [null, undefined]);
+  const picked: [SkillUsage["lastUsedType"], { lastAt: string | null; count: number } | undefined] =
+    realUse ?? (sync?.lastAt ? ["sync", sync] : [null, undefined]);
   const lastUsedAt = picked[1]?.lastAt ?? null;
   const daysSinceUse = lastUsedAt ? daysBetween(lastUsedAt, now) : null;
   // The activity clock ignores `sync` (see the doc comment): a pull is not a use.
@@ -256,10 +271,28 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
   };
 }
 
-/** Fold a whole org's fetched rows into a verdict per skill id. Pure — the DB read is the caller's. */
+/**
+ * Fold a whole org's fetched rows into a verdict per skill id. Pure — the DB read is the caller's.
+ *
+ * The registry `usage/` samples (sink B) are folded HERE, at read time, rather than written back as
+ * `OrgSkillEvent` rows. The samples are a SNAPSHOT re-read on every index pass: materializing them as
+ * ledger rows would double-count the second time the same head was indexed, and no de-duplication key
+ * exists on the registry side to prevent it. Read-time folding is idempotent by construction.
+ */
 export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Record<string, SkillUsage> {
+  const sampleStats = sampleEventStats(
+    (rows.samples ?? []).map((s) => ({
+      contributor: s.contributor,
+      skillName: s.skillName,
+      invokes: s.invokes,
+      windowDays: s.windowDays,
+      lastUsed: s.lastUsedAt,
+      generatedAt: s.generatedAt,
+    })),
+    rows.skills,
+  );
   const events = new Map<string, SkillEventStat[]>();
-  for (const e of rows.events) {
+  for (const e of [...rows.events, ...sampleStats]) {
     const list = events.get(e.skillId) ?? [];
     list.push(e);
     events.set(e.skillId, list);
@@ -273,7 +306,10 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
   // The org-wide instrumentation fact behind `unmeasured` (D24): if not one event of any type exists
   // for the whole library, the pathway is silent and NOTHING is known about any skill's use. One row
   // anywhere proves the pathway works, so a zero-event skill in that org is genuinely `unused`.
-  const orgHasTelemetry = rows.events.length > 0;
+  // A contributed sample proves the pathway reaches this org just as an event does — it is a report
+  // from an installation that ran something. Counting only `rows.events` would leave a registry-only
+  // fleet permanently `unmeasured` while its own usage lane was full.
+  const orgHasTelemetry = rows.events.length > 0 || sampleStats.length > 0;
   const out: Record<string, SkillUsage> = {};
   for (const s of rows.skills) {
     out[s.id] = skillUsage(
