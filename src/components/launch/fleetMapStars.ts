@@ -32,9 +32,16 @@ interface ApiRepo {
 
 export const MAX_STARS = 80;
 export const SKELETON_STARS = 9;
-/** Above this many total fleet stars the per-star twinkle is a steady-state repaint (up to N×MAX_STARS
- *  nodes animating forever). Past the cap the field renders static (still honoring reduced-motion for
- *  everyone) — the constellations read the same, without the large-fleet paint cost. (launch-fleet-map #7) */
+/** Above this many fleet REPOS the per-star twinkle is a steady-state repaint, so the field renders
+ *  static (reduced-motion is honored for everyone regardless) — the constellations read the same,
+ *  without the large-fleet paint cost. (launch-fleet-map #7)
+ *
+ *  The quantity compared is `fleetStats.repos` — every repo in every loaded org — NOT the number of
+ *  stars actually drawn, which each org's MAX_STARS slice caps. The two differ once any org exceeds
+ *  MAX_STARS, and the repo count is deliberately the CONSERVATIVE one: it trips earlier, and a fleet
+ *  big enough to overflow the slice is one where the animation is least likely to be worth its paint.
+ *  Said explicitly because the older wording described the bound as "N×MAX_STARS nodes animating",
+ *  which reads as a promise to count rendered nodes and invites a well-meaning edit to the gate. */
 export const DENSE_FLEET_STARS = 240;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 export const CENTER = 60;

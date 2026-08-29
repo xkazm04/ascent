@@ -146,7 +146,9 @@ export function FleetMap({
   // Fleet-wide tallies that visibly climb as each org's data streams in.
   const stats = useMemo(() => fleetStats(constellations), [constellations]);
   // Past the density cap, stop the per-star twinkle (launch-fleet-map #7): a large fleet is otherwise
-  // N×MAX_STARS nodes repainting forever. Reduced-motion is honored in CSS independently of this.
+  // a field of nodes repainting forever. Reduced-motion is honored in CSS independently of this.
+  // Measured against total fleet REPOS, which is >= the number of stars drawn (each org's field is
+  // sliced at MAX_STARS) — deliberately the conservative side; see DENSE_FLEET_STARS.
   const animateStars = stats.repos <= DENSE_FLEET_STARS;
 
   // Hydration is done when every org has SETTLED — reached a terminal state (done OR error), not merely
