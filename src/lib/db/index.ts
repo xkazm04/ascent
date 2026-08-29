@@ -72,6 +72,7 @@ export {
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
 export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
+export { transactPublicScanQuota, type QuotaWindowDecision } from "@/lib/db/scan-quota";
 // The adopted product KPIs, measured from the data already stored (see the module header).
 export {
   firstScanActivationRate,

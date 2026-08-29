@@ -22,16 +22,13 @@
 // scans are metered by prepaid credits (src/lib/entitlement.ts) and skip this entirely.
 
 import { createHash } from "node:crypto";
-import { Prisma } from "@prisma/client";
 import { clientIp, tooManyResponse } from "@/lib/rate-limit";
 import { envBool } from "@/lib/env";
-import { isDbConfigured, withDb, withRetry } from "@/lib/db";
-// TODO(layering-rules) [A4]: this module is the ONE place outside src/lib/db that imports the raw
-// client module and runs $transaction directly (consume + refund below, with quotaTxOptions'
-// isolation selection). It is grandfathered in eslint.config.mjs; the fix is a data-layer home for
-// the quota's read-decide-write (a repository function taking the decide callback), which is more
-// than a mechanical move — needs a spec.
-import { readDsqlConfig } from "@/lib/db/client";
+// The bucket's read-decide-write transaction (isolation selection, retry, upsert) lives in the
+// data layer — transactPublicScanQuota, src/lib/db/scan-quota.ts. This module keeps the POLICY:
+// window math, limits, bucket derivation, and the fail-open stance.
+// (Spec: docs/specs/2026-08-30-public-scan-quota-repository.md.)
+import { isDbConfigured, transactPublicScanQuota, withDb, withRetry } from "@/lib/db";
 import { recordQuotaEvent } from "@/lib/db/quota-events";
 
 /** Free monthly public-scan allowance attribution: which bucket a scan was counted against
@@ -40,20 +37,6 @@ import { recordQuotaEvent } from "@/lib/db/quota-events";
  *  home for a type shared by server-side quota code); that module now re-exports it for its
  *  existing importers. */
 export type QuotaScope = "anon" | "user";
-
-/**
- * Isolation for the quota's read-modify-write transactions. Vanilla Postgres defaults to READ
- * COMMITTED, where two concurrent consumers both read the same window and the last upsert silently
- * wins (lost update — no error is ever raised, so withRetry never fires); SERIALIZABLE makes one of
- * the racers abort with a 40001 that withRetry retries. Aurora DSQL runs snapshot OCC natively and
- * does not accept explicit isolation levels — its commit-time write-write conflict on the shared
- * row already aborts the loser with a retryable OC### error, so pass no option there.
- */
-function quotaTxOptions(): { isolationLevel: Prisma.TransactionIsolationLevel } | undefined {
-  return readDsqlConfig()
-    ? undefined
-    : { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
-}
 
 const WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // rolling 30-day "month"
 
@@ -230,44 +213,40 @@ export async function consumePublicScanQuota(
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
+  // Minted ONCE, outside the retryable closure below: a serialization retry re-runs the decide
+  // against a fresh window, but the slot it charges (chargedAt) stays this request's stable key.
   const now = Date.now();
   try {
-    const result = await withDb((db) =>
-      withRetry(
-        () =>
-          db.$transaction(async (tx) => {
-            const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
-            const decision = decideQuota(parseHits(row?.hits), now, limit);
-            if (!decision.allowed) {
-              return {
-                enforced: true,
-                allowed: false,
-                remaining: 0,
-                retryAfterSec: retryAfterSec(decision.resetAt, now),
-                resetAt: decision.resetAt,
-                signedIn,
-                chargedAt: null,
-              };
-            }
-            const hits = JSON.stringify(decision.hits);
-            await tx.publicScanQuota.upsert({
-              where: { ipHash },
-              create: { ipHash, hits },
-              update: { hits },
-            });
-            return {
-              enforced: true,
-              allowed: true,
-              remaining: decision.remaining,
-              retryAfterSec: 0,
-              resetAt: decision.resetAt,
-              signedIn,
-              chargedAt: now,
-            };
-          }, quotaTxOptions()),
-        { label: "public-scan-quota" },
-      ),
-    );
+    // One read-decide-write transaction in the data layer (see transactPublicScanQuota for the
+    // isolation + retry story); the decide callback is PURE — safe to re-run on a conflict retry.
+    const result = await transactPublicScanQuota<QuotaResult>(ipHash, "public-scan-quota", (raw) => {
+      const decision = decideQuota(parseHits(raw), now, limit);
+      if (!decision.allowed) {
+        return {
+          result: {
+            enforced: true,
+            allowed: false,
+            remaining: 0,
+            retryAfterSec: retryAfterSec(decision.resetAt, now),
+            resetAt: decision.resetAt,
+            signedIn,
+            chargedAt: null,
+          },
+        };
+      }
+      return {
+        hits: JSON.stringify(decision.hits),
+        result: {
+          enforced: true,
+          allowed: true,
+          remaining: decision.remaining,
+          retryAfterSec: 0,
+          resetAt: decision.resetAt,
+          signedIn,
+          chargedAt: now,
+        },
+      };
+    });
     // QUOTA-6: count an enforced denial (fire-and-forget, after the tx — never inside it).
     if (result.enforced && !result.allowed) {
       void recordQuotaEvent("quota_deny", signedIn ? "user" : "anon").catch(() => {});
@@ -360,25 +339,15 @@ export async function refundPublicScanQuota(
   // there's nothing to refund — and touching the shared "unknown" bucket here could drop a real slot.
   if (unidentifiable) return;
   try {
-    await withDb((db) =>
-      withRetry(
-        // Same one-transaction read-modify-write as consume (see quotaTxOptions): a refund racing
-        // a concurrent consume must not silently drop the consume's freshly-recorded hit.
-        () =>
-          db.$transaction(async (tx) => {
-            const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
-            const prior = parseHits(row?.hits);
-            if (!row || prior.length === 0) return;
-            // Value-keyed by the exact charged timestamp (idempotent if already absent / aged out).
-            const next = removeHit(prior, chargedAt);
-            await tx.publicScanQuota.update({
-              where: { ipHash },
-              data: { hits: JSON.stringify(next) },
-            });
-          }, quotaTxOptions()),
-        { label: "public-scan-quota-refund" },
-      ),
-    );
+    // Same one-transaction read-modify-write as consume (same data-layer boundary): a refund racing
+    // a concurrent consume must not silently drop the consume's freshly-recorded hit.
+    await transactPublicScanQuota<void>(ipHash, "public-scan-quota-refund", (raw) => {
+      const prior = parseHits(raw);
+      // No row / empty window → nothing to refund, leave the store untouched.
+      if (raw === null || prior.length === 0) return { result: undefined };
+      // Value-keyed by the exact charged timestamp (idempotent if already absent / aged out).
+      return { hits: JSON.stringify(removeHit(prior, chargedAt)), result: undefined };
+    });
   } catch (err) {
     // Soft gate: losing a refund only costs the caller one slot — never fail the response over it.
     console.error("[public-scan-quota] refund failed; slot stays consumed", err);

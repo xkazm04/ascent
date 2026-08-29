@@ -11,13 +11,26 @@ const { mockIsDbConfigured, mockReadDsqlConfig, mockRecordQuotaEvent } = vi.hois
   mockRecordQuotaEvent: vi.fn(async () => {}),
 }));
 
-vi.mock("@/lib/db", () => ({
-  isDbConfigured: mockIsDbConfigured,
-  // Pass-throughs: invoke the operation against whatever client/tx the test injects via $transaction.
+vi.mock("@/lib/db", async () => {
+  // The consume/refund read-decide-write now goes through the data layer's transactPublicScanQuota
+  // (src/lib/db/scan-quota.ts). Use the REAL implementation — it picks up the mocked
+  // @/lib/db/client below, so it runs against the injected in-memory `currentDb` — keeping these
+  // suites end-to-end across the new seam (window math + tx + isolation selection together).
+  const { transactPublicScanQuota } = await vi.importActual<typeof import("./db/scan-quota")>("./db/scan-quota");
+  return {
+    isDbConfigured: mockIsDbConfigured,
+    transactPublicScanQuota,
+    // Pass-throughs: invoke the operation against whatever client/tx the test injects via $transaction.
+    withDb: (op: (db: unknown) => unknown) => op(currentDb),
+    withRetry: (fn: () => unknown) => fn(),
+  };
+});
+vi.mock("@/lib/db/client", () => ({
+  readDsqlConfig: mockReadDsqlConfig,
+  // scan-quota (the real module, imported above) reaches the store through these:
   withDb: (op: (db: unknown) => unknown) => op(currentDb),
   withRetry: (fn: () => unknown) => fn(),
 }));
-vi.mock("@/lib/db/client", () => ({ readDsqlConfig: mockReadDsqlConfig }));
 vi.mock("@/lib/db/quota-events", () => ({ recordQuotaEvent: mockRecordQuotaEvent }));
 vi.mock("@/lib/rate-limit", () => ({
   clientIp: () => "203.0.113.99",

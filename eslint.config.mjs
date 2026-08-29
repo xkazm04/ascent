@@ -38,9 +38,6 @@ const eslintConfig = defineConfig([
       "src/lib/memory/coverage.ts",
       "src/lib/memory/scan-feed.ts",
       "src/lib/org/getting-started.ts",
-      // TODO(layering-rules): public-scan-quota also runs the ONE $transaction outside the data
-      // layer (needs a data-layer home for its read-decide-write; see the file's quotaTxOptions).
-      "src/lib/public-scan-quota.ts",
       "src/lib/register/data.ts",
       "src/lib/registry/api.ts",
       "src/lib/registry/capabilities.ts",
