@@ -73,6 +73,7 @@ import type { SkillTraceRow } from "@/lib/db/org-skill-trace";
 import type { SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { UsageEventRow } from "@/lib/db/usage-events";
+import type { InterventionOutcomeRow } from "@/lib/db/outcomes";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 // Not a db module, but a db ROW TYPE all the same: ManifestReadout is parsed off
 // Repository.manifestJson in org-rollup and crosses to the Passports client via OrgRepoRow.manifest.
@@ -133,6 +134,7 @@ const WIRE_TYPES = {
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
   KnowledgeSubjectRow: true satisfies WireSafe<KnowledgeSubjectRow>,
   MemoryProposalRow: true satisfies WireSafe<MemoryProposalRow>,
+  InterventionOutcomeRow: true satisfies WireSafe<InterventionOutcomeRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
@@ -170,6 +172,7 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(41);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(42);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(42);
   });
 });

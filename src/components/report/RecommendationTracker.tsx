@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
-import { ExemplarPointer, ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/roadmapPieces";
-import { isQuickWin, priorityScore, QuickWinBadge } from "@/components/report/roadmapPriority";
+import { ExemplarPointer, ExploreList, PayoffChip, RoadmapMeta, RoadmapSortToggle, TrackerProgress } from "@/components/report/roadmapPieces";
+import { isQuickWin, QuickWinBadge, roadmapLiftKey, sortRoadmap, type RoadmapLifts, type RoadmapSortMode } from "@/components/report/roadmapPriority";
+import { ExpectedLiftBasis } from "@/components/report/ExpectedLiftBasis";
+import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
 import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
 import { StatusSelect, useSavingIds } from "@/components/org/shared/recStatusUi";
-import { Surface } from "@/components/ui";
 import {
   DismissReasonPrompt,
   DoneReconciliation,
@@ -21,9 +22,13 @@ export function RecommendationTracker({
   items: initial,
   report,
   prevDimScores = null,
+  lifts,
 }: {
   items: PersistedRecommendation[];
   report: ScanReport;
+  /** The org's measured lift map (moonshot #9). Absent = no ledger, and the tracker renders exactly
+   *  the list it always did — no clause, no toggle, no reordering. */
+  lifts?: RoadmapLifts;
   /** Per-dimension scores from the PREVIOUS scan, for the done-row reconciliation. `null` (no prior
    *  scan, or history failed to load) correctly yields "not re-measured", never "didn't move". */
   prevDimScores?: Map<string, number> | null;
@@ -68,7 +73,12 @@ export function RecommendationTracker({
   // order meant enabling persistence silently destroyed the roadmap's prioritization + numbering
   // (roadmap-recommendation-tracking #2). The sort key (impact/effort) never changes on a status
   // update, so rows keep stable positions while the user triages.
-  const ordered = [...items].sort((a, b) => priorityScore(b) - priorityScore(a));
+  // Measured ordering (moonshot #9) is OPT-IN and never the default: `sortRoadmap(…, "priority")` is
+  // byte-identical to the sort this list has always done, and the toggle only appears once at least
+  // one row has a publishable basis clause.
+  const [sortMode, setSortMode] = useState<RoadmapSortMode>("priority");
+  const anyMeasured = items.some((i) => expectedLiftClause(lifts?.get(roadmapLiftKey(i))) !== null);
+  const ordered = sortRoadmap(items, lifts, anyMeasured ? sortMode : "priority");
 
   /** After a concurrent-edit 409, pull this row's current server value and re-seed it locally so the
    *  displayed status — and the Retry — rebase on the latest state instead of the user's stale
@@ -177,31 +187,13 @@ export function RecommendationTracker({
 
   return (
     <div className="space-y-3">
-      <Surface radius="xl" className="p-4">
-        <div className="flex items-center justify-between text-base">
-          {allDismissed ? (
-            <span className="font-medium text-slate-400">
-              All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed, nothing left to track
-            </span>
-          ) : (
-            <>
-              <span className="font-medium text-white">
-                {done} of {actionable} done
-                {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
-              </span>
-              <span className="text-slate-400">{pct}%</span>
-            </>
-          )}
+      <TrackerProgress done={done} actionable={actionable} dismissed={dismissed} allDismissed={allDismissed} pct={pct} />
+      {/* Offered only when the ledger has something to order BY — see RoadmapSortToggle. */}
+      {anyMeasured && (
+        <div className="flex justify-end">
+          <RoadmapSortToggle mode={sortMode} onChange={setSortMode} />
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
-          {/* No triumphant success gradient when nothing was actually done — a muted neutral fill. */}
-          {allDismissed ? (
-            <div className="h-full rounded-full bg-slate-700" style={{ width: "100%" }} />
-          ) : (
-            <div className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-500 transition-all" style={{ width: `${pct}%` }} />
-          )}
-        </div>
-      </Surface>
+      )}
 
       {/* Tracking the last re-scan couldn't carry forward — named and re-linkable, never silently
           reset. Renders nothing when there is none. */}
@@ -269,6 +261,7 @@ export function RecommendationTracker({
                 currentScore={dimScores.get(item.dimension)}
               />
             )}
+            {!muted && <ExpectedLiftBasis item={item} lifts={lifts} />}
             {!muted && <ExploreList items={item.explore} />}
             {!muted && <ExemplarPointer dim={item.dimension} />}
             {pendingDismiss === item.id && (

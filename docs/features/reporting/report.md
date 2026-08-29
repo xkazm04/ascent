@@ -236,15 +236,72 @@ with a `status` ∈ `open | in_progress | done | dismissed`.
 
 | Route | Method | Behavior |
 | --- | --- | --- |
-| `/api/recommendations?repo=` | `GET` | `{ scanId, items[] }` for the repo's latest scan (503 without DB). |
+| `/api/recommendations?repo=[&sort=measured]` | `GET` | `{ scanId, items[], sort }` for the repo's latest scan (503 without DB). Each item carries `expectedLift: string \| null` — see [Measured outcomes](#measured-outcomes-the-intervention-ledger). |
 | `/api/recommendations/orphans?repo=` | `GET` | `{ items[] }`: tracking the last re-scan couldn't carry forward. See below. |
 | `/api/recommendations/[id]` | `PATCH` | `{ status?, assigneeLogin?, targetDate?, note? }` → updated item. Validates against `REC_STATUSES`; 404 if not found, 503 without DB. |
 
 `RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
 dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping saves each
 disable only their own row), rollback on failure, and an `aria-live` region announcing
-each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`
-(sorted impact↑/effort↓, quick wins first).
+each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`.
+
+Both renderings order through one contract, `sortRoadmap` (`roadmapPriority.tsx`). Its default
+`"priority"` mode is the long-standing label sort — impact↑/effort↓, quick wins first — derived from
+the model's own `impact`/`effort` labels. Its `"measured"` mode adjusts that order by what the org has
+actually **measured** about each gap; see below. The default has not changed, and with an empty ledger
+the two modes return the same order by construction.
+
+### Measured outcomes: the intervention ledger
+
+Four loops in Ascent already compute an honest before/after delta — a merged practice PR verified
+against its post-merge rescan, a skill adoption paired across the same instrument, a recommendation
+moved to `done`, and a sandbox scenario reconciled against a later scan. `InterventionOutcome`
+(`src/lib/db/outcomes.ts`) is where all four land in one shape, so "this practice moves D2" can be
+**cited** instead of asserted.
+
+**The table holds measured facts only.** A row is written only when both scan bookends exist *and*
+both agree on `rubricVersion` **and** `engineProvider`. Every unmeasured case keeps the named status
+its existing reader already computes (`no-before-scan`, `no-after-scan`, `instrument-mismatch`,
+`instrument-unknown`) and produces **no row**. A stored `0` therefore means "measured, and it moved
+nothing" — a finding. An absent row means "not measured" — not a finding. The simulated-merge branch
+of `mockPrsEnabled()` is excluded: it compares a scan against itself. `dimDelta` is `null` when the
+dimension was absent on either bookend, and `dimId` is `null` for a whole-scan (scenario) outcome —
+never `0` in either case. Writes are upserts on
+`(orgId, kind, identityKey, beforeScanId, afterScanId)`, because three of the four hooks sit on read
+paths that re-run on every render.
+
+**Aggregation is floored, and a floored partition is absent — not nulled.** `aggregateLift`
+(`src/lib/outcomes/aggregate.ts`, pure) partitions by `rubricVersion` + `engineProvider` **first**, so
+a median is never taken across a rubric bump, then drops any partition below its floor:
+`OUTCOME_MIN_SAMPLES = 3` at org scope, `OUTCOME_MIN_ORGS = 5` distinct orgs at corpus scope with
+every private-repo sample excluded. Below the floor the key is simply **not in the map**, so a caller
+cannot render a distribution it isn't allowed to see.
+
+**The clause carries its own basis, or there is no clause.** `expectedLiftClause` renders
+`D2 +11 median (IQR +6…+15) across 37 measured closes · r10 · claude` — the median, the sample count
+and the instrument in **one string**, because there is deliberately no exported formatter that yields
+the number alone. With no measured peers it returns `null`: no number, never `+0`. `ExpectedLiftBasis`
+renders it under a roadmap row and renders **nothing** when it is null; `/api/recommendations` sends
+it as `expectedLift`; `reportLlmMarkdown` appends `- _measured:_ …` to the roadmap line only when
+non-null, so a model reading the briefing is never handed a zero where the answer is "nobody has
+measured this".
+
+**Measured ordering re-ranks inside the impact band, never across it.** `measuredPriorityScore` adds a
+capped adjustment (`MEASURED_BOOST_CAP = 8`, below one `IMPACT_RANK` step of 10) to `priorityScore`,
+and adds exactly nothing for an item with no distribution. So an unmeasured high-impact gap can never
+be buried beneath a measured low-impact one — the failure a naive "sort by median lift, unmeasured
+last" produces the moment a ledger holds three rows about one trivial gap. The tracker's sort toggle
+appears only when at least one row has a clause, and `?sort=measured` over an empty ledger returns the
+read layer's order and reports `sort: "priority"` rather than re-ranking on evidence that doesn't
+exist.
+
+**Scope.** Org-local only. `aggregateLift({ scope: "corpus" })` exists and is tested but has **no
+caller**: cross-tenant aggregation needs the consent model, rubric-versioned snapshots and publication
+contract of the open-benchmark-corpus work, and until that lands no code path reads
+`InterventionOutcome` across `orgId`. `backfillOutcomes(orgSlug)` replays verified `ImprovementPr` rows
+and resolvable `SandboxScenario`s, is idempotent on the unique key, and writes one
+`outcomes.backfill` audit row — it is an operator action over historical data, unlike the hook writes,
+which are derived measurement with no security, spend or publication effect.
 
 ### Tracking that couldn't be carried across a re-scan
 
@@ -551,3 +608,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
   reworded evidence ("uses GitHub Actions" vs "GitHub Actions detected").
 - **No LLM-reasoning drill-down.** `ProvenanceTrack` shows *that* the LLM adjusted a
   score, not the full rationale beyond the dimension summary.
+- **The lift map is not yet mounted on the report page.** `RoadmapSteps`, `RecommendationTracker` and
+  `reportLlmMarkdown` all accept the measured `lifts` map and render the basis clause when given one;
+  `/api/recommendations` supplies it today. The report page (`ReportPanels`) does not yet call
+  `getOrgExpectedLifts` and pass it down, so the clause is reachable through the API before it is
+  reachable in the page. One prop, one server read — deliberately left as a seam rather than widened
+  into another lane's file.

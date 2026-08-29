@@ -16,7 +16,9 @@ import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getInstallationIdForOwner } from "@/lib/db/installations";
+import { recordOutcomeForScanPair } from "@/lib/db/outcomes";
 import { updateRecommendation } from "@/lib/db/scans-recommendations";
+import { reconcileRecommendationOutcomes } from "@/lib/outcomes/reconcile-recs";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getPullRequest } from "@/lib/github/write";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
@@ -534,8 +536,10 @@ async function verifyMergedPrs(orgId: string): Promise<void> {
     // scan row may never exist (persistScanReport dedups per commit). Verifying against the current
     // standing closes the demo loop with an honest ±0 — nothing actually changed in the repo. A real
     // merge always moves the head (merge commit), so production never takes this branch.
+    let simulated = false;
     if (!after && mockPrsEnabled()) {
       after = await prisma.scan.findFirst({ where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, select: scanSelect });
+      simulated = after !== null;
     }
     if (!after) continue; // awaiting rescan
     const before = row.baselineScanId
@@ -553,5 +557,28 @@ async function verifyMergedPrs(orgId: string): Promise<void> {
       where: { id: row.id },
       data: { verifiedScanId: after.id, impactDim: impact.impactDim, impactOverall: impact.impactOverall },
     });
+    // Mirror the measurement into the intervention outcome ledger (moonshot #9), so "this practice
+    // moves D2" can be cited rather than asserted. `computePrImpact` is untouched: the ledger
+    // re-derives the pair from the two scan ids because it additionally needs the INSTRUMENT both
+    // sides were scored under, and it declines to write when they disagree — which is why the
+    // simulated-merge branch above is excluded here. That branch compares a scan against itself, so
+    // its ±0 is an artifact of mock mode, and a demo artifact must never enter a fact table.
+    if (!simulated) {
+      await recordOutcomeForScanPair({
+        orgId,
+        repoFullName: row.repoFullName,
+        kind: "practice",
+        identityKey: row.practiceId,
+        dimId: row.dimId,
+        beforeScanId: row.baselineScanId,
+        afterScanId: after.id,
+        interventionAt: row.mergedAt,
+        sourceRowId: row.id,
+      });
+    }
   }
+  // Same tick, same loop: the recommendations someone marked `done` are the other half of "what did
+  // we actually buy". Driven off the durable RecommendationEvent rows rather than the render-time
+  // diff, which is pure and has no write seam (see src/lib/outcomes/reconcile-recs.ts).
+  await reconcileRecommendationOutcomes(orgId);
 }

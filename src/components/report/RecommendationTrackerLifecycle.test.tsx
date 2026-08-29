@@ -13,7 +13,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import type { PersistedRecommendation, ScanReport } from "@/lib/types";
 
 vi.mock("@/components/report/OrphanedTracking", () => ({ OrphanedTracking: () => null }));
-vi.mock("@/components/report/roadmapPieces", () => ({
+// PARTIAL — see the note in RecommendationTracker.test.tsx: the tracker's own chrome
+// (TrackerProgress, RoadmapSortToggle) stays real; only the per-row chips are stubbed.
+vi.mock("@/components/report/roadmapPieces", async (orig) => ({
+  ...(await orig<typeof import("@/components/report/roadmapPieces")>()),
   RoadmapMeta: () => null,
   PayoffChip: () => null,
   ExploreList: () => null,

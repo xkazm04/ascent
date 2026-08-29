@@ -10,11 +10,18 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockHistory, mockAdoptions } = vi.hoisted(() => ({ mockHistory: vi.fn(), mockAdoptions: vi.fn() }));
+const { mockHistory, mockAdoptions, mockRecordOutcomes, mockResolveOrgId } = vi.hoisted(() => ({
+  mockHistory: vi.fn(),
+  mockAdoptions: vi.fn(),
+  mockRecordOutcomes: vi.fn(async () => {}),
+  mockResolveOrgId: vi.fn(async () => "org_1" as string | null),
+}));
 vi.mock("@/lib/db", () => ({
   getRepositoryHistory: mockHistory,
   listOrgSkillAdoptionRows: mockAdoptions,
 }));
+vi.mock("@/lib/db/outcomes", () => ({ recordOutcomes: mockRecordOutcomes }));
+vi.mock("@/lib/db/scans-shared", () => ({ resolveOrgId: mockResolveOrgId }));
 
 import { getOrgSkillOutcomes, HISTORY_CONCURRENCY } from "./skill-outcomes-load";
 
@@ -46,7 +53,17 @@ const adoption = (skillId: string, repoFullName: string, adoptedAt: string) => (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRecordOutcomes.mockResolvedValue(undefined);
+  mockResolveOrgId.mockResolvedValue("org_1");
 });
+
+/** The ledger mirror is fire-and-forget, so let its promise chain settle before asserting on it. */
+const settle = async () => {
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+};
+
+/** The single recordOutcomes payload, flattened. */
+const mirrored = () => (mockRecordOutcomes.mock.calls[0]?.[0] ?? []) as Record<string, unknown>[];
 
 describe("getOrgSkillOutcomes — bounded fan-out", () => {
   it("never runs more than HISTORY_CONCURRENCY history reads at once", async () => {
@@ -135,5 +152,130 @@ describe("getOrgSkillOutcomes — results are unchanged by the bound", () => {
     const out = await getOrgSkillOutcomes("acme");
     expect(state.calls).toHaveLength(0);
     expect(out.s1![0]!.status).toBe("no-before-scan");
+  });
+});
+
+// ── The intervention outcome ledger mirror (moonshot #9) ─────────────────────────────────────────
+// The ONLY status that may cross into a fact table is `measured`. Every other one is an honest gap,
+// and a ledger that accepted them would be diluted by rows that measured nothing — which is exactly
+// the dilution the whole table exists to prevent. That refusal is invisible in the UI (the Skills
+// page renders the same either way), so it is asserted here.
+
+describe("getOrgSkillOutcomes — ledger mirror", () => {
+  it("mirrors a MEASURED outcome with its deltas, its instrument and its scan bookends", async () => {
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40, dimensions: [{ dimId: "D2", score: 30 }], ...INSTRUMENT },
+        { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55, dimensions: [{ dimId: "D2", score: 44 }], ...INSTRUMENT },
+      ],
+    });
+
+    await getOrgSkillOutcomes("acme");
+    await settle();
+
+    expect(mirrored()).toHaveLength(1);
+    expect(mirrored()[0]).toMatchObject({
+      orgId: "org_1",
+      kind: "skill",
+      identityKey: "s1",
+      repoFullName: "acme/api",
+      beforeScanId: "a1",
+      afterScanId: "a2",
+      overallDelta: 15,
+      dimId: "D2",
+      dimDelta: 14,
+      rubricVersion: INSTRUMENT.rubricVersion,
+      engineProvider: INSTRUMENT.engineProvider,
+    });
+  });
+
+  it("mirrors NOTHING for instrument-mismatch — a different ruler is not a measurement", async () => {
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40, rubricVersion: "r5", engineProvider: "anthropic" },
+        { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55, rubricVersion: "r6", engineProvider: "anthropic" },
+      ],
+    });
+
+    const out = await getOrgSkillOutcomes("acme");
+    await settle();
+
+    expect(out.s1![0]!.status).toBe("instrument-mismatch");
+    expect(mirrored()).toHaveLength(0);
+  });
+
+  it("mirrors NOTHING for instrument-unknown — an absent rubric is not 'the same' rubric", async () => {
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40 },
+        { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55 },
+      ],
+    });
+
+    const out = await getOrgSkillOutcomes("acme");
+    await settle();
+
+    expect(out.s1![0]!.status).toBe("instrument-unknown");
+    expect(mirrored()).toHaveLength(0);
+  });
+
+  it("mirrors NOTHING for a one-sided pair, and mirrors only the measured half of a mixed set", async () => {
+    mockAdoptions.mockResolvedValue([
+      adoption("s1", "acme/api", T("2026-06-15T00:00:00Z")),
+      adoption("s1", "acme/web", T("2026-06-15T00:00:00Z")),
+    ]);
+    mockHistory.mockImplementation(async (owner: string, name: string) => ({
+      repo: { owner, name, fullName: `${owner}/${name}` },
+      scans:
+        name === "api"
+          ? [
+              { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40, ...INSTRUMENT },
+              { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55, ...INSTRUMENT },
+            ]
+          : [{ id: "w1", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 80, ...INSTRUMENT }],
+    }));
+
+    await getOrgSkillOutcomes("acme");
+    await settle();
+
+    expect(mirrored().map((i) => i.repoFullName)).toEqual(["acme/api"]);
+  });
+
+  it("records nothing — and never throws — when the org cannot be resolved", async () => {
+    mockResolveOrgId.mockResolvedValue(null);
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40, ...INSTRUMENT },
+        { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55, ...INSTRUMENT },
+      ],
+    });
+
+    await expect(getOrgSkillOutcomes("acme")).resolves.toBeTruthy();
+    await settle();
+    expect(mockRecordOutcomes).not.toHaveBeenCalled();
+  });
+
+  it("a failing ledger write never costs the page its outcomes", async () => {
+    mockRecordOutcomes.mockRejectedValue(new Error("ledger down"));
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        { id: "a1", scannedAt: T("2026-06-01T00:00:00Z"), overallScore: 40, ...INSTRUMENT },
+        { id: "a2", scannedAt: T("2026-07-01T00:00:00Z"), overallScore: 55, ...INSTRUMENT },
+      ],
+    });
+
+    const out = await getOrgSkillOutcomes("acme");
+    await settle();
+    expect(out.s1![0]!.overallDelta).toBe(15);
   });
 });
