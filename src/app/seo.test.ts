@@ -4,7 +4,7 @@
 // pattern) — no mocks needed.
 //
 // The contract these tests LOCK so a merge/refactor can't silently break it:
-//  - robots ALWAYS disallows the machine API + the private per-user funnels (/api/, /connect,
+//  - robots ALWAYS disallows the machine API + the private per-user funnels (/api/,
 //    /launch). Dropping any entry = an indexable private route = a test failure here. /onboarding
 //    left the disallow list deliberately (it is the public guided entry funnel, now in the sitemap).
 //  - robots allows the public marketing/report surface at "/".
@@ -42,7 +42,7 @@ afterEach(() => {
 // The exact set the disallow list must always cover. Pinned so removing an entry fails the suite.
 // /onboarding was deliberately removed from this set: it is the public guided entry funnel and is
 // enumerated in the sitemap instead (the disjointness test below would fail if it were re-added here).
-const REQUIRED_DISALLOW = ["/api/", "/connect", "/launch"];
+const REQUIRED_DISALLOW = ["/api/", "/launch"];
 
 describe("robots.ts — private/funnel routes stay out of the index", () => {
   it("disallows the machine API + every private funnel route (exact pinned set)", () => {
@@ -173,8 +173,8 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
     const sitemapPaths = sitemap().map((e) => new URL(e.url).pathname);
     for (const p of sitemapPaths) {
       for (const d of blocked) {
-        // robots prefixes match a path if it equals the rule or starts with it (e.g. "/connect" blocks
-        // "/connect" and "/connect/x"). "/api/" (trailing slash) only matches under that prefix.
+        // robots prefixes match a path if it equals the rule or starts with it (e.g. "/launch" blocks
+        // "/launch" and "/launch/x"). "/api/" (trailing slash) only matches under that prefix.
         const matches = p === d || p.startsWith(d.endsWith("/") ? d : `${d}/`);
         expect(matches, `sitemap path "${p}" must not be blocked by robots disallow "${d}"`).toBe(false);
       }
@@ -184,7 +184,7 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
   it("the private funnels stay out of the sitemap; /onboarding moved to the indexable side", () => {
     process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
     const paths = sitemap().map((e) => new URL(e.url).pathname);
-    expect(paths).not.toContain("/connect");
+    expect(paths).not.toContain("/launch");
     expect(paths).not.toContain("/launch");
     // /onboarding is no longer robots-blocked, so it belongs in the sitemap (both sides moved together
     // by design — the disjointness test above would catch a one-sided move).

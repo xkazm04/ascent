@@ -14,7 +14,7 @@ import { GlowBackdrop } from "@/components/about/GlowBackdrop";
 import { AboutCtaButtons } from "@/components/about/AboutCtaButtons";
 
 const ABOUT_ORG_FOOTER_LINKS = [
-  { href: "/connect", label: "Connect" },
+  { href: "/onboarding", label: "Get started" },
   { href: "/pricing", label: "Pricing" },
   { href: "/about", label: "About Ascent" },
   { href: "/", label: "Home" },

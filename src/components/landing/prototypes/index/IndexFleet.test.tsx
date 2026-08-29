@@ -46,7 +46,8 @@ describe("IndexFleet is actually composed onto the landing page", () => {
       join(process.cwd(), "src/components/landing/prototypes/index/IndexVariant.tsx"),
       "utf8",
     );
-    expect(src).toMatch(/<IndexFleet\s*\/>/);
+    // Props are allowed (the section takes `selfHosted`); what is pinned is that it is rendered.
+    expect(src).toMatch(/<IndexFleet\b[^>]*\/>/);
     expect(src).toMatch(/from "\.\/IndexFleet"/);
   });
 

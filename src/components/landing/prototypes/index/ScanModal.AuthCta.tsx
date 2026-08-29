@@ -38,5 +38,5 @@ export function AuthCta({ auth, consent }: { auth: AuthMode; consent: boolean })
       </button>
     );
   }
-  return <SignInButton auth={auth} next="/connect" label="Continue with GitHub" />;
+  return <SignInButton auth={auth} next="/onboarding" label="Continue with GitHub" />;
 }

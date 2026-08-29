@@ -125,7 +125,7 @@ export function WarRoomHeader({
           </div>
           {!readOnly &&
             (watchedCount === 0 ? (
-              <p className="font-mono text-sm text-slate-500">Watch some repos on /connect to scan.</p>
+              <p className="font-mono text-sm text-slate-500">Watch some repos in Repositories to scan.</p>
             ) : (
               // The ONE polite region for a run: the coalesced "done/total repos" progress count
               // (aria-atomic so the whole short count reads each update). Keeping a single announcer

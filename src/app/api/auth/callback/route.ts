@@ -64,7 +64,7 @@ export async function GET(request: Request) {
       `[auth/callback] GitHub OAuth error: ${oauthError}`,
       url.searchParams.get("error_description") ?? "",
     );
-    const res = NextResponse.redirect(new URL("/connect?error=denied", request.url));
+    const res = NextResponse.redirect(new URL("/onboarding?error=denied", request.url));
     res.cookies.delete(RESYNC_COOKIE);
     return res;
   }
@@ -75,13 +75,13 @@ export async function GET(request: Request) {
   const resync = store.get(RESYNC_COOKIE)?.value === "1";
 
   if (!isAuthConfigured() || !code || !state || !savedState) {
-    return NextResponse.redirect(new URL("/connect?error=oauth", request.url));
+    return NextResponse.redirect(new URL("/onboarding?error=oauth", request.url));
   }
   // Constant-time CSRF state comparison (not a plain `!==`), kept as its own branch so a genuine
   // mismatch surfaces a distinct `error=csrf` for logs/incident response rather than the generic code.
   if (!constantTimeEqual(state, savedState)) {
     console.warn("[auth/callback] CSRF state mismatch");
-    return NextResponse.redirect(new URL("/connect?error=csrf", request.url));
+    return NextResponse.redirect(new URL("/onboarding?error=csrf", request.url));
   }
 
   try {
@@ -147,7 +147,7 @@ export async function GET(request: Request) {
     return res;
   } catch (err) {
     console.error("[auth/callback] failed", err);
-    const res = NextResponse.redirect(new URL("/connect?error=oauth_failed", request.url));
+    const res = NextResponse.redirect(new URL("/onboarding?error=oauth_failed", request.url));
     res.cookies.delete(RESYNC_COOKIE);
     return res;
   }

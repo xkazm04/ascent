@@ -33,12 +33,12 @@ const WHERE: Record<ProviderName, string> = {
 };
 
 /**
- * Privacy disclosure shown at the private-scan decision point (/connect): WHERE a repo's code goes
+ * Privacy disclosure shown at the private-scan decision point (/onboarding): WHERE a repo's code goes
  * during inference, and the Bedrock no-training / in-your-cloud option for sensitive code. The connect
  * header already covers persistence ("only scores + evidence, never your source"); this covers the
  * inference hop the header was silent about — surfaced in-product, not buried in docs.
  */
-export function ConnectPrivacyNotice() {
+export function ScanPrivacyNotice() {
   const provider = effectiveProvider();
   const isBedrock = provider === "bedrock";
   const isMock = provider === "mock";

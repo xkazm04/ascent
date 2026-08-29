@@ -4,7 +4,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { segmentScope } from "@/lib/db/org-shared";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
-import type { Schedule } from "@/components/connect/installationRepoTypes";
+import type { Schedule } from "@/lib/org/repo-schedule";
 
 // Keyed on the canonical Schedule vocabulary (installationRepoTypes) so the cadence set can't drift
 // from the route validators / UI options — a missing or extra key is a compile error here.

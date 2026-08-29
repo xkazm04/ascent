@@ -3,11 +3,11 @@
 // (1) Post-sign-in DESTINATION (launch-fleet-map 07-27): a sign-in that carries no destination of its
 // own used to fall back to `/` (the marketing home), which is why /launch — the cinematic mission-
 // control entrance — was unreachable in production. It must now land on /launch, while an EXPLICIT
-// ?next= (the onboarding resume round-trip, /connect, a deep-linked report) always wins.
+// ?next= (the onboarding resume round-trip, /onboarding, a deep-linked report) always wins.
 //
 // (2) Failure surfacing (github-oauth-session 07-16 #2):
 // the route used to redirect failures to `/?auth_error=1`, a flag no page ever rendered — a silent
-// sign-in dead-end. Failures must now land on /connect, whose role="alert" banner already renders
+// sign-in dead-end. Failures must now land on /onboarding, whose role="alert" banner already renders
 // the error taxonomy, and a user-cancelled consent screen (error=access_denied) must map to the
 // "denied" copy rather than being misreported as breakage.
 
@@ -53,7 +53,7 @@ describe("GET /auth/callback — post-sign-in destination", () => {
   beforeEach(() => mockExchange.mockResolvedValue({ error: null }));
 
   it("an EXPLICIT ?next= always wins (the onboarding wizard's sign-in handoff round-trips)", async () => {
-    for (const dest of ["/org/acme", "/onboarding", "/onboarding?org=acme", "/connect", "/report/vercel/next.js"]) {
+    for (const dest of ["/org/acme", "/onboarding", "/onboarding?org=acme", "/onboarding", "/report/vercel/next.js"]) {
       const res = await GET(req(`?code=abc&next=${encodeURIComponent(dest)}`));
       expect(res.headers.get("location")).toBe(`https://ascent.example${dest}`);
     }
@@ -69,7 +69,7 @@ describe("GET /auth/callback — post-sign-in destination", () => {
     expect(res.headers.get("location")).toBe("https://ascent.example/launch");
   });
 
-  it("routes a RETURNING sign-in to /launch too — /launch itself bounces a fleet-less viewer to /connect", async () => {
+  it("routes a RETURNING sign-in to /launch too — /launch itself bounces a fleet-less viewer to /onboarding", async () => {
     // The dormant custom-OAuth stack never detected a first run either (it split on its own resync
     // cookie); Supabase gives no cheap, trustworthy first-run signal, so the rule is destination-based,
     // not identity-based. Two consecutive sign-ins by the same user therefore both land on /launch.
@@ -87,22 +87,22 @@ describe("GET /auth/callback — post-sign-in destination", () => {
 
 describe("GET /auth/callback — Supabase sign-in failure surfacing", () => {
 
-  it("lands exchange failures on /connect?error=oauth_failed — a surface that RENDERS the error", async () => {
+  it("lands exchange failures on /onboarding?error=oauth_failed — a surface that RENDERS the error", async () => {
     mockExchange.mockResolvedValue({ error: { message: "invalid code" } });
     const res = await GET(req("?code=expired"));
-    expect(res.headers.get("location")).toBe("https://ascent.example/connect?error=oauth_failed");
+    expect(res.headers.get("location")).toBe("https://ascent.example/onboarding?error=oauth_failed");
   });
 
-  it("lands a missing code on /connect?error=oauth_failed (never the unread ?auth_error=1 flag)", async () => {
+  it("lands a missing code on /onboarding?error=oauth_failed (never the unread ?auth_error=1 flag)", async () => {
     const res = await GET(req(""));
     const loc = res.headers.get("location")!;
-    expect(loc).toBe("https://ascent.example/connect?error=oauth_failed");
+    expect(loc).toBe("https://ascent.example/onboarding?error=oauth_failed");
     expect(loc).not.toContain("auth_error");
   });
 
   it("maps a user-cancelled consent screen (error=access_denied) to the 'denied' copy, not breakage", async () => {
     const res = await GET(req("?error=access_denied&error_description=cancelled"));
-    expect(res.headers.get("location")).toBe("https://ascent.example/connect?error=denied");
+    expect(res.headers.get("location")).toBe("https://ascent.example/onboarding?error=denied");
   });
 });
 

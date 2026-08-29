@@ -18,7 +18,7 @@ const FLEET_NOTES: Array<{ term: string; detail: string }> = [
   { term: "Live as it scans", detail: "Stars light up in place as scores stream in. Nothing to refresh." },
 ];
 
-export function IndexFleet() {
+export function IndexFleet({ selfHosted = false }: { selfHosted?: boolean }) {
   return (
     // No inner container: IndexVariant already wraps the mid-deck sections in the editorial
     // `mx-auto max-w-6xl px-5` shell (same as IndexOrg / IndexLevels).
@@ -49,8 +49,10 @@ export function IndexFleet() {
             >
               Chart your fleet →
             </Link>
-            <Link href="/connect" className="text-sm font-medium text-slate-300 transition hover:text-white">
-              Or connect a GitHub organization →
+            {/* Both land on /onboarding, which branches by deployment: the cloud leads with a GitHub
+                sign-in, a self-hosted install with the setup guide or the wizard. The label says which. */}
+            <Link href="/onboarding" className="text-sm font-medium text-slate-300 transition hover:text-white">
+              {selfHosted ? "Or set this install up first →" : "Or sign in with GitHub first →"}
             </Link>
           </div>
         </div>

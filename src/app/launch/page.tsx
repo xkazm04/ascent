@@ -30,8 +30,8 @@ export default async function LaunchPage({
 }) {
   const { next: nextParam } = await searchParams;
   // Re-validate the carried-along destination (defense in depth — the value rode in on a
-  // query param) and default to the connect dashboard.
-  const next = safeNext(nextParam, "/connect");
+  // query param) and default to the onboarding page.
+  const next = safeNext(nextParam, "/onboarding");
   // This page was UNREACHABLE in production. It read the dormant custom-OAuth session, which is never
   // minted under the Supabase wall, so `!session` was always true — and the guard inside it then read
   // `if (!isAuthConfigured()) redirect("/connect")`, which is also always true. Every visitor, signed in
@@ -62,7 +62,7 @@ export default async function LaunchPage({
   // Signed in (or auth-off) but nothing installed: this entrance has nothing to map, so send the visitor
   // where they can install the App. Same intent as the original redirect — it just now depends on the
   // actual fleet rather than on a session object that production never creates.
-  if (!installations.length) redirect("/connect");
+  if (!installations.length) redirect("/onboarding");
 
   const viewerName = await viewerDisplayName();
 

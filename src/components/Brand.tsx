@@ -108,7 +108,7 @@ export async function HeaderAccount() {
     );
   }
   if (authOn) {
-    return <GitHubSignInButton variant="nav" next="/connect" />;
+    return <GitHubSignInButton variant="nav" next="/onboarding" />;
   }
   return (
     <Link

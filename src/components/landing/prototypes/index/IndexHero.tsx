@@ -23,7 +23,7 @@ function RuleStat({ value, label }: { value: string; label: string }) {
   );
 }
 
-export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingData) {
+export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted = false, setup = "ready" }: LandingData) {
   // A real, already-scored repo to anchor the "see a sample report" link, so it opens a finished report
   // instead of a hardcoded slug that might not be scanned (which would cold-scan via ColdScanGate).
   // Falsy when the corpus is empty — the sample-report link is then omitted (the curated org-demo link,
@@ -103,8 +103,20 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
               {/* The self-host path, promoted from a buried text link to a real CTA: on an AGPL
                   product it is the one claim a sceptical engineer can verify without giving us
                   anything. Links to the repository when the deployment names one; otherwise to the
-                  pricing page's self-host band, which states the same offer without a dead link. */}
-              {sourceHref ? (
+                  pricing page's self-host band, which states the same offer without a dead link.
+                  On a SELF-HOSTED deployment the reader is already running it, so the pitch is
+                  replaced by the one thing they may still need: finishing setup with the
+                  `/onboarding` skill (only while nothing is configured — afterwards, no third CTA). */}
+              {selfHosted ? (
+                setup === "unset" && (
+                  <Link
+                    href="/onboarding"
+                    className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                  >
+                    Finish setup · /onboarding <span aria-hidden>→</span>
+                  </Link>
+                )
+              ) : sourceHref ? (
                 <a
                   href={sourceHref}
                   target="_blank"

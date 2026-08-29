@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { useOrgScanButton } from "./useOrgScanButton";
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
@@ -100,10 +101,10 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
       </div>
       {!p.running && watchedCount === 0 && (
         <Link
-          href="/connect"
+          href={orgTabHref(org, "repositories")}
           className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent"
         >
-          Watch repos on Connect →
+          Watch repos in Repositories →
         </Link>
       )}
     </div>

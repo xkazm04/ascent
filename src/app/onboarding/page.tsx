@@ -2,10 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
-import { getSession, isAuthConfigured } from "@/lib/auth";
-import { supabaseAuthConfigured } from "@/lib/env";
+import { OnboardingErrorBanner } from "@/components/onboarding/OnboardingErrorBanner";
+import { FirstRunSignIn } from "@/components/onboarding/FirstRunSignIn";
+import { SelfHostSetupPanel } from "@/components/onboarding/SelfHostSetupPanel";
+import { SessionControls } from "@/components/onboarding/SessionControls";
+import { ScanPrivacyNotice } from "@/components/onboarding/PrivacyNotice";
+import { getSession } from "@/lib/auth";
 import { getOrgRollup, isPersonalOrg } from "@/lib/db";
 import { getViewer } from "@/lib/access";
+import { appInstallUrl } from "@/lib/github/app";
+import { resolveFirstRun } from "@/lib/first-run";
 
 export const metadata: Metadata = {
   title: "Onboarding · Ascent",
@@ -13,7 +19,23 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function OnboardingPage() {
+/**
+ * /onboarding — the ONE first-run door. It absorbed the retired /connect page (GitHub-App install entry,
+ * the auth/App routes' `?error=` banners, the dormant session's re-sync/revoke controls, the privacy
+ * disclosure) and now branches on the deployment (src/lib/first-run.ts):
+ *
+ *  - cloud, signed out         → a GitHub sign-in panel FIRST, the wizard (public path) beneath it;
+ *  - self-hosted, login wall   → the sign-in notice, nothing else;
+ *  - self-hosted, nothing set  → the `/onboarding` skill guide (the wizard one click away via ?wizard=1);
+ *  - otherwise                 → the wizard.
+ */
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ org?: string; error?: string; resynced?: string; revoked?: string; wizard?: string }>;
+}) {
+  const { error, resynced, revoked, wizard } = await searchParams;
+  const firstRun = await resolveFirstRun();
   // Seed the activation checklist from a real signal: does the session have a GitHub App
   // installation? (Safely false when auth/App isn't configured.) Pass the installations
   // themselves down so the org step can pull private repos through the App, not just the
@@ -27,10 +49,6 @@ export default async function OnboardingPage() {
   // its dashboard already has data to explore.
   const suggestedOrgs = session?.suggestedOrgs ?? [];
   const seededOrg = session?.seededOrg;
-  // Which GitHub sign-in backend this deployment runs — decided server-side (same expression as the
-  // landing page) and passed to the wizard so its ACCESS GATE can render the matching CTA. Without it
-  // the public-preview funnel's final click (a 401 from requireOrgAccess) has no sign-in affordance.
-  const auth = supabaseAuthConfigured() ? "supabase" : isAuthConfigured() ? "github" : null;
   // Does the signed-in viewer own a PERSONAL workspace (Organization.kind === "personal")? One indexed
   // lookup, and it is the real kind rather than a "slug === my login" guess — so the wizard can hand
   // the individual tier off upfront without misclassifying a viewer whose namespace is a fleet org.
@@ -50,12 +68,17 @@ export default async function OnboardingPage() {
   const rollups = await Promise.all(candidateSlugs.map((s) => getOrgRollup(s).catch(() => null)));
   const scannedOrg = candidateSlugs.find((_, i) => (rollups[i]?.scannedCount ?? 0) > 0) ?? null;
 
+  const wallBlocks = firstRun.mode === "self-hosted" && firstRun.gated && !firstRun.signedIn;
+  const showSetup = firstRun.mode === "self-hosted" && firstRun.setup === "unset" && !wizard && !wallBlocks;
+  const encourageSignIn = firstRun.mode === "cloud" && firstRun.gated && !firstRun.signedIn;
+
   return (
     <>
       <SiteHeader />
       {/* id="main" is the global skip-to-content target (layout.tsx). Without it the always-present
           "Skip to content" link no-ops here — a WCAG 2.4.1 bypass-blocks failure. */}
       <main id="main" className="mx-auto w-full max-w-3xl px-5 py-10">
+        <OnboardingErrorBanner error={error} resynced={resynced} revoked={revoked} installCount={installations.length} />
         {scannedOrg && (
           <div className="animate-fade-up mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3">
             <div className="text-base text-slate-200">
@@ -70,24 +93,35 @@ export default async function OnboardingPage() {
             </Link>
           </div>
         )}
-        {/* animate-fade-up on the header to match connect/page's entrance (Phase 4). */}
-        <div className="animate-fade-up mb-8">
-          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Get started</div>
-          <h1 className="mt-1 text-3xl font-bold text-white">Scan your organization</h1>
-          <p className="mt-2 text-slate-400">
-            Pick up to ten repositories. Ascent scans them in one shot and builds a cross-repo view,
-            separating the <span className="text-slate-200">gaps common across your org</span> (fix once,
-            reuse a practice) from the <span className="text-slate-200">repo-specific</span> ones.
-          </p>
-        </div>
-        <OnboardingFlow
-          hasInstallation={hasInstallation}
-          installations={installations}
-          suggestedOrgs={suggestedOrgs}
-          seededOrg={seededOrg}
-          auth={auth}
-          personalOrg={personalOrg}
-        />
+        {wallBlocks ? (
+          <FirstRunSignIn mode="self-hosted" auth={firstRun.auth} />
+        ) : showSetup ? (
+          <SelfHostSetupPanel />
+        ) : (
+          <>
+            {encourageSignIn && <FirstRunSignIn mode="cloud" auth={firstRun.auth} />}
+            <div className="animate-fade-up mb-8">
+              <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Get started</div>
+              <h1 className="mt-1 text-3xl font-bold text-white">Scan your organization</h1>
+              <p className="mt-2 text-slate-400">
+                Pick up to ten repositories. Ascent scans them in one shot and builds a cross-repo view,
+                separating the <span className="text-slate-200">gaps common across your org</span> (fix once,
+                reuse a practice) from the <span className="text-slate-200">repo-specific</span> ones.
+              </p>
+              <ScanPrivacyNotice />
+            </div>
+            <OnboardingFlow
+              hasInstallation={hasInstallation}
+              installations={installations}
+              suggestedOrgs={suggestedOrgs}
+              seededOrg={seededOrg}
+              auth={firstRun.auth}
+              personalOrg={personalOrg}
+              installUrl={appInstallUrl()}
+            />
+            {session && <SessionControls />}
+          </>
+        )}
       </main>
       <SiteFooter />
     </>

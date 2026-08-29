@@ -474,7 +474,7 @@ export function requireSameOrigin(request: Request): NextResponse | null {
  * non-path values. Shared by the login and callback routes so their validation can
  * never drift apart.
  */
-export function safeNext(next: string | null | undefined, fallback = "/connect"): string {
+export function safeNext(next: string | null | undefined, fallback = "/onboarding"): string {
   if (!next || typeof next !== "string") return fallback;
   // Must be root-relative, but not protocol-relative ("//host") or a backslash variant
   // ("/\\host") — both resolve to an external origin in browsers / the URL parser.

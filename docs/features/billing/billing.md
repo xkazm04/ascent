@@ -177,6 +177,24 @@ the literal `enterprise` id, and returns `null`; the card then renders `PlanEnqu
 mapped to the tier does **not** turn it into a checkout link: a negotiated price is an operator's manual
 fulfilment path, not something a visitor may buy from the page.
 
+### The self-hosted page shows only "Free forever" (2026-08-29)
+
+When `selfHosted()` is true, `/pricing` renders **none** of the above — no tier cards, no
+`CreditMatrixLedger`, no allowance footer, no checkout CTAs — because nothing on it can be bought and
+the previous page was a SaaS layout with a free-forever band bolted above it. `generateMetadata()`
+swaps the title/description too. The page renders `SelfHostPricingBlueprint`
+(`src/components/pricing/SelfHostPricingBlueprint.tsx`), the "Blueprint" direction chosen from a
+`/prototype` round over an editorial "Ledger" alternative (deleted): an instrument panel with (a) a
+real `<table>` capability matrix — gated capabilities with their tier tag, then the limits the tiers
+carry — and (b) the `/onboarding` skill as a checklist of numbered stations, each with the probe it
+runs. (`SelfHostBand` is unchanged and still the band the **cloud** page carries above its cards.)
+
+Both facts come from one pure module, `selfHostPricingData.ts`: `CAPABILITY_DIFF` is **derived from
+`PLAN_CAPABILITIES` / `PLAN_FEATURES`** (a capability that moves tiers moves on the page; the
+metering, seats, retention, model and operation rows are stated beside them), and `ONBOARDING_STEPS`
+is the skill's own step shape at "what happens" altitude. `SelfHostSetupPanel` on `/onboarding`
+renders the same `ONBOARDING_STEPS`, so the two surfaces cannot describe two different skills.
+
 ### The page itself (redesigned 2026-08-14)
 
 The masthead is **one sentence plus the two real first moves**: "Scan a repo free" and "Explore the live

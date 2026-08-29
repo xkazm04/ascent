@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
-import { SCHEDULES, scheduleLabel } from "@/components/connect/installationRepoTypes";
+import { SCHEDULES, scheduleLabel } from "@/lib/org/repo-schedule";
 import { ScheduleSelect } from "./ScheduleSelect";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));

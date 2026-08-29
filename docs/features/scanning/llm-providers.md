@@ -110,7 +110,7 @@ of the call:
   a local-only period reads `$0.00`, which is the answer, instead of "no estimate", which
   reads as a broken panel. This required grouping usage by `(engineProvider, engineModel)`
   rather than by model alone: a model id by itself cannot say who served it.
-- **Privacy disclosure.** `/connect`'s "where your code goes" notice names the local endpoint
+- **Privacy disclosure.** `/onboarding`'s "where your code goes" notice names the local endpoint
   and suppresses the "upgrade to Bedrock for an in-your-cloud guarantee" nudge — advising a
   self-hoster to send their source to a third party *for privacy reasons* was backwards.
 
@@ -177,7 +177,7 @@ CLI provider. Three deliberate differences:
 
 Like claude-cli it gets the generous 15-minute scan LLM budget (`scan-assess.ts`), the
 CLI-class progress estimate on the report page, and an "on this machine? no — inference runs
-at OpenAI" privacy disclosure on `/connect` (`staysOnPremises` is deliberately false).
+at OpenAI" privacy disclosure on `/onboarding` (`staysOnPremises` is deliberately false).
 
 ### The agent-CLI transport seam (`src/lib/llm/transport/`)
 

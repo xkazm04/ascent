@@ -16,7 +16,6 @@ import { DeckProgress } from "@/components/deck/DeckProgress";
 import { useSnapDeck } from "@/components/deck/useSnapDeck";
 import { AboutOrgHero } from "./AboutOrgHero";
 import { AboutOrgQuestions } from "./AboutOrgQuestions";
-import { AboutOrgModules } from "./AboutOrgModules";
 import { AboutOrgLoop } from "./AboutOrgLoop";
 import { AboutOrgCTA } from "./AboutOrgCTA";
 import { PracticeCascade } from "./PracticeCascade";
@@ -36,7 +35,6 @@ const DIAGRAM: Record<AboutOrgFeatureId, React.ReactNode> = {
 const SECTIONS: DeckSectionRef[] = [
   { id: "hero", label: "Overview" },
   { id: "questions", label: "The questions" },
-  { id: "modules", label: "The modules" },
   { id: "practices", label: "Practices" },
   { id: "knowledge", label: "Memory & skills" },
   { id: "governance", label: "Governance" },
@@ -54,7 +52,6 @@ export function AboutOrgLanding() {
       <main id="main">
         <AboutOrgHero />
         <AboutOrgQuestions />
-        <AboutOrgModules />
         {ABOUT_ORG_FEATURES.map((f, i) => (
           <AboutFeature
             key={f.id}

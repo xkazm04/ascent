@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoSchedule, setWatchedSchedule } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
-import { SCHEDULES } from "@/components/connect/installationRepoTypes";
+import { SCHEDULES } from "@/lib/org/repo-schedule";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

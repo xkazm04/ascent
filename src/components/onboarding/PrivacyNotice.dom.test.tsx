@@ -9,20 +9,20 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MAX_FILES } from "@/lib/github/source";
-import { ConnectPrivacyNotice } from "./PrivacyNotice";
+import { ScanPrivacyNotice } from "./PrivacyNotice";
 
 vi.mock("@/lib/llm", () => ({
   resolveProviderChoice: () => "gemini",
   hasLlmKey: () => true,
 }));
 
-describe("ConnectPrivacyNotice — file-budget disclosure", () => {
+describe("ScanPrivacyNotice — file-budget disclosure", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("states the real MAX_FILES budget, derived from the source constant", () => {
-    render(<ConnectPrivacyNotice />);
+    render(<ScanPrivacyNotice />);
     const copy = screen.getByText(/budgeted sample/i).textContent ?? "";
     expect(copy).toContain(`≤${MAX_FILES} files`);
     // The reserved workflow quota exceeds MAX_FILES, so the disclosure must not present

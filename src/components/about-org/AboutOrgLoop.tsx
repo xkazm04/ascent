@@ -3,106 +3,156 @@
 // The operating loop — the section /about doesn't have.
 //
 // Every capability up to here is a noun. A buyer's remaining question is a verb one: what does using
-// this actually look like on a Tuesday? Five steps, each naming the module that owns it, drawn as a
-// closed loop rather than a funnel — because the last step feeds the first, and a marketing page that
+// this actually look like on a Tuesday? Five steps, each naming the module that owns it — drawn as a
+// closed loop rather than a funnel, because the last step feeds the first and a marketing page that
 // draws this as a funnel is quietly promising a one-off engagement.
+//
+// The shape is the live cockpit's (?tab=live), not an illustration of it. Five cards side by side
+// read as a FUNNEL: left to right, arrive, done. What the live theater actually shows is a track with
+// a stop per verb and repositories distributed AROUND it, each mid-glide between two stops, all of
+// them looping. So the five steps are the head of a rail (a real tablist: pick a stop, read what
+// happens there), the lanes below are repositories moving through one cycle, and the return edge is
+// DRAWN rather than described — honest at every breakpoint because the stop geometry is a fixed
+// five-column grid, not a reflowing card grid (`stopPct`, one function, shared by the head, the lanes
+// and the arc).
+//
+// Illustrative run, labelled as such: the vocabulary (lanes, stops, commits/closed counters, a run
+// lift) is the cockpit's; the numbers are a sample.
 
+import { useState } from "react";
 import Link from "next/link";
-import { Kicker, SectionHeading } from "@/components/ui";
+import { Kicker, SectionHeading, deltaHex, fmtDelta } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
 import { DeckSection } from "@/components/deck/DeckSection";
-import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
-import { DEMO_ORG_SLUG } from "@/lib/site";
+import { LOOP_RETURN_INDEX, LOOP_STEPS } from "./loopSteps";
+import { useLoopPlayhead } from "./aboutOrgLoopMotion";
+import { LoopLane, lanePos, laneProgress, stopPct, type TrackLane } from "./AboutOrgLoopTrackLane";
 
-interface LoopStep {
-  n: string;
-  title: string;
-  detail: string;
-  module: string;
-  tab: OrgTabId;
-}
-
-const STEPS: LoopStep[] = [
-  {
-    n: "01",
-    title: "Connect",
-    detail: "Install the GitHub App on the org. Ascent reads through the API; it never clones your code.",
-    module: "Govern",
-    tab: "settings",
-  },
-  {
-    n: "02",
-    title: "Scan",
-    detail: "Every watched repository is scored across the nine dimensions, then rescanned on a cadence you set.",
-    module: "Fleet",
-    tab: "repositories",
-  },
-  {
-    n: "03",
-    title: "Read",
-    detail: "The rollup says where the fleet stands, what moved, and which gaps are shared across teams.",
-    module: "Overview",
-    tab: "overview",
-  },
-  {
-    n: "04",
-    title: "Decide",
-    detail: "The org-wide gaps — open in half the fleet — are practices to fix once; the ledger marks them so a batch is the right shape.",
-    module: "Standing",
-    tab: "followups",
-  },
-  {
-    n: "05",
-    title: "Apply",
-    detail: "Tick a batch, get one fix prompt for your local agent, hand it off; the next scan closes what landed.",
-    module: "Standing",
-    tab: "followups",
-  },
+const LANES: TrackLane[] = [
+  { repo: "platform/billing-api", from: 1, to: 4, commits: 6, closed: 3, lift: 9 },
+  { repo: "web/payments-web", from: 2, to: 4, commits: 4, closed: 2, lift: 6 },
+  { repo: "data/ingest-worker", from: 0, to: 2, commits: 0, closed: 0, lift: 0 },
+  { repo: "mobile/checkout-ios", from: 3, to: 4, commits: 9, closed: 5, lift: 12 },
 ];
 
 export function AboutOrgLoop() {
+  const { ref, p, replay, playing } = useLoopPlayhead();
+  const [active, setActive] = useState(LOOP_RETURN_INDEX);
+  const step = LOOP_STEPS[active]!;
+
+  // Live occupancy per stop — the fact a row of five cards structurally cannot show.
+  const at = LANES.map((l, i) => Math.round(lanePos(l, i, p)));
+  const netLift = LANES.reduce((n, l, i) => n + Math.round(l.lift * laneProgress(i, p)), 0);
+  const improved = LANES.filter((l, i) => Math.round(l.lift * laneProgress(i, p)) > 0).length;
+
   return (
     <DeckSection id="loop" contained justify="startLgCenter">
       <Reveal>
         <SectionHeading
           size="page"
           kicker="How it runs"
-          title="A loop, not a report"
-          intro="The next scan measures whether the last decision worked. That is the only way an index becomes a management instrument instead of a quarterly slide."
+          title="One track. The whole fleet on it at once."
+          intro="Five stops, and every repository is somewhere between two of them. The next scan re-scores what the last decision changed — which is the only thing that turns an index into a management instrument instead of a quarterly slide."
         />
       </Reveal>
 
       <Reveal delay={0.08}>
-        <ol className="tick-corners mt-10 grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider sm:grid-cols-2 lg:grid-cols-5 2xl:mt-14">
-          {STEPS.map((s) => (
-            <li key={s.n} className="relative bg-ink">
-              <Link
-                href={orgTabHref(DEMO_ORG_SLUG, s.tab)}
-                className="focus-ring group flex h-full flex-col p-5 transition hover:bg-surface/40 2xl:p-6"
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs tabular-nums text-accent">{s.n}</span>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">{s.module}</span>
-                </span>
-                <span className="mt-3 text-base font-semibold text-white group-hover:text-accent">{s.title}</span>
-                <span className="mt-1.5 text-sm leading-relaxed text-slate-400 2xl:text-base">{s.detail}</span>
-              </Link>
-            </li>
-          ))}
-        </ol>
+        <div
+          ref={ref}
+          className="tick-corners mt-8 overflow-hidden rounded-2xl border border-divider bg-surface-strong/30 2xl:mt-12"
+        >
+          {/* The stop head shares the lanes' horizontal padding, so a five-column grid puts each
+              stop's centre exactly on the `stopPct` its rails and the return arc use below. */}
+          <div className="border-b border-divider px-5">
+            <div role="tablist" aria-label="Loop stops" className="grid grid-cols-5">
+              {LOOP_STEPS.map((s, i) => {
+                const on = i === active;
+                const here = at.filter((a) => a === i).length;
+                return (
+                  <button
+                    key={s.n}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setActive(i)}
+                    className={`focus-ring flex flex-col items-center gap-1 py-3 transition ${
+                      i > 0 ? "border-l border-divider/60" : ""
+                    } ${on ? "text-accent" : "text-slate-500 hover:text-slate-200"}`}
+                  >
+                    <span className="font-mono text-xs tabular-nums">{s.n}</span>
+                    <span className="truncate font-mono text-xs uppercase tracking-[0.16em]">{s.title}</span>
+                    <span className="font-mono text-xs tabular-nums text-slate-600">
+                      {here > 0 ? `${here} here` : "—"}
+                    </span>
+                    <span aria-hidden className={`h-px w-8 transition ${on ? "bg-accent" : "bg-transparent"}`} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <ul className="divide-y divide-divider/60">
+            {LANES.map((lane, i) => (
+              <LoopLane key={lane.repo} lane={lane} index={i} p={p} />
+            ))}
+          </ul>
+
+          {/* The return edge, DRAWN — from the last stop back to 02. Its two ends sit on the same
+              `stopPct` centres the rails above use, so it cannot point between stops. */}
+          <div className="relative mx-5 h-9" aria-hidden>
+            <div
+              className="absolute top-0 h-6 rounded-b-xl border-b border-l border-r border-accent/40"
+              style={{
+                left: `${stopPct(LOOP_RETURN_INDEX)}%`,
+                width: `${stopPct(LOOP_STEPS.length - 1) - stopPct(LOOP_RETURN_INDEX)}%`,
+              }}
+            />
+            <span
+              className="absolute -top-1 -translate-x-1/2 font-mono text-xs leading-none text-accent"
+              style={{ left: `${stopPct(LOOP_RETURN_INDEX)}%` }}
+            >
+              ▲
+            </span>
+            <span
+              className="absolute bottom-0 -translate-x-1/2 font-mono text-xs uppercase tracking-[0.2em] text-slate-500"
+              style={{ left: `${(stopPct(LOOP_RETURN_INDEX) + stopPct(LOOP_STEPS.length - 1)) / 2}%` }}
+            >
+              ↺ next scheduled scan
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-divider px-5 py-3">
+            <span className="font-mono text-xs tabular-nums text-slate-500">
+              Illustrative cycle · net{" "}
+              <span style={{ color: deltaHex(netLift) }}>{fmtDelta(netLift)}</span> across {LANES.length} lanes ·{" "}
+              {improved} improved
+            </span>
+            <button
+              type="button"
+              onClick={replay}
+              className="focus-ring rounded font-mono text-xs uppercase tracking-[0.2em] text-slate-500 transition hover:text-accent"
+            >
+              {playing ? "running…" : "↻ replay cycle"}
+            </button>
+          </div>
+        </div>
       </Reveal>
 
-      {/* The return edge, stated in words rather than drawn: an arc across a responsive grid that
-          reflows from 5 columns to 2 to 1 would be pointing at the wrong cell at two of those three
-          breakpoints, and a decorative line that lies is worse than no line. */}
       <Reveal delay={0.14}>
-        <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-l-2 border-accent/50 pl-4">
-          <Kicker>↺ back to 02</Kicker>
-          <p className="deck-body text-base text-slate-300">
-            The next scheduled scan re-scores what you changed, and the trajectory either bends or it
-            doesn&apos;t.
+        <Link
+          href={step.href}
+          className="focus-ring group mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-2 border-l-2 border-accent/50 pl-4 transition hover:border-accent"
+        >
+          <Kicker>
+            {step.n} {step.title} · {step.module}
+          </Kicker>
+          <p className="deck-body text-base text-slate-300 group-hover:text-white">
+            {step.detail}{" "}
+            <span aria-hidden className="font-mono text-slate-600 transition group-hover:text-accent">
+              →
+            </span>
           </p>
-        </div>
+        </Link>
       </Reveal>
     </DeckSection>
   );

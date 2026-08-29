@@ -13,10 +13,12 @@ import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, planScanLine, type PlanId } 
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 import { PlanEnquiryCta } from "@/components/pricing/PlanEnquiryCta";
 import { SelfHostBand } from "@/components/pricing/SelfHostBand";
+import { SelfHostPricingBlueprint } from "@/components/pricing/SelfHostPricingBlueprint";
 import { DEMO_ORG_SLUG, demoOrgHref } from "@/lib/site";
 import { planProducts, polarEnabled } from "@/lib/polar";
 import { getSession } from "@/lib/auth";
 import { getViewer } from "@/lib/access";
+import { selfHosted } from "@/lib/env";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 
 // Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
@@ -94,12 +96,39 @@ const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
 /** "Starter $5/mo" — name and price both from the model, for the SEO/FAQ sentences. */
 const priced = (id: PlanId) => `${PLAN_FEATURES[id].label} ${planPriceLabel(id).amount}/mo`;
 
-export const metadata = {
-  title: "Plans & credits · Ascent",
-  description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. On the hosted cloud, public scans are always free and every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
-};
+// Resolved per request rather than a static export: the self-hosted page describes a different thing
+// (an install with every gate open, and how to set it up) and must not advertise plans it doesn't sell.
+export function generateMetadata() {
+  if (selfHosted()) {
+    return {
+      title: "Free forever · Ascent",
+      description:
+        "This self-hosted Ascent runs with every plan gate open and no scan metering. What the hosted plans buy, what this install already has, and how the /onboarding skill sets it up.",
+    };
+  }
+  return {
+    title: "Plans & credits · Ascent",
+    description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. On the hosted cloud, public scans are always free and every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
+  };
+}
 
 export default async function PricingPage() {
+  // A self-hosted install (`selfHosted()`, src/lib/env.ts) has nothing to buy: every gate is open and
+  // scans are unmetered. Rendering the four tier cards and the credit matrix here was a SaaS page with
+  // a "free forever" band bolted on top — two pages arguing on one screen. The operator gets only the
+  // free-forever surface: what the cloud plans would buy vs. what they already have, and how the
+  // `/onboarding` skill finishes setting the install up.
+  if (selfHosted()) {
+    return (
+      <>
+        <SiteHeader />
+        <main id="main" className="mx-auto w-full max-w-6xl px-5 py-12">
+          <SelfHostPricingBlueprint />
+        </main>
+        <SiteFooter />
+      </>
+    );
+  }
   const org = await resolvePrimaryOrgSlug();
   const productByPlan = planProductMap();
   return (

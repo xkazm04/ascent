@@ -66,17 +66,17 @@ Requires `DATABASE_URL` too (installations are stored on `Organization.githubIns
 
 ## 3. Install & scan
 
-1. Visit **`/connect`** → **Install on GitHub** (uses `GITHUB_APP_SLUG`).
+1. Visit **`/onboarding`**, pick an org you are not yet a member of, and follow **Install the GitHub App** on the access gate (uses `GITHUB_APP_SLUG`) — or open the App's public install page directly.
 2. Pick the repositories to grant access to.
 3. GitHub redirects to `/api/app/setup?installation_id=…`, which stores the installation
-   and bounces you to `/connect?org=<login>` with your repo list.
+   and bounces you to `/onboarding?org=<login>` with the wizard opened on that org.
 4. Click **Scan** on any repo: the scan route resolves the installation token by owner,
    reads the repo via the authenticated Contents API, and persists the result under your
    org (private → billable).
 
 ## 4. Enable sign-in (GitHub OAuth)
 
-Sign-in gates `/connect`, `/usage`, and `/trends`, and scopes `/connect` to the
+Sign-in gates `/usage` and `/trends`, and scopes the wizard's App path to the
 **signed-in user's own installations**. It reuses the **same GitHub App** as its OAuth
 provider, so a user's token can list their installations.
 

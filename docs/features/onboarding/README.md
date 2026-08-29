@@ -16,7 +16,7 @@ Context-map group: **Onboarding, Shell & AI Standard** (`feature`).
 - `src/lib/standard/**` (`manifest.ts`, `types.ts`, `doctor.ts`): AI manifest + conformance
 - `src/lib/onboarding/**`, `src/app/api/report/skill`, `src/app/api/report/foundation/pr`
 - `src/app/launch`, `src/components/launch`: Launch Fleet Map
-- `src/app/connect`, `src/components/connect`: repo selection
+- `src/lib/first-run.ts`: the cloud / self-hosted first-run resolver the page and the landing branch on (the `/connect` page was retired 2026-08-29; its jobs live in `src/components/onboarding/`)
 - `src/app/layout.tsx`, `error.tsx`, `global-error.tsx`, `not-found.tsx`, `robots.ts`: shell/SEO
 - `src/app/_dev-inspector`, `src/lib/dev`: Dev Inspector
 

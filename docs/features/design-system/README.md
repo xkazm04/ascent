@@ -101,31 +101,40 @@ Rules that make this safe to extend:
 
 ## `/about-org`: the organization edition deck
 
-Eight snap sections: masthead · the five questions · the module map · three
-feature deep-dives (practices, memory & skills, governance) · the operating loop ·
-CTA. It shares `DeckSection` / `DeckNav` / `Reveal` / `AboutFeature` /
-`AboutCtaButtons` / `GlowBackdrop` with `/about` rather than forking them.
+Seven snap sections: masthead · the five questions · three feature deep-dives
+(practices, memory & skills, governance) · the operating loop · CTA. It shares
+`DeckSection` / `DeckNav` / `Reveal` / `AboutFeature` / `AboutCtaButtons` /
+`GlowBackdrop` with `/about` rather than forking them.
 
-**The module map is derived, not authored.**
-`src/components/about-org/orgModules.ts` builds the six module groups from
-`ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`), the same constant the shipping rail
-renders, and every href from `orgTabHref`. The only thing the file adds is one
-sentence per view, keyed by `OrgTabId`. So a renamed tab flows through
-automatically, and an **added** tab fails `orgModules.test.ts` (which pins that
-every tab in `ORG_TAB_IDS` has a blurb) instead of silently going unmentioned. The
-masthead's "6 modules / 21 views" figures are derived from the same source, so the
-copy cannot contradict the map below it.
+**The module map section was removed (2026-08-29).** It rendered the org rail's six
+groups as a tablist of 21 view cards. The headline figures it fed survive —
+`src/components/about-org/orgModules.ts` is now just `MODULE_COUNT` / `VIEW_COUNT`
+derived from `ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`), the same constant the
+shipping rail renders, so the masthead ledger and the page's `<title>` /
+description / FAQ payload still cannot contradict the product; `orgModules.test.ts`
+pins that derivation. The per-view blurb table went with the section rather than
+lingering as prose nothing renders.
 
 **Every diagram states a real constraint.** `PracticeCascade` caps its run at the
 same 25 repos/call `POST /api/practices/apply-batch` enforces; `KnowledgeLedger`
 renders `MEMORY_KIND_LABEL` and `usageVerdictLabel` / `DORMANCY_WINDOW_DAYS` from
 the product's own modules rather than invented vocabulary.
 
-**The module tabpanels are all rendered and hidden with `visibility`,** stacked into
-one grid cell (`col-start-1 row-start-1`). That keeps the panel as tall as the
-tallest module (no layout shift under a scroll-snap reader), avoids a bare
-`bg-divider` block where a module's view count doesn't fill the last grid row, and
-ships all 21 views in the server HTML for crawlers.
+**The loop section borrows the live theater's vocabulary, not a metaphor for it.**
+It is the cockpit's `LaneRail` shape (`src/features/inflight/live/cockpit/`): one
+rail with a stop per loop verb and repositories distributed around it, each
+mid-glide, with live occupancy per stop and the cycle's net lift in `fmtDelta`. The
+five steps live in one shared catalog (`loopSteps.ts`) with the return edge as a
+named index, so nothing can point the arrow at a different stop. The stop head, the
+lane rails and the drawn return arc all read positions from one `stopPct` over a
+fixed five-column grid, and the head shares the lanes' horizontal padding — which is
+what lets the arc be *drawn* at every breakpoint instead of stated in words, the
+objection the earlier card-row version raised against drawing it.
+
+The section runs on `aboutOrgLoopMotion.ts`: one shot, armed in view, replayable,
+with prefers-reduced-motion short-circuited to the END state rather than to a
+skipped animation — the same contract as the observatory's `useDriftProgress`.
+Nothing on the deck animates on a timer.
 
 ## Form controls (`src/components/ui/Field.tsx`)
 

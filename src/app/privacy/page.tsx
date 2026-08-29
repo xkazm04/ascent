@@ -1,7 +1,7 @@
 // /privacy — the privacy policy for the public marketing surface. Static, factual prose that
 // documents SHIPPED behavior only, each claim traceable to code:
 //   - repo ingestion reads GitHub over the API and never persists source (src/lib/github/source.ts,
-//     src/components/connect/PrivacyNotice.tsx)
+//     src/components/onboarding/PrivacyNotice.tsx)
 //   - contributor attribution from recent commit metadata (computeContributors in src/lib/analyze/index.ts)
 //   - Supabase GitHub OAuth sign-in (src/lib/supabase/*, .env.example "ACTIVE sign-in")
 //   - Polar as the payment processor (src/lib/polar.ts, docs/features/billing/billing.md)

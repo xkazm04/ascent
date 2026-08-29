@@ -53,6 +53,13 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // /connect is retired (2026-08-29): its jobs — the GitHub-App install entry, the auth routes'
+  // `?error=` banners, the session controls — moved to /onboarding. The redirect keeps bookmarks,
+  // README links and a GitHub App whose Setup URL still names it alive; Next forwards the query
+  // string, so `/connect?org=…&installation_id=…` lands on the wizard with its preset intact.
+  async redirects() {
+    return [{ source: "/connect", destination: "/onboarding", permanent: false }];
+  },
   // This project lives inside a larger monorepo-style workspace. Pin the Turbopack
   // root to this directory so Next doesn't infer the parent dir from sibling lockfiles.
   turbopack: {

@@ -28,7 +28,7 @@ export function IndexVariant(props: LandingData) {
           <IndexOrg />
         </Reveal>
         <Reveal>
-          <IndexFleet />
+          <IndexFleet selfHosted={props.selfHosted} />
         </Reveal>
         {/* After the fleet: the cloud story peaks with mission control, then the deck turns to what
             only the self-hosted deployment can do — before the register grounds it all in data. */}

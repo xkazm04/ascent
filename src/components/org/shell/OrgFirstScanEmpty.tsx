@@ -4,6 +4,7 @@
 // to route them into the first scan. Server-safe (no hooks).
 
 import { EmptyState } from "@/components/EmptyState";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export function OrgFirstScanEmpty({ slug }: { slug: string }) {
   return (
@@ -19,7 +20,7 @@ export function OrgFirstScanEmpty({ slug }: { slug: string }) {
       }
       actions={[
         { label: "Run your first scan", href: "/onboarding", primary: true },
-        { label: "Manage repos on Connect", href: "/connect" },
+        { label: "Manage repositories", href: orgTabHref(slug, "repositories") },
       ]}
     />
   );

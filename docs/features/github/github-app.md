@@ -4,7 +4,7 @@ The GitHub App is how Ascent reaches **private and org-wide repos** without a pe
 token, gates pull requests automatically, and re-scans on push. A user installs the App on
 an org/account; Ascent stores the installation, mints short-lived installation tokens to
 read repos and write checks/comments/PRs, and surfaces the org's repos on the
-[connect](#connect-ui) page. The intended setup is documented in
+[onboarding](#install-entry-the-connect-page-is-retired-2026-08-29) wizard. The intended setup is documented in
 [GITHUB_APP.md](./setup.md); this doc covers the implemented surface.
 
 ## Lifecycle
@@ -12,7 +12,7 @@ read repos and write checks/comments/PRs, and surfaces the org's repos on the
 ```
 install on GitHub  →  /api/app/setup?installation_id=…&setup_action=install
   ↓ fetch account login, upsert installation, redirect
-/connect?org=<login>&installation_id=<id>  →  user picks watch / schedule per repo
+/onboarding?org=<login>&installation_id=<id>  →  the wizard opens on that org (watch / schedule set at import, or later on the Repositories tab)
   ↓ thereafter
 /api/app/webhook  ⇐  GitHub events (installation / pull_request / push)
 ```
@@ -97,7 +97,7 @@ repo with `scanSchedule: off` can sit up to one window behind until its next pus
 
 | Route | Method | Role |
 | --- | --- | --- |
-| `/api/app/setup` | `GET` | Post-install redirect: fetch the installation's account login, `upsertInstallation`, bounce to `/connect`. |
+| `/api/app/setup` | `GET` | Post-install redirect: fetch the installation's account login, `upsertInstallation`, bounce to `/onboarding?org=…&installation_id=…`. |
 | `/api/app/repos` | `GET` | List the installation's repos (`?org=` or `?installation_id=`), merged with the DB watch/schedule state. |
 
 ## Installations storage (`src/lib/db/installations.ts`)
@@ -111,25 +111,25 @@ Installations are stored on the `Organization` model (see [data-model.md](../dat
 | `removeInstallation(installationId)` | Clear `watched`/`scanSchedule`/`nextScanAt` on the org's repos and null `githubInstallId` (revoke). |
 | `getInstallationIdForOwner(owner)` | Resolve lowercased slug → `githubInstallId`, or null if not installed. |
 
-## Connect UI
+## Install entry (the `/connect` page is retired, 2026-08-29)
 
-`src/app/connect/page.tsx` checks App config + (optional) sign-in, merges installations
-from the session and from `?org=&installation_id=` (a just-installed org), and renders an
-`InstallationRepos` per installation. `src/components/connect/InstallationRepos.tsx` is a
-filterable repo list (search, public/private filter, "watched only", language filter) with
-per-repo **watch** checkboxes and an **autoscan schedule** dropdown (daily/weekly/monthly/
-off), plus a Scan button to `/report?repo=`. Mutations call `/api/org/watch` and
-`/api/org/schedule` optimistically (rollback on error).
+There is no longer a dedicated connect page. `src/app/connect/**` and `src/components/connect/**`
+were deleted; `next.config.ts` redirects `/connect` → `/onboarding` (query string preserved, so a
+GitHub App whose Setup URL still bounces to `/connect?org=…&installation_id=…` lands on the wizard
+with its `?org=` preset). Its jobs moved:
 
-**Credit visibility at the commitment point.** This is the one screen where a user can flip *every*
-private repo to a recurring billable autoscan, so the list header carries a **balance chip**
-(`InstallationRepos.BalanceChip.tsx`) inline with "N of M watched" and the dashboard link: the
-prepaid balance the org dashboard's `CreditsControl` shows, in the same visual language (mono chip,
-emerald `Credits · Unlimited`, amber `⚠ paused` when both the balance *and* the monthly free
-allowance are spent), but display-only: no popover, no top-up, and no fetch of its own (it reuses the
-balance `useInstallationRepos` already reads from `/api/org/credits`). When no balance can be read
-(anonymous viewer, DB-less deploy, or no access), the chip renders **nothing** rather than a zero.
-Below it, `CreditCostStrip` totals what the current watch/schedule choices cost per month.
+| Was on `/connect` | Now |
+| --- | --- |
+| "Install on GitHub" entry (`appInstallUrl()`) | The wizard's access gate (`OnboardingGateStep`, `installUrl` prop from the page) when a signed-in viewer isn't a member of the target org. |
+| `?error=` banners from `/api/app/setup`, both auth callbacks, `/api/auth/login`, `/api/auth/revoke-sessions` | `OnboardingErrorBanner` on `/onboarding` (`ONBOARDING_ERROR_COPY` covers every code those routes emit, including `auth_required`, `forbidden`, `auth_stack_retired` which used to fall through to "Something went wrong"). |
+| Re-sync access / "Sign out everywhere else" (dormant custom-OAuth session) | `SessionControls` on `/onboarding`, rendered under the same `{session && …}` condition. |
+| "Where your code goes" privacy disclosure | `ScanPrivacyNotice` (`src/components/onboarding/PrivacyNotice.tsx`) under the wizard's heading. |
+| Per-repo **watch** toggles + **schedule** dropdown + balance chip / cost strip | The org dashboard's **Repositories** tab (`src/features/standing/repositories/`, `ScheduleSelect`); the wizard's autoscan opt-in sets the initial watch/schedule at import. The cadence vocabulary the routes validate lives in `src/lib/org/repo-schedule.ts` (moved from the deleted component folder). |
+| Pre-org funnel checklist (`OnboardingChecklist`) | Deleted with the page — nothing else rendered it. |
+
+The pre-onboarding dashboard links that pointed at `/connect` (org shell walls, `OrgFirstScanEmpty`,
+`OrgScanButton`, the fleet-map empty state, the report conversion CTA, the header sign-in `next`,
+`safeNext()`'s fallback, `/me` and `/launch` bounces) point at `/onboarding` or the Repositories tab.
 
 ## Governance signals (`src/lib/github/governance.ts`)
 
@@ -151,13 +151,12 @@ Read-only REST signals folded into the scan (token, not App JWT, required):
 | `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). |
 | `src/lib/db/installations.ts` | Installation persistence on `Organization`. |
 | `src/lib/github/governance.ts` | Branch-protection + commit-activity signals. |
-| `src/app/connect/page.tsx`, `src/components/connect/InstallationRepos.tsx` | Connect UI. |
-| `src/components/connect/InstallationRepos.BalanceChip.tsx` | Prepaid-balance chip in the repo-list header (hidden when unreadable). |
+| `src/app/onboarding/page.tsx`, `src/components/onboarding/OnboardingGateStep.tsx` | Install entry (the wizard; the access gate carries the install link). |
 
 ## Known gaps
 
 - **Push auto-rescan is DB-gated**: `runPushRescan` only runs for repos marked
   `watched: true` and requires `DATABASE_URL`.
-- **Sign-in is optional**: when OAuth env is unset, `/connect` is open; when set, it's
+- **Sign-in is optional**: when OAuth env is unset, `/onboarding` is open; when set, the App path is
   scoped to the signed-in user's own installations (see [auth.md](./auth.md)).
 - **Token cache is in-memory**: re-minted per serverless instance.

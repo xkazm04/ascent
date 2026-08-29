@@ -59,7 +59,7 @@ export function EmptyFleet() {
         star-map of maturity.
       </p>
       <Link
-        href="/connect"
+        href="/onboarding"
         className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
       >
         Connect GitHub →

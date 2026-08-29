@@ -216,25 +216,25 @@ describe("safeNext", () => {
   });
 
   it("falls back for absolute, protocol-relative, and backslash targets", () => {
-    expect(safeNext("https://evil.example")).toBe("/connect");
-    expect(safeNext("//evil.example/phish")).toBe("/connect");
-    expect(safeNext("/\\evil.example")).toBe("/connect");
-    expect(safeNext("/a\\b")).toBe("/connect");
+    expect(safeNext("https://evil.example")).toBe("/onboarding");
+    expect(safeNext("//evil.example/phish")).toBe("/onboarding");
+    expect(safeNext("/\\evil.example")).toBe("/onboarding");
+    expect(safeNext("/a\\b")).toBe("/onboarding");
   });
 
   it("falls back for control chars and whitespace that could smuggle a host", () => {
-    expect(safeNext("/a b")).toBe("/connect");
-    expect(safeNext("/a\tb")).toBe("/connect");
-    expect(safeNext("/a\nb")).toBe("/connect");
-    expect(safeNext(`/a${String.fromCharCode(0)}b`)).toBe("/connect");
-    expect(safeNext(`/a${String.fromCharCode(0x1f)}b`)).toBe("/connect");
-    expect(safeNext(`/a${String.fromCharCode(0x7f)}b`)).toBe("/connect");
+    expect(safeNext("/a b")).toBe("/onboarding");
+    expect(safeNext("/a\tb")).toBe("/onboarding");
+    expect(safeNext("/a\nb")).toBe("/onboarding");
+    expect(safeNext(`/a${String.fromCharCode(0)}b`)).toBe("/onboarding");
+    expect(safeNext(`/a${String.fromCharCode(0x1f)}b`)).toBe("/onboarding");
+    expect(safeNext(`/a${String.fromCharCode(0x7f)}b`)).toBe("/onboarding");
   });
 
   it("falls back for empty / non-path values, honoring a custom fallback", () => {
-    expect(safeNext(null)).toBe("/connect");
-    expect(safeNext(undefined)).toBe("/connect");
-    expect(safeNext("connect")).toBe("/connect");
+    expect(safeNext(null)).toBe("/onboarding");
+    expect(safeNext(undefined)).toBe("/onboarding");
+    expect(safeNext("connect")).toBe("/onboarding");
     expect(safeNext("javascript:alert(1)", "/home")).toBe("/home");
   });
 });

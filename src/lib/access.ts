@@ -133,7 +133,7 @@ export async function requireViewer(): Promise<NextResponse | null> {
     const proto = fwdProto === "http" ? "http" : "https";
     const fwdHost = h.get("x-forwarded-host")?.split(",")[0]?.trim();
     const host = fwdHost && /^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(fwdHost) ? fwdHost : h.get("host");
-    if (host) return NextResponse.redirect(new URL("/connect", `${proto}://${host}`), { status: 303 });
+    if (host) return NextResponse.redirect(new URL("/onboarding", `${proto}://${host}`), { status: 303 });
     // No usable host header at all (unexpected outside a real HTTP request, e.g. a malformed proxy) —
     // fail back to the JSON 401 rather than constructing an invalid redirect URL.
   }

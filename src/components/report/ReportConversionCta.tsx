@@ -102,7 +102,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
           )}
           {!signedIn && (
             <Link
-              href="/connect"
+              href="/onboarding"
               className="focus-ring inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
             >
               Sign in to track over time

@@ -5,6 +5,36 @@ the **onboarding flow** (pick an org → select repos → scan → done) and the
 **launch** page (a constellation star-map of the user's fleet, shown right after first
 sign-in).
 
+## The first-run door is mode-aware (2026-08-29)
+
+`/onboarding` is the ONE first-run destination — every "scan your org" CTA (landing hero and fleet
+section, `/about`, `/about-org`, the org-shell walls, the fleet-map empty state, the report
+conversion CTA, the header sign-in `next`, `safeNext()`'s fallback, `/me` and `/launch` bounces)
+lands here. The retired `/connect` page's jobs live here too (see
+[github-app.md](../github/github-app.md#install-entry-the-connect-page-is-retired-2026-08-29)):
+`OnboardingErrorBanner` renders every `?error=` / `?resynced=` / `?revoked=` code the auth and App
+routes emit, `SessionControls` carries the dormant session's re-sync / revoke-others controls,
+`ScanPrivacyNotice` the "where your code goes" disclosure, and the wizard's access gate carries the
+GitHub App install link (`installUrl` prop). `next.config.ts` redirects `/connect` → `/onboarding`.
+
+What the page shows first is decided server-side by `resolveFirstRun()` (`src/lib/first-run.ts`),
+keyed on `selfHosted()`:
+
+| Deployment | Signed out, wall on | Nothing set up | Otherwise |
+| --- | --- | --- | --- |
+| **Cloud** | `FirstRunSignIn` (cloud): a "Sign in with GitHub" panel ABOVE the wizard — the pitch is identity, the public path stays reachable beneath it | n/a (the wizard creates tenants) | the wizard |
+| **Self-hosted** | `SignInNotice` only — a wall to pass, nothing to sell | `SelfHostSetupPanel`: the `/onboarding` **skill** guide (run from Claude Code in the clone), with `?wizard=1` one click away for "just score a public org" | the wizard |
+
+"Nothing set up" (`resolveFirstRunSetup`, pure + tested) means: no `ASCENT_LOCAL_ORG` declared, no
+GitHub App configured, and no `Organization` row beyond the shared `public` corpus
+(`countTenantOrgs()`, `src/lib/db/tenants.ts`). The landing page reads the same resolver: on a
+self-hosted install the hero's "Open source · run it yourself" CTA is replaced by "Finish setup ·
+/onboarding" while unset (and by nothing once set), and the fleet section's secondary link reads
+"set this install up first" instead of "sign in with GitHub first".
+
+The skill's step list the panel renders is the same data the self-hosted `/pricing` renders
+(`src/components/pricing/selfHostPricingData.ts`), so the two surfaces can't describe two skills.
+
 ## Onboarding (`src/app/onboarding/page.tsx`, `src/components/onboarding/`)
 
 `OnboardingFlow` is a four-phase state machine; all of its state, effects and handlers live in
@@ -12,7 +42,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 
 | Phase | What happens |
 | --- | --- |
-| **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param (used by the connect page's discovered-org chips) starts the public path immediately. |
+| **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param (the `/api/app/setup` post-install bounce, and any deep link that already knows the account) starts the public path immediately. |
 | **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **360s stall timeout** (`STALL_MS`, sized above one real LLM assessment — see below). |
 | **done** | A **short dashboard handoff** (W6b: the old in-wizard activation checklist is gone; activation continues on the dashboard) + the invite panel (App path) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
@@ -96,11 +126,10 @@ one. The snapshot wins over `?org=`; it clears once the scan is saved.
 `OnboardingChecklist` over a wizard-state-derived 5–6 step list (`buildChecklistSteps`, now deleted
 along with its test); the wizard's job ends at the handoff, and activation continues on the
 dashboard, which, since the [zero-repo wall fell](../org-dashboard/org-intelligence.md), renders
-for this org even before the first live scan lands. `OnboardingChecklist` itself stays: the
-[connect page](../github/github-app.md) still renders it over its own three-step funnel progress
-(install → pick → first scan), with a progress bar, the first incomplete step highlighted as the
-next action, and its accessibility intact (`role=progressbar`, `aria-live` announcements, per-step
-focus move, keyboard nav).
+for this org even before the first live scan lands. `OnboardingChecklist` was deleted on 2026-08-29
+with the `/connect` page, the only surface that still rendered it (its three-step funnel progress
+— install → pick → first scan — is now the wizard's own pick step plus the access gate's install
+link).
 
 The import path powers **free-tier onboarding**: it scans a whole public org without
 requiring the [GitHub App](../github/github-app.md), and feeds straight into the
@@ -236,7 +265,13 @@ cluster, each repo a star:
 
 | File | Role |
 | --- | --- |
-| `src/app/onboarding/page.tsx` | Onboarding page shell (seeds from session; "welcome back" jump when the viewer already has a scanned org). |
+| `src/app/onboarding/page.tsx` | Onboarding page shell: mode-aware first screen (see above), `?error=` banners, seeds from session; "welcome back" jump when the viewer already has a scanned org. |
+| `src/lib/first-run.ts` | `resolveFirstRun()` — cloud vs self-hosted, auth backend, wall, signed-in, and the pure `resolveFirstRunSetup()` verdict (tested). |
+| `src/components/onboarding/FirstRunSignIn.tsx` | Cloud: the sign-in-first panel above the wizard. Self-hosted: the plain `SignInNotice`. |
+| `src/components/onboarding/SelfHostSetupPanel.tsx` | Self-hosted + nothing set up: the `/onboarding` skill guide (steps from `selfHostPricingData.ts`). |
+| `src/components/onboarding/OnboardingErrorBanner.tsx` | `ONBOARDING_ERROR_COPY` + the `?error=` / `?resynced=` / `?revoked=` banners (ex-`/connect`). |
+| `src/components/onboarding/SessionControls.tsx` | Dormant-session re-sync + "sign out everywhere else" (ex-`/connect`). |
+| `src/components/onboarding/PrivacyNotice.tsx` | `ScanPrivacyNotice` — where a private scan's sampled files go (ex-`/connect`). |
 | `src/components/onboarding/OnboardingFlow.tsx` | Four-phase pick → select → scan → done (view layer). |
 | `src/components/onboarding/useOnboardingFlow.ts` | All wizard state/effects: listings, credit gate, resume snapshot, `?org=` handoff, SSE run. |
 | `src/components/onboarding/OnboardingSelectStep.CostDisclosure.tsx` | Immediate + recurring cost copy and the weekly-autoscan opt-in checkbox. |
@@ -245,7 +280,6 @@ cluster, each repo a star:
 | `src/components/onboarding/importPlan.ts` | Pure `{ mock, watch, schedule, upgradeAfter }` plan for one run: the whole preview-then-upgrade matrix. |
 | `src/components/onboarding/upgradeScan.ts` | The one-shot, org-scoped, 15-min-TTL sessionStorage handoff the org header consumes to auto-start the live scan. |
 | `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`. |
-| `src/components/onboarding/OnboardingChecklist.tsx` | The **pre-org** funnel checklist, rendered by the connect page only (the wizard's done phase dropped it in W6b). Deliberately kept: it serves the state *before* any org dashboard exists (install App → pick repos → first scan), derived from session + watchlist, with no membership and therefore no getting-started model to read. The companion takes over the moment there is a dashboard; the two never render on the same page. |
 | `src/components/onboarding/tour/TourChecklist.tsx` | The drawer: chrome, posture, channel switch, both stamp writes. |
 | `src/components/onboarding/tour/TourDrawerHeader.tsx` | Header row + the Setup/Athena channel switch (`aria-pressed`, never `aria-expanded` — the pull tab owns that). |
 | `src/components/onboarding/tour/TourChecklistBody.tsx` | The setup channel's scrolling body: progress, promoted task, both rails. |
@@ -288,7 +322,7 @@ track, which would let this drop back to seconds.
 - **The public funnel is allowance-bounded** (no longer preview-only, G7-17): it runs real scans, but
   only as many as the caller's remaining free monthly public-scan allowance covers; past that it
   refuses rather than downgrading. Private repos still require the App and the
-  [connect](../github/github-app.md) flow (the wizard reaches them via `loadInstallationRepos`, so
+  [install entry](../github/github-app.md) (the wizard reaches them via `loadInstallationRepos`, so
   "select is public-only" is no longer true; the *funnel* is, the *selector* isn't).
 - **The public listing is bounded**: it walks at most 5 pages before giving up, so a large or
   fork-heavy account yields a recent slice (disclosed in the select step, not silently).

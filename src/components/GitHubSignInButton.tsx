@@ -14,7 +14,7 @@ import { useResetPendingOnPageShow } from "@/components/auth/usePendingReset";
 type Variant = SignInButtonVariant;
 
 export function GitHubSignInButton({
-  next = "/connect",
+  next = "/onboarding",
   variant = "primary",
   label,
   pendingLabel,

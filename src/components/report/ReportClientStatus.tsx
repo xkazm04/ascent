@@ -248,7 +248,7 @@ export function Empty({
             // `connect` doc above), so the one action that can actually resolve it leads, and the
             // retry loop is replaced by a "different repo" path (repo-report-shell-tabs #4).
             [
-              { label: "Private repo? Connect GitHub", href: "/connect", primary: true },
+              { label: "Private repo? Connect GitHub", href: "/onboarding", primary: true },
               { label: "Scan a different repo", href: "/?scan=1" },
               { label: "← Back home", href: "/" },
             ]

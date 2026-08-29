@@ -94,11 +94,11 @@ export async function OrgShell({
   // can't even distinguish "exists with data" from "no data yet".
   if (!(await canReadOrg(slug))) {
     const body = isAuthConfigured()
-      ? "This organization's dashboard is private to members who've installed the Ascent GitHub App on it. If you just installed it, re-sync your GitHub access on Connect."
+      ? "This organization's dashboard is private to members who've installed the Ascent GitHub App on it. If you just installed it, re-sync your GitHub access on the onboarding page."
       : "Per-organization dashboards require the GitHub App and authentication to be configured on this deployment. Only the shared public dashboard is available here.";
     return (
       <Frame>
-        <OrgEmpty title={`No access to ${slug}`} body={body} href="/connect" cta="Go to Connect" />
+        <OrgEmpty title={`No access to ${slug}`} body={body} href="/onboarding" cta="Go to onboarding" />
       </Frame>
     );
   }
@@ -178,7 +178,7 @@ export async function OrgShell({
   if (shellState === "wall" || !summary) {
     return (
       <Frame>
-        <OrgEmpty title={`No data for ${slug}`} body="Watch some repositories on /connect and run a scan, then this dashboard fills in." href="/connect" cta="Go to Connect" />
+        <OrgEmpty title={`No data for ${slug}`} body="Import some repositories on /onboarding and run a scan, then this dashboard fills in." href="/onboarding" cta="Go to onboarding" />
       </Frame>
     );
   }

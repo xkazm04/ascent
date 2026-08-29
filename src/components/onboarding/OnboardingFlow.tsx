@@ -20,6 +20,7 @@ export function OnboardingFlow({
   seededOrg,
   auth = null,
   personalOrg = null,
+  installUrl = null,
 }: {
   hasInstallation?: boolean;
   installations?: Installation[];
@@ -31,6 +32,9 @@ export function OnboardingFlow({
   personalOrg?: string | null;
   /** Orgs auto-discovered at login that aren't installed yet — one-click "scan this org" nudges. */
   suggestedOrgs?: string[];
+  /** The GitHub App's public install URL (null when GITHUB_APP_SLUG is unset) — the access gate's
+   *  "install the App" CTA; the retired /connect page used to host that link. */
+  installUrl?: string | null;
   /** Most-active org whose watchlist was pre-seeded at login; surfaced as a "dashboard ready" CTA. */
   seededOrg?: string;
 }) {
@@ -99,6 +103,7 @@ export function OnboardingFlow({
         <GateStep
           gate={gate}
           auth={auth}
+          installUrl={installUrl}
           selectedCount={selected.size}
           selectedRepos={repos.filter((r) => selected.has(r.fullName))}
           onBack={() => setGate(null)}

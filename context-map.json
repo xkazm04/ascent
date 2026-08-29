@@ -2200,8 +2200,6 @@
             "src/components/pricing/PlanEnquiryFields.tsx",
             "src/components/pricing/SelfHostBand.tsx",
             "src/components/pricing/creditMatrixData.test.ts",
-            "src/components/pricing/SelfHostPricing.tsx",
-            "src/components/pricing/SelfHostPricingLedger.tsx",
             "src/components/pricing/SelfHostPricingBlueprint.tsx",
             "src/components/pricing/selfHostPricingData.ts"
           ],

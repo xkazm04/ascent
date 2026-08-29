@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { estimateMonthlyCredits, MONTHLY_RUNS, scheduledRunsPerMonth } from "./credit-estimate";
-import { SCHEDULES } from "@/components/connect/installationRepoTypes";
+import { SCHEDULES } from "@/lib/org/repo-schedule";
 
 describe("MONTHLY_RUNS", () => {
   it("covers every selectable schedule except 'off' (rates derive from the source array)", () => {

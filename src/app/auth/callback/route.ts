@@ -35,7 +35,7 @@ const DEFAULT_SIGNED_IN_DEST = "/launch";
  *
  * ── POST-SIGN-IN DESTINATION (launch-fleet-map, 07-27) ────────────────────────────────────────────
  * An EXPLICIT `?next=` always wins: every flow that has somewhere to be (the onboarding wizard's
- * resume round-trip to /onboarding, /connect, a deep-linked report, the /launch sign-in prompt
+ * resume round-trip to /onboarding, a deep-linked report, the /launch sign-in prompt
  * itself) sets it on the `redirectTo` it hands signInWithOAuth, and hijacking that would strand the
  * user mid-flow. Only a sign-in with NO destination of its own is re-pointed.
  *
@@ -53,7 +53,7 @@ const DEFAULT_SIGNED_IN_DEST = "/launch";
  * uninstall — so a "first run" flag derived from it would be both skew-sensitive and wrong for the
  * user who returns after removing the App. So we mirror the dormant stack's ACTUAL rule instead of
  * inventing a fragile one: no explicit destination → /launch, first-run or not. That stays sane for
- * returning users because /launch itself redirects to /connect when the viewer has no installations
+ * returning users because /launch itself redirects to /onboarding when the viewer has no installations
  * (src/app/launch/page.tsx), so the only people who ever see the map are people who have a fleet to
  * see — and the map's own "Enter mission control" affordance carries them onward.
  *
@@ -114,10 +114,10 @@ export async function GET(request: Request) {
 
   // No code, or the exchange failed. This used to redirect to `/?auth_error=1` — a flag NO page or
   // component ever read, so every real-world sign-in failure (consent-screen cancel, expired code,
-  // Supabase outage) was a silent dead-end back on the home page. Land on /connect instead, whose
+  // Supabase outage) was a silent dead-end back on the home page. Land on /onboarding instead, whose
   // error banner already renders these codes — the same taxonomy the custom-OAuth flow uses — and
   // distinguish a user-cancelled consent screen (`error=access_denied`, forwarded by Supabase/GitHub)
   // from a genuine exchange failure so a deliberate cancel isn't misreported as breakage.
   const denied = url.searchParams.get("error") === "access_denied";
-  return NextResponse.redirect(new URL(`/connect?error=${denied ? "denied" : "oauth_failed"}`, origin));
+  return NextResponse.redirect(new URL(`/onboarding?error=${denied ? "denied" : "oauth_failed"}`, origin));
 }
