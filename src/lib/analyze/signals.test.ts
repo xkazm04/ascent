@@ -112,6 +112,39 @@ describe(".ai/ standard scoring — verified, not present (Goodhart guard)", () 
     expect(score(scaffoldOnly, "D8")).toBeGreaterThan(score(bare, "D8")); // a little, not a lot
   });
 
+  // #13 PIN. `aiStandard()` now sources this branch from the shared manifest reader instead of three
+  // inline regexes. The rewrite must move NO number and NO label: this lane bumps no rubric, so the
+  // two awards are asserted byte-for-byte and the delta between a FETCHED manifest and a manifest
+  // that is only in the tree is pinned to exactly the +4. What legitimately changes is reachability —
+  // the +4 was unreachable while the fetch list never requested the file, and this is the test that
+  // makes the moment it becomes reachable a visible, deliberate event rather than a silent re-score.
+  const d1Labels = (s: RepoSnapshot) =>
+    analyzeSignals(s, "2026-06-10T00:00:00Z").find((d) => d.id === "D1")!.signals.map((x) => x.label);
+  // Present in the TREE but never fetched — exactly the state every scan was in before #14's fetch.
+  const treeOnly = fileSnap([{ path: ".ai/manifest.yaml" }, { path: ".ai/doctor.mjs", content: "// doctor" }]);
+  const fetched = fileSnap([
+    { path: ".ai/manifest.yaml", content: MANIFEST },
+    { path: ".ai/doctor.mjs", content: "// doctor" },
+  ]);
+
+  it("pins the two D1 manifest awards: exact labels, and a +4 that only a FETCHED manifest earns", () => {
+    expect(d1Labels(treeOnly)).toContain("Found .ai/manifest.yaml (agent-facing contract)");
+    expect(d1Labels(treeOnly)).not.toContain("Manifest declares capabilities + control placement");
+    expect(d1Labels(fetched)).toContain("Manifest declares capabilities + control placement");
+    // The ONLY difference between the two is that one award.
+    expect(d1Labels(fetched).filter((l) => !d1Labels(treeOnly).includes(l))).toEqual([
+      "Manifest declares capabilities + control placement",
+    ]);
+    expect(score(fetched, "D1") - score(treeOnly, "D1")).toBe(4);
+  });
+
+  it("a manifest the reader cannot read scores the presence award and nothing more", () => {
+    // Truncated by the fetch byte budget: the head survives, the capabilities block does not.
+    const truncated = fileSnap([{ path: ".ai/manifest.yaml", content: "schema: ai-manifest\nschemaVersion: 0.3.0\n" }]);
+    expect(d1Labels(truncated)).toContain("Found .ai/manifest.yaml (agent-facing contract)");
+    expect(d1Labels(truncated)).not.toContain("Manifest declares capabilities + control placement");
+  });
+
   it("labels the doctor as unwired until it is in CI or a hook", () => {
     const labels = (s: RepoSnapshot) =>
       analyzeSignals(s, "2026-06-10T00:00:00Z").find((d) => d.id === "D8")!.signals.map((x) => x.label).join(" | ");
