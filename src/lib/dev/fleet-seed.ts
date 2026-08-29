@@ -254,9 +254,14 @@ export function fleetSpecs(org: string, count: number): RepoSpec[] {
   const used = new Set<string>();
   for (let i = 0; i < count; i++) {
     const rng = mulberry32(hash32(`${org}/repo#${i}`));
-    let name = `${NAME_PREFIXES[i % NAME_PREFIXES.length]}-${NAME_NOUNS[Math.floor(i / NAME_PREFIXES.length) % NAME_NOUNS.length]}`;
+    // 12 prefixes x 12 nouns = 144 distinct pairs, and the route clamps repoCount to 400 — so the
+    // collision branch is reachable and must disambiguate from the BASE name. Appending to `name`
+    // itself compounded on the second collision (`platform-service` -> `-2` -> `-2-3`): at the route's
+    // maximum, 112 of 400 repos carried a stacked suffix.
+    const base = `${NAME_PREFIXES[i % NAME_PREFIXES.length]}-${NAME_NOUNS[Math.floor(i / NAME_PREFIXES.length) % NAME_NOUNS.length]}`;
+    let name = base;
     let suffix = 2;
-    while (used.has(name)) name = `${name}-${suffix++}`;
+    while (used.has(name)) name = `${base}-${suffix++}`;
     used.add(name);
     const archetype: RepoArchetype = rng() < 0.7 ? "org" : rng() < 0.6 ? "team" : "solo";
     specs.push({

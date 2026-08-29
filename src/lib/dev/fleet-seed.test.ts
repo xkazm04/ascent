@@ -40,11 +40,21 @@ describe("fleet-seed generator", () => {
     expect(a.map((r) => r.repo.headSha)).toEqual(b.map((r) => r.repo.headSha));
   });
 
-  it("fleetSpecs yields the requested count with unique repo names", () => {
-    const specs = fleetSpecs("acme", 120);
-    expect(specs).toHaveLength(120);
-    expect(new Set(specs.map((s) => s.name)).size).toBe(120);
-    expect(specs.every((s) => s.owner === "acme")).toBe(true);
+  // 400 is the route's clamp ceiling (seed-fleet/route.ts), and the name pool holds 144 distinct
+  // pairs — so this must be exercised ABOVE 144, where the disambiguation branch actually runs. The
+  // old case used 120 and never reached it, which is how the compounding suffix survived.
+  it("fleetSpecs yields the requested count with unique repo names, up to the route's maximum", () => {
+    for (const count of [120, 400]) {
+      const specs = fleetSpecs("acme", count);
+      expect(specs).toHaveLength(count);
+      expect(new Set(specs.map((s) => s.name)).size).toBe(count);
+      expect(specs.every((s) => s.owner === "acme")).toBe(true);
+    }
+  });
+
+  it("disambiguates a colliding name from the BASE, never stacking suffixes", () => {
+    const stacked = fleetSpecs("acme", 400).filter((s) => /-\d+-\d+$/.test(s.name));
+    expect(stacked.map((s) => s.name)).toEqual([]);
   });
 
   // The history seeder (/api/dev/seed-history) runs over an org's REAL repositories and persists
