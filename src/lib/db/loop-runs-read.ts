@@ -49,6 +49,39 @@ export async function listLanes(runId: string): Promise<LoopLaneRecord[]> {
   }, []);
 }
 
+/** A lane of a run that is still marked `running` — enough to find its worktree on disk. */
+export interface InFlightLane {
+  runId: string;
+  orgSlug: string;
+  repoFullName: string;
+  /** The branch the lane's worktree has checked out. Its identity, on disk and in git. */
+  branch: string;
+}
+
+/**
+ * Every lane of every run still marked `running` — read by the BOOT SWEEP, immediately before it
+ * marks those runs stopped, so the temp worktrees they stranded can be removed by name.
+ *
+ * Read BEFORE the sweep, deliberately: after it, a lane interrupted by a restart is indistinguishable
+ * from one that errored a week ago, and the sweep would be removing worktrees it never stopped.
+ * Lanes with no branch are dropped — they died before `git worktree add` ran, so there is nothing on
+ * disk with their name on it.
+ */
+export async function listInFlightLanes(): Promise<InFlightLane[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe<InFlightLane[]>(async () => {
+    const rows = await getPrisma().loopRunLane.findMany({
+      where: { branch: { not: null }, run: { is: { phase: "running" } } },
+      select: { runId: true, repoFullName: true, branch: true, run: { select: { org: { select: { slug: true } } } } },
+    });
+    return rows.flatMap((r) =>
+      r.branch && r.run.org.slug
+        ? [{ runId: r.runId, orgSlug: r.run.org.slug, repoFullName: r.repoFullName, branch: r.branch }]
+        : [],
+    );
+  }, []);
+}
+
 /**
  * The id of a repo's latest persisted scan — a lane's `before` end, captured at dispatch time.
  *

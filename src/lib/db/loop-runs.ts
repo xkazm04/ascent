@@ -55,6 +55,8 @@ export {
   getLatestScanIdForRepo,
   getLoopRun,
   getLoopRunDetail,
+  listInFlightLanes,
   listLanes,
   listLoopRuns,
+  type InFlightLane,
 } from "@/lib/db/loop-runs-read";

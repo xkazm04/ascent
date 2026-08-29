@@ -12,7 +12,7 @@
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { runGit } from "@/lib/local/git";
 
 export interface LoopWorktree {
@@ -87,4 +87,118 @@ const BRANCH_SUFFIX_CAP = 20;
 export async function removeLoopWorktree(wt: LoopWorktree): Promise<void> {
   await runGit(wt.pairedPath, ["worktree", "remove", "--force", wt.dir]).catch(() => null);
   await rm(wt.dir, { recursive: true, force: true }).catch(() => null);
+}
+
+// ── the worktrees a KILLED lane leaves behind ───────────────────────────────────────────────────
+//
+// `removeLoopWorktree` runs in the lane's `finally`, which a `taskkill /F` never reaches. The boot
+// sweep reconciles database rows and nothing on the filesystem, so every hard kill strands a temp
+// checkout: the L2 certification left 3 (~15 MB each) and found 4 more on the operator's machine from
+// three days earlier, which is the accumulation this predicts. Finding L2-C-02.
+//
+// The sweep is driven from the BRANCH, not from a directory listing of `%TEMP%`. A branch name is
+// unique to one lane of one run, so "belonging to a run the sweep just stopped" is a fact git can be
+// asked rather than one a filename pattern guesses at — and a worktree belonging to a run that is
+// still live can never match, because a live run is not in the set. The `%TEMP%` + `ascent-loop-*` shape
+// is then checked as a SECOND condition before anything is deleted, not as the first one.
+
+/** One stopped lane, as the sweep needs it: which repo's checkout, on which branch. */
+export interface StrandedLane {
+  orgSlug: string;
+  repoFullName: string;
+  branch: string;
+}
+
+/** One entry of `git worktree list --porcelain`. */
+export interface WorktreeEntry {
+  dir: string;
+  /** The checked-out branch, short form, or null for a detached worktree. */
+  branch: string | null;
+}
+
+/** Parse `git worktree list --porcelain`: blank-line-separated blocks of `<key> <value>` lines. */
+const LINE_SPLIT = /\r?\n/;
+const BACKSLASHES = /\\/g;
+const TRAILING_SLASHES = /\/+$/;
+
+export function parseWorktreeList(stdout: string): WorktreeEntry[] {
+  const out: WorktreeEntry[] = [];
+  let dir: string | null = null;
+  let branch: string | null = null;
+  const flush = () => {
+    if (dir) out.push({ dir, branch });
+    dir = null;
+    branch = null;
+  };
+  for (const raw of stdout.split(LINE_SPLIT)) {
+    const line = raw.trim();
+    if (line === "") {
+      flush();
+      continue;
+    }
+    if (line.startsWith("worktree ")) {
+      flush();
+      dir = line.slice("worktree ".length);
+    } else if (line.startsWith("branch ")) {
+      branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+    }
+  }
+  flush();
+  return out;
+}
+
+const normalize = (p: string): string => p.replace(BACKSLASHES, "/").replace(TRAILING_SLASHES, "").toLowerCase();
+
+/**
+ * Is this a directory THIS module made? The second condition, and the one that makes the removal
+ * safe: `createLoopWorktree` calls `mkdtemp(join(tmpdir(), "ascent-loop-"))`, so a worktree it made is
+ * always a direct child of the temp root with that prefix. An operator who paired a repo whose own
+ * checkout happens to sit on a matching branch is therefore untouched.
+ */
+export function isLoopTempWorktree(dir: string, tempRoot: string): boolean {
+  return normalize(dirname(dir)) === normalize(tempRoot) && basename(dir).startsWith("ascent-loop-");
+}
+
+export interface StrandedSweepDeps {
+  /** The operator's working copy for a repo — the checkout the worktree hangs off. */
+  pairedPath: (orgSlug: string, repoFullName: string) => Promise<string | null>;
+  tempRoot: () => string;
+}
+
+/**
+ * Remove the temp checkouts belonging to the given (already-stopped) lanes. Best-effort throughout:
+ * a repo that cannot be read, a worktree that will not remove, or a pairing that has since been
+ * cleared each skip to the next one. Returns the directories actually removed.
+ *
+ * The BRANCH is deliberately left alone, exactly as `removeLoopWorktree` leaves it: it is the
+ * deliverable, and a killed run's partial branch is still something the operator may want to read.
+ */
+export async function removeStrandedWorktrees(lanes: readonly StrandedLane[], deps: StrandedSweepDeps): Promise<string[]> {
+  const byRepo = new Map<string, { orgSlug: string; repoFullName: string; branches: Set<string> }>();
+  for (const lane of lanes) {
+    const key = `${lane.orgSlug}::${lane.repoFullName}`;
+    const entry = byRepo.get(key) ?? { orgSlug: lane.orgSlug, repoFullName: lane.repoFullName, branches: new Set<string>() };
+    entry.branches.add(lane.branch);
+    byRepo.set(key, entry);
+  }
+
+  const tempRoot = deps.tempRoot();
+  const removed: string[] = [];
+  for (const { orgSlug, repoFullName, branches } of byRepo.values()) {
+    const paired = await deps.pairedPath(orgSlug, repoFullName).catch(() => null);
+    if (!paired) continue;
+    const listed = await runGit(paired, ["worktree", "list", "--porcelain"]);
+    if (!listed.ok) continue;
+    for (const entry of parseWorktreeList(listed.stdout)) {
+      if (!entry.branch || !branches.has(entry.branch)) continue;
+      if (!isLoopTempWorktree(entry.dir, tempRoot)) continue;
+      await runGit(paired, ["worktree", "remove", "--force", entry.dir]).catch(() => null);
+      await rm(entry.dir, { recursive: true, force: true }).catch(() => null);
+      removed.push(entry.dir);
+    }
+    // Clears the administrative files for worktrees whose directory a previous sweep (or the
+    // operator) already deleted by hand — the other half of the leak L2-C-02 describes.
+    if (removed.length > 0) await runGit(paired, ["worktree", "prune"]).catch(() => null);
+  }
+  return removed;
 }

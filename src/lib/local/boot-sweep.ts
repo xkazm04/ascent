@@ -18,16 +18,21 @@
 // "this process started nothing" would be a claim about one instance applied to every other one's
 // live work.
 
+import { tmpdir } from "node:os";
 import { selfHosted } from "@/lib/env";
 import { isDbConfigured } from "@/lib/db/client";
-import { markStaleRunsStopped } from "@/lib/db/loop-runs";
+import { listInFlightLanes, markStaleRunsStopped } from "@/lib/db/loop-runs";
 import { markStaleDrivesInterrupted } from "@/lib/db/drives";
+import { getRepoLocalPath } from "@/lib/db/org-local";
+import { removeStrandedWorktrees } from "@/lib/local/loop-worktree";
 
 export interface BootSweepResult {
   /** Skipped without looking: not self-hosted, or no database configured. */
   skipped: boolean;
   runs: number;
   drives: number;
+  /** Temp checkouts the stopped runs stranded on disk (L2-C-02). */
+  worktrees: number;
 }
 
 const DONE_KEY = "__ascentBootSweepDone" as const;
@@ -43,21 +48,40 @@ const DONE_KEY = "__ascentBootSweepDone" as const;
  */
 export async function sweepInterruptedWork(): Promise<BootSweepResult> {
   const g = globalThis as unknown as Record<string, unknown>;
-  if (g[DONE_KEY]) return { skipped: true, runs: 0, drives: 0 };
+  if (g[DONE_KEY]) return { skipped: true, runs: 0, drives: 0, worktrees: 0 };
   g[DONE_KEY] = true;
 
-  if (!selfHosted() || !isDbConfigured()) return { skipped: true, runs: 0, drives: 0 };
+  if (!selfHosted() || !isDbConfigured()) return { skipped: true, runs: 0, drives: 0, worktrees: 0 };
+  // READ BEFORE THE SWEEP. `markStaleRunsStopped` is what makes these runs stopped, so the set of
+  // lanes it is about to reconcile can only be read while they still say `running` — afterwards a
+  // lane this process interrupted is indistinguishable from one that errored a week ago, and the
+  // filesystem half would be deleting worktrees it never stopped. This is also the whole of the
+  // "never touch a live run's worktree" guarantee: a fresh process drives nothing, so every lane in
+  // this read belongs to a dead one.
+  const inFlight = await listInFlightLanes().catch(() => []);
   const runs = await markStaleRunsStopped().catch(() => 0);
   const drives = await markStaleDrivesInterrupted().catch(() => 0);
-  return { skipped: false, runs, drives };
+  // The filesystem half of the reconcile. `removeLoopWorktree` runs in the lane's `finally`, which a
+  // hard kill never reaches, so every `taskkill /F` leaves a ~15 MB checkout in %TEMP% forever
+  // (L2-C-02: 3 from the L2 run, 4 more already on the operator's machine from three days before).
+  const worktrees =
+    inFlight.length > 0
+      ? (
+          await removeStrandedWorktrees(inFlight, { pairedPath: getRepoLocalPath, tempRoot: tmpdir }).catch(
+            () => [] as string[],
+          )
+        ).length
+      : 0;
+  return { skipped: false, runs, drives, worktrees };
 }
 
 /** The line the boot sweep prints when it actually reconciled something. Silent otherwise — a clean
  *  boot has nothing to say, and a log line every start would train the operator to ignore it. */
 export function bootSweepLine(r: BootSweepResult): string | null {
-  if (r.skipped || (r.runs === 0 && r.drives === 0)) return null;
+  if (r.skipped || (r.runs === 0 && r.drives === 0 && r.worktrees === 0)) return null;
   const parts: string[] = [];
   if (r.runs > 0) parts.push(`${r.runs} loop ${r.runs === 1 ? "run" : "runs"} stopped`);
   if (r.drives > 0) parts.push(`${r.drives} ${r.drives === 1 ? "drive" : "drives"} marked interrupted`);
+  if (r.worktrees > 0) parts.push(`${r.worktrees} stranded ${r.worktrees === 1 ? "worktree" : "worktrees"} removed`);
   return `[loop] boot sweep: ${parts.join(", ")} — a previous process died while they were in flight.`;
 }
