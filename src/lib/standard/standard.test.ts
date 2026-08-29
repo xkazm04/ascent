@@ -259,7 +259,6 @@ function loadDoctorWired(): (hookText: string, alias: string) => boolean {
   const start = body.indexOf("function wired(");
   const end = body.indexOf("\nfunction kv(", start);
   if (start < 0 || end < 0) throw new Error("doctor wired() helper not found in emitted source");
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   return new Function(body.slice(start, end) + "\nreturn wired;")() as (h: string, a: string) => boolean;
 }
 
@@ -358,7 +357,6 @@ function loadPushLineParser(): (stdin: string) => { localSha: string; remoteSha:
   const start = body.indexOf("function parsePushLines(");
   const end = body.indexOf("\nfunction rangeFor(", start);
   if (start < 0 || end < 0) throw new Error("maintain parsePushLines() not found in emitted source");
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   return new Function(body.slice(start, end) + "\nreturn parsePushLines;")();
 }
 
@@ -469,7 +467,6 @@ function loadDoctorParsers(): {
   const body = buildDoctor().body;
   const src = FN_ORDER.map((n) => extractFn(body, n)).join("\n\n");
   // The four parsers reference only each other / built-ins, so they are self-contained.
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(src + "\nreturn { kv, sub, flow, capabilities };");
   return factory();
 }
@@ -1172,7 +1169,6 @@ function loadMaintainNoteLogic(): {
   expect(body).toContain("String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')");
   expect(body).toContain("text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note'");
 
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "return {\n" +
       "  nextId: (files) => { const ids = " + idMapFilter + "; return " + idNext + "; },\n" +
