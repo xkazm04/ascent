@@ -16,6 +16,9 @@
 //  - robots' local baseUrl() and lib/site publicBaseUrl() resolve identically for the same env (they
 //    duplicate the trailing-slash-strip logic and would otherwise drift).
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import robots from "./robots";
 import sitemap from "./sitemap";
@@ -188,3 +191,42 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
     expect(paths).toContain("/onboarding");
   });
 });
+
+// Both route lists are hand-maintained, and nothing tied either to the app tree. A route renamed or
+// deleted leaves sitemap.xml advertising a URL that 404s (Search Console files it as a crawl error)
+// or robots.txt guarding a path that no longer exists, with this suite fully green either way. The
+// only prior verification was a HUMAN one: docs/harness/bug-ui-scan-2026-07-09 recorded "All 7
+// sitemap-advertised routes resolve to real pages". There are 12 now — five were added after that
+// check and nothing re-ran it. Derive the assertion from the tree instead.
+describe("the SEO route lists are pinned to the real app tree", () => {
+  /** `/about-org` -> `src/app/about-org/page.tsx`; `/` -> `src/app/page.tsx`. */
+  const routeFileFor = (path: string) => {
+    const segments = path.split("/").filter(Boolean);
+    return resolve(process.cwd(), "src/app", ...segments, "page.tsx");
+  };
+
+  it("every sitemap entry resolves to a real page route", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    const paths = sitemap().map((e) => new URL(e.url).pathname);
+    expect(paths.length).toBeGreaterThan(0);
+    const missing = paths.filter((p) => !existsSync(routeFileFor(p)));
+    expect(missing).toEqual([]);
+  });
+
+  it("every robots-disallowed path is a real route (or the /api prefix), not a stale guard", () => {
+    const rules = robots().rules;
+    const single = Array.isArray(rules) ? rules[0] : rules;
+    const disallow = single.disallow;
+    const blocked = (Array.isArray(disallow) ? disallow : [disallow]).filter(
+      (d): d is string => typeof d === "string",
+    );
+    // "/api/" guards a whole directory of route handlers rather than a page — assert the directory.
+    const missing = blocked.filter((d) =>
+      d === "/api/"
+        ? !existsSync(resolve(process.cwd(), "src/app/api"))
+        : !existsSync(routeFileFor(d)),
+    );
+    expect(missing).toEqual([]);
+  });
+});
+
