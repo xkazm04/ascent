@@ -125,6 +125,8 @@ export async function persistScanReport(
   // Same for Context Health (W4) — cache the latest only when this report carries one, so a
   // reconstructed snapshot leaves the existing cache untouched.
   if (report.contextHealth) repoUpdate.contextHealthJson = JSON.stringify(report.contextHealth);
+  // #13 — same rule for the manifest readout: cache the latest only when this report carries one.
+  if (report.manifest) repoUpdate.manifestJson = JSON.stringify(report.manifest);
   const repo = await withRetry(
     () =>
       upsertRacing(
@@ -144,6 +146,7 @@ export async function persistScanReport(
               techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
               passportJson: report.passport ? JSON.stringify(report.passport) : null,
               contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
+              manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
               stars: report.repo.stars,
               lastScanAt: scannedAtDate,
               headSha,
@@ -404,6 +407,11 @@ export async function persistScanReport(
             // Repository.contextHealthJson above. Display-only (never scored). Null on a
             // reconstructed snapshot, which must read as "not assessed", never as absent context.
             contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
+            // #13 — what this scan read in the repo's own .ai/manifest.yaml. Per-scan history; the
+            // latest is cached on Repository.manifestJson above. Display-only (never scored, G5).
+            // Null on a reconstructed snapshot, which reads as "not assessed by this scan" — never
+            // as a repo that declares no contract.
+            manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
             // W6 — practice shape. Per-scan like contextHealth; the org miner reads each repo's
             // LATEST. Null on a reconstructed snapshot, which reads as "not extracted", never as
             // "this repo has no structure".

@@ -2,6 +2,7 @@
 // See docs/features/scanning/maturity-model.md for the conceptual model behind these types.
 
 import type { PrRateBook } from "@/lib/analyze/pr-thresholds";
+import type { ManifestReadout } from "@/lib/standard/readout";
 
 export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
@@ -964,6 +965,11 @@ export interface ScanReport {
   /** Context Health (W4) — guidance-file freshness/quality/drift. Display/persist-only (never scored,
    *  never in the LLM prompt); undefined on reconstructed snapshots that never ran ingestion. */
   contextHealth?: ContextHealth | null;
+  /** What this scan READ in the repo's own `.ai/manifest.yaml` (#13) — declared capabilities, their
+   *  proven `verified` flags, and where each control is placed. Display/persist-only (never scored,
+   *  never in the LLM prompt); `absent` when the repo has no manifest, undefined on reconstructed
+   *  snapshots that never ran ingestion. See lib/standard/readout. */
+  manifest?: ManifestReadout | null;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
   /** NOTHING could be scored: every detector failed or returned no data, so `dimensions` is empty and

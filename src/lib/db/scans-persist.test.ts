@@ -437,6 +437,56 @@ describe("persistScanReport — contextHealthJson (W4)", () => {
   });
 });
 
+// #13 — the manifest readout follows the exact same sidecar contract. The second case is the one
+// that matters for honesty: a report with NO readout must leave the cached latest alone, so a
+// reconstructed persist cannot turn "we read this repo's contract last week" into silence.
+describe("persistScanReport — manifestJson (#13)", () => {
+  const manifest = {
+    status: "ok" as const,
+    readAt: "2026-06-10T00:00:00.000Z",
+    generatedAt: "2026-06-01",
+    schemaVersion: "0.3.0",
+    schemaAhead: false,
+    capabilities: [{ name: "test", command: "npm test", verified: true, placeholder: false, wiredAt: [] }],
+    controls: { prePush: ["lint"], ciHardPass: ["test"] },
+    paths: { memory: ".ai/memory/" },
+    agents: [],
+    placeholders: [],
+    unbacked: ["lint"],
+    notes: [],
+  };
+
+  it("stamps the per-scan blob AND caches the latest on the Repository when the report carries one", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const report = makeReport({ headSha: "sha_mf" });
+    (report as { manifest?: unknown }).manifest = manifest;
+    await persistScanReport(report);
+
+    expect(createdScans[0]!.manifestJson).toBe(JSON.stringify(manifest));
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as {
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    };
+    expect(upsertArgs.update.manifestJson).toBe(JSON.stringify(manifest));
+    expect(upsertArgs.create.manifestJson).toBe(JSON.stringify(manifest));
+  });
+
+  it("a report WITHOUT a readout writes null on the scan and leaves the Repository cache untouched", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_nomf" }));
+
+    expect(createdScans[0]!.manifestJson).toBeNull();
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown> };
+    expect(upsertArgs.update).not.toHaveProperty("manifestJson"); // never wipes the cached latest
+  });
+});
+
 // ── CRITICAL #2: carry-forward preserves tracked recommendation state ─────────────────────────────
 
 describe("persistScanReport — carry-forward of recommendation tracking state", () => {
