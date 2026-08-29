@@ -90,7 +90,12 @@ export interface LaneRunResult {
   error: string | null;
 }
 
-const firstLine = (s: string): string => s.split("\n").find((l) => l.trim())?.slice(0, 160) ?? "";
+const firstLine = (s: string, max = 160): string => s.split("\n").find((l) => l.trim())?.slice(0, max) ?? "";
+
+/** The agent's own first line gets more room than the rest of the log. It is the only place a
+ *  session's REASON for producing nothing is ever written down, and 160 characters cut the L2
+ *  certification's one live agent run off mid-word at "…blocked by the approv". */
+const AGENT_SUMMARY_CHARS = 400;
 
 /** The repo's open follow-ups, biggest projected gain first — the batch the next cycle works. */
 export async function openBatch(org: string, repo: string, limit: number = BATCH_SIZE): Promise<FollowUpItem[]> {
@@ -270,12 +275,33 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         ...(input.agent?.model ? { model: input.agent.model } : {}),
         ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
       });
-      await appendLaneLog(laneId, result.ok ? `Agent finished: ${firstLine(result.summary)}` : `Agent failed: ${firstLine(result.summary)}`);
+      await appendLaneLog(
+        laneId,
+        `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
+      );
     }
 
     const countRes = await runGit(worktree.dir, ["rev-list", "--count", `${before}..HEAD`]);
     const commits = countRes.ok ? Number(countRes.stdout.trim()) || 0 : 0;
     await appendLaneLog(laneId, `${commits} commit(s) landed this cycle.`);
+    // A SESSION THAT WORKED AND DID NOT COMMIT IS NOT A SESSION THAT FOUND NOTHING, and until this
+    // was added the lane could not tell them apart: both read "0 commit(s) landed this cycle", and
+    // `removeLoopWorktree`'s `--force` then deleted the evidence on its way out. The L2 certification
+    // hit exactly this — a real `claude -p` session edited files for 5m46s, could not run `git
+    // commit` under `--permission-mode acceptEdits` (headless `-p` has nobody to grant Bash), and the
+    // branch that is supposed to BE the deliverable ended up carrying none of it. Naming the dirty
+    // worktree is the difference between a legible failure and a silent one; it does not save the
+    // work, which is a decision for whoever fixes the permission mode.
+    if (kind === "backlog" && commits === 0) {
+      const dirty = await runGit(worktree.dir, ["status", "--porcelain"]);
+      const changed = dirty.ok ? dirty.stdout.split("\n").filter((l) => l.trim()).length : 0;
+      if (changed > 0) {
+        await appendLaneLog(
+          laneId,
+          `The agent left ${changed} uncommitted change(s) in the worktree and committed none of them — that work is NOT on ${worktree.branch} and is discarded with the worktree. Check the agent summary above for the reason.`,
+        );
+      }
+    }
 
     if (input.shouldStop?.()) {
       await releaseClaims(`loop cycle ${cycle} was stopped before its rescan could adjudicate`);
