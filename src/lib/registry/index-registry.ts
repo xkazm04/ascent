@@ -15,6 +15,7 @@ import { archiveVanishedRegistryRows, recordIndexError, recordIndexResult } from
 import { purgeUsageSamples, recordUsageSamples } from "@/lib/db/org-skill-usage-samples";
 import { replaceRegistrySubjects } from "@/lib/db/org-registry-subjects";
 import { recordRegistrySignals } from "@/lib/db/org-registry-signals";
+import { purgeSkillLessons, replaceSkillLessons } from "@/lib/db/org-skill-lessons";
 import { upsertRegistryMemory, upsertRegistryPractice, upsertRegistrySkill } from "@/lib/db/org-registry-mirror";
 import { buildCatalog, shortDigest, type RegistryCatalog } from "./catalog";
 import { REGISTRY_CATALOG_PATH, REGISTRY_LESSONS_FILE, REGISTRY_SKILL_FILE, REGISTRY_SPINE_PATH } from "./layout";
@@ -23,6 +24,7 @@ import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistr
 import { modeToYaml, parseRegistryYaml, type RegistryDeclaration } from "./policy";
 import { aggregateUsage, type RegistryUsage } from "./usage-samples";
 import { readBundleSubjects, type KnowledgeSubject } from "./subjects";
+import { lessonWarning, splitLessonEntries } from "./lessons";
 import { aggregateSignals, type SignalRow } from "./signals";
 import type { RegistryTree } from "./read";
 
@@ -161,6 +163,8 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   const catalogSkills: RegistryCatalog["skills"] = [];
   const catalogPractices: RegistryCatalog["practices"] = [];
   const catalogMemory: RegistryCatalog["memory"] = [];
+  /** Every `LESSONS.md` this pass actually read — the purge set for vanished lesson rows (#36). */
+  const seenLessonPaths: string[] = [];
   let lessons = 0;
 
   let tree: RegistryTree;
@@ -202,6 +206,16 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
         lessonCount = countLessons(lessonText);
         lessonsHash = shortDigest(contentDigest(lessonText));
         lessons += lessonCount;
+        // #36 — the ROWS behind that number. `splitLessonEntries` cuts on the SAME regex, so the
+        // ledger and `counts.lessons` are equal by construction rather than by agreement.
+        const lessonEntries = splitLessonEntries(lessonText);
+        const warn = lessonWarning(lessonsEntry.path, lessonEntries);
+        if (warn) warnings.push(warn);
+        seenLessonPaths.push(lessonsEntry.path);
+        await mirror(lessonsEntry.path, warnings, tally, async () => {
+          await replaceSkillLessons(registry.id, registry.orgId, parsed.value.name, lessonsEntry.path, lessonEntries);
+          return lessonsEntry.path;
+        });
       }
     }
 
@@ -334,6 +348,17 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     generatedAt: new Date().toISOString(),
     generatedBy: "ascent",
   });
+
+  // ── #36: purge lesson rows whose LESSONS.md vanished ─────────────────────────────────────────
+  // Same truncated-tree guard as every other purge here: "not in this pass" is evidence of deletion
+  // only when the pass saw the whole tree.
+  if (!tree.truncated) {
+    try {
+      await purgeSkillLessons(registry.id, seenLessonPaths);
+    } catch (err) {
+      warnings.push(`LESSONS.md: stale rows not purged (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
 
   // ── #18: persist the knowledge subjects and the signals lane ─────────────────────────────────
   // Skipped wholesale on a truncated tree, for the same reason as the usage samples below: both
