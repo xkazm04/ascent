@@ -7,6 +7,13 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
+import { ORG_WIDE_TEAM_LABEL, laneTotals, teamTotals, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
+
+export type { LaneUsage, TeamUsage } from "@/lib/db/usage-events";
+
+/** The shared anonymous funnel's slug (the value of `PUBLIC_ORG` in `@/lib/auth`, restated here so a
+ *  db module does not reach into the auth layer). It has no tenant, no teams and no bill. */
+const PUBLIC_ORG_SLUG = "public";
 
 export interface ProviderUsage {
   provider: string;
@@ -105,6 +112,21 @@ export interface UsageSummary {
    *  Scoped private-only to match the "metered/billable" framing — free public scans are
    *  excluded, so the attribution answers "which repos drove the bill", not raw volume. */
   byRepo: RepoUsage[];
+  /**
+   * Spend per INFERENCE LANE within the period — scan, Athena, org memory, briefing, local agent.
+   *
+   * A UNION of two sources, not one ledger: the `scan` lane is derived from `Scan` rows (which are
+   * already the authoritative billable unit, so mirroring them into `UsageEvent` would create a
+   * second, drift-prone copy) and every other lane comes from `UsageEvent` over the SAME half-open
+   * window. Lanes that did nothing in the period are absent — an empty lane is not a zero.
+   */
+  byLane: LaneUsage[];
+  /**
+   * Spend per repo TEAM (the CODEOWNERS default owner), so an operator can answer "which team's work
+   * drives the bill". A team is never a person: see the privacy note in docs/features/billing/usage.md.
+   * Empty for the public funnel, which has no teams to attribute to.
+   */
+  byTeam: TeamUsage[];
   firstScanAt: string | null;
   lastScanAt: string | null;
 }
@@ -153,6 +175,8 @@ export async function getUsageSummary(
     estimatedCostUsd: null,
     costBasis: null,
     byRepo: [],
+    byLane: [],
+    byTeam: [],
     firstScanAt: null,
     lastScanAt: null,
   };
@@ -203,6 +227,9 @@ export async function getUsageSummary(
       prisma.scan.groupBy({
         by: ["engineProvider", "engineModel"],
         where: periodWhere,
+        // `_count` rides along for the lane view's `unpricedCalls`: the cost fold refuses to price an
+        // unknown model, and an operator reading a null cost needs to know HOW MANY calls that was.
+        _count: true,
         _sum: { inputTokens: true, outputTokens: true },
       }),
       prisma.scan.groupBy({
@@ -252,6 +279,46 @@ export async function getUsageSummary(
     tokens: (g._sum.inputTokens ?? 0) + (g._sum.outputTokens ?? 0),
   }));
 
+  // ── The lane + team views (#11) ───────────────────────────────────────────────────────────────
+  // Both are strictly ADDITIVE reads over the window already computed above. The public funnel is
+  // skipped entirely: it has no tenant to show a bill back to and no teams to attribute it to, and
+  // its summary is anonymously readable, so a team panel there would be an attribution surface with
+  // no membership behind it.
+  const isPublic = slug === PUBLIC_ORG_SLUG;
+  const [otherLanes, otherTeams, scanTeamGroups] = await Promise.all([
+    isPublic ? Promise.resolve([]) : laneTotals(slug, since, before).catch(() => []),
+    isPublic ? Promise.resolve([]) : teamTotals(slug, since, before).catch(() => []),
+    isPublic
+      ? Promise.resolve([])
+      : prisma.scan
+          .groupBy({
+            by: ["repoId", "engineProvider", "engineModel"],
+            where: periodWhere,
+            _count: true,
+            _sum: { inputTokens: true, outputTokens: true },
+          })
+          .catch(() => []),
+  ]);
+
+  // The `scan` lane, from the Scan-derived figures already in hand — NOT from a second ledger. Its
+  // cost IS the summary's own estimate, so the two can never disagree.
+  const scanLane: LaneUsage | null =
+    period > 0
+      ? {
+          lane: "scan",
+          calls: period,
+          inputTokens,
+          outputTokens,
+          estimatedCostUsd,
+          unpricedCalls: unpricedScanCalls(modelUsageWithCounts(modelGroups)),
+        }
+      : null;
+  const byLane: LaneUsage[] = [...(scanLane ? [scanLane] : []), ...otherLanes];
+
+  const byTeam: TeamUsage[] = isPublic
+    ? []
+    : mergeTeamUsage(await scanTeamUsage(prisma, scanTeamGroups), otherTeams);
+
   return {
     org: slug,
     periodDays,
@@ -271,6 +338,8 @@ export async function getUsageSummary(
     estimatedCostUsd,
     costBasis,
     byRepo,
+    byLane,
+    byTeam,
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
   };
@@ -337,6 +406,113 @@ export function estimateLlmCostFromTable(usage: ModelTokenUsage[]): number | nul
     pricedAny = true;
   }
   return pricedAny ? cost : null;
+}
+
+// ── The lane + team folds (#11) ──────────────────────────────────────────────────────────────────
+
+/** A (provider, model) group with the call count the lane view needs beside its tokens. */
+type ModelCallGroup = ModelTokenUsage & { calls: number };
+
+/** Shape the per-model groupBy into the fold's input, once, so the two consumers agree. */
+function modelUsageWithCounts(
+  groups: { engineProvider: string; engineModel: string | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
+): ModelCallGroup[] {
+  return groups.map((g) => ({
+    model: g.engineModel,
+    provider: g.engineProvider,
+    calls: g._count,
+    inputTokens: g._sum.inputTokens ?? 0,
+    outputTokens: g._sum.outputTokens ?? 0,
+  }));
+}
+
+/**
+ * How many of the period's scans could NOT be costed — the number that makes a null (or a $0)
+ * estimate readable. Two causes, both counted: a token-less run (mock / degraded — no basis exists)
+ * and a token-bearing run on a model `MODEL_PRICES` does not know (the table refuses to guess a rate).
+ * A zero-cost provider is NOT counted: local inference has a real price and it is zero.
+ */
+export function unpricedScanCalls(usage: ModelCallGroup[]): number {
+  let unpriced = 0;
+  for (const m of usage) {
+    if (isZeroCostProvider(m.provider)) continue;
+    if (m.inputTokens + m.outputTokens === 0 || !priceForModel(m.model)) unpriced += m.calls;
+  }
+  return unpriced;
+}
+
+/**
+ * The scan lane's per-team split: `Scan → Repository → RepoTeam(isDefaultOwner)`.
+ *
+ * The join is performed in JS deliberately, and it is a LEFT join: a repo with no CODEOWNERS default
+ * owner falls into the explicit `null` (org-wide) bucket rather than dropping out of the report. An
+ * inner join would silently shrink the org's total spend by however much untagged work it does, which
+ * is exactly the number an operator would then reconcile against and fail to explain.
+ */
+async function scanTeamUsage(
+  prisma: ReturnType<typeof getPrisma>,
+  groups: { repoId: string; engineProvider: string; engineModel: string | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
+): Promise<TeamUsage[]> {
+  if (groups.length === 0) return [];
+  const repoIds = [...new Set(groups.map((g) => g.repoId))];
+  const repos = await prisma.repository.findMany({
+    where: { id: { in: repoIds } },
+    select: { id: true, teams: { where: { isDefaultOwner: true }, select: { slug: true }, take: 1 } },
+  });
+  const teamByRepo = new Map(repos.map((r) => [r.id, r.teams[0]?.slug ?? null]));
+
+  const acc = new Map<string | null, { calls: number; models: ModelTokenUsage[] }>();
+  for (const g of groups) {
+    // `?? null` and not `undefined`: a repo the lookup did not return is org-wide, not missing.
+    const key = teamByRepo.get(g.repoId) ?? null;
+    const bucket = acc.get(key) ?? { calls: 0, models: [] };
+    bucket.calls += g._count;
+    bucket.models.push({
+      model: g.engineModel,
+      provider: g.engineProvider,
+      inputTokens: g._sum.inputTokens ?? 0,
+      outputTokens: g._sum.outputTokens ?? 0,
+    });
+    acc.set(key, bucket);
+  }
+  return [...acc.entries()].map(([teamKey, v]) => ({
+    teamKey,
+    label: teamKey ?? ORG_WIDE_TEAM_LABEL,
+    calls: v.calls,
+    // Same fold, same refusal-to-guess as the headline estimate.
+    estimatedCostUsd: estimateLlmCostFromTable(v.models),
+  }));
+}
+
+/**
+ * Union the scan lane's team split with the other lanes' (`UsageEvent.teamKey`), on the team key.
+ *
+ * Cost merges under the rule the rest of this module uses: a side that HAS calls but no cost is
+ * unknown, and unknown + known is still unknown. Adding only the half we can price would print a
+ * confident figure that omits real spend — the same half-billing trap `estimateLlmCostUsd` refuses.
+ */
+export function mergeTeamUsage(a: TeamUsage[], b: TeamUsage[]): TeamUsage[] {
+  const out = new Map<string | null, TeamUsage>();
+  for (const row of [...a, ...b]) {
+    const prev = out.get(row.teamKey);
+    if (!prev) {
+      out.set(row.teamKey, { ...row });
+      continue;
+    }
+    const unknown =
+      (prev.estimatedCostUsd == null && prev.calls > 0) || (row.estimatedCostUsd == null && row.calls > 0);
+    out.set(row.teamKey, {
+      teamKey: row.teamKey,
+      label: prev.label,
+      calls: prev.calls + row.calls,
+      estimatedCostUsd: unknown ? null : (prev.estimatedCostUsd ?? 0) + (row.estimatedCostUsd ?? 0),
+    });
+  }
+  // Biggest spender first, with the unknown-cost buckets after the priced ones and the org-wide
+  // bucket last on a tie — a panel reads top-down and the question is "who drives the bill".
+  return [...out.values()].sort(
+    (x, y) => (y.estimatedCostUsd ?? -1) - (x.estimatedCostUsd ?? -1) || y.calls - x.calls,
+  );
 }
 
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);

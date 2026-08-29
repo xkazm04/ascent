@@ -340,3 +340,106 @@ describe("the newest day only survives on an INTEGER window (the fractional-days
     expect(series[0]!.billable).toBe(1); // and its scan is counted
   });
 });
+
+// ── The lane + team views (#11) ──────────────────────────────────────────────────────────────────
+//
+// Two properties, both about NOT losing or duplicating spend: the `scan` lane is derived from the
+// Scan rows the summary already counted (a UsageEvent mirror would double it), and a repo with no
+// CODEOWNERS owner lands in an explicit org-wide bucket rather than falling out of the report.
+
+describe("getUsageSummary — byLane and byTeam", () => {
+  /** A prisma stub carrying one gemini scan group over two repos, and one Athena UsageEvent group. */
+  function stub(opts: { teams?: { slug: string }[] } = {}) {
+    const scanGroupBy = vi.fn(async (args: { by: string[] }) => {
+      if (args.by.includes("repoId") && args.by.includes("engineModel")) {
+        return [
+          {
+            repoId: "r1",
+            engineProvider: "gemini",
+            engineModel: "gemini-3.7-flash",
+            _count: 3,
+            _sum: { inputTokens: 2_000_000, outputTokens: 1_000_000 },
+          },
+        ];
+      }
+      if (args.by.includes("repoId")) return [];
+      if (args.by.includes("engineModel")) {
+        return [
+          {
+            engineProvider: "gemini",
+            engineModel: "gemini-3.7-flash",
+            _count: 3,
+            _sum: { inputTokens: 2_000_000, outputTokens: 1_000_000 },
+          },
+        ];
+      }
+      return [{ engineProvider: "gemini", _count: 3 }];
+    });
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", slug: "acme" })) },
+      scan: {
+        count: vi.fn(async () => 3),
+        groupBy: scanGroupBy,
+        aggregate: vi.fn(async () => ({ _min: { scannedAt: null }, _max: { scannedAt: null } })),
+      },
+      repository: {
+        count: vi.fn(async () => 1),
+        findMany: vi.fn(async () => [{ id: "r1", fullName: "acme/api", teams: opts.teams ?? [] }]),
+      },
+      usageEvent: {
+        groupBy: vi.fn(async (args: { by: string[] }) =>
+          args.by.includes("lane")
+            ? [{ lane: "athena", _count: 2, _sum: { inputTokens: 100, outputTokens: 20, costMicros: 5_000 } }]
+            : [{ teamKey: null, _count: 2, _sum: { costMicros: 5_000 } }],
+        ),
+      },
+      $queryRaw: vi.fn(async () => []),
+    });
+    return scanGroupBy;
+  }
+
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReset();
+  });
+
+  it("derives byLane[scan] from the Scan rows the summary already counted — no double count", async () => {
+    stub();
+    const s = (await getUsageSummary("acme", 30))!;
+    const scan = s.byLane.find((l) => l.lane === "scan")!;
+    // Identical to the headline figures, BY CONSTRUCTION: same source, folded once.
+    expect(scan.calls).toBe(s.periodScans);
+    expect(scan.inputTokens).toBe(s.inputTokens);
+    expect(scan.outputTokens).toBe(s.outputTokens);
+    expect(scan.estimatedCostUsd).toBe(s.estimatedCostUsd);
+    expect(scan.unpricedCalls).toBe(0);
+    // …and the lanes that have no Scan ledger come from UsageEvent, beside it rather than inside it.
+    expect(s.byLane.find((l) => l.lane === "athena")).toMatchObject({ calls: 2, estimatedCostUsd: 0.005 });
+  });
+
+  it("puts a repo with NO codeowning team in the explicit org-wide bucket instead of dropping it", async () => {
+    stub({ teams: [] });
+    const s = (await getUsageSummary("acme", 30))!;
+    const orgWide = s.byTeam.find((t) => t.teamKey === null);
+    expect(orgWide).toBeDefined();
+    // 3 scans on the team-less repo + the 2 team-less Athena events.
+    expect(orgWide!.calls).toBe(5);
+    expect(s.byTeam.reduce((a, t) => a + t.calls, 0)).toBe(5);
+  });
+
+  it("attributes a repo WITH a default owner to that team", async () => {
+    stub({ teams: [{ slug: "@acme/platform" }] });
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.byTeam.find((t) => t.teamKey === "@acme/platform")).toMatchObject({ calls: 3 });
+    expect(s.byTeam.find((t) => t.teamKey === null)).toMatchObject({ calls: 2 });
+  });
+
+  it("omits the team view entirely for the public funnel — no tenant, no teams", async () => {
+    stub({ teams: [{ slug: "@acme/platform" }] });
+    const s = (await getUsageSummary("public", 30))!;
+    expect(s.byTeam).toEqual([]);
+    // The lane view still works: the public funnel's scan volume is a real, readable figure.
+    expect(s.byLane.map((l) => l.lane)).toEqual(["scan"]);
+  });
+});
