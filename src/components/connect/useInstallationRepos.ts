@@ -124,11 +124,20 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
     });
   }, [org]);
 
+  // Per (repo, segment) monotonic sequence, the same guard toggleWatch/changeSchedule use. Without it
+  // this path claimed parity with them ("like watch/schedule") while having none: a double-click on one
+  // segment chip fires tag then untag, and if the responses arrive out of order the LOSING request's
+  // rollback branch still ran, leaving the chip showing the opposite of the last click — with no error,
+  // because both responses were 2xx. Only the latest request for a chip may touch state.
+  const segSeq = useRef<Record<string, number>>({});
+
   // Optimistic tag/untag of a repo into a segment (only offered on watched repos — tagging needs the
   // repo row). Rolls back + surfaces an inline error if the POST fails, like watch/schedule.
   async function toggleSegment(r: AppRepo, segId: string) {
     const current = segMembership[r.fullName] ?? [];
     const member = !current.includes(segId);
+    const key = `${r.fullName}::${segId}`;
+    const seq = (segSeq.current[key] = (segSeq.current[key] ?? 0) + 1);
     setSegMembership((m) => {
       const ids = new Set(m[r.fullName] ?? []);
       if (member) ids.add(segId);
@@ -142,6 +151,7 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, fullName: r.fullName, member }),
       });
+      if (segSeq.current[key] !== seq) return; // superseded by a newer click — it owns this chip
       if (!res.ok) {
         setSegMembership((m) => {
           const ids = new Set(m[r.fullName] ?? []);
@@ -152,6 +162,7 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
         setRowError(r.fullName, "Couldn't update segment. Not saved. Try again.");
       }
     } catch {
+      if (segSeq.current[key] !== seq) return; // superseded — don't roll back a newer change
       setSegMembership((m) => {
         const ids = new Set(m[r.fullName] ?? []);
         if (member) ids.delete(segId);
