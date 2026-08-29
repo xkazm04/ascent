@@ -178,6 +178,115 @@ export async function getRecommendationOrgSlug(id: string): Promise<string | nul
   return rec?.scan.repo.org.slug ?? null;
 }
 
+/** Outcome of a batch hand-off (spec: docs/specs/2026-08-30-followups-handoff-batch.md).
+ *  `ok: false` = some requested id is unknown or foreign to the org — the caller refuses the WHOLE
+ *  request (403), never a partial success, so foreign ids can't be enumerated by which "succeeded". */
+export type HandoffOutcome =
+  | { ok: true; marked: string[]; skipped: { id: string; status: string }[] }
+  | { ok: false };
+
+/**
+ * Batch hand-off for the Follow-ups ledger: mark every `open` recommendation in `ids` as
+ * `in_progress`, with a timeline event + audit row committing atomically with each status change.
+ * One membership-scoped batch read answers ownership + current status (batching-and-n-plus-one:
+ * a membership read is ONE `IN` query, not N singles); the writes are per-row conditional updates
+ * whose WHERE carries the expected state (`status: "open"`) and the owning org, inside one
+ * transaction (transactions-and-units-of-work: the read that feeds a write shares its boundary,
+ * and the CAS verdict is consumed — a row that moved concurrently loses LOUDLY into `skipped`
+ * instead of being silently reopened, which the old read-then-unguarded-write allowed).
+ *
+ * Idempotent per the route's contract: non-`open` rows (already in progress, done, dismissed) are
+ * reported in `skipped` with their status and never touched. Returns null if the DB is disabled.
+ */
+export async function handoffRecommendations(
+  orgSlug: string,
+  ids: string[],
+  opts: RecommendationActor = {},
+): Promise<HandoffOutcome | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = orgSlug.trim().toLowerCase();
+
+  // ONE membership-scoped batch read: ownership chain + current status for every requested id.
+  const rows = await prisma.recommendation.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      status: true,
+      scan: { select: { repo: { select: { orgId: true, org: { select: { slug: true } } } } } },
+    },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const id of ids) {
+    const row = byId.get(id);
+    // Unknown id and foreign id are the SAME refusal (no existence oracle), matching the old
+    // per-id getRecommendationOrgSlug loop's comparison exactly (trimmed, lowercased).
+    if (!row || row.scan.repo.org.slug.trim().toLowerCase() !== org) return { ok: false };
+  }
+
+  const actor = opts.actor?.trim() || null;
+  const note = opts.note?.trim() || null;
+  const candidates = ids.filter((id) => byId.get(id)!.status === "open");
+  const skipped = ids
+    .filter((id) => byId.get(id)!.status !== "open")
+    .map((id) => ({ id, status: byId.get(id)!.status }));
+  if (candidates.length === 0) return { ok: true, marked: [], skipped };
+
+  // Audit tenant scope: every id was verified to belong to `org`, so one orgId covers the batch.
+  const orgId = byId.get(candidates[0]!)!.scan.repo.orgId ?? null;
+
+  const won = await prisma.$transaction(async (tx) => {
+    const marked: string[] = [];
+    const lost: { id: string; status: string }[] = [];
+    for (const id of candidates) {
+      // Per-row CAS: the WHERE carries the expected state AND ownership, so the write is
+      // self-authorizing — count === 0 means the row moved (e.g. open → done) between the batch
+      // read and this write, and it is SKIPPED, never reopened. Bounded by the route's MAX_BATCH.
+      const res = await tx.recommendation.updateMany({
+        where: { id, status: "open", scan: { repo: { orgId: orgId ?? undefined } } },
+        data: { status: "in_progress" },
+      });
+      if (res.count === 1) {
+        marked.push(id);
+      } else {
+        // Consume the verdict honestly: report the state that beat us.
+        const now = await tx.recommendation.findUnique({ where: { id }, select: { status: true } });
+        lost.push({ id, status: now?.status ?? "unknown" });
+      }
+    }
+    if (marked.length > 0) {
+      // Timeline + audit commit atomically WITH the status changes (the same invariant
+      // updateRecommendation pins): one event and one audit row per marked id, in the shapes the
+      // per-item path writes, so the timeline and audit viewer see identical rows.
+      await tx.recommendationEvent.createMany({
+        data: marked.map((recommendationId) => ({
+          recommendationId,
+          actor,
+          kind: "status",
+          fromValue: "open",
+          toValue: "in_progress",
+          note,
+        })),
+      });
+      await tx.auditLog.createMany({
+        data: marked.map((id) => ({
+          action: "recommendation.updated",
+          meta: JSON.stringify({
+            id,
+            actor,
+            changes: [{ kind: "status", from: "open", to: "in_progress" }],
+          }),
+          orgId,
+          actorId: null,
+        })),
+      });
+    }
+    return { marked, lost };
+  });
+
+  return { ok: true, marked: won.marked, skipped: [...skipped, ...won.lost] };
+}
+
 // ── Orphaned tracking (Direction 3) ──────────────────────────────────────────────────────────────
 
 /** A previously-tracked recommendation the latest re-scan could not carry forward. */

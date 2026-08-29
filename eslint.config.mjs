@@ -31,7 +31,6 @@ const eslintConfig = defineConfig([
       // Grandfathered importers of @/lib/db/client (pre-existing; ratchet — do NOT add to this
       // list, new code goes through the @/lib/db barrel):
       "src/app/api/dev/seed-ai-usage/route.ts",
-      "src/app/api/org/followups/handoff/route.ts",
       "src/lib/athena/actions-execute.ts",
       "src/lib/auth.ts",
       "src/lib/entitlement.ts",
