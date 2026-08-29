@@ -5,7 +5,8 @@
 // The list above this panel is sorted by date: it answers "what was written recently". Recall answers
 // the question people actually have — "what does this org already know about our CI story, in the
 // 6000 characters I can afford to paste into an agent?" — by scoring every eligible memory on trust ×
-// exponential per-kind decay × proven usefulness, then packing whole items greedily into the budget.
+// exponential per-kind decay × a capped DELIVERY bonus, then packing whole items greedily into the
+// budget. Not "usefulness": see the recall.ts header for why that word is not available to us.
 //
 // That core (src/lib/memory/recall.ts) was deterministic, tested, and called by NOTHING in the product.
 // This panel is pure surfacing: it changes no half-life, no budget default, and no packing rule.
@@ -91,7 +92,7 @@ export function MemoryRecallPanel({
       <SectionHeader
         size="sm"
         title="Recall: what an agent would be handed"
-        description="Ask for the org's most valuable knowledge within a character budget. Ranking is confidence × per-kind decay × proven usefulness, and items are packed whole, never truncated mid-memory. Everything that did not make it is listed below with the reason. Packed memories have their recall count incremented, because they reached a reader."
+        description="Ask for the org's most valuable knowledge within a character budget. Ranking is confidence × per-kind decay × how often it has been delivered (capped), and items are packed whole, never truncated mid-memory. Everything that did not make it is listed below with the reason. Packed memories have their recall count incremented, because they reached a reader — which is a record of delivery, not evidence that it helped."
       />
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
