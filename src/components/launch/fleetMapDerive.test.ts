@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fleetStats, makeMatcher, orderConstellations } from "./fleetMapDerive";
+import { fleetStats, makeMatcher, MOVER_THRESHOLD, orderConstellations } from "./fleetMapDerive";
 import type { Constellation, RepoStar } from "./fleetMapStars";
 
 // Invariant batch for the three FleetMap header/grid derivations (test-mastery launch-fleet-map #4).
@@ -191,6 +191,35 @@ describe("orderConstellations — org-card sort", () => {
       done("some", [star({ dOverall: 2 }), star({ dOverall: -1 })]), // 3
     ];
     expect(orderConstellations(cs, "movement").map((c) => c.login)).toEqual(["wild", "some", "calm"]);
+  });
+
+  // The sort summed RAW |dOverall|, while fleetStats' movers tally and ConstellationField's
+  // directional ring both require |d| >= MOVER_THRESHOLD. So an org of sub-threshold drift outranked
+  // one carrying a real mover, while the header said `0 movers` about the first and the map drew no
+  // ring on any of its stars — the sort disagreeing with every surface that renders the same fact.
+  it("sortKey 'movement' ignores sub-threshold drift, exactly as the header and the rings do", () => {
+    // The raw sums are deliberately INVERTED against the real movement: 30 x 0.4 = 12 of drift beats
+    // a single +9, so the old thresholdless sum ranked `drifty` first. Anything closer would pass
+    // under both implementations and prove nothing.
+    const drifty = done("drifty", Array.from({ length: 30 }, () => star({ dOverall: 0.4 }))); // raw sum 12
+    const real = done("real", [star({ dOverall: 9 })]); // raw sum 9, and the ONLY actual mover
+    const cs = [drifty, real];
+
+    expect(orderConstellations(cs, "movement").map((c) => c.login)).toEqual(["real", "drifty"]);
+    // ...and the ranking now agrees with what the header reports about the same two orgs.
+    expect(fleetStats([drifty]).risers + fleetStats([drifty]).fallers).toBe(0);
+    expect(fleetStats([real]).risers).toBe(1);
+  });
+
+  it("MOVER_THRESHOLD is the single definition the tally and the sort both read", () => {
+    const atThreshold = done("edge", [star({ dOverall: MOVER_THRESHOLD })]);
+    const below = done("under", [star({ dOverall: MOVER_THRESHOLD - 0.01 })]);
+    expect(fleetStats([atThreshold]).risers).toBe(1);
+    expect(fleetStats([below]).risers).toBe(0);
+    expect(orderConstellations([below, atThreshold], "movement").map((c) => c.login)).toEqual([
+      "edge",
+      "under",
+    ]);
   });
 
   it("does not mutate the input array (returns a new sorted array)", () => {

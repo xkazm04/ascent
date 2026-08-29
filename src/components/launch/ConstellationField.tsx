@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { reportPermalink, scoreHex } from "@/lib/ui";
-import { meanOverall } from "./fleetMapDerive";
+import { meanOverall, moverDelta } from "./fleetMapDerive";
 import { Pill } from "./FleetMapChrome";
 import {
   ACCENT,
@@ -183,8 +183,8 @@ export function ConstellationField({
               };
               // A repo that moved ≥1 point in the window (MAP-3): a thin directional ring — emerald
               // up, orange down — and the delta appended to the hover tooltip. Suppressed when dimmed.
-              const moved = !dim && r.dOverall != null && Math.abs(r.dOverall) >= 1 ? r.dOverall : null;
-              const moveDetail = moved != null ? ` · ${moved > 0 ? "+" : ""}${moved} 30d` : "";
+              const moved = dim ? 0 : moverDelta(r.dOverall);
+              const moveDetail = moved !== 0 ? ` · ${moved > 0 ? "+" : ""}${moved} 30d` : "";
               const detail = (r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned") + moveDetail;
               // SVG <a>: clicking a star opens that repo's report (the map's core "a star is a repo"
               // metaphor). A transparent halo widens the hit/focus target for the tiny stars.
@@ -200,7 +200,7 @@ export function ConstellationField({
                       px/unit), so a ≥6-unit radius = ≥12px = a ≥24px-diameter tap target down to a 320px
                       screen, clearing the WCAG 2.2 target-size minimum the old r≈3 (~15px) fell short of. */}
                   <circle cx={cx} cy={cy} r={Math.max(look.r + 3, 6)} fill="transparent" />
-                  {moved != null && (
+                  {moved !== 0 && (
                     <circle
                       cx={cx}
                       cy={cy}
