@@ -63,8 +63,10 @@ or `quality` unless you are deliberately probing for a localization seam.
 Run what the item touched, not the whole battery — this is the daily loop, not a milestone:
 
 - Any `.ts`/`.tsx` edit: `npx tsc --noEmit`
-- Any edit: `npm run lint` (flat config, `eslint`; the repo is at **zero** warnings — a new warning
-  in a file you touched is a failure, there is no baseline to hide in)
+- Any edit: `npm run lint` (flat config, `eslint`). Measured 2026-08-29: **0 errors, 36 warnings**,
+  all `no-unused-vars`/unused-disable in files nobody is touching. That is the baseline — hold it.
+  A new warning in a file YOU touched is a failure; check with `npx eslint <paths you edited>`
+  rather than reading the repo total, which moves under you when a parallel session is committing.
 - A file with a co-located test, or a `src/lib/**` module: `npx vitest run <path>`
 - Before calling a multi-item run done, or after any edit that crosses `"use client"`:
   `npm run build`
@@ -124,9 +126,10 @@ Authority: `AGENTS.md` + `src/components/ui/BRAND.md`.
 - `docs/archive/**` (point-in-time records) and `docs/harness/**` (gitignored scan output).
 - `src/generated/**`, the Prisma client output, `next-env.d.ts` — generated.
 - The dormant custom OAuth path superseded by Supabase auth — known-dead, not a finding.
-- **No lint-baseline migration exists here.** Lint is at zero warnings and there is no Tailwind-class
-  or string-extraction backlog, so the skill's usual "don't surface the baseline" exclusion has
-  nothing to bite on — which also means a lint warning you *do* find is real signal.
+- **No lint-baseline MIGRATION exists here.** The 36 standing warnings are scattered unused-vars,
+  not a declared migration, and there is no Tailwind-class or string-extraction backlog — so the
+  skill's usual "don't surface the baseline" exclusion has nothing to bite on. Don't file the 36 as
+  an item either; they are noise, not a wave.
 
 ## Smoke
 - `npm run dev` boots against the embedded in-process PGlite DB (instrumentation-loaded; a CLI
@@ -139,3 +142,22 @@ Authority: `AGENTS.md` + `src/components/ui/BRAND.md`.
 ## Skill improvement log
 
 _(dated one-liners, appended by Lane 1 of the skill's reflection)_
+
+- 2026-08-29 — **A path-scoped commit is not enough on this checkout.** A parallel `/scan-sweep`
+  session ran `git add` broadly between my edit and my commit, and my BOM fix landed inside ITS
+  commit (`4dd9fc1e`); my own `git commit -- <path>` then found nothing to commit and silently
+  committed someone else's staged work instead. Edit and commit in the SAME invocation, and verify
+  with `git log -1 --format=%h -- <path>` that the change landed in YOUR commit. Sibling hazard to
+  the ones in `never-reset-hard-shared-tree`, but the inverse direction: not clobbering theirs,
+  losing yours.
+- 2026-08-29 — **Read the comments to pick the file.** `client.ts`, `retention.ts` and
+  `scans-read.ts` carry finding-numbered annotations from prior scan-sweep/architect passes
+  (`database-client-schema #1`, `data-retention 07-16 #2`), and every candidate formed against them
+  died on verification. `kpi-metrics.ts` and the erasure UI carry none, and produced 9 of 10 items.
+  Dense prior-finding comments are a "swept, move on" marker; their absence is where the yield is.
+- 2026-08-29 — **Cross-read the UI against its resolver.** The best finding of the first sweep
+  (the erasure dialog promising destruction where `resolveAuditDisposition` returns `"redact"`)
+  was invisible in either file alone; both are internally consistent. Ask what the UI *claims* the
+  server does, then read the server's default.
+- 2026-08-29 — `context-map.json` was 266 commits stale (generated 2026-08-04). Regenerate it
+  before relying on the area menu's file lists.
