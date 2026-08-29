@@ -59,3 +59,12 @@ a parallel run has already swept an in-flight version bump into its own commit h
   no outbound scrubber. Before proposing any new telemetry capture here, read the backlogged
   registry-conformance finding first: the sequencing (inventory, then beforeSend, then close the
   client-boundary gap) is the finding, and adding a capture site alone makes it worse.
+- **2026-08-29** — before committing an edit to `src/lib/x.ts`, run `src/lib/x.test.ts`. Gating on the
+  CONSUMERS of a changed module (which is what the blast-radius instinct produces) missed 9 failures
+  in the sibling suite of the very file edited: `practice-artifact.test.ts` pins each language command
+  tuple with `toEqual`, twice.
+- **2026-08-29** — this repo GENERATES code that runs in customer CI (`src/lib/standard/*`,
+  `practice-artifact.ts` workflows). No gate here can see it, and the suite stays green regardless.
+  When touching a generator, ask what the emitted artifact would do elsewhere, and pin the generated
+  value against this repo's own equivalent declaration (`CI_NODE_VERSION` vs `package.json` engines
+  is the worked example).
