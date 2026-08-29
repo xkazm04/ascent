@@ -157,12 +157,13 @@ export function OutcomeTotals({
   improved: number;
   flat: number;
   regressed: number;
-  excluded: Pick<RunAttribution, "withinNoise" | "mock" | "unmeasured">;
+  excluded: Pick<RunAttribution, "withinNoise" | "mock" | "unmeasured" | "undelivered">;
 }) {
   const parts = [
     excluded.withinNoise > 0 ? `${excluded.withinNoise} within noise` : null,
     excluded.mock > 0 ? `${excluded.mock} mock ${excluded.mock === 1 ? "scan" : "scans"}` : null,
     excluded.unmeasured > 0 ? `${excluded.unmeasured} not measured` : null,
+    excluded.undelivered > 0 ? `${excluded.undelivered} uncommitted` : null,
   ].filter((x): x is string => x !== null);
 
   return (
@@ -177,7 +178,7 @@ export function OutcomeTotals({
       {parts.length > 0 && (
         <span
           className="font-mono text-xs tabular-nums text-slate-600"
-          title="Held out of the lift: a movement smaller than the measured run-to-run noise band, or one measured across a scan that fell to the deterministic mock floor, is not evidence the repository changed."
+          title="Held out of the lift: a movement smaller than the measured run-to-run noise band, or one measured across a scan that fell to the deterministic mock floor, is not evidence the repository changed. Neither is a movement a lane never committed — the loop scans a worktree it then deletes, so an uncommitted lane measured a state that no longer exists."
         >
           excluded: {parts.join(" · ")}
         </span>

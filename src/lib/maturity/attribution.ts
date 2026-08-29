@@ -68,7 +68,9 @@ export type Attribution =
   /** At least one end came from the mock floor, so the two ends are not on the same ruler. */
   | { kind: "mock-scan"; delta: number; degraded: boolean }
   /** Real on both ends, but the movement is inside the band — including a movement of zero. */
-  | { kind: "within-noise"; delta: number };
+  | { kind: "within-noise"; delta: number }
+  /** The pair is real, and the work it measured WAS NEVER COMMITTED. See `attributeDelivered`. */
+  | { kind: "undelivered"; delta: number };
 
 /**
  * The verdict for ONE before/after pair. Order of checks matters: an unmeasured pair is not a mock
@@ -88,6 +90,37 @@ export function attributeScores(
     return { kind: "mock-scan", delta, degraded: before.engineDegraded === true || after.engineDegraded === true };
   }
   return Math.abs(delta) > SCORE_NOISE_BAND ? { kind: "attributable", delta } : { kind: "within-noise", delta };
+}
+
+/**
+ * DURABILITY — the one way a number lies that is not a fact about the measurement at all: the thing
+ * it measured was thrown away.
+ *
+ * The loop scans a lane's WORKTREE, not the repository — a temp checkout that `removeLoopWorktree`
+ * deletes on the way out, leaving only the branch. So a scan of that worktree describes the
+ * repository only for what the lane COMMITTED. On 2026-08-29 (L2-B-01) an agent lane edited files for
+ * 5m46s, could not commit any of them, rescanned the worktree anyway and printed
+ * `▲+24 ATTRIBUTABLE LIFT` beside `0 commits`, three lines apart, for work that no longer existed —
+ * and that after-scan became the repository's latest reading, so the fleet's greenness and debt
+ * inherited the lie.
+ *
+ * `attributeScores` cannot see this: engine provenance and the noise band are both properties of the
+ * MEASUREMENT, and the measurement was fine. Durability is a property of the lane. So the commit
+ * count is passed in, and a pair with nothing behind it is refused with its own verdict rather than
+ * folded into "within noise" — the operator's next move for "we measured nothing" and "we lost it"
+ * are not the same move.
+ *
+ * A pair that was never measured stays `unmeasured`: no commits AND no scan is not a durability
+ * finding, it is a lane that did not run.
+ */
+export function attributeDelivered(
+  before: (EngineEnd & { overallScore: number }) | null | undefined,
+  after: (EngineEnd & { overallScore: number }) | null | undefined,
+  commits: number | null | undefined,
+): Attribution {
+  const verdict = attributeScores(before, after);
+  if (verdict.kind === "unmeasured" || (commits ?? 0) > 0) return verdict;
+  return { kind: "undelivered", delta: verdict.delta };
 }
 
 /**
@@ -195,6 +228,8 @@ export function attributionLabel(a: Attribution): string {
         : "not attributable: mock scan";
     case "within-noise":
       return `within noise (±${SCORE_NOISE_BAND})`;
+    case "undelivered":
+      return "not attributable: nothing was committed, so what this measured no longer exists";
   }
 }
 
@@ -257,5 +292,7 @@ export function attributionChip(a: Attribution): string {
       return a.degraded ? "mock (degraded)" : "mock scan";
     case "within-noise":
       return `±${SCORE_NOISE_BAND} noise`;
+    case "undelivered":
+      return "0 commits";
   }
 }

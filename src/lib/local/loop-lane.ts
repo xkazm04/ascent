@@ -332,6 +332,26 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       return { laneId, progressed: false, commits, closed: 0, error: null };
     }
 
+    // A LANE THAT COMMITTED NOTHING DOES NOT RESCAN. L2-B-01: the L2 run's agent lane lost its work,
+    // rescanned the worktree it was about to delete anyway, and that scan became the repository's
+    // LATEST reading — so the fleet's greenness, the debt total and the run's own headline
+    // `▲+24 ATTRIBUTABLE LIFT` all credited `bare-svc` with a standard that existed nowhere on disk.
+    // `attributeScores` rules out an engine swap and model wobble, the two ways a score moves without
+    // the repository moving; it has no test for whether the measured state is DURABLE, because until
+    // an agent lane could lose its own work nothing could produce a measurement of a state that was
+    // about to be discarded. The gate is here, at the source: no commit, no scan, nothing to adopt.
+    // (The read side refuses the same pair independently — `laneAttribution` in cockpitDrift.ts —
+    // because the rows written before this gate existed are still in the database.)
+    if (commits === 0) {
+      await releaseClaims(`loop cycle ${cycle} committed nothing, so there was nothing for a rescan to adjudicate`);
+      await appendLaneLog(
+        laneId,
+        "No commits, so no rescan: scanning a worktree that nothing landed in would make it this repository's latest reading and credit the repo with work that does not exist.",
+      );
+      await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
+      return { laneId, progressed: false, commits, closed: 0, error: null };
+    }
+
     await updateLane(laneId, { phase: "rescanning", commits });
     await appendLaneLog(laneId, "Rescanning the worktree from disk…");
     let closedIds: string[] = [];

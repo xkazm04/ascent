@@ -30,7 +30,10 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
   const verdicts = outcomes.map(laneAttribution);
   const improved = verdicts.filter((v) => v.kind === "attributable" && v.delta > 0).length;
   const regressed = verdicts.filter((v) => v.kind === "attributable" && v.delta < 0).length;
-  const measured = outcomes.filter((o) => o.before && o.after);
+  // A lane that committed nothing is not "flat" — it is EXCLUDED, and the breakdown beside the
+  // headline names it. Counting it as flat would put a lost deliverable in the same bucket as a repo
+  // the run legitimately did not move (L2-B-01).
+  const measured = outcomes.filter((o) => o.before && o.after && o.commits > 0);
   const agentConfig = agentConfigLabel(run);
 
   return (

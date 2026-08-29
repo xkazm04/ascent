@@ -7,7 +7,7 @@ import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
-import { attributeScores } from "@/lib/maturity/attribution";
+import { attributeDelivered } from "@/lib/maturity/attribution";
 import {
   laneKindOf,
   toLaneRecord,
@@ -140,7 +140,10 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
     // page's lanes name, score them in a single read, then fold each run's lift out of that map.
     const lanes = await prisma.loopRunLane.findMany({
       where: { runId: { in: rows.map((r) => r.id) } },
-      select: { runId: true, beforeScanId: true, afterScanId: true },
+      // `commits` rides along because the strip's lift answers to the DURABILITY rule too: a lane
+      // that committed nothing measured a worktree the run then deleted, and folding that into a
+      // green number here would have the history strip claim a lift the ledger refuses (L2-B-01).
+      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true },
     });
     const ids = [
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
@@ -160,7 +163,7 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
     for (const l of lanes) {
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
-      const verdict = attributeScores(b, a);
+      const verdict = attributeDelivered(b, a, l.commits);
       if (verdict.kind !== "attributable") continue;
       liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + verdict.delta);
     }

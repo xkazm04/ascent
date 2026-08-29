@@ -16,7 +16,7 @@
 // Repos that were not in the run appear IDENTICALLY on both sides, so the drift moves only the
 // bodies the run actually touched.
 
-import { attributeScores, type Attribution } from "@/lib/maturity/attribution";
+import { attributeDelivered, type Attribution } from "@/lib/maturity/attribution";
 import { layoutBodies, type ObservatoryBody, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
 import type { LoopLaneOutcome, LoopRunDetail } from "./loopTypes";
 
@@ -59,7 +59,11 @@ export function driftFor(
   detail: LoopRunDetail,
   replayKey = 0,
 ): CockpitDrift | null {
-  const pairs = detail.outcomes.filter((o) => o.before && o.after);
+  // A lane that committed nothing is not part of the drift either. Its after-scan measured a
+  // worktree that was deleted, so gliding a body to it would animate a position the repository never
+  // reached — and the header comment's promise ("it cannot drift against the outcome ledger") is
+  // exactly what would break if the sky moved a body the ledger below refuses to score.
+  const pairs = detail.outcomes.filter((o) => o.before && o.after && o.commits > 0);
   if (pairs.length === 0) return null;
   const beforeBy = new Map(pairs.map((o) => [o.lane.repoFullName, o.before as ScanEnd]));
   const afterBy = new Map(pairs.map((o) => [o.lane.repoFullName, o.after as ScanEnd]));
@@ -89,8 +93,16 @@ export function scanningRepos(detail: LoopRunDetail | null): ReadonlySet<string>
   );
 }
 
-/** One lane's verdict — the same rule the resolve rule and the history strip apply. */
-export const laneAttribution = (o: LoopLaneOutcome): Attribution => attributeScores(o.before, o.after);
+/**
+ * One lane's verdict — the same rule the resolve rule and the history strip apply, plus the lane's
+ * commit count, which only a LANE has.
+ *
+ * The commit count is load-bearing and was missing until 2026-08-29 (L2-B-01): the loop scans a
+ * worktree it is about to delete, so a lane that committed nothing measured a state that does not
+ * survive the run. `runLane` now refuses to rescan such a lane at all, but the rows written before it
+ * did are still in the database and the ledger renders them — so the refusal lives on BOTH sides.
+ */
+export const laneAttribution = (o: LoopLaneOutcome): Attribution => attributeDelivered(o.before, o.after, o.commits);
 
 export interface RunAttribution {
   /** Summed movement across the lanes whose movement is ATTRIBUTABLE; null when no lane is. */
@@ -102,6 +114,8 @@ export interface RunAttribution {
   mock: number;
   /** No pair to compare (a first-ever scan, or a lane that never rescanned). */
   unmeasured: number;
+  /** Measured, outside the band — and committed NOTHING, so the state it measured is gone. */
+  undelivered: number;
 }
 
 /**
@@ -113,7 +127,7 @@ export interface RunAttribution {
  * with three mock lanes, and they call for different next moves.
  */
 export function runAttribution(detail: LoopRunDetail): RunAttribution {
-  const out: RunAttribution = { lift: null, attributable: 0, withinNoise: 0, mock: 0, unmeasured: 0 };
+  const out: RunAttribution = { lift: null, attributable: 0, withinNoise: 0, mock: 0, unmeasured: 0, undelivered: 0 };
   let sum = 0;
   for (const o of detail.outcomes) {
     const a = laneAttribution(o);
@@ -122,6 +136,7 @@ export function runAttribution(detail: LoopRunDetail): RunAttribution {
       sum += a.delta;
     } else if (a.kind === "within-noise") out.withinNoise += 1;
     else if (a.kind === "mock-scan") out.mock += 1;
+    else if (a.kind === "undelivered") out.undelivered += 1;
     else out.unmeasured += 1;
   }
   if (out.attributable > 0) out.lift = sum;

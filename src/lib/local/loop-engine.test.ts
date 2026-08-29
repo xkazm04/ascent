@@ -109,11 +109,14 @@ vi.mock("@/lib/local/loop-worktree", () => ({
   removeLoopWorktree: vi.fn(async () => {}),
 }));
 // git is only used for HEAD bookkeeping inside the lane; both calls are shaped as successes.
-const gitCommits = { n: 1 };
+// `byCwd` lets one test give different repos different commit counts — the lane's early-stop rule is
+// per lane, and since a lane that commits nothing no longer rescans at all (L2-B-01), "made no
+// progress" and "landed no commits" are now the same condition and have to be set per worktree.
+const gitCommits = { n: 1, byCwd: null as ((cwd: string) => number) | null };
 vi.mock("@/lib/local/git", () => ({
-  runGit: vi.fn(async (_cwd: string, args: readonly string[]) => ({
+  runGit: vi.fn(async (cwd: string, args: readonly string[]) => ({
     ok: true,
-    stdout: args[0] === "rev-list" ? String(gitCommits.n) : "headsha",
+    stdout: args[0] === "rev-list" ? String(gitCommits.byCwd ? gitCommits.byCwd(cwd) : gitCommits.n) : "headsha",
     stderr: "",
   })),
 }));
@@ -222,7 +225,9 @@ describe("startLoopRun — failure isolation and the early stop", () => {
       scanId: `after-${repo}`,
       closedIds: repo === "acme/web" ? ["rec-acme/web"] : [],
     }));
-    gitCommits.n = 0; // no commits anywhere — only the closed row counts as progress
+    // A lane that lands no commits does not rescan (L2-B-01), so it can close no rows either: "made
+    // no progress" is now exactly "landed no commits". acme/api lands none; acme/web lands one a cycle.
+    gitCommits.byCwd = (cwd: string) => (cwd.includes("acme-api") ? 0 : 1);
     const run = await startLoopRun({
       org: "acme",
       repos: ["acme/web", "acme/api"],
