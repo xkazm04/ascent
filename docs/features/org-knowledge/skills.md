@@ -17,7 +17,8 @@ members, `ApiTokensPanel`.
 
 `SkillsPanel` (`src/features/shared/skills/SkillsPanel.tsx`, client) debounces
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
-changes, renders a filter bar and a table (Name / Category / Status /
+changes — the debounce covers the timer and an `AbortController` covers the
+request it starts, so a superseded read cannot land its rows after a newer one — renders a filter bar and a table (Name / Category / Status /
 Adoptions / Uses), and expands a `SkillCard` beneath a clicked row.
 
 ## SKILL.md frontmatter contract

@@ -91,7 +91,10 @@ shows kind/namespace/confidence badges, a `private` badge if applicable, an
 memory has been edited/corrected more than once, author, source, recall
 count, last-updated date, and an `expires` badge if the row has a TTL. Its
 "Copy" button fires a background `POST /api/org/memory/:id/recall` to record
-that the memory was used.
+that the memory was used. The debounce covers the timer;
+an `AbortController` covers the request it starts, so changing a filter twice
+cannot let the slower read overwrite the faster one's rows (pinned by a case in
+`useMemoryLibrary.test.ts`).
 
 ### Author a memory (check → save)
 

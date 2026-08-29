@@ -44,30 +44,42 @@ export function useMemoryLibrary({
   const didMount = useRef(false);
   const setForm = (patch: Partial<MemoryFormState>) => setFormState((f) => ({ ...f, ...patch }));
 
-  async function refresh() {
+  /** One list read. `signal` belongs to the filter state that asked for it: once superseded, the
+   *  request is aborted and neither its rows nor its loading flag may land. */
+  async function refresh(signal?: AbortSignal) {
     setLoading(true);
     try {
-      const body = await fetchMemoryList(slug, { sort, namespace, kind, search });
+      const body = await fetchMemoryList(slug, { sort, namespace, kind, search }, signal);
+      if (signal?.aborted) return;
       if (body) {
         setMemories(body.memories ?? []);
         setNamespaces(body.namespaces ?? []);
       }
     } catch {
-      /* keep the current list on a transient fetch error */
+      /* keep the current list on a transient fetch error (an abort included) */
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }
 
   // Re-query the server when a filter changes (debounced so typing doesn't spam). Skips the first run
   // so the server-rendered `initial` isn't immediately refetched.
+  //
+  // The debounce covers the TIMER; the AbortController covers the request the timer started. Without
+  // it a filter changed twice in quick succession left two reads in flight and the SLOWER one won the
+  // setState — the list showed rows for a filter the user had already moved off, with the controls
+  // showing the new one. The `check()` call below already used this pattern; the list read did not.
   useEffect(() => {
     if (!didMount.current) {
       didMount.current = true;
       return;
     }
-    const t = setTimeout(refresh, 250);
-    return () => clearTimeout(t);
+    const ac = new AbortController();
+    const t = setTimeout(() => void refresh(ac.signal), 250);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, namespace, kind, sort]);
 

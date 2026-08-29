@@ -95,3 +95,42 @@ describe("useMemoryLibrary — write-form defaults and verdict dismissal", () =>
     expect(result.current.verdict).toBeNull();
   });
 });
+
+describe("useMemoryLibrary — the debounced refresh cannot be overtaken", () => {
+  // REGRESSION (explorer, 2026-08-29): the effect debounced the TIMER but the request it started was
+  // unguarded, so changing a filter twice left two reads in flight and the SLOWER one won setState —
+  // the list showed rows for a filter the user had already moved off. The request now carries the
+  // AbortSignal of the filter state that asked for it.
+  it("passes an AbortSignal and aborts it when the filter changes again", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(async (_url: string, init?: { signal?: AbortSignal }) => {
+      if (init?.signal) signals.push(init.signal);
+      return { ok: true, json: async () => ({ memories: [], namespaces: [] }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() =>
+      useMemoryLibrary({ slug: "acme", initial: [memory("m1")], initialNamespaces: [] }),
+    );
+
+    // First filter change → its timer fires → one read, carrying a live signal.
+    act(() => result.current.setSearch("a"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+
+    // Second change supersedes it: the first read's signal is aborted, a new one is issued.
+    act(() => result.current.setSearch("ab"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(signals[0]!.aborted).toBe(true);
+    expect(signals).toHaveLength(2);
+    expect(signals[1]!.aborted).toBe(false);
+
+    vi.useRealTimers();
+  });
+});

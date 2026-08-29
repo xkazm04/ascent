@@ -28,31 +28,43 @@ export function useSkillsLibrary({ slug, initial }: { slug: string; initial: Ski
 
   const didMount = useRef(false);
 
-  async function refresh() {
+  /** One list read. `signal` belongs to the filter state that asked for it: once superseded, the
+   *  request is aborted and neither its rows nor its loading flag may land. */
+  async function refresh(signal?: AbortSignal) {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ org: slug, sort });
       if (category) params.set("category", category);
       if (search.trim()) params.set("search", search.trim());
-      const res = await fetch(`/api/org/skills?${params.toString()}`);
+      const res = await fetch(`/api/org/skills?${params.toString()}`, { signal });
+      if (signal?.aborted) return;
       if (res.ok) setSkills((await res.json()).skills ?? []);
     } catch {
-      /* keep the current list on a transient fetch error */
+      /* keep the current list on a transient fetch error (an abort included) */
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }
 
   // Re-query the server when a filter changes (debounced so typing doesn't spam). Skips the first run
   // so the server-rendered `initial` isn't immediately refetched.
+  //
+  // The debounce covers the TIMER; the AbortController covers the request the timer started. Without
+  // it a filter changed twice in quick succession left two reads in flight and the SLOWER one won the
+  // setState — the list showed rows for a filter the user had already moved off. Mirrors the memory
+  // library hook, and the controller+active pattern useRegistryRepoOptions already uses.
   useEffect(() => {
     if (!didMount.current) {
       didMount.current = true;
       return;
     }
-    const t = setTimeout(refresh, 250);
-    return () => clearTimeout(t);
+    const ac = new AbortController();
+    const t = setTimeout(() => void refresh(ac.signal), 250);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, category, sort]);
 
