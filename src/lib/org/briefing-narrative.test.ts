@@ -8,6 +8,7 @@
 // A regression here puts an invented figure in front of a board.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { setMeterSink, type UsageEventInput } from "@/lib/llm/meter";
 
 // briefing.ts imports the @/lib/db barrel at module load; stub it so this stays hermetic. Only the
 // pure serializer (briefingMarkdown) is exercised through it.
@@ -400,5 +401,58 @@ describe("referentGrounded — a figure must belong to the subject it stands nex
     const correct = pad("Security scored 41 across the fleet, its weakest reading of the period.");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(ok(correct));
     expect(await writeBriefingNarrative(briefing)).toBe(correct.trim());
+  });
+});
+
+// ── The meter (#11) ────────────────────────────────────────────────────────────────────────────
+//
+// This egress used to parse the response's `usage` block into nothing at all: real billed tokens, on
+// a board-facing document, invisible to every cost surface in the app. Now every outcome writes one
+// ledger row under the `briefing` lane — including the ones that end in the deterministic fallback,
+// because the tokens were spent whether or not the prose was used.
+
+describe("writeBriefingNarrative — the briefing lane is metered", () => {
+  const posted: UsageEventInput[] = [];
+  beforeEach(() => {
+    posted.length = 0;
+    setMeterSink(async (e) => void posted.push(e));
+  });
+  afterEach(() => setMeterSink(null));
+
+  it("writes no ledger row when the feature is off — no call, nothing to meter", async () => {
+    await writeBriefingNarrative(briefing);
+    expect(posted).toHaveLength(0);
+  });
+
+  it("records the response's own token counts under the briefing lane, against the briefing's org", async () => {
+    enable();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "x".repeat(200) }],
+        usage: { input_tokens: 900, output_tokens: 120 },
+      }),
+    } as unknown as Response);
+    await writeBriefingNarrative(briefing);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({
+      orgSlug: "acme",
+      lane: "briefing",
+      legKind: "briefing",
+      status: "success",
+      inputTokens: 900,
+      outputTokens: 120,
+    });
+    // claude-opus-5 is priced in MODEL_PRICES ($5/$25 per MTok): 900 in + 120 out = 7,500 micros.
+    expect(posted[0]!.costMicros).toBe(7_500);
+  });
+
+  it("meters a call that FAILS, and still returns the deterministic paragraph", async () => {
+    enable();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, json: async () => ({}) } as unknown as Response);
+    expect(await writeBriefingNarrative(briefing)).toBe(deterministicNarrative(briefing));
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ status: "error", inputTokens: null, costMicros: null });
   });
 });

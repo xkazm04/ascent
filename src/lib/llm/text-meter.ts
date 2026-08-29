@@ -12,6 +12,7 @@
 import type { ProviderName } from "@/lib/types";
 import { withLlmTimeout } from "@/lib/llm/config";
 import { trackLlmCall } from "@/lib/llm/tracklight";
+import { meter } from "@/lib/llm/meter";
 import type { LegCall, ResolvedLegRunner, ResolvedTextRunner, TextRunner, TextRunnerOptions } from "@/lib/llm/leg";
 
 /** Human label used in this seam's error messages, per engine. A FULL Record over ProviderName (the
@@ -52,6 +53,19 @@ function withTimeout(
         surface: opts.surface ?? opts.legKind,
         operation: "text",
       });
+      // The DURABLE half of the same fact. tracklight is an optional local mirror an operator may not
+      // run; the meter is the org's own ledger, and /usage reads it. Both, or the spend is visible in
+      // exactly the deployments that were already instrumented.
+      meter({
+        ...opts.meter,
+        orgSlug: opts.meter?.orgSlug ?? null,
+        legKind: opts.legKind,
+        provider: engine,
+        model,
+        usage,
+        status: "success",
+        latencyMs: Date.now() - startedAt,
+      });
       return text;
     } catch (err) {
       trackLlmCall({
@@ -63,6 +77,18 @@ function withTimeout(
         error: err instanceof Error ? err.message : String(err),
         surface: opts.surface ?? opts.legKind,
         operation: "text",
+      });
+      // A FAILED call is metered too, with no tokens and no cost: an endpoint that times out on every
+      // memory pass is exactly what the ledger has to be able to show. Silence would read as "that
+      // lane costs nothing", which is the opposite of what a stream of timeouts means.
+      meter({
+        ...opts.meter,
+        orgSlug: opts.meter?.orgSlug ?? null,
+        legKind: opts.legKind,
+        provider: engine,
+        model,
+        status: signal.aborted && !callerSignal?.aborted ? "timeout" : "error",
+        latencyMs: Date.now() - startedAt,
       });
       throw err;
     } finally {
@@ -79,12 +105,45 @@ export function textRunnerFrom(
 ): ResolvedTextRunner {
   if (leg.ownsTimeout) {
     // claude-cli spawns a process and owns its own timer; racing a second AbortController against it
-    // would only give the caller two competing deadlines. It reports no usage either, so there is
-    // nothing to meter — this path is unchanged from before the seam had leg kinds.
+    // would only give the caller two competing deadlines. It also reports NO USAGE — so the event this
+    // path writes carries null tokens and a null cost, and says so.
+    //
+    // A token-less row rather than no row at all, deliberately: the CALL happened, and a lane that ran
+    // fifty times on a claude-cli deployment must not read as a lane that never ran. `unpricedCalls`
+    // on the read side is what tells an operator the difference between "this lane is free" and "this
+    // lane's cost is not knowable from here" — and that number only exists if the row does.
     return {
       engine: leg.engine,
       model: leg.model,
-      run: async (prompt, signal) => (await leg.call({ prompt, legKind: opts.legKind }, signal)).text,
+      run: async (prompt, signal) => {
+        const startedAt = Date.now();
+        try {
+          const { text } = await leg.call({ prompt, legKind: opts.legKind }, signal);
+          meter({
+            ...opts.meter,
+            orgSlug: opts.meter?.orgSlug ?? null,
+            legKind: opts.legKind,
+            provider: leg.engine,
+            model: leg.model,
+            status: "success",
+            latencyMs: Date.now() - startedAt,
+          });
+          return text;
+        } catch (err) {
+          meter({
+            ...opts.meter,
+            orgSlug: opts.meter?.orgSlug ?? null,
+            legKind: opts.legKind,
+            provider: leg.engine,
+            model: leg.model,
+            // This transport owns its own deadline, so an abort here is ITS timeout, not one we can
+            // distinguish from a caller disconnect — "error" is the honest label at this seam.
+            status: "error",
+            latencyMs: Date.now() - startedAt,
+          });
+          throw err;
+        }
+      },
     };
   }
   return {

@@ -31,6 +31,9 @@
 // and stays `enterprise` everywhere a machine looks.
 
 import { selfHosted } from "@/lib/env";
+// TYPE-ONLY: the lane vocabulary lives with the meter that produces it, and this import is erased, so
+// no client bundle that reads a plan card pulls the metering module in behind it.
+import type { UsageLane } from "@/lib/llm/meter";
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
@@ -162,6 +165,18 @@ export interface PlanFeature {
   /** Gated capabilities this tier includes — DERIVED from PLAN_CAPABILITIES, never hand-listed. This
    *  is the array `planAllows()` indexes, and the array the credit matrix ticks its cells from. */
   capabilities: readonly PlanCapability[];
+  /**
+   * Per-LANE monthly allowances, for the day a tier decides to meter something other than a scan
+   * (an Athena turn, a local-agent run). **Every tier ships `{}` today** and `decideCharge` therefore
+   * answers `"unlimited"` for every non-scan lane on every plan — the metering ledger (#11) exists to
+   * make the numbers VISIBLE before anyone prices them, and shipping a price alongside the instrument
+   * that first measures it is how you get a tier nobody can justify. Opting a lane in is a pricing
+   * decision, made deliberately, with the data this ledger is about to produce.
+   *
+   * A lane ABSENT from the map is unmetered (the current state for all four non-scan lanes); an
+   * explicit `null` is "included, unlimited"; a number is that many free calls a month.
+   */
+  laneAllowances?: Partial<Record<UsageLane, number | null>>;
   /** Bullets BESIDE the headline scan volume — never restating it. The monthly scan number is rendered
    *  once per card, in its own typography, from `planScanLine()`; repeating it here as a bullet was the
    *  same sentence twice in one card. Keep this list to what the volume line does NOT already say.
@@ -262,6 +277,9 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = (() => {
     const { extras, ...spec } = PLAN_SPECS[id];
     built[id] = {
       ...spec,
+      // Empty on EVERY tier — see PlanFeature.laneAllowances. Written here rather than repeated in
+      // four specs so "no lane is priced yet" is one visible fact instead of four silent omissions.
+      laneAllowances: spec.laneAllowances ?? {},
       capabilities: capabilitiesOf(id),
       features: [...newCapabilitiesAt(id).map((c) => PLAN_CAPABILITIES[c].label), ...extras],
     };
@@ -359,6 +377,49 @@ export function resolveScanCharge(opts: { plan: string | null | undefined; usage
     allowance: scanAllowance(opts.plan),
     usageThisMonth: opts.usageThisMonth,
     balance: opts.balance,
+  });
+}
+
+/**
+ * The LANE-aware charge decision (#11) — `decideScanCharge` generalized, and today deliberately a
+ * no-op generalization.
+ *
+ * `"scan"` delegates VERBATIM to `decideScanCharge`, so every existing billing path is byte-identical:
+ * this function adds a dispatch, not a rule. Every other lane answers `"unlimited"` unless the plan
+ * has explicitly opted it in through `laneAllowances`, and no tier does (see that field's note). The
+ * generalization ships now so the shape is settled while nothing depends on it; the prices do not.
+ */
+export function decideCharge(
+  lane: UsageLane,
+  opts: {
+    unlimited: boolean;
+    allowance: number | null;
+    usageThisMonth: number;
+    balance: number;
+    laneAllowances?: PlanFeature["laneAllowances"];
+  },
+): ScanCharge {
+  if (lane === "scan") return decideScanCharge(opts);
+  if (opts.unlimited) return "unlimited";
+  const allowance = opts.laneAllowances?.[lane];
+  // Absent = this lane is not metered on this plan. `null` = metered but included without limit.
+  if (allowance === undefined || allowance === null) return "unlimited";
+  if (opts.usageThisMonth < allowance) return "allowance";
+  return opts.balance > 0 ? "credit" : "denied";
+}
+
+/** The `plan → {unlimited, allowance, laneAllowances}` wiring around {@link decideCharge}, mirroring
+ *  `resolveScanCharge` so a caller never assembles the inputs itself. */
+export function resolveLaneCharge(
+  lane: UsageLane,
+  opts: { plan: string | null | undefined; usageThisMonth: number; balance: number },
+): ScanCharge {
+  return decideCharge(lane, {
+    unlimited: isUnlimitedPlan(opts.plan),
+    allowance: scanAllowance(opts.plan),
+    usageThisMonth: opts.usageThisMonth,
+    balance: opts.balance,
+    laneAllowances: planFeatures(opts.plan).laneAllowances,
   });
 }
 

@@ -65,6 +65,7 @@ import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 import type { CompactedPoint } from "@/lib/db/scan-digest";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
+import type { UsageEventRow } from "@/lib/db/usage-events";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
@@ -125,6 +126,8 @@ const WIRE_TYPES = {
   TeamRollup: true satisfies WireSafe<TeamRollup>,
   TransitionProgramRow: true satisfies WireSafe<TransitionProgramRow>,
   UsageDay: true satisfies WireSafe<UsageDay>,
+  // #11 — one metered model call. `createdAt` is the ISO string `listUsageEvents` maps it to.
+  UsageEventRow: true satisfies WireSafe<UsageEventRow>,
 } as const;
 
 describe("wire-safe dates (structural guard)", () => {
@@ -136,6 +139,7 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(25);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(26);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(26);
   });
 });

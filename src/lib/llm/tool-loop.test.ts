@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { runToolLoop, ATHENA_MAX_LEGS } from "@/lib/llm/tool-loop";
 import { LlmHttpError } from "@/lib/llm/transports";
+import { setMeterSink, type UsageEventInput } from "@/lib/llm/meter";
 import type { ResolvedLegRunner } from "@/lib/llm/text";
 import type { LegResult } from "@/lib/llm/leg";
 
@@ -46,6 +47,8 @@ beforeEach(() => {
 afterEach(() => {
   sent.length = 0;
   bedrockReplies = [];
+  setMeterSink(null); // back to the real (lazy-imported) writer, so no capture leaks between tests
+
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -129,6 +132,57 @@ describe("a two-leg Bedrock exchange, end to end over a stubbed transport", () =
     expect(body.tags).toContain("grounding:tools");
     expect(body.tags).not.toContain("scan");
     expect(body.operation).toBe("tool-loop");
+  });
+
+  it("posts exactly ONE ledger event per loop — never one per leg (#11)", async () => {
+    // Metering inside the leg loop would count this one exchange three times and treble Athena's
+    // apparent cost. The loop already sums its usage; the ledger row rides that sum, once.
+    const posted: UsageEventInput[] = [];
+    setMeterSink(async (e) => void posted.push(e));
+    const leg = (): LegResult => ({
+      text: "",
+      usage: { inputTokens: 10, outputTokens: 2 },
+      toolCalls: [{ id: "t", name: "org_repos", args: {} }],
+    });
+    const res = await runToolLoop({
+      prompt: "p",
+      tools: TOOLS,
+      execute: async () => "{}",
+      legKind: "athena_cycle",
+      orgSlug: "acme",
+      runner: stubRunner([leg(), leg(), { text: "done", usage: { inputTokens: 5, outputTokens: 1 } }]),
+    });
+    await settle();
+
+    expect(res!.legs).toBe(3);
+    expect(posted).toHaveLength(1);
+    // Both Athena leg kinds fold to the ONE lane an operator reads a bill in.
+    expect(posted[0]).toMatchObject({
+      orgSlug: "acme",
+      lane: "athena",
+      legKind: "athena_cycle",
+      status: "success",
+      inputTokens: 25,
+      outputTokens: 5,
+    });
+  });
+
+  it("meters a loop that ERRORS out, with the failure's own status", async () => {
+    const posted: UsageEventInput[] = [];
+    setMeterSink(async (e) => void posted.push(e));
+    await expect(
+      runToolLoop({
+        prompt: "p",
+        tools: TOOLS,
+        execute: async () => "{}",
+        legKind: "athena_turn",
+        orgSlug: "acme",
+        runner: stubRunner([new Error("upstream exploded")]),
+      }),
+    ).rejects.toThrow(/upstream exploded/);
+    await settle();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ lane: "athena", status: "error", costMicros: null });
   });
 });
 

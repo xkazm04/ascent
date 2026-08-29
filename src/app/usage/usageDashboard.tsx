@@ -3,6 +3,7 @@ import { Surface } from "@/components/ui";
 import { AllotmentPanel } from "./AllotmentPanel";
 import { Stat, Bar, providerMeta } from "./usagePanels";
 import { AbuseLimitsPanel } from "./usageAllTimePanels";
+import { LanePanels } from "./usageLanePanels";
 import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
@@ -182,6 +183,12 @@ export function UsageDashboard({
           </div>
         </Surface>
       </div>
+
+      {/* Every OTHER inference lane the product runs — Athena, org memory, the briefing narrative,
+          the local agent — and which team's work drives them. Sits directly under the provider
+          breakdown because it answers the next question that one raises: not "which engine", but
+          "which part of the product, and for whom". */}
+      <LanePanels byLane={usage.byLane} byTeam={usage.byTeam} periodDays={usage.periodDays} />
 
       {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
       {usage.byRepo.length > 0 && (

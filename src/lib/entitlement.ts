@@ -19,7 +19,8 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { isDbConfigured } from "@/lib/db/client";
 import { selfHosted } from "@/lib/env";
 import { getCreditState, countMeteredScansThisMonth } from "@/lib/db/credits";
-import { resolveScanCharge, scanAllowance } from "@/lib/plans";
+import { planFeatures, resolveScanCharge, scanAllowance } from "@/lib/plans";
+import type { UsageLane } from "@/lib/llm/meter";
 
 /** True when this scan should draw on the org's prepaid credits.
  *
@@ -29,8 +30,25 @@ import { resolveScanCharge, scanAllowance } from "@/lib/plans";
  *  credit debit, no 402 — instead of relying on every downstream gate to independently notice.
  *  `isUnlimitedPlan`/`scanAllowance` also self-host short-circuit, so the two agree either way. */
 export function isMeteredScan(orgSlug: string, mock: boolean): boolean {
+  return isMeteredLane("scan", orgSlug, mock);
+}
+
+/**
+ * The LANE-aware form of the predicate above (#11). Same three clauses for every lane — self-hosted is
+ * never metered, persistence must be on, the keyless mock engine spent nothing, and the shared public
+ * funnel is free by policy — plus one more for the non-scan lanes: a lane is metered only when the
+ * plan has explicitly opted it in through `PlanFeature.laneAllowances`, and no tier does today.
+ *
+ * There is deliberately NO second self-hosted floor here: this delegates to the same `selfHosted()`
+ * short-circuit `isUnlimitedPlan`/`scanAllowance` read, so there is one switch to keep correct rather
+ * than two that can disagree. `isMeteredScan` above delegates in turn, so every existing scan call
+ * site is byte-identical.
+ */
+export function isMeteredLane(lane: UsageLane, orgSlug: string, mock: boolean, plan?: string | null): boolean {
   if (selfHosted()) return false;
-  return isDbConfigured() && !mock && orgSlug !== PUBLIC_ORG;
+  if (!(isDbConfigured() && !mock && orgSlug !== PUBLIC_ORG)) return false;
+  if (lane === "scan") return true;
+  return planFeatures(plan).laneAllowances?.[lane] !== undefined;
 }
 
 export interface ScanEntitlement {
