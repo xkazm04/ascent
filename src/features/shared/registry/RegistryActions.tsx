@@ -54,8 +54,11 @@ export function RegistryOutcomeLine({ m, action }: { m: RegistryMutation; action
   const err = m.error && (!action || m.error.action === action) ? m.error : null;
   const ok = m.outcome && (!action || m.outcome.action === action) ? m.outcome : null;
   if (err) {
+    // `alert`, not `status`: a failed re-index/migrate must be announced assertively. A polite live
+    // region is routinely never read out when focus has moved on, which is exactly what happens after
+    // clicking an action button. Matches every other error rendering under src/features/shared.
     return (
-      <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 text-sm text-warn" role="status">
+      <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 text-sm text-warn" role="alert">
         {err.message}
       </p>
     );
