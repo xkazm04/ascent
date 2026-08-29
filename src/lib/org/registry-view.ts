@@ -16,11 +16,24 @@ import { getOrgRegistry, type OrgRegistryRow } from "@/lib/db/org-registry";
 import { countRegistryMirrors } from "@/lib/db/org-registry-write";
 import { countOrgSkillInvokes } from "@/lib/db/org-skills";
 import { listOrgSkillUsageSamples } from "@/lib/db/org-skill-usage-samples";
+import { listConformance, listConformanceMaps, type ConformanceMapRow, type ConformanceRow } from "@/lib/db/org-registry-conformance";
+import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
+import { listRegistrySignals } from "@/lib/db/org-registry-signals";
+import { summarizeSignals, type SignalSummary } from "@/lib/registry/signals";
 import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/registry/capabilities";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
 import { registryHowTo } from "./registry-howto";
 
 export { DEFAULT_REGISTRY_NAME, registryHowTo };
+export type { ConformanceMapRow, ConformanceRow, SignalSummary };
+
+/**
+ * How many judged pairs travel to the tab. A fleet of 50 repos × 180 pairs is 9,000 rows, which is a
+ * megabyte of RSC payload for a grid nobody reads past the first screen. Truncation is DISCLOSED
+ * (`conformance.truncated`) rather than silent — a matrix that quietly stops at 3,000 rows would
+ * report a repo as having no deviations when it has plenty.
+ */
+export const CONFORMANCE_PAIR_CAP = 3000;
 export type { RegistryCapabilities };
 
 export type RegistryStatus = "unmapped" | "scaffolding" | "scaffold_pr_open" | "indexed" | "error";
@@ -122,6 +135,33 @@ export type RegistryView = {
   scaffoldPrUrl?: string;
   /** Populated only when `status === "error"` — what the last index attempt said. */
   error?: { message: string; at: string };
+
+  // ── #18: the fleet's conformance against the org's OWN corpus ──────────────────────────────────
+  /**
+   * What each repo's `.ai/registry-map.json` says about itself, as the last sweep ingested it.
+   *
+   * OPTIONAL, and absent means "never swept" — which every surface must render as *no sweep yet*,
+   * never as a clean fleet. Inside it, `reposWithoutMap` counts repos the sweep visited that have no
+   * map at all: also not "no deviations". The three states this block keeps apart (never swept /
+   * no map / swept and judged) are the difference between an instrument and a decoration.
+   */
+  conformance?: {
+    /** One entry per repo that HAS a map. */
+    repos: ConformanceMapRow[];
+    /** Judged pairs, capped for the wire — see CONFORMANCE_PAIR_CAP. */
+    pairs: ConformanceRow[];
+    /** True when the cap actually bit, so a reader is told the matrix is partial. */
+    truncated: boolean;
+    /** Repos in the fleet with no map of their own. */
+    reposWithoutMap: number;
+    /** Subjects mirrored from the knowledge lane — the matrix's row vocabulary. */
+    subjects: number;
+  };
+  /**
+   * The `signals/` lane, per subject. `contributors: 0` is "no witness" — the corpus has told us
+   * nothing about itself — and is never a green tick.
+   */
+  signals?: { contributors: number; subjects: SignalSummary[] };
   /** The "map an existing repo" picker's options. Empty until the App's repo list is read. */
   candidates: RegistryCandidate[];
 };
@@ -201,6 +241,17 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     : [[], null];
   const invokesBySkill: Record<string, number> = {};
   for (const s of samples) invokesBySkill[s.skillName] = (invokesBySkill[s.skillName] ?? 0) + s.invokes;
+
+  // #18. Every read degrades on its own: a failed conformance read must not cost the tab its
+  // telemetry, and vice versa. All three are absent-not-zero when the org has never swept.
+  const [maps, pairs, subjects, signalRows] = orgId
+    ? await Promise.all([
+        listConformanceMaps(orgId).catch(() => []),
+        listConformance(orgId, { limit: CONFORMANCE_PAIR_CAP + 1 }).catch(() => []),
+        listOrgKnowledgeSubjects(orgId).catch(() => []),
+        listRegistrySignals(orgId).catch(() => []),
+      ])
+    : [[], [], [], []];
   const totals = { skills: counts.skills.hostedOnly, practices: counts.practices.hostedOnly, memory: counts.memory.hostedOnly };
   const fullName = row?.fullName ?? `${slug}/${DEFAULT_REGISTRY_NAME}`;
 
@@ -225,6 +276,22 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
       invokesDirect30d,
       invokesBySkill,
     },
+    // Absent, not empty, when nothing has been swept: `conformance: undefined` is what lets the
+    // panel say "never swept" instead of drawing an empty grid that reads as a clean fleet.
+    ...(maps.length
+      ? {
+          conformance: {
+            repos: maps,
+            pairs: pairs.slice(0, CONFORMANCE_PAIR_CAP),
+            truncated: pairs.length > CONFORMANCE_PAIR_CAP,
+            reposWithoutMap: Math.max(0, (rollup?.repos?.length ?? 0) - maps.length),
+            subjects: subjects.length,
+          },
+        }
+      : {}),
+    ...(signalRows.length
+      ? { signals: { contributors: new Set(signalRows.map((r) => r.contributor)).size, subjects: summarizeSignals(signalRows) } }
+      : {}),
     howTo: registryHowTo(fullName),
     capabilities: caps,
     permission: { contentsWrite: caps.canWrite, ...(caps.installUrl ? { installUrl: caps.installUrl } : {}) },
