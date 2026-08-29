@@ -161,3 +161,19 @@ _(dated one-liners, appended by Lane 1 of the skill's reflection)_
   server does, then read the server's default.
 - 2026-08-29 — `context-map.json` was 266 commits stale (generated 2026-08-04). Regenerate it
   before relying on the area menu's file lists.
+- 2026-08-29 (run 2, Org Knowledge & Skills) — **grep for the defect SHAPE before reading files.**
+  Four of ten items came from one-line greps across the area (`role="status"` adjacent to error text;
+  `useEffect` + its dep array; the prior-finding-annotation density check) rather than from reading
+  files end to end. Read whole files only for what the greps flag.
+- 2026-08-29 (run 2) — **the modal verb about a CONSUMER is this repo's richest tell.** Four findings
+  were a rule a module states in careful prose and does not enforce one layer out, and each announced
+  itself the same way: a doc comment saying what a *consumer* must do ("a consumer that shows the
+  number must show this beside it", "the term is named for what it measures"). Every such sentence is
+  a claim about code the module cannot see. Grep for that phrasing and then go check the consumer.
+- 2026-08-29 (run 2) — **read the caller before changing a status code.** I made an idempotent DELETE
+  404 on no-match "for symmetry with POST"; `SkillCard.unadopt` rolls its optimistic removal back on
+  `!res.ok`, so that would have restored a chip for an adoption the DB does not have. Caught before
+  the commit, but only because I happened to look.
+- 2026-08-29 (run 2) — a full `npm test` can fail on work that is not yours: a concurrent session was
+  mid-edit in `src/lib/standard/**`. Prove it with `git show --name-only` over your own commits rather
+  than asserting it, and report the failures instead of chasing them.
