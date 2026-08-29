@@ -55,3 +55,7 @@ a parallel run has already swept an in-flight version bump into its own commit h
   context declares three. When sweeping a context whose files share a symbol, grep the symbol across
   `src/` and not just across the declared paths — the undeclared sibling is where the unfixed copy of
   the defect was.
+- **2026-08-29** — the shell context (App Shell, SEO & Error Pages) has FOUR Sentry emit sites and
+  no outbound scrubber. Before proposing any new telemetry capture here, read the backlogged
+  registry-conformance finding first: the sequencing (inventory, then beforeSend, then close the
+  client-boundary gap) is the finding, and adding a capture site alone makes it worse.
