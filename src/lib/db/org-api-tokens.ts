@@ -107,6 +107,64 @@ function toSummary(r: {
   };
 }
 
+/**
+ * Reuse-or-mint a NAMED token for an org — the door a server-side provisioning flow needs when it must
+ * end up holding a usable raw token for a fixed purpose (today: the `conformance report-back` secret
+ * written into a customer repo).
+ *
+ * The honest awkwardness this function exists to make explicit: a REUSED token's raw value **cannot be
+ * recovered** — only its hash is stored, which is the whole point of the capability model. So there are
+ * two outcomes and the caller must handle both:
+ *
+ *  - nothing by that name exists → mint one; `{ token: <raw>, reused: false }`.
+ *  - one exists → `{ token: null, summary, reused: true }`. The caller CANNOT write that value
+ *    anywhere; it can only decide to keep it or replace it.
+ *
+ * `rotate: true` is the choice the secrets route makes: revoke every live token of that name and mint a
+ * fresh one, so the value written into the repo is always one Ascent just produced and never re-read.
+ * That trades "one stable token" for "no path where provisioning half-succeeds with an unknown value".
+ */
+export async function ensureOrgApiToken(
+  orgSlug: string,
+  opts: { name: string; scopes: SkillTokenScope[]; createdBy?: string | null; rotate?: boolean },
+): Promise<{ token: string | null; summary: ApiTokenSummary; reused: boolean } | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const name = opts.name.trim().slice(0, 80) || "token";
+
+  const existing = await prisma.orgApiToken.findFirst({
+    where: { orgId, name, revokedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existing && !opts.rotate) {
+    return { token: null, summary: toSummary(existing), reused: true };
+  }
+  if (existing) {
+    // Rotate: retire EVERY live token of this name, not just the newest, so a half-finished earlier
+    // provisioning can't leave a second live credential for the same purpose behind.
+    await prisma.orgApiToken.updateMany({ where: { orgId, name, revokedAt: null }, data: { revokedAt: new Date() } });
+  }
+  const minted = await createOrgApiToken(orgSlug, { name, scopes: opts.scopes, createdBy: opts.createdBy });
+  if (!minted) return null;
+  return { token: minted.token, summary: minted.summary, reused: false };
+}
+
+/** Revoke every live token of a given NAME in an org. Returns how many rows were retired. The counterpart
+ *  of {@link ensureOrgApiToken}'s rotate, used by the report-back teardown: removing the repo secrets
+ *  without killing the credential they carried would leave a live bearer token in the wild. */
+export async function revokeOrgApiTokensByName(orgSlug: string, name: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return 0;
+  const res = await getPrisma().orgApiToken.updateMany({
+    where: { orgId, name: name.trim().slice(0, 80), revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  return res.count;
+}
+
 /** Active (non-revoked) tokens for an org — the management list. Raw values / hashes never included. */
 export async function listOrgApiTokens(orgSlug: string): Promise<ApiTokenSummary[]> {
   if (!isDbConfigured()) return [];
