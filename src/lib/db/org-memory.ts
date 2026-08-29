@@ -69,6 +69,12 @@ export interface MemoryInput {
 export interface MemoryListOpts {
   namespace?: string;
   kind?: string;
+  /** Exact PROVENANCE filter (moonshot #14): "" / undefined = every source. The Memory tab's Source
+   *  select binds to this so a reader can separate what a colleague claimed from what the pipeline
+   *  observed from what a repo's own agents wrote — the anti-poisoning control made browsable. Exact,
+   *  not a search: `source` is a stamped constant, and a `contains` would let "repo-memory" match a
+   *  human's free-text source line. */
+  source?: string;
   search?: string;
   sort?: MemorySort;
   /** Include rows a correction replaced. Off by default (design doc §7.4). */
@@ -205,6 +211,10 @@ export async function listOrgMemories(
   if (isMemoryKind(opts.kind)) where.kind = opts.kind;
   const ns = opts.namespace?.trim();
   if (ns) where.namespace = ns;
+  const src = opts.source?.trim();
+  // AND-ed into the same `where` as everything else, so it composes with visibilityScope rather than
+  // widening it — a source filter must never surface another author's private scratch.
+  if (src) where.source = src;
 
   const rows = await prisma.orgMemory.findMany({
     where,

@@ -127,6 +127,26 @@ describe("listOrgMemories — the read rules", () => {
     expect(andOf(calls.findMany[0]!.where)[1]).toEqual({ visibility: "shared" });
   });
 
+  // Provenance filter (moonshot #14) — EXACT, and it must compose with the visibility scope rather
+  // than replacing it. A filter that widened the read would turn a browsing control into a leak.
+  it("narrows to one exact source and still AND-composes visibilityScope", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemories("acme", { source: "repo-memory" }, "alice");
+    const w = calls.findMany[0]!.where;
+    expect(w.source).toBe("repo-memory");
+    expect(andOf(w)[1]).toEqual({
+      OR: [{ visibility: "shared" }, { visibility: "private", createdBy: "alice" }],
+    });
+  });
+
+  it("treats a blank source as 'every source', not as an empty-string match", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemories("acme", { source: "   " });
+    expect(calls.findMany[0]!.where.source).toBeUndefined();
+  });
+
   it("adds a case-insensitive content/source/namespace OR for a search term", async () => {
     const { prisma, calls } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);

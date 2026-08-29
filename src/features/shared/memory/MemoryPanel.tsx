@@ -63,6 +63,8 @@ export function MemoryPanel({
         setNamespace={m.setNamespace}
         kind={m.kind}
         setKind={m.setKind}
+        source={m.source}
+        setSource={m.setSource}
         sort={m.sort}
         setSort={m.setSort}
         kinds={kinds}

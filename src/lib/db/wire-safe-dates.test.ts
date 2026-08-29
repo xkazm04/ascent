@@ -60,6 +60,7 @@ import type {
 // Reached by a client through a DEEP path rather than the barrel — the shape of import the first
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
+import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 
@@ -106,6 +107,7 @@ const WIRE_TYPES = {
   PlaybookAdoption: true satisfies WireSafe<PlaybookAdoption>,
   PlaybookRow: true satisfies WireSafe<PlaybookRow>,
   PublicScanGallery: true satisfies WireSafe<PublicScanGallery>,
+  RepoMemoryEntryRow: true satisfies WireSafe<RepoMemoryEntryRow>,
   RepositoryHistory: true satisfies WireSafe<RepositoryHistory>,
   SandboxScenarioRecord: true satisfies WireSafe<SandboxScenarioRecord>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
@@ -125,6 +127,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(22);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(23);
   });
 });

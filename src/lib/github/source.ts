@@ -72,6 +72,15 @@ const MAX_CODEOWNERS_BYTES = 60_000;
 // CODEOWNERS_PATH_RE and the exact names pickFilesToFetch requests, matched case-insensitively.
 const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
 const MAX_TOTAL_BYTES = 280_000; // total content budget across all files (raised for full workflow ingest)
+// ── `.ai/memory` mirror (moonshot #14) ───────────────────────────────────────────────────────────
+// Repo-authored memory entries are fetched so the org can INDEX them (src/lib/memory/repo-memory-mirror.ts),
+// never so a scorer can read them. Two constants, exported because the pick guard and the quarantine
+// partition below are the two halves of one contract and a test has to be able to name it.
+/** Newest N numbered `.ai/memory/NNNN-*.md` entries fetched per scan. */
+export const MAX_MEMORY_FILES = 12;
+/** A NUMBERED memory entry. README.md and unnumbered files are deliberately excluded: the number is
+ *  the append-only ordering the format promises, and an unnumbered file is prose, not an entry. */
+export const MEMORY_ENTRY_RE = /^\.ai\/memory\/(\d{4})-[^/]+\.md$/i;
 const COMMIT_COUNT = 30;
 // These budgets now cover the response BODY as well as the headers (see host.ts fetchWithTimeout),
 // so each was raised: the recursive tree read on a large monorepo is multi-megabyte, and the old
@@ -666,15 +675,26 @@ export class GitHubPublicSource implements RepoSource {
         (fetchRank.get(b.path) ?? Number.MAX_SAFE_INTEGER),
     );
 
-    const coverage = estimateCoverage(blobs.length, files.length, picks.length, treeRes.truncated);
+    // THE QUARANTINE (moonshot #14) — the last thing that happens before the snapshot exists. Memory
+    // bodies leave `files` here, so no scorer, prompt builder or analyzer downstream can reach them
+    // even by accident: they are only ever addressable as `snapshot.memoryFiles`.
+    const { files: promptFiles, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(files, picks);
+
+    const coverage = estimateCoverage(
+      blobs.length,
+      promptFiles.length,
+      nonMemoryAttempted,
+      treeRes.truncated,
+    );
 
     return {
       meta: repoMeta,
       tree,
-      files,
+      files: promptFiles,
       commits,
       truncated: treeRes.truncated,
       coverage,
+      memoryFiles,
     };
   }
 }
@@ -767,7 +787,11 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
       /^\.cursor\/rules\//i.test(p),
     ),
   )
-    .slice(0, 4)
+    // 6, not 4 (moonshot #15, landed here because W1-B owns this function — conflict W1-#6): the
+    // guidance graph samples these nodes and an unfetched node degrades to `contentSampled: false`.
+    // A repo with a root CLAUDE.md, a root AGENTS.md, copilot-instructions and two nested guides
+    // already exceeded 4, so the two most specific nested files were the ones being dropped.
+    .slice(0, 6)
     .forEach(add);
 
   // 1. Exact high-signal filenames (root or nested).
@@ -812,6 +836,16 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     "openapi.yaml",
     "openapi.json",
     "vercel.json",
+    // The `.ai/` standard's two declaration files (moonshot #13, landed here on W1-A's behalf —
+    // conflict W1-#6). `aiStandard()` has read `idx.content(".ai/manifest.yaml")` for its
+    // "declares capabilities + control placement" award since it shipped, but the manifest was in
+    // NO fetch step, so the content was always "" and the award was dead code. Fetching it makes an
+    // existing deterministic award start firing on repos that already qualify — a score movement
+    // with no rubric change, recorded in the r11 note (00-INDEX X-#5).
+    ".ai/manifest.yaml",
+    ".ai/manifest.yml",
+    ".ai/guardrails.yaml",
+    ".ai/guardrails.yml",
   ];
   const lowerMap = new Map(paths.map((p) => [p.toLowerCase(), p]));
   // 1a. The SUB-TREE's own copies of those high-signal names, FIRST. On a `packages/api` scan the
@@ -882,7 +916,59 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     .slice(0, MAX_WORKFLOW_FILES)
     .forEach((p) => picked.add(p)); // reserved quota — deliberately NOT gated by MAX_FILES
 
+  // 8. `.ai/memory/NNNN-*.md` — the repo's own agent-written memory entries (moonshot #14). LAST, and
+  //    a RESERVED quota like workflows: these must never displace a manifest or a source sample from
+  //    the prompt budget, and they must not silently vanish on a repo whose 50 slots are already full.
+  //    Newest first by the numeric prefix, capped at MAX_MEMORY_FILES.
+  //
+  //    THE LOAD-BEARING PART: everything picked here is REMOVED from `RepoSnapshot.files` by the
+  //    quarantine in fetchSnapshot (and its local-source twin) before any scorer sees the snapshot.
+  //    These bodies are untrusted prose from a customer repo; the pick list is an INGEST list, not a
+  //    prompt list. Adding a memory path anywhere else in this function would put it in the prompt.
+  memoryPicks(paths).forEach((p) => picked.add(p));
+
   return [...picked];
+}
+
+/**
+ * The `.ai/memory` entries a scan ingests, newest first — the ordering used by the pick step above and
+ * asserted directly by `source-memory-pick.test.ts`. Pure and repo-wide on purpose: a sub-path scan of
+ * a monorepo still mirrors the repo's memory, because `.ai/` is a repo-level declaration.
+ */
+export function memoryPicks(paths: string[]): string[] {
+  const numbered = paths
+    .map((p) => ({ p, n: Number(MEMORY_ENTRY_RE.exec(p)?.[1] ?? NaN) }))
+    .filter((x) => Number.isFinite(x.n));
+  // Newest (highest prefix) first; ties broken by path so the pick stays deterministic for cache keys.
+  numbered.sort((a, b) => b.n - a.n || a.p.localeCompare(b.p));
+  return numbered.slice(0, MAX_MEMORY_FILES).map((x) => x.p);
+}
+
+/**
+ * THE QUARANTINE (moonshot #14). Split fetched contents into the prompt-visible `files` and the
+ * mirror-only `memoryFiles`, and report how many of the ATTEMPTED picks were non-memory so
+ * `estimateCoverage` is computed over the same population it always was — the mirror must not be able
+ * to move a repo's coverage number (and through it, the cache-pinning threshold).
+ *
+ * Exported and shared by both RepoSource implementations so the two ingestion paths cannot drift, and
+ * so the wave-4 GitHub-adapter extraction (#4) has one symbol to carry across rather than a code block
+ * to remember.
+ */
+export function quarantineMemoryFiles(
+  fetched: FetchedFile[],
+  picks: string[],
+): { files: FetchedFile[]; memoryFiles: FetchedFile[]; nonMemoryAttempted: number } {
+  const files: FetchedFile[] = [];
+  const memoryFiles: FetchedFile[] = [];
+  for (const f of fetched) {
+    if (MEMORY_ENTRY_RE.test(f.path)) memoryFiles.push(f);
+    else files.push(f);
+  }
+  return {
+    files,
+    memoryFiles,
+    nonMemoryAttempted: picks.filter((p) => !MEMORY_ENTRY_RE.test(p)).length,
+  };
 }
 
 export function estimateCoverage(totalBlobs: number, fetched: number, attempted: number, truncated: boolean): number {

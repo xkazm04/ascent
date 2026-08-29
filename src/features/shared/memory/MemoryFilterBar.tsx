@@ -4,13 +4,28 @@
 // lives in MemoryPanel and is passed in as props. Mirrors SkillsPanel.FilterBar; the namespace select is
 // populated from the org's OWN namespaces (listOrgMemoryNamespaces), so it never offers an empty filter.
 
-import { MEMORY_KIND_LABEL, type MemoryKind } from "@/lib/org/memory-kinds";
+import {
+  MEMORY_KIND_LABEL,
+  REPO_MEMORY_SOURCE,
+  SCAN_PIPELINE_SOURCE,
+  type MemoryKind,
+} from "@/lib/org/memory-kinds";
 import type { MemorySort } from "@/lib/db";
 
 const SORTS: { id: MemorySort; label: string }[] = [
   { id: "recent", label: "Recently updated" },
   { id: "confidence", label: "Most trusted" },
   { id: "recalls", label: "Most recalled" },
+];
+
+// PROVENANCE (moonshot #14). The three machine/human origins a reader needs to tell apart, and the
+// reason the filter exists at all: "a colleague claimed this", "the pipeline observed this" and "an
+// agent wrote this in a repo" are three different levels of evidence wearing the same card.
+// "Authored" is the ABSENCE of a machine source rather than a value, so it is not offered as an exact
+// match here — the two auto sources are, and clearing the filter shows everything.
+const SOURCES: { id: string; label: string }[] = [
+  { id: SCAN_PIPELINE_SOURCE, label: "From scans" },
+  { id: REPO_MEMORY_SOURCE, label: "From repos" },
 ];
 
 const selectClass =
@@ -23,6 +38,8 @@ export function MemoryFilterBar({
   setNamespace,
   kind,
   setKind,
+  source,
+  setSource,
   sort,
   setSort,
   kinds,
@@ -34,6 +51,8 @@ export function MemoryFilterBar({
   setNamespace: (v: string) => void;
   kind: string;
   setKind: (v: string) => void;
+  source: string;
+  setSource: (v: string) => void;
   sort: MemorySort;
   setSort: (v: MemorySort) => void;
   kinds: readonly string[];
@@ -74,6 +93,19 @@ export function MemoryFilterBar({
         {kinds.map((k) => (
           <option key={k} value={k}>
             {MEMORY_KIND_LABEL[k as MemoryKind] ?? k}
+          </option>
+        ))}
+      </select>
+      <select
+        value={source}
+        onChange={(e) => setSource(e.target.value)}
+        aria-label="Filter by source"
+        className={selectClass}
+      >
+        <option value="">All sources</option>
+        {SOURCES.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.label}
           </option>
         ))}
       </select>

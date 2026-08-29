@@ -27,6 +27,7 @@ export function useMemoryLibrary({
   const [search, setSearch] = useState("");
   const [namespace, setNamespace] = useState("");
   const [kind, setKind] = useState("");
+  const [source, setSource] = useState("");
   const [sort, setSort] = useState<MemorySort>("recent");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,7 +50,7 @@ export function useMemoryLibrary({
   async function refresh(signal?: AbortSignal) {
     setLoading(true);
     try {
-      const body = await fetchMemoryList(slug, { sort, namespace, kind, search }, signal);
+      const body = await fetchMemoryList(slug, { sort, namespace, kind, source, search }, signal);
       if (signal?.aborted) return;
       if (body) {
         setMemories(body.memories ?? []);
@@ -81,7 +82,7 @@ export function useMemoryLibrary({
       ac.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, namespace, kind, sort]);
+  }, [search, namespace, kind, source, sort]);
 
   // A check outlives the click that started it; abort it if the panel unmounts so the spawned CLI dies.
   useEffect(() => () => checkAbort.current?.abort(), []);
@@ -167,6 +168,8 @@ export function useMemoryLibrary({
     setNamespace,
     kind,
     setKind,
+    source,
+    setSource,
     sort,
     setSort,
     expanded,
@@ -185,6 +188,6 @@ export function useMemoryLibrary({
     dismissVerdict,
     save,
     archive,
-    filtered: Boolean(search || namespace || kind),
+    filtered: Boolean(search || namespace || kind || source),
   };
 }

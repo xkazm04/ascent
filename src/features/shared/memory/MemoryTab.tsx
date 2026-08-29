@@ -20,6 +20,8 @@ import { Suspense } from "react";
 import { Defer } from "@/components/ui/Defer";
 import { MemoryPanel } from "@/features/shared/memory/MemoryPanel";
 import { MemoryCoverageStrip } from "@/features/shared/memory/MemoryCoverageStrip";
+import { RepoMemoryDeadEnds } from "@/features/shared/memory/RepoMemoryDeadEnds";
+import { listRepoDeadEnds } from "@/lib/db/repo-memory";
 import { MemoryRecallPanelChunk, MemoryReflectPanelChunk } from "@/features/shared/memory/MemoryTabChunks";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { getMemoryCoverage } from "@/lib/memory/coverage";
@@ -68,6 +70,14 @@ async function MemoryCoverageData({ slug }: { slug: string }) {
   const coverage = await getMemoryCoverage(slug).catch(() => null);
   if (!coverage || coverage.totalTrackedRepos === 0) return null;
   return <MemoryCoverageStrip coverage={coverage} />;
+}
+
+/** The mirrored dead ends (moonshot #14) — its own boundary and its own read, because it is the one
+ *  region of this tab that is useful before anyone in the org has written a single memory by hand.
+ *  A failed read degrades to nothing rather than taking the library down with it. */
+async function MemoryDeadEndsData({ slug }: { slug: string }) {
+  const rows = await listRepoDeadEnds(slug).catch(() => []);
+  return <RepoMemoryDeadEnds rows={rows} />;
 }
 
 async function MemoryLibraryData({
@@ -138,6 +148,9 @@ export async function MemoryTab({ slug }: { slug: string }) {
       </Suspense>
       <Suspense fallback={null}>
         <MemoryCoverageData slug={slug} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <MemoryDeadEndsData slug={slug} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
         <MemoryLibraryData slug={slug} shared={shared} sync={sync} viewer={viewer} />
