@@ -17,8 +17,27 @@ import type { DimensionId } from "@/lib/types";
  *   • `hardened`  — an attributable upward dimension movement not already covered by a close.
  *   • `regressed` — the same, downward. Reported: a regression the loop caused is a deliverable too.
  *   • `noted`     — none of the above: the client fold synthesizes `noted` rows for armed-but-
- *                   unresolved batch items (proposed gaps), and `reviewDeliverable` appends `noted`
- *                   REVIEW MARKERS (see `isReviewMarker`). The server-side deriver still emits none.
+ *                   unresolved batch items (proposed gaps), `reviewDeliverable` appends `noted`
+ *                   REVIEW MARKERS (see `isReviewMarker`), and the server-side deriver emits ONE as
+ *                   the last rung of its totality fallback (see `retired` below and
+ *                   src/lib/local/lane-deliverables.ts) — a lane that committed but closed nothing
+ *                   identifiable still names what it did.
+ *
+ * CLOSED vs RETIRED — one kind, one flag, and the distinction is load-bearing.
+ *
+ * `closed` used to mean two very different things: a gap the AGENT actually closed, and a row the
+ * RESCAN simply stopped raising. One campaign run printed ten "closed" rows off a single commit —
+ * nine were phantom D4 rows being retired after the coverage-guarantee fix, work nobody did. A sheet
+ * (or any ledger built on it) that counts those as output overstates the loop.
+ *
+ * So a row the rescan retired without an agent claim behind it carries `retired: true`. It is a FLAG
+ * rather than a sixth `LaneDeliverableKind` on purpose: the sheet's `KIND_META` is an exhaustive
+ * `Record<LaneDeliverableKind, …>` in a file this change does not own, so a new member would be a
+ * compile break there, while an unread flag degrades to exactly today's rendering.
+ *
+ * It is asserted ONLY when the lane's own `RESOLVED:` lines are on file. A read-side backfill has no
+ * claims to compare against (the agent summary is not persisted), and "unknown" is never evidence of
+ * "not claimed" — the same posture `parsePlatformSignals` and `getLatestUnmeasurableDims` take.
  */
 export type LaneDeliverableKind = "closed" | "installed" | "hardened" | "regressed" | "noted";
 
@@ -37,6 +56,9 @@ export interface LaneDeliverable {
   evidence: string | null;
   /** JSON-in-TEXT widening (same technique as `parseTargets`): old rows parse with no review. */
   review?: DeliverableReview;
+  /** THE RESCAN STOPPED RAISING THIS; no agent RESOLVED clause covers it. See the header above.
+   *  Absent (never `false`) when the row is agent-claimed or when the claims are unknown. */
+  retired?: true;
 }
 
 const DELIVERABLE_KINDS: readonly LaneDeliverableKind[] = ["closed", "installed", "hardened", "regressed", "noted"];
@@ -70,6 +92,9 @@ export function parseDeliverables(raw: string | null | undefined): LaneDeliverab
           evidence: typeof e.evidence === "string" ? e.evidence : null,
           // The widened review field: anything but the two rulings parses as "not reviewed".
           ...(e.review === "approved" || e.review === "dismissed" ? { review: e.review } : {}),
+          // Same widening for the retired flag: only a literal `true` sets it, so a row written
+          // before the flag existed — and any other value — parses as "not asserted".
+          ...(e.retired === true ? { retired: true as const } : {}),
         },
       ];
     });

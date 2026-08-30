@@ -301,8 +301,74 @@ interface LaneDeliverable {
   kind: LaneDeliverableKind;
   covers: string[];            // follow-up ids / signal names this covers
   evidence: string | null;     // one line for the expanded view
+  retired?: true;              // the rescan stopped raising it; no agent clause covers it
 }
 ```
+
+**`closed` vs `retired` (2026-08-30).** `closed` used to mean two very different things: a gap the
+**agent** actually closed, and a row the **rescan** simply stopped raising. One run printed ten
+"closed" rows off a single commit — nine were phantom D4 rows being retired after the
+coverage-guarantee fix, work nobody did — which overstates the loop on the sheet and in any ledger
+built on it. A row the rescan retired with no agent `RESOLVED` clause behind it now carries
+`retired: true`; `closed` keeps its original meaning, agent-claimed work. A retired row **never**
+takes the dimension's movement template (*"Hardened CI/CD security"*) — the rescan dropping a row is
+not the loop hardening a dimension — and its evidence line leads with `RETIRED_NOTE`
+(*"No longer raised by the rescan; not claimed by the agent."*) followed by the follow-up's title.
+
+It is a **flag, not a sixth `LaneDeliverableKind`**, and that is a deliberate one-representation
+choice: the sheet's `KIND_META` is an exhaustive `Record<LaneDeliverableKind, …>` in
+`src/features/inflight/live/outcome/outcomeDeliverables.ts`, which this change does not own, so a new
+member would be a compile break there while an unread flag degrades to exactly today's rendering —
+which is why the distinction is also carried in the **evidence line**, where it is visible today. It
+is asserted **only when the lane's own `RESOLVED:` lines are on file**: a read-side backfill always
+passes `agentClaims: []` (the agent summary is not persisted), and "unknown" is never evidence of
+"not claimed" — the same posture `parsePlatformSignals` and `getLatestUnmeasurableDims` take. **Known
+gap:** that leaves historical backfilled rows classified as `closed`. Threading the lane's persisted
+`report.items` into the backfill's `agentClaims` (one line in `laneOutcome`, `loop-runs-read.ts`)
+would let those classify too.
+
+**The totality guarantee (2026-08-30).** `deriveLaneDeliverables` is **total** for a lane that did
+something: **if the lane committed or closed anything, it returns at least one deliverable.** Run
+`94477208` recorded `commits: 1`, `closedFollowUpIds: 16` and `deliverables: []` on both repos — the
+sheet rendered a project header with no rows under it, so the loop did work and reported nothing. A
+ledger that can silently say "nothing happened" about a lane that committed is worse than one that
+says something imprecise, because nobody can tell the two apart. The fallback chain, in order:
+
+1. the agent's `RESOLVED` clauses;
+2. the `recsMovedToDone` titles and the closed follow-up ids — **now emitted even when the id
+   resolves to no recommendation title** (a `continue` there was the whole of the `94477208` bug);
+3. the deterministic lane's install;
+4. the dimension the commits moved — as `noted`, *"Committed N changes on &lt;dimension&gt;"*;
+5. the bare count — `noted`, *"Committed N changes"*.
+
+**A row names WHICH follow-up, and a placeholder never repeats.** Run `17681528` recorded sixteen
+deliverables per lane off a single commit, every one of them reading *"Closed a follow-up"* — sixteen
+indistinguishable rows are noise wearing the costume of work, and worse than the empty list they
+replaced. The ids were known and the titles were sitting in `before.recommendations[]` all along; the
+derivation reached for the placeholder only because the recommendation carried no `dimId`. So:
+
+- the **title is the headline** whenever one can be looked up, in either place that carries one — the
+  pair's own `recommendations[]` or `diff.recsMovedToDone[]`. A dimension template is used only where
+  it is earned: a known dimension *and* not a retirement;
+- a title-derived headline is the **scan's** own sentence, so two ids that produced the identical one
+  merge into a single row **keeping both in `covers`** — routed through the same merge an
+  agent-written clause goes through, rather than around it;
+- ids whose title cannot be resolved at all collapse into **ONE counted row** carrying every one of
+  them in `covers` — *"Retired 9 follow-ups no longer raised"* (or *"Closed N follow-ups"* when the
+  claims are not on file), never N identical rows. **Repeated identical headlines are a bug, not a
+  list**, and a single counted row is the right shape for a mass retirement.
+
+Rungs 4–5 are `noted`, never `hardened`: naming the dimension the commits landed on is an
+observation, with no direction, no delta, and the evidence line dropped unless the verdict was
+attributable — the verdict gate below is not routed around. A lane that did **nothing** still derives
+nothing; totality is not a licence to invent a row.
+
+**Left for the UI owner** (`outcomeDeliverables.ts` is outside this change's write set): `KIND_META`
+has no label for a `retired` row (it renders as *"Closed"*, with the honest headline beside it) and
+`DELIVERABLE_KIND_ORDER` has no separate slot for one. A `retired` badge — or a `retired` branch on
+the `closed` label plus its own order slot — is a one-line follow-up there. Unknown kinds already
+degrade safely: `parseDeliverables` floors any unrecognised `kind` to `noted`, and
+`DELIVERABLE_KIND_ORDER.indexOf` returns `-1`, which sorts such a row first rather than dropping it.
 
 `deriveLaneDeliverables` (`src/lib/local/lane-deliverables.ts`, pure) builds the list from four
 sources, in order: the agent's own `RESOLVED: <id> - <what changed>` lines (the clause **is** the
@@ -1395,8 +1461,11 @@ every consumer filtered them out. `r12` makes them dispatchable. See
 for the scan-side half (the axis, the ladder block, the ledger, the resolve rule).
 
 **`openBatch`'s fallback.** Gaps always outrank craft. The gap path is untouched and returns a
-byte-identical batch whenever the repo has a single open gap; craft is reached only through the
-`gaps.length === 0` check, and never mixed in. The craft batch is ranked by **axis coverage first** —
+byte-identical batch whenever the repo has a single open gap; craft was originally reached only
+through the `gaps.length === 0` check and never mixed in. *(That single door is what starved the
+ladder — see [the green reservation](#the-green-reservation--gaps-no-longer-take-the-whole-lane-at-green-2026-08-30)
+below, which adds a second one. Gaps still outrank craft and still win the top slots.)* The craft
+batch is ranked by **axis coverage first** —
 the axis with the fewest *built* rungs leads (`getCraftLedger` → `axesByCoverage`) — then by the
 model's impact, with an axis-less rung sorting last. A repo that has shipped four performance rungs
 and nothing on robustness gains more from its first robustness rung than its fifth performance one.
@@ -1435,6 +1504,72 @@ and mixed with gaps. That is now deliberate and ordered.)
 this change's write set, so a craft lane currently renders untagged (the function returns `null` for
 any kind it does not name, so nothing breaks). Adding `craft → "craft ladder"` there is a one-line
 follow-up.
+
+## The green reservation — gaps no longer take the whole lane at green (2026-08-30)
+
+**The ladder was built, working, and starved.** r12's craft fallback engages only when a repo has
+**zero** open gap items, and twelve campaign runs on two green repositories show that state never
+arrives: each rescan's model-judged roadmap raises one or two fresh gaps, so `openBatch` always found
+something and the batch was perpetually a one- or two-item `backlog` lane. `GET /api/org/loop/propose`
+between those runs returned `kind: craft` with five well-formed rungs per repo — the ladder simply
+never got a turn. (`kp` overall 81, `systedo-case` 88; every dimension at or above `FOLLOW_UP_BELOW`
+after the unobservable-dimension fix.)
+
+**The rule.** When a repo is **green**, the batch becomes a MIX instead of gaps-only:
+
+- gaps still come first and still win the **top** slots, but are capped at `GAP_SLOTS_AT_GREEN` = **2**
+  of `BATCH_SIZE` (5);
+- the remaining slots are filled from the craft ladder, ranked exactly as craft already is —
+  least-covered axis first (`getCraftLedger` → `axesByCoverage`), then the model's impact;
+- a **non-green** repo is unchanged, gaps-only and byte-identical to before. *A repo with a real hole
+  gets no craft budget at all* — that ordering is the doctrine, not a tuning knob.
+
+Two slots, not one and not four: one would let a single fresh roadmap entry crowd out nothing while
+still reading as a gap lane; four would leave the ladder a token slot and reproduce the starvation
+more slowly. The cap is a **reservation, not a ceiling** — a green repo whose ladder is empty, or
+whose ladder can fill only one of the three reserved slots, tops the batch back up with gaps rather
+than shrinking it. An empty ladder must never cost the lane slots it could be working.
+
+**Green, here, is `FOLLOW_UP_BELOW`.** `isReservationGreen` (`src/lib/local/lane-reservation.ts`)
+delegates to **`repoGreenness`** (`src/lib/maturity/green.ts`) rather than re-deriving anything: that
+predicate owns the three rules this must not restate — an unscanned repo is never green, a dimension
+the reading could not measure is held out of the verdict in *both* directions rather than counted as
+failed, and a repo whose whole dimension set was excluded is not green either (vacuous green is the
+one verdict a loop must never report). Only the **threshold** differs, and on purpose:
+`repoGreenness().green` asks the stricter **L5** question a *drive* terminates on, while the
+reservation asks the `FOLLOW_UP_BELOW` (L4 floor) question the roadmap-coverage guarantee, the
+overview ledger and the drill-in copy already call "where green starts". Gating craft on L5 would
+starve the ladder on exactly the repositories it was built for. A *contested* dimension that is
+numerically above the floor still counts here — that is the L5 question's business, and a rung on a
+contested dimension is a rung, not a claim the dimension arrived.
+
+**The read.** `getLatestRepoDimScores` (`src/lib/db/org-insights-green.ts`) — one org-scoped lookup of
+the repo's latest scan's dimension scores, lazily imported by `openBatch` for the same reason
+`getLatestUnmeasurableDims` is. **Every degradation answers `[]`, which reads as "unscanned", which is
+not green**: a missing database, org, repo or dimension set lands the lane on the untouched gaps-only
+path. The reservation spends a lane's slots on optional work, so an absence of evidence must never be
+enough to open it.
+
+**A curated read does not reserve.** `runLane` asks for the whole open list (limit 500) so a named id
+ranked 7th survives the `curated.includes(...)` filter; capping gaps at two there would silently drop
+most of what the operator picked. The option is explicit — `openBatch(..., { reserveCraft: false })` —
+and the uncurated cycle and the `propose` route both take the reserved batch, so the curation panel
+and the engine still compute the same thing.
+
+**What a mixed batch is called.** Still a **`backlog`** lane. No new `LoopLaneKind` member is minted:
+the kind is what a lane *does*, and a mixed lane does exactly what a backlog lane does — one agent
+session over one batch — so `laneKindTag`, `parseTargets` and every persisted row keep reading
+`backlog`, which is what those rows already are. What changes is the batch, and the batch is what the
+**reason** is for: `proposeLaneKind` returns a backlog proposal whose reason says
+*"Every measured dimension is above the band, so this lane works N open gap(s) first and spends its
+remaining M slot(s) on the craft ladder."* An **all-craft** batch is still a `craft` lane, unchanged.
+
+Tests: `lane-reservation.test.ts` (the predicate — the campaign shape green, one dimension below the
+band not green, unmeasurable held out, vacuous green refused, unscanned refused; and the mix — the
+cap, gaps-only with no rungs, the top-up, the limit) and `loop-lane.reservation.test.ts` (the wiring —
+the mixed batch, the non-green repo unchanged, an unreadable read unchanged, the curated read
+unreserved, the all-craft fall-through). `loop-lane.craft.test.ts` is untouched and still passes: every
+case there is a non-green repo.
 
 ## Remote runs: the agent-neutral work protocol
 

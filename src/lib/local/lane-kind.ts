@@ -32,7 +32,10 @@
 //      no lane could arm, and a repository that had done everything the rubric asks got silence. A
 //      craft lane is an ordinary agent lane with a different batch and a different brief; it moves no
 //      score and adds no debt.
-//   4. Otherwise → the ordinary BACKLOG lane. That stays the default and does everything else.
+//   4. Otherwise → the ordinary BACKLOG lane. That stays the default and does everything else —
+//      including a MIXED batch (gaps in the top slots, craft rungs in the ones the green reservation
+//      left them). A mixed batch mints no new `LoopLaneKind`: the lane still does what a backlog lane
+//      does, so only its REASON changes, and it says how many of each it is working.
 //
 // NO HUMAN GATE ON THE CRAFT LANE, deliberately. It arms automatically exactly as a backlog lane
 // does. The review that matters happens AFTER the work — the Storyboard's ✓/✕ ledger is a record of
@@ -164,14 +167,29 @@ export async function proposeLaneKind(
       };
     }
     if (!top) return BACKLOG_LANE;
+    // A MIXED batch — gaps first, then craft rungs in the slots the green reservation left them
+    // (`src/lib/local/lane-reservation.ts`). It is still a `backlog` lane and deliberately so: no new
+    // `LoopLaneKind` member is minted for it, because the kind is what a lane DOES and this lane does
+    // exactly what a backlog lane does — one agent session over one batch. What changes is the batch,
+    // and the batch is what the REASON is for. The curation panel and the lane log therefore say the
+    // lane is mixed and in what proportion, while `laneKindTag`, `parseTargets` and every persisted
+    // row keep reading `backlog`, which is what those rows already are.
+    const rungs = items.filter((it) => it.kind === "craft").length;
+    const backlogLane: LaneKindProposal =
+      rungs > 0
+        ? {
+            ...BACKLOG_LANE,
+            reason: `Every measured dimension is above the band, so this lane works ${items.length - rungs} open gap(s) first and spends its remaining ${rungs} slot(s) on the craft ladder.`,
+          }
+        : BACKLOG_LANE;
     // `practiceForDimension` reads the SPINE (`PRACTICES`), which is 1:1 with the scored dimensions —
     // so "every practice for this dimension" is this one, and the dispatched-set test below is the
     // whole of the once-per-repo rule. If the spine ever stops being 1:1, this becomes a loop over the
     // dimension's practices that picks the first undispatched one.
     const practice = practiceForDimension(top.dimId);
-    if (!practice) return BACKLOG_LANE;
+    if (!practice) return backlogLane;
     const path = practiceArtifactPath(practice.id);
-    if (!path || (await exists(resolve(dir, path)))) return BACKLOG_LANE;
+    if (!path || (await exists(resolve(dir, path)))) return backlogLane;
     // THE FILE IS ABSENT — which is not the same fact as "it was never installed". Read the loop's own
     // history last, and only here, so nothing above pays for it.
     if ((await loadDispatchedPractices()).has(practice.id)) {

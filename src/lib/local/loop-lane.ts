@@ -39,6 +39,7 @@ import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { GAP_SLOTS_AT_GREEN, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
 import { stampPlaybookApplications } from "@/lib/db/playbooks";
@@ -83,7 +84,12 @@ export interface LaneDeps {
   } | null>;
   /** Optional LLM polish of the derived headlines; returns the input unchanged when no model answers. */
   summarize: (list: LaneDeliverable[], orgSlug: string) => Promise<LaneDeliverable[]>;
-  openBatch: (org: string, repo: string, limit?: number, opts?: { includeDeferred?: boolean }) => Promise<FollowUpItem[]>;
+  openBatch: (
+    org: string,
+    repo: string,
+    limit?: number,
+    opts?: { includeDeferred?: boolean; reserveCraft?: boolean },
+  ) => Promise<FollowUpItem[]>;
   /** The org's own standard for this batch's dimensions — see src/lib/db/lane-brief-read.ts. */
   loadBrief: typeof loadLaneBriefInput;
   /** The agent's `.ascent/lane-report.json`, parsed. Never throws; a missing file is `parsed:false`. */
@@ -197,13 +203,32 @@ async function latestUnmeasurableDims(org: string, repo: string): Promise<Readon
   }
 }
 
+/**
+ * Is this repo GREEN — every measured dimension at or above FOLLOW_UP_BELOW on its latest scan?
+ *
+ * Lazy import for the same reason `latestUnmeasurableDims` above is. A failed read is NOT green,
+ * which lands the batch on the untouched gaps-only path: the reservation spends a lane's slots on
+ * optional work, so an absence of evidence must never be enough to open it.
+ */
+async function latestRepoIsGreen(org: string, repo: string, unmeasurable: ReadonlySet<string>): Promise<boolean> {
+  try {
+    const { getLatestRepoDimScores } = await import("@/lib/db/org-insights-green");
+    return isReservationGreen(repo, await getLatestRepoDimScores(org, repo), [...unmeasurable]);
+  } catch {
+    return false;
+  }
+}
+
 /** The repo's open follow-ups, biggest projected gain first — the batch the next cycle works. */
 export async function openBatch(
   org: string,
   repo: string,
   limit: number = BATCH_SIZE,
-  /** `includeDeferred` is for a CURATED batch: a human naming an id outranks a machine's deferral. */
-  opts: { includeDeferred?: boolean } = {},
+  /** `includeDeferred` is for a CURATED batch: a human naming an id outranks a machine's deferral.
+   *  `reserveCraft: false` turns the green reservation off, which the curated read needs: it asks
+   *  for the WHOLE open list (limit 500) so a named id ranked 7th survives the filter, and capping
+   *  gaps at two there would silently drop most of what the operator picked. */
+  opts: { includeDeferred?: boolean; reserveCraft?: boolean } = {},
 ): Promise<FollowUpItem[]> {
   const backlog = await getOrgBacklog(org, null, new Date(), null);
   if (!backlog) return [];
@@ -250,12 +275,24 @@ export async function openBatch(
       explore: it.explore,
       projectedPoints: it.projectedPoints,
     }));
-  // GAPS ALWAYS OUTRANK CRAFT. The path above is untouched and returns byte-identical batches
-  // whenever the repo has a single open gap; craft is reached ONLY through this empty check. A
-  // shortfall the rubric can measure is always more valuable than a rung above the band, and mixing
-  // the two would put an optional rung in front of a real gap in the same session.
-  if (gaps.length > 0) return gaps;
-  return craftBatch(org, repo, limit, deferred);
+  if (gaps.length === 0) return craftBatch(org, repo, limit, deferred);
+  // THE GREEN RESERVATION (see lane-reservation.ts for the campaign evidence).
+  //
+  // GAPS STILL OUTRANK CRAFT — they come first and they win the top slots — but on a GREEN repo they
+  // no longer take the whole lane. r12 reached the ladder only when a repo had zero open gaps, and
+  // twelve campaign runs on two green repositories show that never happens: every rescan's roadmap
+  // raises one or two fresh entries, so the batch is perpetually a one-item `backlog` lane and the
+  // ladder — five well-formed rungs per repo, sitting in the recommendations table — never gets a
+  // turn.
+  //
+  // A NON-GREEN REPO IS UNCHANGED, byte-identical to before: a repo with a real hole gets no craft
+  // budget at all. So is a green repo with no rungs left, and so is the curated read, which asks for
+  // the whole open list rather than a lane-sized batch.
+  if (opts.reserveCraft === false) return gaps;
+  if (!(await latestRepoIsGreen(org, repo, unmeasurable))) return gaps;
+  const reserved = Math.max(0, Math.max(1, limit) - GAP_SLOTS_AT_GREEN);
+  const rungs = reserved > 0 ? await craftBatch(org, repo, reserved, deferred) : [];
+  return reserveCraftSlots(gaps, rungs, limit);
 }
 
 /**
@@ -379,6 +416,9 @@ async function laneDeliverables(
       verdict: attributeDelivered(before, after, args.commits),
       practiceName: args.practiceName,
       closedFollowUpIds: args.closedIds,
+      // Half of the TOTALITY test: a lane that committed must produce a headline even when nothing
+      // it closed can be resolved to a title. See lane-deliverables.ts §4.
+      commits: args.commits,
     });
     if (derived.length === 0) return derived;
     return await deps.summarize(derived, args.org).catch(() => derived);
@@ -461,7 +501,15 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // A CURATED batch overrides deferrals: naming an id by hand is an explicit human instruction,
       // and a machine's "I skipped this three cycles ago" must not silently drop it from the run the
       // operator just armed. An uncurated cycle honours the deferral.
-      const picked = await deps.openBatch(org, repo, curated ? 500 : BATCH_SIZE, { includeDeferred: curated != null });
+      // A curated read asks for the WHOLE open list and turns the green reservation off with it:
+      // the cap exists to size a LANE, and applying it to a 500-item curation read would drop most
+      // of what the operator named. An uncurated cycle takes the reserved batch.
+      const picked = await deps.openBatch(
+        org,
+        repo,
+        curated ? 500 : BATCH_SIZE,
+        curated ? { includeDeferred: true, reserveCraft: false } : { includeDeferred: false },
+      );
       batch = curated ? picked.filter((it) => curated.includes(it.id)) : picked;
       if (curated) {
         const parked = await getActiveDeferrals(org, repo).catch(() => new Set<string>());

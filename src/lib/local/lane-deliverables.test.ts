@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { diffScans } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
-import { deriveLaneDeliverables, movementHeadline, parseClaimLines, tidyHeadline } from "@/lib/local/lane-deliverables";
+import { deriveLaneDeliverables, movementHeadline, parseClaimLines, RETIRED_NOTE, tidyHeadline } from "@/lib/local/lane-deliverables";
 
 const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
   scannedAt: "2026-08-22T10:00:00.000Z", overallScore: 50, level: "L3", levelName: "Augmented", archetype: "org",
@@ -122,6 +122,126 @@ describe("deriveLaneDeliverables", () => {
       diff: diffScans(b, a), before: b, after: a, verdict: attributable,
     });
     expect(fellBack.filter((d) => d.kind === "closed").map((d) => d.covers)).toEqual([["rec-1"], ["rec-2"]]);
+  });
+
+  it("is TOTAL: a lane that COMMITTED and CLOSED still produces a row when nothing resolves to a title", () => {
+    // Run 94477208, exactly: `commits: 1`, `closedFollowUpIds: 16`, and neither scan carrying a
+    // recommendation row for any of them. It derived `[]`, so the sheet rendered a project header
+    // with no rows under it — the loop did work and reported nothing.
+    const out = deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [],
+      diff: null,
+      before: null,
+      after: null,
+      verdict: { kind: "unmeasured" },
+      commits: 1,
+      closedFollowUpIds: ["ghost-1", "ghost-2", "ghost-3"],
+    });
+    // ONE counted row, not three identical placeholders — run 17681528's sixteen indistinguishable
+    // "Closed a follow-up" rows are the failure this shape exists to prevent.
+    expect(out).toHaveLength(1);
+    expect(out[0]!.headline).toBe("Closed 3 follow-ups");
+    expect(out[0]!.covers).toEqual(["ghost-1", "ghost-2", "ghost-3"]);
+  });
+
+  it("uses the follow-up's REAL TITLE as the headline when the recommendation carries no dimension", () => {
+    // Run 17681528: sixteen rows per lane, every one reading "Closed a follow-up", off a single
+    // commit. The ids were known and the titles were sitting in `before.recommendations[]` — the
+    // derivation reached for a placeholder only because the row carried no `dimId`.
+    const b = withD9("b", 30, [], [rec("r1", "Coverage gate is advisory only", ""), rec("r2", "No dependency review on PRs", "")]);
+    const a = withD9("a", 62, [], [rec("r1", "Coverage gate is advisory only", "", "done"), rec("r2", "No dependency review on PRs", "", "done")]);
+    const out = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(b, a), before: b, after: a, verdict: { kind: "unmeasured" }, commits: 1, closedFollowUpIds: ["r1", "r2"] });
+    expect(out.map((d) => d.headline)).toEqual(["Coverage gate is advisory only", "No dependency review on PRs"]);
+    expect(new Set(out.map((d) => d.headline)).size).toBe(out.length);
+  });
+
+  it("merges two ids the SCAN filed under the identical title, keeping both covers", () => {
+    // A title-derived headline is the scan's own sentence, so the same one twice is one gap filed
+    // twice — the same merge rule an agent-written clause goes through.
+    const b = withD9("b", 30, [], [rec("r1", "Coverage gate is advisory only", ""), rec("r2", "Coverage gate is advisory only", "")]);
+    const a = withD9("a", 62, [], [rec("r1", "Coverage gate is advisory only", "", "done"), rec("r2", "Coverage gate is advisory only", "", "done")]);
+    const out = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(b, a), before: b, after: a, verdict: { kind: "unmeasured" }, closedFollowUpIds: ["r1", "r2"] });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.covers).toEqual(["r1", "r2"]);
+  });
+
+  it("is TOTAL: a lane that committed and closed NOTHING still names what it did", () => {
+    const b = withD9("b", 30, ["SAST [posture/medium]: 0/10 — none"]);
+    const a = withD9("a", 62, ["SAST [posture/medium]: 10/10 — SAST runs on PR/push."]);
+    // The verdict REFUSED the movement, so there is no `hardened` row — and the last-resort row is
+    // `noted`, names the dimension the commits landed on, and claims no direction and no delta.
+    const out = deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [],
+      diff: diffScans(b, a),
+      before: b,
+      after: a,
+      verdict: { kind: "undelivered", delta: 32 },
+      commits: 3,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.kind).toBe("noted");
+    expect(out[0]!.headline).toBe("Committed 3 changes on Supply Chain & Security");
+    expect(out[0]!.evidence).toBeNull();
+    // And a lane that did NOTHING still derives nothing: totality is not a licence to invent a row.
+    expect(deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(b, a), before: b, after: a, verdict: { kind: "undelivered", delta: 32 }, commits: 0 })).toEqual([]);
+  });
+
+  it("marks a close the agent never claimed as RETIRED, and keeps `closed` for what it did claim", () => {
+    // The ten-rows-off-one-commit case: nine phantom D4 rows the rescan stopped raising after the
+    // coverage-guarantee fix, one gap the agent actually closed. Counting all ten as output
+    // overstates the loop, so only the claimed one is `closed`.
+    const b = withD9("b", 30, [], [rec("rec-1", "Tokens run with write scope"), rec("rec-2", "Phantom D4 entry", "D4")]);
+    const a = withD9("a", 62, [], [rec("rec-1", "Tokens run with write scope", "D9", "done"), rec("rec-2", "Phantom D4 entry", "D4", "done")]);
+    const out = deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [{ id: "rec-1", what: "added permissions scope to 3 workflows" }],
+      diff: diffScans(b, a),
+      before: b,
+      after: a,
+      verdict: attributable,
+      commits: 1,
+      closedFollowUpIds: ["rec-1", "rec-2"],
+    });
+    const claimed = out.find((d) => d.covers.includes("rec-1"))!;
+    const retired = out.find((d) => d.covers.includes("rec-2"))!;
+    expect(claimed.retired).toBeUndefined();
+    expect(claimed.headline).toBe("Added permissions scope to 3 workflows");
+    expect(retired.retired).toBe(true);
+    // The headline names WHICH follow-up (never the dimension's movement template — the rescan
+    // dropping a row is not the loop hardening a dimension), and the evidence carries the words the
+    // sheet needs while it cannot yet read the flag.
+    expect(retired.headline).toBe("Phantom D4 entry");
+    expect(retired.evidence).toBe(`${RETIRED_NOTE} Phantom D4 entry`);
+  });
+
+  it("collapses a MASS retirement of untitled ids into ONE counted row", () => {
+    // Ten "closed" rows off a single commit, nine of them phantom D4 entries the coverage-guarantee
+    // fix retired. Nine identical rows would overstate the loop's output nine times over.
+    const out = deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [{ id: "rec-1", what: "wired CodeQL on pull_request" }],
+      diff: null,
+      before: null,
+      after: null,
+      verdict: { kind: "unmeasured" },
+      commits: 1,
+      closedFollowUpIds: ["rec-1", ...Array.from({ length: 9 }, (_, i) => `ghost-${i}`)],
+    });
+    expect(out).toHaveLength(2);
+    const collapsed = out[1]!;
+    expect(collapsed.headline).toBe("Retired 9 follow-ups no longer raised");
+    expect(collapsed.retired).toBe(true);
+    expect(collapsed.covers).toHaveLength(9);
+  });
+
+  it("does NOT claim `retired` when the lane's RESOLVED lines are not on file", () => {
+    // The read-side backfill always passes `agentClaims: []` — the agent summary is not persisted.
+    // "Unknown" is never evidence of "not claimed", so the row stays a plain close.
+    const out = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(before, after), before, after, verdict: attributable, closedFollowUpIds: ["rec-1"] });
+    expect(out[0]!.retired).toBeUndefined();
+    expect(out[0]!.headline).toBe("Hardened CI/CD security");
   });
 
   it("uses the per-dimension templates", () => {

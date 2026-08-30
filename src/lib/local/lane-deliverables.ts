@@ -75,6 +75,12 @@ const DIM_TEMPLATES: Partial<Record<DimensionId, { up: string; down: string }>> 
 
 const dimLabel = (id: DimensionId): string => DIMENSIONS.find((d) => d.id === id)?.name ?? id;
 
+/** What a RETIRED row's evidence line leads with. The sheet cannot yet read the `retired` flag (its
+ *  `KIND_META` is owned elsewhere), so the distinction has to be legible in the words — and it goes
+ *  in the evidence rather than the headline because the headline's job is to name WHICH follow-up
+ *  this is, which is the whole fix for the sixteen-identical-rows case. */
+export const RETIRED_NOTE = "No longer raised by the rescan; not claimed by the agent.";
+
 /** The headline for a dimension movement — the template, or "Improved/Regressed on <label>". */
 export function movementHeadline(dimId: DimensionId, up: boolean): string {
   const t = DIM_TEMPLATES[dimId];
@@ -96,6 +102,9 @@ export interface DeriveLaneDeliverablesInput {
   practiceName?: string | null;
   /** Ids the rescan closed by trailer/restatement — `closed` headlines even without a claim line. */
   closedFollowUpIds?: readonly string[];
+  /** Commits the lane landed. Half of the TOTALITY test below; absent (a read-side backfill that
+   *  does not carry it) is treated as 0, so the closes alone still have to produce a row. */
+  commits?: number;
 }
 
 /** Deterministic, pure. See the module header for the four sources and the gate. */
@@ -152,22 +161,76 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
       written != null,
     );
   }
-  // 1b. Closes the rescan confirmed without a clause on file (a backfill, or a trailer-only session):
-  // the dimension's template stands in. Each id keeps its own row — the evidence line (the follow-up
-  // title) is what tells two same-dimension closes apart.
+  // 1b. Closes the rescan confirmed without a clause on file.
+  //
+  // RETIRED vs CLOSED. When the lane's own RESOLVED lines ARE on file, an id here is by definition
+  // one no clause covers — the rescan stopped raising it and nobody claimed it. That is a `retired`
+  // row (loop-runs-types.ts): a phantom being cleaned up, not work the loop did. When the claims are
+  // NOT on file (a read-side backfill, which always passes `agentClaims: []`), nothing can be said,
+  // and the row stays a plain `closed` — an absent record is not evidence of an absent claim.
+  //
+  // THE TITLE IS THE HEADLINE WHENEVER ONE CAN BE LOOKED UP, and it is looked up in both places that
+  // carry one: the pair's own `recommendations[]` and `diff.recsMovedToDone[]`. Run 17681528 rendered
+  // SIXTEEN rows per lane all reading "Closed a follow-up" off a single commit — the ids were known,
+  // the titles were sitting right there, and the derivation reached for a placeholder because the
+  // recommendation carried no `dimId`. Sixteen indistinguishable rows are noise wearing the costume
+  // of work, and worse than the empty list they replaced. A retired row NEVER takes the dimension's
+  // movement template ("Hardened CI/CD security"): the rescan dropping a row is not the loop
+  // hardening a dimension.
+  //
+  // A GENERIC PLACEHOLDER IS THE LAST RESORT AND NEVER REPEATS. Ids whose title cannot be resolved at
+  // all collect into ONE counted row carrying every one of them in `covers`, rather than N identical
+  // rows. Repeated identical headlines are a bug, not a list. (Run 94477208 is the other half of the
+  // same defect: those ids resolved to nothing and were `continue`d, so the lane recorded
+  // `commits: 1`, `closedFollowUpIds: 16` and `deliverables: []`.)
+  const claimsOnFile = input.agentClaims.length > 0;
   const confirmed = [...(input.closedFollowUpIds ?? []), ...(diff?.recsMovedToDone.map((r) => r.id) ?? [])];
+  /** Ids no lookup could give a title — collapsed into one counted row below. */
+  const untitled: string[] = [];
   for (const id of confirmed) {
     if (claimed.has(id)) continue;
-    const rec = recs.get(id) ?? (diff?.recsMovedToDone.find((r) => r.id === id) ? { title: diff!.recsMovedToDone.find((r) => r.id === id)!.title, dimId: diff!.recsMovedToDone.find((r) => r.id === id)!.dimId } : null);
-    if (!rec) continue;
     claimed.add(id);
-    push({
-      headline: rec.dimId ? movementHeadline(rec.dimId, true) : "Closed a follow-up",
-      dimId: rec.dimId,
-      kind: "closed",
-      covers: [id],
-      evidence: rec.title,
-    });
+    const moved = diff?.recsMovedToDone.find((r) => r.id === id) ?? null;
+    const rec = recs.get(id) ?? (moved ? { title: moved.title, dimId: moved.dimId } : null);
+    const title = rec?.title?.trim() ? rec.title.trim() : null;
+    const fromTitle = title ? tidyHeadline(title) : null;
+    if (!fromTitle || !title) {
+      untitled.push(id);
+      continue;
+    }
+    // A TEMPLATE ONLY WHERE IT IS EARNED: a dimension is known and the row is not a retirement. The
+    // template is OUR sentence, so it merges by id (two same-dimension closes stay two rows); a
+    // title-derived headline is the SCAN's own sentence, so two ids that produced the identical one
+    // are one gap the scan filed twice and merge by headline with both ids kept in `covers` — the
+    // same merge rule an agent-written clause goes through.
+    const templated = !claimsOnFile && rec?.dimId ? movementHeadline(rec.dimId, true) : null;
+    push(
+      {
+        headline: templated ?? fromTitle,
+        dimId: rec?.dimId ?? null,
+        kind: "closed",
+        covers: [id],
+        evidence: claimsOnFile ? `${RETIRED_NOTE} ${title}` : title,
+        ...(claimsOnFile ? { retired: true as const } : {}),
+      },
+      templated == null,
+    );
+  }
+  if (untitled.length > 0) {
+    const n = untitled.length;
+    push(
+      {
+        headline: claimsOnFile
+          ? `Retired ${n} follow-up${n === 1 ? "" : "s"} no longer raised`
+          : `Closed ${n} follow-up${n === 1 ? "" : "s"}`,
+        dimId: null,
+        kind: "closed",
+        covers: [...new Set(untitled)],
+        evidence: claimsOnFile ? RETIRED_NOTE : null,
+        ...(claimsOnFile ? { retired: true as const } : {}),
+      },
+      true,
+    );
   }
 
   // 2. The deterministic lanes name their install.
@@ -189,6 +252,43 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
       const names = [...new Set([...d.appearedSignals, ...d.disappearedSignals].map(signalName))].slice(0, 6);
       push({ headline: movementHeadline(d.id, up), dimId: d.id, kind, covers: names, evidence: d.attribution });
     }
+  }
+
+  // 4. TOTALITY — the function is TOTAL for a lane that did something.
+  //
+  // Run 94477208 landed `commits: 1` and `closedFollowUpIds: 16` on both repos and derived
+  // `deliverables: []`: the sheet rendered a project header with no rows under it, so the loop did
+  // work and reported nothing. A ledger that can silently say "nothing happened" about a lane that
+  // committed is worse than one that says something imprecise, because nobody can tell the two
+  // apart. So: if the lane COMMITTED or CLOSED anything, at least one row comes out of here.
+  //
+  // The chain above already covers the first three rungs — the agent's RESOLVED clauses (1), the
+  // `recsMovedToDone` titles and the closed follow-up ids (1b, now emitted even when the id resolves
+  // to no title), and the deterministic install (2). What is left is a lane that committed and
+  // closed nothing: it falls back to the dimension the commits moved, and finally to the bare count.
+  //
+  // NOTE WHAT THIS ROW IS NOT. It is `noted`, never `hardened`: naming which dimension the commits
+  // landed on is an observation, and the verdict gate that refused the movement headline in (3) is
+  // not being routed around — there is no direction, no delta, and the evidence line is dropped
+  // unless the verdict was attributable.
+  const commits = input.commits ?? 0;
+  if (out.length === 0 && (commits > 0 || confirmed.length > 0)) {
+    const movedDim = diff
+      ? [...diff.dimensions]
+          .filter((d) => d.delta != null && d.delta !== 0)
+          .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0))[0] ?? null
+      : null;
+    const where = movedDim ? ` on ${dimLabel(movedDim.id)}` : "";
+    push({
+      headline:
+        commits > 0
+          ? `Committed ${commits} change${commits === 1 ? "" : "s"}${where}`
+          : `Closed ${confirmed.length} follow-up${confirmed.length === 1 ? "" : "s"}`,
+      dimId: movedDim?.id ?? null,
+      kind: "noted",
+      covers: [...new Set(confirmed)],
+      evidence: movedDim && input.verdict.kind === "attributable" ? movedDim.attribution : null,
+    });
   }
 
   // NO CAP: every resolved gap keeps its own deliverable. The cell scrolls; it does not condense —
