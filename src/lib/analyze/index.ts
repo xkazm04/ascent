@@ -17,6 +17,7 @@ import { clamp } from "@/lib/maturity/model";
 import { facetPoints } from "@/lib/scoring/claims";
 import { AI_TRAILER_SOURCE } from "./ai-tools";
 import { readManifestYaml } from "@/lib/standard/read";
+import { gradedGuidanceNode, guidanceGraphFor } from "@/lib/analyze/guidance-graph";
 
 // ---------------------------------------------------------------------------
 // Analysis context — precomputed views over the snapshot for cheap querying.
@@ -217,43 +218,103 @@ function aiStandardCached(idx: RepoIndex): ReturnType<typeof aiStandard> {
   return r;
 }
 
-const d1: Detector = (idx) => {
+/** ONE award for having an instruction document at all, whichever vendor's format it is. */
+export const GUIDANCE_DOC_POINTS = 22;
+/** The band coherence buys. 18 for a single canonical source; 18 for four in-sync projections; near
+ *  0 for four drifting copies. Never negative — see the note in the detector. */
+export const GUIDANCE_COHERENCE_POINTS = 18;
+
+const d1: Detector = (idx, snap) => {
   const s = new Scorer();
-  // Presence (reduced caps so guidance *quality* can contribute meaningfully).
+  const facets = new Set<string>();
+  /** Award a facet once, at its table price (scoring/claims.ts) — the D4 pattern. A facet the
+   *  detector evidences is later CONFIRMED by a model claim rather than awarded twice. */
+  const award = (facet: string, label: string, detail?: string) => {
+    if (facets.has(facet)) return s.note(label, detail);
+    facets.add(facet);
+    s.add(facetPoints(facet), label, detail);
+  };
+
+  // ---- rubric r11: the five instruction-document formats stop scoring independently -------------
   //
-  // Each of these CITES the path that matched (`idx.first`), rather than asserting "Found X" and
-  // leaving the reader to re-derive the regex. This is the dimension SAM-L1-01 was written about, and
-  // the one the loop moves most often, so an unverifiable evidence line here costs the most trust.
+  // They used to sum: CLAUDE.md 22 + AGENTS.md 16 + Cursor 14 + Copilot 14 + Windsurf 10 = 76 on
+  // presence alone, so a repo with four MUTUALLY CONTRADICTING copies scored far above a repo with
+  // one document that is actually true. An agent reading the contradicting repo gets a different
+  // answer depending on which file it opened; that is worse, and the rubric now says so.
+  //
+  // In its place: ONE award for having a document, plus a band bought by COHERENCE — the arbiter's
+  // deterministic, itemized read across every format (analyze/guidance-graph.ts). The bonus is
+  // withheld, never subtracted (G4/G5): the floor of this rule is the same 22 the old rule paid for
+  // one file, so no repo scores lower here for having MORE guidance, only for disagreeing with itself.
+  const graph = guidanceGraphFor(snap);
+  if (graph.nodes.length > 0) {
+    s.add(
+      GUIDANCE_DOC_POINTS,
+      `Agent guidance present (${graph.nodes.length} document${graph.nodes.length === 1 ? "" : "s"})`,
+      graph.nodes.map((n) => n.path).join(", "),
+    );
+  }
+  if (graph.coherence != null) {
+    const bonus = Math.round((GUIDANCE_COHERENCE_POINTS * graph.coherence) / 100);
+    const basis = graph.canonical
+      ? `canonical: ${graph.canonical} (${graph.canonicalBasis})`
+      : "no canonical source nominated";
+    s.add(bonus, `Guidance coherence ${graph.coherence}/100`, basis);
+    // Every deduction is rendered with the paths it was read from — the score has to be re-traceable
+    // to its evidence or it cannot be trusted, and this is the dimension SAM-L1-01 was written about.
+    for (const p of graph.penalties) s.note(`Coherence −${p.points}: ${p.reason}`, p.paths.join(" ↔ "));
+  }
+
+  // Deterministic D1 facets (scoring/claims.ts). Awarded at their table price exactly like D4's, so
+  // what the parser can see is priced the same as what only the model can — and a model claim on one
+  // of these lands as CONFIRMATION rather than a second award.
+  if (graph.canonicalBasis === "manifest" || graph.canonicalBasis === "pointer")
+    award("canonical_declared", "A guidance file or the manifest names the canonical source", graph.canonical ?? undefined);
+  const projections = graph.edges.filter((e) => e.kind === "projects-from");
+  if (projections.length)
+    award("projection_declared", `${projections.length} generated-from projection(s) declared`, projections.map((e) => e.from).join(", "));
+  const divergentKeys = new Set(graph.contradictions.filter((c) => c.kind === "command").map((c) => c.subject));
+  // Agreement counts only between INDEPENDENTLY WRITTEN documents. A byte-identical copy (or a
+  // generated projection) agreeing with its source is a tautology, and paying for it would be
+  // presence-summing wearing a different label — the exact thing r11 removed. Copies are dropped
+  // here; the copy relationship is already priced by coherence and by `projection_declared`.
+  const copies = new Set(graph.edges.filter((e) => e.kind === "duplicates").map((e) => e.to));
+  const independent = graph.nodes.filter((n) => !copies.has(n.path));
+  const agreed = [...new Set(independent.flatMap((n) => n.commands.map((c) => c.key)))].filter(
+    (key) => !divergentKeys.has(key) && independent.filter((n) => n.commands.some((c) => c.key === key)).length >= 2,
+  );
+  if (agreed.length) award("commands_agree", `Guidance files agree on: ${agreed.join(", ")}`);
+  if (graph.contradictions.length)
+    award("contradiction", `${graph.contradictions.length} contradiction(s) between guidance files (evidence, scores 0)`);
+
+  // ---- tool/config presence: unchanged, because these are NOT competing copies of one document ---
+  // An Aider config, an MCP server list and a prompts/ library each say something different about the
+  // repo's setup; two CLAUDE.md-shaped documents say the same thing twice.
   const found = (points: number, label: string, ...res: RegExp[]) => {
     const path = idx.first(...res);
     if (path) s.add(points, label, path);
   };
-  found(22, "Found CLAUDE.md (Claude Code guidance)", /(^|\/)claude\.md$/);
-  found(16, "Found AGENTS.md (agent guidance)", /(^|\/)agents?\.md$/);
-  found(14, "Found Cursor rules", /(^|\/)\.cursorrules$/, /^\.cursor\/rules\//);
-  found(14, "Found Copilot instructions", /^\.github\/copilot-instructions\.md$/);
   found(8, "Found an AI-usage policy/guide", /(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing|using[-_]ai)\.mdx?$/);
   found(10, "Found Aider config", /(^|\/)\.aider\.conf\.ya?ml$/);
-  found(10, "Found Windsurf rules", /(^|\/)\.windsurfrules$/, /^\.windsurf\//);
   found(10, "Found MCP server config", /(^|\/)\.?mcp\.json$/, /(^|\/)mcp\.config\./);
   found(8, "Found .claude/ directory", /^\.claude\//);
   found(8, "Found a prompts/ library", /^(prompts|\.prompts)\//);
   found(8, "Found Continue/Cline config", /(^|\/)\.continue\//, /(^|\/)\.clinerules/);
   found(4, "Found devcontainer", /^\.devcontainer\//);
 
-  // Content quality — substantive guidance with advanced patterns beats a token stub. Every one of
-  // these is a claim about a SPECIFIC file's contents, so it cites that file: "Documents build/test
-  // commands" is unanswerable without knowing which document was read.
-  const guidancePath = idx.first(/(^|\/)claude\.md$/, /(^|\/)agents?\.md$/, /(^|\/)agent\.md$/);
-  const guidance = idx.content("claude.md") || idx.content("agents.md") || idx.content("agent.md");
-  if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label, guidancePath);
+  // Content quality — graded on the CANONICAL document, not on whichever file the old first-match
+  // list happened to reach. This repo is its own counter-example: its `CLAUDE.md` is the single line
+  // `@AGENTS.md`, and the old detector awarded 22 for the file and then graded that one line.
+  const node = gradedGuidanceNode(graph);
+  const guidance = node ? idx.content(node.path.toLowerCase()) : undefined;
+  if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label, node?.path);
 
   // The `.ai/` standard's agent-facing contract is high-signal machine-readable guidance.
   for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label);
 
   if (s.signals.length === 0)
     s.note("No machine-readable AI/agent guidance detected", "e.g. CLAUDE.md, AGENTS.md, .cursorrules");
-  return s.result("D1");
+  return { ...s.result("D1"), facets: [...facets] };
 };
 
 // ---------------------------------------------------------------------------

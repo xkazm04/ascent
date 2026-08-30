@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { analyzeSignals, detectAiUsage, computeContributors, classifyArchetype } from "./index";
 import { applyPrSignals } from "./pulls";
+import { renderProjection } from "./guidance-projection";
 import { overallScoreFor } from "@/lib/maturity/model";
 import type { CommitInfo, PrStats, RepoMeta, RepoSnapshot, Signal } from "@/lib/types";
 
@@ -371,6 +372,68 @@ describe("D1 broadened AI-tooling detection (P1-4)", () => {
   it("credits an AI-usage policy/guide (AI_POLICY.md)", () => {
     const s = repoSnap([{ path: "docs/AI_POLICY.md", content: "AI contribution policy" }, { path: "README.md", content: "# r" }]);
     expect(labelText(dimOf(s, "D1").signals)).toMatch(/AI-usage policy\/guide/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D1 under rubric r11 — COHERENCE, not count (moonshot #15)
+//
+// The inversion this whole item exists to remove: under r10 the four-copy repo scored HIGHER (the
+// five formats summed to 76 on presence alone), so the rubric rewarded a repo where an agent gets a
+// different answer depending on which file it opened. This is the fail-before — the assertion below
+// is false against the r10 detector and true against r11.
+// ---------------------------------------------------------------------------
+
+describe("D1 scores coherence, not the number of vendor formats (r11)", () => {
+  const BODY = "# Guide\n\n- Test: `npm test`\n- Build: `npm run build`\n- Never commit generated files.\n";
+  const drifted = (test: string, build: string, rule: string) =>
+    `# Guide\n\n- Test: \`${test}\`\n- Build: \`${build}\`\n- ${rule}\n`;
+
+  /** One canonical document plus three in-sync generated projections of it. */
+  const coherent = () => {
+    const projection = renderProjection({ sourcePath: "AGENTS.md", sourceBody: BODY });
+    return repoSnap([
+      { path: "AGENTS.md", content: BODY },
+      { path: "CLAUDE.md", content: projection },
+      { path: ".cursorrules", content: projection },
+      { path: ".github/copilot-instructions.md", content: projection },
+    ]);
+  };
+
+  /** The same four formats, each telling an agent something different. */
+  const drifting = () =>
+    repoSnap([
+      { path: "AGENTS.md", content: drifted("npm test", "npm run build", "Never commit generated files.") },
+      { path: "CLAUDE.md", content: drifted("npm run test:ci", "make build", "Always commit generated files.") },
+      { path: ".cursorrules", content: drifted("yarn test", "npm run build", "Never commit generated files.") },
+      { path: ".github/copilot-instructions.md", content: drifted("bun test", "npm run build", "Never commit generated files.") },
+    ]);
+
+  it("scores one canonical source with in-sync projections ABOVE four drifting copies", () => {
+    expect(dimOf(coherent(), "D1").signalScore).toBeGreaterThan(dimOf(drifting(), "D1").signalScore);
+  });
+
+  it("names the canonical source and every penalty's two paths in the evidence", () => {
+    const evidence = dimOf(drifting(), "D1").signals.map((x) => `${x.label} ${x.detail ?? ""}`).join(" | ");
+    expect(evidence).toMatch(/Guidance coherence \d+\/100/);
+    expect(evidence).toMatch(/Coherence −\d+/);
+    expect(evidence).toContain("AGENTS.md");
+    expect(dimOf(coherent(), "D1").signals.some((x) => /canonical: AGENTS\.md/.test(x.detail ?? ""))).toBe(true);
+  });
+
+  it("does not sum the formats: a second copy of the same document does not pay a second time", () => {
+    const one = repoSnap([{ path: "AGENTS.md", content: BODY }]);
+    const two = repoSnap([{ path: "AGENTS.md", content: BODY }, { path: "CLAUDE.md", content: BODY }]);
+    // Two identical copies are not worth 22 + 16: they are one document with a duplicate. The second
+    // copy scores no more than the first, and costs the no-canonical deduction for being ambiguous.
+    expect(dimOf(two, "D1").signalScore).toBeLessThanOrEqual(dimOf(one, "D1").signalScore);
+  });
+
+  it("grades the CANONICAL document's quality, not a one-line pointer file (this repo's own shape)", () => {
+    // `CLAUDE.md` is the single line `@AGENTS.md`. The old detector awarded 22 for the file and then
+    // graded that one line; r11 grades what it points at.
+    const s = repoSnap([{ path: "CLAUDE.md", content: "@AGENTS.md\n" }, { path: "AGENTS.md", content: BODY }]);
+    expect(labelText(dimOf(s, "D1").signals)).toMatch(/build\/test/i);
   });
 });
 

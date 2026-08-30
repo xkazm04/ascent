@@ -94,7 +94,22 @@ import type {
 // per dimension at/above the follow-up floor with no gap, so a strong score still gets told what
 // would make it exemplary. No weight, band, blend or detector moved; the bump is for the changed
 // model input (the r6 precedent). Craft entries never feed a score, a follow-up batch or debt.
-export const SCORING_RUBRIC_VERSION = "r10";
+// r11 (2026-08-30): D1 stopped counting FORMATS and started scoring COHERENCE (moonshot #15). The
+// five instruction-document formats used to sum on presence alone (CLAUDE.md 22 + AGENTS.md 16 +
+// Cursor 14 + Copilot 14 + Windsurf 10 = 76), so a repo with four MUTUALLY CONTRADICTING copies
+// outscored a repo with one document that is actually true — the rubric rewarded the worse repo.
+// They now collapse into one 22-point award plus round(18 × coherence/100), where coherence is the
+// guidance arbiter's deterministic, itemized read across every format (analyze/guidance-graph.ts),
+// and content quality is graded on the CANONICAL document rather than on whichever file matched
+// first. D1 also JOINED CLAIM_SCORED_DIMENSIONS, which removes its guardband blend entirely: the
+// model's D1 number is recorded and ignored, and its judgment reaches the score only through
+// citations the verifier confirms against guidance files the arbiter actually found. D1 is therefore
+// fully reproducible. Scores move on every repo with more than one guidance format; a repo with one
+// document is unchanged at the floor (22, the same the old rule paid for one file). Separately, the
+// +4 "Manifest declares capabilities + control placement" award became REACHABLE in wave 1 when the
+// fetch list started requesting `.ai/manifest.yaml` — a second, independent reason r10 numbers are
+// not comparable with r11 ones. No weight, band or blend constant moved.
+export const SCORING_RUBRIC_VERSION = "r11";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -210,7 +225,7 @@ export const DIMENSIONS: DimensionDef[] = [
     description:
       "Is AI development operationalized with shared, machine-readable guidance?",
     criteria:
-      "Presence AND content-quality of agent guidance / AI tooling config: CLAUDE.md, AGENTS.md, .cursorrules, copilot-instructions.md, MCP config, .claude/, prompt libraries, etc. Crucially, judge the CONTENT when CLAUDE.md/AGENTS.md is provided: does it document build/test/run commands, an architecture map, test-after-change discipline, explicit constraints ('never/always'), and advanced techniques (subagents, MCP servers, hooks, slash commands, skills, tool-permission policy, @-file references)? A token stub scores low; deep, technique-rich guidance an agent can actually follow scores high.",
+      "COHERENCE of agent guidance, not the number of vendor formats. The instruction documents (CLAUDE.md, AGENTS.md, .cursorrules / .cursor/rules, .github/copilot-instructions.md, .windsurfrules) are read as ONE contract: having a document at all earns a fixed award, and the rest is bought by whether the documents agree — one nominated canonical source, the others generated projections of it that are still in sync, no two files stating a different build/test command or opposite 'never/always' rules. Four contradicting copies score BELOW one document that is true, because an agent that reads the wrong file gets the wrong answer. Then judge the CONTENT of the canonical document: does it give build/test/run commands, an architecture map, test-after-change discipline, explicit constraints, and advanced techniques (subagents, MCP servers, hooks, slash commands, skills, tool-permission policy, @-file references)? Tool/config presence (MCP config, .claude/, prompt libraries, Aider/Continue, devcontainer) still counts separately — those are different capabilities, not competing copies of the same document. A contradiction is reported as evidence and withholds points; it is never a penalty and never fails a gate.",
   },
   {
     id: "D2",

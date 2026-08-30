@@ -31,15 +31,32 @@ const sigs = (s: RepoSnapshot, dim: string): Signal[] =>
 const lineFor = (s: RepoSnapshot, dim: string, match: RegExp): string =>
   sigs(s, dim).map(formatSignal).find((x) => match.test(x)) ?? "";
 
+// Under rubric r11 the five instruction-document formats stopped scoring as five "Found X" lines and
+// became one award plus a coherence band (moonshot #15). The INVARIANT this file exists for is
+// unchanged and still asserted below — a D1 evidence line names the file it was read from — only the
+// label it is asserted against moved, and the r11 line names EVERY document rather than one.
 describe("D1 evidence cites the file that produced it", () => {
-  it("names the guidance file rather than asserting it exists", () => {
-    const line = lineFor(snap(["docs/CLAUDE.md"]), "D1", /Found CLAUDE\.md/);
-    expect(line).toContain("docs/claude.md");
+  it("names the guidance documents rather than asserting guidance exists", () => {
+    const line = lineFor(snap(["docs/CLAUDE.md"]), "D1", /Agent guidance present/);
+    expect(line).toContain("docs/CLAUDE.md");
   });
 
-  it("names the matching path for a multi-location detector (Cursor rules)", () => {
-    expect(lineFor(snap([".cursor/rules/style.mdc"]), "D1", /Cursor rules/)).toContain(".cursor/rules/style.mdc");
-    expect(lineFor(snap([".cursorrules"]), "D1", /Cursor rules/)).toContain(".cursorrules");
+  it("names every format it arbitrated, including a multi-file rules directory", () => {
+    expect(lineFor(snap([".cursor/rules/style.mdc"]), "D1", /Agent guidance present/)).toContain(".cursor/rules/style.mdc");
+    expect(lineFor(snap([".cursorrules"]), "D1", /Agent guidance present/)).toContain(".cursorrules");
+  });
+
+  it("names both paths of every coherence deduction — the number must re-trace to its evidence", () => {
+    const s = snap(
+      ["AGENTS.md", ".cursorrules"],
+      [
+        { path: "AGENTS.md", content: "# Guide\n\nRun `npm test` to test.\n" },
+        { path: ".cursorrules", content: "Tests: run `npm run test:ci` here.\n" },
+      ],
+    );
+    const line = lineFor(s, "D1", /Coherence −/);
+    expect(line).toContain("AGENTS.md");
+    expect(line).toContain(".cursorrules");
   });
 
   it("cites the file a GUIDANCE-QUALITY claim was read from — the claim is about that file's contents", () => {
@@ -48,7 +65,8 @@ describe("D1 evidence cites the file that produced it", () => {
       [{ path: "AGENTS.md", content: "# Guide\n\nRun `npm test` to test and `npm run build` to build.\n" }],
     );
     const line = lineFor(s, "D1", /build\/test/i);
-    expect(line).toContain("agents.md");
+    // The tree's own casing, not a lower-cased copy: the citation has to be a path a reader can open.
+    expect(line).toContain("AGENTS.md");
   });
 });
 
