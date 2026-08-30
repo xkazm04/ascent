@@ -46,7 +46,12 @@ const AI_REVIEWER = new RegExp(`(${AI_REVIEW_BOT_ALT})`, "i");
  * is `signal:"marked"` but still trailer-grounded — the honest numerator for `aiTrailerRate`).
  * `toolText` includes the commit messages, so per-tool attribution sees trailer-only tools too.
  */
-function readAiInvolvement(pr: PrNode): {
+// EXPORTED for moonshot #1 (W3-M): the live `pull_request_review` / `pull_request.closed` reducer
+// must decide "is this PR AI-involved" with the SAME predicate the scan-time population uses, or the
+// webhook-sourced rows and the scan-sourced rows would be two populations wearing one name. This is
+// the only change to this module in that lane — the function body, its callers and its behaviour are
+// untouched.
+export function readAiInvolvement(pr: PrNode): {
   signal: "authored" | "marked" | "trailer" | null;
   hasTrailer: boolean;
   toolText: string;

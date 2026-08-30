@@ -246,3 +246,102 @@ export async function getAiChangePopulation(
     asOfAttempted: mergedRows.length,
   };
 }
+
+// ── MOONSHOT #1 — the LIVE half: an AiChange row written from the event stream ───────────────────
+
+/** What a webhook delivery can tell us about one pull request. Every field is what GitHub named in
+ *  the payload; nothing here is inferred. */
+export interface LiveAiChangeInput {
+  repoFullName: string;
+  prNumber: number;
+  title: string;
+  authorLogin: string | null;
+  authorIsBot: boolean;
+  aiSignal: string;
+  aiTools: string;
+  state: string;
+  createdAt: string;
+  mergedAt: string | null;
+  mergeCommitSha: string | null;
+  approved: boolean;
+  approverLogin: string | null;
+  /** The review's OWN submission time. */
+  approvedAt: string | null;
+  /** When WE observed the approval — the delivery's arrival. */
+  approvalObservedAt: string | null;
+}
+
+/**
+ * Upsert one AI-attributed change observed LIVE, on the same `@@unique([repoId, prNumber])` identity
+ * the scan path uses. Best-effort; returns whether a row was written.
+ *
+ * ── The one rule that makes this safe to interleave with scans ───────────────────────────────────
+ *
+ * A LATER SCAN NEVER DOWNGRADES A WEBHOOK-OBSERVED APPROVAL, and this writer never downgrades one
+ * either. `approved` is only ever set to `true` here; an update carrying `approved: false` writes
+ * nothing to that column. The reason is asymmetric evidence: observing an approval is proof it
+ * happened, while NOT observing one is only proof we did not see it — a scan whose PR window has
+ * slid past the review, or a delivery we missed, would otherwise erase a true approval and turn a
+ * governed change into an audit finding. The scan path remains authoritative for withdrawal because
+ * it re-reads the whole review set rather than a single event.
+ *
+ * A repository we have never scanned has no `Repository` row, and this deliberately does NOT create
+ * one: an AiChange with no scan behind it would enter the conformance population as evidence from a
+ * repository the product has never assessed.
+ */
+export async function upsertLiveAiChange(orgSlug: string, input: LiveAiChangeInput): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const org = await getOrgBySlug(orgSlug).catch(() => null);
+  if (!org) return false;
+  const prisma = getPrisma();
+  const repo = await prisma.repository
+    .findUnique({ where: { orgId_fullName: { orgId: org.id, fullName: input.repoFullName } }, select: { id: true } })
+    .catch(() => null);
+  if (!repo) return false;
+
+  const base = {
+    orgId: org.id,
+    title: input.title,
+    authorLogin: input.authorLogin,
+    authorIsBot: input.authorIsBot,
+    aiSignal: input.aiSignal,
+    aiTools: input.aiTools,
+    state: input.state,
+    mergedAt: input.mergedAt ? new Date(input.mergedAt) : null,
+    mergeCommitSha: input.mergeCommitSha,
+    source: "webhook",
+  };
+  // The approval half, applied ONLY when this delivery carries one — see the asymmetry note above.
+  const approval = input.approved
+    ? {
+        approved: true,
+        approverLogin: input.approverLogin,
+        approvedAt: input.approvedAt ? new Date(input.approvedAt) : null,
+        approvalObservedAt: input.approvalObservedAt ? new Date(input.approvalObservedAt) : null,
+      }
+    : {};
+
+  try {
+    await prisma.aiChange.upsert({
+      where: { repoId_prNumber: { repoId: repo.id, prNumber: input.prNumber } },
+      create: {
+        repoId: repo.id,
+        prNumber: input.prNumber,
+        ...base,
+        // `reviewCount` is left at its default on create: a review EVENT tells us one review exists,
+        // not how many. Asserting 1 would make "reviewed, not approved" un-derivable for a PR whose
+        // other reviews we never saw. The next scan reads the true count.
+        createdAt: new Date(input.createdAt),
+        approved: input.approved,
+        approverLogin: input.approved ? input.approverLogin : null,
+        approvedAt: input.approved && input.approvedAt ? new Date(input.approvedAt) : null,
+        approvalObservedAt: input.approved && input.approvalObservedAt ? new Date(input.approvalObservedAt) : null,
+      },
+      update: { ...base, ...approval },
+    });
+    return true;
+  } catch (err) {
+    console.warn("[ai-changes] live upsert failed", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
