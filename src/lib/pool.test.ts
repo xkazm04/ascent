@@ -5,10 +5,12 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  drainUntilDeadline,
   FLEET_FINALIZE_RESERVE_MS,
   fleetDeadlineAt,
   mapPool,
   mapPoolUntilDeadline,
+  PROBE_CONCURRENCY,
   SCAN_CONCURRENCY,
 } from "./pool";
 
@@ -357,5 +359,60 @@ describe("mapPoolUntilDeadline", () => {
     expect(fleetDeadlineAt(1_000, 300)).toBe(1_000 + 300_000 - FLEET_FINALIZE_RESERVE_MS);
     // A ceiling smaller than the reserve can't produce a deadline BEFORE the invocation started.
     expect(fleetDeadlineAt(1_000, 1)).toBe(1_000);
+  });
+});
+
+// ── drainUntilDeadline (moonshot #10) ────────────────────────────────────────────────────────────
+// The queue's fan-out has no array to slice: work arrives one CLAIM at a time, and a claim can lose
+// to another instance's worker. So "truncated" means something different here — the budget ran out,
+// NOT that a known remainder was left behind — and an exhausted supplier must never report as one.
+
+describe("drainUntilDeadline", () => {
+  it("drains until the supplier runs dry, and reports that as NOT truncated", async () => {
+    const queue = [1, 2, 3];
+    const seen: number[] = [];
+    const out = await drainUntilDeadline(
+      async () => queue.shift() ?? null,
+      2,
+      Date.now() + 60_000,
+      async (n) => {
+        seen.push(n);
+      },
+    );
+    expect(seen.sort()).toEqual([1, 2, 3]);
+    expect(out).toEqual({ attempted: 3, truncated: false });
+  });
+
+  it("stops claiming NEW work once the worst observed item no longer fits, and says so", async () => {
+    const queue = [1, 2, 3, 4];
+    let t = 0;
+    const now = () => (t += 10); // each clock read advances 10ms, so one item costs ~20ms
+    const seen: number[] = [];
+    const out = await drainUntilDeadline(
+      async () => queue.shift() ?? null,
+      1,
+      45,
+      async (n) => {
+        seen.push(n);
+      },
+      now,
+    );
+    expect(out.truncated).toBe(true);
+    // Whatever was left was never CLAIMED — it is still in the queue. That is the whole point: a
+    // truncated pass loses no work, it just does less of it.
+    expect(seen.length + queue.length).toBe(4);
+  });
+
+  it("cannot truncate before a first item has completed (no observation ⇒ no estimate)", async () => {
+    // The deadline is already in the past, yet the first item is still issued: with no measurement
+    // there is no projection, so the guard has nothing to fire on. It stops before the SECOND.
+    const queue = [1, 2];
+    const out = await drainUntilDeadline(async () => queue.shift() ?? null, 1, -1, async () => {});
+    expect(out).toEqual({ attempted: 1, truncated: true });
+    expect(queue).toEqual([2]);
+  });
+
+  it("PROBE_CONCURRENCY is higher than the scan lane: a probe is REST calls, not inference", () => {
+    expect(PROBE_CONCURRENCY).toBeGreaterThan(SCAN_CONCURRENCY);
   });
 });

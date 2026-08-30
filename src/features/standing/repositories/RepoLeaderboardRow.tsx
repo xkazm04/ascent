@@ -8,7 +8,7 @@ import { ScheduleSelect } from "./ScheduleSelect";
 import { RepoRescanButton } from "./RepoRescanButton";
 import { TechBadges } from "./TechBadges";
 import { Sparkline } from "./Sparkline";
-import { sum } from "./RepoLeaderboardParts";
+import { FreshnessCell, sum, type RepoFreshness } from "./RepoLeaderboardParts";
 import { LEVEL_CLASSES, fmtCompact, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import type { LeaderRow } from "./useRepoLeaderboard";
@@ -21,7 +21,9 @@ export function RepoLeaderboardRow({
   selected,
   onToggle,
 }: {
-  r: LeaderRow;
+  // `freshness` rides on the rollup row (OrgRepoRow) rather than on LeaderRow, which is owned by a
+  // file outside this lane's write set — intersected here so the cell is typed without widening it.
+  r: LeaderRow & { freshness?: RepoFreshness | null };
   slug: string;
   schedulable: boolean;
   hasSegments: boolean;
@@ -109,7 +111,12 @@ export function RepoLeaderboardRow({
       <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">
         {a && a.locChanged > 0 ? <span title={`${a.locChanged.toLocaleString()} lines changed`}>{fmtCompact(a.locChanged)}</span> : "—"}
       </td>
-      <td className="px-3 py-2 type-body-sm text-slate-500">{l ? l.scannedAt.slice(0, 10) : "not scanned"}</td>
+      {/* Two-speed freshness (moonshot #10). The old single "last scan" date could not say that a
+          repo's CONTROLS were re-observed an hour ago while its SCORE is a week old — which is the
+          whole promise of the free probe lane. */}
+      <td className="px-3 py-2">
+        <FreshnessCell f={r.freshness} />
+      </td>
       <td className="px-3 py-2">
         <ScheduleSelect
           org={slug}

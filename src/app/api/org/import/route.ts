@@ -17,6 +17,7 @@
 // Needs DATABASE_URL. A GITHUB_TOKEN (env) is strongly recommended to avoid rate limits.
 
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { scanRepository } from "@/lib/scan";
 import {
   getInstallationIdForOwner,
@@ -30,10 +31,11 @@ import {
   setRepoSchedule,
   setRepoWatch,
 } from "@/lib/db";
-// Imported from the sub-module (not the "@/lib/db" barrel) so it is a process-local advisory claim,
-// NOT the cron's DB `nextScanAt` lease — see claimRepoScan's rationale in org-watch.ts. Import repos may
-// have no Repository row yet (created mid-scan), so a DB-row claim is impossible on this path.
-import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
+// Deep path, not the "@/lib/db" barrel: db/index.ts is Director-owned and its queue re-export lands at
+// merge. This is the DB-serialized claim (moonshot #10) that replaced the process-local advisory Map —
+// the queue keys on the repo's FULL NAME precisely because an import's repos may have no Repository
+// row yet (they are created mid-scan), which is what made a row-based claim impossible before.
+import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
@@ -323,14 +325,22 @@ export async function POST(request: Request) {
         let processed = 0;
         let scanned = 0;
         let skippedInProgress = 0;
+        // One id for this import, used as the queue's idempotency bucket so each import gets its own
+        // claim row per repo — a second import of the same repo is new work, not a collision with the
+        // settled row the first one left behind.
+        const importRunId = randomUUID();
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
-          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the import
-          // path was missing. If another in-flight run (a second import tab, another member, or an
-          // overlapping /api/org/scan) already holds a live claim for (org, repo), skip: reserving +
-          // scanning here would debit a second credit and burn a second real-LLM ingest for the SAME
-          // repo (reserveScanCredit bounds TOTAL spend, not per-repo duplication). Released in the
-          // finally below on EVERY exit path — including a hard TTL self-heal if this process is killed.
-          const claim = claimRepoScan(org, r.fullName);
+          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard. If
+          // another in-flight run (a second import tab, another member, or an overlapping
+          // /api/org/scan) already holds a live claim for (org, repo), skip: reserving + scanning here
+          // would debit a second credit and burn a second real-LLM ingest for the SAME repo
+          // (reserveScanCredit bounds TOTAL spend, not per-repo duplication).
+          //
+          // Since moonshot #10 the claim is a `ScanJob` ROW, not a module-global Map entry — so it
+          // holds ACROSS instances, which is where the old guard silently did nothing on a
+          // horizontally-scaled deploy. Settled in the finally below on EVERY exit path; a hard
+          // process kill self-heals through the lease reaper instead of the old TTL.
+          const claim = await claimRepoWork(org, r.fullName, "import", { bucket: importRunId, runId: importRunId });
           if (claim === null) {
             send("repo", { repo: r.fullName, skipped: "in_progress" });
             skippedInProgress += 1;
@@ -438,10 +448,12 @@ export async function POST(request: Request) {
             processed += 1;
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
           } finally {
-            // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
-            // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
-            // from re-import for the whole TTL; only a hard process kill relies on the TTL self-heal.
-            releaseRepoScan(org, r.fullName, claim);
+            // SETTLE on EVERY exit — normal completion, the insufficient-credits early return, or a
+            // throw from reserveScanCredit (which mapPool rethrows). A claim left unsettled would bar
+            // this repo from re-import until its lease expires; only a hard process kill relies on the
+            // reaper. Best-effort by design: the settle is bookkeeping, and a failure here must not
+            // take down an import whose scans already landed.
+            await settleJob(claim.id, { state: "done" }).catch(() => {});
           }
         });
         // Capture the team-standings decomposition as a durable output of this full org import

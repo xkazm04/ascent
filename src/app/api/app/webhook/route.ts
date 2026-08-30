@@ -5,6 +5,12 @@
 //   • push (to the default branch, head moved) → re-scan a watched repo and alert on a
 //                                                regression vs the prior scan (Feature 4), throttled to
 //                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES.
+//   • branch_protection_rule / repository_ruleset / repository / member / team
+//                                             → enqueue a FREE control probe (moonshot #10). These
+//                                                events move a repo's governance posture without
+//                                                touching its code, cost no credit, and are never
+//                                                trusted for the control STATE — only for what to
+//                                                re-read.
 //
 // GitHub expects a fast 2xx, so the scan work runs in `after()` — scheduled to execute AFTER the
 // response is sent, within the route's maxDuration. We always 200 (even on handler errors) so
@@ -26,6 +32,7 @@ import {
   getScanReportByCommit,
   isDbConfigured,
   isRepoWatched,
+  listWatchedRepos,
   persistScanReport,
   reconcileWatchedRepos,
   removeInstallation,
@@ -34,6 +41,10 @@ import {
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
+// Deep path, not the "@/lib/db" barrel: db/index.ts is Director-owned and its queue re-export lands
+// at merge (see the handoff). The webhook's half of moonshot #10 is enqueue-ONLY — no observation is
+// written here, because a signed payload is not evidence of a control's state.
+import { enqueueProbeJob } from "@/lib/db/scan-jobs";
 import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib/github/webhook-delivery";
 // The PR gate itself now lives in @/lib/github/pr-gate so the org gate-policy sweep can re-run the
 // SAME check-writing path (a route file may only export the HTTP-method / segment-config names, so
@@ -57,9 +68,18 @@ interface WebhookPayload {
   // check_run event: a "Re-run" button click (requested_action) or GitHub's rerequested.
   check_run?: { head_sha?: string; pull_requests?: { number?: number; base?: { ref?: string } }[] };
   requested_action?: { identifier?: string };
+  // Control-probe events (moonshot #10). Only the ORGANIZATION/owner is read off these — the payload
+  // names WHAT to re-read, never the control state itself (see enqueueControlProbe).
+  organization?: { login?: string };
 }
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
+
+/** Repo-scoped events that move a CONTROL rather than the code (moonshot #10). Each enqueues a free
+ *  probe of that one repo. */
+const REPO_CONTROL_EVENTS = new Set(["branch_protection_rule", "repository_ruleset", "repository"]);
+/** Owner-scoped control events — the access shape moved, so the org's watched repos are re-observed. */
+const ORG_CONTROL_EVENTS = new Set(["member", "team"]);
 
 // Replay defense (in-memory fast path + the shared "abort, but release the delivery" helper) lives in
 // @/lib/github/webhook-delivery: deliveryAlreadySeen, forgetLocalDelivery, forgetDelivery, abandonDelivery.
@@ -272,6 +292,56 @@ function withinPushRescanWindow(prevScannedAt: string | undefined, now: number =
   const t = prevScannedAt ? new Date(prevScannedAt).getTime() : NaN;
   if (!Number.isFinite(t)) return false;
   return now - t < window;
+}
+
+// ── Control-probe fan-in (moonshot #10) ──────────────────────────────────────────────────────────
+// Five events change a repo's CONTROL posture without changing a line of code, so none of them used
+// to reach us at all: branch_protection_rule, repository_ruleset, repository, member, team.
+//
+// THE PAYLOAD IS NEVER TRUSTED FOR CONTROL STATE. A `branch_protection_rule.deleted` delivery is
+// treated as "re-read this repo", not as "protection is off" — a validly-signed but replayed or
+// misrouted delivery would otherwise write a false governance record that outlives it. Only the
+// probe's own re-read from GitHub produces an observation. That is the same discipline
+// `installation_repositories` already follows for the destructive unwatch path.
+//
+// The work is a QUEUED JOB, not an inline read: GitHub wants a fast 2xx, a burst of rule edits would
+// otherwise fan out to a burst of API calls, and the delivery id as the idempotency bucket makes a
+// redelivery enqueue nothing new.
+
+/** Cap on the org-wide fan-out of an owner-level event. A `member`/`team` change is org-scoped, but
+ *  enqueuing one job per repo for a 900-repo fleet on every membership edit is a burst nobody asked
+ *  for; the hourly cadence catches the tail either way. */
+const ORG_EVENT_PROBE_CAP = 200;
+
+async function enqueueControlProbe(
+  installationId: number,
+  owner: string,
+  fullName: string,
+  event: string,
+  deliveryId?: string,
+): Promise<void> {
+  const orgSlug = owner.toLowerCase();
+  if (!(await installationMatchesOwner(installationId, orgSlug))) {
+    await abandonDelivery(deliveryId);
+    return;
+  }
+  await enqueueProbeJob(orgSlug, fullName, `webhook:${event}`, deliveryId).catch((err) => {
+    console.warn(`[webhook] could not enqueue a control probe for ${fullName}`, err instanceof Error ? err.message : err);
+    return null;
+  });
+}
+
+/** An owner-level control change (`member`, `team`): re-observe the org's WATCHED repos. */
+async function enqueueOrgControlProbes(installationId: number, owner: string, event: string, deliveryId?: string): Promise<void> {
+  const orgSlug = owner.toLowerCase();
+  if (!(await installationMatchesOwner(installationId, orgSlug))) {
+    await abandonDelivery(deliveryId);
+    return;
+  }
+  const repos = await listWatchedRepos(orgSlug).catch(() => []);
+  for (const r of repos.slice(0, ORG_EVENT_PROBE_CAP)) {
+    await enqueueProbeJob(orgSlug, r.fullName, `webhook:${event}`, deliveryId).catch(() => null);
+  }
 }
 
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
@@ -552,6 +622,31 @@ export async function POST(request: Request) {
       const headMoved = !payload.deleted && !!payload.after && !/^0+$/.test(payload.after);
       if (installationId && owner && repo && onDefault && headMoved) {
         after(() => runPushRescan(installationId, owner, repo, delivery ?? undefined));
+      }
+    } else if (REPO_CONTROL_EVENTS.has(event) && isAppConfigured() && isDbConfigured()) {
+      // A repo-scoped control change (protection rule, ruleset, or the repo itself being renamed /
+      // archived / made private). Enqueue a FREE probe — no credit, no inference — which re-reads the
+      // truth from GitHub rather than believing the delivery.
+      const installationId = payload.installation?.id;
+      const owner = payload.repository?.owner?.login;
+      const fullName = payload.repository?.full_name;
+      if (installationId && owner && fullName) {
+        after(() => enqueueControlProbe(installationId, owner, fullName, event, delivery ?? undefined));
+      }
+    } else if (ORG_CONTROL_EVENTS.has(event) && isAppConfigured() && isDbConfigured()) {
+      // An owner-level change (`member`, `team`). Deliberately enqueue-only and membership-blind: this
+      // writes NO membership or RBAC row of its own (that is deck item #21, not this lane) — it only
+      // says "this org's access shape moved, go re-observe the controls".
+      const installationId = payload.installation?.id;
+      const owner = payload.organization?.login ?? payload.repository?.owner?.login;
+      const repoFullName = payload.repository?.full_name;
+      if (installationId && owner) {
+        const login = owner;
+        after(() =>
+          repoFullName
+            ? enqueueControlProbe(installationId, login, repoFullName, event, delivery ?? undefined)
+            : enqueueOrgControlProbes(installationId, login, event, delivery ?? undefined),
+        );
       }
     }
   } catch (err) {

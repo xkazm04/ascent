@@ -7,6 +7,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/cron/probe",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/purge",
       "schedule": "0 4 * * *"
     },
