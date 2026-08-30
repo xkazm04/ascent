@@ -4,11 +4,9 @@ description: Iteratively prototype an ascent UI surface through directional vari
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 ---
 
-# Prototype — Directional Variant Workflow (ascent) · v4
+# Prototype — Directional Variant Workflow (ascent)
 
 A disciplined A/B prototyping loop for refining an ascent UI surface. Start from a named file, produce radically different directional variants behind a tab switcher, let the user prune/fuse across rounds until one direction wins, then consolidate + refactor into the brand system. The workflow is distilled from a real 5-round session; the guardrails cut the rounds needed next time.
-
-**v4 — the method, not the tree.** v2 produced three layouts of a mediocre baseline. v3 added a quality bar and a self-scored rubric — and still produced two layouts of the same experience at 19/20, because it designed FROM the baseline's component tree and graded its own work. v4 changes the order of operations: the round starts with words (epicenter, press quote, content outline, breadboard) written before any panel file is opened, variants must differ on an axis of meaning (reader / unit of analysis / purpose) with a named reference product and declared aesthetic axioms, the epicenter is built alone first, a deletion pass is mandatory, and the critique is an adversarial **separate** critic working from a rendered screenshot. Method: [`references/design-method.md`](references/design-method.md). Bar: [`references/design-excellence.md`](references/design-excellence.md).
 
 **This skill is tuned to ascent.** It knows the brand kit (`@/components/ui`, `BRAND.md`), the org-dashboard primitives (`@/components/org/ui`), the color/level helpers (`@/lib/ui`), the App-Router server/client split, and the hard **300-LOC-per-`.tsx`** rule. Use those, not raw slate hexes and hand-rolled chrome.
 
@@ -29,9 +27,9 @@ The user says things like "help me master this component", "prototype ideas on t
 
 ## Coordination & safety
 
-ascent has **no** active-runs ledger — coordination here is lighter than the source workflow, and the branch is often mid-flight (`git status` at session start frequently shows **20-30 modified files** from other work).
+ascent has **no** active-runs ledger — coordination here is lighter than the source workflow, but the branch is often mid-flight (`git status` at session start frequently shows **20-30 modified files** from other work). That makes isolation the whole game.
 
-1. **Prototype in place, on the currently active local branch. No worktrees.** (Owner's rule, 2026-08-30: prototypes are small, self-contained variant files plus one switcher, and they do no damage — a worktree only adds a merge step and a second dev server. v2 defaulted to a worktree; v3 does not.) The variant files are new; the only existing file touched is the target's orchestrator, which gains the switcher.
+1. **Prototype in place, on the currently active local branch. No worktrees.** (Owner's rule, 2026-08-30: prototypes are small, self-contained variant files plus one switcher, and they do no damage — a worktree only adds a merge step and a second dev server.) The variant files are new; the only existing file touched is the target's orchestrator, which gains the switcher.
 2. **Never `git stash`** other sessions' work — not even `--keep-index`. Commit with **pathspecs** (`git commit -- <files>`, or `git add <path>` per file — never `git add -A` / `git add .` / `git add -u`); leave everything else alone.
 3. **Don't write to files that already show as `M`** in `git status` unless the user explicitly named them or they ARE the target. Apply tight diffs so unstaged work is preserved.
 4. **Commit each round on the active branch** — one atomic pathspec commit per round of variants / per pruning decision / per consolidation, so the user can `git log` the rounds. End commit messages with the co-author trailer the session's harness prescribes.
@@ -77,37 +75,49 @@ Rules:
 
 ---
 
-## Phase 3: Design two variants — by the method, not from the tree
+## Phase 3: Generate 2 **directional** variants
 
-Read [`references/design-method.md`](references/design-method.md) in full and follow its order. The short form:
+### 3a. Prerequisite — ground your variants in ascent's actual quality bar
 
-### 3a. Calibrate on the brand — but do NOT read the baseline's panels yet
+Before writing *any* variant code, spend a few tool calls to calibrate. This is the single biggest round-1 uplift: variants that mine the codebase feel like siblings of the app; variants invented in isolation feel like prototypes. Do all four, in order, every time:
 
-Read `src/components/ui/BRAND.md`, the type scale in `globals.css` (`type-*`), the primitives (`@/components/ui`, `@/components/org/shared/ui`), the colour helpers (`@/lib/ui`, `deltaHex`/`fmtDelta`), and the **data types** the surface receives. Do not open the baseline's sub-components until step 3d — the tree is the trap: a variant designed from it can only recompose it.
+1. **Read the brand doc and import from the kit.** `src/components/ui/BRAND.md` is the design system ("The Index" — editorial, one azure accent, typeset numbers, gated motion). **Do not hand-roll chrome.** Import primitives:
+   - **`@/components/ui`** — `Surface` (the panel: `rounded-{xl|2xl} border border-divider bg-surface/40`), `Kicker` (mono uppercase eyebrow — replaces hand-rolled `font-mono uppercase tracking-widest` labels), `Stat` (mono label + `tabular-nums` value + optional delta/goal), `SectionHeading` (`kicker`+`title`+`intro`+`right`, sizes `page`/`lg`/`sm`), `HairlineGrid`, `Dateline`, `SideNav`.
+   - **`@/components/org/ui`** (dashboard surfaces) — `Tile` (a `Stat` as a `TILE_LEDGER` cell), `TILE_LEDGER`/`TILE_GRID` (the gap-px hairline bed — tiles no longer self-border; place them in the ledger), `Card`, `OrgTable`, `Meter`, `MeterRow`, `SectionHeader`, `SectionEmpty`/`InlineEmpty`/`OrgEmpty`, `ExportCsvLink`, `DIMS`, `POSTURE_LABEL`/`postureLabel`.
+   - **The recurring failure mode is carrying the baseline's raw `<select>`/`<input>`/hand-rolled card forward.** If the baseline hand-rolls chrome, **upgrade it in the variants** — don't carry the debt.
+2. **Never hand-pick a color.** From `@/lib/ui`: `scoreHex`/`LEVEL_HEX` (level & score color, red→green ramp — for scores/levels *only*), `heatCell` (score-tinted fill + computed-contrast ink), `LEVEL_CLASSES`, `LEVEL_GLYPH`/`scoreGlyph`, `DIMENSION_SHORT` (D1…D9 short labels), `readableTextOn`, `IMPACT_CLASS`/`EFFORT_CLASS`, `timeAgo`/`freshness`. From `@/components/ui`: `deltaHex`/`fmtDelta`/`signedDelta` (period delta — lime up · orange down · slate flat). The one accent is `bg-accent`/`text-accent` (`#3b9eff`); surfaces are `bg-surface/40`; the single hairline is `border-divider`. **Numbers are `font-mono … tabular-nums`; labels are mono, uppercase, wide-tracked (or a `Kicker`).** A raw `bg-violet-500/15` / `text-amber-300` / hand-picked hex is a tell.
+3. **Mine one or two polished sibling surfaces for the bar.** Strong ascent references:
+   - `src/components/launch/ConstellationField.tsx` + `FleetMap.tsx` — the `/launch` star-map: cinematic SVG, decorative background, the app's hero visual.
+   - `src/components/org/LiveWarRoom.tsx` — the `/org/[slug]/live` ops wall: dense live tiles, count-ups, reshuffles, celebratory bursts.
+   - `src/components/report/*` (`Charts.tsx`, `DimensionExplorer.tsx`, `DimensionCard.tsx`) — the report, the product's showcase.
+   - `src/components/onboarding/OnboardingFlow.tsx` — a multi-step flow with phase transitions.
+   - the landing `TrajectoryChart` (referenced in `BRAND.md`) — dependency-free SVG styled to the tokens.
+   **If the user names inspiration surfaces, treat that as authoritative** — mine those even if the filenames don't match the target.
+4. **Extract three things from each reference:** (a) *layout shape* — masthead/`Dateline` + section + hairline bed?; (b) *motion language* — what animates (entrances, meter fills, draw-ons), what's a deliberate signature loop (star twinkle, live-dot pulse), and note it's all gated under `prefers-reduced-motion`; (c) *typography + data patterns* — what's rendered as a big `font-mono tabular-nums` stat, where `Kicker`/uppercase labels sit, how `scoreHex`/level color and `fmtDelta` carry meaning.
 
-### 3b. Words before containers
+Skip this and round 1 gets thrown away wholesale. Spend the tool calls.
 
-For the surface, in writing, in the round summary:
-1. **Epicenter** — one sentence: who reads this, in what moment, to decide what. No component nouns.
-2. **Press quote** — a named persona on what changed for them once this exists.
-3. **Content outline** — every sentence and number the screen says, ranked, in the reader's language, with zero layout/component vocabulary; includes the zero-data and error sentences.
-4. **Breadboard** — places → affordances → places, as text.
+### 3b. Directional variants
 
-### 3c. Make the variants differ on an axis of meaning
+The critical word is *directional*. A variant is not "baseline with spacing tweaked"; it's a completely different **mental model** for the same data. Each variant earns its name by carrying a **single central metaphor** through layout, typography, motion, iconography, and copy voice.
 
-Pick, per variant, the axis it moves on — **change the reader**, **change the unit of analysis**, or **change what the screen is FOR** (monitoring / deciding / persuading). Layout is not an axis. Declare per variant a **named reference product** and precisely what is borrowed, and the **five axioms** (density, type contrast, colour saturation, shape, motion timing) — two variants may share at most one axiom value. Name each variant after its **idea**, never a layout noun.
+Good variant pairs (ascent-flavored):
+- **altimeter / strata** (elevation gauge, the `.strata` motif, ascent-as-climb) + **ledger / index** (editorial data-dense single column with a `Dateline` masthead)
+- **constellation / star-map** (spatial SVG, repos as stars) + **blueprint / instrument** (technical drawing, mono readouts, engineering aesthetic)
+- **war-room / live board** (dense ops tiles, deltas front-and-center) + **narrative / trajectory** (linear story of the climb over time)
+- **heatmap matrix** (grid, `heatCell` per cell) + **butterfly / mirror** (two sides compared per dimension)
 
-### 3d. Build the epicenter first, then assemble, then delete
+Deliverables per variant:
+- File: `{Name}{Variant}.tsx` in the same folder. Add `"use client"` if it uses hooks or handlers.
+- Short header comment: the metaphor + why it differs from baseline.
+- **Reuse brand primitives and real color helpers** — don't reinvent `Meter`, `Tile`, `Surface`, or a score color.
+- Degrade gracefully for the edge cases the baseline handles (empty/no-scan state via `SectionEmpty`/`OrgEmpty`, unscanned repos, null deltas, single-stack orgs).
+- **Prefer data-concrete symbols over abstract markers.** ascent's real nouns beat decorative shapes: repo names, tech-stack chips (`techChips`), `LevelBadge`, dimension scores (D1…D9), posture labels, `fmtDelta` deltas, `reportPermalink` links. Pull from the live data model (`@/lib/types`, the org-rollup / scan types) — the user scores a variant on whether it encodes *real* data they already care about.
+- **Design for extraction — and the 300-LOC rule.** A variant is scored partly on what it contributes back: named sub-components (`ScoreWaterfall`, `DimensionPanel`, `PostureDial`) that could live elsewhere as co-located files, not a monolith. Every `.tsx` must stay **≤ 300 LOC**; if a variant grows past that, extract a sub-component the same turn.
+- **Answer "what am I looking at?" in round 1.** If the user is choosing among nouns (repos, stacks, segments, teams), the affordance for picking them must show *meaningful stats* — the facts needed to choose: overall score + level, adoption/rigor, scanned coverage, posture, last-scan freshness. Name-only chips with a decorative dot are a round-1 failure. Derive the fields from the actual types — read the relevant `src/lib/db/*` / `@/lib/types` shape and surface the non-obvious ones.
+- **Answer "what's the takeaway?" in round 1 for output surfaces.** If the surface reports a result (a score, a ranking, movers, a forecast), each result carries *signal about why it matters*: a level/posture label, a delta vs baseline or period (`fmtDelta`, `+8 vs 90d ago`), a plain-language line (`Frontend leads · Backend·Python trails 13 pts`). Raw bars alone are a round-1 failure.
 
-Prototype only the epicenter element at real fidelity. If it is not obviously better than the baseline's answer to the same question, stop. Then assemble the rest from the outline, and run the **deletion pass**: cut at least one thing the baseline had and record why. **Forbidden:** importing the baseline's sub-components into a variant; carrying a baseline panel over "for completeness".
-
-Deliverables per variant, as before: `{Name}{Variant}.tsx` (+ co-located sub-components, every file within the LOC caps), `"use client"` only where hooks live, real nouns and numbers from the props, designed empty state, motion gated under `prefers-reduced-motion`, accent budget ≤ 3 roles, same Props shape as the baseline.
-
-**Do not propose 3+ variants in round 1.** Two is right.
-
-### 3e. Render, then the adversarial critic — never score your own work
-
-Render each variant (dev server + a 1440px screenshot via the browser tools when available; a jsdom render is the fallback) and spawn a **separate critic subagent** with the screenshot, the epicenter, the outline and the reference product. Its brief is in the method file §9: three-second epicenter test, "why is this still generic", verdict against the named reference, a **subtraction-only** list, and only then the `design-excellence.md` §3 rubric as a floor (16/20, no row at 0). Fix what it found, re-render, and quote the critic's verdict and the deletion list verbatim in the round summary beside each variant. The user reads a critique, not a self-assigned score.
+**Do not propose 3+ variants in round 1.** Two is right. More = analysis paralysis; the user picks a direction by round 2 anyway.
 
 ---
 
@@ -121,7 +131,7 @@ After round 1 the user will usually reject one variant outright, pull a strong e
 - **Add a new variant only when explicitly asked** ("create a new variant with X direction").
 - **Hoist shared pieces mid-prototype.** The moment two variants render the same structure (even styled differently), extract the shared sub-component into a co-located file and let both import it — waiting until refactor time doubles every tweak. When variant B is built *on top of* A's card/sigil/strip, export the shared primitive from A the same turn you create B. Keep `"use client"` on any extracted file with hooks/handlers.
 
-Each round: end with an **explicit menu** of what changed — the epicenter, outline and deletion list (3b/3d), the critic's verdict per variant (3e), and the tab names — then ask for the next move. Don't auto-advance.
+Each round: end with an **explicit menu** of what changed, then ask for the next move. Don't auto-advance.
 
 ---
 
@@ -172,7 +182,7 @@ Linters, formatters, or the user can revert your writes mid-session (this repo's
 The branch usually carries 20-30 unrelated `M` files. A sharp correction from the source session: "did you stash or throw changes elsewhere? I lost progress." If a file shows `M` in `git status`, **do not write to it** unless the user named it. This is exactly why Phase 0 recommends a worktree. Tight single-line diffs only.
 
 ### Typography is a recurring quality axis
-Sizes come from the semantic type scale in `globals.css` — `type-label` (mono uppercase eyebrow; tracking stays a separate utility), `type-caption` / `type-note` (13px metadata), `type-body-sm` / `type-body` (15/17px copy), `type-figure` / `type-figure-lg` (the typeset stat), `type-title` / `type-heading` / `type-display`. `type-micro` (12px) is the floor and is for dense metadata only. Never a raw `text-xs`/`text-sm` in new code, never an arbitrary pixel size (`text-[10px]`) — both are prototype-grade shortcuts. **Brighter, not muted:** to promote copy, bump size *and* drop the opacity mute (`text-slate-400 → text-slate-200`/`text-white`, `font-normal → font-medium`). "Promote" means "make more present".
+Per `BRAND.md`: numbers are `font-mono … tabular-nums`; labels are mono, uppercase, wide-tracked (or a `Kicker`). Lean `text-base` for body copy; reserve `text-xs`/`text-sm` for those mono labels. Never use arbitrary pixel sizes (`text-[10px]`) — that's a prototype-grade shortcut. **Brighter, not muted:** to promote copy, bump size *and* drop the opacity mute (`text-slate-400 → text-slate-200`/`text-white`, `font-normal → font-medium`). "Promote" means "make more present".
 
 ### Animation austerity — but keep the brand signatures
 `BRAND.md` principle #5: "Motion is a beat, gated." Entrances and draw-ons only; everything degrades under `prefers-reduced-motion`. Prefer the existing utilities: `.animate-fade-up`, `.animate-fade-in`, `.animate-phase-in`, `.animate-meter`, or framer-motion entrance-once. **Reject new always-on motion** you invent (looping scans, drifting particles, ambient rotations, `hover:-translate-y-*` on cards). The *deliberate* signature loops already in the app — the `/launch` star twinkle (`.launch-star`), the live-dot pulse (`.live-dot`), the war-room flash — are intentional and are already gated in `globals.css`; don't add new ones outside those established motifs. **Every animation you add must be gated under `@media (prefers-reduced-motion: reduce)`** (the `ascent-*` keyframe utilities already are — new inline framer-motion is not, so guard it). Rule of thumb: if the user would see the motion after leaving the screen idle, cut it.
@@ -214,7 +224,6 @@ Red flags → reset direction: wholesale rejection round after round; the user r
 - [ ] Brand compliance: primitives from `@/components/ui` / `@/components/org/ui`, colors from `@/lib/ui`/`deltaHex` — no hand-picked hexes or raw hand-rolled `<select>`/cards.
 - [ ] Consumer import paths still resolve (grep the old filename → zero stale references).
 - [ ] New animations gated under `prefers-reduced-motion`.
-- [ ] The winner passed a separate critic (method §9): epicenter answerable in three seconds, verdict against the named reference, and the §3 floor (≥ 16/20, no row at 0).
 - [ ] Worktree removed and branch deleted after the winner lands (if one was used).
 - [ ] If refactored: co-located sub-components mirror a sibling folder; `context-map.json` updated if ownership changed.
 
