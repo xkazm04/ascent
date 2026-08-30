@@ -9,7 +9,6 @@ export type CockpitVariant = "baseline" | OutcomeVariant;
 
 const TABS: readonly { id: CockpitVariant; label: string }[] = [
   { id: "baseline", label: "Baseline" },
-  { id: "register", label: "Register" },
   { id: "storyboard", label: "Storyboard" },
 ];
 

@@ -46,12 +46,7 @@ export interface OverviewLedgerData {
   heatmapRows: HeatRow[];
 }
 
-// PROTOTYPE IN FLIGHT (/prototype v3). The exported `OverviewLedger` consumers render is the tab
-// switcher in OverviewLedgerSwitcher.tsx (Baseline · Front page · Altimeter); this body is the
-// Baseline it defaults to. Consolidation collapses the switcher back into a plain render.
-export { OverviewLedger } from "./OverviewLedgerSwitcher";
-
-export function OverviewLedgerBaseline(d: OverviewLedgerData) {
+export function OverviewLedger(d: OverviewLedgerData) {
   const readings = buildDimensionReadings(d.dims, d.dimDeltas, d.heatmapRows, d.deltaLabel);
   const owed = readings.filter((r) => r.owed).length;
   const scored = Object.values(d.postureCounts).reduce((a, b) => a + b, 0);

@@ -2,7 +2,7 @@
 
 // THE OUTCOME SECTION — full width under the observatory grid. It absorbs the old history strip's job
 // (every column header opens that run on the field) and the rail's outcome mode (the deliverables are
-// the cells). One takeaway sentence leads; the variant below it is the matrix in one of two metaphors.
+// the cells). One takeaway sentence leads; the matrix below it is the Storyboard (the Register variant was cut in round 1).
 
 import { useMemo } from "react";
 import { Kicker } from "@/components/ui";
@@ -10,11 +10,10 @@ import { DriveVerdict } from "../cockpit/CockpitDrivePanel";
 import type { DriveStatus } from "../cockpit/driveTypes";
 import type { LoopRunDetail } from "../cockpit/loopTypes";
 import { buildOutcomeMatrix, mergeRunDetails } from "./outcomeMatrix";
-import { OutcomeRegister } from "./OutcomeRegister";
 import { OutcomeStoryboard } from "./OutcomeStoryboard";
 import { takeaway } from "./outcomeText";
 
-export type OutcomeVariant = "register" | "storyboard";
+export type OutcomeVariant = "storyboard";
 
 export interface OutcomeSectionProps {
   variant: OutcomeVariant;
@@ -34,7 +33,6 @@ export function OutcomeSection(p: OutcomeSectionProps) {
     () => buildOutcomeMatrix(mergeRunDetails(p.runDetails, p.openedDetail, p.liveDetail)),
     [p.runDetails, p.openedDetail, p.liveDetail],
   );
-  const Variant = p.variant === "register" ? OutcomeRegister : OutcomeStoryboard;
   return (
     <section aria-label="Loop outcome" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-divider pb-2">
@@ -54,7 +52,7 @@ export function OutcomeSection(p: OutcomeSectionProps) {
           No runs yet — select repos in the sky and start a run. Each run will land here as a column.
         </p>
       ) : (
-        <Variant matrix={matrix} selectedId={p.selectedId} onOpen={p.onOpen} />
+        <OutcomeStoryboard matrix={matrix} selectedId={p.selectedId} onOpen={p.onOpen} />
       )}
     </section>
   );

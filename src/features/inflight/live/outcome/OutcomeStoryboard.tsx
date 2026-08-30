@@ -11,7 +11,13 @@ import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
 import { CellDetail, CellFootnote, CellLive, CellTitles, CellVerdict, cellInFlight } from "./OutcomeCell";
 import type { OutcomeColumn } from "./outcomeMatrix";
-import type { OutcomeVariantProps } from "./OutcomeRegister";
+import type { OutcomeMatrix } from "./outcomeMatrix";
+
+export interface OutcomeVariantProps {
+  matrix: OutcomeMatrix;
+  selectedId: string | null;
+  onOpen: (id: string) => void;
+}
 import { useOutcomeColumns } from "./useOutcomeColumns";
 
 const THUMB = "10rem";
