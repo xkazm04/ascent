@@ -191,7 +191,10 @@
         "src/lib/org/followups.ts",
         "src/components/org/followups/**",
         "src/app/api/org/followups/**",
-        "src/app/api/org/backlog/**"
+        "src/app/api/org/backlog/**",
+        "src/lib/db/followup-claims.ts",
+        "src/lib/mcp/work-tools.ts",
+        "scripts/ascent-work.mjs"
       ]
     },
     {

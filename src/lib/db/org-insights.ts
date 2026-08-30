@@ -425,6 +425,13 @@ export interface BacklogItem {
   /** Invitational questions to explore the gap — the same `explore[]` the repo report surfaces (parsed
    *  from stored JSON via the shared parseStringArray). Empty for legacy scans. */
   explore: string[];
+  /** MOONSHOT #3 — who holds this row's work claim (e.g. "agent:ci-bot"), null when unclaimed. */
+  claimActor: string | null;
+  claimExecutor: string | null;
+  /** ISO; a lease past now is treated as expired by the UI. */
+  leaseUntil: string | null;
+  /** An agent reported it cannot finish this without a person. */
+  needsHuman: boolean;
 }
 
 /** Status tallies shared by the overall summary and each owner group. */
@@ -585,6 +592,11 @@ export async function getOrgBacklog(
             assigneeLogin: true,
             targetDate: true,
             createdAt: true,
+            // MOONSHOT #3 (W4-N request): the claim line + needs-human chip read these defensively.
+            claimActor: true,
+            claimExecutor: true,
+            leaseUntil: true,
+            needsHuman: true,
           },
         }),
       ])
@@ -662,6 +674,10 @@ export async function getOrgBacklog(
         effort: r.effort,
         status: r.status,
         assigneeLogin: r.assigneeLogin,
+        claimActor: r.claimActor ?? null,
+        claimExecutor: r.claimExecutor ?? null,
+        leaseUntil: r.leaseUntil ? r.leaseUntil.toISOString() : null,
+        needsHuman: r.needsHuman ?? false,
         targetDate: r.targetDate ? r.targetDate.toISOString().slice(0, 10) : null,
         dueBucket: dueBucketFor(r.targetDate, now, tz),
         dueInDays,
