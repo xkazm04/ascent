@@ -97,6 +97,10 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // (it can name individuals against unreviewed changes), so it should read as an event to notice in
   // the trail rather than as routine reporting.
   { value: "conformance.pack.export", label: "Evidence pack exported", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  // MOONSHOT #1 — someone checked the control ledger's seals. Sky, not amber: this is a READ, and it
+  // is the read a reader should be encouraged to make. Its meta carries the days judged, `chainOk`,
+  // and any day that failed, so the trail records the verdict and not merely the attempt.
+  { value: "controls.verify", label: "Ledger integrity verified", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "data.erased", label: "Data erased", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
 ];

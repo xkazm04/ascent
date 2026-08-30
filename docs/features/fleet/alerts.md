@@ -39,6 +39,48 @@ sensitivity (`alertOverallDrop` / `alertDimensionDrop`) are configured through
 `GET`/`POST /api/org/alerts` (admin-gated) and the dashboard's Alerts popover
 (`src/components/org/shared/AlertsControl.tsx`).
 
+### Control transitions (moonshot #1)
+
+Score movement is not the only thing worth interrupting a human for. The **control** kind reports
+that a *named control* changed state — branch protection came off, required approvals fell to zero,
+a repository was archived — read from the **control-observation ledger**, not from a `ScanDiff`.
+That source matters: a control can flip between two scans (a webhook-triggered probe re-reads it
+within seconds), and a diff of two scan reports would miss it entirely and then report it hours
+later against the wrong time.
+
+`detectControlTransitions(prev, next)` and `transitionsFromRows(rows)`
+(`src/lib/controls/transitions.ts`) classify a state move into one of three codes:
+
+| Code | Move | Severity | Dispatched to a sink? |
+| --- | --- | --- | --- |
+| `control-failed` | `pass → fail`, `unmeasurable → fail` | critical | yes |
+| `control-restored` | `fail → pass` | celebration | yes |
+| `control-unmeasurable` | `pass\|fail → unmeasurable` | info | **no** |
+
+**`unmeasurable` never alerts as failed, and never pages anyone.** A token that loses a scope, a
+repository turned private, a GitHub 403 — each turns a `pass` into "we cannot see it", and reporting
+that as a failure would page a team about a control that is very probably still on. It is recorded
+as an `AlertEvent` (`delivered: false`, no `suppressedReason` — it was never *eligible*, so blaming
+the operator's sink configuration would be wrong) and goes no further. Symmetrically,
+`unmeasurable → pass` is not a celebration: regaining a read is news about our access, not about the
+org's controls.
+
+Two further rules in `alertControlTransitions` (`src/lib/scan-alerts.ts`):
+
+- It runs **independently of the regression path** — a control flip needs no `prev` report and is
+  never gated on whether the score moved.
+- Its cooldown key is **per (repo, control)** (`controlCooldownKey` → `acme/api#control:branch-protection`),
+  so a branch-protection flip is never starved by a score push that already consumed the repo's
+  generic slot, and two controls failing on one repository both get through.
+
+`buildControlAlertMessage` names the control, the values either side (`2 → 0` explains a
+required-approvals failure that "pass → fail" leaves abstract), how it was observed
+(`scan | probe | webhook | conformance`), and the actor **only when a webhook observed one** —
+scan- and probe-sourced rows carry no actor because nobody performed those in a way we observed.
+
+W1-A's doctor path (`detectControlRegressions`, `src/lib/standard/control-matrix.ts`) dispatches
+through the same builder with `source: "conformance"`.
+
 ## Integration (`src/lib/scan-alerts.ts`)
 
 `checkAndAlertRegression(prev, fresh, opts)`:
@@ -106,8 +148,15 @@ silent rather than training the inbox filter.
   (`?range=custom&from=&to=`) exactly.
 - **Movement gate:** `digestHasSignal()` (`src/lib/alerts.ts`) decides whether the week is
   worth sending at all: a level change, a beyond-noise regression, a beyond-noise gainer, a
-  non-zero overall delta, or a low credit balance. An org with none of those is skipped
-  (`skippedFlat`).
+  non-zero overall delta, a low credit balance, **or a control that failed** (`controlsFailed > 0`).
+  An org with none of those is skipped (`skippedFlat`).
+- **Controls block (moonshot #1):** `FleetDigestInput.controlsFailed` renders a
+  "Controls that failed this week" block **above** the movers — a control that came off a repository
+  outranks every score delta on the page, and a reader who has to scroll past six gainers to find it
+  will stop finding it. An empty array is the positive statement "we looked and none failed";
+  omitting the field entirely omits the block, because a deployment without the ledger should say
+  nothing rather than claim "0 controls failed". A failed control is **always** signal: a week whose
+  only news is branch protection coming off is precisely the week the digest exists for.
 - **Schedule/trigger:** invoked by Vercel Cron (see `vercel.json`) hitting
   `GET /api/cron/digest` (`src/app/api/cron/digest/route.ts`), `runtime: "nodejs"`,
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
@@ -251,9 +300,9 @@ Every dispatch decision is persisted to the **`AlertEvent`** table
 `retentionAuditDays`. Rows are written **even when no sink is configured**
 (`delivered=false, suppressedReason="no-sink"`), so a webhook-less org finally has a trace of what
 it would have been told. Fields: kind (`regression | promotion | security | low-credits | digest |
-goal-at-risk | spend-anomaly`), severity, repo, title, body, `delivered`, `sinkKind`
+goal-at-risk | spend-anomaly | control`), severity, repo, title, body, `delivered`, `sinkKind`
 (`webhook | email`), `suppressedReason` (`no-sink | cooldown | dispatch-failed`). Writers:
-`scan-alerts.ts` (regression / promotion / security / low-credits), the digest cron (digest), and
+`scan-alerts.ts` (regression / promotion / security / low-credits / control), the digest cron (digest), and
 `extra-alerts.ts` (goal-at-risk / spend-anomaly). Test alerts are deliberately not recorded.
 
 The history is surfaced in the Alerts popover ("Recent alerts", `AlertsHistory.tsx`, lazy-loaded
@@ -286,3 +335,13 @@ titles and outcomes, never the sink URL).
   the movement gate; per-org preference fields would also need a migration.
 - (Closed 2026-08-14.) ~~Security alerts are built but not dispatched~~: dispatched from the
   scan pipeline's post-scan diff (see above).
+- (Closed 2026-08-30, moonshot #1.) ~~The taxonomy cannot say "a control failed"~~: the `control`
+  kind ships with the codes `control-failed | control-restored | control-unmeasurable`, dispatched
+  from the control-observation ledger (see "Control transitions" above). **The honest remainder:**
+  `control-unmeasurable` is recorded but never reaches a sink, so a control that becomes unreadable
+  is visible in the alert history and on the Governance tab's timeline card but does not page
+  anyone. That is deliberate — a lost read is missing evidence, not a finding — and it means a
+  control that quietly stops being observable will not interrupt a team the way one that flips to
+  `fail` does.
+- **No acknowledgement or assignment on a control alert:** the `AlertEvent` row records the decision,
+  but there is no "who is fixing this" state — the same gap the history rows have generally.

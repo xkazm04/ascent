@@ -70,8 +70,15 @@ export function digestHasSignal(s: {
   regressions: number;
   gainersBeyondNoise: number;
   creditLow: boolean;
+  /** MOONSHOT #1 — controls observed flipping to `fail` in the period. Optional so every existing
+   *  caller keeps compiling and keeps its exact behaviour; absent means "not counted", not zero. */
+  controlsFailed?: number;
 }): boolean {
   if (s.creditLow) return true;
+  // A FAILED CONTROL IS ALWAYS SIGNAL. A week in which branch protection came off a repo and the
+  // scores happened not to move is precisely the week the digest exists for — filtering it out on a
+  // flat score would be the digest silently withholding its most consequential fact.
+  if ((s.controlsFailed ?? 0) > 0) return true;
   if (s.levelChanges > 0 || s.regressions > 0 || s.gainersBeyondNoise > 0) return true;
   return s.overallDelta != null && !isWithinNoise(s.overallDelta);
 }
@@ -367,6 +374,14 @@ export interface FleetDigestInput {
   trajectory?: string | null;
   /** Prepaid credits remaining, when the org is metered and running low — null/undefined omits the line. */
   creditsRemaining?: number | null;
+  /**
+   * MOONSHOT #1 — controls observed FAILING in the period, from the control ledger.
+   *
+   * Undefined omits the block entirely (a deployment without the ledger says nothing rather than
+   * "0 controls failed", which would be a claim it cannot support). An empty array is the positive
+   * statement "we looked and none failed" and renders as such.
+   */
+  controlsFailed?: { repo: string; control: string; detail: string }[];
 }
 
 /**
@@ -394,8 +409,17 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
 
+  // MOONSHOT #1 — the Controls block sits ABOVE the movers, and deliberately: a control that came
+  // off a repo outranks every score delta on the page, and a reader who has to scroll past six
+  // gainers to find it will stop finding it.
+  const controlLine = (c: { repo: string; control: string; detail: string }) => `• ${c.repo} — ${c.control}: ${c.detail}`;
+  const controlsHeading = d.controlsFailed?.length
+    ? `Controls that failed this week (${d.controlsFailed.length}):`
+    : "Controls: none failed this week.";
+
   const lines: string[] = [headline, summary.replace(/\*/g, "")];
   if (d.trajectory) lines.push(d.trajectory);
+  if (d.controlsFailed) lines.push("", controlsHeading, ...d.controlsFailed.map(controlLine));
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
   if (d.topRecommendation)
@@ -407,6 +431,14 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const blocks: unknown[] = [
     mrkdwnSection(`*${headline}*\n${summary}${d.trajectory ? `\n_${d.trajectory}_` : ""}`),
   ];
+  if (d.controlsFailed)
+    blocks.push(
+      mrkdwnSection(
+        d.controlsFailed.length
+          ? `*${controlsHeading}*\n${d.controlsFailed.map(controlLine).join("\n")}`
+          : `_${controlsHeading}_`,
+      ),
+    );
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
@@ -558,6 +590,102 @@ export function buildSecurityAlertMessage(d: SecurityAlertInput): AlertMessage {
   const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${summary}`), mrkdwnSection(lines.join("\n"))];
   if (d.url) blocks.push(linkContext(d.url, "Open governance"));
   return { text: textParts.join("\n"), blocks };
+}
+
+// ── MOONSHOT #1 — the CONTROL push ───────────────────────────────────────────────────────────────
+//
+// Distinct from the security push above, which is a D9 SCORE movement. This one says a NAMED control
+// changed state, with the value either side and — when a webhook observed it — who did it.
+//
+// The `source` field is load-bearing for the reader, not decoration. A `probe` transition was
+// re-read from GitHub seconds after an event; a `scan` one was noticed at the scan's cadence and may
+// be hours old; a `conformance` one came from the repo's own doctor run (W1-A #16). An examiner asks
+// which, and a message that flattens the three would be asserting a freshness it cannot support.
+
+export type ControlAlertCode = "control-failed" | "control-restored" | "control-unmeasurable";
+
+export interface ControlAlertItem {
+  repo: string;
+  /** Catalogue id, or a doctor check id when `source: "conformance"`. */
+  controlId: string;
+  /** Human label; falls back to `controlId` at the call site. */
+  label?: string;
+  code: ControlAlertCode;
+  from: string;
+  to: string;
+  /** Values either side. Rendered only when they add something the states do not (2 → 0 approvals). */
+  fromValue?: string | null;
+  toValue?: string | null;
+  source: "scan" | "probe" | "webhook" | "conformance";
+  /** GitHub login, webhook-observed only. NEVER fabricated for scan/probe/conformance. */
+  actorLogin?: string | null;
+}
+
+export interface ControlAlertInput {
+  org: string;
+  url?: string;
+  items: ControlAlertItem[];
+}
+
+const CONTROL_VERB: Record<ControlAlertCode, string> = {
+  "control-failed": "failed",
+  "control-restored": "was restored",
+  "control-unmeasurable": "became unreadable",
+};
+
+/**
+ * Build the control push. Pure — no env, no clock.
+ *
+ * Severity is the MAX over the items, and the three codes do not mix loudness by accident: a batch
+ * containing one `control-failed` is critical even if the other nine are restorations. A batch of
+ * ONLY `control-unmeasurable` items is `info`, and `scan-alerts.ts` does not dispatch it to a sink —
+ * losing a read is a fact for the record, not a page.
+ */
+export function buildControlAlertMessage(d: ControlAlertInput): AlertMessage {
+  const failed = d.items.filter((i) => i.code === "control-failed").length;
+  const severity: AlertSeverity = failed > 0 ? "critical" : d.items.some((i) => i.code === "control-restored") ? "celebration" : "warning";
+  const emoji = failed > 0 ? SEV_EMOJI.critical : severity === "celebration" ? SEV_EMOJI.celebration : "👁️";
+  const headline =
+    failed > 0
+      ? `${emoji} Ascent: a control stopped operating in ${d.org}`
+      : severity === "celebration"
+        ? `${emoji} Ascent: a control was restored in ${d.org}`
+        : `${emoji} Ascent: a control became unreadable in ${d.org}`;
+  const n = d.items.length;
+  const summary = `${n} control change${n === 1 ? "" : "s"} observed${failed > 0 ? `, ${failed} failing` : ""}.`;
+
+  const line = (i: ControlAlertItem) => {
+    const name = i.label ?? i.controlId;
+    // The values are printed only when they carry information the states do not — "2 → 0" explains a
+    // required-approvals failure that "pass → fail" alone leaves abstract.
+    const values = i.fromValue != null && i.toValue != null && i.fromValue !== i.toValue ? ` (${i.fromValue} → ${i.toValue})` : "";
+    // The actor is named ONLY when one was observed. "by unknown" would be noise; silence here means
+    // no webhook carried an actor, which is the honest reading of a probe- or scan-sourced row.
+    const who = i.actorLogin ? ` by ${i.actorLogin}` : "";
+    return `• ${i.repo} — ${name} ${CONTROL_VERB[i.code]}${values}${who} · observed via ${i.source}`;
+  };
+
+  const lines = d.items.map(line);
+  const textParts = [headline, summary, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${summary}`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open governance"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/** The severity a batch of control items should be recorded at. Exported so the dispatcher and the
+ *  AlertEvent row agree without re-deriving the rule. */
+export function controlAlertSeverity(items: readonly ControlAlertItem[]): "critical" | "celebration" | "info" {
+  if (items.some((i) => i.code === "control-failed")) return "critical";
+  if (items.some((i) => i.code === "control-restored")) return "celebration";
+  return "info";
+}
+
+/** Cooldown key for a control push. Per (repo, control) so a branch-protection flip is never starved
+ *  by a score push that already consumed the repo's generic regression slot, and so two different
+ *  controls failing on the same repo both get through. */
+export function controlCooldownKey(repoFullName: string, controlId: string): string {
+  return `${repoFullName}#control:${controlId}`;
 }
 
 export interface SpendAnomalyInput {

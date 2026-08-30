@@ -33,6 +33,17 @@ const ITEM_HEADER = [
   "requires_codeowner_review",
   "requires_status_checks",
   "protected_branch",
+  // MOONSHOT #1 — the as-of-merge columns. `environment_as_of_source` is the one an examiner should
+  // read FIRST on any row: "ledger" means the four columns above describe the settings in force when
+  // this change merged, "latest-scan" means they describe the repository as it is now and the merge
+  // could have happened under different ones. Putting the label in the row is what makes the
+  // distinction survive a spreadsheet sort.
+  "environment_as_of_source",
+  "environment_as_of_observed_at",
+  "environment_as_of_branch_protection",
+  "environment_as_of_required_approvals",
+  "evidence_source",
+  "approval_observed_at",
   "note",
 ] as const;
 
@@ -63,6 +74,14 @@ function itemRow(i: SampledItem): unknown[] {
     i.environment?.requiresCodeOwnerReview ?? "",
     i.environment?.requiresStatusChecks ?? "",
     i.environment?.protectedBranch ?? "",
+    i.environmentAsOf.source,
+    i.environmentAsOf.observedAt ?? "",
+    // The as-of controls come out of the ledger's own vocabulary. An empty cell is "this control was
+    // not in the environment we resolved" — never a `false`, which would assert an observation.
+    i.environmentAsOf.controls["branch-protection"]?.state ?? "",
+    i.environmentAsOf.controls["required-approvals"]?.value ?? "",
+    i.evidenceSource,
+    i.approvalObservedAt ?? "",
     i.note,
   ];
 }
@@ -122,6 +141,26 @@ export function packManifestMarkdown(pack: ConformancePack, hashes: { sample: st
   lines.push(`| Authored by an AI agent | ${p.agentAuthored} |`);
   lines.push(`| Marked as AI-assisted by a human author | ${p.markedByHuman} |`);
   lines.push(`| Repositories contributing rows | ${p.repos} |`);
+  lines.push("");
+
+  // MOONSHOT #1 — the coverage statement. Stated as a table with its denominator visible, because
+  // "the controls operated" read off an unknown number of observations is the exact claim this whole
+  // ledger exists to stop the product from making.
+  const cov = pack.environmentCoverage;
+  lines.push("## Control-environment coverage");
+  lines.push("");
+  lines.push(
+    "Each merged row's control environment is either the settings OBSERVED at or before the moment it " +
+      "merged (`ledger`), or the repository's most recent scanned settings (`latest-scan`). The two are " +
+      "not equivalent evidence; every row in the CSVs carries its own label.",
+  );
+  lines.push("");
+  lines.push("| Measure | Value |");
+  lines.push("| --- | --- |");
+  lines.push(`| Merged rows | ${cov.mergedRows} |`);
+  lines.push(`| With as-of-merge evidence (\`ledger\`) | ${cov.fromLedger} (${pct(cov.fromLedger, cov.mergedRows)}) |`);
+  lines.push(`| Falling back to latest scan | ${cov.fromLatestScan} (${pct(cov.fromLatestScan, cov.mergedRows)}) |`);
+  lines.push(`| As-of lookups attempted (ceiling ${cov.cap}) | ${cov.attempted} |`);
   lines.push("");
 
   lines.push("## Sample");

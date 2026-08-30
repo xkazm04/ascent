@@ -108,6 +108,13 @@ export async function GET(request: Request) {
       seed: pack.sample.seed,
       identityMode: pack.provenance.identityMode,
       file: file ?? "json",
+      // MOONSHOT #1 — the EVIDENCE GRADE of what left the building. Two packs over the same period
+      // can differ materially in how much of them is as-of-merge observation versus latest-scan
+      // substitution, and the audit row is the only place that difference is recoverable after the
+      // file is filed. Without it, "which version did we send them" has no answer.
+      asOfLedgerRows: pack.environmentCoverage.fromLedger,
+      asOfFallbackRows: pack.environmentCoverage.fromLatestScan,
+      mergedRows: pack.environmentCoverage.mergedRows,
     },
     { orgId: orgId ?? undefined },
   );

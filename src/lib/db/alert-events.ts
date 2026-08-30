@@ -15,7 +15,13 @@ export type AlertEventKind =
   | "low-credits"
   | "digest"
   | "goal-at-risk"
-  | "spend-anomaly";
+  | "spend-anomaly"
+  // MOONSHOT #1 — a named CONTROL changed state (branch protection turned off, required approvals
+  // fell to zero, a doctor check regressed). Deliberately its own kind rather than a `security`
+  // subtype: `security` is a D9 SCORE movement, and a reader who learns that "security" can mean
+  // either a score slide or a control flip stops trusting both. The reason codes are
+  // control-failed | control-restored | control-unmeasurable (src/lib/controls/transitions.ts).
+  | "control";
 
 export interface AlertEventInput {
   kind: AlertEventKind;

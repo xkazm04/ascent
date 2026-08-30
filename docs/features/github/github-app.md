@@ -42,7 +42,56 @@ accessible repos; `verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check
 | --- | --- |
 | `installation` (created / deleted / suspended) | Sync stored installations (`upsertInstallation` / `removeInstallation`). |
 | `pull_request` (opened / synchronize / reopened / ready_for_review) | Run the PR maturity gate: score the PR head, diff vs base, post a Check Run + sticky comment (see [gate.md](../scanning/gate.md)). Falls back to the default branch when a fork head commit is unreachable. |
+| `installation_repositories` (added / removed) | The user changed *which* repos an installation can see. Deliberately **no payload-trusting fast path**: a deferred `reconcileInstallationRepos` re-lists the installation's live repos from GitHub and unwatches only what GitHub confirms is gone. |
+| `check_run` (rerequested / requested_action `rescan`) | A "Re-run" click or GitHub's native rerequest — re-evaluate the gate for the PR the run is attached to, with no new push. |
 | `push` (default branch moved) | Re-scan **watched** repos (`runPushRescan`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). |
+| `branch_protection_rule`, `repository_ruleset`, `repository` | Enqueue a **free control probe** of that repo (moonshot #10) **and** record a control *attribution* row (moonshot #1, below). |
+| `member`, `team` | Owner-level access moved: enqueue probes across the org's watched repos (capped at 200). Writes no membership or RBAC row — identity-graph modelling is a separate item. |
+| `pull_request_review` (submitted, approved) | Record the approving review as `AiChange` evidence within seconds instead of at the next scan's cadence (moonshot #1, below). |
+| `pull_request` (closed, merged) | Record the merge as `AiChange` evidence, alongside the gate arm above. |
+
+### The payload is never trusted for control STATE
+
+A `branch_protection_rule.deleted` delivery means **"re-read this repository"**, never "protection is
+off". A validly-signed but replayed or misrouted delivery would otherwise write a false governance
+record that outlives it; only the probe's own re-read from GitHub produces a control state.
+
+There is also a mechanical reason, and it is the sharper one: the probe diffs against the *newest*
+observation, so a payload-sourced `fail` row would become that newest observation, the probe's
+confirming re-read seconds later would find nothing changed and write nothing, and the alert path —
+which reads `transition: true` rows — would never fire. Payload-sourced state would **swallow the
+alert it was meant to raise**.
+
+What a delivery *does* carry that a probe can never recover afterwards is **who acted and when**.
+`normalizeGovernanceEvent` (`src/lib/github/governance-events.ts`) extracts exactly those, and the
+handler writes one **attribution row** per affected control whose `state` and `value` are copied
+*unchanged* from the current observation. Because the pair does not move, the row is not a
+transition, cannot mask the probe's, and asserts nothing about the control — it records
+"GitHub told us `<login>` touched this control area at `<time>`". A control with no prior observation
+gets no attribution row: there is nothing to attribute against, and inventing a baseline from a
+payload is exactly what this design refuses.
+
+### Live AI-change evidence
+
+`pull_request_review` (approved) and `pull_request.closed` (merged) write `AiChange` rows with
+`source: "webhook"` and `approvalObservedAt` (the *delivery's* arrival, distinct from the review's
+own `approvedAt`). AI involvement is decided by `readAiInvolvement`, **imported** from
+`src/lib/analyze/pulls.ts` rather than re-implemented — two detectors would let the conformance
+pack's count and its own percentage disagree about who is in the population.
+
+Two honest limits:
+
+- **A webhook approval is never downgraded.** `approved` is only ever set to `true` on this path, and
+  a later scan does not clear it. Observing an approval proves it happened; *not* observing one
+  proves only that we did not see it, and a scan whose PR window has slid past the review would
+  otherwise erase a true approval and turn a governed change into an audit finding.
+- **The `trailer` detection channel does not work here.** It needs commit messages the payload does
+  not carry, so a trailer-only AI PR is invisible to this path and is picked up at the next scan — a
+  bounded under-count in the direction the pack already discloses (the population is a lower bound),
+  never an over-count.
+- A repository that has never been scanned has no `Repository` row, and this path does **not** create
+  one: an `AiChange` with no scan behind it would enter the conformance population as evidence from a
+  repository the product has never assessed.
 
 ### Push rescan throttle
 
@@ -204,3 +253,9 @@ permissions." and the two secrets can still be set by hand.
 - **Sign-in is optional**: when OAuth env is unset, `/onboarding` is open; when set, the App path is
   scoped to the signed-in user's own installations (see [auth.md](./auth.md)).
 - **Token cache is in-memory**: re-minted per serverless instance.
+- (Closed 2026-08-30, moonshot #1.) ~~The event-subscription table omits `installation_repositories`
+  and `check_run`~~: both are listed above, alongside the control-probe and AI-change event kinds.
+- **No `code_scanning_alert` / `secret_scanning_alert` subscription:** both need new App permissions,
+  so `known-vulnerabilities` stays a scan/probe-sourced control until they are requested.
+- **`member` / `team` deliveries write no identity graph:** they only trigger a re-observation of the
+  org's controls. Modelling org membership and scoped roles is a separate, unstarted item.

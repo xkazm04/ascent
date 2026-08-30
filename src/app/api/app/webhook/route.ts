@@ -45,6 +45,17 @@ import { scanRepository } from "@/lib/scan";
 // at merge (see the handoff). The webhook's half of moonshot #10 is enqueue-ONLY — no observation is
 // written here, because a signed payload is not evidence of a control's state.
 import { enqueueProbeJob } from "@/lib/db/scan-jobs";
+// MOONSHOT #1 (W3-M) — the two things a delivery carries that a later probe can NEVER recover: the
+// actor, and the moment. `normalizeGovernanceEvent` extracts only those; it never produces a control
+// state (see that module's header for why payload-sourced state would swallow its own alert).
+// `readReviewApproval` is the AI-change reducer's half of the same fan-in.
+import { GOVERNANCE_EVENTS, normalizeGovernanceEvent, readReviewApproval } from "@/lib/github/governance-events";
+import { latestObservations, recordObservations, type ControlSample } from "@/lib/db/control-observations";
+import { resolveRepoJobRef } from "@/lib/db/scan-jobs";
+import { upsertLiveAiChange } from "@/lib/db/ai-changes";
+import { readAiInvolvement } from "@/lib/analyze/pulls";
+import type { PrNode } from "@/lib/github/graphql";
+import { AI_TOOLS } from "@/lib/analyze/ai-tools";
 import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib/github/webhook-delivery";
 // The PR gate itself now lives in @/lib/github/pr-gate so the org gate-policy sweep can re-run the
 // SAME check-writing path (a route file may only export the HTTP-method / segment-config names, so
@@ -61,7 +72,23 @@ interface WebhookPayload {
   action?: string;
   installation?: { id: number; account?: { login?: string } };
   repository?: { full_name?: string; name?: string; default_branch?: string; owner?: { login?: string } };
-  pull_request?: { number?: number; head?: { sha?: string; ref?: string }; base?: { ref?: string } };
+  pull_request?: {
+    number?: number;
+    head?: { sha?: string; ref?: string };
+    base?: { ref?: string };
+    // MOONSHOT #1 — the fields the live AI-change reducer reads. All optional: the PR-gate arm above
+    // has always used only `number`/`head`/`base`, and a delivery that omits these simply yields no
+    // AI-change row rather than a partial one.
+    title?: string;
+    body?: string;
+    draft?: boolean;
+    created_at?: string;
+    merged?: boolean;
+    merged_at?: string | null;
+    merge_commit_sha?: string | null;
+    user?: { login?: string; type?: string };
+    labels?: { name?: string }[];
+  };
   ref?: string;
   after?: string;
   deleted?: boolean;
@@ -331,6 +358,129 @@ async function enqueueControlProbe(
   });
 }
 
+/**
+ * MOONSHOT #1 — record WHO touched a control area and WHEN, without asserting what it became.
+ *
+ * The attribution row copies the control's CURRENT state and value unchanged from the newest
+ * observation, so the (state, value) pair does not move and the ledger's transition flag stays false.
+ * Three consequences, all deliberate:
+ *   • it asserts nothing about the control — a forged or replayed delivery cannot write a false
+ *     governance record, which is W3-L's frozen contract and the reason this is not a state write;
+ *   • it cannot mask the probe's transition, because the probe still diffs against an unchanged pair;
+ *   • it cannot alert, so a burst of rule edits pages nobody.
+ *
+ * A control with NO prior observation gets no attribution row: there is nothing to attribute against,
+ * and inventing a baseline from a payload is the exact thing this design refuses.
+ */
+async function recordControlAttribution(
+  orgSlug: string,
+  fullName: string,
+  event: string,
+  payload: WebhookPayload,
+  deliveryId?: string,
+): Promise<void> {
+  const attribution = normalizeGovernanceEvent(event, payload);
+  // No actor means the delivery adds nothing a probe will not recover on its own — skip the write
+  // rather than storing a row whose only content is "something happened, somewhere, to someone".
+  if (!attribution || !attribution.actorLogin) return;
+
+  const ref = await resolveRepoJobRef(orgSlug, fullName).catch(() => null);
+  const repoId = ref?.repoId ?? null;
+  if (!repoId) return;
+  const current = await latestObservations(repoId).catch(() => []);
+  const byId = new Map(current.map((o) => [o.controlId, o]));
+
+  const samples: ControlSample[] = [];
+  for (const controlId of attribution.controlIds) {
+    const seen = byId.get(controlId);
+    if (!seen) continue;
+    samples.push({
+      controlId,
+      state: seen.state,
+      value: seen.value,
+      evidence: { ...attribution.evidence, actor: attribution.actorLogin, attribution: true },
+      occurredAt: attribution.occurredAt ?? undefined,
+    });
+  }
+  if (samples.length === 0) return;
+  await recordObservations(orgSlug, repoId, samples, {
+    repoFullName: fullName,
+    source: "webhook",
+    actorLogin: attribution.actorLogin,
+    deliveryId: deliveryId ?? null,
+  }).catch(() => null);
+}
+
+/**
+ * MOONSHOT #1 — the live AI-change reducer for `pull_request_review` (approved) and
+ * `pull_request.closed` (merged).
+ *
+ * AI involvement is decided by `readAiInvolvement`, IMPORTED from analyze/pulls.ts rather than
+ * re-implemented: the webhook-sourced rows and the scan-sourced rows have to be one population, or
+ * the conformance pack's count and its own percentage would disagree about who is in it.
+ *
+ * The predicate is fed a PrNode assembled from the delivery. Two channels work on webhook data
+ * (`authored` — an AI agent opened it; `marked` — AI fingerprints in title/body/labels) and one does
+ * NOT: `trailer` needs commit messages the payload does not carry. A trailer-only PR is therefore
+ * invisible to this path and is picked up at the next scan — a known, bounded under-count in the
+ * direction the pack already discloses (the population is a LOWER BOUND), never an over-count.
+ */
+async function reduceAiChangeEvent(orgSlug: string, event: string, payload: WebhookPayload): Promise<void> {
+  const fullName = payload.repository?.full_name;
+  const pr = payload.pull_request;
+  if (!fullName || !pr?.number || !pr.created_at) return;
+
+  const approval = event === "pull_request_review" ? readReviewApproval(payload) : null;
+  const merged = event === "pull_request" && payload.action === "closed" && pr.merged === true;
+  // Nothing to record: a review that was not an approval, or a PR that closed without merging. A
+  // closed-unmerged PR is genuinely not evidence — the pre-merge control was never due to operate.
+  if (!approval && !merged) return;
+
+  const node = {
+    number: pr.number,
+    title: pr.title ?? "",
+    bodyText: pr.body ?? "",
+    isDraft: pr.draft ?? false,
+    state: merged ? "MERGED" : "OPEN",
+    createdAt: pr.created_at,
+    mergedAt: pr.merged_at ?? null,
+    closedAt: null,
+    additions: 0,
+    deletions: 0,
+    changedFiles: 0,
+    author: pr.user?.login ? { login: pr.user.login, __typename: pr.user.type === "Bot" ? "Bot" : "User" } : null,
+    labels: { nodes: (pr.labels ?? []).map((l) => ({ name: l.name ?? "" })) },
+    reviews: { totalCount: 0, nodes: [] },
+    comments: { totalCount: 0 },
+  } as PrNode;
+
+  const ai = readAiInvolvement(node);
+  // NOT AI-involved by the shared predicate ⇒ no row. The population is AI-attributed changes; a
+  // human PR entering it would inflate the denominator every published rate is computed over.
+  if (!ai.signal) return;
+
+  const tools = AI_TOOLS.filter((t) => new RegExp(t.token, "i").test(ai.toolText)).map((t) => t.name);
+  await upsertLiveAiChange(orgSlug, {
+    repoFullName: fullName,
+    prNumber: pr.number,
+    title: pr.title ?? "",
+    authorLogin: pr.user?.login ?? null,
+    authorIsBot: pr.user?.type === "Bot",
+    aiSignal: ai.signal,
+    aiTools: tools.join(", "),
+    state: merged ? "MERGED" : "OPEN",
+    createdAt: pr.created_at,
+    mergedAt: pr.merged_at ?? null,
+    mergeCommitSha: pr.merge_commit_sha ? pr.merge_commit_sha.toLowerCase() : null,
+    approved: approval !== null,
+    approverLogin: approval?.approverLogin ?? null,
+    approvedAt: approval?.approvedAt ?? null,
+    // The DELIVERY's arrival, not the review's submission time — this column exists precisely to
+    // keep those two apart (see AiChange.approvalObservedAt).
+    approvalObservedAt: approval ? new Date().toISOString() : null,
+  }).catch(() => false);
+}
+
 /** An owner-level control change (`member`, `team`): re-observe the org's WATCHED repos. */
 async function enqueueOrgControlProbes(installationId: number, owner: string, event: string, deliveryId?: string): Promise<void> {
   const orgSlug = owner.toLowerCase();
@@ -594,6 +744,24 @@ export async function POST(request: Request) {
           runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef }, webhookGateHooks(delivery ?? undefined)),
         );
       }
+      // MOONSHOT #1 — a MERGED close is the evidence moment for the AI-change population, and it is
+      // not a gate action (a merged PR needs no check run), so it sits beside the gate rather than
+      // inside its condition. `after()` so the ack stays fast; failures are swallowed inside the
+      // reducer — a missed row is picked up by the next scan, and must never fail a delivery.
+      if (owner && payload.action === "closed" && isDbConfigured()) {
+        const slug = owner.toLowerCase();
+        after(() => reduceAiChangeEvent(slug, "pull_request", payload));
+      }
+    } else if (event === "pull_request_review" && isDbConfigured()) {
+      // MOONSHOT #1 — an approving human review is THE control the conformance pack evidences, and
+      // this is the only path that observes it within seconds rather than at the next scan's cadence.
+      // Deliberately NOT gated on isAppConfigured(): it writes no check run and mints no token, it
+      // only records what the signed delivery already told us.
+      const owner = payload.repository?.owner?.login;
+      if (owner) {
+        const slug = owner.toLowerCase();
+        after(() => reduceAiChangeEvent(slug, "pull_request_review", payload));
+      }
     } else if (event === "check_run" && isAppConfigured()) {
       // A "Re-run" button click (requested_action with our identifier) or GitHub's native
       // rerequested — re-evaluate the gate for the PR the run is attached to, without a new push.
@@ -631,7 +799,15 @@ export async function POST(request: Request) {
       const owner = payload.repository?.owner?.login;
       const fullName = payload.repository?.full_name;
       if (installationId && owner && fullName) {
-        after(() => enqueueControlProbe(installationId, owner, fullName, event, delivery ?? undefined));
+        const login = owner;
+        after(async () => {
+          await enqueueControlProbe(installationId, login, fullName, event, delivery ?? undefined);
+          // MOONSHOT #1 — and, separately, record WHO. The probe re-reads the truth; only the
+          // delivery knows the actor, and the attribution row asserts no state of its own.
+          if (GOVERNANCE_EVENTS.includes(event)) {
+            await recordControlAttribution(login.toLowerCase(), fullName, event, payload, delivery ?? undefined);
+          }
+        });
       }
     } else if (ORG_CONTROL_EVENTS.has(event) && isAppConfigured() && isDbConfigured()) {
       // An owner-level change (`member`, `team`). Deliberately enqueue-only and membership-blind: this
