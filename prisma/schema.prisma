@@ -102,35 +102,40 @@ model Organization {
   githubInstallId       String?
   createdAt             DateTime @default(now())
 
-  memberships       Membership[]
-  repositories      Repository[]
-  auditLogs         AuditLog[]
-  alertEvents       AlertEvent[]
-  subscription      Subscription?
-  creditLedger      CreditLedger[]
-  goals             Goal[]
-  initiatives       Initiative[]
-  segments          Segment[]
-  playbooks         Playbook[]
-  invites           Invite[]
-  orgSkills         OrgSkill[]
-  orgApiTokens      OrgApiToken[]
-  orgMemories       OrgMemory[]
-  orgDecisions      OrgDecision[]
-  recOverlays       RecommendationOverlay[]
-  sandboxScenarios  SandboxScenario[]
-  program           TransitionProgram?
-  techGroups        TechStackGroup[]
-  llmConfig         OrgLlmConfig?
-  loopRuns          LoopRun[]
-  athenaThreads     AthenaThread[]
-  athenaProposals   AthenaProposal[]
-  athenaIdentity    AthenaIdentity[]
+  memberships         Membership[]
+  repositories        Repository[]
+  auditLogs           AuditLog[]
+  alertEvents         AlertEvent[]
+  subscription        Subscription?
+  creditLedger        CreditLedger[]
+  goals               Goal[]
+  initiatives         Initiative[]
+  segments            Segment[]
+  playbooks           Playbook[]
+  invites             Invite[]
+  orgSkills           OrgSkill[]
+  orgApiTokens        OrgApiToken[]
+  orgMemories         OrgMemory[]
+  orgDecisions        OrgDecision[]
+  recOverlays         RecommendationOverlay[]
+  sandboxScenarios    SandboxScenario[]
+  program             TransitionProgram?
+  techGroups          TechStackGroup[]
+  llmConfig           OrgLlmConfig?
+  loopRuns            LoopRun[]
+  athenaThreads       AthenaThread[]
+  athenaProposals     AthenaProposal[]
+  athenaIdentity      AthenaIdentity[]
   // Named `repoMemoryMirrors` (plural) because the scalar opt-out flag above already owns the
   // singular `repoMemoryMirror`. A Prisma model cannot carry two fields of the same name, and the
   // FLAG is the one the product surface reads by name — so the relation is the one that pluralizes.
-  repoMemoryMirrors RepoMemoryMirror[]
-  loopDrives        LoopDrive[]
+  repoMemoryMirrors   RepoMemoryMirror[]
+  loopDrives          LoopDrive[]
+  // MOONSHOT WAVE 3. ControlLedgerSeal is deliberately NOT here: a seal outlives the observations it
+  // sealed (retention purges rows, never seals), so it is standalone like every other hand-cascaded
+  // ledger in this schema and is removed only by the org-erase sweep in src/lib/db/retention.ts.
+  scanJobs            ScanJob[]
+  controlObservations ControlObservation[]
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -432,37 +437,37 @@ model RepoContributor {
 // evidence; the raw logins stay internal so a sample can be re-verified against GitHub. Rows age out
 // under the org's normal retention window like every other scan artifact.
 model AiChange {
-  id             String    @id @default(uuid())
-  repoId         String
-  orgId          String // denormalized so the org-wide population is one query, not a join per repo
-  prNumber       Int
-  title          String
-  authorLogin    String? // null for a deleted GitHub account
-  authorIsBot    Boolean   @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
+  id                 String    @id @default(uuid())
+  repoId             String
+  orgId              String // denormalized so the org-wide population is one query, not a join per repo
+  prNumber           Int
+  title              String
+  authorLogin        String? // null for a deleted GitHub account
+  authorIsBot        Boolean   @default(false) // agent-authored (Copilot/Devin/…) vs a human using AI
   // How this PR was identified as AI-involved: "authored" (an AI agent opened it) or "marked" (an AI
   // marker in the title/body/labels — a human using a tool). Kept because the two carry very different
   // governance weight and an auditor will ask which one a sampled row was.
-  aiSignal       String
+  aiSignal           String
   /**
    * Tools named in the PR, comma-separated (from the same taxonomy prStats counts).
    */
-  aiTools        String    @default("")
-  state          String // OPEN | CLOSED | MERGED
-  mergedAt       DateTime?
+  aiTools            String    @default("")
+  state              String // OPEN | CLOSED | MERGED
+  mergedAt           DateTime?
   // THE CONTROL: was this AI-attributed change approved by a human before merge, and by whom.
   // `approved=false` with `approverLogin=null` is the finding an auditor is looking for.
-  approved       Boolean   @default(false)
-  approverLogin  String?
-  approvedAt     DateTime?
+  approved           Boolean   @default(false)
+  approverLogin      String?
+  approvedAt         DateTime?
   /**
    * Reviews submitted on the PR (any state) — distinguishes "unreviewed" from "reviewed, not approved".
    */
-  reviewCount    Int       @default(0)
+  reviewCount        Int       @default(0)
   // W5 revert linkage: the merged revert PR that rolled this AI change back, matched within the
   // scanned PR window (title `Revert "<original title>"` / message `This reverts commit <sha>`).
   // A LOWER BOUND — null means "no revert matched in the window", never "was never reverted".
-  revertedByPr   Int?
-  revertedAt     DateTime?
+  revertedByPr       Int?
+  revertedAt         DateTime?
   // W4: the PR's merge-commit SHA, lower-cased. Already on the wire — the revert linkage has paged
   // `mergeCommit.oid` since W5 and discarded it — so persisting it costs no extra API call.
   //
@@ -472,9 +477,20 @@ model AiChange {
   // is a time-window heuristic, and it would sit underneath the most quotable number this product
   // can produce ("AI-authored changes fail at X%"). A wrong attribution there is not a rounding
   // error, it is the whole claim. Null on pre-W4 rows and on unmerged PRs.
-  mergeCommitSha String?
-  createdAt      DateTime // the PR's own creation time, not the row's
-  recordedAt     DateTime  @default(now())
+  mergeCommitSha     String?
+  // MOONSHOT #1 — how this row reached us. "scan" is the historical path (a PR window paged at scan
+  // time) and stays the default so every pre-existing row keeps its true provenance; "webhook" rows
+  // arrive from the live event stream between scans. The two are NOT interchangeable evidence: a scan
+  // row was observed at a scan's cadence, a webhook row within seconds of the event.
+  source             String    @default("scan") // scan | webhook
+  // MOONSHOT #1 — when the approval was OBSERVED, which is the webhook's delivery time and NOT
+  // `approvedAt` (the review's own submission time, as GitHub reports it). Null on scan-sourced rows:
+  // a scan learns of an approval at an unknowable delay, and stamping the scan's clock here would
+  // dress a cadence artifact up as an observation time. Null is "not observed live", never "not
+  // approved" — `approved` is the field that answers that.
+  approvalObservedAt DateTime?
+  createdAt          DateTime // the PR's own creation time, not the row's
+  recordedAt         DateTime  @default(now())
 
   repo Repository @relation(fields: [repoId], references: [id])
 
@@ -2474,4 +2490,135 @@ model OrgMemoryCitation {
   @@unique([memoryId, sessionId])
   @@index([orgId, createdAt])
   @@index([memoryId, used])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOONSHOT WAVE 3 — the two-speed scan queue and the governance evidence ledger
+// (docs/specs/moonshot/00-INDEX.md §5 "Wave 3"). Same three rules as waves 1 and 2: every JSON
+// payload is TEXT (never jsonb — DSQL/PGlite), a value nobody measured stays NULL rather than
+// becoming a zero, and the erase/purge cascades are hand-written in src/lib/db/retention.ts
+// (relationMode = "prisma" emits no FKs, so nothing here cascades by itself).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// #10 — one unit of queued scan work. The queue exists because the cron worker used to hold the whole
+// fleet in one invocation: a rescan either finished inside the function's cap or was lost with no
+// record that it had been attempted. A row survives the invocation, so "queued", "claimed by an
+// invocation that died" and "settled" are distinguishable states rather than the same silence.
+//
+// `idempotencyKey` is the enqueue contract: "<orgId>|<repoFullName>|<lane>|<bucket>". Two producers
+// racing on the same repo in the same bucket (a cadence tick and a webhook, say) collide on the unique
+// index and the second enqueue is a no-op instead of a second charged scan. It is declared BLOCK-level
+// (@@unique([idempotencyKey]), not an inline @unique) deliberately: Prisma emits the same
+// `ScanJob_idempotencyKey_key` index either way, and the block form keeps the pinned inline-@unique
+// parity list in src/lib/db/init-sql.test.ts intact — the same reason OrgSkillDownload states.
+//
+// `claimedBy` is an invocation id for DIAGNOSTICS only and is never an authorization input: a claim is
+// held by the lease (`leaseUntil`), so a worker that died mid-job has its row re-claimed on expiry
+// rather than being trusted to release it.
+model ScanJob {
+  id             String    @id @default(uuid())
+  orgId          String
+  repoId         String? // null while the import funnel has not created the Repository row yet
+  repoFullName   String // "owner/name", always present — the identity the claim keys on
+  lane           String // rescore | probe
+  reason         String // cadence | manual | import | continuation | webhook:<event>
+  state          String    @default("queued") // queued | claimed | done | failed | skipped
+  priority       Int       @default(0) // higher first; manual = 10, webhook = 5, cadence = 0
+  runId          String? // groups one interactive /api/org/scan batch
+  idempotencyKey String // "<orgId>|<repoFullName>|<lane>|<bucket>" — see the header
+  notBefore      DateTime  @default(now())
+  claimedAt      DateTime?
+  claimedBy      String? // invocation id — diagnostics only, never an authorization input
+  leaseUntil     DateTime?
+  attempts       Int       @default(0)
+  creditCharged  Boolean   @default(false) // rescore only: an overflow credit is held BY THIS ROW
+  resultJson     String? // TEXT JSON (no jsonb — DSQL/PGlite)
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  settledAt      DateTime? // when the row reached done | failed | skipped — the purge horizon's anchor
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([idempotencyKey])
+  @@index([lane, state, notBefore, priority])
+  @@index([orgId, lane, state])
+  @@index([runId])
+  @@index([state, leaseUntil])
+}
+
+// #1 + #10, reconciled (00-INDEX §5, conflict W3-#1) — append-only evidence: "control X on repo Y was
+// in state S at time T, and here is how we know". One row is one OBSERVATION, never a current-state
+// cache: the posture surfaces read the newest row per (repoFullName, controlId), so an observation is
+// never updated in place and the history stays re-derivable.
+//
+// `state` is pass | fail | unmeasurable and `unmeasurable` is NEVER coerced to `fail` — "we could not
+// see it" and "it is off" are different claims, and an evidence pack that conflates them is inventing
+// findings. `value` carries the measured scalar ("2" approvals, "4" rules) and `prevValue`/`prevState`
+// the ones this row superseded; both are null on a pair's first observation, which is a fact rather
+// than a zero. `transition` is the derived "state != prevState" flag the alert path reads, stored
+// rather than recomputed so an alert query does not have to self-join the timeline.
+//
+// `occurredAt` vs `observedAt` is the split the whole ledger turns on: when the state HELD (or the
+// change happened, per the webhook payload) vs when THIS deployment learned it. A probe backfilling a
+// week-old ruleset change has an old `occurredAt` and a fresh `observedAt`, and reporting either as
+// the other misdates an auditor's evidence. `actorLogin` is populated for webhook rows ONLY and is
+// never fabricated for a scan or probe row — nobody "did" a periodic measurement.
+//
+// `repoId` is nullable for org-scoped controls (an org SECURITY.md is not a repo's fact) while
+// `repoFullName` is always present and DENORMALIZED, so the pack and the timeline read never joins.
+// `deliveryId` is GitHub's X-GitHub-Delivery: the unique below makes a webhook REDELIVERY a no-op
+// rather than a duplicated observation. `sig` is signAudit() over the canonical fields; null means
+// signing is off on this deployment, never "the signature failed".
+model ControlObservation {
+  id           String   @id @default(uuid())
+  orgId        String
+  repoId       String? // null = an org-scoped control
+  repoFullName String // denormalized: the pack/timeline read never joins
+  controlId    String // catalog id, e.g. "branch-protection"
+  state        String // pass | fail | unmeasurable — never inferred
+  value        String? // the measured value ("2", "true"); null when unmeasurable
+  prevValue    String? // null on the first observation for the pair
+  prevState    String? // the state this row superseded; null on the first observation
+  evidenceJson String   @default("{}") // TEXT JSON: rule types, branch, actor — the citable slice
+  source       String // scan | probe | webhook | baseline
+  actorLogin   String? // webhook only; NEVER fabricated for scan/probe
+  transition   Boolean  @default(false) // true iff state != prevState — the row the alert path reads
+  occurredAt   DateTime // when the state held / the change happened
+  observedAt   DateTime @default(now()) // when we learned it
+  scanId       String?
+  jobId        String? // the ScanJob that produced it; null for scan/webhook rows
+  deliveryId   String? // GitHub X-GitHub-Delivery — the redelivery idempotency key
+  sig          String? // signAudit() over the canonical fields; null = signing off
+  createdAt    DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([deliveryId, controlId, repoFullName])
+  @@index([orgId, repoFullName, controlId, occurredAt])
+  @@index([orgId, occurredAt])
+  @@index([repoId, controlId, observedAt])
+  @@index([orgId, transition, observedAt])
+}
+
+// #1 — one seal per (org, UTC day): a hash chain over DAYS, not over rows. Chaining rows would make
+// every append a read-modify-write on the previous row's digest; chaining days seals a closed window
+// once and leaves the append path untouched.
+//
+// `rowCount` and `root` are what make a DELETION detectable: the ledger's retention purge removes aged
+// observations but NEVER their seal (src/lib/db/retention.ts), so a sealed day whose surviving rows no
+// longer reproduce its root is visibly incomplete rather than silently short. That is the difference
+// between "this evidence was retained" and "this evidence is all there ever was".
+model ControlLedgerSeal {
+  id       String   @id @default(uuid())
+  orgId    String
+  day      String // YYYY-MM-DD (UTC)
+  rowCount Int
+  root     String // sha256 over the day's sorted per-row digests
+  prevRoot String? // the previous sealed day's root; null = the chain's first day
+  sealedAt DateTime @default(now())
+  sig      String? // HMAC over {orgId, day, rowCount, root, prevRoot}; null = signing off
+
+  @@unique([orgId, day])
+  @@index([orgId, day])
 }
