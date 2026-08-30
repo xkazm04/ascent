@@ -56,3 +56,17 @@ export const KIND_META: Record<LaneDeliverableKind, { label: string; glyph: stri
   // `noted` rows are the armed-but-unresolved batch items (outcomeGapRows.ts) — proposals.
   noted: { label: "Proposed", glyph: "·" },
 };
+
+/**
+ * How a row PRESENTS, once the `retired` flag is taken into account.
+ *
+ * `retired` is a flag rather than a sixth kind (`LaneDeliverable.retired`, widened into
+ * `deliverablesJson` the way `parseTargets` widens its column), so it has to be resolved at render
+ * time. It marks a row the RESCAN stopped raising rather than one the agent claimed — one run
+ * retired nine phantom follow-ups off a single commit, and printing those as "Closed" overstated
+ * the run's output by an order of magnitude. A retirement is real bookkeeping and still earns a
+ * row; it just must not wear the same tick as work someone did.
+ */
+export function rowMeta(d: Pick<LaneDeliverable, "kind" | "retired">): { label: string; glyph: string } {
+  return d.retired ? { label: "Retired", glyph: "–" } : KIND_META[d.kind];
+}

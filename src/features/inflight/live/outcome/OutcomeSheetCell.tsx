@@ -13,7 +13,7 @@
 // A blank cell is normal and is the whole point of the sheet: it says this run did not touch this gap.
 
 import { dimShort } from "@/lib/ui";
-import { KIND_META } from "./outcomeDeliverables";
+import { rowMeta } from "./outcomeDeliverables";
 import type { DeliverableState } from "./outcomeGapRows";
 import type { CellReviewHandler, SheetGapCell } from "./outcomeSheetModel";
 import { REVEAL_DIM_PX, REVEAL_EVIDENCE_PX } from "./useColumnWidths";
@@ -46,15 +46,17 @@ export function OutcomeSheetCell({
   const down = cell.kind === "regressed";
   const tone = dismissed ? "text-slate-600" : down ? "text-warn" : "text-slate-200";
   const evidence = cell.evidence && cell.evidence !== cell.headline ? cell.evidence : null;
-  const title = [STATE_TITLE[cell.state], cell.headline, evidence].filter(Boolean).join(" — ");
+  // A retired row says so in its own words: the rescan stopped raising it, nobody claimed it.
+  const meta = rowMeta(cell);
+  const title = [meta.label, STATE_TITLE[cell.state], cell.headline, evidence].filter(Boolean).join(" — ");
 
   return (
     <td className={`border-b border-l border-divider align-top ${dismissed ? "bg-ink" : STATE_TINT[cell.state]}`} title={title}>
       <div className="flex items-baseline gap-1.5 px-2 py-1.5">
         <span aria-hidden className={`type-caption w-3 shrink-0 text-center ${down && !dismissed ? "text-warn" : "text-slate-500"}`}>
-          {KIND_META[cell.kind].glyph}
+          {meta.glyph}
         </span>
-        <span className="sr-only">{cell.state}. </span>
+        <span className="sr-only">{meta.label}, {cell.state}. </span>
         <span className={`type-body-sm min-w-0 flex-1 truncate ${tone}`}>
           {cell.review === "approved" && (
             <span aria-hidden className="mr-1 text-success">
