@@ -33,6 +33,11 @@ export interface PracticeRow {
    * has no starter artifact to open a PR for), and absent until the practice has been applied once.
    */
   rollout?: { open: number; merged: number; lift: number | null };
+  /** MOONSHOT #33 — the adoption projection: landed-and-still-there, on an older house-pattern
+   *  version, drifted/removed. Display only — the sort stays unchanged, because "widest reuse
+   *  opportunity" and "most drifted" are different questions. Absent (an em-dash, never 0/0/0) when
+   *  the ledger has no row for this practice. */
+  adoption?: { adopted: number; behind: number; drifted: number };
   /** Raw payload for the detail modal (exactly one is set). */
   mined?: OrgPractice;
   authored?: { playbook: PlaybookRow; adoption?: PlaybookAdoption };

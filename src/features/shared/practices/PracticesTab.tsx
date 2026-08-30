@@ -14,6 +14,9 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { buildPracticeLibrarySummary, practiceLibraryMarkdown } from "@/lib/org/practice-library";
 import { getOrgPracticeShapes, listOrgPracticeShapeRows } from "@/lib/db/org-practice-shapes";
 import { minePracticeShapes } from "@/lib/org/practice-mining";
+import { syncHousePatternVersions } from "@/lib/db/house-pattern-versions";
+import { getPracticeAdoptionSummary } from "@/lib/db/practice-adoption";
+import { PracticeDriftStrip } from "@/features/shared/practices/PracticeDriftStrip";
 import { HousePattern } from "./HousePattern";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { Tile, TILE_GRID } from "@/components/org/shared/ui";
@@ -53,7 +56,13 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     getRegistrySync(slug),
     listOrgPracticeShapeRows(slug).catch(() => []),
   ]);
+  // MOONSHOT #33 — version the org's mined patterns from the read that already mined them, then read
+  // the adoption ledger. `syncHousePatternVersions` writes only when the pattern's hash MOVED, so this
+  // is a no-op on every render but the first after a shape actually changes; both degrade to a
+  // no-strip rather than failing the tab.
   const mined = shapes ? minePracticeShapes(shapes) : null;
+  if (mined) await syncHousePatternVersions(slug);
+  const adoptionLedger = await getPracticeAdoptionSummary(slug).catch(() => null);
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
   const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
 
@@ -75,7 +84,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
       {mined && <HousePattern mined={mined} reposWithShape={shapes?.length ?? 0} />}
 
       {/* The org's OWN agreed practices, straight out of the registry, above the generic catalog. */}
-      <RegistryPractices rows={shapeRows} registryBase={registryBlobBase(sync)} />
+      <RegistryPractices rows={shapeRows} registryBase={registryBlobBase(sync)} repoOptions={repoOptions} />
 
       <div className={TILE_GRID}>
         <Tile
@@ -107,6 +116,11 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
           color={roll && roll.open > 0 ? READING_HUE : undefined}
         />
       </div>
+
+      {/* #33 — beneath the lift strip's tiles, not inside them: "what did this put in motion" and
+          "is it still there" are different readings on different bases. Renders nothing on an empty
+          ledger. */}
+      {adoptionLedger && <PracticeDriftStrip slug={slug} summary={adoptionLedger} />}
 
       <PracticesView
         slug={slug}

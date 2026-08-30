@@ -10,6 +10,7 @@ import {
   contributorFindings,
   fnv1a,
   isFindingModule,
+  practiceFindings,
   passportFindings,
   securityFindings,
   teamsFindings,
@@ -109,9 +110,54 @@ describe("fnv1a", () => {
   });
 });
 
+// MOONSHOT #33 — key stability is the whole contract: a decision recorded against a drifted adoption
+// must survive the next scan, which means the key can carry nothing that a rescan or a reword moves.
+describe("practiceFindings", () => {
+  const drifted = {
+    repoFullName: "acme/api",
+    practiceId: "agent-guidance",
+    artifactPath: "AGENTS.md",
+    state: "drifted",
+    label: "Agent guidance",
+  };
+
+  it("keys on repo + practice + artifact path, never on wording", () => {
+    const [a] = practiceFindings([drifted]);
+    const [b] = practiceFindings([{ ...drifted, label: "Completely different label" }]);
+    expect(a!.itemKey).toBe("acme/api:agent-guidance:AGENTS.md");
+    expect(b!.itemKey).toBe(a!.itemKey);
+  });
+
+  it("separates two artifacts of the same practice in the same repo", () => {
+    const keys = practiceFindings([drifted, { ...drifted, artifactPath: "docs/AGENTS.md" }]).map((f) => f.itemKey);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it("emits a finding only for drifted and removed rows", () => {
+    const states = ["proposed", "adopted", "superseded", "drifted", "removed"];
+    const out = practiceFindings(states.map((state, i) => ({ ...drifted, state, artifactPath: `f${i}.md` })));
+    expect(out.map((f) => f.module)).toEqual(["practices", "practices"]);
+  });
+
+  it("says what was removed vs what diverged, and names neither as a PR to open", () => {
+    const [removed] = practiceFindings([{ ...drifted, state: "removed" }]);
+    const [diverged] = practiceFindings([drifted]);
+    expect(removed!.detail).toContain("no longer in the default branch");
+    expect(diverged!.detail).toContain("no longer matches the structure that landed");
+    // Both offer "record it" as a real outcome — drift is decided, never auto-reapplied.
+    expect(removed!.detail).toContain("record that");
+    expect(diverged!.detail).toContain("Accept the divergence");
+  });
+
+  it("falls back to the practice id when no label is known", () => {
+    const [f] = practiceFindings([{ ...drifted, label: undefined }]);
+    expect(f!.subject).toBe("agent-guidance");
+  });
+});
+
 describe("isFindingModule", () => {
-  it("accepts the four promoted modules and rejects anything else", () => {
-    expect(["security", "teams", "passports", "contributors"].every(isFindingModule)).toBe(true);
+  it("accepts the five promoted modules and rejects anything else", () => {
+    expect(["security", "teams", "passports", "contributors", "practices"].every(isFindingModule)).toBe(true);
     expect(isFindingModule("backlog")).toBe(false);
     expect(isFindingModule(null)).toBe(false);
   });

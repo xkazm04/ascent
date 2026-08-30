@@ -19,7 +19,7 @@
 // in exactly one place.
 
 /** The modules whose derived signals are decidable. Matches OrgDecision.module. */
-export const FINDING_MODULES = ["security", "teams", "passports", "contributors"] as const;
+export const FINDING_MODULES = ["security", "teams", "passports", "contributors", "practices"] as const;
 
 export type FindingModule = (typeof FINDING_MODULES)[number];
 
@@ -151,6 +151,58 @@ export function passportFindings(repos: PassportFindingInput[]): Finding[] {
         detail: `Readiness blocker on ${r.fullName}.`,
       });
     }
+  }
+  return out;
+}
+
+// ── Practices (MOONSHOT #33) ──────────────────────────────────────────────────────────────────────
+
+export interface PracticeAdoptionFindingInput {
+  repoFullName: string;
+  /** Catalog id, `registry:<slug>` or `playbook:<uuid>`. */
+  practiceId: string;
+  artifactPath: string;
+  /** The ledger row's state. Only `drifted` and `removed` are findings. */
+  state: string;
+  /** Human label for the practice, when the caller knows one. Falls back to the id. */
+  label?: string;
+}
+
+/**
+ * The identity of a drifted adoption: repo + practice + the file it landed at. Nothing derived from
+ * WORDING, so a reworded detail line never orphans the decision recorded against it — the same rule
+ * the security keys follow, and the reason the Follow-ups badge stops re-counting a decided finding
+ * after the next scan.
+ */
+export function practiceAdoptionKey(repoFullName: string, practiceId: string, artifactPath: string): string {
+  return `${repoFullName}:${practiceId}:${artifactPath}`;
+}
+
+/**
+ * One finding per drifted or removed adoption.
+ *
+ * DRIFT IS A FINDING TO DECIDE, NEVER A TRIGGER. Nothing downstream of this re-applies the practice;
+ * the row lands in the Follow-ups worklist and waits for a human, because "we changed it on purpose"
+ * is the most likely explanation for a diverged artifact and re-opening a PR over that judgment would
+ * be the product arguing with its user. The rollout that DOES re-apply is a separate, explicitly
+ * confirmed action.
+ */
+export function practiceFindings(rows: PracticeAdoptionFindingInput[]): Finding[] {
+  const out: Finding[] = [];
+  for (const r of rows) {
+    if (r.state !== "drifted" && r.state !== "removed") continue;
+    const name = r.label?.trim() || r.practiceId;
+    out.push({
+      module: "practices",
+      itemKey: practiceAdoptionKey(r.repoFullName, r.practiceId, r.artifactPath),
+      repo: r.repoFullName,
+      title: `${name} ${r.state === "removed" ? "was removed from" : "has drifted in"} ${r.repoFullName}`,
+      subject: name,
+      detail:
+        r.state === "removed"
+          ? `\`${r.artifactPath}\` is no longer in the default branch. Re-adopt the practice, or record that this repo no longer needs it.`
+          : `\`${r.artifactPath}\` no longer matches the structure that landed. Accept the divergence, or roll the current pattern back out to this repo.`,
+    });
   }
   return out;
 }

@@ -192,6 +192,13 @@ straight at the CI-gates practice and its exemplars.
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
 | `src/features/shared/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
+| `src/lib/practices/reconcile.ts` | **#33** — census × ledger → transitions. Pure; the whole drift table lives here. |
+| `src/lib/practices/registry-artifact.ts` | **#33** — a registry `PRACTICE.md` → a committable `ArtifactSpec`. Pure. |
+| `src/lib/db/practice-adoption.ts` | **#33** — the ledger: stamp on apply, reconcile at scan, summary + target sets. |
+| `src/lib/db/house-pattern-versions.ts` | **#33** — immutable mined-pattern versions, appended only when `patternHash` moves. |
+| `src/app/api/practices/rollout/route.ts` | **#33** — `GET` target sets (member) · `POST` capped re-converge (admin). |
+| `src/features/shared/practices/PracticeDriftStrip.tsx` | **#33** — adopted / behind / drifted tiles + the Roll out action. |
+| `src/features/shared/practices/RegistryPracticeApply.tsx` | **#33** — the Copy-into-a-repo action on a registry practice. |
 
 ## Your house pattern — mined from the org's own repos (W6, 2026-08-14)
 
@@ -269,21 +276,87 @@ last-index time and counts), and a **"From your registry"** section
 (`src/features/shared/practices/RegistryPractices.tsx`) lists the `practices/<slug>/PRACTICE.md`
 entries the indexer read out of that repo, above ascent's generic catalog.
 
-Those rows carry the dimension, the `applies-when` line and an **Open in registry** link — and
-deliberately **no Apply button**. They are files under the customer's own review process; ascent
-indexes them so the whole fleet can see what the org already agreed on, but applying one is a write
-into someone else's repo through a PR flow that does not exist yet (see Known gaps). The section
-renders nothing when there are no registry-origin shapes, so an org that never mapped a registry sees
-no empty scaffolding.
+Those rows carry the dimension, the `applies-when` line, an **Open in registry** link and — since
+#33 — a **Copy into a repo** action (`RegistryPracticeApply.tsx`). Nothing here writes *back* to the
+registry: the file stays under the customer's own review process and "Open in registry" is still how
+you change the practice itself. What the action does is DISTRIBUTION — a draft PR copying the org's
+own agreed practice into a repo that lacks it, at `docs/practices/<slug>.md`, through the same
+`applyPracticeToRepo` writer, admin gate, audit row and adoption row as every other apply. The
+committed file says it is a copy and names the registry path it came from
+(`src/lib/practices/registry-artifact.ts`). An archived row or an empty body builds nothing, so a
+withdrawn practice is never redistributed. The section renders nothing when there are no
+registry-origin shapes, so an org that never mapped a registry sees no empty scaffolding.
+
+## Adoption ledger — is it still there? (#33, 2026-08-30)
+
+`ImprovementPr` answers "did this PR land and what did it buy". It cannot answer the question that
+only appears months later: **is the artifact still there, is it still the shape we agreed on, and who
+is behind now that our own pattern has moved.** The `PracticeAdoption` table is that projection —
+one row per `(org, repo, practiceId, artifactPath)`, moving `proposed → adopted → drifted | removed`
+and self-healing back.
+
+**How it is measured.** `extractPracticeShape` (v2) now emits a body-free **artifact census** beside
+the outline/layout shape: for every practice-artifact blob in the tree, its path plus
+`contentDigest` of the body and of the heading outline (cap 40). Digests and paths only — the leak
+boundary is unchanged. `reconcilePracticeAdoption`, called best-effort from `scan-finalize.ts` after
+a scan persists, hands the census and the repo's ledger rows to the pure reconciler
+(`src/lib/practices/reconcile.ts`).
+
+Four rules make the verdicts honest, and each has a test:
+
+| Situation | Verdict |
+| --- | --- |
+| Path absent, tree **complete** | `removed` |
+| Path absent, tree **truncated**; or the body was not fetched (`bodyHash: null`) | **no verdict** — unknown is not a finding |
+| `proposed`, its `ImprovementPr` merged, body present | `adopted`, stamping `adoptedHash` **from what landed** |
+| Body changed but the heading outline did not | still `adopted` — a cosmetic edit is not drift |
+| Body **and** outline both changed | `drifted` |
+
+**The baseline is the file as it LANDED, never the body ascent proposed.** A reviewer rewriting the
+PR before merge is the normal case and must not read as drift. Merge detection is read-only:
+`ImprovementPr` is queried, never written (it belongs to the improvement ledger).
+
+**House patterns are versioned.** `HousePatternVersion` stores each mined pattern immutably;
+`syncHousePatternVersions` appends a version only when `patternHash(lines)` moves, so a nightly
+rescan of an unchanged fleet writes nothing. An adoption cites the version it came from, so re-mining
+cannot retroactively make every conformant repo drifted. An org that mines nothing gets **no row** —
+absence, not a v0 — and `patternVersion` is `null` for generic/registry/playbook adoptions, meaning
+*not version-tracked*, never *behind*.
+
+**Drift is a finding to decide, never an auto-reapply.** `practiceFindings()` (a fifth
+`FINDING_MODULES` member, `practices`) emits one `Finding` per drifted/removed row keyed
+`repo:practiceId:artifactPath` — stable ids, never wording — so a recorded `OrgDecision` survives the
+next scan and the Follow-ups badge stops re-counting it. Nothing in the pipeline re-opens a PR on its
+own; "we changed it on purpose" is the likeliest explanation for a diverged artifact.
+
+**Re-converging is an explicit, capped action.** `PracticeDriftStrip` (beneath the lift strip, three
+`Tile`s on the neutral `BAND.some` accent — a library behind on one version is a baseline, not a red
+maturity reading; renders nothing on an empty ledger) offers a **Roll out** on the *behind* bucket
+only. `GET /api/practices/rollout?org=&practiceId=` returns the target sets (member gate, read-only);
+`POST /api/practices/rollout` opens the PRs (**admin** gate — it writes into customer repos), capped
+at 25 with the excess reported as `skipped`, typed-confirm on the client listing the exact repos, a
+foreign coordinate failing the whole call rather than partially applying, and every write through
+`applyPracticeToRepo`. Audit: `practice.rollout_opened` / `practice.registry_applied`. Drift itself
+gets **no** rollout button: a one-click answer to a divergence somebody may have made deliberately
+would be the product arguing with its user.
+
+### The lane brief is a consumer (handoff from #25)
+
+The org lane brief (`briefJson`, W2-G) carries a `housePattern` block so an agent working in a repo is
+told which version of the org's own pattern that repo is measured against, rather than inferring it
+from a document. `briefJson.housePattern.version` is **reserved for `HousePatternVersion.version`**
+and is left `null` by the brief builder itself — a null there means *this org has no mined pattern for
+that practice*, which is the same absence-not-v0 rule the ledger holds everywhere else. A consumer
+must never render a null as "v0" or as "behind", and must not fill it from anything but
+`getLatestHousePattern`.
+
+Playbook applies stamp the same ledger under `playbook:<uuid>` beside the existing
+`PlaybookApplication` mark (playbook PRs bypass `ImprovementPr` entirely, so the file's presence in
+the default branch is the merge evidence). Adoption rows and pattern versions are strictly
+org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
 ## Known gaps
 
-- **Adoption is tracked at the PR, not the repo**: `recordPracticePr()` persists each
-  opened PR as an `ImprovementPr` (so merge detection and post-merge impact work), but
-  there is no separate "practice X is adopted by repo Y" projection; adoption is
-  derived from scan signals rather than from the apply event.
-- **Reuse doesn't update**: an already-open PR is returned as-is; a re-apply won't push a
-  refreshed template.
 - **Overwrites existing files**: `PUT` updates a file already at the path; there's no
   "create-only" safety check.
 - **Batch apply is capped**: both `POST /api/practices/apply-batch` and
@@ -299,5 +372,10 @@ no empty scaffolding.
   applied, so "never tried" can't read as "tried and nothing landed".
 - **Catalog is global**: ascent's own practice catalog can't be customized per org — but an org can now
   declare its own in its registry repo, and those are read and shown (see Registry-backed state).
-- **Registry practices are read-only**: a `practices/<slug>/PRACTICE.md` from the registry can be opened
-  in git but not applied from ascent; the "apply a registry practice to N repos" PR flow is not built.
+- (Closed 2026-08-30, #33.) ~~Adoption is tracked at the PR, not the repo.~~ `PracticeAdoption` is a
+  per-repo projection reconciled against each scan's artifact census — see *Adoption ledger* above.
+- (Closed 2026-08-30, #33.) ~~Reuse doesn't update.~~ Versioned house patterns plus the capped
+  `POST /api/practices/rollout` re-converge the repos still on an older pattern.
+- (Closed 2026-08-30, #33.) ~~Registry practices are read-only.~~ A registry `PRACTICE.md` now applies
+  through the same writer as every other practice (`buildRegistryArtifact` → `applyPracticeToRepo`).
+  Still read-only in the direction that matters: ascent never writes back to the registry repo.

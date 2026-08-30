@@ -87,6 +87,11 @@ import type { CapabilityReadout, ManifestReadout } from "@/lib/standard/readout"
 // #16 — the conformance ledger's two row types. Both declare `reportedAt` / `since` as strings and
 // are mapped with .toISOString() in org-conformance.ts, and both cross to the Passports client.
 import type { ConformanceReportRow, ControlMatrixRow } from "@/lib/db/org-conformance";
+// #33 — the adoption ledger's two row types. Both reach the Practices client: PracticeAdoptionRow
+// through the rollout route's JSON, HousePatternRow through the drift strip's version reading. Five
+// `DateTime` columns between them, every one declared `string` and mapped with .toISOString().
+import type { HousePatternRow } from "@/lib/db/house-pattern-versions";
+import type { PracticeAdoptionRow } from "@/lib/db/practice-adoption";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -134,6 +139,9 @@ export const WIRE_TYPES = {
   ConformanceReportRow: true satisfies WireSafe<ConformanceReportRow>,
   ControlMatrixRow: true satisfies WireSafe<ControlMatrixRow>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
+  // #33 — the adoption ledger.
+  HousePatternRow: true satisfies WireSafe<HousePatternRow>,
+  PracticeAdoptionRow: true satisfies WireSafe<PracticeAdoptionRow>,
   ManifestReadout: true satisfies WireSafe<ManifestReadout>,
   // The five #18 row types. All reach a client through RegistryView, which RegistryPanel renders.
   ConformanceMapRow: true satisfies WireSafe<ConformanceMapRow>,

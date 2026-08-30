@@ -34,6 +34,8 @@ const MODULE_LABEL: Record<FindingModule, string> = {
   teams: "team ownership",
   passports: "passport",
   contributors: "contributor-risk",
+  // MOONSHOT #33 — a practice artifact that drifted or was removed after it landed.
+  practices: "practice-adoption",
 };
 
 /** Append the active scope query (e.g. "stack=react") to an org-internal link, inserting it BEFORE
