@@ -18,6 +18,12 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org.alerts.thresholds", label: "Alert rules", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "practice.pr_opened", label: "Practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.pr_opened", label: "Playbook PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  // MOONSHOT #26 — the local loop's one action that leaves the machine. The REFUSAL is labelled too,
+  // and deliberately in the red family: by the time most refusals fire the branch is already on the
+  // remote, so "we pushed and then could not open the PR" is a state an operator has to be able to
+  // find here rather than discover on GitHub.
+  { value: "loop.pr.opened", label: "Loop PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "loop.pr.refused", label: "Loop PR refused", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   // G6-06: `org.gate_policy`/`playbook.updated` are genuinely recorded (see the route files below) but
   // were missing from this hand-maintained list, so they rendered as an unlabeled grey badge AND could
   // not be selected in the Action filter. See AuditLogCells.actions.test.ts, which walks every

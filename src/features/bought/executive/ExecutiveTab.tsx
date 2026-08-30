@@ -143,7 +143,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
 
       {/* The rollout PROOF — previously page-local to Practices; the VP defending the AI budget
           reads this page, so the "it worked" numbers live here too (same line as PDF/markdown). */}
-      <BriefingProofBanner proof={briefing.proof} />
+      <BriefingProofBanner proof={briefing.proof} loopProof={briefing.loopProof} />
 
       {/* W1d — the Impact Ledger. Distinct from the proof banner above it: that one is a one-line
           BREADTH read of practice rollout (how many practices travelled, mean lift); this is the

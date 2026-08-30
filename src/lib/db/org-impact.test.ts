@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildImpactLedger, type ImpactPrInput } from "./org-impact";
+import type { LaneImpactInput } from "./improvement-events";
 
 const pr = (over: Partial<ImpactPrInput> = {}): ImpactPrInput => ({
   repoFullName: "acme/web",
@@ -108,5 +109,57 @@ describe("buildImpactLedger", () => {
     const l = buildImpactLedger([]);
     expect(l).toMatchObject({ mergedCount: 0, verifiedCount: 0, reposMoved: 0, dimPoints: null, regressions: 0 });
     expect(l.rows).toEqual([]);
+  });
+});
+
+// ── MOONSHOT #26: the union, and the line it refuses to cross ────────────────────────────────────
+describe("buildImpactLedger — branch work is reported, never bought", () => {
+  const lane = (over: Partial<LaneImpactInput> = {}): LaneImpactInput => ({
+    laneId: "lane-1",
+    runId: "run-1",
+    repoFullName: "acme/web",
+    cycle: 1,
+    dimId: "D6",
+    dimPoints: 4,
+    overall: 3,
+    endedAt: "2026-08-05T00:00:00.000Z",
+    beforeScanId: "b",
+    afterScanId: "a",
+    prNumber: null,
+    prUrl: null,
+    commits: 2,
+    ...over,
+  });
+
+  it("reports inReviewPoints as NULL — not 0 — when there is no loop lane at all", () => {
+    const l = buildImpactLedger([pr()]);
+    expect(l.inReviewPoints).toBeNull();
+    expect(l.inReviewLanes).toBe(0);
+  });
+
+  it("keeps branch points OUT of the bought total and beside it instead", () => {
+    // The whole reason the two bases exist: work sitting on an unreviewed branch is not owned.
+    const l = buildImpactLedger([pr({ impactDim: 6 })], [lane({ dimPoints: 4 })]);
+    expect(l.dimPoints).toBe(6);
+    expect(l.inReviewPoints).toBe(4);
+    // …and it joins no `byDim` bucket, so the per-dimension roll-up stays a bought figure too.
+    expect(l.byDim.map((d) => d.dimId)).toEqual(["D1"]);
+  });
+
+  it("moves a merged lane's points across rather than counting them twice", () => {
+    const l = buildImpactLedger([pr({ loopLaneId: "lane-1", impactDim: 4 })], [lane()]);
+    expect(l.dimPoints).toBe(4);
+    expect(l.inReviewPoints).toBeNull();
+    expect(l.rows[0]).toMatchObject({ source: "loop", basis: "merged", laneId: "lane-1" });
+  });
+
+  it("tags every practice row `practice-pr` / `merged`, exactly what it always was", () => {
+    const l = buildImpactLedger([pr()]);
+    expect(l.rows[0]).toMatchObject({ source: "practice-pr", basis: "merged", laneId: null });
+  });
+
+  it("does not count an unmeasurable lane as in-review movement", () => {
+    expect(buildImpactLedger([], [lane({ afterScanId: null })]).inReviewPoints).toBeNull();
+    expect(buildImpactLedger([], [lane({ commits: 0 })]).inReviewPoints).toBeNull();
   });
 });

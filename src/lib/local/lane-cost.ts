@@ -5,7 +5,7 @@
 // relocation: every function, comment and call is what it was, and loop-lane.ts imports them back.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join as pathJoin } from "node:path";
+import { isAbsolute, join as pathJoin } from "node:path";
 import { runGit } from "@/lib/local/git";
 import { meter } from "@/lib/llm/meter";
 import { appendLaneLog, updateLane } from "@/lib/db/loop-runs";
@@ -29,7 +29,12 @@ export async function excludeLaneReport(dir: string): Promise<void> {
   try {
     const res = await runGit(dir, ["rev-parse", "--absolute-git-dir"]);
     const gitDir = res.stdout.trim();
-    if (!res.ok || !gitDir) return;
+    // ABSOLUTE OR NOTHING. `--absolute-git-dir` returns one; anything else means git did not answer
+    // the question we asked (a stub, a shim, an older git), and joining a relative fragment onto the
+    // process's cwd would create `./<fragment>/info/exclude` somewhere nobody asked for a directory.
+    // Found by this repo's own suite: mocked git stdout produced stray `sha/`, `headsha/` folders at
+    // the worktree root.
+    if (!res.ok || !gitDir || !isAbsolute(gitDir)) return;
     const info = pathJoin(gitDir, "info");
     await mkdir(info, { recursive: true });
     const file = pathJoin(info, "exclude");

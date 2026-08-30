@@ -17,6 +17,7 @@ import { dimShort } from "@/lib/ui";
 import { attributeDimension, attributionLabel, integrityNotes } from "@/lib/maturity/attribution";
 import { platformFoldNote } from "@/lib/analyze/platform-carry";
 import { fmtMicrosPerPoint, laneEconomics } from "@/lib/local/lane-economics";
+import { LanePrAction } from "./LanePrAction";
 import { laneAttribution } from "./cockpitDrift";
 import { laneKindTag, type LoopLaneOutcome } from "./loopTypes";
 
@@ -55,7 +56,16 @@ function ProvenanceLine({ outcome }: { outcome: LoopLaneOutcome }) {
   );
 }
 
-export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
+export function OutcomeRow({
+  outcome,
+  slug,
+  canOpenPr = false,
+}: {
+  outcome: LoopLaneOutcome;
+  /** Present only where the PR action can be offered — see LanePrAction's visibility matrix. */
+  slug?: string;
+  canOpenPr?: boolean;
+}) {
   const { lane, before, after, diff } = outcome;
   const moved = (diff?.dimensions ?? []).filter((d) => d.delta != null && d.delta !== 0);
   const verdict = laneAttribution(outcome);
@@ -159,6 +169,12 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
       ))}
 
       {lane.phase === "error" && lane.error && <p className="mt-1 font-mono text-xs text-danger">{lane.error}</p>}
+
+      {/* The branch is the deliverable; this is where it stops being one only a laptop can see. The
+          action renders nothing unless the lane finished, has a branch, landed commits and has no PR
+          yet — and it asks for the repo name to be typed, because it is the one loop control whose
+          effect leaves the machine. */}
+      {slug && <LanePrAction slug={slug} lane={lane} canOpen={canOpenPr} />}
     </li>
   );
 }

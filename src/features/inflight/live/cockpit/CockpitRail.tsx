@@ -89,7 +89,16 @@ export function CockpitRail(props: CockpitRailProps) {
       <>
         {driveOutcome && <DriveVerdict drive={driveOutcome} onBack={outcome ? undefined : props.onBack} />}
         {outcome && (
-          <CockpitOutcome detail={outcome} onReplay={props.onReplay} onBack={props.onBack} canReplay={props.canReplay} />
+          <CockpitOutcome
+            detail={outcome}
+            onReplay={props.onReplay}
+            onBack={props.onBack}
+            canReplay={props.canReplay}
+            slug={props.slug}
+            // The PR action is owner-gated at the route, and a control that 403s on click is worse
+            // than one that is not offered. Same predicate the Run button uses.
+            canOpenPr={props.canRun}
+          />
         )}
       </>
     );

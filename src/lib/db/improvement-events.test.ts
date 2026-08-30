@@ -7,11 +7,11 @@ import {
   foldImprovementEvents,
   inReviewLanes,
   inReviewPoints,
-  type ImpactPrInput,
+  type EventPrInput,
   type LaneImpactInput,
 } from "@/lib/db/improvement-events";
 
-const pr = (over: Partial<ImpactPrInput> = {}): ImpactPrInput => ({
+const pr = (over: Partial<EventPrInput> = {}): EventPrInput => ({
   repoFullName: "acme/web",
   label: "CI gate",
   dimId: "D3",

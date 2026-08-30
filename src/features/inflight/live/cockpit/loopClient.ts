@@ -59,6 +59,27 @@ export async function settleLoopLesson(slug: string, id: string, action: "keep" 
   return body.lesson;
 }
 
+export interface LanePrResult {
+  prNumber: number;
+  prUrl: string;
+  /** True when an open PR for this branch already existed and was returned instead of a new one. */
+  reused: boolean;
+}
+
+/**
+ * Push a finished lane's branch and open a reviewed PR (moonshot #26). `confirm` must be the lane's
+ * own `repoFullName` — the route checks it, and the typed confirmation is the friction that belongs
+ * on the one loop action whose effect leaves the operator's machine.
+ */
+export async function openLanePr(slug: string, runId: string, laneId: string, confirm: string): Promise<LanePrResult> {
+  const res = await fetch(`/api/org/loop/${encodeURIComponent(runId)}/pr`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ org: slug, laneId, confirm }),
+  });
+  return json<LanePrResult>(res, "Could not open a PR for that lane");
+}
+
 async function post<T>(slug: string, body: Record<string, unknown>, fallback: string): Promise<T> {
   const res = await fetch("/api/org/loop", {
     method: "POST",

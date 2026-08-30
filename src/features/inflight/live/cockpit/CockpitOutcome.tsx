@@ -19,9 +19,13 @@ export interface CockpitOutcomeProps {
   onBack: () => void;
   /** False when the run produced no measurable pair — there is nothing to replay. */
   canReplay: boolean;
+  /** The org, for the per-lane PR action. Optional so an older caller renders exactly as before. */
+  slug?: string;
+  /** Owner-only: opening a PR pushes commits into a real repository. */
+  canOpenPr?: boolean;
 }
 
-export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitOutcomeProps) {
+export function CockpitOutcome({ detail, onReplay, onBack, canReplay, slug, canOpenPr = false }: CockpitOutcomeProps) {
   const { run, outcomes } = detail;
   // improved / flat / regressed count ATTRIBUTABLE movements only, on the same rule as the lift above
   // them. Counting raw sign here would have the tally contradict the number it sits beside — three
@@ -64,7 +68,7 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
       ) : (
         <ul className={`mt-3 ${TILE_LEDGER}`}>
           {outcomes.map((o) => (
-            <OutcomeRow key={o.lane.id} outcome={o} />
+            <OutcomeRow key={o.lane.id} outcome={o} slug={slug} canOpenPr={canOpenPr} />
           ))}
         </ul>
       )}

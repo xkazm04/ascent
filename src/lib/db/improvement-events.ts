@@ -56,7 +56,7 @@ export interface ImprovementEvent {
 }
 
 /** A merged practice PR, as the existing impact reader already resolves one. */
-export interface ImpactPrInput {
+export interface EventPrInput {
   repoFullName: string;
   label: string;
   dimId: string;
@@ -88,7 +88,7 @@ export interface LaneImpactInput {
   commits: number;
 }
 
-const prKey = (r: ImpactPrInput): string => `${r.repoFullName}#${r.afterScanId ?? `pr:${r.prNumber ?? "?"}`}`;
+const prKey = (r: EventPrInput): string => `${r.repoFullName}#${r.afterScanId ?? `pr:${r.prNumber ?? "?"}`}`;
 const laneKey = (l: LaneImpactInput): string => `${l.repoFullName}#${l.afterScanId ?? `lane:${l.laneId}`}`;
 
 /**
@@ -101,7 +101,7 @@ const laneKey = (l: LaneImpactInput): string => `${l.repoFullName}#${l.afterScan
  *
  * PURE: no clock, no DB. The window filter belongs to the reader.
  */
-export function foldImprovementEvents(prs: readonly ImpactPrInput[], lanes: readonly LaneImpactInput[]): ImprovementEvent[] {
+export function foldImprovementEvents(prs: readonly EventPrInput[], lanes: readonly LaneImpactInput[]): ImprovementEvent[] {
   const events: ImprovementEvent[] = [];
   const seen = new Set<string>();
   /** Lanes whose work is already represented by a merged PR row. */
@@ -182,4 +182,136 @@ export function inReviewPoints(events: readonly ImprovementEvent[]): number | nu
 /** Lanes that moved something but have not been reviewed — the count beside the in-review points. */
 export function inReviewLanes(events: readonly ImprovementEvent[]): number {
   return events.filter((e) => e.basis === "branch" && e.verified).length;
+}
+
+// ── reads ────────────────────────────────────────────────────────────────────────────────────────
+//
+// Kept in this module rather than in org-impact.ts: the union is the thing three surfaces share, and
+// a reader that lives beside one consumer is a reader the other two will eventually copy.
+//
+// The db imports are LAZY (`await import`) for the reason the meter's sink is: this module's pure
+// half is imported by client components through the cockpit's type barrel, and a static Prisma import
+// would drag the db layer into a browser bundle — the `build-not-in-gate` failure that `tsc` and the
+// unit suite both pass straight through.
+
+/**
+ * Every improvement event for an org in a window, both populations, deduped.
+ *
+ * On managed cloud the loop half is empty by construction (`selfHostGuard` 404s every loop route and
+ * no lane rows exist), so every consumer degrades to exactly today's behaviour rather than to a
+ * special case somebody has to remember.
+ */
+export async function getImprovementEvents(
+  orgSlug: string,
+  window: { start: Date | null; end: Date | null } = { start: null, end: null },
+): Promise<ImprovementEvent[]> {
+  const { getPrisma, isDbConfigured } = await import("@/lib/db/client");
+  if (!isDbConfigured()) return [];
+  const { getOrgBySlug } = await import("@/lib/db/org-shared");
+  const org = await getOrgBySlug(orgSlug).catch(() => null);
+  if (!org) return [];
+  const { listLaneImpactInputs } = await import("@/lib/db/loop-runs-read");
+  const { PRACTICES } = await import("@/lib/practices");
+  const label = new Map(PRACTICES.map((p) => [p.id, p.label]));
+
+  const mergedAt: { gte?: Date; lte?: Date } = {};
+  if (window.start) mergedAt.gte = window.start;
+  if (window.end) mergedAt.lte = window.end;
+
+  const [prRows, lanes] = await Promise.all([
+    getPrisma()
+      .improvementPr.findMany({
+        where: {
+          orgId: org.id,
+          state: "merged",
+          ...(mergedAt.gte || mergedAt.lte ? { mergedAt } : { mergedAt: { not: null } }),
+        },
+        orderBy: { mergedAt: "desc" },
+        select: {
+          repoFullName: true,
+          dimId: true,
+          practiceId: true,
+          prNumber: true,
+          prUrl: true,
+          mergedAt: true,
+          impactDim: true,
+          impactOverall: true,
+          verifiedScanId: true,
+          loopLaneId: true,
+        },
+      })
+      .catch(() => []),
+    listLaneImpactInputs(orgSlug, window).catch(() => []),
+  ]);
+
+  const prs: EventPrInput[] = prRows
+    .filter((p) => p.mergedAt != null)
+    .map((p) => ({
+      repoFullName: p.repoFullName,
+      // A loop row's synthetic `loop:<laneId>` practice id has no catalogue label, so it says what it
+      // is rather than printing an internal id at an executive.
+      label: p.loopLaneId ? "Loop lane (merged)" : (label.get(p.practiceId) ?? p.practiceId),
+      dimId: p.dimId,
+      dimPoints: p.impactDim,
+      overall: p.impactOverall,
+      mergedAt: (p.mergedAt as Date).toISOString(),
+      prNumber: p.prNumber,
+      prUrl: p.prUrl,
+      afterScanId: p.verifiedScanId,
+      loopLaneId: p.loopLaneId,
+    }));
+
+  return foldImprovementEvents(prs, lanes);
+}
+
+/**
+ * Record a loop lane's PR as an `ImprovementPr` row, so it joins the SAME merge-detection and
+ * post-merge verification path a practice PR does. `refreshOps` / `verifyMergedPrs` poll every open
+ * row for the org and are practice-agnostic, so a loop row gets both with no edit to that module.
+ *
+ * THE SYNTHETIC PRACTICE ID is `loop:<laneId>`. `ImprovementPr` is uniquely keyed
+ * `(orgId, repoFullName, practiceId)`, and a lane id is unique by construction — so a retried open is
+ * idempotent, and the uniqueness rule protecting practice PRs from duplicates is not widened to
+ * accommodate a second population.
+ *
+ * `baselineScanId` is the LANE's own `beforeScanId`. That is what makes a merge move points from
+ * in-review to bought with no re-measurement: the post-merge scan is compared against the very
+ * baseline the branch measurement used.
+ */
+export async function recordLoopPr(input: {
+  orgId: string;
+  laneId: string;
+  repoFullName: string;
+  dimId: string;
+  prNumber: number;
+  prUrl: string;
+  beforeScanId: string | null;
+  openedBy: string | null;
+}): Promise<boolean> {
+  const { getPrisma, isDbConfigured } = await import("@/lib/db/client");
+  if (!isDbConfigured()) return false;
+  const practiceId = `loop:${input.laneId}`;
+  const row = await getPrisma()
+    .improvementPr.upsert({
+      where: { orgId_repoFullName_practiceId: { orgId: input.orgId, repoFullName: input.repoFullName, practiceId } },
+      create: {
+        orgId: input.orgId,
+        repoFullName: input.repoFullName,
+        practiceId,
+        dimId: input.dimId,
+        prNumber: input.prNumber,
+        prUrl: input.prUrl,
+        state: "open",
+        baselineScanId: input.beforeScanId,
+        openedBy: input.openedBy,
+        source: "loop",
+        loopLaneId: input.laneId,
+      },
+      // A re-open of the same lane refreshes the PR it points at and nothing else: the baseline and
+      // the opener are facts about the FIRST open, and rewriting them would move the goalposts of a
+      // measurement already in flight.
+      update: { prNumber: input.prNumber, prUrl: input.prUrl },
+    })
+    .catch(() => null);
+  return row != null;
 }

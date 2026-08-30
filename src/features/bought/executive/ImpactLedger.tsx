@@ -95,6 +95,14 @@ export function ImpactLedger({
           color={ledger.awaitingRescan ? "#eab308" : undefined}
         />
         <Tile label="Repos moved" value={ledger.reposMoved} sub="with a verified merge" />
+        {/* MOONSHOT #26 — beside the bought number, never inside it. Real, independently rescanned
+            movement that has not merged, so it is not owned yet. Em dash, not 0, when nothing is
+            measurable: "no lane has been measured" and "the lanes moved nothing" are different. */}
+        <Tile
+          label="In review"
+          value={ledger.inReviewPoints == null ? "—" : signed(ledger.inReviewPoints)}
+          sub={ledger.inReviewPoints == null ? "no measured lane" : "on branches, not merged"}
+        />
         <Tile
           label="Regressions"
           value={ledger.regressions}
@@ -130,6 +138,7 @@ export function ImpactLedger({
             <th className="px-4 py-3">Bought</th>
             <th className="px-4 py-3 text-right">Dim delta</th>
             <th className="px-4 py-3 text-right">Repo overall</th>
+            <th className="px-4 py-3">Source</th>
             <th className="px-4 py-3">Status</th>
           </tr>
         }

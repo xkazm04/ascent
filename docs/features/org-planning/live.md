@@ -173,7 +173,10 @@ detached and the cockpit polls `GET /api/org/loop`.
   one reviewable deliverable. Branch names are folded to a safe single ref segment:
   `ascent/loop-<stamp>-<repo>`; the [autopilot shim](../local-mode/README.md) overrides `branchFor`
   to keep its historical `ascent/autopilot-<stamp>`. Teardown removes only the temp dir (`--force`);
-  **the branch is left behind on purpose**. Never a push.
+  **the branch is left behind on purpose**. Never a push *unless an owner asks* — since 2026-08-30 a
+  finished lane can be published as a reviewed PR by one owner click with a typed confirmation
+  (§*From lane branch to reviewed PR*). Nothing automatic pushes: not the drive, not a schedule, not
+  the lane itself.
 - **Curated cycle 1, auto afterwards.** Cycle 1 uses `input.batches[repo]` when given; every later
   cycle auto-picks the **top 5 open follow-ups by projected points** (`BATCH_SIZE`). A curated batch
   *names* its rows, so the pick spans the repo's whole open list (`limit: 500`) and then filters —
@@ -890,6 +893,65 @@ Two causes, both now fixed:
   API route into its own server chunk, so a module-level `Map` is instantiated once *per chunk*: a
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
   the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
+
+## From lane branch to reviewed PR (2026-08-30, moonshot #26)
+
+A lane's branch was the deliverable and also the end of the road: agent-authored work never reached a
+reviewer, an `AiChange` row, or the conformance population, because it never left the operator's
+machine. `POST /api/org/loop/[id]/pr` is the one door out, and it is **one owner click** — no
+scheduler calls it, the drive does not call it, and a lane never calls it for itself.
+
+- **Gates, in order:** `selfHostGuard()` → `requireSameOrigin()` → `dbGuard()` →
+  `requireOrgRole(org, "owner")`. `[id]` is the RUN id; the lane is named in the body and looked up as
+  `{ id: laneId, runId: id }`, so a lane from another org's run is simply not found (404).
+- **A typed confirmation.** The body's `confirm` must equal the lane's `repoFullName`. Every other
+  loop control is reversible on the operator's own disk; this one writes to a remote everyone sees.
+- **Refusals:** the lane must be `done`, have a branch, have landed at least one commit, and the repo
+  must still be paired — otherwise 409 with the reason. A lane with **no dominant dimension** is also
+  refused: `ImprovementPr.dimId` is not nullable and there is no honest value to invent, so the
+  operator is told to open the PR by hand rather than have real work filed under a fabricated one.
+- **Never `--force`.** `src/lib/local/loop-pr.ts` pushes the branch from the paired clone with
+  `git push --set-upstream`; a rejected non-fast-forward surfaces as a 409 carrying **git's own
+  message**, because a non-fast-forward, a missing remote and a bad credential need three different
+  human responses and only git knows which happened.
+- **Idempotent.** A 422 on create means a PR for that head already exists; the open one is returned
+  with `reused: true` — the same handling `openDraftPr` uses. (`openDraftPr` itself cannot be reused
+  here: it creates a branch off base and PUTs one file through the Contents API, so it has no way to
+  open a PR for a branch that already carries local commits.)
+- **Audited both ways.** `loop.pr.opened` on success and `loop.pr.refused` on failure — by the time
+  most refusals fire the branch is already on the remote, and "we pushed and then could not open the
+  PR" is a state an operator must find in the audit log rather than discover on GitHub.
+
+The PR is recorded as an `ImprovementPr` with `source: "loop"`, `loopLaneId`, the synthetic
+`practiceId = "loop:<laneId>"` (unique by construction, so a retry is idempotent and the uniqueness
+rule protecting practice PRs is not widened) and `baselineScanId = lane.beforeScanId`. That baseline
+is the mechanism: `refreshOps` / `verifyMergedPrs` are practice-agnostic and poll every open row, so a
+loop PR gets merge detection and post-merge verification with **no edit to `improvement.ts`**, and the
+post-merge scan is compared against the very baseline the branch measurement used.
+
+## One improvement ledger — two bases (2026-08-30, moonshot #26)
+
+`src/lib/db/improvement-events.ts` folds practice PRs and loop lanes into one read model behind the
+Impact Ledger, the programme strip and the briefing's proof block.
+
+- **`merged`** — measured on the default branch after a merge. This is what a buyer means by bought.
+- **`branch`** — measured on a lane's own branch, from the worktree it scanned. Real, independently
+  verified movement, and **not bought**, because nothing has landed.
+
+`ImpactLedger.dimPoints` and `ProgramNow.pointsBought` stay **merged-basis only**. Branch movement is
+reported beside them as `inReviewPoints` / `pointsInReview`, labelled "on branches, not merged".
+Folding it in would tell a buyer they own something sitting on a branch nobody has reviewed. The
+undercount that creates is fixed by the *route* above, not by the arithmetic: when the lane's PR
+merges, the points move from in-review to bought with no re-measurement.
+
+**The dedupe lives in the fold**, not in each consumer: a lane that became a PR that merged produces
+both a branch row and a merged row for the same work, and the merged one wins. A one-ended lane, or
+one that committed nothing (it scanned a worktree the run then deleted — L2-B-01), is `null`, never 0.
+
+**The briefing** gains `loopProof` and `briefingLoopProofLine()`, printed by the exec banner, the PDF,
+the share page and the markdown from ONE function — as a second line, never merged into the practice
+one, and carrying the words "on branches, not merged". Null unless a lane has both ends, so the line
+is absent rather than "0 · 0".
 
 ## The lane brief — the org's own standard in, structured verdicts out (2026-08-30, moonshot #25)
 

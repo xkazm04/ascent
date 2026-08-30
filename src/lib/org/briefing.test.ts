@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingMarkdown, briefingProofLine, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, buildLoopProof, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -965,6 +965,66 @@ describe("buildExecBriefing — deterministic generatedOn (frozen clock)", () =>
 });
 
 // ── Proof (practice rollout on the briefing) ─────────────────────────────────────────────────────
+
+describe("briefingLoopProofLine (moonshot #26)", () => {
+  it("is null with no loop lane at all, so the line is ABSENT rather than '0 · 0'", () => {
+    expect(briefingLoopProofLine(null)).toBeNull();
+    expect(briefingLoopProofLine(undefined)).toBeNull();
+    expect(briefingLoopProofLine({ lanes: 0, points: null, merged: 0 })).toBeNull();
+  });
+
+  it("prints the signed lift, the lane count, and 'on branches, not merged'", () => {
+    const line = briefingLoopProofLine({ lanes: 3, points: 12, merged: 0 });
+    expect(line).toContain("+12 verified dimension points");
+    expect(line).toContain("3 local loop lanes");
+    // THE CLAUSE IS THE POINT: a board reading a points figure without it would reasonably believe
+    // the change had landed on the default branch.
+    expect(line).toContain("on branches, not merged");
+  });
+
+  it("keeps the sign on a regression rather than dropping it", () => {
+    expect(briefingLoopProofLine({ lanes: 1, points: -4, merged: 0 })).toContain("-4 verified dimension point");
+  });
+
+  it("says lanes are awaiting measurement rather than claiming zero points", () => {
+    expect(briefingLoopProofLine({ lanes: 2, points: null, merged: 0 })).toBe("2 local loop lanes awaiting measurement");
+  });
+
+  it("names merged loop PRs separately from branch work", () => {
+    expect(briefingLoopProofLine({ lanes: 0, points: null, merged: 2 })).toBe("2 loop PRs merged and verified");
+  });
+});
+
+describe("buildLoopProof", () => {
+  const event = (over: Record<string, unknown> = {}) =>
+    ({
+      key: "k",
+      source: "loop",
+      basis: "branch",
+      repoFullName: "acme/web",
+      label: "Loop lane · cycle 1",
+      dimId: "D3",
+      dimPoints: 5,
+      overall: 3,
+      at: "2026-08-22T10:00:00.000Z",
+      prNumber: null,
+      prUrl: null,
+      laneId: "lane-1",
+      runId: "run-1",
+      verified: true,
+      ...over,
+    }) as Parameters<typeof buildLoopProof>[0][number];
+
+  it("is null when nothing loop-shaped is measurable", () => {
+    expect(buildLoopProof([])).toBeNull();
+    expect(buildLoopProof([event({ verified: false, dimPoints: null })])).toBeNull();
+  });
+
+  it("counts branch lanes and merged loop PRs separately", () => {
+    const proof = buildLoopProof([event(), event({ key: "k2", basis: "merged", dimPoints: 4 })]);
+    expect(proof).toEqual({ lanes: 1, points: 5, merged: 1 });
+  });
+});
 
 describe("briefingProofLine", () => {
   it("is null when no practice was ever applied (proof null) or nothing is in flight", () => {

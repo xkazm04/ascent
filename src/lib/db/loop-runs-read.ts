@@ -9,6 +9,7 @@ import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
 import { attributeDelivered } from "@/lib/maturity/attribution";
 import { listRunOutcomes } from "@/lib/db/lane-outcomes";
+import type { LaneImpactInput } from "@/lib/db/improvement-events";
 import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
 import {
   laneKindOf,
@@ -218,6 +219,74 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   // The economics ride ALONGSIDE the outcomes, folded from the very same pair — so the ledger's
   // ¢/point and its before → after can never come from two different readings of one lane.
   return { run, lanes, outcomes, economics: outcomes.map(laneEconomics), itemOutcomes: await listRunOutcomes(id) };
+}
+
+/**
+ * The lane-side rows the improvement union folds (moonshot #26).
+ *
+ * ONE query for the org, not one per run, and one batched scan read for the whole set — the same
+ * shape `listLoopRuns` already uses, and for the same reason: the ledger renders a window of work,
+ * and a per-lane comparison read would make an executive page N round trips deep.
+ *
+ * Only lanes with a `dimId` produce a dimension delta; a lane without one still appears (so it can be
+ * counted as work) but joins no `byDim` bucket. `dimPoints` is `null` unless BOTH scan ends carry the
+ * dimension — never 0, which the ledger would sum as "measured, moved nothing".
+ */
+export async function listLaneImpactInputs(
+  orgSlug: string,
+  window: { start: Date | null; end: Date | null } = { start: null, end: null },
+): Promise<LaneImpactInput[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe<LaneImpactInput[]>(async () => {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return [];
+    const prisma = getPrisma();
+    const lanes = await prisma.loopRunLane.findMany({
+      where: {
+        run: { is: { orgId: org.id } },
+        phase: "done",
+        ...(window.start || window.end
+          ? { endedAt: { ...(window.start ? { gte: window.start } : {}), ...(window.end ? { lte: window.end } : {}) } }
+          : {}),
+      },
+      orderBy: [{ endedAt: "desc" }, { id: "desc" }],
+      take: 500,
+    });
+    if (lanes.length === 0) return [];
+    const scanIds = [
+      ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
+    ];
+    const scans = scanIds.length
+      ? await prisma.scan.findMany({
+          where: { id: { in: scanIds } },
+          select: { id: true, overallScore: true, dimensions: { select: { dimId: true, score: true } } },
+        })
+      : [];
+    const byScan = new Map(scans.map((s) => [s.id, s]));
+    return lanes.map((l) => {
+      const before = l.beforeScanId ? byScan.get(l.beforeScanId) : undefined;
+      const after = l.afterScanId ? byScan.get(l.afterScanId) : undefined;
+      const dimOf = (s: typeof before, dimId: string) => s?.dimensions.find((d) => d.dimId === dimId)?.score ?? null;
+      const b = l.dimId ? dimOf(before, l.dimId) : null;
+      const a = l.dimId ? dimOf(after, l.dimId) : null;
+      return {
+        laneId: l.id,
+        runId: l.runId,
+        repoFullName: l.repoFullName,
+        cycle: l.cycle,
+        dimId: l.dimId ?? null,
+        // Both ends or nothing — the same refusal `diffScans` makes, never widened here.
+        dimPoints: b != null && a != null ? a - b : null,
+        overall: before && after ? after.overallScore - before.overallScore : null,
+        endedAt: l.endedAt ? l.endedAt.toISOString() : null,
+        beforeScanId: l.beforeScanId,
+        afterScanId: l.afterScanId,
+        prNumber: l.prNumber ?? null,
+        prUrl: l.prUrl ?? null,
+        commits: l.commits,
+      };
+    });
+  }, []);
 }
 
 /**

@@ -134,6 +134,17 @@ describe("buildProgramStatus", () => {
     expect(buildProgramStatus(program(), live({ pointsBought: 0 }), NOW).pointsBought).toBe(0);
   });
 
+  // MOONSHOT #26 — the same null-vs-0 pair, on the number that must NEVER be folded into the one
+  // above it. Work on an unreviewed branch is not bought, and a strip that added them would be
+  // selling the org something it does not yet own.
+  it("carries points-in-review separately, null-not-zero, and never into pointsBought", () => {
+    expect(buildProgramStatus(program(), live({ pointsInReview: null }), NOW).pointsInReview).toBeNull();
+    expect(buildProgramStatus(program(), live({ pointsInReview: 0 }), NOW).pointsInReview).toBe(0);
+    const s = buildProgramStatus(program(), live({ pointsBought: 17, pointsInReview: 9 }), NOW);
+    expect(s.pointsBought).toBe(17);
+    expect(s.pointsInReview).toBe(9);
+  });
+
   it("paces the next review off the cadence", () => {
     expect(buildProgramStatus(program({ cadence: "weekly" }), live(), NOW).daysToReview).toBe(5); // 44 % 7 = 2
     expect(buildProgramStatus(program({ cadence: "biweekly" }), live(), NOW).daysToReview).toBe(12); // 44 % 14 = 2

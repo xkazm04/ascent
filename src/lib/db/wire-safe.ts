@@ -84,6 +84,10 @@ import type { InterventionOutcomeRow } from "@/lib/db/outcomes";
 // db module's type but it IS a row's parsed payload (`LoopRunLane.briefJson`) and reaches the same
 // client, so it belongs here on the same reasoning the ManifestReadout entry gives.
 import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
+import type { LoopLessonRow } from "@/lib/db/loop-lessons";
+// MOONSHOT #26 — the union read model reaches the executive surfaces; `at` is a DateTime column on
+// both populations and is deliberately a string here, mapped with .toISOString() in the reader.
+import type { ImprovementEvent } from "@/lib/db/improvement-events";
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 // Not a db module, but a db ROW TYPE all the same: ManifestReadout is parsed off
@@ -148,7 +152,9 @@ export const WIRE_TYPES = {
   MemoryProposalRow: true satisfies WireSafe<MemoryProposalRow>,
   InterventionOutcomeRow: true satisfies WireSafe<InterventionOutcomeRow>,
   LaneBriefProvenance: true satisfies WireSafe<LaneBriefProvenance>,
+  ImprovementEvent: true satisfies WireSafe<ImprovementEvent>,
   LaneOutcomeRow: true satisfies WireSafe<LaneOutcomeRow>,
+  LoopLessonRow: true satisfies WireSafe<LoopLessonRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,

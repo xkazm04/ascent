@@ -16,6 +16,7 @@ export { PriceListPanel } from "./PriceListPanel";
 export { CockpitLessons } from "./CockpitLessons";
 export { CockpitVerdicts } from "./CockpitVerdicts";
 export { BriefStrip } from "./BriefStrip";
+export { LanePrAction, canOpenLanePr } from "./LanePrAction";
 export type { PriceListPanelProps } from "./PriceListPanel";
 export type { CockpitDriveResumeProps } from "./CockpitDriveResume";
 export { canDispatch, cockpitSetupState } from "./cockpitGate";

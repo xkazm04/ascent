@@ -1,0 +1,100 @@
+// POST /api/org/loop/[id]/pr — open a reviewed PR from a finished loop lane's branch.
+//
+// `[id]` is the RUN id, the same meaning the sibling `GET /api/org/loop/[id]` gives it; the lane is
+// named in the body. This is the one loop action whose effect leaves the operator's machine, so it
+// carries the heaviest gate stack in local mode and a typed confirmation:
+//
+//   selfHostGuard()            — on managed cloud the surface does not exist (404, never 403)
+//   requireSameOrigin(request) — it mutates, and it pushes commits into a customer repository
+//   dbGuard()                  — the ledger row is the point; without a database there is none
+//   requireOrgRole(org,"owner")— pushing into a real repo is owner-shaped, exactly like `start`
+//
+// TENANCY IS GATE-THEN-CONSTRAIN: the run is fetched and its `orgId` compared against the org the
+// caller was authorized for, and the lane is then looked up as `{ id: laneId, runId: id }` — so a
+// lane from another org's run is simply not found. Trusting either id alone would let an owner of A
+// push a branch from B.
+//
+// The typed `confirm` (the repo's full name) is deliberate friction. Every other loop control is
+// reversible on the operator's own disk; this one writes to a remote everyone can see.
+
+import { NextResponse } from "next/server";
+import { PUBLIC_ORG, requireSameOrigin } from "@/lib/auth";
+import { getViewer } from "@/lib/access";
+import { requireOrgRole } from "@/lib/authz";
+import { dbGuard } from "@/lib/api/orgPlan";
+import { selfHostGuard } from "@/lib/api/self-host";
+import { AppApiError } from "@/lib/github/app";
+import { getLane, getLoopRun } from "@/lib/db/loop-runs";
+import { orgIdForSlug } from "@/lib/db/loop-tenancy";
+import { getRepoLocalPath, recordAudit } from "@/lib/db";
+import { openPrForLane } from "@/lib/local/loop-pr";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Body = { org?: unknown; laneId?: unknown; confirm?: unknown };
+
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const guard =
+    selfHostGuard() ??
+    requireSameOrigin(request) ??
+    dbGuard("Opening a PR from a lane", "Opening a PR from a lane requires a database.");
+  if (guard) return guard;
+
+  const { id } = await ctx.params;
+  const body = (await request.json().catch(() => ({}))) as Body;
+  const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
+  const laneId = typeof body.laneId === "string" ? body.laneId.trim() : "";
+  if (!org || !laneId) return NextResponse.json({ error: "Missing 'org' or 'laneId'." }, { status: 400 });
+  if (org === PUBLIC_ORG) return NextResponse.json({ error: "The public funnel org has no loop." }, { status: 403 });
+
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+
+  // Gate-then-constrain, both hops.
+  const run = await getLoopRun(id);
+  if (!run || run.orgId !== (await orgIdForSlug(org))) {
+    return NextResponse.json({ error: "No such loop run." }, { status: 404 });
+  }
+  const lane = await getLane(laneId);
+  if (!lane || lane.runId !== id) return NextResponse.json({ error: "No such lane." }, { status: 404 });
+
+  // The typed confirmation. Checked AFTER the lane is resolved so the message can name what it wants,
+  // and before anything is pushed.
+  if (typeof body.confirm !== "string" || body.confirm.trim() !== lane.repoFullName) {
+    return NextResponse.json({ error: `Type ${lane.repoFullName} to confirm the push.` }, { status: 400 });
+  }
+
+  if (lane.phase !== "done") return NextResponse.json({ error: "This lane has not finished." }, { status: 409 });
+  if (!lane.branch) return NextResponse.json({ error: "This lane produced no branch." }, { status: 409 });
+  if (lane.commits === 0) {
+    return NextResponse.json({ error: "This lane committed nothing, so there is nothing to review." }, { status: 409 });
+  }
+  const pairedPath = await getRepoLocalPath(org, lane.repoFullName);
+  if (!pairedPath) {
+    return NextResponse.json({ error: `${lane.repoFullName} is no longer paired with a local path.` }, { status: 409 });
+  }
+
+  const viewer = await getViewer().catch(() => null);
+  try {
+    const result = await openPrForLane({ orgSlug: org, orgId: run.orgId, lane, pairedPath, actor: viewer?.login ?? null });
+    await recordAudit(
+      "loop.pr.opened",
+      { runId: id, laneId, repoFullName: lane.repoFullName, branch: lane.branch, prNumber: result.prNumber, reused: result.reused },
+      { orgId: run.orgId, actorId: viewer?.login ?? undefined },
+    );
+    return NextResponse.json(result);
+  } catch (err) {
+    // Audited on refusal too: by the time most of these fire the branch is already on the remote, and
+    // "we pushed and then could not open the PR" is precisely the state an operator must be able to
+    // find in the log rather than discover on GitHub.
+    const status = err instanceof AppApiError ? (err.status === 409 || err.status === 400 ? err.status : 502) : 500;
+    const message = err instanceof AppApiError ? err.body : "Could not open a PR for that lane.";
+    await recordAudit(
+      "loop.pr.refused",
+      { runId: id, laneId, repoFullName: lane.repoFullName, branch: lane.branch, reason: message.slice(0, 300) },
+      { orgId: run.orgId, actorId: viewer?.login ?? undefined },
+    );
+    return NextResponse.json({ error: message }, { status });
+  }
+}
