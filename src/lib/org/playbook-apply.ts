@@ -7,7 +7,9 @@
 
 import { fetchRepoContext } from "@/lib/github/source";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
-import { applyPlaybook, recordOrgAudit, type PlaybookRow } from "@/lib/db";
+import { applyPlaybook, getOrgId, recordOrgAudit, type PlaybookRow } from "@/lib/db";
+import { recordProposedAdoption } from "@/lib/db/practice-adoption";
+import { contentDigest } from "@/lib/registry/parse";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
@@ -42,6 +44,10 @@ export async function applyPlaybookToRepo(input: {
   // Single-sourced with the PlaybookCard "Preview starter" so the preview matches what's committed.
   const fileBody = playbookStarterFile(playbook, dimLabel);
 
+  // Single-sourced with the adoption row below: the ledger keys on `artifactPath`, so the path the PR
+  // commits and the path the ledger records must be one expression, not two that can drift apart.
+  const playbookPath = `docs/playbooks/${id}-${slug(playbook.title)}.md`;
+
   const ctxRepo = await fetchRepoContext(parsed, token);
   const pr = await openDraftPr({
     token,
@@ -53,7 +59,7 @@ export async function applyPlaybookToRepo(input: {
     // overwrote it with B's content while adoption was recorded against B's id. (playbooks #2)
     branch: `ascent/playbook-${id}-${slug(playbook.title)}`,
     base,
-    path: `docs/playbooks/${id}-${slug(playbook.title)}.md`,
+    path: playbookPath,
     content: fileBody,
     commitMessage: `docs: adopt "${playbook.title}" playbook (via Ascent)`,
     prTitle: `Adopt playbook: ${playbook.title}`,
@@ -62,6 +68,25 @@ export async function applyPlaybookToRepo(input: {
 
   try {
     await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
+    // MOONSHOT #33 — an ADOPTION row beside the existing adoption MARK. The mark records that this
+    // repo was offered the playbook; the ledger row records whether the committed file is still there
+    // and still the shape it landed as. Playbook PRs bypass `ImprovementPr` entirely, which is why the
+    // gap this closes is merge/DRIFT detection rather than "untracked" — the mark was never missing.
+    // `playbook:<id>` namespaces the id away from the nine catalog practices, and `patternVersion` is
+    // null because an authored playbook has no mined house pattern to be a version of.
+    const orgId = await getOrgId(org);
+    if (orgId) {
+      await recordProposedAdoption({
+        orgId,
+        repoFullName: ctxRepo.fullName,
+        practiceId: `playbook:${id}`,
+        source: "playbook",
+        patternVersion: null,
+        artifactPath: playbookPath,
+        proposedHash: contentDigest(fileBody),
+        prNumber: pr.number,
+      });
+    }
     await recordOrgAudit(
       "playbook.pr_opened",
       org,

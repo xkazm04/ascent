@@ -13,6 +13,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { parsePracticeShape } from "@/lib/analyze/practice-shape";
 import type { ShapeSource } from "@/lib/org/practice-mining";
+import type { RegistryPracticeSource } from "@/lib/practices/registry-artifact";
 
 /**
  * One row of the `OrgPracticeShape` TABLE — the org's CHOSEN, published practice shapes.
@@ -57,6 +58,27 @@ export async function listOrgPracticeShapeRows(orgSlug: string): Promise<Practic
     registryPath: r.registryPath ?? null,
     updatedAt: r.updatedAt.toISOString(),
   }));
+}
+
+/**
+ * MOONSHOT #33 — one registry practice, with the CONTENT the apply path needs to commit.
+ *
+ * Deliberately separate from `listOrgPracticeShapeRows`: that read feeds a rendered list and must not
+ * ship every practice's full body to the browser. This one is server-only, fetches exactly one row,
+ * and includes `archived` so `buildRegistryArtifact` can refuse a withdrawn practice rather than
+ * re-distributing a document the org has taken down. Null when unknown — the caller's
+ * `unknown-practice` outcome, never a silently empty file.
+ */
+export async function getRegistryPracticeSource(
+  orgId: string,
+  slug: string,
+): Promise<RegistryPracticeSource | null> {
+  if (!isDbConfigured()) return null;
+  const row = await getPrisma().orgPracticeShape.findUnique({
+    where: { orgId_slug: { orgId, slug } },
+    select: { slug: true, title: true, appliesWhen: true, dimension: true, content: true, registryPath: true, archived: true },
+  });
+  return row ?? null;
 }
 
 /**

@@ -84,6 +84,21 @@ describe("censusArtifacts", () => {
       expect(seen.map((r) => r.path), `practice ${p.id} writes ${spec.path}`).toEqual([spec.path]);
     }
   });
+
+  // The constraint #33 asks of #15's "consolidate-guidance" starter, asserted for EVERY catalog entry
+  // rather than named one: the adoption ledger's identity is (org, repo, practice, artifactPath), so a
+  // practice whose path varies with the repo would key a new row per repo and could never be
+  // reconciled. This fails the moment a new practice makes its path repo-dependent.
+  it("gives every practice ONE artifact path, independent of the repo", () => {
+    const a = { fullName: "acme/api", name: "api", primaryLanguage: "typescript" };
+    const b = { fullName: "other/svc", name: "svc", primaryLanguage: "go", description: "x" };
+    for (const p of PRACTICES) {
+      const first = buildArtifact(p.id, a);
+      if (!first) continue;
+      expect(buildArtifact(p.id, b)!.path, `practice ${p.id}`).toBe(first.path);
+      expect(buildArtifact(p.id, a)!.path, `practice ${p.id}`).toBe(first.path);
+    }
+  });
 });
 
 describe("extractPracticeShape — v2", () => {
