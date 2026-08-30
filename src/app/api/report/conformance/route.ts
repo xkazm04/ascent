@@ -23,6 +23,7 @@ import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { isDbConfigured, recordConformance } from "@/lib/db";
 import { listConformanceReports } from "@/lib/db/org-conformance";
+import { alertConformanceRegressions } from "@/lib/standard/conformance-alerts";
 import { CHECK_LEVELS, isValidCheckId, type CheckLevel } from "@/lib/standard/check-ids";
 import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
@@ -201,6 +202,16 @@ export async function POST(request: Request) {
     runShape,
     findings,
   });
+  // #16 → #1 — THE CONTROL-REGRESSION CALL SITE. The detector, the alert kind and the dispatcher all
+  // shipped in earlier waves and nothing joined them, so a repo's own doctor could report a guardrail
+  // flipping pass → fail and the only place that fact surfaced was a matrix nobody had open.
+  //
+  // AFTER persisting, and only for a report that was actually persisted: a stale re-run is not new
+  // evidence, and an untracked repo has no org to alert. Awaited rather than fired-and-forgotten
+  // because this route runs on a serverless runtime where a floating promise is simply lost — and
+  // `alertConformanceRegressions` never throws and swallows its own failures, so awaiting it cannot
+  // redden a customer's CI step.
+  if (recorded && !stale) await alertConformanceRegressions(parsed.owner, fullName);
   // `stale:true` = this sha was already reported before a newer commit — the score was deliberately
   // NOT overwritten. `recorded:false` (without stale) means the repo isn't tracked under this org
   // yet — not an error; watch it first.
