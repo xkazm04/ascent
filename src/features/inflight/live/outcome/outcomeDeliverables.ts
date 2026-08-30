@@ -47,7 +47,7 @@ export function closedTitles(o: LoopLaneOutcome): string[] {
   return out;
 }
 
-/** How each kind reads on a row: the section label when a cell mixes kinds, the glyph when it does not. */
+/** How each kind reads on a row: the glyph the sheet cell leads with, and the label behind it. */
 export const KIND_META: Record<LaneDeliverableKind, { label: string; glyph: string }> = {
   closed: { label: "Closed", glyph: "✓" },
   installed: { label: "Installed", glyph: "+" },
@@ -56,18 +56,3 @@ export const KIND_META: Record<LaneDeliverableKind, { label: string; glyph: stri
   // `noted` rows are the armed-but-unresolved batch items (outcomeGapRows.ts) — proposals.
   noted: { label: "Proposed", glyph: "·" },
 };
-
-export interface DeliverableSection<T extends LaneDeliverable = LaneDeliverable> {
-  kind: LaneDeliverableKind;
-  label: string;
-  rows: T[];
-}
-
-/** Rows bucketed by kind, in DELIVERABLE_KIND_ORDER, empty kinds dropped. NO fold: every gap keeps
- *  its row (the cell's body scrolls instead — the owner reviews each gap individually). */
-export function sectionDeliverables<T extends LaneDeliverable>(rows: readonly T[]): DeliverableSection<T>[] {
-  return DELIVERABLE_KIND_ORDER.flatMap((kind) => {
-    const inKind = rows.filter((r) => r.kind === kind);
-    return inKind.length ? [{ kind, label: KIND_META[kind].label, rows: inKind }] : [];
-  });
-}

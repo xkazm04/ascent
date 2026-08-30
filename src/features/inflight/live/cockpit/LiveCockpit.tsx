@@ -11,10 +11,10 @@
 // is this one run doing" — and it settles into the SAME outcome ledger a single run does, with a
 // verdict banner above it saying which of the three honest stops ended it.
 //
-// PROTOTYPE (in flight): the OUTCOME surface is being redesigned behind a variant strip. In the two
-// matrix variants the rail never enters outcome mode — the settled run still drifts the field and is
-// still `setOutcome`'d, but the rail shows the inspector (selection intact) and the outcome lands as a
-// full-width matrix under the grid, which also absorbs the history strip's job.
+// THE RAIL NEVER ENTERS OUTCOME MODE (wave-2). The outcome is a full-width SHEET under the grid
+// (`OutcomeSection`) — one row per gap, one column per run — which also absorbed the history strip's
+// job. A settled run still drifts the field and is still `setOutcome`'d; the rail simply keeps showing
+// the inspector, with the selection intact, because the outcome now has a better place to be.
 //
 // This file is layout only: the state machine is useCockpit, the rail's panel choice is CockpitRail.
 
@@ -26,9 +26,7 @@ import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
 import { OutcomeSection } from "../outcome/OutcomeSection";
 import { CockpitField } from "./CockpitField";
 import { CockpitHeader } from "./CockpitHeader";
-import { CockpitHistory } from "./CockpitHistory";
 import { CockpitRail } from "./CockpitRail";
-import { CockpitVariantTabs, type CockpitVariant } from "./CockpitVariantTabs";
 import { PriceListPanel } from "./PriceListPanel";
 import { CockpitLessons } from "./CockpitLessons";
 import { useCockpit } from "./useCockpit";
@@ -59,11 +57,11 @@ export function LiveCockpit(props: LiveCockpitProps) {
   const { slug, seeds, isOwner, wallHref, runDetails = NO_DETAILS } = props;
   const router = useRouter();
   const [listOpen, setListOpen] = useState(true);
-  const [variant, setVariant] = useState<CockpitVariant>("baseline");
   const c = useCockpit(props);
   const { loop, drive } = c;
-  const matrix = variant !== "baseline";
-  const railMode = matrix && c.mode === "outcome" ? "inspect" : c.mode;
+  // `outcome` is still a real mode of the state machine (it suppresses the interrupted-drive offer and
+  // marks the opened run), but the RAIL has no panel for it: it shows the inspector instead.
+  const railMode = c.mode === "outcome" ? "inspect" : c.mode;
 
   return (
     <section aria-label="Loop cockpit" className="space-y-4">
@@ -96,12 +94,9 @@ export function LiveCockpit(props: LiveCockpitProps) {
             mode={railMode}
             setup={c.setup}
             liveDrive={drive.live ? drive.drive : null}
-            driveOutcome={matrix ? null : c.driveOutcome}
             interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
             runLive={loop.live}
-            outcome={c.outcome}
-            canReplay={c.drift != null}
             selected={c.selected}
             paired={c.paired}
             propose={loop.propose}
@@ -116,30 +111,21 @@ export function LiveCockpit(props: LiveCockpitProps) {
             onResumeDrive={() => void c.resumeDrive()}
             onDismissDrive={c.dismissDrive}
             onRetryLane={(laneId) => void loop.retry(laneId)}
-            onReplay={c.replayRun}
-            onBack={c.backToInspect}
           />
         </Surface>
       </div>
 
-      <CockpitVariantTabs value={variant} onChange={setVariant} />
-
-      {matrix ? (
-        <OutcomeSection
-          variant={variant}
-          slug={slug}
-          canReview={isOwner}
-          runDetails={runDetails}
-          liveDetail={loop.detail}
-          openedDetail={c.outcome}
-          selectedId={c.outcome?.run.id ?? loop.activeId}
-          driveOutcome={c.driveOutcome}
-          onOpen={(id) => void c.openRun(id)}
-          onDismissDrive={c.backToInspect}
-        />
-      ) : (
-        <CockpitHistory runs={loop.runs} selectedId={c.outcome?.run.id ?? loop.activeId} onOpen={(id) => void c.openRun(id)} />
-      )}
+      <OutcomeSection
+        slug={slug}
+        canReview={isOwner}
+        runDetails={runDetails}
+        liveDetail={loop.detail}
+        openedDetail={c.outcome}
+        selectedId={c.outcome?.run.id ?? loop.activeId}
+        driveOutcome={c.driveOutcome}
+        onOpen={(id) => void c.openRun(id)}
+        onDismissDrive={c.backToInspect}
+      />
       {/* What a verified maturity point has cost, per model, per dimension — the standing summary
           the strip's individual runs add up to. */}
       <PriceListPanel slug={slug} />

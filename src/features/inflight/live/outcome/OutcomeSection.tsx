@@ -1,26 +1,25 @@
 "use client";
 
-// THE OUTCOME SECTION — full width under the observatory grid. It absorbs the old history strip's job
-// (every run header opens that run on the field) and the rail's outcome mode (the deliverables are
-// the rows). The Storyboard is the surviving direction: a frame per run, a section per repo inside
-// the open frame, ONE ROW PER GAP — and the review gate lives here: an owner's ✓/✕ on a row POSTs
-// through `reviewLoopDeliverable`, then the run's detail is refetched so the ruling renders from the
-// store, not from a client guess.
+// THE OUTCOME SECTION — full width under the observatory grid, and THE outcome surface: the rail no
+// longer has an outcome mode and there is no second variant to switch to. It absorbs the old history
+// strip's job (every run column opens that run and drifts the field) and the old rail ledger's
+// (the gaps are the rows).
+//
+// The review gate lives here: an owner's ✓/✕ on a cell POSTs through `reviewLoopDeliverable`, then
+// the run's detail is refetched so the ruling renders from the store, not from a client guess.
 
 import { useCallback, useMemo, useState } from "react";
 import { Kicker } from "@/components/ui";
 import { DriveVerdict } from "../cockpit/CockpitDrivePanel";
+import { CockpitVerdicts } from "../cockpit/CockpitVerdicts";
 import type { DriveStatus } from "../cockpit/driveTypes";
 import { fetchLoopDetail, reviewLoopDeliverable } from "../cockpit/loopClient";
 import type { LoopRunDetail } from "../cockpit/loopTypes";
-import { OutcomeStoryboard } from "./OutcomeStoryboard";
+import { OutcomeSheet } from "./OutcomeSheet";
 import { buildOutcomeMatrix, mergeRunDetails } from "./outcomeMatrix";
 import { takeaway } from "./outcomeText";
 
-export type OutcomeVariant = "storyboard";
-
 export interface OutcomeSectionProps {
-  variant: OutcomeVariant;
   slug: string;
   /** The SSR snapshot of the listed runs' details. */
   runDetails: LoopRunDetail[];
@@ -57,6 +56,9 @@ export function OutcomeSection(p: OutcomeSectionProps) {
     () => buildOutcomeMatrix(mergeRunDetails(p.runDetails, p.openedDetail, p.liveDetail, ...Object.values(reviewed))),
     [p.runDetails, p.openedDetail, p.liveDetail, reviewed],
   );
+  // The agent's per-item account for the run on screen — shown only when the run recorded one, so an
+  // empty panel never sits under a full sheet.
+  const itemOutcomes = (p.openedDetail ?? p.liveDetail)?.itemOutcomes ?? [];
   return (
     <section aria-label="Loop outcome" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-divider pb-2">
@@ -66,7 +68,7 @@ export function OutcomeSection(p: OutcomeSectionProps) {
         </div>
         {matrix.columns.length > 0 && (
           <span className="type-caption tabular-nums text-slate-500">
-            {matrix.totals.repos} {matrix.totals.repos === 1 ? "repo" : "repos"} · {matrix.totals.gaps} gaps closed · click a run to widen it
+            {matrix.totals.repos} {matrix.totals.repos === 1 ? "repo" : "repos"} · {matrix.totals.gaps} gaps closed · drag a column edge to widen it
           </span>
         )}
       </div>
@@ -77,8 +79,16 @@ export function OutcomeSection(p: OutcomeSectionProps) {
           No runs yet — select repos in the sky and start a run. Each run will land here as a column.
         </p>
       ) : (
-        <OutcomeStoryboard matrix={matrix} selectedId={p.selectedId} onOpen={p.onOpen} canReview={p.canReview} onReview={onReview} />
+        <OutcomeSheet
+          matrix={matrix}
+          slug={slug}
+          selectedId={p.selectedId}
+          onOpen={p.onOpen}
+          canReview={p.canReview}
+          onReview={onReview}
+        />
       )}
+      {itemOutcomes.length > 0 && <CockpitVerdicts outcomes={itemOutcomes} />}
     </section>
   );
 }

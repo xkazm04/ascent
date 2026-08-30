@@ -1,6 +1,7 @@
-// ONE ROW = ONE GAP, with a STATE. The Storyboard's expanded frame renders a repo as a section
-// label and one row per individual gap/deliverable beneath it; this module is the pure fold that
-// produces those rows from a repo's lanes. Each row carries:
+// ONE ROW = ONE GAP, with a STATE. The sheet renders a repo as a group-header row and one first-class
+// sheet row per individual gap/deliverable beneath it; this module is the pure fold that produces
+// those rows from a repo's lanes for ONE run (outcomeSheet.ts then folds them ACROSS runs into the
+// sheet's row axis, keyed by `gapKey`). Each row carries:
 //
 //   • `state` — the tinted block the row renders as:
 //       `committed`   — the claim is covered by real commits (lane commits > 0 AND the verdict is
@@ -31,6 +32,14 @@ export interface GapRow extends LaneDeliverable {
 /** The review key a row is addressed by: its first covered id, else its headline. */
 export const rowCover = (d: Pick<LaneDeliverable, "covers" | "headline">): string => d.covers[0] ?? d.headline;
 
+/** THE IDENTITY OF A GAP, within a run and ACROSS runs. A covered follow-up id is the strong key —
+ *  the same gap worked in run 3 and revisited in run 7 carries the same id, which is what lets the
+ *  sheet give it ONE row with content in those two columns and blank cells between. Without an id
+ *  the fallback is the shape the headline was derived from (kind + dimension + wording), which is
+ *  also what stops two different gaps in one dimension collapsing into one row. */
+export const gapKey = (d: Pick<LaneDeliverable, "covers" | "headline" | "kind" | "dimId">): string =>
+  d.covers.length > 0 ? `id|${d.covers[0]}` : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
+
 function stateOf(d: LaneDeliverable, o: LoopLaneOutcome): DeliverableState {
   if (d.kind === "noted") return "proposed";
   if (o.commits === 0) return "uncommitted";
@@ -47,8 +56,7 @@ function stateOf(d: LaneDeliverable, o: LoopLaneOutcome): DeliverableState {
  *  (the same covered id, or the same movement headline in one dimension, across cycles). */
 export function buildGapRows(lanes: readonly LoopLaneOutcome[]): GapRow[] {
   const out: GapRow[] = [];
-  const keyOf = (d: LaneDeliverable) =>
-    d.covers.length > 0 ? `id|${d.covers[0]}` : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
+  const keyOf = gapKey;
   const byKey = new Map<string, GapRow>();
   const push = (row: GapRow) => {
     const dup = byKey.get(keyOf(row));

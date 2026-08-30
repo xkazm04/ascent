@@ -1,7 +1,7 @@
 // THE OUTCOME MATRIX — one column per run, one row-group per repo, one cell per (run, repo) holding
 // what that run DELIVERED to that repo: one headline per deliverable (outcomeDeliverables.ts), the lane kind,
-// and the movement it can attribute (prose and number under ONE verdict). Pure, so both variants render the same
-// facts and a test can pin the fold without a DOM.
+// and the movement it can attribute (prose and number under ONE verdict). Pure, so a test can pin the
+// fold without a DOM; outcomeSheet.ts re-cuts it into the sheet's cross-run row axis.
 //
 // Every number here answers to the same rule the rail's ledger used: `laneAttribution` decides whether
 // a movement is printed as a delta or as a refusal word, and a per-dimension delta inherits that verdict
@@ -14,7 +14,7 @@ import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
 import { buildGapRows, type GapRow } from "./outcomeGapRows";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution, runAttribution } from "../cockpit/cockpitDrift";
-import { isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
+import { isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopLaneRecord, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
 
 export interface OutcomeDim {
   id: string;
@@ -34,11 +34,14 @@ export interface OutcomeCell {
    *  regressed) then by dimension. */
   deliverables: LaneDeliverable[];
   /** ONE ROW PER GAP, with its state (committed · uncommitted · proposed), its lane and any
-   *  standing review — what the Storyboard's expanded frame renders (outcomeGapRows.ts). */
+   *  standing review — the sheet's row axis is folded from these (outcomeGapRows.ts). */
   rows: GapRow[];
-  /** The lane's PR, when an owner opened one — surfaced on the repo section header. */
+  /** The lane's PR, when an owner opened one — surfaced on the repo's group-header row. */
   prNumber: number | null;
   prUrl: string | null;
+  /** The lane the group header offers the PR action against (the one that already has a PR, else the
+   *  last). Carried whole because `LanePrAction` decides eligibility from the record itself. */
+  lane: LoopLaneRecord;
   /** The full follow-up titles behind the `closed` headlines — evidence for the expanded view only. */
   titles: string[];
   verdict: Attribution;
@@ -126,6 +129,7 @@ function foldCell(runId: string, repo: string, lanes: readonly LoopLaneOutcome[]
     rows: buildGapRows(lanes),
     prNumber: withPr?.prNumber ?? null,
     prUrl: withPr?.prUrl ?? null,
+    lane: withPr ?? tail,
     titles,
     verdict,
     commits: lanes.reduce((n, o) => n + o.commits, 0),

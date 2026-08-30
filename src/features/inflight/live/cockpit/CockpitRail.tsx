@@ -1,23 +1,25 @@
 "use client";
 
-// THE RIGHT RAIL — the one place that decides which of the five panels the operator is looking at.
+// THE RIGHT RAIL — the one place that decides which of the four panels the operator is looking at.
 // Extracted from LiveCockpit so the decision is readable as a single ordered list rather than as a
 // nested ternary buried in a layout; the order IS the doctrine:
 //
 //   1. a live DRIVE outranks everything — while it pulls, "is debt falling and how much rope is left"
 //      is the only question, and its own runs come and go underneath it;
 //   2. a live single run;
-//   3. an outcome (a run's, a drive's, or both — the drive verdict sits ABOVE the run's ledger,
-//      because "why did the drive stop" and "what did the last run do" are different questions);
-//   4. a setup block naming the one thing missing before anything can be dispatched;
-//   5. otherwise the inspector — with an INTERRUPTED drive's resume offer as a banner above it, not
+//   3. a setup block naming the one thing missing before anything can be dispatched;
+//   4. otherwise the inspector — with an INTERRUPTED drive's resume offer as a banner above it, not
 //      in place of it: a drive a restart orphaned is a standing offer, and the operator is equally
 //      entitled to ignore it and select a different scope.
+//
+// THERE IS NO OUTCOME PANEL (wave-2). A settled run's outcome is the full-width SHEET under the grid
+// (`OutcomeSection`), and a settled DRIVE's verdict banner rides above it there. The rail keeps the
+// inspector — and the selection — so the run you just watched is still the scope you can iterate on.
+// `mode` may still arrive as `"outcome"`; it renders exactly as `"inspect"`.
 
-import { CockpitDrivePanel, DriveVerdict } from "./CockpitDrivePanel";
+import { CockpitDrivePanel } from "./CockpitDrivePanel";
 import { CockpitDriveResume } from "./CockpitDriveResume";
 import { CockpitInspector } from "./CockpitInspector";
-import { CockpitOutcome } from "./CockpitOutcome";
 import { CockpitRunPanel } from "./CockpitRunPanel";
 import { CockpitSetup, type CockpitSetupState } from "./CockpitSetup";
 import type { StartDriveInput } from "./driveClient";
@@ -32,14 +34,10 @@ export interface CockpitRailProps {
   setup: CockpitSetupState | null;
   /** The drive currently pulling, if any — it outranks every other panel. */
   liveDrive: DriveStatus | null;
-  /** The drive that just ended, whose verdict belongs above the outcome ledger. */
-  driveOutcome: DriveStatus | null;
   /** A drive a server restart orphaned, offered back to the operator above the inspector. */
   interruptedDrive: DriveStatus | null;
   runDetail: LoopRunDetail | null;
   runLive: boolean;
-  outcome: LoopRunDetail | null;
-  canReplay: boolean;
   selected: ReadonlySet<string>;
   paired: ReadonlySet<string>;
   propose: (repos: readonly string[]) => Promise<LoopProposal[] | null>;
@@ -54,12 +52,10 @@ export interface CockpitRailProps {
   onResumeDrive: () => void;
   onDismissDrive: () => void;
   onRetryLane: (laneId: string) => void;
-  onReplay: () => void;
-  onBack: () => void;
 }
 
 export function CockpitRail(props: CockpitRailProps) {
-  const { mode, setup, liveDrive, driveOutcome, runDetail, runLive, outcome } = props;
+  const { mode, setup, liveDrive, runDetail, runLive } = props;
 
   if (liveDrive) {
     return (
@@ -82,25 +78,6 @@ export function CockpitRail(props: CockpitRailProps) {
         busy={props.busy}
         error={props.loopError}
       />
-    );
-  }
-  if (mode === "outcome" && (outcome || driveOutcome)) {
-    return (
-      <>
-        {driveOutcome && <DriveVerdict drive={driveOutcome} onBack={outcome ? undefined : props.onBack} />}
-        {outcome && (
-          <CockpitOutcome
-            detail={outcome}
-            onReplay={props.onReplay}
-            onBack={props.onBack}
-            canReplay={props.canReplay}
-            slug={props.slug}
-            // The PR action is owner-gated at the route, and a control that 403s on click is worse
-            // than one that is not offered. Same predicate the Run button uses.
-            canOpenPr={props.canRun}
-          />
-        )}
-      </>
     );
   }
   if (setup) return <CockpitSetup state={setup} slug={props.slug} message={props.loopError} />;

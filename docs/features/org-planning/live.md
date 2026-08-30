@@ -319,11 +319,10 @@ blocks the lane.
 
 ### Gap states and the review gate (wave 2b, 2026-08-30)
 
-The Storyboard is the surviving outcome direction (the variant tabs stay Baseline / Storyboard for
-now). Inside an expanded run frame the **repo name is a section label rendered once** — with the
-lane's `PR #n` link beside it when an owner opened one — and beneath it sits **one row per
-individual gap/deliverable**; a lane with many gaps scrolls inside the frame (`max-h` +
-`overflow-y-auto`) rather than collapsing into "+n more".
+The outcome surface is the **sheet** ([below](#the-outcome-sheet-one-row-per-gap-one-column-per-run));
+there is no variant switcher and no baseline any more. The repo is named **once**, on a group-header
+row, and beneath it sits **one first-class sheet row per individual gap/deliverable** — never a list
+nested inside one cell.
 
 Each row carries a **state**, derived in the pure fold `buildGapRows`
 (`src/features/inflight/live/outcome/outcomeGapRows.ts`) and rendered as a subtle tinted block
@@ -335,7 +334,7 @@ Each row carries a **state**, derived in the pure fold `buildGapRows`
 | `uncommitted` | the agent claimed RESOLVED but the lane recorded no commits — the lost-deliverable case | warn |
 | `proposed` | a batch item the run armed but did not resolve (`batchIds` minus closed claims — synthesized as a row titled from the follow-up itself, so **all** gaps get rows), or a `noted` deliverable | accent |
 
-**Quick approval** (`OutcomeGapRow.tsx`): an owner rules on each row with one click — ✓ / ✕,
+**Quick approval** (`OutcomeSheetCell.tsx`): an owner rules on each (gap × run) cell with one click — ✓ / ✕,
 keyboard-operable, `aria-label`ed. An approved row keeps its tint and gains a ✓; a dismissed row
 drops to a strikethrough-free `text-slate-600` mute. The ruling persists as a widened
 `review?: "approved" | "dismissed"` field on the `deliverablesJson` entries (the `parseTargets`
@@ -349,6 +348,7 @@ run's detail on success so the ruling renders from the store. This is the human 
 needs: **the loop proposes, the human disposes.**
 
 Tests: `outcomeGapRows.test.ts` (a unit test per state, the synthesis, the marker attach),
+`outcomeSheetModel.test.ts` (one row per gap across runs, blanks elsewhere),
 `lane-deliverables.test.ts` (no cap, per-gap dedupe), `lane-summary.test.ts` (rewrite-in-place,
 count mismatch rejected), `loop-runs.test.ts` (the widened review parse + the marker shape),
 `route.test.ts` (the `review` action's gates).
@@ -544,28 +544,64 @@ stop; commits and closed ids are mono counters beside the rail (there is no `com
 accumulate during `dispatching`, a stop would park the marker at a state the engine never enters);
 the agent log is a collapsible detail; `error` lanes offer **Retry**; `done` lanes stamp the lift.
 
-### The outcome ledger (per-dimension delta + attribution)
+### The outcome sheet: one row per gap, one column per run
 
-When the run settles, the rail switches to `CockpitOutcome`: totals (**attributable** lift, repos
-improved / flat / regressed, and what was excluded) and a hairline ledger per repo — before → after
-overall (`fmtDelta`), dimensions moved (`DIMENSION_SHORT` + delta in `deltaHex`), closed gaps, the
-`diffScans` attribution one-liners, follow-ups closed by the `Ascent-Resolves` trailer, commits and
-branch, plus the row's **engine and score-integrity** line.
+**The rail has no outcome panel (wave-2, 2026-08-30).** A settled run's outcome is a full-width
+**sheet** under the observatory grid (`outcome/OutcomeSheet.tsx`), and it is the *only* outcome
+surface: the variant strip, the baseline ledger (`CockpitOutcome`, `CockpitOutcomeLedger`) and the
+run-history strip (`CockpitHistory`) were deleted, not hidden. The rail keeps the inspector with the
+selection intact — the run you just watched is usually the scope you want to iterate on — while the
+run still drifts the field and is still `setOutcome`'d (`useCockpit`; a `mode` of `"outcome"` renders
+the rail exactly as `"inspect"`).
 
-A row prints a coloured delta only when [the attribution rule](#is-this-lift-real-the-attribution-rule)
-allows it; otherwise the two numbers stay muted and the verdict sits where the delta would ("not
-attributable: mock scan", "within noise (±2)"). Per-dimension deltas inherit the row's verdict — if
-the pair cannot be attributed, colouring one dimension green would restate the claim the line above
-just declined to make. The improved/flat/regressed tally counts attributable movements only, so it
-can never contradict the headline it sits beside. The provenance line names the engine (and marks it
-`(degraded)` when the model failed), then chips whatever `scoreIntegrity` recorded — `D9 renormalized
-out`, `widened D1, D2`, `audit capped`, `blend 50%` — each carrying its explanation as a tooltip and
-as sr-only text. **Replay run** re-runs the
-field drift. Drift ends come from the run's own detail, not a client snapshot: `driftFor` overlays
-each lane's `outcome.before` / `outcome.after` scan onto the seed set and lays out both sides, so a
-history pick drifts a run you never watched and the picture cannot disagree with the ledger; a run
-with no measured pair disables Replay. `router.refresh()` fires on settle to re-seed the server
-render.
+**The shape is a spreadsheet, because the question is a spreadsheet question:** *when did this gap get
+done, and by which run?*
+
+| axis | what it is |
+| --- | --- |
+| columns | one per run, chronological, latest emphasised, a live run marked. The header is a button: clicking a run opens it and drifts the field (this absorbed the history strip). |
+| rows | a **project header row** (`th scope="colgroup"`: the repo named once, its lane's PR link or the guarded *open a PR* action, its cumulative attributable lift, `bg-surface/60`), then **one row per gap** (`th scope="row"`) — the project name never repeated. |
+| cells | that run's state for that gap: the tinted block (`committed` `bg-success/10` / `uncommitted` `bg-warn/10` / `proposed` `bg-accent/5`), a kind marker, the run's own headline, the dimension short label, and the owner's ✓/✕. **A blank cell is normal** and is the point. |
+
+A gap is identified **across runs** by its review key (`gapKey`, outcomeGapRows.ts: the first covered
+follow-up id, else `kind|dimId|headline`), so a gap worked in run 3 and revisited in run 7 is **one
+row** with content in those two columns and blanks between — which is what makes the timing readable
+at a glance. The pure fold is `buildSheetProjects` (`outcome/outcomeSheetModel.ts`), over the same
+`buildOutcomeMatrix` the numbers come from; the row label is the *latest* run's wording while every
+earlier run keeps its own wording in its own cell.
+
+It is a real `<table>` with a frozen (`sticky left-0`) label column, so a screen reader reads a cell as
+repo → gap → run → state. There is **no "details" toggle** — it made a mess of a sheet this wide.
+
+**Dynamic column width (drag or keyboard).** Every column, the frozen label column included, carries a
+handle on its right edge (`ColumnResizer.tsx`): pointer events with `setPointerCapture` so a drag that
+leaves the 6px strip still tracks, `cursor-col-resize`, clamped 6rem–40rem, and ←/→ (Shift for a
+coarse step) when the handle is focused — it is a `role="separator"` with `aria-orientation="vertical"`
+and an `aria-label`, so widths are never mouse-only. A drag is direct manipulation, so nothing
+transitions during it.
+
+**Width is disclosure, which is why the drag is worth having:** a narrow cell shows the marker and a
+truncated headline; past `REVEAL_DIM_PX` it adds the dimension label, past `REVEAL_EVIDENCE_PX` the
+evidence line. Everything rides in the cell's `title` at every width. Widths live in component state
+and persist per org in `localStorage` (`useColumnWidths.ts`) **inside try/catch on both read and
+write**, and are loaded in an effect rather than in the state initializer — a private window, a
+blocked store or a corrupted value degrades to the defaults instead of throwing, and the server's HTML
+and the client's first paint cannot disagree.
+
+**What the deletion cost, honestly.** The old rail ledger printed per-lane before → after,
+per-dimension deltas, the engine/`scoreIntegrity` provenance line and the ¢/point economics; the sheet
+prints deliverables, verdicts and commits/gaps instead. The standing cost picture is `PriceListPanel`,
+and the agent's per-item account (`CockpitVerdicts`) moved under the sheet for the run on screen. The
+**Replay run** button went with the ledger; `replayRun` is still on `useCockpit` for the surface that
+re-offers it.
+
+A cell prints a coloured delta only when [the attribution rule](#is-this-lift-real-the-attribution-rule)
+allows it; otherwise the verdict word sits where the delta would ("uncommitted", "within noise",
+"mock scan", "not measured"), and the movement prose is withheld with it. Drift ends come from the
+run's own detail, not a client snapshot: `driftFor` overlays each lane's `outcome.before` /
+`outcome.after` scan onto the seed set and lays out both sides, so opening an old column drifts a run
+you never watched and the picture cannot disagree with the sheet. `router.refresh()` fires on settle to
+re-seed the server render.
 
 ### Drive to green, from the cockpit (`CockpitDrivePanel`, `useDrive`)
 
@@ -591,7 +627,7 @@ the win), so the colour takes the size of the drop while the text prints the sig
 would let the drive dispatch the next one, so the header's Stop is re-pointed at `stopDrive` for the
 duration.
 
-On termination a `DriveVerdict` banner sits **above** the ordinary outcome ledger — the two answer
+On termination a `DriveVerdict` banner sits **above** the outcome sheet — the two answer
 different questions ("why did the drive stop" vs "what did the last run do"), and `dry` and
 `ceiling` are worded apart on purpose because they call for opposite next moves. A drive that never
 dispatched a run (already green) renders the banner alone, with its own way back.
@@ -646,7 +682,7 @@ and under every row of the run-history strip. A run recorded before the columns 
 Tests: `agent-options.test.ts` (the closed lists, including the shell-injection shapes, and the
 unknown-renders-nothing label), `agent.test.ts` (`resolveAgentConfig` precedence),
 `loop-engine.test.ts` (the parameter threading start → row → agent invocation, and that a mid-run env
-change cannot reach a later cycle), `CockpitOutcome.dom.test.tsx` (the ledger shows it).
+change cannot reach a later cycle), `OutcomeSheet.dom.test.tsx` (the run column header shows it).
 
 ### Lane kinds: foundation and practice lanes (2026-08-28)
 
@@ -727,8 +763,10 @@ install ending cleanly, a curated batch winning), `propose/route.test.ts` (the w
 
 ### Run history
 
-`CockpitHistory` lists the last 20 runs (age, repo count, lift, phase, and the agent configuration the
-lift was produced under); selecting one fetches its detail and shows the outcome rail for it.
+**The sheet's columns are the history** (wave-2): the last runs are its chronological columns — age,
+repo count, gaps, lift, phase and the agent configuration the lift was produced under — and clicking a
+column header fetches that run's detail and drifts the field. The separate `CockpitHistory` strip that
+used to do this was deleted rather than kept beside it.
 
 ### Setup states (`CockpitSetup`)
 
@@ -740,7 +778,8 @@ via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ reposit
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
 `cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and
 the three verdicts), `useLoopRun.dom.test.tsx`, `useDrive.dom.test.tsx` (gating + poll discipline +
-settle-once), `CockpitOutcome.dom.test.tsx`, `CockpitDrivePanel.dom.test.tsx` (the control's
+settle-once), `outcomeSheetModel.test.ts` + `OutcomeSheet.dom.test.tsx` (the cross-run row axis, the
+blank cells, the resize separators), `CockpitDrivePanel.dom.test.tsx` (the control's
 states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
 `observatory/*.test.ts(x)`.
 

@@ -1,11 +1,23 @@
-// A hand-built OutcomeMatrix for the variant dom tests and the critic render — three runs, four repos,
+// A hand-built OutcomeMatrix for the sheet's dom test — three runs, four repos,
 // every verdict kind the fold can produce, a live lane and an errored one. Test-only. An attributable
 // delta here is always outside the ±2 noise band, as the rule guarantees — a fixture that said
 // `attributable +1` once put a `≈+1` on the page, a number the rule would have refused.
 
 import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
+import type { LoopLaneRecord } from "../cockpit/loopTypes";
 import type { GapRow } from "./outcomeGapRows";
 import type { OutcomeCell, OutcomeColumn, OutcomeMatrix } from "./outcomeMatrix";
+
+/** The lane a cell folded from — carried so the group header can offer the PR action. */
+const laneOf = (o: Partial<OutcomeCell> & { runId: string; repo: string }): LoopLaneRecord => ({
+  id: `lane-${o.repo}`, runId: o.runId, repoFullName: o.repo, cycle: 1, phase: o.phase ?? "done",
+  branch: "ascent/loop-1", batchIds: [], closedIds: [], commits: o.commits ?? 0, beforeScanId: null,
+  afterScanId: null, stage: o.stage ?? null, log: [], error: o.error ?? null, startedAt: null, endedAt: null,
+  deliverables: [], prNumber: o.prNumber ?? null, prUrl: o.prUrl ?? null,
+  model: null, costSource: null, costMicros: null, inputTokens: null, outputTokens: null,
+  cacheReadTokens: null, turns: null, agentDurationMs: null, agentSessionId: null, abPairKey: null,
+  brief: null, report: null, dimId: null,
+});
 
 const d = (headline: string, kind: LaneDeliverable["kind"], dimId: LaneDeliverable["dimId"] = null, evidence: string | null = null): LaneDeliverable => ({
   headline, kind, dimId, covers: [], evidence,
@@ -22,7 +34,7 @@ const rowsFor = (cell: OutcomeCell): GapRow[] =>
 
 export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }): OutcomeCell => {
   const base: OutcomeCell = {
-    kind: "backlog", installed: null, deliverables: [], rows: [], prNumber: null, prUrl: null, titles: [],
+    kind: "backlog", installed: null, deliverables: [], rows: [], prNumber: null, prUrl: null, lane: laneOf(o), titles: [],
     verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], movements: [],
     phase: "done", stage: null, error: null, ...o,
   };

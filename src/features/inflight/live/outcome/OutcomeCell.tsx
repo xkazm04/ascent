@@ -1,6 +1,6 @@
-// ONE cell of the matrix — the hook-free parts: the verdict (a delta, or the refusal word in its
-// place), the live caption, the per-dimension deltas (coloured only when claimable) and the mono
-// footnote. The deliverable rows live in OutcomeCellRows.tsx, which holds the widen state.
+// A (run, repo) cell's hook-free parts — what the sheet's PROJECT HEADER row prints: the verdict (a
+// delta, or the refusal word in its place), the live caption, and the mono footnote. The gap rows
+// beneath it are OutcomeSheetCell.tsx.
 
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { laneCaption } from "../cockpit/laneStages";
@@ -26,27 +26,6 @@ export function CellLive({ cell }: { cell: Cell }) {
       <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
       {laneCaption(cell)}
     </span>
-  );
-}
-
-/** The per-dimension deltas — evidence for the widened cell only. */
-export function CellDims({ cell }: { cell: Cell }) {
-  if (cell.dims.length === 0) return null;
-  return (
-    <ul className="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5">
-      {cell.dims.map((d) => (
-        <li key={d.id} className="type-caption tabular-nums">
-          <span className="text-slate-500">{d.short}</span>{" "}
-          <span
-            style={{ color: d.claimable ? deltaHex(d.delta) : undefined }}
-            className={d.claimable ? undefined : "text-slate-600"}
-            title={d.claimable ? undefined : "Not attributable to this run"}
-          >
-            {fmtDelta(d.delta)}
-          </span>
-        </li>
-      ))}
-    </ul>
   );
 }
 

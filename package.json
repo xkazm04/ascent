@@ -11,6 +11,7 @@
     "dev:inspect": "cross-env DEV_INSPECT=1 next dev",
     "dev:empty": "node scripts/dev-empty.mjs",
     "db:local:seed": "node scripts/seed-scans.mjs",
+    "loop:campaign": "node scripts/loop-campaign.mjs",
     "db:seed:fleet": "node scripts/seed-fleet.mjs",
     "build": "next build",
     "start": "next start",
