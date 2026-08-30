@@ -143,6 +143,7 @@ CREATE TABLE "Repository" (
     "missingSince" TIMESTAMP(3),
     "role" TEXT NOT NULL DEFAULT 'fleet',
     "manifestJson" TEXT,
+    "guidanceGraphJson" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -154,6 +155,9 @@ ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "missingSince" TIMESTAMP(3);
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "role" TEXT NOT NULL DEFAULT 'fleet';
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "manifestJson" TEXT;
+-- MOONSHOT #15 — latest arbitrated guidance graph. Nullable: null is "no scan has assessed this
+-- repo's guidance yet", which is not "this repo has no guidance" and never a zero.
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "guidanceGraphJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "Segment" (
@@ -276,6 +280,7 @@ CREATE TABLE "Scan" (
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
     "manifestJson" TEXT,
+    "guidanceGraphJson" TEXT,
     "scannedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -290,6 +295,8 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineByom" BOOLEAN;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "contextHealthJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "manifestJson" TEXT;
+-- MOONSHOT #15 — per-scan arbitrated guidance graph. Null = a pre-#15 scan, never "no guidance".
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "guidanceGraphJson" TEXT;
 -- Scan provenance: the mock-floor degrade flag and the ScoreIntegrity record. See the
 -- 20260828140000_add_scan_provenance migration for why `engineProvider = 'mock'` cannot carry the
 -- first on its own.
@@ -475,11 +482,22 @@ CREATE TABLE "ImprovementPr" (
     "impactDim" INTEGER,
     "impactOverall" INTEGER,
     "openedBy" TEXT,
+    "source" TEXT NOT NULL DEFAULT 'practice',
+    "loopLaneId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "ImprovementPr_pkey" PRIMARY KEY ("id")
 );
+-- MOONSHOT #26 — which surface opened the PR, and the loop lane behind it. Defaulted, so every
+-- existing row keeps its meaning ("practice") without a backfill. The @@unique on
+-- (orgId, repoFullName, practiceId) is deliberately UNCHANGED: a loop row's practiceId is the
+-- synthetic "loop:<laneId>", unique by construction and therefore idempotent under retry.
+ALTER TABLE "ImprovementPr" ADD COLUMN IF NOT EXISTS "source" TEXT NOT NULL DEFAULT 'practice';
+ALTER TABLE "ImprovementPr" ADD COLUMN IF NOT EXISTS "loopLaneId" TEXT;
+
+-- CreateIndex
+CREATE INDEX "ImprovementPr_orgId_loopLaneId_idx" ON "ImprovementPr"("orgId", "loopLaneId");
 
 -- CreateTable
 CREATE TABLE "TeamStandingSnapshot" (
@@ -879,6 +897,8 @@ CREATE TABLE "OrgMemory" (
     "version" INTEGER NOT NULL DEFAULT 1,
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "accessCount" INTEGER NOT NULL DEFAULT 0,
+    "citedCount" INTEGER NOT NULL DEFAULT 0,
+    "notUsefulCount" INTEGER NOT NULL DEFAULT 0,
     "expiresAt" TIMESTAMP(3),
     "origin" TEXT NOT NULL DEFAULT 'hosted',
     "registryId" TEXT,
@@ -904,6 +924,10 @@ ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "origin" TEXT NOT NULL DEFAULT 
 ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "registryId" TEXT;
 ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "registryPath" TEXT;
 ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "registryHash" TEXT;
+-- MOONSHOT #17 — denormalized use-evidence from the MCP citation door. Two counters, never netted:
+-- "an agent used this" and "an agent read it and it did not help" call for different actions.
+ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "citedCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "OrgMemory" ADD COLUMN IF NOT EXISTS "notUsefulCount" INTEGER NOT NULL DEFAULT 0;
 
 -- CreateIndex
 CREATE INDEX "OrgMemory_registryId_registryPath_idx" ON "OrgMemory"("registryId", "registryPath");
@@ -1333,6 +1357,8 @@ CREATE TABLE "LoopRun" (
     "curated" BOOLEAN NOT NULL DEFAULT false,
     "model" TEXT,
     "effort" TEXT,
+    "modelPolicy" TEXT NOT NULL DEFAULT 'single',
+    "modelsJson" TEXT NOT NULL DEFAULT '[]',
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "endedAt" TIMESTAMP(3),
     "error" TEXT,
@@ -1344,6 +1370,11 @@ CREATE TABLE "LoopRun" (
 -- compared across configurations. See the 20260828170000_add_run_agent_config migration.
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "model" TEXT;
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "effort" TEXT;
+-- MOONSHOT #27 — how the run spends models. `ab` pairs its lanes across two arms so a cost/lift
+-- comparison is a measurement rather than a comparison of two runs that differed in other ways.
+-- `modelsJson` is TEXT JSON (never jsonb — DSQL/PGlite).
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelPolicy" TEXT NOT NULL DEFAULT 'single';
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelsJson" TEXT NOT NULL DEFAULT '[]';
 
 -- CreateIndex
 CREATE INDEX "LoopRun_orgId_createdAt_idx" ON "LoopRun"("orgId", "createdAt");
@@ -1366,9 +1397,54 @@ CREATE TABLE "LoopRunLane" (
     "error" TEXT,
     "startedAt" TIMESTAMP(3),
     "endedAt" TIMESTAMP(3),
+    "model" TEXT,
+    "costSource" TEXT,
+    "costMicros" INTEGER,
+    "inputTokens" INTEGER,
+    "outputTokens" INTEGER,
+    "cacheReadTokens" INTEGER,
+    "turns" INTEGER,
+    "agentDurationMs" INTEGER,
+    "agentSessionId" TEXT,
+    "abPairKey" TEXT,
+    "briefJson" TEXT NOT NULL DEFAULT '{}',
+    "reportJson" TEXT NOT NULL DEFAULT '{}',
+    "dimId" TEXT,
+    "prNumber" INTEGER,
+    "prUrl" TEXT,
+    "executor" TEXT NOT NULL DEFAULT 'local',
+    "claimedBy" TEXT,
+    "leaseUntil" TIMESTAMP(3),
 
     CONSTRAINT "LoopRunLane_pkey" PRIMARY KEY ("id")
 );
+-- MOONSHOT #27 — lane economics. ONE declared cost source per lane, never a sum of two. Every
+-- measurement is nullable: a lane whose agent reported nothing is UNKNOWN, and a 0 in its place
+-- would be averaged as a free session. `costMicros` is MICRO-CENTS
+-- (round(total_cost_usd * 100 * 1e6)), so a 0.4¢ session is not rounded away; readers divide.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "model" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "costSource" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "costMicros" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "inputTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "outputTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "cacheReadTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "turns" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "agentDurationMs" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "agentSessionId" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "abPairKey" TEXT;
+-- MOONSHOT #25 — the lane's brief PROVENANCE and the agent's own report, verbatim after validation.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "briefJson" TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "reportJson" TEXT NOT NULL DEFAULT '{}';
+-- MOONSHOT #26 — the lane's PR, denormalized so the cockpit renders it without a join. `dimId` is an
+-- honest null when the batch was empty or spanned no single dimension.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "dimId" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "prNumber" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "prUrl" TEXT;
+-- MOONSHOT #3 — the work lease, landed here and DELIBERATELY UNUSED until W4-N (00-INDEX §5 Wave 2).
+-- `executor` defaults to 'local' so every existing lane keeps exactly its current meaning.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "executor" TEXT NOT NULL DEFAULT 'local';
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "claimedBy" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "leaseUntil" TIMESTAMP(3);
 
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");
@@ -1715,6 +1791,7 @@ CREATE TABLE "RepoConformanceMap" (
     "judged" INTEGER NOT NULL,
     "deviations" INTEGER NOT NULL,
     "weaklyGoverned" INTEGER NOT NULL,
+    "weaklyGovernedJson" TEXT NOT NULL DEFAULT '[]',
     "unmatched" INTEGER NOT NULL,
     "domainsJson" TEXT NOT NULL DEFAULT '[]',
     "bundleDigestsJson" TEXT NOT NULL DEFAULT '{}',
@@ -1728,6 +1805,11 @@ CREATE TABLE "RepoConformanceMap" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RepoConformanceMap_repositoryId_key" ON "RepoConformanceMap"("repositoryId");
+
+-- Director addendum deferred from wave 1: the weakly-governed contexts BY NAME. The list is not
+-- derivable from the counts or from RepoConformance (a context with no judged pair leaves no row),
+-- so without it "3 weakly governed" names nothing a reader can act on. TEXT JSON string[].
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "weaklyGovernedJson" TEXT NOT NULL DEFAULT '[]';
 
 -- CreateIndex
 CREATE INDEX "RepoConformanceMap_orgId_idx" ON "RepoConformanceMap"("orgId");
@@ -1934,6 +2016,157 @@ CREATE UNIQUE INDEX "ScanDigest_repoId_period_rubricVersion_engineProvider_key" 
 
 -- CreateIndex
 CREATE INDEX "ScanDigest_repoId_lastScannedAt_idx" ON "ScanDigest"("repoId", "lastScannedAt");
+
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+-- MOONSHOT WAVE 2 (docs/specs/moonshot/00-INDEX.md §5 "Wave 2"). Same three rules as wave 1: every
+-- JSON payload is TEXT, never jsonb (DSQL/PGlite); every MEASUREMENT column is nullable so an
+-- unreported figure stays UNKNOWN instead of becoming a summed zero; and the erase/purge cascades
+-- are hand-written in src/lib/db/retention.ts, because relationMode = "prisma" emits no FKs.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+-- CreateTable: #25 what a lane's agent did with ONE recommendation, as its own lane-report said.
+-- `absent` (the report never mentioned the id) is a DIFFERENT verdict from `skipped` (it mentioned
+-- it and declined) — only one of those is a reason to stop offering the item.
+CREATE TABLE "LaneItemOutcome" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "runId" TEXT NOT NULL,
+    "laneId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "recommendationId" TEXT NOT NULL,
+    "cycle" INTEGER NOT NULL,
+    "verdict" TEXT NOT NULL,
+    -- The agent's own words. '' means it gave none — never a reason invented on its behalf.
+    "reason" TEXT NOT NULL DEFAULT '',
+    "filesJson" TEXT NOT NULL DEFAULT '[]',
+    "deferUntil" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LaneItemOutcome_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: one verdict per (lane, item) — the idempotency key, so re-parsing a report is a no-op.
+CREATE UNIQUE INDEX "LaneItemOutcome_laneId_recommendationId_key" ON "LaneItemOutcome"("laneId", "recommendationId");
+
+-- CreateIndex
+CREATE INDEX "LaneItemOutcome_orgId_recommendationId_idx" ON "LaneItemOutcome"("orgId", "recommendationId");
+
+-- CreateIndex
+CREATE INDEX "LaneItemOutcome_runId_idx" ON "LaneItemOutcome"("runId");
+
+-- CreateTable: #25 a lesson a lane PROPOSED for org memory, held in review. An agent's summary of
+-- its own work is a claim; promoting it unreviewed would let a loop teach the org something no
+-- human agreed to. Generic on purpose — #36's skill-lessons channel reuses this table.
+CREATE TABLE "OrgMemoryCandidate" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "namespace" TEXT,
+    "content" TEXT NOT NULL,
+    "kind" TEXT NOT NULL DEFAULT 'procedural',
+    "source" TEXT NOT NULL,
+    "laneId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "promotedMemoryId" TEXT,
+    "reviewedBy" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgMemoryCandidate_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "OrgMemoryCandidate_orgId_status_idx" ON "OrgMemoryCandidate"("orgId", "status");
+
+-- CreateTable: #33 one practice artifact ascent PROPOSED to a repo, and what happened next. The two
+-- hashes are the point: `drifted` is a measured divergence between what was committed and what the
+-- file looks like now, not an assumption that a merged PR stayed merged. `adoptedHash` stays NULL
+-- until the first post-merge scan observes the file — null is "not yet observed", not "unchanged".
+CREATE TABLE "PracticeAdoption" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "practiceId" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    -- NULL unless source = 'house': a generic artifact has no house-pattern version, which is not 0.
+    "patternVersion" INTEGER,
+    "artifactPath" TEXT NOT NULL,
+    "proposedHash" TEXT NOT NULL,
+    "adoptedHash" TEXT,
+    "adoptedOutline" TEXT,
+    "state" TEXT NOT NULL DEFAULT 'proposed',
+    "improvementPrId" TEXT,
+    "prNumber" INTEGER,
+    "adoptedAt" TIMESTAMP(3),
+    "driftedAt" TIMESTAMP(3),
+    "lastCheckedAt" TIMESTAMP(3),
+    "lastScanId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PracticeAdoption_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PracticeAdoption_orgId_repoFullName_practiceId_artifactPath_key" ON "PracticeAdoption"("orgId", "repoFullName", "practiceId", "artifactPath");
+
+-- CreateIndex
+CREATE INDEX "PracticeAdoption_orgId_state_idx" ON "PracticeAdoption"("orgId", "state");
+
+-- CreateIndex
+CREATE INDEX "PracticeAdoption_orgId_practiceId_patternVersion_idx" ON "PracticeAdoption"("orgId", "practiceId", "patternVersion");
+
+-- CreateTable: #33 an IMMUTABLE version of an org's mined house pattern. Versioned rather than
+-- overwritten because an adoption row cites the version it was measured against — a re-mine must not
+-- retroactively turn every previously-conformant repo into a drifted one.
+CREATE TABLE "HousePatternVersion" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "practiceId" TEXT NOT NULL,
+    "version" INTEGER NOT NULL,
+    "linesJson" TEXT NOT NULL DEFAULT '[]',
+    "exemplarsJson" TEXT NOT NULL DEFAULT '[]',
+    "agreementMin" INTEGER NOT NULL DEFAULT 2,
+    "patternHash" TEXT NOT NULL,
+    "minedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "HousePatternVersion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "HousePatternVersion_orgId_practiceId_version_key" ON "HousePatternVersion"("orgId", "practiceId", "version");
+
+-- CreateIndex: the change key — a re-mine producing the same lines writes no new version at all.
+CREATE UNIQUE INDEX "HousePatternVersion_orgId_practiceId_patternHash_key" ON "HousePatternVersion"("orgId", "practiceId", "patternHash");
+
+-- CreateIndex
+CREATE INDEX "HousePatternVersion_orgId_practiceId_idx" ON "HousePatternVersion"("orgId", "practiceId");
+
+-- CreateTable: #17 an agent telling ascent what it actually USED. One row per (memory, session), so
+-- a chatty agent's repeated reads are ONE citation. `used = false` is a first-class fact and is
+-- counted separately on OrgMemory.notUsefulCount — never netted against the positive count.
+CREATE TABLE "OrgMemoryCitation" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "memoryId" TEXT NOT NULL,
+    "tokenId" TEXT,
+    "actor" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "used" BOOLEAN NOT NULL,
+    "note" TEXT,
+    "source" TEXT NOT NULL DEFAULT 'mcp',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgMemoryCitation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgMemoryCitation_memoryId_sessionId_key" ON "OrgMemoryCitation"("memoryId", "sessionId");
+
+-- CreateIndex
+CREATE INDEX "OrgMemoryCitation_orgId_createdAt_idx" ON "OrgMemoryCitation"("orgId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "OrgMemoryCitation_memoryId_used_idx" ON "OrgMemoryCitation"("memoryId", "used");
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
