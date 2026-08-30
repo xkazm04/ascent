@@ -20,7 +20,7 @@ export const CONTEXT_HEALTH_VERSION = "1";
 // The agent-instruction files the D1 detector already recognizes as primary guidance (mirrors
 // pickFilesToFetch step 0 in src/lib/github/source.ts, minus the multi-file .cursor/rules/ dir —
 // freshness lookups are budgeted per FILE, so only single-file guidance artifacts qualify).
-const GUIDANCE_PATH_RE =
+export const GUIDANCE_PATH_RE =
   /((^|\/)(claude\.md|agents?\.md|agent\.md|\.cursorrules|\.windsurfrules)|^\.github\/copilot-instructions\.md)$/i;
 
 /** How many guidance files the health read covers (== the freshness-lookup budget in source.ts). */

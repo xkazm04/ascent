@@ -605,6 +605,10 @@ export interface LlmClaim {
   facet: string;
   path: string;
   quote: string;
+  /** Second citation, for a facet whose `citations` is 2 (a claim ABOUT two files — "these two agree",
+   *  "these two contradict" — is unverifiable from one of them). Absent for single-citation facets. */
+  path2?: string;
+  quote2?: string;
   note?: string;
 }
 
@@ -962,6 +966,72 @@ export interface ContextHealth {
   score: number;
 }
 
+// ---------------------------------------------------------------------------
+// Guidance graph (moonshot #15) — the multi-vendor arbiter
+// ---------------------------------------------------------------------------
+
+/** Which vendor's instruction-document format a guidance node is. `other` = a guidance file whose
+ *  format this build does not recognise; it still participates in coherence. */
+export type GuidanceAgent = "claude" | "agents" | "cursor" | "copilot" | "windsurf" | "aider" | "other";
+
+/** One guidance document in the repo, parsed into the facts the arbiter compares across vendors. */
+export interface GuidanceNode {
+  path: string;
+  agent: GuidanceAgent;
+  bytes: number | null;
+  /** false when the scan's fetch budget never reached this file: presence is known, content is not.
+   *  An unsampled node contributes presence only and can NEVER create a penalty. */
+  contentSampled: boolean;
+  /** Normalized capability key ("test", "build", …) → the literal command the document states. */
+  commands: { key: string; command: string }[];
+  rules: { subject: string; polarity: "never" | "always"; quote: string }[];
+  /** `@ref` and markdown-link targets that resolve to a real path in the tree. */
+  pointers: string[];
+  /** The body is nothing but pointers (this repo's one-line `CLAUDE.md` → `@AGENTS.md`). */
+  pointerOnly: boolean;
+  /** ISO string — NEVER a Date (this type crosses to a client; see db/wire-safe.ts). */
+  lastCommitAt: string | null;
+}
+
+export interface GuidanceEdge {
+  from: string;
+  to: string;
+  kind: "points-to" | "projects-from" | "duplicates" | "diverges";
+  detail: string;
+}
+
+/** Two guidance files telling agents different things. Scores NOTHING on its own — the deterministic
+ *  penalties move the number; a model-cited one is `possible` evidence at zero points (G4/G5). */
+export interface GuidanceContradiction {
+  kind: "command" | "rule";
+  subject: string;
+  a: { path: string; quote: string };
+  b: { path: string; quote: string };
+  confidence: "deterministic" | "possible";
+}
+
+/**
+ * The arbiter's verdict over every vendor guidance format in one repo: which document is canonical,
+ * how the others relate to it, and where they contradict each other.
+ *
+ * `coherence` is `null` — never 0 — when the repo has no guidance document at all: 0 would be a
+ * fabricated verdict about a repo nobody could assess. Persisted on `Scan.guidanceGraphJson` and
+ * cached on `Repository.guidanceGraphJson`; a pre-r11 row parses to `null` = "not assessed".
+ */
+export interface GuidanceGraph {
+  version: "1";
+  nodes: GuidanceNode[];
+  edges: GuidanceEdge[];
+  /** null = ≥2 documents and no source could be nominated (honest null, never a guess). */
+  canonical: string | null;
+  canonicalBasis: "manifest" | "pointer" | "projection-header" | "rank" | null;
+  contradictions: GuidanceContradiction[];
+  /** 0..100, or null when there are no guidance documents. */
+  coherence: number | null;
+  /** Every deduction, naming the paths it was read from — so the number is always re-traceable. */
+  penalties: { reason: string; points: number; paths: string[] }[];
+}
+
 export interface ScanReport {
   repo: RepoMeta;
   overallScore: number;
@@ -1018,6 +1088,10 @@ export interface ScanReport {
   /** Context Health (W4) — guidance-file freshness/quality/drift. Display/persist-only (never scored,
    *  never in the LLM prompt); undefined on reconstructed snapshots that never ran ingestion. */
   contextHealth?: ContextHealth | null;
+  /** The multi-vendor guidance arbiter's verdict (#15, rubric r11) — canonical source, projections,
+   *  contradictions and the deterministic coherence number D1 reads. Undefined on reconstructed
+   *  snapshots; `coherence: null` inside it means "no guidance document", never 0. */
+  guidanceGraph?: GuidanceGraph | null;
   /** What this scan READ in the repo's own `.ai/manifest.yaml` (#13) — declared capabilities, their
    *  proven `verified` flags, and where each control is placed. Display/persist-only (never scored,
    *  never in the LLM prompt); `absent` when the repo has no manifest, undefined on reconstructed
