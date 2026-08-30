@@ -35,6 +35,29 @@ describe("the tool catalog", () => {
   it("requires mcp:read on every tool — the door scope is never optional", () => {
     for (const t of MCP_TOOLS) expect(t.scopes).toContain("mcp:read");
   });
+
+  // A `planGate` the route cannot resolve would silently never open. The catalog and the resolver
+  // must agree on the family names, and there are exactly two.
+  it("names only plan gates the door knows how to resolve", () => {
+    for (const t of MCP_TOOLS) {
+      if (t.planGate) expect(["memory", "skills"]).toContain(t.planGate);
+    }
+  });
+
+  // Every tool over a plan-gated resource must DECLARE the gate. A skills tool that forgot to would
+  // serve the org's curated library on a plan that does not include it — the hole #17 closed.
+  it("plan-gates every tool that reads a plan-gated resource", () => {
+    for (const t of MCP_TOOLS) {
+      if (t.scopes.includes("memory:read")) expect(t.planGate).toBe("memory");
+      if (t.scopes.includes("skills:read")) expect(t.planGate).toBe("skills");
+    }
+  });
+
+  it("marks exactly the tools that write, and gives each one telemetry:write", () => {
+    const writes = MCP_TOOLS.filter((t) => t.mutates).map((t) => t.name);
+    expect(writes).toEqual(["cite_memory", "report_skill_invoke"]);
+    for (const t of MCP_TOOLS) expect(t.scopes.includes("telemetry:write")).toBe(Boolean(t.mutates));
+  });
 });
 
 describe("toolsForScopes", () => {
@@ -54,6 +77,22 @@ describe("toolsForScopes", () => {
 
   it("grants memory recall once the memory scope is present too", () => {
     expect(toolsForScopes(["mcp:read", "memory:read"]).map((t) => t.name)).toContain("recall_org_memory");
+  });
+
+  it("withholds the skills tools from a token holding only the door", () => {
+    const names = toolsForScopes(door).map((t) => t.name);
+    expect(names).not.toContain("find_skills");
+    expect(names).not.toContain("get_governing_subject");
+  });
+
+  it("withholds every write tool from a token with no telemetry:write", () => {
+    const names = toolsForScopes(["mcp:read", "memory:read", "skills:read"]).map((t) => t.name);
+    expect(names).not.toContain("cite_memory");
+    expect(names).not.toContain("report_skill_invoke");
+    // …and grants them once the write scope is present too.
+    const withWrite = toolsForScopes(["mcp:read", "memory:read", "telemetry:write"]).map((t) => t.name);
+    expect(withWrite).toContain("cite_memory");
+    expect(withWrite).not.toContain("report_skill_invoke"); // needs skills:read, not memory:read
   });
 
   it("gives a memory-only token NOTHING — holding a resource scope is not holding the door", () => {

@@ -5,6 +5,10 @@
 // arithmetic, that arithmetic belongs in the module that owns the data, not here — otherwise the
 // agent door and the dashboard would eventually disagree about the same fact.
 //
+// This module keeps the FLEET-STANDING tools and the dispatcher. The org's own curated corpus (skills,
+// registry subjects, lessons) is projected by `registry-reads.ts`, and the two write tools by
+// `registry-writes.ts` — see those files for why the split is by rule and not by size.
+//
 // SHAPE OF EVERY RESULT. Each returns `structuredContent` (the machine payload, matching the tool's
 // declared meaning) AND a `content` text block carrying the same data serialized. The revision keeps
 // `content` as the universally-understood channel and treats `structuredContent` as the typed one;
@@ -15,12 +19,16 @@
 // model would read as "nothing to worry about". An agent acting on a silent absence is exactly the
 // failure this product spends its whole surface avoiding.
 
-import { candidateOrgMemories, getOrgRecommendations, getOrgRollup } from "@/lib/db";
+import { bumpMemoryAccessCounts, candidateOrgMemories, getOrgRecommendations, getOrgRollup } from "@/lib/db";
+import { citationCountsFor } from "@/lib/db/org-memory-citations";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { PRACTICES } from "@/lib/practices";
-import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-reads";
+// `Args`/`str`/`fail` come from registry-reads rather than being duplicated here; its back-edge to
+// this module is type-only, so the two do not form a runtime cycle.
+import { fail, findSkills, getGoverningSubject, getSkill, getSkillLessons, str, type Args } from "@/lib/mcp/registry-reads";
+import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
 
 export interface ToolResult {
   structuredContent: unknown;
@@ -42,17 +50,11 @@ export function toolResultText(result: ToolResult): string {
   return result.text ?? JSON.stringify(result.structuredContent, null, 2);
 }
 
-type Args = Record<string, unknown>;
-
-const str = (a: Args, k: string): string | null => (typeof a[k] === "string" ? (a[k] as string).trim() : null);
 const num = (a: Args, k: string, dflt: number, max: number): number => {
   const v = a[k];
   const n = typeof v === "number" ? v : NaN;
   return Number.isFinite(n) ? Math.max(1, Math.min(max, Math.floor(n))) : dflt;
 };
-
-/** A tool-execution error — actionable feedback the model can self-correct from (`isError: true`). */
-const fail = (message: string): ToolResult => ({ structuredContent: { error: message }, text: message, isError: true });
 
 async function repoStanding(org: string, args: Args): Promise<ToolResult> {
   const rollup = await getOrgRollup(org);
@@ -223,6 +225,14 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
     .sort((a, b) => b.score - a.score || b.r.confidence - a.r.confidence || a.r.id.localeCompare(b.r.id))
     .slice(0, limit);
 
+  // USE EVIDENCE, folded in before the entries are handed over. `citedCount` lives on OrgMemory and
+  // `MemoryRow` does not carry it, so it is read here rather than inferred — and an id missing from
+  // the map is "no evidence", which is exactly the 0 the recall model treats as the term's absence.
+  const counts: Record<string, { citedCount: number; notUsefulCount: number }> = await citationCountsFor(
+    org,
+    scored.map((s) => s.r.id),
+  ).catch(() => ({}));
+
   if (scored.length === 0) {
     return {
       structuredContent: {
@@ -234,12 +244,20 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
       },
     };
   }
+  // DELIVERIES ARE NOW COUNTED AT THIS DOOR. They never were: the REST recall route bumped
+  // `accessCount` and this handler did not, so every memory an agent read through MCP looked, to
+  // decay.ts, like one nobody had ever asked for. Best-effort by contract, and only what was returned.
+  await bumpMemoryAccessCounts(org, scored.map(({ r }) => r.id)).catch(() => 0);
+
   return {
     structuredContent: {
       org,
       query,
       count: scored.length,
       entries: scored.map(({ r }) => ({
+        // THE ID IS THE POINT OF THIS FIELD: it is what `cite_memory` needs to report back which of
+        // these actually helped. Without it the citation channel has no handle to name.
+        id: r.id,
         kind: r.kind,
         namespace: r.namespace,
         content: r.content,
@@ -248,19 +266,19 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
         // see who recorded it and how confident the org was, not just the text.
         source: r.source,
         confidence: r.confidence,
+        citedCount: counts[r.id]?.citedCount ?? 0,
+        notUsefulCount: counts[r.id]?.notUsefulCount ?? 0,
       })),
+      citing:
+        "Report back with cite_memory using each entry's `id`. Whether a memory helped is something only you can know, and it is the only evidence this store has that a memory is worth keeping.",
     },
   };
 }
 
 /**
- * Dispatch by tool name.
- *
- * SCOPE, PLAN AND WRITE enforcement all happen BEFORE this, in the route (`src/app/api/mcp/route.ts`)
- * or in Athena's grounding — this function trusts its caller completely, exactly as it always has,
- * and the two doors each carry their own gate rather than one of them assuming the other ran. That
- * is load-bearing now that two of these tools WRITE: a caller reaching `runTool` without gating first
- * would be writing to a store on a plan that does not carry it.
+ * Dispatch by tool name. SCOPE, PLAN and WRITE enforcement all happen BEFORE this, in the route or in
+ * Athena's grounding — this function trusts its caller completely, as it always has, and each door
+ * carries its own gate rather than assuming the other ran. Load-bearing now that two tools WRITE.
  */
 export async function runTool(name: string, org: string, args: Args): Promise<ToolResult> {
   switch (name) {
@@ -268,6 +286,14 @@ export async function runTool(name: string, org: string, args: Args): Promise<To
       return reportSkillInvoke(org, args, Date.now());
     case "cite_memory":
       return citeMemory(org, args);
+    case "find_skills":
+      return findSkills(org, args);
+    case "get_skill":
+      return getSkill(org, args);
+    case "get_skill_lessons":
+      return getSkillLessons(org, args);
+    case "get_governing_subject":
+      return getGoverningSubject(org, args);
     case "get_repo_standing":
       return repoStanding(org, args);
     case "get_gate_verdict":

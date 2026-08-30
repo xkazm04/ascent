@@ -283,10 +283,32 @@ and `org` goes straight into `getOrgRollup(org)` / `getActiveOrgStance(org)` /
 | `canReadOrg(org)` | before **any** tool runs, in `createAthenaGrounding` | returns `null`; the turn stops **before any model spend** |
 | `workspaceAllowsMemory(org, plan)` | before `recall_org_memory` specifically | the tool is not offered, and a direct call is answered with the plan reason |
 
-The memory plan gate is the one `POST /api/org/memory` enforces and **the MCP door does not** - an
-`mcp:read` + `memory:read` token reaches an org's memory on any plan. **That is a separate finding
-about the MCP route and it is not fixed here.** What is decided here is only that Athena is the
-stricter of the two doors.
+**Both doors now carry the memory plan gate.** This paragraph used to record that the MCP route did
+not - an `mcp:read` + `memory:read` token reached an org's memory on any plan - and that fixing
+another door's authorization was not this module's job. It was fixed at its own door:
+`resolveMcpGates` (`src/app/api/mcp/gates.ts`) resolves the same predicates per request, and
+`POST /api/mcp` withholds a plan-closed tool from `tools/list` and refuses a direct call with the
+reason. See [`docs/features/org-knowledge/skills.md`](../org-knowledge/skills.md) § *Two
+authorizations*.
+
+Athena remains the **stricter** of the two doors, in three ways:
+
+| | MCP door | Athena |
+| --- | --- | --- |
+| Write tools (`cite_memory`, `report_skill_invoke`) | offered, gated by `write-gate.ts` | **never offered, refused by name** |
+| Skills-plan tools | offered when the plan carries them | offered only once the route resolves `skillsAllowed`; **absent means closed** |
+| Org read | the token's own org, by construction | a second `canReadOrg` evaluation before any tool runs |
+
+She refuses the write tools because they report an *agent's own* behaviour - "I ran this skill", "I
+used this memory" - and she is not that agent. Her writing them would put an operator's chat turn
+into the org's use-evidence, inflating the very counters the write ceiling protects. The refusal is
+derived from the catalog's `mutates` marker, so a write tool a future lane adds is refused here the
+moment it is marked.
+
+`skillsAllowed` is an **optional** dependency that fails closed: the skills tools reached this door
+before the route that builds these deps was widened to resolve `workspaceAllowsSkills`, and offering
+an org's curated library on a plan that does not carry it would reopen here exactly the hole that was
+just closed there.
 
 `toolResultText(r)` was **lifted out of the MCP route** into `handlers.ts` so both doors render a tool
 result into text identically. That is the only change WP3 made to the MCP module.
@@ -708,5 +730,9 @@ only the episodes Athena wrote.
 - **One episode per answered turn.** That is a lot of rows for a chatty thread. Consolidating at
   thread close (or gating on whether the turn was actually grounded) is the obvious next move, and is
   not done.
-- **The MCP door still has no memory plan gate.** Athena carries one; `POST /api/mcp` does not. Fixing
-  the MCP route is a separate change, deliberately not made here.
+- **Athena cannot yet reach the org's skills or registry subjects.** The catalog now carries
+  `find_skills`, `get_skill`, `get_skill_lessons` and `get_governing_subject`, and she is wired to
+  serve them - but their plan gate (`skillsAllowed`) is an optional dependency the Athena route does
+  not supply yet, and an unwired gate fails closed, so she is offered none of them. One line in
+  `src/app/api/athena/gate.ts` (`workspaceAllowsSkills(org, credit?.plan)`, beside the memory
+  predicate it already resolves) turns them on; that file belongs to another lane.

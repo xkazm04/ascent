@@ -478,30 +478,107 @@ Also implemented per the revision: `server/discover` (mandatory), `resultType` o
 
 ### Tools, and the scope model
 
-| Tool | Requires | Answers |
-| --- | --- | --- |
-| `get_ai_stance` | `mcp:read` | Permitted tools/models, no-AI zones, review tiers, approval requirement |
-| `get_gate_verdict` | `mcp:read` | Would this repo clear the org's gate, and what fails |
-| `get_practice_shape` | `mcp:read` | The reusable *shape* of a practice the org already does well |
-| `get_repo_standing` | `mcp:read` | Level, adoption vs rigor, per-dimension scores |
-| `list_open_recommendations` | `mcp:read` | Gaps the org has already decided matter |
-| `recall_org_memory` | `mcp:read` **+** `memory:read` | Decisions, incidents and conventions already ruled on |
+| Tool | Requires | Plan | Answers |
+| --- | --- | --- | --- |
+| `cite_memory` ✎ | `mcp:read` + `memory:read` + `telemetry:write` | memory | Records that a delivered memory was (or was not) used |
+| `find_skills` | `mcp:read` + `skills:read` | skills | Which of the org's skills apply to this task/repo, and why |
+| `get_ai_stance` | `mcp:read` | — | Permitted tools/models, no-AI zones, review tiers, approval requirement |
+| `get_gate_verdict` | `mcp:read` | — | Would this repo clear the org's gate, and what fails |
+| `get_governing_subject` | `mcp:read` + `skills:read` | skills | The registry subject whose `use_when` governs this path/topic |
+| `get_practice_shape` | `mcp:read` | — | The reusable *shape* of a practice the org already does well |
+| `get_repo_standing` | `mcp:read` | — | Level, adoption vs rigor, per-dimension scores |
+| `get_skill` | `mcp:read` + `skills:read` | skills | One skill's body, version, hash and registry path |
+| `get_skill_lessons` | `mcp:read` + `skills:read` | skills | Lessons recorded against a skill (its `LESSONS.md`) |
+| `list_open_recommendations` | `mcp:read` | — | Gaps the org has already decided matter |
+| `recall_org_memory` | `mcp:read` + `memory:read` | memory | Decisions, incidents and conventions already ruled on |
+| `report_skill_invoke` ✎ | `mcp:read` + `skills:read` + `telemetry:write` | skills | The agent's own report that it ran a skill |
+
+✎ = writes. A thirteenth tool, `compare_against_exemplar`, is a declared **seam** in
+`src/lib/mcp/tools.ts` and is not registered: it wraps an exemplar-diff engine that has not landed,
+and a wrapper over a missing engine could only fabricate a diff.
 
 `mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
-token holding it alone sees only the org-standing tools, and `memory:read` unlocks recall *on top*.
-So granting an agent the door does not silently grant it the org's memory, and an existing memory
-token does not silently become an agent door. `tools/list` filters to what the token holds, which
-the revision explicitly permits, since credentials are per-request input rather than connection
-state, so an agent is never shown a tool it would then be refused.
+token holding it alone sees only the org-standing tools, and `memory:read` / `skills:read` unlock
+their families *on top*. So granting an agent the door does not silently grant it the org's memory or
+its curated skills. `tools/list` filters to what the token holds, which the revision explicitly
+permits, since credentials are per-request input rather than connection state, so an agent is never
+shown a tool it would then be refused.
 
-An out-of-scope tool is answered with the **same** `Unknown tool` error as a nonexistent one, so the
-door does not become an oracle for which tools an org has that this token cannot reach.
+### Two authorizations: scopes and the plan
+
+A token's **scopes** say what this caller may do; the workspace's **plan** says what this org has.
+The door used to check only the first — so an `mcp:read` + `memory:read` token reached an org's
+Shared Memory on any plan, while `POST /api/org/memory` refused the same read. Where two doors onto
+one store disagree, the looser one is the policy. `resolveMcpGates` (`src/app/api/mcp/gates.ts`)
+now resolves `workspaceAllowsMemory` and `workspaceAllowsSkills` once per request, `tools/list`
+drops plan-closed tools, and `tools/call` refuses them.
+
+The two refusals are **different in kind, on purpose**:
+
+- **Out of scope** → the same opaque `Unknown tool` a nonexistent tool gets, so the door cannot be
+  used to enumerate what an org has that this token cannot reach.
+- **Plan-closed** → the reason, in words, on a 200 with `isError`. The caller already holds this
+  org's own token, so it has proven it belongs here, and "your plan does not include the Skills
+  Library" is a fact somebody can act on. Hiding it would only make the agent report a capability as
+  broken.
+
+`selfHosted()` opens both gates through `plans.ts`, so a self-hosted install reaches every tool with
+a locally minted token.
+
+### The write door
+
+Two tools write, and both report **the agent's own behaviour** — "I ran this skill", "I used this
+memory". Nothing here closes a recommendation, adopts a practice or edits a memory: the write door is
+for evidence, not for decisions, and that boundary is what made shipping writes possible at all.
+
+A write must clear four gates, in order (`src/lib/mcp/write-gate.ts`):
+
+1. `telemetry:write` — never implied by `mcp:read`. A read token stays a read token.
+2. The tool's own resource scope. A caller may only write evidence *about* a resource it may read.
+3. The plan gate for that resource.
+4. A per-token daily ceiling (200 citations, 500 invoke reports), counted from the audit trail.
+   Self-reported evidence feeds a ranking, so volume must not be able to bury the honest signal.
+
+Then exactly one `AuditLog` row per accepted write, action `mcp.write.<tool>`, actor
+`token:<name>`, meta carrying the argument *key shape* and the idempotency key — never the raw
+arguments, because a citation `note` is free text an agent wrote. **There is no separate registry
+audit table**: `AuditLog` already has the org audit viewer, the retention purge and the integrity
+chain, and a second store would fork all three.
+
+`WRITE_TOOL_POLICY` is a **table, not an if-chain**, and that is the extension contract: adding a
+write tool is one policy row plus one handler, and a structural test fails the build if a `mutates`
+tool has no row or a row has no `mutates` tool.
+
+Both writes are idempotent under replay. A citation is unique on `(memoryId, sessionId)` — one
+session gets one vote per memory, and changing that vote *moves* it between `citedCount` and
+`notUsefulCount` rather than adding to both. An invoke report carries the session plus an
+hour-bucketed timestamp, so `OrgSkillEvent`'s `(session, skill, ts)` dedupe key survives a retried
+call; the cost is that the event is recorded up to 59 minutes early, which nothing reading these at
+day granularity can observe.
+
+### What `find_skills` actually ranks on
+
+Persisted fields only — name, description, tags, category, adoption and download counts — plus one
+**declared** map, `CATEGORY_DIMENSIONS`, from the closed skill-category set to the maturity
+dimensions a skill in that category plausibly moves. (`CatalogSkillEntry.applicability` / `adopters`
+/ `invokes30d` are interface fields with no producer anywhere; ranking on them would have ranked on
+`undefined`.) Every result carries a `why`, and the response carries `dimensionBasis`, which is
+**`null` with a sentence** when the repo is unscanned or not in the fleet — never a zeroed dimension
+list a model would read as a clean bill of health.
+
+`get_governing_subject` resolves through the `file` column the registry index mirrored, **never** by
+building a path from a slug — the registry access contract. No registry mapped is an explicit
+refusal, not an empty list.
 
 ### What it deliberately does not do
 
-- **Read-only.** A write tool is a governance surface: it needs the stance model to authorize it, a
-  machine audit actor, and an answer to *"what stops an agent closing its own recommendation"*.
-  Shipping reads first answers the distribution question without pre-committing any of those.
+- **No decisions, only evidence.** No write tool closes a recommendation, adopts a practice, edits a
+  memory or opens a PR. Claim/lease semantics for follow-ups are a separate, later item; the
+  `WRITE_TOOL_POLICY` seam is where they will attach.
+- **Athena is stricter than this door.** The companion dispatches the same handlers in-process and is
+  offered **no** write tool on any plan, derived from the `mutates` marker rather than from a list
+  that could be forgotten. Skill, lesson, subject and memory bodies reach her model inside the
+  untrusted fence: the org wrote that text, ascent did not.
 - **Bearer tokens, not OAuth 2.1.** The revision describes MCP servers as OAuth resource servers
   validating tokens from a paired authorization server. This uses the org API tokens that already
   exist and emits a `WWW-Authenticate` challenge on 401. That is honest bearer auth, not resource-server
@@ -582,6 +659,13 @@ as Trace.
 | `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
 | `src/lib/org/skill-outcomes.ts` / `skill-outcomes-load.ts` | Before/after adoption score deltas. |
 | `src/lib/org/skill-categories.ts` | Closed category set. |
+| `src/lib/mcp/tools.ts` | The tool catalog: scopes, plan gates, the `mutates` marker. |
+| `src/lib/mcp/write-gate.ts` | `WRITE_TOOL_POLICY` + `assertWriteAllowed` — the write door's policy table. |
+| `src/lib/mcp/registry-reads.ts` | Skill / lesson / subject projections. |
+| `src/lib/mcp/registry-writes.ts` | The two write handlers. |
+| `src/lib/mcp/skill-match.ts` | Pure ranking + the declared `CATEGORY_DIMENSIONS` map. |
+| `src/app/api/mcp/gates.ts` | Per-request plan gates + the per-token write ceiling. |
+| `src/lib/db/org-memory-citations.ts` | `OrgMemoryCitation` writes/reads + counter bumps. |
 | `src/lib/org/skill-templates.ts` | Author-form starter templates. |
 | `src/lib/db/org-skills.ts` | CRUD, `toRow()` read-time frontmatter resolution. |
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |

@@ -94,6 +94,27 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     },
   },
   {
+    name: "find_skills",
+    title: "Find applicable skills",
+    description:
+      "Which of this organization's own curated skills apply to the task you are about to do. These " +
+      "are the house's proven ways of doing things, written by the people who work here — matching one " +
+      "is how you write code that looks like it belongs. Name the repository too and the ranking also " +
+      "weights the dimensions that repository is measurably weakest in.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "What you are about to do, in a sentence." },
+        repo: { type: "string", description: 'Repository as "owner/name". Optional; sharpens the ranking.' },
+        limit: { type: "integer", minimum: 1, maximum: 25, description: "Max skills (default 5)." },
+      },
+      required: ["task"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_ai_stance",
     title: "AI stance",
     description:
@@ -114,6 +135,25 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: { repo: { type: "string", description: 'Repository as "owner/name".' } },
       required: ["repo"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_governing_subject",
+    title: "Governing registry subject",
+    description:
+      "The subject in this organization's AI registry whose declared `use_when` governs the file you " +
+      "are about to change or the decision you are about to make. This is the organization's own " +
+      "written standard, not a general best practice — read it before choosing an approach in a " +
+      "domain it covers, and follow the returned `file` path into the registry for the full text.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Repo-relative path of the file you are about to change." },
+        topic: { type: "string", description: "What you are deciding, if there is no single file." },
+      },
       additionalProperties: false,
     },
   },
@@ -142,6 +182,39 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       "already strong or weak at before changing it.",
     scopes: ["mcp:read"],
     inputSchema: repoArg as unknown as Record<string, unknown>,
+  },
+  {
+    name: "get_skill",
+    title: "Read a skill",
+    description:
+      "The full text of one of this organization's skills — the SKILL.md body it publishes, plus its " +
+      "version, content hash and registry path. Read this before following a skill you found with " +
+      "find_skills; the summary in a search result is not the instruction.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", description: "The skill's name, as find_skills returned it." } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_skill_lessons",
+    title: "Lessons from a skill",
+    description:
+      "What people and agents in this organization actually learned running a skill: the entries from " +
+      "its LESSONS.md, grouped by the version they were learned against. These are experience reports " +
+      "— where the skill was awkward, what it missed — and they are the fastest way to avoid repeating " +
+      "a mistake this organization has already made.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", description: "The skill's name." } },
+      required: ["name"],
+      additionalProperties: false,
+    },
   },
   {
     name: "list_open_recommendations",
@@ -206,6 +279,21 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     },
   },
 ] as const;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// SEAM: `compare_against_exemplar` — NOT REGISTERED, and deliberately not stubbed.
+//
+// The thirteenth tool of moonshot #17 is a thin wrapper over `exemplarDiff(org, repo, opts)` from
+// `src/lib/report/exemplar.ts` (#34, lane W2-J1), which does not exist in this tree: J1 had not
+// merged when this lane finished. A wrapper over a missing engine could only be a stub returning a
+// fabricated or empty diff, and a tool that answers "here is how you compare to your best peer" with
+// invented content is worse than a tool that is absent — the agent cannot tell the difference.
+//
+// TO LAND IT, once `exemplarDiff` is on the branch: add the definition here (alphabetically, between
+// `cite_memory` and `find_skills`; scopes `["mcp:read"]`, no plan gate, no `mutates`), a projection
+// beside the other reads in `registry-reads.ts`, and one `case` in `runTool`. Nothing else changes —
+// the door, the gates and the catalog tests already accommodate it.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The tools a caller holding `granted` may see and call. Pure. */
 export function toolsForScopes(granted: readonly SkillTokenScope[]): McpToolDef[] {

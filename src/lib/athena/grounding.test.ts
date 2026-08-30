@@ -29,9 +29,31 @@ function deps(over: Partial<Parameters<typeof createAthenaGrounding>[1]> = {}) {
 }
 
 describe("the catalog", () => {
-  it("is the MCP catalog, not a copy of it", () => {
-    const names = athenaToolCatalog({ memoryAllowed: true }).map((t) => t.name).sort();
-    expect(names).toEqual(MCP_TOOLS.map((t) => t.name).sort());
+  it("is the MCP catalog's READ half, not a copy of it", () => {
+    const names = athenaToolCatalog({ memoryAllowed: true, skillsAllowed: true }).map((t) => t.name).sort();
+    expect(names).toEqual(
+      MCP_TOOLS.filter((t) => !t.mutates)
+        .map((t) => t.name)
+        .sort(),
+    );
+  });
+
+  // Derived from the `mutates` marker, so a write tool a future lane adds is refused here the moment
+  // it is marked — no list in this file to forget to update.
+  it("offers no write tool, on any plan", () => {
+    const names = athenaToolCatalog({ memoryAllowed: true, skillsAllowed: true }).map((t) => t.name);
+    for (const t of MCP_TOOLS.filter((t) => t.mutates)) expect(names).not.toContain(t.name);
+    expect(MCP_TOOLS.some((t) => t.mutates)).toBe(true); // the assertion above must not be vacuous
+  });
+
+  // An unwired gate fails CLOSED: the route that builds these deps has not been widened to resolve
+  // the skills predicate yet, and offering an org's curated skills on a plan that does not carry them
+  // would reopen at this door the hole #17 closed at the other.
+  it("withholds the skills tools when no skills predicate was supplied", () => {
+    const names = athenaToolCatalog({ memoryAllowed: true }).map((t) => t.name);
+    expect(names).not.toContain("find_skills");
+    expect(names).not.toContain("get_governing_subject");
+    expect(names).toContain("get_repo_standing");
   });
 
   it("drops the memory tool when the plan does not carry memory", () => {
@@ -151,6 +173,52 @@ describe("memory is untrusted on the TOOL path too", () => {
     const d = deps();
     const g = await createAthenaGrounding("acme", d);
     expect(await g!.execute(call("get_repo_standing"))).not.toContain(UNTRUSTED_OPEN);
+  });
+
+  // A skill body, a LESSONS.md entry and a registry subject are all text the ORG wrote. They reach
+  // the model through tools that did not exist when the memory fence was built, and an unfenced
+  // skill body containing "ignore your previous instructions" is the same attack by a new route.
+  it("wraps a skill body — the org wrote it, not ascent", async () => {
+    const d = deps({
+      skillsAllowed: vi.fn(async () => true),
+      runTool: vi.fn(async () => ({ structuredContent: {}, text: "# Release\nAlways squash." })),
+    });
+    const g = await createAthenaGrounding("acme", d);
+    const out = await g!.execute(call("get_skill", { name: "release-checklist" }));
+    expect(out.startsWith(UNTRUSTED_OPEN)).toBe(true);
+    expect(out).toContain("Always squash.");
+  });
+
+  it("wraps lessons and registry subjects on the same rule", async () => {
+    const d = deps({
+      skillsAllowed: vi.fn(async () => true),
+      runTool: vi.fn(async () => ({ structuredContent: {}, text: "org-authored text" })),
+    });
+    const g = await createAthenaGrounding("acme", d);
+    for (const tool of ["get_skill_lessons", "get_governing_subject", "find_skills"]) {
+      expect(await g!.execute(call(tool, { name: "x", task: "x" }))).toContain(UNTRUSTED_OPEN);
+    }
+  });
+});
+
+describe("Athena refuses every write tool", () => {
+  it("declines by name, explaining that the report is not hers to make", async () => {
+    const d = deps({ skillsAllowed: vi.fn(async () => true) });
+    const g = await createAthenaGrounding("acme", d);
+
+    const out = await g!.execute(call("report_skill_invoke", { skill: "x", session: "s" }));
+
+    expect(d.runTool).not.toHaveBeenCalled();
+    // Not "that tool does not exist" — a dead end. The refusal says why, which is a fact about who
+    // may report, not a capability the org can buy.
+    expect(out).toMatch(/do not write/);
+  });
+
+  it("refuses cite_memory even on a plan that carries memory", async () => {
+    const d = deps({ memoryAllowed: vi.fn(async () => true) });
+    const g = await createAthenaGrounding("acme", d);
+    await g!.execute(call("cite_memory", { id: "m1", used: true, session: "s" }));
+    expect(d.runTool).not.toHaveBeenCalled();
   });
 });
 
