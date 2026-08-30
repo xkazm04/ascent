@@ -2,6 +2,7 @@
 // See docs/features/scanning/maturity-model.md for the conceptual model behind these types.
 
 import type { PrRateBook } from "@/lib/analyze/pr-thresholds";
+import type { CraftAxis } from "@/lib/scoring/craft";
 import type { ManifestReadout } from "@/lib/standard/readout";
 
 export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
@@ -586,8 +587,13 @@ export interface LlmRoadmapItem {
   /** e.g. "L3->L4" — the level transition this unlocks. */
   levelUnlock?: string;
   /** `gap` (default): a shortfall below the band — a follow-up the loop may work. `craft`: what would
-   *  make an already-strong dimension exemplary; never a follow-up, never debt, never auto-closed. */
+   *  make an already-strong dimension exemplary. Since r12 a craft entry IS dispatchable (the loop's
+   *  craft lane works it) but is still never debt, never a badge, never an alert and never a score. */
   kind?: "gap" | "craft";
+  /** Which face of the craft this raises — see `src/lib/scoring/craft.ts` CRAFT_AXES. Set only on a
+   *  `craft` entry; absent on every gap and on craft entries from a model that omitted it. A coverage
+   *  key for the ladder, never a weight. */
+  craftAxis?: CraftAxis;
 }
 
 /** The LLM acting as auditor: a signal it believes the deterministic detector got wrong. */

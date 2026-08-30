@@ -1236,6 +1236,62 @@ micro-cents to the meter's USD micros), rather than letting the meter re-price i
 subscription-auth CLI session the envelope is authoritative. A meter that throws is logged to the lane
 and never fails it.
 
+## The craft lane — the loop no longer ends at green (2026-08-30, r12)
+
+**The loop used to die at green.** `openBatch` reads the repo's open follow-ups; the moment the last
+gap closed it returned `[]`, the lane logged "nothing to dispatch" and closed, the run early-stopped,
+and a repository that had done everything the rubric asks was handed silence. The owner's requirement
+is that the work never ends — after the score is maxed there is always a further path in design,
+architecture, code quality, performance and robustness — so the loop needed somewhere to go.
+
+The material was already there and unreachable. Since `r10` the assessment produces **craft entries**
+(`kind: "craft"` on `Recommendation`: what would make an already-green dimension *exemplary*), and
+every consumer filtered them out. `r12` makes them dispatchable. See
+[maturity-model.md §4d](../scanning/maturity-model.md#4d-the-craft-ladder--craft-becomes-dispatchable-work-r12-2026-08-30)
+for the scan-side half (the axis, the ladder block, the ledger, the resolve rule).
+
+**`openBatch`'s fallback.** Gaps always outrank craft. The gap path is untouched and returns a
+byte-identical batch whenever the repo has a single open gap; craft is reached only through the
+`gaps.length === 0` check, and never mixed in. The craft batch is ranked by **axis coverage first** —
+the axis with the fewest *built* rungs leads (`getCraftLedger` → `axesByCoverage`) — then by the
+model's impact, with an axis-less rung sorting last. A repo that has shipped four performance rungs
+and nothing on robustness gains more from its first robustness rung than its fifth performance one.
+Deferrals apply exactly as they do to gaps. Deterministic throughout, so the curation panel and the
+engine cannot disagree.
+
+**The lane kind.** `LoopLaneKind` gains `"craft"` (`parseTargets`' JSON-in-TEXT widening already
+tolerates it — an old row still parses as `backlog`). `proposeLaneKind` proposes it when the repo has
+a foundation and the batch in hand is *all* craft, which is its way of saying "no open gaps left"; a
+practice starter cannot outrank it, because there is no gap for a starter to answer. **A craft lane
+is an agent lane**, not a deterministic install: `runLane` now names `foundation`/`practice`
+explicitly rather than testing `kind !== "backlog"`, which would have routed craft into the file
+installer.
+
+**No human gate, deliberately.** A craft lane arms automatically exactly as a backlog lane does. The
+review that matters happens *after* the work — the Storyboard's ✓/✕ ledger is a record of what was
+built, not a pre-approval queue — and a gate in front of unbounded work would simply stop the work.
+If one is ever wanted, `proposeLaneKind` is where it goes back in; the comment there says so.
+
+**The brief.** `buildFixPrompt` detects an all-craft batch and switches voice: the batch is framed as
+rungs above the band with nothing owed, the instruction is to *raise the ceiling* rather than close a
+gap, and three rules keep a rung reviewable — leave a named **artefact**, one rung not a redesign,
+and never lower an existing bar or move a threshold to make a new one pass. It still ends with the
+same `RESOLVED: <id> - <what changed>` lines (≤ 8 words, verb-first, past tense) the lane parser
+reads, so the outcome ledger is unchanged. The heading carries **no** maturity points: a craft rung
+has none by construction.
+
+**Craft never becomes debt.** The ledger only ever increases; the debt figure the drive stops on is
+derived from dimension scores and is untouched. Every debt/finding query filters `kind: "gap"` at its
+`where` — `getOrgBacklog`, `getOrgRecommendations`, the nav badge, the personal backlog and the
+improvement-PR triage — so craft cannot inflate a badge that would then never clear. (Before r12
+`getOrgBacklog` filtered on `status` alone, so craft rows *could* already reach a batch, unordered
+and mixed with gaps. That is now deliberate and ordered.)
+
+**`laneKindTag` has no craft tag yet** — `src/features/inflight/live/cockpit/loopTypes.ts` was outside
+this change's write set, so a craft lane currently renders untagged (the function returns `null` for
+any kind it does not name, so nothing breaks). Adding `craft → "craft ladder"` there is a one-line
+follow-up.
+
 ## Known gaps
 
 - **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
@@ -1260,10 +1316,11 @@ and never fails it.
 - **The lane's commit runs the repo's hooks and needs a git identity.** It is an ordinary
   `git commit` in the worktree, so a `commit-msg`/`pre-commit` hook or a missing `user.email` fails
   it — and that falls back to the lost-work log rather than to a retry.
-- **A `backlog` lane can still be proposed with an empty batch** (L2-E-01). The curation panel offers
-  an agent lane with nothing to dispatch instead of saying there is nothing left to work; the run
-  then early-stops. Seen only under the deterministic mock, whose recommendation set is a corpus
-  property, but the proposal has no guard either way.
+- **A `backlog` lane can still be proposed with an empty batch** (L2-E-01) — *narrowed by r12*. A repo
+  that is merely out of *gaps* now proposes a `craft` lane, so the common case is covered; the gap
+  that remains is a repo with neither an open gap nor an unbuilt craft rung (a scan that produced no
+  craft entries at all). The curation panel still offers an agent lane there instead of saying there
+  is nothing left to work, and the run early-stops. The proposal has no guard either way.
 - **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
   enabled, so a click landing before React attaches its handler is swallowed with no request and no
   error. Generic Next.js behaviour, unusually expensive on this particular control.

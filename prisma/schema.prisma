@@ -731,7 +731,18 @@ model Recommendation {
   // r10 (2026-08-26): `gap` is a shortfall below the band — a follow-up the loop may work. `craft` is
   // what would make an already-strong dimension exemplary: shown on the report, never a follow-up,
   // never debt, never a loop batch, never auto-closed. The backlog and the loop read `kind: "gap"`.
+  // r12 (2026-08-30): craft became DISPATCHABLE — the loop's craft lane works craft rows the same way
+  // a backlog lane works gaps, so a repository that reached green still has somewhere to go. What did
+  // NOT change: a craft row is never debt, never a nav badge, never an alert, never a gate input and
+  // never any part of a score. Every debt/finding query filters `kind: "gap"` BY CONSTRUCTION (see
+  // org-insights.ts getOrgBacklog / getOrgRecommendations, org-nav-counts.ts, personal-backlog.ts,
+  // improvement.ts) and craft is read only through the deliberately separate org-insights-craft.ts.
   kind          String    @default("gap") // gap | craft
+  // r12: which face of the craft this entry raises — architecture | performance | robustness |
+  // design | security-depth | dx (src/lib/scoring/craft.ts CRAFT_AXES). NULL on every gap row and on
+  // craft rows written before r12. It is a coverage key for the ladder — the prompt is told what has
+  // been built per axis and asked for the next rung — and it prices, weights and unlocks NOTHING.
+  craftAxis     String?
   // Ownership + planning layer that turns a scattered list of gaps into a trackable backlog
   // (the assignee/due-date mechanics behind the org-wide backlog view — see getOrgBacklog).
   // Both carry forward across re-scans (matched by dimId+title) so a re-scan doesn't drop who

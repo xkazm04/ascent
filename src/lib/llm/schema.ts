@@ -15,6 +15,7 @@
 
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { ALL_FACET_IDS, CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
+import { CRAFT_AXES } from "@/lib/scoring/craft";
 
 const DIMENSION_IDS = DIMENSIONS.map((d) => d.id);
 /** The impact/effort vocabulary — the single source for both the schema enum (constrain the model
@@ -65,6 +66,13 @@ export const ASSESSMENT_JSON_SCHEMA = {
           explore: { ...stringArray, description: "2-3 invitational questions." },
           levelUnlock: { type: "string" },
           kind: { type: "string", enum: ["gap", "craft"], description: "gap (default) or craft (for a dimension already at/above the band)." },
+          // The axis enum is DERIVED from the craft taxonomy, so the schema can never teach the model
+          // an axis the ledger and the loop's coverage ranking would then fail to recognise.
+          craftAxis: {
+            type: "string",
+            enum: CRAFT_AXES as unknown as string[],
+            description: "Required on a craft entry: which face of the craft it raises. Omit on a gap.",
+          },
         },
         required: ["title", "dimension", "impact", "effort", "rationale"],
       },

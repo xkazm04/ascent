@@ -20,6 +20,8 @@ import { LocalFsSource } from "@/lib/local/source";
 import { runClaudeAgent } from "@/lib/local/agent";
 import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
+import { getCraftItems, getCraftLedger } from "@/lib/db/org-insights-craft";
+import { axesByCoverage, emptyAxisTally } from "@/lib/scoring/craft";
 import { updateRecommendation } from "@/lib/db/scans-recommendations";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -187,7 +189,7 @@ export async function openBatch(
   // detector prices highest, which is the shortest path to the score rather than to the practice
   // (docs/SCORING-VALIDITY.md); impact is the model's judgment of what matters.
   const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
-  return backlog.byOwner
+  const gaps = backlog.byOwner
     .flatMap((g) => g.items)
     .filter((it) => it.repo === repo && it.status === "open" && !deferred.has(it.id))
     .sort((a, b) => (rank[a.impact] ?? 1) - (rank[b.impact] ?? 1) || (b.projectedPoints ?? 0) - (a.projectedPoints ?? 0))
@@ -204,6 +206,57 @@ export async function openBatch(
       explore: it.explore,
       projectedPoints: it.projectedPoints,
     }));
+  // GAPS ALWAYS OUTRANK CRAFT. The path above is untouched and returns byte-identical batches
+  // whenever the repo has a single open gap; craft is reached ONLY through this empty check. A
+  // shortfall the rubric can measure is always more valuable than a rung above the band, and mixing
+  // the two would put an optional rung in front of a real gap in the same session.
+  if (gaps.length > 0) return gaps;
+  return craftBatch(org, repo, limit, deferred);
+}
+
+/**
+ * THE CRAFT FALLBACK — what `openBatch` returns once a repo has no open gaps left.
+ *
+ * This is the whole point of r12. Before it, `openBatch` returned `[]` at green, the engine logged
+ * "No open follow-ups left for this repo", every lane closed, and a repository that had done
+ * everything the rubric asks was handed silence. The work must never end: above the band the next
+ * thing is always a rung, and the rungs are already sitting in the recommendations table.
+ *
+ * RANKED BY AXIS COVERAGE FIRST, the model's impact second. "Fewest built on this axis" is the
+ * ordering because craft is unbounded in every direction at once: a repository that has shipped four
+ * performance rungs and nothing on robustness gains far more from its first robustness rung than
+ * from its fifth performance one. Impact breaks ties within an axis; an item whose axis the model
+ * omitted sorts last, since nothing can be said about its coverage. Deterministic throughout — the
+ * curation screen and the engine compute the same order.
+ *
+ * Nothing here reads or writes a score. A craft item carries `projectedPoints: null` by construction
+ * and the ledger it is ranked against feeds no number outside this file and the prompt.
+ */
+async function craftBatch(
+  org: string,
+  repo: string,
+  limit: number,
+  deferred: ReadonlySet<string>,
+): Promise<FollowUpItem[]> {
+  const [items, ledger] = await Promise.all([
+    getCraftItems(org, repo, 200).catch(() => [] as FollowUpItem[]),
+    getCraftLedger(org, repo).catch(() => ({ total: 0, byAxis: emptyAxisTally(), unaxised: 0 })),
+  ]);
+  const open = items.filter((it) => !deferred.has(it.id));
+  if (open.length === 0) return [];
+  const order = axesByCoverage(ledger.byAxis);
+  const axisRank = new Map(order.map((a, i) => [a, i]));
+  // An axis-less item sorts after every real axis, never among them.
+  const noAxis = order.length;
+  const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  return [...open]
+    .sort(
+      (a, b) =>
+        (a.craftAxis ? (axisRank.get(a.craftAxis) ?? noAxis) : noAxis) -
+          (b.craftAxis ? (axisRank.get(b.craftAxis) ?? noAxis) : noAxis) ||
+        (rank[a.impact] ?? 1) - (rank[b.impact] ?? 1),
+    )
+    .slice(0, Math.max(1, limit));
 }
 
 /**
@@ -376,7 +429,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         }
       }
       if (batch.length === 0) {
-        await appendLaneLog(laneId, "No open follow-ups left for this repo — nothing to dispatch.");
+        // Reached only when the repo has NEITHER an open gap NOR an unbuilt craft rung — `openBatch`
+        // falls back to the ladder before it returns empty. That is a scan that produced no craft
+        // entries at all, not "this repo is finished".
+        await appendLaneLog(laneId, "No open follow-ups and no craft rungs left for this repo — nothing to dispatch.");
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
@@ -400,7 +456,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }
     }
 
-    if (kind !== "backlog") {
+    // The DETERMINISTIC kinds, named explicitly rather than as "not backlog". A `craft` lane is an
+    // AGENT lane — same session, different batch and brief — so a `kind !== "backlog"` test would
+    // have silently routed it into the file installer and installed a practice starter instead.
+    if (kind === "foundation" || kind === "practice") {
       // The deterministic half of the loop. No agent session is spent: the files come out of the same
       // generator the cloud draft-PR doors use, and the rescan below adjudicates the result exactly as
       // it does an agent's commits — an install that changes nothing measurable closes nothing.

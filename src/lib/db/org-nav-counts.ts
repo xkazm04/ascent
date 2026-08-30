@@ -49,7 +49,11 @@ export const getOrgNavCounts = cache(async (orgSlug: string): Promise<OrgNavCoun
         scans: {
           orderBy: { scannedAt: "desc" },
           take: 1,
-          select: { recommendations: { where: { status: { in: UNRESOLVED } }, select: { id: true } } },
+          // `kind: "gap"` by construction. A badge is a promise that the number goes down when you act
+          // on it; a craft entry is unbounded by design (there is always a next rung), so counting one
+          // would print a number that can never clear — exactly the failure this module's header
+          // refuses for derived counts. Craft has its own ledger, which only ever goes UP.
+          select: { recommendations: { where: { status: { in: UNRESOLVED }, kind: "gap" }, select: { id: true } } },
         },
       },
     }),

@@ -224,7 +224,11 @@ export function buildDimensionFollowUps(
   dimensions: { id: DimensionId; score: number; gaps?: string[] }[],
   overallScore: number,
 ): LlmRoadmapItem[] {
-  const covered = new Set(roadmap.map((r) => r.dimension));
+  // GAP entries only. A craft entry is what would make an ALREADY-STRONG dimension exemplary, so a
+  // craft entry on a dimension that is BELOW the follow-up floor is the model contradicting itself —
+  // and counting it as coverage would let it suppress the deterministic follow-up that dimension is
+  // guaranteed (r6). Gaps always outrank craft; here that means craft never stands in for one.
+  const covered = new Set(roadmap.filter((r) => r.kind !== "craft").map((r) => r.dimension));
   const current = levelForScore(overallScore);
   const next = nextLevel(current.id);
   const unlock = next ? `${current.id}->${next.id}` : undefined;

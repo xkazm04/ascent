@@ -2,12 +2,14 @@
 // (Phase 2) Bedrock share identical instructions and output contract.
 
 import type { DecisionNote } from "@/lib/db/org-decisions";
-import type { LlmScoreInput } from "@/lib/llm/provider";
+import type { CraftBuiltEntry, LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats, SecurityAssessment } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, FOLLOW_UP_BELOW, LEVELS } from "@/lib/maturity/model";
+import { GREEN_MIN_SCORE } from "@/lib/maturity/green";
 import { MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
 import { allFacetContracts } from "@/lib/scoring/claims";
+import { CRAFT_AXES, CRAFT_AXIS_BRIEF } from "@/lib/scoring/craft";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import {
   neutralize,
@@ -133,6 +135,45 @@ function decisionsBlock(decisions: DecisionNote[]): string {
   return `\nSTANDING DECISIONS (this org already judged these findings on this repo — treat each as context you were missing, not as a reason to raise the score; do NOT re-raise a dismissed finding in the roadmap unless new evidence contradicts its stated reason):\n${lines.join("\n")}\n`;
 }
 
+/** Bound the craft-ladder block the same way decisions are bounded — a long ladder must not crowd
+ *  the repository's own code out of the window. Titles are short by contract; this is the backstop. */
+const CRAFT_TITLE_CHARS = 160;
+
+/** How many rungs of the ladder the model is shown. Newest first, so a long-running repository sees
+ *  the top of its own ladder rather than its oldest history. */
+const CRAFT_BUILT_MAX = 12;
+
+/**
+ * CRAFT ALREADY BUILT — the rungs this repository has already climbed, so the next craft entry is the
+ * NEXT rung and not the same one again.
+ *
+ * THE FAILURE THIS FIXES. A craft entry is a question with no floor ("what would make this
+ * exemplary?"), and a model asked it every scan from the same evidence answers it the same way. Left
+ * alone the loop proposes "add a smoke test" forever and the ladder is a treadmill. The completed
+ * rungs are the one piece of context the evidence cannot contain — the work happened, and the code it
+ * left behind is not always legible as "this was a craft rung" from a file listing.
+ *
+ * Rendered into the per-repo USER message, never the SYSTEM prefix — SYSTEM is byte-identical across
+ * every scan so providers can cache it, and a per-repo ladder would shatter that cache. Same
+ * placement, same reason, same treatment as `decisionsBlock`.
+ *
+ * EVERY field is neutralized, for the same threat model: a craft title originates as MODEL output
+ * about repo-authored evidence and is then persisted, so a title carrying a forged
+ * `<untrusted_repo_data>` marker could open a second block and restructure a later scan's message.
+ * Neutralize BEFORE truncating so the marker→placeholder expansion cannot push a title back over the
+ * cap — the ordering the file's other blocks already use, for the reason documented there.
+ */
+function craftBuiltBlock(built: readonly CraftBuiltEntry[]): string {
+  const lines = built
+    .slice(0, CRAFT_BUILT_MAX)
+    .map(
+      (c) =>
+        `- [${c.axis ? neutralize(c.axis) : "no axis recorded"} · ${neutralize(c.dimId)}] ` +
+        truncate(neutralize(c.title.trim()), CRAFT_TITLE_CHARS),
+    );
+  return `\nCRAFT ALREADY BUILT (craft rungs this repository has COMPLETED, newest first — this is the ladder so far, not a list of gaps): every craft entry you write must be the NEXT RUNG relative to these, and you must NOT re-propose anything listed or a smaller version of it. Climb, do not repeat: if a k6 smoke baseline exists, the next rung is a budget that fails CI, not another smoke test; if retries exist, the next rung is a drill that removes the dependency, not another retry. Prefer an axis this list barely touches over one it already covers.\n${lines.join("\n")}\n`;
+}
+
 // TASK + output contract — stable instructions with NO per-repo data. Lives in the SYSTEM prompt (not
 // the user message) so it forms part of the cacheable prefix every provider can reuse across scans. The
 // evidence it judges arrives separately in the user message, so it says "the provided evidence", not
@@ -162,6 +203,24 @@ this repository does not yet, or the place its current practice would break firs
 AI-authored change. A craft entry is an observation in the same invitational voice, never a
 gap and never a fault; it does not lower the score and it is not a follow-up the team owes.
 Gap entries omit "kind" or set it to "gap".
+
+EVERY craft entry MUST carry "craftAxis" — the face of the craft it raises, exactly one of:
+${CRAFT_AXES.map((a) => `  - ${a}: ${CRAFT_AXIS_BRIEF[a]}`).join("\n")}
+Spread the axes across the craft entries you write; do not file every one under the same axis.
+
+CRAFT IS A LADDER, NOT A SUGGESTION REPEATED. Each craft entry names ONE rung that is reachable
+from where this repository already stands, and names the ARTEFACT it would leave behind — a file,
+a check, a budget, a drill, a documented decision — so a reader can tell whether it was built.
+Never propose something the evidence shows is already there, and never propose a rung two steps
+up when the one below it is missing.
+
+RAISING THE CEILING (dimension at or above ${GREEN_MIN_SCORE}). At the top of the band the useful
+voice is no longer "adopt the practice" — the practice is there. It is "raise the ceiling": a
+performance BUDGET that fails rather than another measurement; a robustness or chaos DRILL rather
+than another retry; an architecture-decay CHECK that runs rather than another diagram; a
+dependency-freshness SLO rather than another audit; design/API ergonomics judged by how obvious
+the right call is to the next reader. Stay evidence-grounded and invitational — a craft entry at
+${GREEN_MIN_SCORE}+ is an invitation to go further, never a fault found.
 
 IMPORTANT — Ascent is a transition COMPANION, not a boss. The roadmap surfaces *gaps in the
 level of trust* (how much the team can trust AI in its workflow) as things to EXPLORE, never as
@@ -194,7 +253,7 @@ Respond with JSON only in exactly this shape:
   "headline": "",
   "strengths": [""],
   "risks": [""],
-  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"}],
+  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"},{"title":"","dimension":"D2","impact":"medium","effort":"medium","rationale":"","explore":["",""],"kind":"craft","craftAxis":"performance"}],
   "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}],
   "claims": [{"dimension":"D4","facet":"automated_review","path":".github/workflows/review.yml","quote":"on:\\n  pull_request:","note":"A review job runs on every PR and calls the model."},{"dimension":"D1","facet":"commands_agree","path":"AGENTS.md","quote":"Run the suite with npm test before pushing","path2":".cursorrules","quote2":"Tests: npm test","note":"Both guidance files state the same test command."}]
 }`;
@@ -214,7 +273,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack, orgDecisions } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack, orgDecisions, craftBuilt } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -281,7 +340,7 @@ REPOSITORY
 - Language: ${repo.primaryLanguage ?? "unknown"} | Stars: ${repo.stars} | Last push: ${repo.pushedAt ?? "?"}
 - Description: ${repo.description ? neutralize(repo.description) : "(none)"}
 - Inferred run-style: ${archetype} (solo/early, team/product, or org/platform) — judge maturity in this context.
-${orgDecisions && orgDecisions.length > 0 ? decisionsBlock(orgDecisions) : ""}${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
+${orgDecisions && orgDecisions.length > 0 ? decisionsBlock(orgDecisions) : ""}${craftBuilt && craftBuilt.length > 0 ? craftBuiltBlock(craftBuilt) : ""}${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
 DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
 ${signalBlock}
 

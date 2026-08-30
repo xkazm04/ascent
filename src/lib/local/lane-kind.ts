@@ -17,7 +17,19 @@
 //      Only the top item is considered: the loop's ordering is impact-first, and letting any item in
 //      the batch pull the lane away from the agent would make the template drop the default answer
 //      rather than the shortest path to the biggest gap.
-//   3. Otherwise → the ordinary BACKLOG lane. That stays the default and does everything else.
+//   3. Otherwise, if there is NO open gap follow-up at all but the repo has unbuilt CRAFT rungs → a
+//      CRAFT lane (r12). This is where the loop used to die: `openBatch` returned nothing at green,
+//      no lane could arm, and a repository that had done everything the rubric asks got silence. A
+//      craft lane is an ordinary agent lane with a different batch and a different brief; it moves no
+//      score and adds no debt.
+//   4. Otherwise → the ordinary BACKLOG lane. That stays the default and does everything else.
+//
+// NO HUMAN GATE ON THE CRAFT LANE, deliberately. It arms automatically exactly as a backlog lane
+// does. The review that matters happens AFTER the work — the Storyboard's ✓/✕ ledger is a record of
+// what was actually built, not a pre-approval queue — and a gate in front of unbounded work would
+// simply stop the work. If a gate is ever wanted, THIS is the place to reintroduce it: return a
+// proposal the curation screen must confirm before the engine may dispatch it, the same shape the
+// practice lane's `itemId` already gives the operator something to prune.
 //
 // LOCAL MODE ONLY. Every branch here reads a filesystem path, so on the managed cloud path (where
 // `selfHosted()` is false and these routes 404) nothing changes: practices and the foundation keep
@@ -105,7 +117,22 @@ export async function proposeLaneKind(
         reason: "No .ai/ foundation in this repo — this lane installs the generated standard, then rescans.",
       };
     }
-    const top = (await loadItems())[0];
+    const items = await loadItems();
+    const top = items[0];
+    // NO ITEMS AT ALL is the old dead end. `openBatch` already falls back to the craft ladder, so the
+    // items in hand tell us which: an all-craft list means the repo has no open gap left, and the
+    // lane should SAY so rather than arm as an unexplained "backlog" lane over craft work. The
+    // proposal is read straight off the batch, so the curation screen and the engine cannot disagree
+    // about what a lane is (the identity rule this module's header states).
+    if (top && items.every((it) => it.kind === "craft")) {
+      const axes = [...new Set(items.map((it) => it.craftAxis).filter((a): a is NonNullable<typeof a> => a != null))];
+      return {
+        kind: "craft",
+        practiceId: null,
+        itemId: null,
+        reason: `No open gaps left — this lane works the craft ladder${axes.length ? ` (${axes.slice(0, 3).join(", ")})` : ""}, raising the ceiling rather than closing a gap.`,
+      };
+    }
     if (!top) return BACKLOG_LANE;
     const practice = practiceForDimension(top.dimId);
     if (!practice) return BACKLOG_LANE;

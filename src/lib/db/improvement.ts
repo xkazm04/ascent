@@ -179,7 +179,10 @@ export async function listOpsState(orgSlug: string): Promise<OpsState | null> {
           take: 1,
           select: {
             recommendations: {
-              where: { status: "open" },
+              // `kind: "gap"` by construction: this triage opens draft PRs against a repo's gaps. A
+              // craft entry is not a gap and must never become an unsolicited PR — the loop's craft
+              // lane is the only door it goes through (r12).
+              where: { status: "open", kind: "gap" },
               select: { id: true, title: true, dimId: true, impact: true, effort: true, rationale: true },
             },
           },

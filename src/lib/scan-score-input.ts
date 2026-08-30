@@ -18,6 +18,7 @@ import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { computeSecurityChecks } from "@/lib/security/checks";
 import { techStackPromptEnabled } from "@/lib/llm/config";
 import { decisionsForRepo } from "@/lib/db";
+import { getCraftBuilt } from "@/lib/db/org-insights-craft";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type {
   DimensionSignals,
@@ -158,6 +159,14 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     ? await decisionsForRepo(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
     : [];
 
+  // CRAFT ALREADY BUILT — the rungs this repository has completed, so the assessment proposes the NEXT
+  // one instead of re-proposing what is already there. Same read shape, same slug and the same
+  // best-effort posture as the decisions above: this is the second half of the same loop (what the
+  // org decided; what the repo then built), and an unreachable store must never fail a scan.
+  const craftBuilt = decisionSlug
+    ? await getCraftBuilt(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
+    : [];
+
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,
     signals,
@@ -165,6 +174,9 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     commitSample: snapshot.commits.map((c) => c.message).slice(0, 15),
     archetype,
     ...(orgDecisions.length > 0 ? { orgDecisions } : {}),
+    // Omitted entirely when the ladder is empty, so a first scan's prompt is byte-identical to what
+    // it was before r12 — the same discipline `orgDecisions` keeps for the provider cache.
+    ...(craftBuilt.length > 0 ? { craftBuilt } : {}),
     // Already fetched above and folded into the deterministic D3/D6/D7/D8 scores — also hand them to
     // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
     prStats,

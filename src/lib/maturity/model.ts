@@ -93,7 +93,8 @@ import type {
 // r10 (2026-08-26): the assessment prompt gained CRAFT ENTRIES — one `kind: "craft"` roadmap entry
 // per dimension at/above the follow-up floor with no gap, so a strong score still gets told what
 // would make it exemplary. No weight, band, blend or detector moved; the bump is for the changed
-// model input (the r6 precedent). Craft entries never feed a score, a follow-up batch or debt.
+// model input (the r6 precedent). Craft entries never feed a score or debt — and, UNDER r10 ONLY,
+// never a follow-up batch either. That last clause was superseded by r12; see below.
 // r11 (2026-08-30): D1 stopped counting FORMATS and started scoring COHERENCE (moonshot #15). The
 // five instruction-document formats used to sum on presence alone (CLAUDE.md 22 + AGENTS.md 16 +
 // Cursor 14 + Copilot 14 + Windsurf 10 = 76), so a repo with four MUTUALLY CONTRADICTING copies
@@ -109,7 +110,30 @@ import type {
 // +4 "Manifest declares capabilities + control placement" award became REACHABLE in wave 1 when the
 // fetch list started requesting `.ai/manifest.yaml` — a second, independent reason r10 numbers are
 // not comparable with r11 ones. No weight, band or blend constant moved.
-export const SCORING_RUBRIC_VERSION = "r11";
+// r12 (2026-08-30): THE CRAFT LADDER — craft entries became DISPATCHABLE WORK, and r10's sentence
+// "craft entries never feed a follow-up batch" is corrected above rather than deleted, because it was
+// true of r10 and the history is the point of this log. What r10 shipped was a dead end: the model
+// was asked for a craft entry, the parser accepted it, the column stored it, and then nothing could
+// ever read it — so the moment a repository's last gap closed, `openBatch` returned nothing, no lane
+// could arm, and a team that had done everything the rubric asks was handed silence. Improvement has
+// no ceiling; the loop had one.
+//   • `openBatch` now falls back to the craft ladder when a repo has NO open gap follow-up. Gaps
+//     always outrank craft, so a repo with a single open gap gets a byte-identical batch to r11's.
+//   • Craft entries carry a `craftAxis` (architecture | performance | robustness | design |
+//     security-depth | dx — src/lib/scoring/craft.ts), the loop's craft lane ranks by the axis with
+//     the fewest BUILT rungs, and the prompt renders a per-repo CRAFT ALREADY BUILT block so each
+//     entry is the next RUNG rather than the same suggestion again.
+//   • A per-repo craft LEDGER (`getCraftLedger`) counts completed rungs by axis. It only ever
+//     increases — the honest metric for work with no completion state.
+// WHAT DID NOT MOVE, AND MUST NOT: no weight, band, blend, guardband, detector or dimension score
+// changed, and craft touches NONE of them. A craft row is excluded BY CONSTRUCTION from every debt
+// and finding query (getOrgBacklog, getOrgRecommendations, org-nav-counts, personal-backlog,
+// improvement triage — each says so at its `where`), from alerts, and from the gate. The ledger feeds
+// the prompt and the lane's ranking and nothing else; `craft-ledger.score.test.ts` asserts a
+// completed rung leaves the score untouched. The bump is for the CHANGED MODEL INPUT — the sharpened
+// craft instruction, the axis requirement and the ladder block — which is the r6/r10 precedent: a
+// cached r11 scan's roadmap would not agree with what a fresh one produces.
+export const SCORING_RUBRIC_VERSION = "r12";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

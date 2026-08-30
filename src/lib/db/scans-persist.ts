@@ -290,7 +290,7 @@ export async function persistScanReport(
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: {
-        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true, kind: true } },
+        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
         // The previous scan's dimension scores — the independent witness for an in-progress row's
         // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
         // rephrasing, not repair.
@@ -347,14 +347,25 @@ export async function persistScanReport(
       if (r.status !== "in_progress") return;
       const restated = isRestated({ dim: r.dimId, title: r.title }, nextIds);
       const movement = movementOf(r.dimId);
-      const decision = decideInProgress({ id: r.id }, restated, resolvedIds, movement, movementEngines);
+      // The row's KIND decides which resolve rule applies. A craft rung closes on its trailer alone —
+      // it raises a ceiling the rubric cannot record, so the movement witness a gap needs is not
+      // available for it (see decideInProgress's craft rule).
+      const decision = decideInProgress(
+        { id: r.id, kind: r.kind === "craft" ? "craft" : "gap" },
+        restated,
+        resolvedIds,
+        movement,
+        movementEngines,
+      );
       if (decision.kind === "done") {
         resolvedRows.push({ row: r, note: resolutionNote(decision, scanRef) });
         // Un-pair any next item carry-forward matched to this row: it is not the same gap.
         carryMatch.forEach((m, j) => {
           if (m === i) carryMatch[j] = null;
         });
-      } else if (decision.reason === "no-movement") {
+      } else if (decision.reason === "no-movement" || decision.reason === "craft-unclaimed") {
+        // Both are UNPAIRED keeps: the new assessment did not restate the row, so nothing in the new
+        // roadmap matched it and it would vanish from the ledger without an explicit carry-forward.
         keptRows.push({ row: r, note: keepNote(decision, scanRef, movement), paired: false });
       } else {
         const note = keepNote(decision, scanRef, movement);
@@ -494,6 +505,9 @@ export async function persistScanReport(
                   explore: JSON.stringify(r.explore ?? []),
                   levelUnlock: r.levelUnlock ?? null,
                   kind: r.kind ?? "gap",
+                  // The axis rides only on a craft entry; a gap row's axis is NULL by construction so
+                  // no coverage read can ever count a gap as a craft rung (scoring/craft.ts).
+                  craftAxis: r.kind === "craft" ? (r.craftAxis ?? null) : null,
                   status: carried?.status ?? "open",
                   assigneeLogin: carried?.assigneeLogin ?? null,
                   targetDate: carried?.targetDate ?? null,
@@ -520,6 +534,7 @@ export async function persistScanReport(
               explore: row.explore,
               levelUnlock: row.levelUnlock,
               kind: row.kind,
+              craftAxis: row.craftAxis,
               status: "done",
               assigneeLogin: row.assigneeLogin,
               targetDate: row.targetDate,
@@ -553,6 +568,7 @@ export async function persistScanReport(
                   explore: row.explore,
                   levelUnlock: row.levelUnlock,
                   kind: row.kind,
+                  craftAxis: row.craftAxis,
                   status: "in_progress",
                   assigneeLogin: row.assigneeLogin,
                   targetDate: row.targetDate,

@@ -563,7 +563,13 @@ export async function getOrgBacklog(
           select: { scanId: true, dimId: true, score: true },
         }),
         prisma.recommendation.findMany({
-          where: { scanId: { in: scanIds } },
+          // `kind: "gap"` ONLY, and this is the load-bearing one: the backlog is THE debt surface —
+          // its counts feed the overdue tile, the fleet debt figure, the drive's stop condition and
+          // (through `openBatch`) which lanes arm. A craft entry is what would make an ALREADY-GREEN
+          // dimension exemplary; it is not a shortfall, so counting it as debt would mean a repo that
+          // finished its gaps could never read as finished. Craft is dispatchable since r12, but only
+          // through the separate `org-insights-craft.ts` read — never through this query.
+          where: { scanId: { in: scanIds }, kind: "gap" },
           orderBy: { createdAt: "asc" },
           select: {
             id: true,

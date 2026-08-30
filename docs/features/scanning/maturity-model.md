@@ -433,11 +433,85 @@ no gap entry**: what would make the dimension *exemplary* — the practice the s
 kind run that this repository does not yet, or where its current practice would break first under
 more AI-authored change. Same invitational voice; never a gap, never a fault.
 
-Craft entries are deliberately **inert everywhere but the report**: they carry `kind: "craft"` on
-`Recommendation`, the backlog and the loop read `kind: "gap"` only, `buildDimensionFollowUps` does
-not synthesise them, and they never touch a score or the fleet's debt. The score stays a bounded,
-reproducible measure of practice presence; craft is the open-ended half. The corpus comparison
-("the top decile of this archetype does X") is the intended next step and is not built.
+Craft entries carry `kind: "craft"` on `Recommendation`. They never touch a score or the fleet's
+debt, and `buildDimensionFollowUps` does not synthesise them. The score stays a bounded, reproducible
+measure of practice presence; craft is the open-ended half.
+
+Under `r10` they were also **undispatchable** — inert everywhere but the report. That was a dead end,
+and `r12` removed it. See §4d.
+
+## 4d. The craft ladder — craft becomes dispatchable work (r12, 2026-08-30)
+
+`r10` asked the model for craft entries, the parser accepted them and the column stored them, and
+then *nothing could read them*. Every consumer filtered `kind: "gap"`, so the moment a repository's
+last gap closed, `openBatch` returned nothing, no lane could arm, and a team that had done everything
+the rubric asks was handed silence. Improvement has no ceiling; the loop had one.
+
+`r12` makes craft **dispatchable work that still never enters a score.**
+
+### The axis
+
+Every craft entry names a `craftAxis` — one of `architecture`, `performance`, `robustness`, `design`,
+`security-depth`, `dx` ([`src/lib/scoring/craft.ts`](../../../src/lib/scoring/craft.ts)), persisted on
+`Recommendation.craftAxis` (nullable; NULL on every gap and on craft rows written before `r12`). The
+axis is a **coverage key**, never a weight: it prices nothing, unlocks nothing and is never summed.
+It exists so the work spreads across the whole surface of the craft rather than deepening one corner.
+
+### The ladder, not a repeated suggestion
+
+A craft entry answers a question with no floor, so a model asked it every scan from the same evidence
+answers it the same way. Two prompt changes stop that:
+
+- The stable TASK block requires the axis, requires each entry to name **the artefact it would leave
+  behind**, forbids a rung two steps above a missing one, and shifts the voice at or above
+  `GREEN_MIN_SCORE` (85) from "adopt the practice" to *raise the ceiling* — a performance budget that
+  fails rather than another measurement, a chaos drill rather than another retry, an
+  architecture-decay check rather than another diagram, a dependency-freshness SLO rather than
+  another audit.
+- A per-repo **`CRAFT ALREADY BUILT`** block lists the rungs the repository has completed with their
+  axis and instructs the model to propose the *next* rung and never to re-propose what is listed
+  ("a k6 smoke baseline exists → the next rung is a budget that fails CI, not another smoke test").
+  It is rendered into the **user** message only — never the cached SYSTEM prefix, which must stay
+  byte-identical for provider caching — and every field is `neutralize`d exactly as the standing
+  decisions block is, for the same threat model.
+
+Craft entries also get their **own** roadmap budget (6 gaps + 6 craft) rather than a share of the old
+cap of six. Under one shared cap the craft entries are simply the ones that fall off the end, since
+gaps outrank craft — which is why two repositories scanned under `r10` with several dimensions in the
+90s produced zero stored craft rows between them.
+
+### The ledger (the odometer)
+
+`getCraftLedger(orgSlug, repo)` → `{ total, byAxis, unaxised }`
+([`src/lib/db/org-insights-craft.ts`](../../../src/lib/db/org-insights-craft.ts)) counts the rungs a
+repository has **built**, deduped on the recommendation's stable identity. A rung counts once it
+reaches `done`, through exactly the machinery a gap closes by.
+
+**It only ever increases**, and that is the point: craft work has no completion state, so a burn-down
+would be a lie and distance travelled is the only honest metric. **It must never enter a score, a
+level, or a debt figure** — not as a bonus, not as a tiebreak, not as an adjustment to a projected
+gain. `src/lib/scoring/craft.score.test.ts` asserts a full craft ladder leaves every dimension score,
+the overall and the level identical.
+
+### Craft's resolve rule
+
+A craft rung closes on its `Ascent-Resolves:` trailer **and nothing else**. Both gap witnesses are
+unavailable: movement cannot see it (the rung raises a ceiling the rubric has no headroom to record,
+so demanding a score move would mean no rung can ever close), and "no longer restated" is weaker for
+craft than for a gap (a craft entry is re-derived from an unbounded question every scan, so its
+absence is variance, not evidence). An unclaimed rung stays in progress.
+
+### Excluded from debt by construction
+
+Every debt and finding query filters `kind: "gap"` at its `where`, each saying so in a comment:
+`getOrgBacklog` and `getOrgRecommendations` (`org-insights.ts`), the nav badge (`org-nav-counts.ts`),
+`personal-backlog.ts` and the improvement-PR triage (`improvement.ts`). Craft is read **only** through
+the separate `org-insights-craft.ts`, so "does craft leak into debt?" is answerable by grep. (Before
+`r12` `getOrgBacklog` filtered on `status` alone — craft rows could already be dispatched mixed in
+with gaps, unordered, contradicting the schema's own comment. That is fixed.)
+
+The corpus comparison ("the top decile of this archetype does X") is still the intended next step and
+is not built.
 
 ## 5. Calibration & Roadmap (post-MVP)
 - Build a **labeled benchmark set** (~30 repos hand-rated L1–L5) and tune weights/BLEND
@@ -472,6 +546,7 @@ genuinely display-only change, but the reasoning belongs in the diff.
 
 | Version | Change |
 | --- | --- |
+| `r12` (2026-08-30) | **The craft ladder.** Craft entries became *dispatchable work* while staying outside every score and debt figure (§4d). `openBatch` falls back to the craft ladder when a repo has no open gap — gaps always outrank craft, so a repo with a single open gap gets a byte-identical batch to `r11`'s. Craft entries carry a `craftAxis` (`architecture`/`performance`/`robustness`/`design`/`security-depth`/`dx`), the loop gains a `craft` lane kind that arms automatically at green, and a per-repo craft **ledger** counts built rungs by axis (monotone, and never an input to any number). The prompt's craft instruction now requires the axis, demands an escalating rung that names its artefact, and renders a per-repo `CRAFT ALREADY BUILT` block into the user message. **No weight, band, blend, guardband, posture threshold, lens or detector moved** — the bump is for the changed model input alone (the `r6`/`r10` precedent). The r10 row's "never a follow-up batch" clause is superseded here; it is left standing as the record of what r10 was. |
 | `r11` (2026-08-30) | **D1 scores coherence, not count.** The five instruction-document formats used to sum on presence alone (CLAUDE.md 22 + AGENTS.md 16 + Cursor 14 + Copilot 14 + Windsurf 10 = 76), so a repo with four *mutually contradicting* copies outscored a repo with one document that is actually true — the rubric rewarded the worse repo. They now collapse into one 22-point award plus `round(18 × coherence/100)`, where coherence is the guidance arbiter's deterministic, itemized read across every format (`src/lib/analyze/guidance-graph.ts`), and content quality is graded on the **canonical** document rather than whichever file matched first. D1 also joined `CLAIM_SCORED_DIMENSIONS`, which removes its guardband blend entirely: the model's D1 number is recorded and ignored, and its judgment reaches the score only through citations verified against guidance files the arbiter found. D1 is now fully reproducible. Scores move on every repo carrying more than one guidance format; a repo with one document is unchanged at the floor. Separately, the `+4` manifest award became **reachable** in wave 1 when the fetch list started requesting `.ai/manifest.yaml` — a second, independent reason `r10` numbers are not comparable with `r11` ones. No weight, band or blend constant moved. |
 | `r2` (2026-07-17) | `classifyArchetype` caps star-driven "org" escalation at "team" for repos with ≤2 active human authors, moving the archetype lens and its weights for viral solo repos. |
 | `r3` (2026-07-28) | The assessment system prompt gained the untrusted-repo-data boundary and a stated discrepancy budget, which the engine now enforces (a scan may widen at most `MAX_FLAGGED_DIMENSIONS` guardbands). |

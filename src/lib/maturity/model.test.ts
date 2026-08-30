@@ -178,7 +178,14 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // D4). Both halves of the hash moved for the same reason, and both are score-moving: the D1
     // detector collapsed five presence awards into one + a coherence band, and D1 lost its guardband
     // blend. This is the case the backstop exists for — the bump is the remedy, the re-pin records it.
-    const EXPECTED_RUBRIC_HASH = "11428351d6a46087e8e007334bab5bce442cf17c064be8dc08bd329a8ca289f3";
+    // Re-pinned 2026-08-30 WITH the r12 bump (the craft ladder): ONLY the prompt half moved. The TASK
+    // block's CRAFT ENTRIES section now requires a `craftAxis` from the six-axis taxonomy, demands an
+    // escalating rung naming its artefact, and shifts the voice to "raise the ceiling" for dimensions
+    // at or above the green floor. No weight, band, blend, guardband, posture threshold, lens or
+    // detector moved — the whole point of r12 is that craft became dispatchable work WITHOUT entering
+    // any score. (The per-repo CRAFT ALREADY BUILT block is not in this hash by construction: it is
+    // rendered into the USER message, never the cacheable SYSTEM prefix this snapshot covers.)
+    const EXPECTED_RUBRIC_HASH = "36692fb1ddbc144e88e7ecd2494f154c9f78f8808432123170568e24ad18df92";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

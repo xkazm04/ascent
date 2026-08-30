@@ -127,12 +127,21 @@ export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "
  *   • `backlog`   — the original lane: dispatch the repo's open follow-ups to a local Claude session.
  *   • `foundation`— install the generated `.ai/` standard (no agent call: deterministic file writes).
  *   • `practice`  — install one Practice Library starter (same, one file).
+ *   • `craft`     — dispatch the repo's CRAFT rungs to a local Claude session. Same machinery as
+ *                   `backlog`, different batch and a different brief: it arms only once the repo has
+ *                   no open gaps left, which is exactly where the loop used to die.
  *
  * The two deterministic kinds exist because UC1's loop is "scan → gaps → apply practice / `.ai/`
  * foundation → rescan", and until now the local loop could only do the middle step through an agent
  * while the other two lived behind a GitHub-App draft-PR door the loop never opened.
+ *
+ * `craft` exists (r12) because the loop ENDED at green. `openBatch` returned nothing the moment the
+ * last gap closed, no lane could arm, and a repository that had done everything the rubric asks was
+ * handed silence. Craft entries were already being produced and stored; they were simply undispatchable.
+ * Note what a craft lane still is NOT: it moves no score, adds no debt, and closes nothing on the
+ * ledger except its own rungs.
  */
-export type LoopLaneKind = "backlog" | "foundation" | "practice";
+export type LoopLaneKind = "backlog" | "foundation" | "practice" | "craft";
 
 /** One repo in a run, with the kind of lane its FIRST cycle was armed for. */
 export interface LoopTarget {
@@ -142,7 +151,7 @@ export interface LoopTarget {
   practiceId: string | null;
 }
 
-export const LANE_KINDS: readonly LoopLaneKind[] = ["backlog", "foundation", "practice"];
+export const LANE_KINDS: readonly LoopLaneKind[] = ["backlog", "foundation", "practice", "craft"];
 
 const asKind = (v: unknown): LoopLaneKind =>
   typeof v === "string" && (LANE_KINDS as readonly string[]).includes(v) ? (v as LoopLaneKind) : "backlog";

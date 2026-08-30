@@ -341,6 +341,9 @@ CREATE TABLE "Recommendation" (
     "levelUnlock" TEXT,
     "status" TEXT NOT NULL DEFAULT 'open',
     "kind" TEXT NOT NULL DEFAULT 'gap',
+    -- r12: the craft axis this entry raises (architecture | performance | robustness | design |
+    -- security-depth | dx). Nullable, so pglite-boot's reconcileColumnDrift adds it in place.
+    "craftAxis" TEXT,
     "assigneeLogin" TEXT,
     "targetDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

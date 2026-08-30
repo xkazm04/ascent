@@ -324,6 +324,30 @@ own first gap when the model gave one, else the catalog template — lowest scor
 model's own entries. Before this, 3-5 roadmap entries over nine dimensions left most mediocre
 dimensions with an empty "Next steps", which the drill-in read as "not a current gap".
 
+**Craft entries and the craft ladder (r12, 2026-08-30).** Every dimension **at or above** the floor
+with no gap entry gets one `kind: "craft"` roadmap entry — what would make it exemplary — and each
+one names a `craftAxis`: `architecture` · `performance` · `robustness` · `design` · `security-depth`
+· `dx` (`src/lib/scoring/craft.ts`), persisted on `Recommendation.craftAxis`. Two prompt rules make
+the entries a *ladder* rather than the same suggestion re-answered every scan:
+
+- the stable TASK block requires the axis, requires the entry to name **the artefact it would leave
+  behind**, forbids a rung two steps above a missing one, and at or above `GREEN_MIN_SCORE` (85)
+  shifts the voice from "adopt the practice" to *raise the ceiling* (a performance budget that fails
+  rather than another measurement, a chaos drill rather than another retry, an architecture-decay
+  check, a dependency-freshness SLO, design/API ergonomics);
+- a per-repo **`CRAFT ALREADY BUILT`** block lists the rungs the repository has completed with their
+  axis and instructs the model to propose the *next* one ("a k6 smoke baseline exists → the next rung
+  is a budget that fails CI, not another smoke test"). It is fed by `getCraftBuilt` from the same
+  read path that supplies `orgDecisions`, rendered into the **user** message only — never the cached
+  SYSTEM prefix — and `neutralize`d exactly like the standing-decisions block.
+
+Craft entries get their own roadmap budget (6 gaps + 6 craft) so gaps cannot starve the ladder, and
+`buildDimensionFollowUps` counts only **gap** entries as coverage, so a stray craft entry on a
+below-green dimension can never suppress the follow-up that dimension is guaranteed. A craft entry
+never touches a score or the fleet's debt; since r12 it *is* dispatchable by the loop's craft lane.
+Full mechanics — the ledger, the resolve rule, the debt exclusions — in
+[maturity-model.md §4d](./maturity-model.md#4d-the-craft-ladder--craft-becomes-dispatchable-work-r12-2026-08-30).
+
 **Ranking includes effort (2026-08-20).** The fallback roadmap ranks by `weight × headroom ×
 effort`, where effort discounts the weighted upside by 10% per ordinal (low ×1.0, medium ×0.9,
 high ×0.8, off the shared `IMPACT_RANK`). Effort was previously displayed but absent from the

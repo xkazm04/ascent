@@ -95,6 +95,10 @@ export async function getPersonalBacklog(personalSlug: string): Promise<Personal
           select: {
             scannedAt: true,
             recommendations: {
+              // `kind: "gap"` by construction — the personal backlog is a debt surface like the org
+              // one, and a craft entry is not debt (r12). Craft is read only through
+              // org-insights-craft.ts.
+              where: { kind: "gap" },
               orderBy: { createdAt: "asc" },
               select: { dimId: true, title: true, impact: true, effort: true, levelUnlock: true },
             },

@@ -62,7 +62,13 @@ export interface LoopProposal {
 /** The one-word tag a lane's kind renders as, everywhere. `null` for the default agent lane, which
  *  needs no tag — a badge on every row would say nothing. */
 export const laneKindTag = (kind: LoopLaneKind): string | null =>
-  kind === "foundation" ? ".ai/ foundation" : kind === "practice" ? "practice starter" : null;
+  kind === "foundation"
+    ? ".ai/ foundation"
+    : kind === "practice"
+      ? "practice starter"
+      : kind === "craft"
+        ? "craft rung"
+        : null;
 
 /** GET /api/org/loop?org=… */
 export interface LoopStatusPayload {

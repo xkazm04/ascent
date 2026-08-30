@@ -32,6 +32,7 @@ import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { parsePlatformSignals } from "@/lib/analyze/platform-carry";
 import { projectedGain } from "@/lib/scoring/engine";
+import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
@@ -1125,7 +1126,12 @@ async function loadScanReportByCommit(
     rationale: r.rationale,
     explore: parseStringArray(r.explore),
     levelUnlock: r.levelUnlock ?? undefined,
-    ...(r.kind === "craft" ? { kind: "craft" as const } : {}),
+    // Only the non-default kind is carried (an absent kind IS "gap"), and the axis rides only with
+    // it — narrowed through the taxonomy so a stale or hand-edited column value cannot enter the
+    // report as an axis the ledger would not recognise.
+    ...(r.kind === "craft"
+      ? { kind: "craft" as const, ...(asCraftAxis(r.craftAxis) ? { craftAxis: asCraftAxis(r.craftAxis)! } : {}) }
+      : {}),
   }));
 
   // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them
