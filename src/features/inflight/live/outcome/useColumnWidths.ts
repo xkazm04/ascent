@@ -50,8 +50,11 @@ export function useColumnWidths(slug: string, latestId: string | null) {
   const held = useRef<Record<string, number>>({});
 
   useEffect(() => {
+    // localStorage is unreadable during SSR/hydration, so the stored layout can only be applied
+    // post-mount — one deliberate second render on mount (and on slug change), never a cascade.
     const stored = readWidths(slug);
     held.current = stored;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe storage read; see above
     setWidths(stored);
   }, [slug]);
 
