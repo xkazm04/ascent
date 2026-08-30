@@ -144,6 +144,11 @@ CREATE TABLE "Repository" (
     "role" TEXT NOT NULL DEFAULT 'fleet',
     "manifestJson" TEXT,
     "guidanceGraphJson" TEXT,
+    -- MOONSHOT #4 — which forge this repo lives on, and its forge-native stable id. `forge` is
+    -- DEFAULTED, so every existing row is GitHub and no backfill is owed; it is a filter, never part
+    -- of the identity key (see the Repository_orgId_fullName_key note below).
+    "forge" TEXT NOT NULL DEFAULT 'github',
+    "externalId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -158,6 +163,11 @@ ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "manifestJson" TEXT;
 -- MOONSHOT #15 — latest arbitrated guidance graph. Nullable: null is "no scan has assessed this
 -- repo's guidance yet", which is not "this repo has no guidance" and never a zero.
 ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "guidanceGraphJson" TEXT;
+-- MOONSHOT #4 — forge neutrality. `forge` carries a DEFAULT so an existing row is correctly GitHub
+-- without a backfill pass; `externalId` is nullable because the coordinate IS the id on GitHub, and
+-- null must never be read as "this repo has no id".
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "forge" TEXT NOT NULL DEFAULT 'github';
+ALTER TABLE "Repository" ADD COLUMN IF NOT EXISTS "externalId" TEXT;
 
 -- CreateTable
 CREATE TABLE "Segment" (
@@ -346,10 +356,25 @@ CREATE TABLE "Recommendation" (
     "craftAxis" TEXT,
     "assigneeLogin" TEXT,
     "targetDate" TIMESTAMP(3),
+    -- MOONSHOT #3 — the agent-neutral work claim, deliberately separate from "assigneeLogin" (the
+    -- human planning layer): a lease expiring must never silently un-assign a person. NULL
+    -- "leaseUntil" on an in_progress row means a HUMAN took it and the sweep must leave it alone.
+    "claimActor" TEXT,
+    "claimExecutor" TEXT,
+    "leaseUntil" TIMESTAMP(3),
+    "needsHuman" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Recommendation_pkey" PRIMARY KEY ("id")
 );
+
+-- Idempotent add-column: pglite-boot rewrites CREATE TABLE -> IF NOT EXISTS, so an EXISTING local
+-- .pglite DB needs the four claim columns applied explicitly. All four are safe without a backfill —
+-- an unclaimed row is exactly NULL/NULL/NULL/false, which is what every pre-#3 row is.
+ALTER TABLE "Recommendation" ADD COLUMN IF NOT EXISTS "claimActor" TEXT;
+ALTER TABLE "Recommendation" ADD COLUMN IF NOT EXISTS "claimExecutor" TEXT;
+ALTER TABLE "Recommendation" ADD COLUMN IF NOT EXISTS "leaseUntil" TIMESTAMP(3);
+ALTER TABLE "Recommendation" ADD COLUMN IF NOT EXISTS "needsHuman" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
 CREATE TABLE "RecommendationEvent" (
@@ -579,7 +604,13 @@ CREATE INDEX "Repository_fullName_idx" ON "Repository"("fullName");
 CREATE INDEX "Repository_watched_idx" ON "Repository"("watched");
 
 -- CreateIndex
+-- MOONSHOT #4 deliberately does NOT widen this to (orgId, forge, fullName): a non-GitHub repo is
+-- namespaced in the VALUE ("gitlab:group/sub/project"), so there is no collision to migrate a live
+-- unique constraint for, and every route taking ?repo=owner/name keeps working unchanged.
 CREATE UNIQUE INDEX "Repository_orgId_fullName_key" ON "Repository"("orgId", "fullName");
+
+-- CreateIndex: MOONSHOT #4 — the fleet-by-forge filter and the honest-capability rollup.
+CREATE INDEX "Repository_orgId_forge_idx" ON "Repository"("orgId", "forge");
 
 -- CreateIndex
 CREATE INDEX "Segment_orgId_idx" ON "Segment"("orgId");
@@ -643,6 +674,10 @@ CREATE INDEX "Recommendation_status_idx" ON "Recommendation"("status");
 
 -- CreateIndex
 CREATE INDEX "Recommendation_assigneeLogin_idx" ON "Recommendation"("assigneeLogin");
+
+-- CreateIndex: MOONSHOT #3 — the claim's compare-and-set candidate scan and the expired-lease sweep
+-- both key on (status, leaseUntil).
+CREATE INDEX "Recommendation_status_leaseUntil_idx" ON "Recommendation"("status", "leaseUntil");
 
 -- CreateIndex
 CREATE INDEX "RecommendationEvent_recommendationId_idx" ON "RecommendationEvent"("recommendationId");
@@ -2310,6 +2345,66 @@ CREATE INDEX "ControlLedgerSeal_orgId_day_idx" ON "ControlLedgerSeal"("orgId", "
 -- observation time (null is "not observed live", never "not approved").
 ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "source" TEXT NOT NULL DEFAULT 'scan';
 ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "approvalObservedAt" TIMESTAMP(3);
+
+-- ── MOONSHOT WAVE 4 ────────────────────────────────────────────────────────────────────────────
+
+-- CreateTable: #8 the compiled admission decision for ONE repo — what tier the stance DERIVES for
+-- it, what tier the org GRANTED, and therefore whether agents may work in it. The two tiers are
+-- separate columns rather than one value plus an "overridden" flag because an override must not
+-- destroy the evidence it overrode. "derivedTier" NULL = not assessed (never a T0); "decidedBy"
+-- NULL = seeded from the derived tier and never actually decided, which must not read as
+-- governance; "rulesetId" NULL = nothing was written to the forge, so there is nothing to revert
+-- and no claim that the perimeter is enforced. Keyed by repoFullName with no FK (mirrors
+-- OrgArtifactAck), so it is hand-cascaded by src/lib/db/retention.ts.
+CREATE TABLE "RepoAdmission" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "stanceVersion" INTEGER NOT NULL,
+    "derivedTier" TEXT,
+    "grantedTier" TEXT NOT NULL,
+    "mode" TEXT NOT NULL DEFAULT 'assisted-only',
+    "decidedBy" TEXT,
+    "decidedAt" TIMESTAMP(3),
+    "rationale" TEXT NOT NULL DEFAULT '',
+    "rulesetId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RepoAdmission_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: one decision per (org, repo) — the upsert key.
+CREATE UNIQUE INDEX "RepoAdmission_orgId_repoFullName_key" ON "RepoAdmission"("orgId", "repoFullName");
+
+-- CreateIndex
+CREATE INDEX "RepoAdmission_orgId_mode_idx" ON "RepoAdmission"("orgId", "mode");
+
+-- CreateTable: #4 one org's credential + capability record for ONE forge account. "credentialRef"
+-- holds encryptSecret() CIPHERTEXT, never a plaintext token and never a pointer to one, so the
+-- secret dies with the row and the org-erase in src/lib/db/retention.ts is a real destruction.
+-- NULL there = registered but unauthenticated (an anonymous public-read adapter), a capability fact
+-- rather than a missing credential. "capabilitiesJson" is TEXT, never jsonb (the DSQL/PGlite safety
+-- contract). Organization."githubInstallId" is untouched and remains the GitHub read path.
+CREATE TABLE "Installation" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "forge" TEXT NOT NULL,
+    "externalId" TEXT NOT NULL,
+    "host" TEXT,
+    "credentialRef" TEXT,
+    "capabilitiesJson" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Installation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Installation_orgId_forge_externalId_key" ON "Installation"("orgId", "forge", "externalId");
+
+-- CreateIndex
+CREATE INDEX "Installation_orgId_idx" ON "Installation"("orgId");
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the

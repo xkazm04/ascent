@@ -1731,6 +1731,8 @@ async function eraseOrgLedgers(
   scanJobs: number;
   controlObservations: number;
   controlSeals: number;
+  repoAdmissions: number;
+  installations: number;
 }> {
   const totals = {
     outcomes: 0,
@@ -1749,6 +1751,8 @@ async function eraseOrgLedgers(
     scanJobs: 0,
     controlObservations: 0,
     controlSeals: 0,
+    repoAdmissions: 0,
+    installations: 0,
   };
 
   /** Drain one flat org-scoped table. Counts in a preview; batched deletes otherwise. */
@@ -1940,6 +1944,31 @@ async function eraseOrgLedgers(
     "erase.control-seals",
   );
 
+  // ── MOONSHOT WAVE 4 ───────────────────────────────────────────────────────────────────────────
+  // #8 — the admission decisions. Keyed by (orgId, repoFullName) with no FK, exactly like the
+  // adoption ledger above, so nothing deletes them implicitly. Each surviving row would keep naming
+  // one of the tenant's repositories AND recording a governance judgement about it ("blocked",
+  // "agents-allowed", who decided, and the rationale they typed) — tenant prose about a repository
+  // that is no longer here. The per-repo half of this sweep is in `eraseRepo`.
+  totals.repoAdmissions = await drain(
+    (take) => prisma.repoAdmission.findMany(page(take)),
+    () => prisma.repoAdmission.count({ where }),
+    async (ids) => (await prisma.repoAdmission.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.repo-admissions",
+  );
+
+  // #4 — the forge installations. This is the one ledger on this path holding a live CREDENTIAL:
+  // `credentialRef` is encryptSecret() ciphertext, and deleting the row is what destroys it. There
+  // is no separate secret store to sweep afterwards and no revocation call to make — the ciphertext
+  // IS the secret at rest, so an erase that skipped this table would leave the tenant's forge token
+  // recoverable-with-the-key after the tenant was erased. Org-scoped and batched like the rest.
+  totals.installations = await drain(
+    (take) => prisma.installation.findMany(page(take)),
+    () => prisma.installation.count({ where }),
+    async (ids) => (await prisma.installation.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.installations",
+  );
+
   return totals;
 }
 
@@ -2088,6 +2117,13 @@ export interface EraseResult {
    *  seal: retention keeps a day's seal after its rows age out so the gap stays detectable, but a
    *  seal still carries the tenant's org id and a row count per day it operated. */
   controlSealsDeleted: number;
+  /** `RepoAdmission` rows removed (moonshot #8). A repo-scoped erase removes only that repo's: the
+   *  row asserts a governance verdict ABOUT one repository, so it goes when the repository does. */
+  repoAdmissionsDeleted: number;
+  /** `Installation` rows removed (moonshot #4), org scope only. The only ledger on this path that
+   *  carries a credential: `credentialRef` is ciphertext, so deleting the row IS destroying the
+   *  secret — there is no separate store to sweep afterwards. */
+  installationsDeleted: number;
   /** `ScanDigest` rows removed (moonshot #32). An erase both REFUSES to compact and deletes the
    *  compacted tail: a summary of erased data is still that data's shadow. */
   digestsDeleted: number;
@@ -2199,6 +2235,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let scanJobsDeleted = 0;
   let controlObservationsDeleted = 0;
   let controlSealsDeleted = 0;
+  let repoAdmissionsDeleted = 0;
+  let installationsDeleted = 0;
   let digestsDeleted = 0;
   let stoppedEarly = false;
 
@@ -2274,6 +2312,26 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
           await withRetry(
             () => prisma.practiceAdoption.deleteMany({ where: { orgId: org.id, repoFullName: repoName } }),
             { label: "erase.practice-adoption-by-repo" },
+          )
+        ).count;
+      }
+      // MOONSHOT #8 — the repo's admission decision, keyed by (orgId, repoFullName) for the third
+      // time on this path and with a hazard of its own: an admission row left behind after the repo
+      // is gone still asserts a governance verdict about it — "agents-allowed", who granted it, and
+      // the rationale a person wrote — and the compiler would hand that stale grant straight back to
+      // the next import of the same coordinate. `rulesetId` makes that worse rather than better: it
+      // names a ruleset on a forge this deployment may no longer be able to reach, so the row reads
+      // as a perimeter that is enforced while nothing here can check. The org-wide sweep reaches
+      // these on a full erase; this is the per-repo half.
+      if (dryRun) {
+        repoAdmissionsDeleted += await prisma.repoAdmission.count({
+          where: { orgId: org.id, repoFullName: repoName },
+        });
+      } else {
+        repoAdmissionsDeleted += (
+          await withRetry(
+            () => prisma.repoAdmission.deleteMany({ where: { orgId: org.id, repoFullName: repoName } }),
+            { label: "erase.repo-admission-by-repo" },
           )
         ).count;
       }
@@ -2372,6 +2430,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       scanJobsDeleted = led.scanJobs;
       controlObservationsDeleted = led.controlObservations;
       controlSealsDeleted = led.controlSeals;
+      // `+=`, like the mirror and the adoption ledger above: on a REPO-scoped erase `eraseRepo` has
+      // already taken that repo's row and this org sweep never runs, so the two never double-count.
+      repoAdmissionsDeleted += led.repoAdmissions;
+      installationsDeleted = led.installations;
       if (overBudget()) stoppedEarly = true;
     }
 
@@ -2431,6 +2493,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       scanJobsDeleted,
       controlObservationsDeleted,
       controlSealsDeleted,
+      repoAdmissionsDeleted,
+      installationsDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -2483,6 +2547,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       scanJobsDeleted,
       controlObservationsDeleted,
       controlSealsDeleted,
+      repoAdmissionsDeleted,
+      installationsDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -2525,6 +2591,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     scanJobsDeleted,
     controlObservationsDeleted,
     controlSealsDeleted,
+    repoAdmissionsDeleted,
+    installationsDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,
