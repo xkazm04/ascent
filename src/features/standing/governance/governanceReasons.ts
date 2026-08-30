@@ -21,6 +21,10 @@ const FAIL_REASON_LABELS: Record<GateFailure["code"], string> = {
   // (ci-gate-status-checks #1) — previously this bar was advertised but never enforced here.
   governance: "Unprotected default branch",
   provenance: "AI changes merged without human review",
+  // #8 — the repo's admission decision is "blocked" and AI authorship was nevertheless observed.
+  admission: "AI authorship in a blocked repository",
+  // #16 — a control the repo's own doctor run reports failing.
+  control: "A required control is failing",
   // Not a gate failure: the repo scored nothing, so it was never judged. It has a bar because the
   // alternative is a card that omits it entirely and reads as an all-clear (the same reason the card's
   // empty state names this bucket by hand).

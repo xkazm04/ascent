@@ -10,9 +10,10 @@ import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
+import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
+import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
 import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -194,16 +195,56 @@ export async function GET(
         { status: 503 },
       );
     }
+    // THE ADMISSION LAYER (#8), folded BETWEEN the org bar and the query params — the ordered fold
+    // docs/resolutions/gate-as-code.md fixes:
+    //
+    //   tighten(tighten(tighten(org ?? archetype, admission), manifest-later), params)
+    //
+    // It is passed through `tightenGatePolicy` exactly like a query param, and that is the entire
+    // safety argument on an endpoint with no authentication: an admission row can only ever RAISE a
+    // bar. A T3 repo is not held to a LOOSER bar than its org's — it simply receives no extra floor.
+    // (The `manifest` slot is #5's and is deliberately absent; the fold's shape reserves it so that
+    // item does not have to invent a second precedence rule to land.)
+    //
+    // FAIL CLOSED on a read error, identically to the org-policy read above and for the same reason:
+    // `getRepoAdmission` returns null without throwing for every legitimate absence, so a throw means
+    // only that the bar could not be determined. Say that; never enforce a weaker one.
+    let admissionLayer;
+    try {
+      admissionLayer = await resolveAdmissionLayer(ownerN, `${ownerN}/${repoN}`);
+    } catch (err) {
+      console.error("[gate] admission read failed — refusing to gate on a bar we could not read", err);
+      return NextResponse.json(
+        {
+          repo: `${ownerN}/${repoN}`,
+          ref: ref ?? null,
+          error:
+            "This repository's admission decision could not be read, so this gate would have fallen back to a weaker bar. No verdict was produced. Retry the gate.",
+        },
+        { status: 503 },
+      );
+    }
+    const base = orgPolicy ?? defaultGatePolicy(report.archetype);
+    const withAdmission = tightenGatePolicy(base, admissionLayer.overlay);
+    // With NO persisted org policy the params keep their historical archetype-padding behaviour
+    // (policyFromParams), so a repo with no admission row and no org bar produces a BYTE-IDENTICAL
+    // response to today's — the done-criterion this whole layer is held to.
     const policy = orgPolicy
-      ? tightenGatePolicy(orgPolicy, explicitPolicyFromParams(searchParams))
-      : policyFromParams(searchParams, report.archetype);
-    const gate = evaluateGate(report, policy);
+      ? tightenGatePolicy(withAdmission, explicitPolicyFromParams(searchParams))
+      : tightenGatePolicy(policyFromParams(searchParams, report.archetype), admissionLayer.overlay);
+    // #16 — `requireChecks` is judged against the repo's OWN latest conformance report. Read only
+    // when the effective policy actually names a check, so the common gate call pays no extra query;
+    // null (no ledger, no report, a summary-only report) SKIPS every named check rather than failing
+    // a repo for a measurement that was never due.
+    const checkStates = policy.requireChecks?.length ? await loadCheckStates(ownerN, `${ownerN}/${repoN}`) : null;
+    const gate = evaluateGate(report, policy, { checkStates });
     logGateVerdict(report, gate, {
       surface: "api",
       repo: `${ownerN}/${repoN}`,
       ref,
       policySource: orgPolicy ? "org" : searchParams.size > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
+      admission: admissionLayer.admission,
     });
 
     // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a
@@ -240,6 +281,11 @@ export async function GET(
         archetype: report.archetype,
         policy: gate.policy,
         failures: gate.failures,
+        // #8 — WHY this repository was held to this bar. A CI log that only carries the effective
+        // policy cannot explain why two repos under one org got different verdicts; the triple can.
+        // Omitted entirely (not nulled) when no admission row applied, so a repo without one produces
+        // a byte-identical body to the one this endpoint returned before this layer existed.
+        ...(admissionLayer.admission ? { admission: admissionLayer.admission } : {}),
         // Degradation signals a CI consumer needs to trust — or distrust — the verdict:
         //   engine      — which grader actually produced it ("mock" = deterministic floor, not the AI grade);
         //   confidence  — 0..1 repo coverage (how much of the tree we could inspect);

@@ -50,7 +50,19 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/scan-jobs", () => ({ enqueueProbeJob: vi.fn(async () => ({ id: "job_1", created: true })) }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
-vi.mock("@/lib/scoring/gate", () => ({ evaluateGate: vi.fn() }));
+// `defaultGatePolicy` / `tightenGatePolicy` are the REAL implementations: runPrGate folds the org
+// bar with the admission overlay through them, and stubbing the merge would let this suite pass
+// while the Check Run enforced a bar nobody folded.
+vi.mock("@/lib/scoring/gate", async (orig) => ({
+  ...(await orig<typeof import("@/lib/scoring/gate")>()),
+  evaluateGate: vi.fn(),
+}));
+// moonshot #8/#16 — the org-scoped reads runPrGate now makes. Mocked at the seam both gate surfaces
+// share, so nothing here reaches a database.
+vi.mock("@/lib/scoring/gate-admission", () => ({
+  resolveAdmissionLayer: vi.fn(async () => ({ overlay: {}, admission: null })),
+  loadCheckStates: vi.fn(async () => null),
+}));
 vi.mock("@/lib/scoring/gate-comment", () => ({ buildGateComment: vi.fn(), GATE_COMMENT_MARKER: "<!-- gate -->" }));
 vi.mock("@/lib/github/checks", () => ({ createCheckRun: vi.fn(), upsertStickyComment: vi.fn() }));
 vi.mock("@/lib/scan-alerts", () => ({ checkAndAlertRegression: vi.fn() }));

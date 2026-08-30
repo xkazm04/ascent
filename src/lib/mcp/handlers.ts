@@ -23,6 +23,8 @@ import { bumpMemoryAccessCounts, candidateOrgMemories, getOrgRecommendations, ge
 import { citationCountsFor } from "@/lib/db/org-memory-citations";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
+import { getRepoAdmission } from "@/lib/db/org-admission";
+import { compileStance } from "@/lib/org/admission";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { PRACTICES } from "@/lib/practices";
 // `Args`/`str`/`fail` come from registry-reads rather than being duplicated here; its back-edge to
@@ -161,7 +163,7 @@ async function openRecommendations(org: string, args: Args): Promise<ToolResult>
   };
 }
 
-async function aiStance(org: string): Promise<ToolResult> {
+async function aiStance(org: string, args: Args): Promise<ToolResult> {
   const published = await getActiveOrgStance(org);
   if (!published) {
     return fail(
@@ -169,20 +171,95 @@ async function aiStance(org: string): Promise<ToolResult> {
     );
   }
   const s = published.stance;
+  const base = {
+    org,
+    version: published.version,
+    permittedTools: s.permittedTools,
+    permittedModels: s.permittedModels,
+    noAiZones: s.noAiZones,
+    reviewTiers: s.reviewTiers,
+    requireTrailer: s.provenance.requireTrailer,
+    requireHumanApproval: s.provenance.requireHumanApproval,
+  };
+
+  // #8 — the optional per-repo narrowing. Without `repo` the answer is the org-wide DECLARATION and
+  // nothing more, which is what the blanket disclaimer below correctly describes.
+  const repo = str(args, "repo");
+  if (!repo) {
+    return {
+      structuredContent: {
+        ...base,
+        enforcement:
+          "This is the organization-wide declaration. Pass `repo` to see which of these clauses are " +
+          "compiled into enforced controls for a specific repository, and which stay declared.",
+      },
+    };
+  }
+  // Constrained to the caller's own org, the same gate-then-constrain rule the admission routes keep:
+  // an MCP principal authorized for one org must not be able to read another's decision by naming it.
+  if (repo.split("/")[0]?.toLowerCase() !== org.toLowerCase()) {
+    return fail(`"${repo}" is not a repository in ${org}.`);
+  }
+  const admission = await getRepoAdmission(org, repo);
+  if (!admission) {
+    return {
+      structuredContent: {
+        ...base,
+        repo,
+        // Honest null, said in words an agent can act on. "Not assessed" is not "allowed": the
+        // absence of a decision is the absence of a decision.
+        admission: { mode: null, tier: null, assessed: false },
+        enforcement:
+          `No autonomy tier has been assessed for ${repo} (it has not been scanned with a passport), so no ` +
+          `per-repo control is compiled and the organization-wide declaration above is the whole of the policy. ` +
+          `Absence of an assessment is not permission.`,
+      },
+    };
+  }
+  const compiled = compileStance(
+    s,
+    admission,
+    {
+      fullName: repo,
+      derivedTier: admission.derivedTier,
+      // This tool reads; it does not go fetch a repo's CODEOWNERS or branch governance. Those inputs
+      // are honestly absent, which affects only the `unenforceable[]` list — never the mode or tier.
+      codeownersPaths: [],
+      observedRequiredApprovals: null,
+      protectedBranch: null,
+    },
+    published.version,
+  );
   return {
     structuredContent: {
-      org,
-      version: published.version,
-      permittedTools: s.permittedTools,
-      permittedModels: s.permittedModels,
-      noAiZones: s.noAiZones,
-      reviewTiers: s.reviewTiers,
-      requireTrailer: s.provenance.requireTrailer,
-      requireHumanApproval: s.provenance.requireHumanApproval,
-      // The stance is a DECLARATION. Nothing in ascent enforces the path zones at commit time, and
-      // an agent told otherwise might treat a zone as a hard wall it can lean on.
+      ...base,
+      repo,
+      admission: {
+        mode: compiled.mode,
+        tier: compiled.tier,
+        assessed: compiled.tier !== null,
+        source: compiled.tierSource,
+        staleDecision: compiled.staleDecision,
+      },
+      // The per-clause ENFORCEMENT MAP that replaces the blanket "declared policy, not a runtime
+      // control" string. The honesty rule it encoded is kept — its scope is narrowed to the truth:
+      // some clauses ARE compiled into checkable controls now, and pretending otherwise would make an
+      // agent ignore a bar that will actually block its PR.
+      enforcedControls: {
+        gate: compiled.gateOverlay,
+        review: compiled.manifestOversight?.review || null,
+        ruleset: compiled.ruleset ? compiled.ruleset.name : null,
+      },
+      // What stays DECLARED, and why. This is the half an agent must honor by itself — naming it is
+      // the difference between a rule it can lean on and one it must carry.
+      unenforceable: compiled.unenforceable,
       enforcement:
-        "This stance is declared policy, not a runtime control. Path-scoped no-AI zones are advisory; honor them yourself.",
+        compiled.mode === "blocked"
+          ? `${repo} is admitted as BLOCKED: no AI-attributed change may land here. Do not open work in this repository.`
+          : compiled.mode === "assisted-only"
+            ? `${repo} is admitted as ASSISTED-ONLY: a human drives and you assist. Do not run autonomously here.`
+            : `${repo} admits agent work at tier ${compiled.tier ?? "unassessed"}. The controls above are enforced; ` +
+              `everything under \`unenforceable\` is declared only and is yours to honor.`,
     },
   };
 }
@@ -336,7 +413,7 @@ export async function runTool(name: string, org: string, args: Args, principal?:
     case "list_open_recommendations":
       return openRecommendations(org, args);
     case "get_ai_stance":
-      return aiStance(org);
+      return aiStance(org, args);
     case "get_practice_shape":
       return practiceShape(args);
     case "recall_org_memory":

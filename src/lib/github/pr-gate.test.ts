@@ -23,7 +23,19 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.example.dev") }));
-vi.mock("@/lib/scoring/gate", () => ({ evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [] })) }));
+// `tightenGatePolicy` and `defaultGatePolicy` are the REAL implementations: the assertion this file
+// carries about the admission layer is that the Check Run folds it the same way the public endpoint
+// does, and mocking the merge would make that assertion vacuous.
+vi.mock("@/lib/scoring/gate", async (orig) => ({
+  ...(await orig<typeof import("@/lib/scoring/gate")>()),
+  evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [] })),
+}));
+// #8/#16 — the org-scoped reads the gate now makes. Mocked at the SEAM both surfaces share, so a
+// test that stubs it here is stubbing the same function the public route calls.
+vi.mock("@/lib/scoring/gate-admission", () => ({
+  resolveAdmissionLayer: vi.fn(async () => ({ overlay: {}, admission: null })),
+  loadCheckStates: vi.fn(async () => null),
+}));
 vi.mock("@/lib/scoring/gate-comment", () => ({
   GATE_COMMENT_MARKER: "<!-- ascent-maturity-gate -->",
   buildGateComment: vi.fn(() => ({
@@ -44,6 +56,7 @@ import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
 import { diffReports } from "@/lib/scoring/engine";
+import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
 
 const mockToken = vi.mocked(getInstallationToken);
 const mockPolicy = vi.mocked(getOrgGatePolicy);
@@ -53,6 +66,8 @@ const mockComment = vi.mocked(buildGateComment);
 const mockCheck = vi.mocked(createCheckRun);
 const mockSticky = vi.mocked(upsertStickyComment);
 const mockDiff = vi.mocked(diffReports);
+const mockAdmission = vi.mocked(resolveAdmissionLayer);
+const mockChecks = vi.mocked(loadCheckStates);
 
 /** Just enough report for runPrGate itself — it only reads `repo.headSha` (for the permalink). */
 const report = (headSha: string) => ({ repo: { headSha } }) as never;
@@ -67,6 +82,8 @@ beforeEach(() => {
   mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [] });
   mockCheck.mockResolvedValue({ url: "u", id: 1 });
   mockSticky.mockResolvedValue({ url: "c", updated: false });
+  mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
+  mockChecks.mockResolvedValue(null);
   // The module logs every failure path on purpose; keep the suite output about the assertions.
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -102,7 +119,64 @@ describe("runPrGate — the happy path writes the merge status and the narrative
 
     await runPrGate(REF);
 
-    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), { minLevel: "L4", minDimensionFor: { D9: 70 } });
+    expect(mockEvaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      { minLevel: "L4", minDimensionFor: { D9: 70 } },
+      { checkStates: null },
+    );
+  });
+});
+
+// moonshot #8 — the drift this module exists to prevent, in its most expensive form. The Check Run
+// is the status that actually blocks a merge; if the public endpoint applied an admission overlay
+// and this path did not, the BLOCKING gate would be the permissive one.
+describe("runPrGate — the admission layer is folded identically to the public endpoint", () => {
+  it("TIGHTENS the org bar with the admission overlay, never replaces it", async () => {
+    mockPolicy.mockResolvedValue({ minLevel: "L2", minAiGovernedRate: 50 });
+    mockAdmission.mockResolvedValue({
+      overlay: { requireProtectedBranch: true, minAiGovernedRate: 100, forbidPostures: ["ungoverned"] },
+      admission: { mode: "assisted-only", tier: "T0", source: "granted" },
+    });
+
+    await runPrGate(REF);
+
+    // Strictest-wins per field: the org's level survives, the overlay's stricter provenance bar wins.
+    expect(mockEvaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      { minLevel: "L2", forbidPostures: ["ungoverned"], requireProtectedBranch: true, minAiGovernedRate: 100 },
+      { checkStates: null },
+    );
+  });
+
+  it("a T3 overlay leaves the org bar EXACTLY as it was — no weakening, no extra floor", async () => {
+    const orgBar = { minLevel: "L4" as const, minDimension: 60, minAiGovernedRate: 100 };
+    mockPolicy.mockResolvedValue(orgBar);
+    mockAdmission.mockResolvedValue({ overlay: {}, admission: { mode: "agents-allowed", tier: "T3", source: "granted" } });
+
+    await runPrGate(REF);
+
+    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), orgBar, { checkStates: null });
+  });
+
+  it("reads the conformance ledger ONLY when the effective policy names a required check", async () => {
+    mockPolicy.mockResolvedValue({ minLevel: "L2" });
+    await runPrGate(REF);
+    expect(mockChecks).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    mockScan.mockResolvedValue(report("sha-head"));
+    mockCheck.mockResolvedValue({ url: "u", id: 1 });
+    mockSticky.mockResolvedValue({ url: "c", updated: false });
+    mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [] });
+    mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
+    mockChecks.mockResolvedValue({ "control.prepush.lint": "fail" });
+    mockPolicy.mockResolvedValue({ requireChecks: ["control.prepush.lint"] });
+
+    await runPrGate(REF);
+    expect(mockChecks).toHaveBeenCalledWith("acme", "acme/api");
+    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      checkStates: { "control.prepush.lint": "fail" },
+    });
   });
 });
 

@@ -55,13 +55,38 @@ LLM/mock cache → resolve the policy → `evaluateGate(report, policy)` → ret
   "policy": { … }, "failures": [ … ], "engine", "confidence", "warnings" }
 ```
 
-### Policy precedence: params TIGHTEN, never weaken
+### Policy precedence: ONE ordered fold, every layer TIGHTENS
 
-This endpoint is **unauthenticated by design** (CI calls it with plain `curl`), so a query
-param must never be able to relax a bar an org configured:
+This endpoint is **unauthenticated by design** (CI calls it with plain `curl`), so no layer may
+relax a bar an org configured. Per [`docs/resolutions/gate-as-code.md`](../../resolutions/gate-as-code.md),
+every source of gate policy produces a `GatePolicy` **and nothing else**, and the gate resolves them
+as one strictest-wins fold:
+
+```
+effective = tighten( tighten( tighten( org ?? archetype, admission ), manifest ), params )
+```
+
+The `manifest` slot is deck item #5's and is not built yet; the fold's shape reserves it so that item
+lands as a fourth layer rather than as a second precedence rule. Nothing in the chain can weaken what
+precedes it, which is the whole safety argument for reading org-scoped state on an anonymous request.
+
+**Adding a bar is four edits and never a fifth resolution path**: (1) the `GatePolicy` field, (2) a
+`sanitizeGatePolicy` clause, (3) a `tightenGatePolicy` rule, (4) a `describeGatePolicy` row — plus
+either an absolute input on `NormalizedGate` or an honest-null skip there.
+`src/lib/scoring/gate-policy-sources.test.ts` holds that as a table-driven structural guard typed over
+`Required<GatePolicy>`, so a field added without its four places is a compile error.
+
+The layers:
 
 - The org's **persisted** gate policy (`getOrgGatePolicy`, the same bar the App-mode Check
   Run and the governance fleet view enforce) is the baseline whenever it exists.
+- The repo's **admission** decision (moonshot #8) folds next, via `resolveAdmissionLayer`
+  (`src/lib/scoring/gate-admission.ts`) — the one IO seam, called by **both** gate surfaces so the
+  public endpoint and the merge-blocking Check Run cannot enforce different bars. Tier → floors added:
+  `T0` → `requireProtectedBranch` + `minAiGovernedRate: 100` + `forbidPostures: ["ungoverned"]`;
+  `T1` → `requireProtectedBranch` + `minAiGovernedRate: 100`; `T2` → `minAiGovernedRate: 90`;
+  `T3` and an **unassessed** tier → nothing. `mode: "blocked"` adds `forbidAiAuthorship`. A **read
+  failure** is a `503` with no verdict, exactly like the org-policy read.
 - Explicit params then merge **on top as a tighten-only overlay** (`tightenGatePolicy`):
   strictest field wins. `explicitPolicyFromParams` deliberately contributes *only* the
   fields the query names; padding the rest with archetype defaults would drag a
@@ -211,6 +236,33 @@ this bar. It lands where the data lives: the App-mode Check Run and the fleet go
 threads them into `evaluateGateLite`. Without that, an org setting the bar would see repos marked
 passing on the dashboard that CI blocks: the exact drift the shared evaluator exists to prevent.
 
+## Two more criteria under the same fold (moonshot #8 / #16, 2026-08-30)
+
+**`forbidAiAuthorship`** — failure code `admission`. No AI-attributed change may land at all; the
+policy fragment a repo admitted in `mode: "blocked"` compiles to. Distinct from
+`minAiGovernedRate: 100` ("AI work must be approved"): this says AI work must not be here. It shares
+the provenance criterion's fail-**open** exception and for the same reason — `aiInvolvedRate` is null
+with no token and under the PR-sample floor, and a repo with no observable AI activity must not be
+blocked by an AI policy. `evaluateGateLite` (whose rollup row carries no PR stats) skips it always
+rather than letting the fleet view condemn what the CI gate would clear. It has **no query param and
+no Action input**: admission is a decision an org records, never something a caller requests.
+
+**`requireChecks: string[]`** — failure code `control`. Doctor check ids that must not be reported
+FAILING by the repository's own conformance run. **Union**-merged, exactly like `forbidPostures`, so
+a layer can add a required control and never drop one. Three honest-null skips, all meaning "the
+measurement was never due": no ledger at all, a check the latest report did not name (`unchecked` is
+a *result*, not a pass and not a failure), or a report that named it `unchecked`. Only an explicit
+`fail` fails the gate. The ledger is read (`loadCheckStates`) **only when the effective policy names
+a check**, so an ordinary gate call pays no extra query; a ledger read failure returns null (a skip),
+because `requireChecks` fails a repo for its *own* reported failure and an unreadable ledger cannot
+name one.
+
+The verdict body gains `admission: { mode, tier, source }` when a row applied — **omitted entirely**
+(not nulled) when none did, so a repo with no admission decision produces a byte-identical response to
+the one this endpoint returned before the layer existed. `logGateVerdict` records the same triple as
+its own field: `policySource` says which *layer* set the bar, `admission` says why *this* repository
+got that layer's stricter form.
+
 ## Verdict telemetry
 
 Every produced verdict, from both the API endpoint and the App Check Run, emits one queryable
@@ -302,6 +354,8 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | --- | --- |
 | `src/app/api/gate/[owner]/[repo]/route.ts` | Gate endpoint: score → resolve policy → 200/422/503. |
 | `src/lib/scoring/gate.ts` | `evaluateGate()`, `explicitPolicyFromParams()`, `policyFromParams()`, `tightenGatePolicy()`, `describeGatePolicy()`, `sanitizeGatePolicy()`. |
+| `src/lib/scoring/gate-admission.ts` | `resolveAdmissionLayer()` / `loadCheckStates()`: the one IO seam both gate surfaces read the admission row and the conformance ledger through. |
+| `src/lib/org/admission.ts` | `compileStance()` / `admissionGateOverlay()`: the pure tier → tighten-only fragment. |
 | `src/lib/scoring/gate-comment.ts` | `buildGateComment()`: check title/summary + PR comment markdown. |
 | `src/lib/github/pr-gate.ts` | `runPrGate()`: the shared Check Run + sticky comment writer. |
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
@@ -316,6 +370,16 @@ all, so the new bar simply applies on each PR's next push or CI run.
 
 ## Known gaps
 
+- (Closed 2026-08-30, moonshot #8.) ~~`policyFromParams` drops `minAiGovernedRate` on the
+  no-org-policy path.~~ It hand-listed six fields and omitted the seventh, so `?min_ai_governed=90`
+  parsed correctly and was then discarded — the strictest bar in the product, silently inert on every
+  deployment with no persisted org bar (self-hosted, DB-less, and every org that never set one). It is
+  now written as an explicit-wins spread over the whole object so the next field cannot repeat it, and
+  `gate-policy-sources.test.ts` asserts every field `explicitPolicyFromParams` can parse survives.
+- **`requireChecks` has no editor surface yet.** It is a real `GatePolicy` field with all four places
+  and is enforced whenever it appears in a persisted org policy — but the Governance form does not
+  offer it, so today it can only be set by writing `Organization.gatePolicy` directly. The evaluator
+  half is what #16 needed; the form is not built.
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
   LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
   rather than a silent floor score).

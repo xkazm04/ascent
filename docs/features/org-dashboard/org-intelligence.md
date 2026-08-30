@@ -1296,9 +1296,27 @@ Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. 
 
 The Governance tab carries a second section under the gate cards: the org's **published AI
 stance**, the versioned "what may AI do here" policy artifact (permitted tools/models, no-AI
-zones, review requirements per autonomy tier, provenance requirements). The gate is the *enforced*
-bar; the stance is the *declared* policy, and every readout is **declared vs OBSERVED attribution**
-from existing scan data, never "enforced", and the copy must never claim it is.
+zones, review requirements per autonomy tier, provenance requirements).
+
+**The honesty rule, narrowed to the truth (moonshot #8, 2026-08-30).** This section used to say the
+stance is *never* enforced and the copy must never claim it is. That blanket statement is now false
+in one direction and still true in another, so it is replaced by a **per-clause enforcement map**.
+The rule itself is unchanged and still binding: never claim a clause is enforced when it is not.
+
+| Clause | Status | What actually happens |
+| --- | --- | --- |
+| `provenance.requireHumanApproval` | **compiled** | Becomes `minAiGovernedRate` in the admission overlay; a failing repo gets a `provenance` gate failure. |
+| Admission `mode: blocked` | **compiled** | Becomes `GatePolicy.forbidAiAuthorship`; failure code `admission`. Skipped when AI activity is unmeasurable. |
+| Autonomy tier floors (T0/T1/T2) | **compiled** | `requireProtectedBranch`, `minAiGovernedRate`, `forbidPostures` — see [gate.md](../scanning/gate.md). |
+| `reviewTiers` | **proposed** | Rendered as a branch-ruleset proposal (required approvals + code-owner review). Enforced only once an owner applies it. |
+| `noAiZones.pathGlobs` | **proposed + advisory** | A CODEOWNERS managed block guarantees a named human *reviews* those paths. CODEOWNERS cannot see who wrote a change, so AI authorship there is still not detected. |
+| `noAiZones.repoGlobs` | **observed** | Checkable after the fact: a stance finding when AI attribution shows up in a sealed repo. |
+| `permittedTools` | **observed** | Reported after the fact from PR attribution. Nothing in a repository can refuse a tool. |
+| `permittedModels` | **declared only** | Not observable — see the Known gap below. |
+
+Everything not marked *compiled* remains declared-vs-observed attribution from existing scan data.
+`compileStance` publishes the same split as a machine-readable `unenforceable[]` list, so the
+`get_ai_stance` MCP tool tells an agent exactly which clauses only it can honor.
 
 - **Model**: `OrgAiStance` versioned rows (draft → published → superseded; see
   [data-model.md](../data/data-model.md)) with `stanceJson` typed as `AiStance` in `src/lib/types.ts`
@@ -1325,8 +1343,63 @@ from existing scan data, never "enforced", and the copy must never claim it is.
   `src/lib/org/stance-artifact.ts`, through the shared practices apply machinery; the filename
   deliberately matches the D1 detector's `ai[-_]policy` reward, so adoption lifts D1).
 
+## Agent admission (Governance tab → Perimeter, moonshot #8)
+
+A scan **derives** a repository's autonomy tier from its own artifacts. That is a measurement.
+**Admission** is the decision: a recorded, overridable statement of whether an agent may work in a
+repository at all — and the only half a gate can enforce. Before this, a derived tier was persisted
+on `Repository.passportJson` and there was no way for anyone to decide anything about it, which the
+autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now deleted.
+
+- **Model**: one `RepoAdmission` row per `(orgId, repoFullName)` — the unique key IS the idempotency
+  key, so every write is an upsert. `derivedTier` keeps the measurement, `grantedTier` carries the
+  grant, and **`decidedBy` separates them**: NULL means "seeded from the measurement, nobody has
+  decided", and every surface says exactly that rather than presenting a seed as a decision. Seeded
+  lazily on first read, and **only for a repo that has a passport** — a repo with no assessed tier is
+  not seeded at all, because a row with `derivedTier: null` and an invented grant would assert a
+  grade nobody measured. `mode` is `agents-allowed | assisted-only | blocked`.
+- **The compiler**: pure `compileStance()` (`src/lib/org/admission.ts`) turns (stance, admission row,
+  repo facts) into a control set: a **tighten-only** `GatePolicy` fragment, a CODEOWNERS managed
+  block, a `.ai/manifest.yaml controls.oversight` block, a branch-ruleset proposal, and the
+  `unenforceable[]` list above. Two rules run through all of it: the overlay only ever ADDS floors,
+  and **a null tier compiles nothing** (not T0, not T3 — the row reads "tier not assessed").
+- **A stance publish does not re-decide.** A row keeps the `stanceVersion` it was decided against, is
+  recompiled against the ACTIVE stance so the controls reflect current policy, and is flagged
+  `staleDecision` so a human is asked to re-affirm rather than being credited with having done so.
+- **Writers are proposals, never silent mutations.** `POST /api/org/admission/propose` is a **dry run
+  by default**: it reads the repo's existing CODEOWNERS, splices the managed block, and returns the
+  unified diff having written nothing; `confirm: true` opens a draft PR with that exact diff. The
+  splice is idempotent, so a recompile that changes nothing opens no PR. `openDraftPr`'s
+  refuse-to-clobber rule is untouched — the merge-append writer is a sibling module
+  (`src/lib/github/admission-write.ts`); see [github-app.md](../github/github-app.md).
+- **The one real mutation is reversible.** `POST /api/org/admission/ruleset` creates a branch ruleset
+  (owner + same-origin + a typed `confirm` equal to the repository's full name + an observed-vs-
+  proposed read first). The created id is stored on `RepoAdmission.rulesetId` and `DELETE` on the same
+  route removes it. Audit rows on every path: `org.admission`, `org.admission_propose` (dry runs
+  included), `org.admission_ruleset`, `org.admission_ruleset_revert`.
+- **Routes are (org, repo), never `[id]`.** Each gates the org and then constrains the caller-supplied
+  repo name to it (`repoUnderOrg`), so an authorized owner cannot name another tenant's repository.
+  `src/app/api/org/id-routes-gated.test.ts` covers the family structurally.
+- **UI**: `src/features/standing/governance/stance/admission/` — the admission column sits under the
+  tier bands (the measurement it departs from), with an owner-only override that disables the tier
+  select for an unassessed repo and shows the derived value beside the grant whenever they differ.
+- **MCP**: `get_ai_stance` takes an optional `repo` and returns that repository's compiled controls,
+  admission mode and `unenforceable[]` list. Read-only, `mcp:read`, no new tool, and the `repo`
+  argument is constrained to the caller's own org.
+
 ## Known gaps
 
+- **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
+  backlog item waiting for effort: no ingest in the product retains a MODEL dimension. `AiUsage` keys
+  by `(source, scope, scopeKey, day)`, and PR attribution identifies a tool, not a model. A compiled
+  control here would be a bar that can never fire, which an auditor reads as "no violations".
+  Enforcing a model allowlist waits for a sensor that observes models. `compileStance` names this in
+  its `unenforceable[]` output rather than omitting it, so an agent reading the stance over MCP is
+  told the clause is its own to honor.
+- **CODEOWNERS reviews; it does not detect.** The managed block guarantees a named human reviews any
+  change to a declared no-AI path. It cannot see WHO wrote the change, so a human-approved AI change
+  to a sealed path is indistinguishable from a human-written one. The generated block says so in its
+  own body rather than letting a reader infer enforcement from its presence.
 - (Closed 2026-08-13.) ~~The Overview shows standing, not a punch list.~~ The three-item **Fix
   first** band is back on the Overview (`OverviewFixFirstPanel` → pure `deriveFixFirst` in
   `src/features/standing/overview/fixFirst.ts`), revived from the 2026-08-03 deletion with a cheaper

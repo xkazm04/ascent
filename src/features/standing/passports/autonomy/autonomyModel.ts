@@ -140,7 +140,11 @@ export const tierCounts = (repos: RepoAutonomy[]): Record<AutonomyTier, number> 
 
 /** Signals this surface wants that the scan does not produce today.
  *  CLOSED by W1b (passport 0.3.0): sandbox + hooks detectors (artifacts.sandbox/.hooks) and the
- *  derived `pp.autonomy` tier block persisted in the passport JSON. */
+ *  derived `pp.autonomy` tier block persisted in the passport JSON.
+ *  CLOSED by moonshot #8 (the agent-admission compiler): "owner override — pp.autonomy is derived +
+ *  persisted, but a grant should also be an overridable recorded decision". `RepoAdmission` is that
+ *  decision: `derivedTier` keeps the measurement, `grantedTier` carries the grant, `decidedBy`
+ *  separates the two, and the Governance Perimeter is where an owner moves it. */
 export const DATA_MODEL_GAPS = [
   // W4 note: the DATA now exists — scans persist per-guidance-file freshness/quality/drift as
   // Repository.contextHealthJson (src/lib/analyze/context-health.ts). Remaining gap is WIRING:
@@ -149,5 +153,4 @@ export const DATA_MODEL_GAPS = [
   "context freshness: signal persisted (W4 contextHealthJson) but not yet consumed by this gate — contextGate still mocks staleness",
   "agent policy: declared tool allow-list, no-AI paths, review tier by risk (feeds P2 AI stance)",
   "attribution: AI-assisted PR share via git trailers, to verify a granted tier is actually being used",
-  "owner override: pp.autonomy is derived + persisted, but a grant should also be an overridable recorded decision",
 ] as const;
