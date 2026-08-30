@@ -89,3 +89,51 @@ describe("org [id] routes are authorized (structural guard)", () => {
     },
   );
 });
+
+// ── The same class, a different key (moonshot #8) ────────────────────────────────────────────────
+//
+// `RepoAdmission` is addressed by (org, repoFullName) rather than by a row id, so none of its routes
+// live under an `[id]` segment and the walker above never sees them. The IDOR shape is IDENTICAL
+// though: the caller supplies a repo name, the row is a governance decision, and gating the org is
+// only half the job — a caller could present their own org and name `othertenant/repo`.
+//
+// So these routes must do BOTH: gate the org (mechanism b's first half) and constrain the
+// caller-supplied name to that org. `repoUnderOrg` is the constraint, and it is asserted here rather
+// than left to review because "gated but not constrained" is precisely the gap the header above says
+// a text scan cannot see — except when the constraint has a NAME, which is why it has one.
+const ADMISSION_DIR = join(ORG_API_DIR, "admission");
+
+function admissionRouteFiles(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) admissionRouteFiles(full, out);
+    else if (entry === "route.ts") out.push(full);
+  }
+  return out;
+}
+
+describe("org admission routes are gated AND repo-constrained (structural guard)", () => {
+  const files = admissionRouteFiles(ADMISSION_DIR);
+
+  it("finds the admission routes it is meant to police", () => {
+    expect(files.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each(files.map((f) => [f.slice(f.indexOf(join("src", "app"))), f] as const))(
+    "%s gates the org and constrains the caller-supplied repo to it",
+    (_label, file) => {
+      const src = readFileSync(file, "utf8");
+      expect(GATES.filter((g) => src.includes(g)), "No org gate found on an admission route.").not.toHaveLength(0);
+      // A GET listing is org-scoped by its query and names no repo; only a route that reads a repo
+      // from the caller has something to constrain.
+      if (/body\.repo|searchParams\.get\("repo"\)/.test(src)) {
+        expect(
+          src.includes("repoUnderOrg"),
+          `This route takes a repo name from the caller but does not pass it through repoUnderOrg. ` +
+            `Gating the org is only half of gate-then-constrain: a caller may present their own org ` +
+            `and name another tenant's repository.`,
+        ).toBe(true);
+      }
+    },
+  );
+});
