@@ -38,7 +38,23 @@ import {
   weightsFor,
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims } from "@/lib/scoring/claims";
+import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims, type VerifiedClaim } from "@/lib/scoring/claims";
+import { guidanceGraphFor } from "@/lib/analyze/guidance-graph";
+
+/**
+ * One evidence line for a verified claim.
+ *
+ * A ZERO-point facet (D1's `contradiction`) is rendered as EVIDENCE, not as a score line: "(+0)"
+ * beside a finding reads like a scoring event that failed, when the design is that this finding was
+ * never a scoring event. Both of its citations are shown, because a claim whose whole content is a
+ * relationship between two files is unreadable with one of them.
+ */
+function renderClaim(v: VerifiedClaim): string {
+  const second = v.path2 && v.quote2 ? ` · ${v.path2}: "${v.quote2}"` : "";
+  return v.points === 0
+    ? `Model reported ${v.facet} (evidence only, scores 0) — ${v.path}: "${v.quote}"${second}`
+    : `Model cited ${v.facet} (+${v.points}) — ${v.path}: "${v.quote}"${second}`;
+}
 import { buildDimensionFollowUps, buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { parseResolvedIds } from "@/lib/org/followups";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
@@ -214,15 +230,22 @@ export function assembleReport(
     // verifier confirms — and then by exactly that facet's points. A facet the detector already
     // evidenced is confirmation, not a second award. The citation is the bound: drift is limited to
     // what is actually in the repository, which is the property the ±6 band was approximating.
+    // D1's citations are bounded further: only the guidance documents the arbiter actually found are
+    // citable, so the model cannot present a design doc as this repo's agent guidance. An empty graph
+    // means an empty allowlist, which correctly rejects every D1 claim rather than opening the door.
     const claimed = CLAIM_SCORED_DIMENSIONS.includes(s.id)
-      ? verifyClaims(assessment.claims ?? [], snap, s.id)
+      ? verifyClaims(assessment.claims ?? [], snap, s.id, {
+          ...(s.id === "D1"
+            ? { allowedPaths: new Set(guidanceGraphFor(snap).nodes.map((n) => n.path)) }
+            : {}),
+        })
       : null;
     let claimPoints = 0;
     const claimEvidence: string[] = [];
     if (claimed) {
-      const applied = applyVerifiedClaims(claimed.verified, s.facets ?? []);
+      const applied = applyVerifiedClaims(claimed.verified, s.facets ?? [], s.id);
       claimPoints = applied.points;
-      for (const v of applied.awarded) claimEvidence.push(`Model cited ${v.facet} (+${v.points}) — ${v.path}: "${v.quote}"`);
+      for (const v of applied.awarded) claimEvidence.push(renderClaim(v));
       for (const v of applied.confirmed) claimEvidence.push(`Model confirmed ${v.facet} — ${v.path}: "${v.quote}"`);
       // Every rejection is rendered: a claim that failed verification is the most useful sentence on
       // the card, and the rate of them is the reliability signal SCORING-VALIDITY asks for.

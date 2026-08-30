@@ -28,7 +28,7 @@ import type {
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
 import { IMPACT_LEVELS } from "@/lib/llm/schema";
-import { CLAIM_MAX, CLAIM_QUOTE_MAX, CLAIM_SCORED_DIMENSIONS, D4_FACET_IDS } from "@/lib/scoring/claims";
+import { ALL_FACET_IDS, CLAIM_MAX, CLAIM_QUOTE_MAX, CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
 import type { LlmClaim } from "@/lib/types";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { deEmDash } from "@/lib/llm/prose";
@@ -259,12 +259,25 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         typeof c?.dimension === "string" && (CLAIM_SCORED_DIMENSIONS as string[]).includes(c.dimension)
           ? (c.dimension as DimensionId)
           : null;
-      const facet = typeof c?.facet === "string" && D4_FACET_IDS.includes(c.facet.trim()) ? c.facet.trim() : null;
-      const path = typeof c?.path === "string" ? c.path.replace(CONTROL_CHARS, "").trim().slice(0, 300) : "";
-      const quote = typeof c?.quote === "string" ? c.quote.replace(CONTROL_CHARS, "").trim().slice(0, CLAIM_QUOTE_MAX) : "";
+      const facet = typeof c?.facet === "string" && ALL_FACET_IDS.includes(c.facet.trim()) ? c.facet.trim() : null;
+      const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(CONTROL_CHARS, "").trim().slice(0, max) : "");
+      const path = str(c?.path, 300);
+      const quote = str(c?.quote, CLAIM_QUOTE_MAX);
       if (!dim || !facet || !path || !quote) continue;
+      // The SECOND citation of a two-file facet, coerced by the same rules. Carried through only when
+      // BOTH halves survive — a half-citation is not a smaller claim, it is an unverifiable one, and
+      // the verifier rejects it with `missing-second-citation` rather than half-crediting it.
+      const path2 = str(c?.path2, 300);
+      const quote2 = str(c?.quote2, CLAIM_QUOTE_MAX);
       const note = typeof c?.note === "string" ? cap(c.note.trim()) : undefined;
-      claims.push(note ? { dimension: dim, facet, path, quote, note } : { dimension: dim, facet, path, quote });
+      claims.push({
+        dimension: dim,
+        facet,
+        path,
+        quote,
+        ...(path2 && quote2 ? { path2, quote2 } : {}),
+        ...(note ? { note } : {}),
+      });
     }
   }
 

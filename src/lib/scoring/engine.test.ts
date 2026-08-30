@@ -421,6 +421,11 @@ const eng = { name: "gemini", model: "x" };
 const AT = "2026-01-01T00:00:00Z";
 const scoreOf = (r: ScanReport, id: string) => r.dimensions.find((d) => d.id === id)!.score;
 
+// The exemplar dimension in this block (and in the two discrepancy blocks below) is D5/D6/D7, not
+// D1/D2/D3. It moved with rubric r11, which put D1 into CLAIM_SCORED_DIMENSIONS: a claim-scored
+// dimension has NO guardband blend at all (score = signal + verified claim points), so it can no
+// longer stand in for "an ordinary blended dimension". The behaviour under test is unchanged — the
+// arithmetic below is the same — only the dimension it is demonstrated on. See moonshot #15.
 describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () => {
   it("pins SCORE_BLEND and LLM_GUARDBAND so the arithmetic below is self-documenting", () => {
     // These tests hard-code the rounded results derived from these two constants. If the rubric
@@ -436,13 +441,13 @@ describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () =
     // signal 40, llm 45 (within ±6) → guarded 45 → round(0.6·45 + 0.4·40) = round(43) = 43.
     const report = assembleReport(
       snapWithCoverage(1),
-      signalsWith({ D1: { signalScore: 40 } }),
-      assessmentWith({ D1: 45 }),
+      signalsWith({ D5: { signalScore: 40 } }),
+      assessmentWith({ D5: 45 }),
       eng,
       AT,
       "org",
     );
-    expect(scoreOf(report, "D1")).toBe(43);
+    expect(scoreOf(report, "D5")).toBe(43);
     expect(report.dimensions[0]!.llmScore).toBe(45);
     expect(report.dimensions[0]!.signalScore).toBe(40);
   });
@@ -452,46 +457,46 @@ describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () =
     // 42 sits strictly between the full-blend result (43) and the pure signal floor (40).
     const half = assembleReport(
       snapWithCoverage(0.5),
-      signalsWith({ D1: { signalScore: 40 } }),
-      assessmentWith({ D1: 45 }),
+      signalsWith({ D5: { signalScore: 40 } }),
+      assessmentWith({ D5: 45 }),
       eng,
       AT,
       "org",
     );
-    expect(scoreOf(half, "D1")).toBe(42);
-    expect(scoreOf(half, "D1")).toBeGreaterThan(40); // > pure signal floor
-    expect(scoreOf(half, "D1")).toBeLessThan(43); // < full-coverage blend
+    expect(scoreOf(half, "D5")).toBe(42);
+    expect(scoreOf(half, "D5")).toBeGreaterThan(40); // > pure signal floor
+    expect(scoreOf(half, "D5")).toBeLessThan(43); // < full-coverage blend
   });
 
   it("at coverage:0 the blend vanishes and the score is the pure deterministic signal", () => {
     // effectiveBlend = 0 → round(0·llm + 1·signal) = signal, regardless of the LLM score.
     const report = assembleReport(
       snapWithCoverage(0),
-      signalsWith({ D1: { signalScore: 40 } }),
-      assessmentWith({ D1: 100 }),
+      signalsWith({ D5: { signalScore: 40 } }),
+      assessmentWith({ D5: 100 }),
       eng,
       AT,
       "org",
     );
-    expect(scoreOf(report, "D1")).toBe(40);
+    expect(scoreOf(report, "D5")).toBe(40);
   });
 
   it("clamps coverage above 1 down to the full-blend path (never over-weights the LLM)", () => {
     // clamp(coverage,0,1) caps effectiveBlend at SCORE_BLEND, so coverage:2 == coverage:1.
-    const over = assembleReport(snapWithCoverage(2), signalsWith({ D1: { signalScore: 40 } }), assessmentWith({ D1: 45 }), eng, AT, "org");
-    const full = assembleReport(snapWithCoverage(1), signalsWith({ D1: { signalScore: 40 } }), assessmentWith({ D1: 45 }), eng, AT, "org");
-    expect(scoreOf(over, "D1")).toBe(scoreOf(full, "D1"));
-    expect(scoreOf(over, "D1")).toBe(43);
+    const over = assembleReport(snapWithCoverage(2), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 45 }), eng, AT, "org");
+    const full = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 45 }), eng, AT, "org");
+    expect(scoreOf(over, "D5")).toBe(scoreOf(full, "D5"));
+    expect(scoreOf(over, "D5")).toBe(43);
   });
 
   for (const bad of [NaN, Infinity, -Infinity] as const) {
     it(`treats non-finite coverage (${bad}) as full coverage — identical report, never NaN`, () => {
       // The finite-guard invariant: a broken estimate must default to 1 (the calibrated SCORE_BLEND
       // path), not propagate through clamp's Math.max/min and poison every blended score → NaN.
-      const guarded = assembleReport(snapWithCoverage(bad), signalsWith({ D1: { signalScore: 40 }, D2: { signalScore: 70 } }), assessmentWith({ D1: 55, D2: 70 }), eng, AT, "org");
-      const full = assembleReport(snapWithCoverage(1), signalsWith({ D1: { signalScore: 40 }, D2: { signalScore: 70 } }), assessmentWith({ D1: 55, D2: 70 }), eng, AT, "org");
-      expect(scoreOf(guarded, "D1")).toBe(scoreOf(full, "D1"));
-      expect(scoreOf(guarded, "D2")).toBe(scoreOf(full, "D2"));
+      const guarded = assembleReport(snapWithCoverage(bad), signalsWith({ D5: { signalScore: 40 }, D6: { signalScore: 70 } }), assessmentWith({ D5: 55, D6: 70 }), eng, AT, "org");
+      const full = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 40 }, D6: { signalScore: 70 } }), assessmentWith({ D5: 55, D6: 70 }), eng, AT, "org");
+      expect(scoreOf(guarded, "D5")).toBe(scoreOf(full, "D5"));
+      expect(scoreOf(guarded, "D6")).toBe(scoreOf(full, "D6"));
       expect(Number.isFinite(guarded.overallScore)).toBe(true);
       expect(Number.isNaN(guarded.overallScore)).toBe(false);
       // G3-07: `confidence` is written from the SAME sanitized coverage as the blend, so a broken
@@ -503,7 +508,7 @@ describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () =
   }
 
   it("clamps an out-of-range coverage on the persisted confidence too (never '200% inspected')", () => {
-    const over = assembleReport(snapWithCoverage(2), signalsWith({ D1: { signalScore: 40 } }), assessmentWith({ D1: 55 }), eng, AT, "org");
+    const over = assembleReport(snapWithCoverage(2), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 55 }), eng, AT, "org");
     expect(over.confidence).toBe(1);
     // Same value the blend used — the two bindings cannot drift again.
     expect(over.scoreIntegrity!.effectiveBlend).toBe(SCORE_BLEND * over.confidence);
@@ -513,30 +518,30 @@ describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () =
     // signal 40, llm 100 → guarded = min(40+6, 100) = 46 → round(0.6·46 + 0.4·40) = round(43.6) = 44.
     // Without the guardband it would be round(0.6·100 + 0.4·40) = 76 — a 32-pt hallucinated inflation
     // that would carry this dimension out of L2 and across L3 into L4 on the model's word alone.
-    const report = assembleReport(snapWithCoverage(1), signalsWith({ D1: { signalScore: 40 } }), assessmentWith({ D1: 100 }), eng, AT, "org");
-    expect(scoreOf(report, "D1")).toBe(44);
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 100 }), eng, AT, "org");
+    expect(scoreOf(report, "D5")).toBe(44);
     // The stored llmScore is the raw (clamped-to-0..100) LLM value, NOT the guardbanded one.
     expect(report.dimensions[0]!.llmScore).toBe(100);
   });
 
   it("clamps an LLM score below -LLM_GUARDBAND up to signalScore-6 before blending", () => {
     // signal 80, llm 0 → guarded = max(80-6, 0) = 74 → round(0.6·74 + 0.4·80) = round(76.4) = 76.
-    const report = assembleReport(snapWithCoverage(1), signalsWith({ D1: { signalScore: 80 } }), assessmentWith({ D1: 0 }), eng, AT, "org");
-    expect(scoreOf(report, "D1")).toBe(76);
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 80 } }), assessmentWith({ D5: 0 }), eng, AT, "org");
+    expect(scoreOf(report, "D5")).toBe(76);
   });
 
   it("leaves an in-band LLM score untouched by the guardband (exactly ±6 is the boundary)", () => {
     // signal 50, llm 56 is exactly at the +6 boundary → guarded = 56 → round(0.6·56 + 0.4·50) = round(53.6) = 54.
-    const report = assembleReport(snapWithCoverage(1), signalsWith({ D1: { signalScore: 50 } }), assessmentWith({ D1: 56 }), eng, AT, "org");
-    expect(scoreOf(report, "D1")).toBe(54);
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 50 } }), assessmentWith({ D5: 56 }), eng, AT, "org");
+    expect(scoreOf(report, "D5")).toBe(54);
   });
 
   it("falls back to the signal score (no blend) for a dimension the LLM never scored", () => {
-    // No LLM dim for D2 → llmScore defaults to the signal, guarded == signal, so the blend is a no-op.
-    const report = assembleReport(snapWithCoverage(1), signalsWith({ D1: { signalScore: 60 }, D2: { signalScore: 30 } }), assessmentWith({ D1: 60 }), eng, AT, "org");
-    expect(scoreOf(report, "D2")).toBe(30);
+    // No LLM dim for D6 → llmScore defaults to the signal, guarded == signal, so the blend is a no-op.
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 60 }, D6: { signalScore: 30 } }), assessmentWith({ D5: 60 }), eng, AT, "org");
+    expect(scoreOf(report, "D6")).toBe(30);
     // And the partial-AI-coverage honesty warning names the un-assessed dimension.
-    expect((report.warnings ?? []).some((w) => /D2/.test(w) && /not fully AI-validated/i.test(w))).toBe(true);
+    expect((report.warnings ?? []).some((w) => /D6/.test(w) && /not fully AI-validated/i.test(w))).toBe(true);
   });
 });
 
@@ -1017,42 +1022,42 @@ describe("cheapestPathToNextLevel — level-up roadmap branches (#5)", () => {
 
 describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
   it("a dimension the LLM flagged as a detector discrepancy trusts the model further (wider band, UP)", () => {
-    const base = signalsWith({ D1: { signalScore: 20 } });
-    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D1: 90 }), eng, AT, "org");
+    const base = signalsWith({ D5: { signalScore: 20 } });
+    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D5: 90 }), eng, AT, "org");
     const flagged = assembleReport(
       snapWithCoverage(1),
       base,
-      { ...assessmentWith({ D1: 90 }), discrepancies: [{ dimension: "D1", claim: "Detector missed CI-inline lint enforced off-GitHub." }] },
+      { ...assessmentWith({ D5: 90 }), discrepancies: [{ dimension: "D5", claim: "Detector missed CI-inline lint enforced off-GitHub." }] },
       eng, AT, "org",
     );
     // Unflagged: llm clamped to signal+6=26 → round(0.6·26+0.4·20)=24. Flagged: signal+12=32 → round(0.6·32+0.4·20)=27.
-    expect(scoreOf(unflagged, "D1")).toBe(24);
-    expect(scoreOf(flagged, "D1")).toBe(27);
+    expect(scoreOf(unflagged, "D5")).toBe(24);
+    expect(scoreOf(flagged, "D5")).toBe(27);
   });
 
   it("also lets the model correct a FALSE POSITIVE downward when flagged", () => {
-    const base = signalsWith({ D1: { signalScore: 80 } });
-    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D1: 10 }), eng, AT, "org");
+    const base = signalsWith({ D5: { signalScore: 80 } });
+    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D5: 10 }), eng, AT, "org");
     const flagged = assembleReport(
       snapWithCoverage(1),
       base,
-      { ...assessmentWith({ D1: 10 }), discrepancies: [{ dimension: "D1", claim: "Signal credited mypy on a Rust repo — false positive." }] },
+      { ...assessmentWith({ D5: 10 }), discrepancies: [{ dimension: "D5", claim: "Signal credited mypy on a Rust repo — false positive." }] },
       eng, AT, "org",
     );
-    expect(scoreOf(flagged, "D1")).toBeLessThan(scoreOf(unflagged, "D1")); // 73 < 76
+    expect(scoreOf(flagged, "D5")).toBeLessThan(scoreOf(unflagged, "D5")); // 73 < 76
   });
 
   it("does not move a dimension the model did NOT flag (calibrated ±LLM_GUARDBAND preserved)", () => {
-    const base = signalsWith({ D1: { signalScore: 40 }, D2: { signalScore: 40 } });
-    const noDisc = assembleReport(snapWithCoverage(1), base, assessmentWith({ D1: 90, D2: 90 }), eng, AT, "org");
+    const base = signalsWith({ D5: { signalScore: 40 }, D6: { signalScore: 40 } });
+    const noDisc = assembleReport(snapWithCoverage(1), base, assessmentWith({ D5: 90, D6: 90 }), eng, AT, "org");
     const d2Flagged = assembleReport(
       snapWithCoverage(1), base,
-      { ...assessmentWith({ D1: 90, D2: 90 }), discrepancies: [{ dimension: "D2", claim: "missed evidence" }] },
+      { ...assessmentWith({ D5: 90, D6: 90 }), discrepancies: [{ dimension: "D6", claim: "missed evidence" }] },
       eng, AT, "org",
     );
-    // D1 (unflagged) is identical with or without the D2 discrepancy; only the flagged D2 rises above it.
-    expect(scoreOf(d2Flagged, "D1")).toBe(scoreOf(noDisc, "D1"));
-    expect(scoreOf(d2Flagged, "D2")).toBeGreaterThan(scoreOf(d2Flagged, "D1"));
+    // D5 (unflagged) is identical with or without the D6 discrepancy; only the flagged D6 rises above it.
+    expect(scoreOf(d2Flagged, "D5")).toBe(scoreOf(noDisc, "D5"));
+    expect(scoreOf(d2Flagged, "D6")).toBeGreaterThan(scoreOf(d2Flagged, "D5"));
   });
 });
 
@@ -1066,29 +1071,29 @@ describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
 // ---------------------------------------------------------------------------
 
 describe("assembleReport — discrepancy budget caps self-declared widening (G3-06)", () => {
-  const base = () => signalsWith({ D1: { signalScore: 20 }, D2: { signalScore: 20 }, D3: { signalScore: 20 }, D4: { signalScore: 20 } });
-  const llm = () => assessmentWith({ D1: 90, D2: 90, D3: 90, D4: 90 });
+  const base = () => signalsWith({ D5: { signalScore: 20 }, D6: { signalScore: 20 }, D7: { signalScore: 20 }, D4: { signalScore: 20 } });
+  const llm = () => assessmentWith({ D5: 90, D6: 90, D7: 90, D4: 90 });
   const disc = (ids: string[]) =>
-    ids.map((id) => ({ dimension: id as "D1", claim: `${id} detector missed evidence that is plainly present in the tree.` }));
+    ids.map((id) => ({ dimension: id as "D5", claim: `${id} detector missed evidence that is plainly present in the tree.` }));
 
   it("pins the budget so the expectations below are self-documenting", () => {
     expect(MAX_FLAGGED_DIMENSIONS).toBe(2);
   });
 
   it("widens up to the budget exactly as before (no regression for an honest audit)", () => {
-    const report = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D1", "D2"]) }, eng, AT, "org");
+    const report = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D5", "D6"]) }, eng, AT, "org");
     // signal 20 + doubled band 12 → guarded 32 → round(0.6·32 + 0.4·20) = 27; unflagged dims stay 24.
-    expect(scoreOf(report, "D1")).toBe(27);
-    expect(scoreOf(report, "D2")).toBe(27);
-    expect(scoreOf(report, "D3")).toBe(24);
-    expect(report.scoreIntegrity!.widenedDims).toEqual(["D1", "D2"]);
+    expect(scoreOf(report, "D5")).toBe(27);
+    expect(scoreOf(report, "D6")).toBe(27);
+    expect(scoreOf(report, "D7")).toBe(24);
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D5", "D6"]);
     expect(report.scoreIntegrity!.widenCapped).toBeUndefined();
   });
 
   it("flagging MORE than the budget widens NOTHING — every dim scores as if unflagged", () => {
-    const overBudget = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D1", "D2", "D3"]) }, eng, AT, "org");
+    const overBudget = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D5", "D6", "D7"]) }, eng, AT, "org");
     const noDisc = assembleReport(snapWithCoverage(1), base(), llm(), eng, AT, "org");
-    for (const id of ["D1", "D2", "D3", "D4"]) {
+    for (const id of ["D5", "D6", "D7", "D4"]) {
       expect(scoreOf(overBudget, id)).toBe(scoreOf(noDisc, id));
     }
     expect(overBudget.overallScore).toBe(noDisc.overallScore);
@@ -1102,34 +1107,34 @@ describe("assembleReport — discrepancy budget caps self-declared widening (G3-
 
   it("counts only dimensions that could ACTUALLY be widened toward the budget", () => {
     // D9 is deterministic (never widened) and D4's detector failed (dropped) — flagging them must not
-    // burn budget that an honest D1/D2 audit is entitled to.
+    // burn budget that an honest D5/D6 audit is entitled to.
     const signals = [
-      ...signalsWith({ D1: { signalScore: 20 }, D2: { signalScore: 20 }, D4: { signalScore: 0, failed: true } }),
+      ...signalsWith({ D5: { signalScore: 20 }, D6: { signalScore: 20 }, D4: { signalScore: 0, failed: true } }),
       { id: "D9" as const, signalScore: 30, signals: [{ label: "D9" }], deterministic: true, gaps: [] },
     ];
     const report = assembleReport(
       snapWithCoverage(1),
       signals,
-      { ...assessmentWith({ D1: 90, D2: 90 }), discrepancies: disc(["D1", "D2", "D4", "D9"]) },
+      { ...assessmentWith({ D5: 90, D6: 90 }), discrepancies: disc(["D5", "D6", "D4", "D9"]) },
       eng, AT, "org",
     );
     expect(report.scoreIntegrity!.widenCapped).toBeUndefined();
-    expect(report.scoreIntegrity!.widenedDims).toEqual(["D1", "D2"]);
-    expect(scoreOf(report, "D1")).toBe(27); // still widened
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D5", "D6"]);
+    expect(scoreOf(report, "D5")).toBe(27); // still widened
   });
 
   it("suppresses the D9 visibility hatch too when the budget is blown (both prose levers, one budget)", () => {
     // The injection-shaped case: a blanket audit that also claims D9's security is invisible. Neither
     // lever may fire — D9 stays a measured dimension and no guardband widens.
     const signals = [
-      ...signalsWith({ D1: { signalScore: 20 }, D2: { signalScore: 20 }, D3: { signalScore: 20 } }),
+      ...signalsWith({ D5: { signalScore: 20 }, D6: { signalScore: 20 }, D7: { signalScore: 20 } }),
       { id: "D9" as const, signalScore: 0, signals: [{ label: "D9" }], deterministic: true, gaps: [] },
     ];
     const discrepancies = [
-      ...disc(["D1", "D2", "D3"]),
+      ...disc(["D5", "D6", "D7"]),
       { dimension: "D9" as const, claim: "CodeQL runs via GitHub default-setup configured in repo settings, invisible to a file scan." },
     ];
-    const report = assembleReport(snapWithCoverage(1), signals, { ...assessmentWith({ D1: 90, D2: 90, D3: 90 }), discrepancies }, eng, AT, "org");
+    const report = assembleReport(snapWithCoverage(1), signals, { ...assessmentWith({ D5: 90, D6: 90, D7: 90 }), discrepancies }, eng, AT, "org");
     expect(report.scoreIntegrity!.d9Unmeasurable).toBe(false);
     expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
     expect(report.scoreIntegrity!.widenedDims).toEqual([]);
