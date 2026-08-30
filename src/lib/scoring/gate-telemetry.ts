@@ -43,6 +43,14 @@ export interface GateVerdictEvent {
   degraded?: boolean;
   /** False for the App fallback verdict, which scored the default branch rather than the PR head. */
   scoredHead?: boolean;
+  /**
+   * #8 — the admission layer of the fold, when one applied. Recorded as its own field rather than
+   * folded into `policySource` because the two answer different questions: `policySource` says which
+   * LAYER set the bar, and this says WHY this repository was held to that layer's stricter form. A
+   * CI log that only says "org" cannot explain why two repos under one org got different verdicts.
+   * Absent = no admission row (or none applied), which is the byte-identical no-op case.
+   */
+  admission?: { mode: string; tier: string | null; source: string } | null;
 }
 
 /**
@@ -69,6 +77,7 @@ export function logGateVerdict(report: ScanReport, gate: GateResult, e: GateVerd
         // this can rank them across the PRs teams are actually pushing.
         codes: [...new Set(gate.failures.map((f) => f.code))],
         policySource: e.policySource,
+        admission: e.admission ?? null,
         level: report.level?.id ?? null,
         overall: report.overallScore ?? null,
         posture: report.posture?.id ?? null,

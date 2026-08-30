@@ -15,7 +15,8 @@ import { getInstallationToken } from "@/lib/github/app";
 import { getOrgGatePolicy, reportPermalink } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { publicBaseUrl } from "@/lib/site";
-import { evaluateGate } from "@/lib/scoring/gate";
+import { defaultGatePolicy, evaluateGate, tightenGatePolicy } from "@/lib/scoring/gate";
+import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
 import { buildGateComment, GATE_COMMENT_MARKER } from "@/lib/scoring/gate-comment";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
@@ -110,8 +111,24 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // archetype default — silently relaxing the merge gate for the duration of a DB blip, on the one
     // status that actually blocks merges. Letting it propagate reaches the outer catch, which posts the
     // neutral "could not run" check and releases the delivery so GitHub's redelivery retries.
-    const policy = (await getOrgGatePolicy(owner)) ?? undefined;
-    const gate = evaluateGate(headReport, policy);
+    const orgPolicy = (await getOrgGatePolicy(owner)) ?? undefined;
+    // #8 — THE SAME admission layer the public endpoint folds, resolved by the SAME function. This
+    // module exists precisely so a second gate surface cannot fork the evaluator, and an overlay
+    // applied on one surface but not the other would be that fork in its most expensive form: the
+    // Check Run is the status that actually blocks a merge, so a repo held to a stricter bar by the
+    // public API and a looser one here would mean the blocking gate is the permissive one.
+    //
+    // Not `.catch(() => …)`, for the same reason the org-policy read above is not: resolveAdmissionLayer
+    // returns an empty overlay without throwing for every legitimate absence, so a throw reaches the
+    // outer catch, posts the neutral "could not run" check and releases the delivery for a retry —
+    // never a green check scored against a bar we could not read.
+    const admissionLayer = await resolveAdmissionLayer(owner, fullName);
+    const base = orgPolicy ?? defaultGatePolicy(headReport.archetype);
+    // Folded, never assigned: tighten-only, so the admission row can only raise this bar.
+    const policy = tightenGatePolicy(base, admissionLayer.overlay);
+    // #16 — judged against the repo's own latest conformance report; null skips (see loadCheckStates).
+    const checkStates = policy.requireChecks?.length ? await loadCheckStates(owner, fullName) : null;
+    const gate = evaluateGate(headReport, policy, { checkStates });
     // The check-run surface is the one that can actually block a merge, so its verdicts are the ones
     // worth counting. `scoredHead: false` marks the fork fallback as non-authoritative so it is never
     // tallied as a repository failing the bar.
@@ -119,7 +136,8 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
       surface: "check-run",
       repo: fullName,
       ref: headSha,
-      policySource: policy ? "org" : "archetype",
+      policySource: orgPolicy ? "org" : "archetype",
+      admission: admissionLayer.admission,
       scoredHead,
     });
 
