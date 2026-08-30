@@ -153,6 +153,13 @@ export interface LoopLaneRecord {
   /** PROVENANCE of the brief this lane was given — which playbook and version, which mined practice,
    *  which memory and skill ids, what was omitted and why. Not the prose: the prose is rebuilt
    *  deterministically from the same inputs. `null` on a lane written before briefs existed. */
+  /** Dominant dimension of the lane's dispatched batch (MOONSHOT #26). Null when the batch spanned
+   *  none — and a lane with no dimension cannot open a PR, because ImprovementPr.dimId is not
+   *  nullable and inventing one would file real work under a dimension nobody chose. */
+  dimId: string | null;
+  /** The PR this lane became, denormalized. Null until an owner opens one; the loop never pushes. */
+  prNumber: number | null;
+  prUrl: string | null;
   brief: LaneBriefProvenance | null;
   /** The agent's own `.ascent/lane-report.json`, parsed and validated. `null` when the lane predates
    *  the contract; a lane that ran and wrote nothing carries `{ parsed: false }`, which is a
@@ -320,6 +327,9 @@ type LaneRow = {
   agentDurationMs?: number | null;
   agentSessionId?: string | null;
   abPairKey?: string | null;
+  dimId?: string | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
   briefJson?: string | null;
   reportJson?: string | null;
 };
@@ -419,6 +429,9 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     agentDurationMs: row.agentDurationMs ?? null,
     agentSessionId: row.agentSessionId ?? null,
     abPairKey: row.abPairKey ?? null,
+    dimId: row.dimId ?? null,
+    prNumber: row.prNumber ?? null,
+    prUrl: row.prUrl ?? null,
     brief: parseBriefProvenance(row.briefJson),
     report: parseReportColumn(row.reportJson),
   };

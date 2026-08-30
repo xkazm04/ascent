@@ -112,6 +112,34 @@ export interface LaneRunResult {
   error: string | null;
 }
 
+/**
+ * The dimension a batch is mostly about, or null when it is about none.
+ *
+ * Counted first, then broken by the higher projected-point total, then by dimension id so the answer
+ * is deterministic. `null` for an empty batch or one whose items carry no dimension — and null means
+ * the lane cannot open a PR (`ImprovementPr.dimId` is non-nullable), which is the correct refusal
+ * rather than a fabricated dimension in the improvement ledger.
+ */
+export function dominantDimId(batch: readonly FollowUpItem[]): string | null {
+  const tally = new Map<string, { n: number; points: number }>();
+  for (const it of batch) {
+    if (!it.dimId) continue;
+    const cur = tally.get(it.dimId) ?? { n: 0, points: 0 };
+    cur.n += 1;
+    cur.points += it.projectedPoints ?? 0;
+    tally.set(it.dimId, cur);
+  }
+  let best: string | null = null;
+  let bestScore = { n: 0, points: 0 };
+  for (const [dimId, score] of [...tally.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (score.n > bestScore.n || (score.n === bestScore.n && score.points > bestScore.points)) {
+      best = dimId;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 const firstLine = (s: string, max = 160): string => s.split("\n").find((l) => l.trim())?.slice(0, max) ?? "";
 
 /** The agent's own first line gets more room than the rest of the log. It is the only place a
@@ -291,7 +319,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
-      await updateLane(laneId, { batchIds: batch.map((b) => b.id) });
+      // The batch's DOMINANT dimension, stamped at dispatch (moonshot #26). `ImprovementPr.dimId` is
+      // non-nullable, so a lane that later becomes a PR needs one — and it has to be decided here,
+      // from the batch that was actually dispatched, rather than inferred afterwards from whatever
+      // the rescan happened to move. Honest null when the batch spans no dimension: a lane with no
+      // dominant dimension simply cannot open a PR, and inventing one would put a real row in the
+      // ledger under a dimension nobody chose.
+      await updateLane(laneId, { batchIds: batch.map((b) => b.id), dimId: dominantDimId(batch) });
 
       // The hand-off claim, so the rescan's trailer/restatement feedback applies to these rows
       // (scans-persist only resolves IN-PROGRESS rows — an unclaimed row is nobody's promise).

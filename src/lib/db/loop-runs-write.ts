@@ -147,6 +147,12 @@ export interface LoopLanePatch {
   // write a `[object Object]` column.
   brief?: LaneBriefProvenance;
   report?: LaneReport;
+
+  // ── MOONSHOT #26 — the batch's dominant dimension, stamped at dispatch, and the lane's PR,
+  // denormalized so the cockpit renders the link without a join.
+  dimId?: string | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
