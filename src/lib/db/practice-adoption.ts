@@ -357,12 +357,17 @@ export async function getPracticeAdoptionSummary(orgSlug: string): Promise<Pract
  * Repos carrying an `adopted` HOUSE artifact for `practiceId` older than the org's latest pattern —
  * the rollout's "behind" target set. Empty (never a guess) when the org has no pattern for it.
  */
-export async function listBehindRepos(orgSlug: string, practiceId: string): Promise<{ latestVersion: number | null; repos: string[] }> {
-  if (!isDbConfigured()) return { latestVersion: null, repos: [] };
+export async function listBehindRepos(
+  orgSlug: string,
+  practiceId: string,
+): Promise<{ latestVersion: number | null; fromVersion: number | null; repos: string[] }> {
+  const none = { latestVersion: null, fromVersion: null, repos: [] };
+  if (!isDbConfigured()) return none;
   const org = await getOrgBySlug(orgSlug);
-  if (!org) return { latestVersion: null, repos: [] };
+  if (!org) return none;
   const latest = await getLatestHousePattern(org.id, practiceId);
-  if (!latest) return { latestVersion: null, repos: [] };
+  // No mined pattern ⇒ nothing can be BEHIND it. Not "everyone is current", and not v0.
+  if (!latest) return none;
   const rows = await getPrisma().practiceAdoption.findMany({
     where: {
       orgId: org.id,
@@ -371,9 +376,14 @@ export async function listBehindRepos(orgSlug: string, practiceId: string): Prom
       state: "adopted",
       patternVersion: { lt: latest.version },
     },
-    select: { repoFullName: true },
+    select: { repoFullName: true, patternVersion: true },
   });
-  return { latestVersion: latest.version, repos: [...new Set(rows.map((r) => r.repoFullName))].sort() };
+  const versions = rows.map((r) => r.patternVersion).filter((v): v is number => v !== null);
+  return {
+    latestVersion: latest.version,
+    fromVersion: versions.length > 0 ? Math.min(...versions) : null,
+    repos: [...new Set(rows.map((r) => r.repoFullName))].sort(),
+  };
 }
 
 /** Repos whose adoption of `practiceId` has drifted or been removed — the other rollout target set. */
