@@ -463,7 +463,8 @@ export async function controlCoverage(
 
   const byPair = new Map<string, CoverageRow[]>();
   for (const r of rows) {
-    const key = `${r.repoFullName} ${r.controlId}`;
+    // A space is a safe join here: neither an `owner/name` nor a kebab-case control id contains one.
+    const key = `${r.repoFullName} ${r.controlId}`;
     const hit = byPair.get(key);
     if (hit) hit.push(r);
     else byPair.set(key, [r]);
