@@ -13,6 +13,8 @@ import { getOrgRollup } from "@/lib/db";
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { buildContextRows } from "./contextHealthModel";
 import { ContextHalfLife } from "./ContextHalfLife";
+import { buildCoherenceRows } from "./guidanceCoherenceModel";
+import { GuidanceCoherenceCard } from "./GuidanceCoherenceCard";
 
 export async function ContextHealthPanel({ slug }: { slug: string }) {
   const rollup = await getOrgRollup(slug);
@@ -20,5 +22,12 @@ export async function ContextHealthPanel({ slug }: { slug: string }) {
     return <SectionEmpty>No repositories to read a context layer from yet.</SectionEmpty>;
   }
   const rows = buildContextRows(rollup.repos);
-  return <ContextHalfLife slug={slug} rows={rows} />;
+  return (
+    <div className="space-y-8">
+      <ContextHalfLife slug={slug} rows={rows} />
+      {/* #15 — half-life answers "when did this stop being true?"; coherence answers "is it true in
+          more than one place at once?". Same context layer, same fetch, two orthogonal questions. */}
+      <GuidanceCoherenceCard rows={buildCoherenceRows(rollup.repos)} />
+    </div>
+  );
 }
