@@ -11,22 +11,26 @@
 // is this one run doing" — and it settles into the SAME outcome ledger a single run does, with a
 // verdict banner above it saying which of the three honest stops ended it.
 //
-// This file is layout only: the state machine is useCockpit, the rail's panel choice is CockpitRail.
+// PROTOTYPE (in flight): the OUTCOME surface is being redesigned behind a variant strip. In the two
+// matrix variants the rail never enters outcome mode — the settled run still drifts the field and is
+// still `setOutcome`'d, but the rail shows the inspector (selection intact) and the outcome lands as a
+// full-width matrix under the grid, which also absorbs the history strip's job.
 //
-// The wall this replaces is still one link away (`?view=wall`) and is untouched — including the
-// kiosk route that renders it read-only.
+// This file is layout only: the state machine is useCockpit, the rail's panel choice is CockpitRail.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Surface } from "@/components/ui";
 import { reportPermalink } from "@/lib/ui";
 import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
+import { OutcomeSection } from "../outcome/OutcomeSection";
 import { CockpitField } from "./CockpitField";
 import { CockpitHeader } from "./CockpitHeader";
 import { CockpitHistory } from "./CockpitHistory";
 import { CockpitRail } from "./CockpitRail";
+import { CockpitVariantTabs, type CockpitVariant } from "./CockpitVariantTabs";
 import { useCockpit } from "./useCockpit";
-import type { LoopRunRecord, LoopRunSummary } from "./loopTypes";
+import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
 export interface LiveCockpitProps {
   slug: string;
@@ -37,6 +41,8 @@ export interface LiveCockpitProps {
   pairedRepos: string[];
   activeRun: LoopRunRecord | null;
   runs: LoopRunSummary[];
+  /** The details of the listed runs (bounded), for the outcome matrix. Empty on managed cloud. */
+  runDetails?: LoopRunDetail[];
   /** `autopilotEnabled()` at render time — the ASCENT_AUTOPILOT gate. */
   loopEnabled: boolean;
   selfHosted: boolean;
@@ -45,12 +51,17 @@ export interface LiveCockpitProps {
   wallHref: string;
 }
 
+const NO_DETAILS: LoopRunDetail[] = [];
+
 export function LiveCockpit(props: LiveCockpitProps) {
-  const { slug, seeds, isOwner, wallHref } = props;
+  const { slug, seeds, isOwner, wallHref, runDetails = NO_DETAILS } = props;
   const router = useRouter();
   const [listOpen, setListOpen] = useState(true);
+  const [variant, setVariant] = useState<CockpitVariant>("baseline");
   const c = useCockpit(props);
   const { loop, drive } = c;
+  const matrix = variant !== "baseline";
+  const railMode = matrix && c.mode === "outcome" ? "inspect" : c.mode;
 
   return (
     <section aria-label="Loop cockpit" className="space-y-4">
@@ -80,10 +91,10 @@ export function LiveCockpit(props: LiveCockpitProps) {
         <Surface className="min-w-0 p-4">
           <CockpitRail
             slug={slug}
-            mode={c.mode}
+            mode={railMode}
             setup={c.setup}
             liveDrive={drive.live ? drive.drive : null}
-            driveOutcome={c.driveOutcome}
+            driveOutcome={matrix ? null : c.driveOutcome}
             interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
             runLive={loop.live}
@@ -109,7 +120,22 @@ export function LiveCockpit(props: LiveCockpitProps) {
         </Surface>
       </div>
 
-      <CockpitHistory runs={loop.runs} selectedId={c.outcome?.run.id ?? loop.activeId} onOpen={(id) => void c.openRun(id)} />
+      <CockpitVariantTabs value={variant} onChange={setVariant} />
+
+      {matrix ? (
+        <OutcomeSection
+          variant={variant}
+          runDetails={runDetails}
+          liveDetail={loop.detail}
+          openedDetail={c.outcome}
+          selectedId={c.outcome?.run.id ?? loop.activeId}
+          driveOutcome={c.driveOutcome}
+          onOpen={(id) => void c.openRun(id)}
+          onDismissDrive={c.backToInspect}
+        />
+      ) : (
+        <CockpitHistory runs={loop.runs} selectedId={c.outcome?.run.id ?? loop.activeId} onOpen={(id) => void c.openRun(id)} />
+      )}
     </section>
   );
 }

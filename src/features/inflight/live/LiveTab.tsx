@@ -21,7 +21,8 @@ import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
 import { buildFleetTimetable } from "./fleetTimetable";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { getOrgRepoHistories, getOrgRollup, listGoals, listLocalPairings, listOpsState } from "@/lib/db";
-import { getActiveLoopRun, listLoopRuns } from "@/lib/db/loop-runs";
+import { getActiveLoopRun, getLoopRunDetail, listLoopRuns } from "@/lib/db/loop-runs";
+import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
 import { selfHosted } from "@/lib/env";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { AutopilotBand } from "./AutopilotBand";
@@ -129,6 +130,17 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
   const [activeRun, runs] = local
     ? await Promise.all([getActiveLoopRun(slug).catch(() => null), listLoopRuns(slug, 20).catch(() => [])])
     : [null, []];
+  // The listed runs' DETAILS, bounded, for the outcome matrix — each column is a run, each cell what it
+  // delivered to a repo, and only the detail carries the diff that names the deliverables. Read here,
+  // in the server component, for the same reason the list is: the browser would otherwise pay twelve
+  // round trips on mount to re-do auth this render has already done. A detail that fails to load is
+  // dropped rather than failing the tab.
+  const runDetails =
+    local && runs.length > 0
+      ? (await Promise.all(runs.slice(0, 12).map((r) => getLoopRunDetail(r.id).catch(() => null)))).filter(
+          (d): d is LoopRunDetail => d != null,
+        )
+      : [];
 
   return (
     <div className="space-y-4">
@@ -145,6 +157,7 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
         pairedRepos={pairedRepos}
         activeRun={activeRun}
         runs={runs}
+        runDetails={runDetails}
         loopEnabled={autopilotEnabled()}
         selfHosted={local}
         isOwner={isOwner}
