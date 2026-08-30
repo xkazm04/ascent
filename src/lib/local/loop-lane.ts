@@ -17,14 +17,18 @@
 
 import { runGit } from "@/lib/local/git";
 import { LocalFsSource } from "@/lib/local/source";
-import { runClaudeAgent } from "@/lib/local/agent";
+import { runClaudeAgent, type AgentRunResult } from "@/lib/local/agent";
+import { meter } from "@/lib/llm/meter";
 import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
 import { updateRecommendation } from "@/lib/db/scans-recommendations";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
-import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
+// The cost source comes from the TYPES module rather than the barrel deliberately: the barrel is
+// mocked wholesale by several lane suites (it is the DB seam), and a constant that only exists
+// through a mock is a constant those suites have to keep re-declaring.
+import { LANE_COST_SOURCE, type LoopLaneKind } from "@/lib/db/loop-runs-types";
 import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
@@ -83,6 +87,9 @@ export interface LaneRunInput {
   /** What to arm this lane's agent session with, already resolved by the engine. Omitted keeps the
    *  runner's own env fallback, which is what the single-repo autopilot shim has always relied on. */
   agent?: { model?: string | null; effort?: string | null };
+  /** Joins the two arms of one `ab` pair (MOONSHOT #27); null/absent on a `single` run. Stamped on
+   *  the row so the price list can tell two arms of one experiment from two unrelated lanes. */
+  abPairKey?: string | null;
 }
 
 export interface LaneRunResult {
@@ -170,6 +177,99 @@ export async function rescanWorktree(args: {
   });
   const persisted = await persistScanReport(report, { orgSlug: args.org });
   return { scanId: persisted?.scanId ?? null, closedIds: report.resolvedFollowUpIds ?? [] };
+}
+
+/** A cost for the lane log. `null` prints "cost unknown" — never `$0.00`, which is a claim. */
+function fmtCostMicros(micros: number | null): string {
+  if (micros == null) return "cost unknown";
+  const cents = micros / 1_000_000;
+  return cents < 100 ? `${cents.toFixed(2)}¢` : `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * Stamp what the session cost onto the lane, then mirror it to the unified meter.
+ *
+ * THE ONE-SOURCE RULE lives here: `costSource` is stamped `"envelope"` and the figure is the CLI's
+ * own `total_cost_usd` for THIS session. `agentSessionId` is recorded so the row can be JOINED to an
+ * OTLP `AgentSession` for inspection, and that is all — an `AgentSession` is the export of sessions a
+ * developer ran, a different population by a different path, and adding its `costCents` here would
+ * double-count the same tokens under the guise of a better figure.
+ *
+ * The meter call is FIRE-AND-FORGET by construction (`meter()` returns void and swallows everything),
+ * carries the caller-owned idempotency key `loop-lane:<laneId>` so a retried write cannot double
+ * count, and hands over the cost rather than letting the meter re-price it: for a subscription-auth
+ * CLI session the envelope is authoritative and a token-times-rate estimate is not.
+ */
+async function recordAgentCost(
+  laneId: string,
+  orgSlug: string,
+  repo: string,
+  result: AgentRunResult,
+  input: LaneRunInput,
+): Promise<void> {
+  const model = result.model ?? input.agent?.model ?? null;
+  const costMicros = result.costMicros ?? null;
+  await updateLane(laneId, {
+    model,
+    costSource: LANE_COST_SOURCE,
+    costMicros,
+    inputTokens: result.inputTokens ?? null,
+    outputTokens: result.outputTokens ?? null,
+    cacheReadTokens: result.cacheReadTokens ?? null,
+    turns: result.turns ?? null,
+    agentDurationMs: result.durationMs ?? null,
+    agentSessionId: result.sessionId ?? null,
+    ...(input.abPairKey ? { abPairKey: input.abPairKey } : {}),
+  }).catch(() => null);
+  await appendLaneLog(
+    laneId,
+    `Agent: ${model ?? "model unknown"} · ${result.turns ?? "?"} turns · ${fmtCostMicros(costMicros)}${
+      result.durationMs != null ? ` · ${Math.round(result.durationMs / 1000)}s` : ""
+    }`,
+  );
+  // `costMicros` on the lane is MICRO-CENTS; the meter's is USD micros. Divide by 100 rather than
+  // handing over a figure a hundred times too large — the two units are deliberately different
+  // because a lane needs sub-cent resolution and a usage ledger sums whole calls.
+  try {
+    meterLane(laneId, orgSlug, repo, model, costMicros, result);
+  } catch (err) {
+    // `meter()` is documented as unable to throw, and this lane does not take that on trust: an
+    // observability call must never be the reason a remediation lane failed. The lane log is where it
+    // is said out loud, so a silently unmetered run is still visible to the operator.
+    await appendLaneLog(laneId, `Usage meter declined this lane: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** The meter half of the record, split out so the try/catch above wraps one thing. */
+function meterLane(
+  laneId: string,
+  orgSlug: string,
+  repo: string,
+  model: string | null,
+  costMicros: number | null,
+  result: AgentRunResult,
+): void {
+  meter({
+    lane: "local",
+    orgSlug,
+    refId: laneId,
+    idemKey: `loop-lane:${laneId}`,
+    provider: "claude-cli",
+    model: model ?? "unknown",
+    repoFullName: repo,
+    status: result.ok ? "success" : "error",
+    latencyMs: result.durationMs ?? undefined,
+    costMicros: costMicros == null ? null : Math.round(costMicros / 100),
+    ...(result.inputTokens != null || result.outputTokens != null || result.cacheReadTokens != null
+      ? {
+          usage: {
+            inputTokens: result.inputTokens ?? 0,
+            outputTokens: result.outputTokens ?? 0,
+            cacheReadTokens: result.cacheReadTokens ?? undefined,
+          },
+        }
+      : {}),
+  });
 }
 
 /**
@@ -287,6 +387,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
       );
+      // WHAT THE SESSION COST, recorded IMMEDIATELY — before the commit, the rescan or anything else
+      // that can fail. A lane that dies three steps from here still carries its cost, which is the
+      // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
+      // recorded too: a failure that burned two dollars is the most important row in the price list.
+      await recordAgentCost(laneId, org, repo, result, input);
       // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
