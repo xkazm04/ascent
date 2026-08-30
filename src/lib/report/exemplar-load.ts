@@ -238,6 +238,32 @@ async function resolveCohort(
  * repos, which will not clear `COHORT_MIN_ORGS`, so the cohort options are absent. The floor is the
  * mechanism (`selfHosted()` turns plan gates off and changes nothing on this path).
  */
+/**
+ * The two facets `listExemplarOptions` needs that `ScanComparison` does not carry: the repo's primary
+ * language (a Repository column) and its archetype (a Scan column). Read here rather than widening a
+ * `src/lib/db` type this lane must not edit. Org-constrained like every other read in this file.
+ */
+export async function loadSubjectFacets(
+  orgSlug: string,
+  subjectFullName: string,
+): Promise<{ primaryLanguage: string | null; archetype: RepoArchetype }> {
+  const fallback = { primaryLanguage: null, archetype: "org" as RepoArchetype };
+  if (!isDbConfigured()) return fallback;
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return fallback;
+    const repo = await getPrisma().repository.findFirst({
+      where: { orgId, fullName: subjectFullName },
+      select: { primaryLanguage: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { archetype: true } } },
+    });
+    if (!repo) return fallback;
+    return {
+      primaryLanguage: repo.primaryLanguage ?? null,
+      archetype: (repo.scans[0]?.archetype ?? "org") as RepoArchetype,
+    };
+  }, fallback);
+}
+
 export async function listExemplarOptions(
   ctx: {
     orgSlug: string;
