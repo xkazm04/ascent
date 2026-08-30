@@ -10,6 +10,10 @@ import {
   creditsAlertThreshold,
   dispatchAlert,
   digestHasSignal,
+  buildControlAlertMessage,
+  controlAlertSeverity,
+  controlCooldownKey,
+  type ControlAlertItem,
   isAlertConfigured,
   isLowCreditsCrossing,
   ordinal,
@@ -521,5 +525,118 @@ describe("digestHasSignal — the weekly-digest movement-gate", () => {
 
   it("always fires when credits are low — a depleting balance is worth the push even on a flat week", () => {
     expect(digestHasSignal({ ...flat, creditLow: true })).toBe(true);
+  });
+});
+
+// ── MOONSHOT #1 — the control alert kind and the digest's Controls block ─────────────────────────
+
+describe("buildControlAlertMessage", () => {
+  const item = (over: Partial<ControlAlertItem> = {}): ControlAlertItem => ({
+    repo: "acme/api",
+    controlId: "required-approvals",
+    label: "Required approvals",
+    code: "control-failed",
+    from: "pass",
+    to: "fail",
+    fromValue: "2",
+    toValue: "0",
+    source: "probe",
+    ...over,
+  });
+
+  it("names the control, the values either side and how it was observed", () => {
+    const m = buildControlAlertMessage({ org: "acme", items: [item()] });
+    expect(m.text).toContain("acme/api — Required approvals failed (2 → 0)");
+    expect(m.text).toContain("observed via probe");
+  });
+
+  it("names an actor ONLY when one was observed", () => {
+    expect(buildControlAlertMessage({ org: "acme", items: [item()] }).text).not.toContain(" by ");
+    expect(
+      buildControlAlertMessage({ org: "acme", items: [item({ source: "webhook", actorLogin: "octocat" })] }).text,
+    ).toContain(" by octocat");
+  });
+
+  it("omits the value pair when it adds nothing over the states", () => {
+    const m = buildControlAlertMessage({
+      org: "acme",
+      items: [item({ controlId: "branch-protection", label: "Branch protection", fromValue: "true", toValue: "true" })],
+    });
+    expect(m.text).not.toContain("→");
+  });
+
+  it("a restoration reads as a restoration, not as a failure", () => {
+    const m = buildControlAlertMessage({
+      org: "acme",
+      items: [item({ code: "control-restored", from: "fail", to: "pass", fromValue: "0", toValue: "2" })],
+    });
+    expect(m.text).toContain("was restored");
+    expect(m.text).toContain("a control was restored in acme");
+  });
+
+  it("an unreadable control is never headlined as a failure", () => {
+    const m = buildControlAlertMessage({
+      org: "acme",
+      items: [item({ code: "control-unmeasurable", from: "pass", to: "unmeasurable", toValue: null })],
+    });
+    expect(m.text).toContain("became unreadable");
+    expect(m.text).not.toContain("stopped operating");
+  });
+
+  it("one failure in a mixed batch makes the whole batch critical", () => {
+    expect(controlAlertSeverity([item({ code: "control-restored" }), item()])).toBe("critical");
+    expect(controlAlertSeverity([item({ code: "control-restored" })])).toBe("celebration");
+    expect(controlAlertSeverity([item({ code: "control-unmeasurable" })])).toBe("info");
+  });
+
+  it("cools down per (repo, control) so two controls on one repo both get through", () => {
+    expect(controlCooldownKey("acme/api", "branch-protection")).toBe("acme/api#control:branch-protection");
+    expect(controlCooldownKey("acme/api", "signed-commits")).not.toBe(controlCooldownKey("acme/api", "branch-protection"));
+  });
+});
+
+describe("digestHasSignal — a failed control is always signal", () => {
+  const flat = { overallDelta: 0, levelChanges: 0, regressions: 0, gainersBeyondNoise: 0, creditLow: false };
+
+  it("sends a week whose ONLY news is a control failure", () => {
+    expect(digestHasSignal(flat)).toBe(false);
+    expect(digestHasSignal({ ...flat, controlsFailed: 1 })).toBe(true);
+  });
+
+  it("an absent count is not a zero — every existing caller keeps its exact behaviour", () => {
+    expect(digestHasSignal({ ...flat, controlsFailed: 0 })).toBe(false);
+    expect(digestHasSignal(flat)).toBe(false);
+  });
+});
+
+describe("the digest's Controls block", () => {
+  const base = {
+    org: "acme",
+    repoCount: 10,
+    scannedCount: 10,
+    avgOverall: 70,
+    level: "L3 · Defined",
+    overallDelta: 0,
+    gainers: [],
+    regressers: [],
+    topRecommendation: null,
+  };
+
+  it("is omitted entirely when the caller passes nothing — silence, not a '0 controls failed' claim", () => {
+    expect(buildFleetDigestMessage(base).text).not.toContain("Controls");
+  });
+
+  it("states the positive when the caller looked and found none", () => {
+    expect(buildFleetDigestMessage({ ...base, controlsFailed: [] }).text).toContain("Controls: none failed this week.");
+  });
+
+  it("lists failures ABOVE the movers", () => {
+    const m = buildFleetDigestMessage({
+      ...base,
+      gainers: [{ name: "acme/web", delta: 6 }],
+      controlsFailed: [{ repo: "acme/api", control: "Branch protection", detail: "pass → fail" }],
+    });
+    expect(m.text).toContain("Controls that failed this week (1):");
+    expect(m.text.indexOf("Controls that failed")).toBeLessThan(m.text.indexOf("Top gainers"));
   });
 });

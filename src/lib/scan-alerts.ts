@@ -12,8 +12,12 @@ import {
   buildLowCreditsMessage,
   buildPromotionMessage,
   buildRegressionMessage,
+  buildControlAlertMessage,
   buildSecurityAlertMessage,
   claimRegressionAlert,
+  controlAlertSeverity,
+  controlCooldownKey,
+  type ControlAlertItem,
   creditsAlertThreshold,
   DEFAULT_THRESHOLDS,
   detectPromotion,
@@ -28,6 +32,11 @@ import {
 import { getAuditLog, getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, recordAudit, reportPermalink } from "@/lib/db";
 import type { AlertEventInput } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
+// MOONSHOT #1 — the control ledger is the SOURCE for the control push; `ScanDiff` gains no
+// governance field, because a flip observed by a probe between two scans would never appear in one.
+import { listObservationsSince } from "@/lib/db/control-observations";
+import { isDispatchable, transitionsFromRows } from "@/lib/controls/transitions";
+import { controlLabel } from "@/lib/controls/catalog";
 import {
   AUTO_RECHARGE_ACTION,
   normalizeAutoRecharge,
@@ -112,6 +121,14 @@ export async function checkAndAlertRegression(
   fresh: ScanReport,
   opts: { orgId?: string; orgSlug?: string; signal?: AbortSignal } = {},
 ): Promise<RegressionOutcome> {
+  // MOONSHOT #1 — the CONTROL push runs first and INDEPENDENTLY of everything below it.
+  //
+  // It is deliberately not folded into the regression branch: a control flip is not a score movement,
+  // it needs no `prev` report to be meaningful, and gating it on "did the score regress" would have
+  // silenced the branch-protection alert on every repo whose score happened to hold. Its own
+  // never-throwing wrapper, so a ledger read can never fail a scan or suppress the regression path.
+  await alertControlTransitions(prev, fresh, opts).catch(() => {});
+
   if (!prev) return { regressed: false, verdict: null, dispatched: false };
   try {
     const diff = diffReports(prev, fresh);
@@ -282,4 +299,107 @@ export async function maybeAlertLowCredits(
     console.error("[scan-alerts] low-credits alert failed", err instanceof Error ? err.message : err);
     return false;
   }
+}
+
+/**
+ * MOONSHOT #1 — dispatch the control transitions the ledger recorded for this repo since the last
+ * scan, as their own alert kind.
+ *
+ * Source of truth is the LEDGER, not a report diff. `ScanDiff` gains no governance field in this
+ * lane on purpose: a control can flip between two scans (a webhook-triggered probe re-read it
+ * minutes after the change) and a diff of two scan reports would miss it entirely, then report it
+ * hours later against the wrong actor and the wrong time.
+ *
+ * Three rules the loop enforces, each of which exists because breaking it makes the alert worse than
+ * no alert at all:
+ *
+ *   1. `control-unmeasurable` is RECORDED but NEVER dispatched to a sink. A token that lost a scope
+ *      turns thirteen controls unreadable at once; paging on that would train a team to mute the
+ *      channel the week before a control actually comes off.
+ *   2. The cooldown key is per (repo, control) — `controlCooldownKey` — so a branch-protection flip
+ *      is never starved by a score push that already consumed the repo's generic slot, and two
+ *      different controls failing on one repo both get through.
+ *   3. An `AlertEvent` row is written whether or not a sink existed, per the alert-history contract:
+ *      the decision to raise is the fact worth keeping, and a missing sink is a `suppressedReason`,
+ *      not a reason to forget.
+ *
+ * Returns whether anything reached a sink. Never throws.
+ */
+export async function alertControlTransitions(
+  prev: ScanReport | null,
+  fresh: ScanReport,
+  opts: { orgId?: string; orgSlug?: string; signal?: AbortSignal } = {},
+): Promise<boolean> {
+  const orgSlug = opts.orgSlug;
+  if (!orgSlug) return false;
+  const fullName = `${fresh.repo.owner}/${fresh.repo.name}`;
+  // Everything the ledger learned since the PREVIOUS scan — the window this scan is responsible for.
+  // Without a previous scan the window is this scan's own instant, which yields only rows written by
+  // this persist; baselines carry `transition: false` and are filtered out by the ledger itself, so a
+  // first scan cannot fire thirteen "changes" the moment a repo is first observed.
+  const since = prev?.scannedAt ?? fresh.scannedAt;
+  const rows = (await listObservationsSince(orgSlug, since, { transitionsOnly: true }).catch(() => [])).filter(
+    (r) => r.repoFullName === fullName,
+  );
+  const transitions = transitionsFromRows(rows);
+  if (transitions.length === 0) return false;
+
+  const items: ControlAlertItem[] = transitions.map((t) => ({
+    repo: t.repoFullName,
+    controlId: t.controlId,
+    label: controlLabel(t.controlId),
+    code: t.code,
+    from: t.from,
+    to: t.to,
+    fromValue: t.fromValue,
+    toValue: t.toValue,
+    source: (rows.find((r) => r.controlId === t.controlId)?.source ?? "scan") as ControlAlertItem["source"],
+    actorLogin: t.actorLogin,
+  }));
+
+  // Rule 1: only the loud codes are eligible for a sink. The quiet ones still get their history row
+  // below, from the FULL item list.
+  const dispatchable = items.filter((i) => isDispatchable(i.code));
+  const webhookUrl = await orgWebhook(orgSlug);
+  const resolved = resolveAlertWebhook(webhookUrl);
+  // Rule 2: one claim per control, so a batch is throttled per-control rather than all-or-nothing.
+  const claimed = resolved !== null ? dispatchable.filter((i) => claimRegressionAlert(controlCooldownKey(i.repo, i.controlId))) : [];
+
+  let dispatched = false;
+  let message: AlertMessage | null = null;
+  if (claimed.length > 0) {
+    message = buildControlAlertMessage({
+      org: orgSlug,
+      url: reportUrl(fullName, fresh.repo.headSha),
+      items: claimed,
+    });
+    dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+  }
+
+  // Rule 3. Severity is computed over EVERY item, not just the dispatched ones — the history has to
+  // say a control failed even in the week the push was throttled.
+  const severity = controlAlertSeverity(items);
+  const head = items[0]!;
+  await recordScanAlertEvent(opts, {
+    kind: "control",
+    severity,
+    repoFullName: fullName,
+    title: `${controlLabel(head.controlId)} ${head.code === "control-failed" ? "failed" : head.code === "control-restored" ? "was restored" : "became unreadable"} on ${fullName}${items.length > 1 ? ` (+${items.length - 1} more)` : ""}`,
+    body: message?.text,
+    delivered: dispatched,
+    sinkKind: sinkKindOf(resolved),
+    // An `unmeasurable`-only batch is not "suppressed" by a missing sink or a cooldown — it was never
+    // eligible. Saying `no-sink` there would blame the operator's configuration for a decision the
+    // product made deliberately, so it records a plain undelivered row with no reason attached.
+    suppressedReason: dispatched
+      ? null
+      : dispatchable.length === 0
+        ? null
+        : !resolved
+          ? "no-sink"
+          : claimed.length === 0
+            ? "cooldown"
+            : "dispatch-failed",
+  });
+  return dispatched;
 }
