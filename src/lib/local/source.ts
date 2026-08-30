@@ -61,6 +61,50 @@ export function parseGitLog(raw: string): CommitInfo[] {
     });
 }
 
+/**
+ * The picks the byte budget must NOT be allowed to starve. `pickFilesToFetch` reserves workflows and
+ * `.ai/memory` entries a FILE-COUNT quota by appending them after the 50-slot list (github/source.ts
+ * step 7/8) — which is exactly the wrong end of a sequential read that stops at MAX_TOTAL_BYTES. On a
+ * worktree with a few dozen large source/test samples the budget was gone before the loop reached
+ * `.github/workflows/*`, and the loop's rescan then scored "0/1 workflows" against a GitHub before-scan
+ * that had read "3/3": D9 collapsed by forty points with no change to the repository (wave-2 sample).
+ * The security battery, the dependency-update check, the policy check and the D1/D8 guidance
+ * detectors all read these files whole, so their presence decides comparability between the two ends.
+ */
+export const RESERVED_PICK_RE =
+  /^(\.github\/workflows\/[^/]+\.ya?ml|\.github\/dependabot\.ya?ml|\.?renovaterc(\.json)?|renovate\.json5?|security\.md|\.ai\/.+|claude\.md|agents\.md)$/i;
+
+/**
+ * Read `picks` under the byte budget with the reserved class EXEMPT from it: reserved picks are read
+ * first and always kept (still capped per file), the rest fill the remaining MAX_TOTAL_BYTES in pick
+ * order, and the result is restored to pick order so the prompt window is unchanged for the files
+ * that were going to be read either way. Pure over the injected reader so the starvation case is a
+ * unit test rather than a fixture repository.
+ */
+export async function readPicksWithReserve(
+  picks: readonly string[],
+  read: (path: string) => Promise<string | null>,
+  aborted: () => boolean = () => false,
+): Promise<FetchedFile[]> {
+  const order = new Map(picks.map((p, i) => [p, i]));
+  const reserved = picks.filter((p) => RESERVED_PICK_RE.test(p));
+  const rest = picks.filter((p) => !RESERVED_PICK_RE.test(p));
+  const files: FetchedFile[] = [];
+  let totalBytes = 0;
+  for (const path of [...reserved, ...rest]) {
+    if (aborted()) break;
+    const exempt = RESERVED_PICK_RE.test(path);
+    if (!exempt && totalBytes >= MAX_TOTAL_BYTES) continue;
+    const content = await read(path);
+    if (content == null) continue; // deleted-but-tracked, unreadable, or binary-invalid — degrade coverage
+    const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
+    const truncated = content.slice(0, cap);
+    if (!exempt) totalBytes += truncated.length;
+    files.push({ path, content: truncated, bytes: content.length });
+  }
+  return files.sort((a, b) => (order.get(a.path) ?? 0) - (order.get(b.path) ?? 0));
+}
+
 export class LocalFsSource implements RepoSource {
   constructor(private readonly root: string) {}
 
@@ -108,20 +152,13 @@ export class LocalFsSource implements RepoSource {
 
     const picks = pickFilesToFetch(tree, opts.subPath);
     emit({ stage: "files", message: `Reading ${picks.length} key files…`, pct: 45 });
-    const files: FetchedFile[] = [];
-    let totalBytes = 0;
-    for (const path of picks) {
-      if (opts.signal?.aborted) break;
-      if (totalBytes >= MAX_TOTAL_BYTES) break;
-      const content = await readFile(join(cwd, path), "utf8").catch(() => null);
-      if (content == null) continue; // deleted-but-tracked, unreadable, or binary-invalid — degrade coverage
-      const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-      const truncated = content.slice(0, cap);
-      totalBytes += truncated.length;
-      files.push({ path, content: truncated, bytes: content.length });
-    }
-    // files[] is already in pick order (the sequential loop preserves it) — the property the prompt's
-    // byte window depends on; GitHubPublicSource re-sorts because its pool fills out of order.
+    const files = await readPicksWithReserve(
+      picks,
+      (path) => readFile(join(cwd, path), "utf8").catch(() => null),
+      () => opts.signal?.aborted === true,
+    );
+    // files[] is in pick order (readPicksWithReserve restores it) — the property the prompt's byte
+    // window depends on; GitHubPublicSource re-sorts because its pool fills out of order.
 
     // The `.ai/memory` quarantine (moonshot #14), byte-for-byte the GitHub source's: a local scan of a
     // repo with agent memory must mirror it and must ALSO keep it out of the prompt. Sharing the

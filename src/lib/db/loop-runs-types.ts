@@ -7,6 +7,58 @@
 
 import type { ScanDiff } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
+import type { DimensionId } from "@/lib/types";
+
+/**
+ * What a lane DID, as one headline per deliverable — the outcome cell's unit of display.
+ *
+ *   • `closed`    — a follow-up the agent claimed RESOLVED (`covers` = its id).
+ *   • `installed` — a foundation/practice lane's deterministic install.
+ *   • `hardened`  — an attributable upward dimension movement not already covered by a close.
+ *   • `regressed` — the same, downward. Reported: a regression the loop caused is a deliverable too.
+ *   • `noted`     — something worth a line that is none of the above (reserved; the deriver does
+ *                   not emit it today).
+ */
+export type LaneDeliverableKind = "closed" | "installed" | "hardened" | "regressed" | "noted";
+
+export interface LaneDeliverable {
+  /** ≤ 8 words, verb-first past tense: "Hardened GitHub CI/CD". */
+  headline: string;
+  dimId: DimensionId | null;
+  kind: LaneDeliverableKind;
+  /** Follow-up ids / signal names this covers. */
+  covers: string[];
+  /** One line of evidence for the expanded view. */
+  evidence: string | null;
+}
+
+const DELIVERABLE_KINDS: readonly LaneDeliverableKind[] = ["closed", "installed", "hardened", "regressed", "noted"];
+
+/** `deliverablesJson` → the list; anything malformed is an empty list, never a crash in a React tree. */
+export function parseDeliverables(raw: string | null | undefined): LaneDeliverable[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.flatMap((d): LaneDeliverable[] => {
+      if (!d || typeof d !== "object") return [];
+      const e = d as Partial<LaneDeliverable>;
+      if (typeof e.headline !== "string" || !e.headline.trim()) return [];
+      const kind = (DELIVERABLE_KINDS as readonly string[]).includes(e.kind as string) ? (e.kind as LaneDeliverableKind) : "noted";
+      return [
+        {
+          headline: e.headline,
+          dimId: typeof e.dimId === "string" ? (e.dimId as DimensionId) : null,
+          kind,
+          covers: Array.isArray(e.covers) ? e.covers.filter((x): x is string => typeof x === "string") : [],
+          evidence: typeof e.evidence === "string" ? e.evidence : null,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
 export const LOOP_CONCURRENCY_CAP = 4;
@@ -89,6 +141,9 @@ export interface LoopLaneRecord {
   error: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  /** What the lane delivered, as headlines — written at lane end (src/lib/local/lane-deliverables.ts).
+   *  Empty on a row written before the column; the read side then derives them from the diff. */
+  deliverables: LaneDeliverable[];
 }
 
 export interface LoopRunSummary {
@@ -118,6 +173,9 @@ export interface LoopLaneOutcome {
   diff: ScanDiff | null;
   closedFollowUpIds: string[];
   commits: number;
+  /** The lane's headlines: the persisted list, or — for a row without one — the deterministic
+   *  derivation from the persisted claims and diff, so old rows render headlines too. */
+  deliverables: LaneDeliverable[];
 }
 
 export interface LoopRunDetail {
@@ -228,6 +286,7 @@ type LaneRow = {
   error: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
+  deliverablesJson?: string | null;
 };
 
 export function toRunRecord(row: RunRow): LoopRunRecord {
@@ -270,6 +329,7 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     error: row.error,
     startedAt: row.startedAt ? row.startedAt.toISOString() : null,
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
+    deliverables: parseDeliverables(row.deliverablesJson),
   };
 }
 

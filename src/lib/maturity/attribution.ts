@@ -24,7 +24,7 @@
 
 import type { PlatformSignalRecord, ScoreIntegrity } from "@/lib/types";
 import { SCORE_BLEND } from "@/lib/maturity/model";
-import { PLATFORM_FOLD_DIMS } from "@/lib/analyze/platform-carry";
+import { PLATFORM_FOLD_DIMS, securityObservability } from "@/lib/analyze/platform-carry";
 
 /** The engine name a degraded or keyless scan carries. Mirrors MockProvider.name. */
 export const MOCK_ENGINE = "mock";
@@ -181,6 +181,7 @@ export function foldPointsFor(end: FoldEnd | null | undefined, dimId: string): n
  * difference, or an unknown facing a real fold, refuses.
  */
 export function foldIsComparable(before: FoldEnd | null | undefined, after: FoldEnd | null | undefined, dimId: string): boolean {
+  if (dimId === "D9") return securityFoldIsComparable(before, after);
   if (!(PLATFORM_FOLD_DIMS as readonly string[]).includes(dimId)) return true;
   const b = foldPointsFor(before, dimId);
   const a = foldPointsFor(after, dimId);
@@ -188,6 +189,21 @@ export function foldIsComparable(before: FoldEnd | null | undefined, after: Fold
   if (b == null) return a === 0;
   if (a == null) return b === 0;
   return a === b;
+}
+
+/**
+ * D9's own comparability. The security battery is not folded as points but re-run over GitHub-side
+ * INPUTS (branch protection, installed Apps, org policy — `CarriedSecurityInputs`), so the question
+ * for D9 is whether both ends ran the battery with a GitHub reading in hand. A legacy end (no record)
+ * is taken to be a GitHub scan — every scan that predates the record was one — so it is comparable
+ * with a `github` end and NOT with a blind worktree end: that pairing is exactly the collapse where
+ * "3/3 workflows scoped" became "0/1" with no repository change behind it.
+ */
+export function securityFoldIsComparable(before: FoldEnd | null | undefined, after: FoldEnd | null | undefined): boolean {
+  const b = securityObservability(before?.platformSignals);
+  const a = securityObservability(after?.platformSignals);
+  if (b == null && a == null) return true;
+  return (b ?? "github") === (a ?? "github");
 }
 
 /**

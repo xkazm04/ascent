@@ -10,7 +10,7 @@
 import { analyzeSignals, classifyArchetype, offPlatformReview } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
 import { applyPlatformSignals } from "@/lib/analyze/platform-signals";
-import { carryPlatformFold, platformSignalsUnavailable } from "@/lib/analyze/platform-carry";
+import { carriedSecurityInputs, carryPlatformFold, platformSignalsUnavailable } from "@/lib/analyze/platform-carry";
 import type { AppInventory } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import { detectStackFit, type StackFit } from "@/lib/analyze/stack-fit";
@@ -95,7 +95,12 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   );
   // Three readings of the same question — "what can this scan see of GitHub?" — and they are kept
   // apart because they are three different claims about the score that comes out.
-  const observed = applyPlatformSignals(preFold, appInventory, ciHealth, { observedAt: now });
+  const observedFold = applyPlatformSignals(preFold, appInventory, ciHealth, { observedAt: now });
+  // An observed record also carries the D9 battery's GitHub-side INPUTS, so a later worktree rescan
+  // can re-run the battery over its own files with this reading (CarriedSecurityInputs).
+  const observed = observedFold.record
+    ? { ...observedFold, record: { ...observedFold.record, securityInputs: { governance, posture: securityPosture, apps: appInventory } } }
+    : observedFold;
   const carry = input.carriedPlatformSignals;
   const carried = observed.record == null && carry ? carryPlatformFold(preFold, carry, new Date(now)) : null;
   const baseSignals = carried?.signals ?? observed.signals;
@@ -109,7 +114,24 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   // risk-weighted, auditable) rather than the file-grep detector + LLM blend. It reads the full
   // workflow set + governance + posture + exposure, and its result REPLACES the D9 signal, flagged
   // `deterministic` so the engine takes the number as-is (the LLM only narrates D9, per the framework).
-  const securityAssessment = computeSecurityChecks(snapshot, governance, securityPosture, securityExposure, appInventory);
+  //
+  // THE D9 CARRY. A worktree rescan cannot read branch protection, the installed-App inventory or the
+  // org policy; with a carried record it hands the battery the LAST OBSERVED reading of them (and
+  // says so on every check that used one), so the after-scan's D9 is on the same ruler as the
+  // before-scan's. With nothing to carry the battery runs blind and EXCLUDES the checks whose 0 only
+  // GitHub could refute — and attribution.ts reads the record to refuse the D9 pair as unmeasured.
+  const carriedSecurity = carried ? carriedSecurityInputs(carried.record) : null;
+  const securityAssessment = computeSecurityChecks(
+    snapshot,
+    governance ?? carriedSecurity?.governance ?? null,
+    securityPosture ?? carriedSecurity?.posture ?? null,
+    securityExposure,
+    appInventory ?? carriedSecurity?.apps ?? null,
+    {
+      platformUnobservable: input.platformSignalsUnobservable === true && observed.record == null,
+      provenance: carriedSecurity && carry ? `GitHub-side reading carried from scan ${carry.scanId}` : null,
+    },
+  );
   const signals = baseSignals.map((s) =>
     s.id === "D9"
       ? { ...s, signalScore: securityAssessment.d9, deterministic: true, gaps: securityAssessment.gaps, signals: securityAssessment.evidence.map((label) => ({ label })) }

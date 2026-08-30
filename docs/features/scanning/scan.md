@@ -113,6 +113,28 @@ Ingest accepts an optional `ref` (branch/tag/SHA) so the pipeline can score a **
 instead of the default branch; this is what the [gate](./gate.md) and the App webhook use,
 and what the public scan form's branch selector drives (below).
 
+#### Ingest from a worktree (`src/lib/local/source.ts`)
+
+`LocalFsSource` is the self-hosted twin: same `pickFilesToFetch`, same caps, reading a paired
+working copy (or a loop worktree) from disk. One difference is deliberate and load-bearing. The
+GitHub source reserves workflows a *file-count* quota by appending them after the 50-slot list; a
+sequential disk read that stops at the 280 KB budget never reached them on a worktree with enough
+large samples, so the loop's rescan scored "0/1 workflows" against a before-scan that had read all
+of them and D9 fell forty points with no repository change. `readPicksWithReserve` now reads the
+**reserved class** first and exempts it from the byte budget (still capped per file):
+`.github/workflows/*`, `.github/dependabot.yml` / `renovate*`, `SECURITY.md`, everything under
+`.ai/`, `CLAUDE.md`, `AGENTS.md`. The rest fill the remaining budget in pick order and the result is
+restored to pick order, so the prompt window is unchanged for the files it was going to read anyway.
+Test: `source.reserve.test.ts`.
+
+The other half of worktree comparability is D9's GitHub-only inputs (branch protection, installed
+Apps, org policy): an observed scan records them on `platformSignals.securityInputs`, a worktree
+rescan re-runs the battery with them and discloses the carry on each check, and with nothing to
+carry `computeSecurityChecks` **excludes** a check whose 0 only GitHub could refute instead of
+scoring it (`platformUnobservable`). `attributeDimension("D9", …)` refuses a GitHub end against a
+blind worktree end as `unmeasured`. Details in
+[the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
+
 ## Scan scope (branch &amp; sub-path)
 
 An interactive scan can target something other than "the whole repo at its default-branch head":
@@ -376,7 +398,9 @@ observe any of it. `applyPlatformSignals` therefore records what the fold was wo
 evidence, per dimension); a later local scan **replays** that record with its provenance and age on
 every line (`src/lib/analyze/platform-carry.ts`, stale past `PLATFORM_FOLD_STALE_DAYS` = 14), and when
 there is nothing to replay the record says `unavailable` — which excludes those three dimensions from
-the green verdict instead of scoring them at a floor the repository cannot raise. See
+the green verdict instead of scoring them at a floor the repository cannot raise. The same record
+carries D9's GitHub-side battery inputs (`securityInputs`) so the security score is on one ruler on
+both ends of a loop pair. See
 [the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
 
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an

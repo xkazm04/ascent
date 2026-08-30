@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { diffScans, diffStringSets, findOrphanedTracked, isTrackedRec, matchRecommendations, reconcileDoneRec } from "./compare";
+import { signalName, diffScans, diffStringSets, findOrphanedTracked, isTrackedRec, matchRecommendations, reconcileDoneRec } from "./compare";
 import type { TrackedRecIdentity } from "./compare";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import { DIMENSIONS } from "@/lib/maturity/model";
@@ -109,7 +109,7 @@ describe("diffScans", () => {
     expect(d2.appearedSignals).toEqual(["Found 18 test files", "Coverage tracking configured"]);
     expect(d2.disappearedSignals).toEqual(["Found 6 test files"]); // "Test framework configured" persists
     expect(d2.attribution).toBe(
-      "D2 +12: Found 18 test files; Coverage tracking configured; removed Found 6 test files",
+      "D2 +12 · changed found 18 test files; gained coverage tracking configured",
     );
     expect(diff.appearedSignalCount).toBe(2);
     expect(diff.disappearedSignalCount).toBe(1);
@@ -237,11 +237,11 @@ describe("diffScans", () => {
     expect(d2.disappearedSignals).toEqual(["Coverage tracking configured"]); // signal lost
     expect(d2.appearedSignals).toEqual([]);
     // The attribution line shows the negative delta and the removed evidence, not a fake gain.
-    expect(d2.attribution).toBe("D2 -22: removed Coverage tracking configured");
+    expect(d2.attribution).toBe("D2 −22 · lost coverage tracking configured");
 
     // Movement headline is ordered by magnitude (|−25| > |−22|) and keeps the negative signs.
-    expect(diff.movements[0].startsWith("D1 -25")).toBe(true);
-    expect(diff.movements.some((m) => m.startsWith("D2 -22"))).toBe(true);
+    expect(diff.movements[0].startsWith("D1 −25")).toBe(true);
+    expect(diff.movements.some((m) => m.startsWith("D2 −22"))).toBe(true);
   });
 
   it("attributes a blended-score move with no evidence change to the LLM judgment, not invented signals", () => {
@@ -271,10 +271,10 @@ describe("diffScans", () => {
     expect(d3.appearedSignals).toEqual([]); // no invented signals
     expect(d3.disappearedSignals).toEqual([]);
     // signalDelta === 0 → the "assessment shifted" wording, not the signal-score branch.
-    expect(d3.attribution).toBe("D3 +8: assessment shifted (no change in detected signals)");
+    expect(d3.attribution).toBe("D3 +8 · assessment shifted (no change in detected signals)");
 
     // It still surfaces in the movement headline — an LLM-driven shift is real movement.
-    expect(diff.movements.some((m) => m === "D3 +8: assessment shifted (no change in detected signals)")).toBe(
+    expect(diff.movements.some((m) => m === "D3 +8 · assessment shifted (no change in detected signals)")).toBe(
       true,
     );
   });
@@ -300,7 +300,7 @@ describe("diffScans", () => {
     expect(d6.signalDelta).toBe(7);
     expect(d6.appearedSignals).toEqual([]);
     expect(d6.disappearedSignals).toEqual([]);
-    expect(d6.attribution).toBe("D6 +6: signal score +7 with no change in named evidence");
+    expect(d6.attribution).toBe("D6 +6 · signal score +7 with no change in named evidence");
   });
 });
 
@@ -530,5 +530,68 @@ describe("diffStringSets", () => {
 
   it("is empty-safe on both sides", () => {
     expect(diffStringSets([], [])).toEqual({ onlyInA: [], onlyInB: [], shared: [] });
+  });
+});
+
+describe("movement lines are headlines — names, verbs, a cap — and the raw lines sit beside them", () => {
+  const battery = (name: string, risk: string, score: string, detail: string) => `${name} [posture/${risk}]: ${score}/10 — ${detail}`;
+
+  it("names the D9 battery checks, leads a regression with what was lost, folds the overflow, and keeps detail", () => {
+    const before = mkScan({
+      id: "a",
+      dimensions: dims({
+        D9: {
+          score: 60,
+          signalScore: 60,
+          evidence: [
+            battery("Token permissions", "high", "10", "3/3 workflows set an explicit `permissions:` scope."),
+            battery("SAST", "medium", "10", "SAST runs on PR/push."),
+            battery("Dependency updates", "high", "10", "Automated dependency updates configured (Dependabot/Renovate)."),
+            battery("Pinned dependencies", "medium", "8", "18/22 Actions/images pinned by SHA/digest (22 action refs)."),
+            battery("Security policy", "medium", "10", "SECURITY.md documents a vulnerability-reporting path."),
+          ],
+        },
+      }),
+    });
+    const after = mkScan({
+      id: "b",
+      dimensions: dims({
+        D9: {
+          score: 18,
+          signalScore: 18,
+          evidence: [
+            battery("Token permissions", "high", "0", "0/1 workflows set an explicit `permissions:` scope."),
+            battery("Security policy", "medium", "10", "SECURITY.md documents a vulnerability-reporting path."),
+          ],
+        },
+      }),
+    });
+    const diff = diffScans(before, after);
+    const d9 = diff.dimensions.find((d) => d.id === "D9")!;
+    // Token permissions moved on both sides under one name → "changed"; three checks vanished → "lost".
+    expect(d9.attribution).toBe("D9 −42 · changed token permissions; lost SAST, dependency updates (+1)");
+    expect(diff.movements[0]).toBe(d9.attribution);
+    // The expanded view still has every raw line.
+    expect(diff.movementDetail?.D9).toHaveLength(5);
+    expect(diff.movementDetail?.D9?.[0]).toContain("0/1 workflows");
+    expect(diff.movementDetail?.D9?.[1]).toMatch(/^removed Token permissions/);
+  });
+
+  it("caps at three names and counts the rest", () => {
+    const before = mkScan({ id: "a", dimensions: dims({ D5: { score: 30, signalScore: 30, evidence: [] } }) });
+    const after = mkScan({
+      id: "b",
+      dimensions: dims({ D5: { score: 55, signalScore: 55, evidence: ["README present", "CONTRIBUTING.md present", "ADRs: 4 decision records", "Docs site configured (mkdocs)", "CHANGELOG maintained"] } }),
+    });
+    const d5 = diffScans(before, after).dimensions.find((d) => d.id === "D5")!;
+    expect(d5.attribution).toBe("D5 +25 · gained README present, CONTRIBUTING.md present, ADRs (+2)");
+  });
+
+  it("signalName: battery name before the bracket, else the clause before a separator, ≤ 40 chars, acronyms kept", () => {
+    expect(signalName("Token permissions [posture/high]: 0/10 — 0/1 workflows…")).toBe("token permissions");
+    expect(signalName("SAST [posture/medium]: 0/10 — none")).toBe("SAST");
+    expect(signalName("Found 18 test files")).toBe("found 18 test files");
+    expect(signalName("Coverage tracking configured (codecov)")).toBe("coverage tracking configured");
+    expect(signalName("A very long evidence sentence that keeps going well past the cap: detail").length).toBeLessThanOrEqual(40);
   });
 });

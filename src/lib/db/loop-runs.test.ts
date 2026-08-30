@@ -5,7 +5,7 @@
 // so each one is pinned against the shapes a hand-edited or half-migrated row can actually hold.
 
 import { describe, expect, it } from "vitest";
-import { LANE_LOG_LINES, boundLog, laneKindOf, parseTargets, toLaneRecord, toRunRecord } from "@/lib/db/loop-runs";
+import { LANE_LOG_LINES, boundLog, laneKindOf, parseDeliverables, parseTargets, toLaneRecord, toRunRecord } from "@/lib/db/loop-runs";
 
 const runRow = (over: Partial<Parameters<typeof toRunRecord>[0]> = {}) => ({
   id: "r1",
@@ -150,5 +150,18 @@ describe("laneKindOf", () => {
 
   it("defaults a repo the run does not name", () => {
     expect(laneKindOf(targets, { repoFullName: "acme/ghost", cycle: 1 })).toBe("backlog");
+  });
+});
+
+describe("parseDeliverables", () => {
+  it("round-trips a list and drops what is not a deliverable", () => {
+    const ok = [{ headline: "Hardened CI/CD security", dimId: "D9", kind: "hardened", covers: ["SAST"], evidence: null }];
+    expect(parseDeliverables(JSON.stringify(ok))).toEqual(ok);
+    expect(parseDeliverables(JSON.stringify([{ headline: "" }, { nope: 1 }, { headline: "Kept", kind: "bogus" }]))).toEqual([
+      { headline: "Kept", dimId: null, kind: "noted", covers: [], evidence: null },
+    ]);
+    expect(parseDeliverables(null)).toEqual([]);
+    expect(parseDeliverables("{not json")).toEqual([]);
+    expect(toLaneRecord(laneRow()).deliverables).toEqual([]);
   });
 });

@@ -153,6 +153,12 @@ export interface ScanDiff {
    * ties a score change to the specific evidence that drove it, not just a trend.
    */
   movements: string[];
+  /**
+   * The raw evidence lines behind each `movements` entry, per dimension: every signal that appeared,
+   * then every one that disappeared as `removed <line>`. The expanded/report views print these; the
+   * headline above prints names only.
+   */
+  movementDetail?: Partial<Record<DimensionId, string[]>>;
   /** True when nothing measurable moved — lets the UI say so plainly instead of an empty panel. */
   unchanged: boolean;
 }
@@ -336,11 +342,43 @@ export function findOrphanedTracked(
   });
 }
 
-/** Signed integer for an attribution line ("+12" / "-7"). */
-const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+/** Signed integer for an attribution line ("+12" / "−7" — a real minus sign, as the deltas render). */
+const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
+
+/** How many signal names a movement line carries before it folds the rest into `(+n)`. */
+export const MOVEMENT_NAME_CAP = 3;
+const MOVEMENT_NAME_CHARS = 40;
 
 /**
- * Build the one-line movement attribution for a dimension, citing concrete evidence.
+ * The NAME of a detector signal, from its evidence string. The D9 battery writes
+ * `Name [group/risk]: score/10 — detail` (security/checks.ts) and the name is the part before the
+ * bracket; every other detector writes a free clause, and the clause before the first `:`, ` — ` or
+ * `(` is the name-shaped part of it. Bounded, because a movement line is a headline, not the evidence.
+ */
+export function signalName(evidence: string): string {
+  const battery = /^(.+?)\s*\[[^\]]+\]\s*:/.exec(evidence);
+  let name = (battery ? battery[1]! : evidence.split(/\s—\s|:\s|\s\(|\(/)[0] ?? evidence).trim().replace(/[.;,]+$/, "");
+  if (name.length > MOVEMENT_NAME_CHARS) {
+    const cut = name.slice(0, MOVEMENT_NAME_CHARS - 1);
+    const sp = cut.lastIndexOf(" ");
+    name = `${(sp > 12 ? cut.slice(0, sp) : cut).trimEnd()}…`;
+  }
+  // "token permissions", but "SAST" and "CI" stay: an acronym is not a sentence start.
+  const first = name.split(" ")[0] ?? "";
+  return /^[A-Z][a-z]/.test(first) ? name[0]!.toLowerCase() + name.slice(1) : name;
+}
+
+/** Identity for the changed/gained/lost split: the name with its embedded counts blanked, so
+ *  "found 18 test files" and "found 6 test files" are one signal whose number moved. */
+const nameKey = (s: string) => signalName(s).toLowerCase().replace(/\d+([./]\d+)?/g, "#");
+
+/**
+ * Build the one-line movement attribution for a dimension, citing the NAMES of the signals behind it:
+ * `D9 −42 · lost token permissions, SAST, dependency updates (+1)`. A signal that appears on one side
+ * and disappears on the other under the same name (the count inside it moved: "3/3 workflows" →
+ * "0/1 workflows") is one `changed` signal, not a gain and a loss. Verbs are ordered by the sign of
+ * the movement — a `changed` signal (its count moved) leads, then a regression leads with what was lost. The raw evidence lines this summarises are
+ * kept beside it on `ScanDiff.movementDetail` for the expanded views.
  * Returns null when nothing measurable moved (no score change and no signal change).
  */
 function buildAttribution(
@@ -353,21 +391,39 @@ function buildAttribution(
   const moved = delta !== null && delta !== 0;
   const signalsChanged = appeared.length > 0 || disappeared.length > 0;
   if (!moved && !signalsChanged) return null;
-
-  const parts: string[] = [...appeared, ...disappeared.map((s) => `removed ${s}`)];
+  const head = delta !== null ? `${id} ${signed(delta)}` : id;
 
   // Score moved but the deterministic evidence didn't: attribute it to the LLM judgment
   // rather than implying new signals appeared.
-  if (parts.length === 0 && moved) {
-    parts.push(
+  if (!signalsChanged) {
+    return `${head} · ${
       signalDelta && signalDelta !== 0
         ? `signal score ${signed(signalDelta)} with no change in named evidence`
-        : "assessment shifted (no change in detected signals)",
-    );
+        : "assessment shifted (no change in detected signals)"
+    }`;
   }
 
-  const head = delta !== null ? `${id} ${signed(delta)}` : id;
-  return `${head}: ${parts.join("; ")}`;
+  const lostKeys = new Set(disappeared.map(nameKey));
+  const uniq = (list: string[]) => [...new Map(list.map((s) => [nameKey(s), signalName(s)])).values()];
+  const changed = uniq(appeared.filter((s) => lostKeys.has(nameKey(s))));
+  const changedKeys = new Set(appeared.filter((s) => lostKeys.has(nameKey(s))).map(nameKey));
+  const gained = uniq(appeared.filter((s) => !changedKeys.has(nameKey(s))));
+  const lost = uniq(disappeared.filter((s) => !changedKeys.has(nameKey(s))));
+
+  const groups: [string, string[]][] = (delta ?? 0) < 0
+    ? [["changed", changed], ["lost", lost], ["gained", gained]]
+    : [["changed", changed], ["gained", gained], ["lost", lost]];
+  let budget = MOVEMENT_NAME_CAP;
+  let overflow = 0;
+  const parts: string[] = [];
+  for (const [verb, names] of groups) {
+    if (names.length === 0) continue;
+    const take = names.slice(0, budget);
+    overflow += names.length - take.length;
+    budget -= take.length;
+    if (take.length > 0) parts.push(`${verb} ${take.join(", ")}`);
+  }
+  return `${head} · ${parts.join("; ")}${overflow > 0 ? ` (+${overflow})` : ""}`;
 }
 
 /**
@@ -447,10 +503,15 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
 
   // The "explained movement" headline: every dimension that moved, biggest swing first,
   // each tied to the concrete evidence behind it.
-  const movements = dimensions
+  const movedDims = dimensions
     .filter((d) => d.attribution !== null)
-    .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0))
-    .map((d) => d.attribution as string);
+    .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0));
+  const movements = movedDims.map((d) => d.attribution as string);
+  const movementDetail: Partial<Record<DimensionId, string[]>> = {};
+  for (const d of movedDims) {
+    const lines = [...d.appearedSignals, ...d.disappearedSignals.map((s) => `removed ${s}`)];
+    if (lines.length > 0) movementDetail[d.id] = lines;
+  }
 
   // Recommendations that moved to done: done in `after`, and NOT already done in `before` —
   // matched by the same tiered identity carry-forward uses, so a rephrased title still pairs
@@ -528,6 +589,7 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     appearedSignalCount,
     disappearedSignalCount,
     movements,
+    movementDetail,
     unchanged,
   };
 }

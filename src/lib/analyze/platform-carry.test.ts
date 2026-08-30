@@ -16,6 +16,8 @@ import {
   platformFoldNote,
   platformSignalsUnavailable,
   unmeasurablePlatformDims,
+  carriedSecurityInputs,
+  securityObservability,
 } from "@/lib/analyze/platform-carry";
 import { applyPlatformSignals } from "@/lib/analyze/platform-signals";
 import type { AppInventory } from "@/lib/github/check-suites";
@@ -198,5 +200,25 @@ describe("parsePlatformSignals", () => {
     expect(record.dims).toEqual([{ dimId: "D3", points: 8, signals: [] }]);
     const carried = carryPlatformFold(baseSignals(), { record, scanId: "s" }, NOW);
     expect(carried.signals.find((s) => s.id === "D3")!.signalScore).toBe(38);
+  });
+});
+
+describe("the D9 security inputs ride the carry", () => {
+  const inputs = { governance: null, posture: { advisoryCount: 1, advisoryCapped: false, orgSecurityPolicy: true }, apps: { sha: "abc", apps: [{ slug: "github-code-scanning", name: "CodeQL", conclusion: "success" }], total: 1, truncated: false } };
+  const withInputs: PlatformSignalRecord = { source: "observed", observedAt: daysAgo(1), dims: [], securityInputs: inputs };
+
+  it("carryPlatformFold keeps them verbatim, and parsePlatformSignals round-trips them", () => {
+    const { record } = carryPlatformFold(baseSignals(), { record: withInputs, scanId: "scan_9" }, NOW);
+    expect(record.securityInputs).toEqual(inputs);
+    expect(parsePlatformSignals(JSON.stringify(record))?.securityInputs).toEqual(inputs);
+    expect(carriedSecurityInputs(record)).toEqual(inputs);
+  });
+
+  it("securityObservability: observed/carried-with = github, blind/carried-without = none, legacy = unknown", () => {
+    expect(securityObservability(withInputs)).toBe("github");
+    expect(securityObservability(carryPlatformFold(baseSignals(), { record: withInputs, scanId: "s" }, NOW).record)).toBe("github");
+    expect(securityObservability({ source: "carried", observedAt: null, dims: [] })).toBe("none");
+    expect(securityObservability(platformSignalsUnavailable())).toBe("none");
+    expect(securityObservability(undefined)).toBeNull();
   });
 });

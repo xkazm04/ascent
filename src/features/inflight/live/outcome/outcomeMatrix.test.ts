@@ -8,6 +8,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { LoopLaneOutcome, LoopLaneRecord, LoopRunDetail } from "../cockpit/loopTypes";
 import { buildOutcomeMatrix, mergeRunDetails } from "./outcomeMatrix";
+import { groupDeliverables } from "./outcomeDeliverables";
 import { shortTitle, takeaway, verdictWord } from "./outcomeText";
 
 const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
@@ -31,7 +32,7 @@ const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
 
 const lane = (o: Partial<LoopLaneRecord>): LoopLaneRecord => ({
   id: "l", runId: "r", repoFullName: "acme/one", cycle: 1, phase: "done", branch: null, batchIds: [], closedIds: [],
-  commits: 2, beforeScanId: "b", afterScanId: "a", stage: null, log: [], error: null, startedAt: null, endedAt: null, ...o,
+  commits: 2, beforeScanId: "b", afterScanId: "a", stage: null, log: [], error: null, startedAt: null, endedAt: null, deliverables: [], ...o,
 });
 
 const rec = (id: string, title: string, status = "open") => ({ id, title, dimId: "D2", status });
@@ -39,7 +40,8 @@ const before = scan({ id: "b", overallScore: 40, recommendations: [rec("rec-1", 
 const after = scan({ id: "a", overallScore: 52, recommendations: [rec("rec-1", "Add a coverage gate to CI", "done"), rec("rec-2", "Write CONTRIBUTING.md")] });
 
 const outcome = (o: Partial<LoopLaneOutcome> & { lane: LoopLaneRecord }): LoopLaneOutcome => ({
-  kind: "backlog", before, after, diff: diffScans(before, after), closedFollowUpIds: ["rec-1", "rec-2"], commits: 2, ...o,
+  kind: "backlog", before, after, diff: diffScans(before, after), closedFollowUpIds: ["rec-1", "rec-2"], commits: 2,
+  deliverables: [{ headline: "Added a coverage gate to CI", dimId: "D2", kind: "closed", covers: ["rec-1"], evidence: "Add a coverage gate to CI" }], ...o,
 });
 
 const detail = (id: string, startedAt: string, outcomes: LoopLaneOutcome[], phase: LoopRunDetail["run"]["phase"] = "done"): LoopRunDetail => ({
@@ -120,5 +122,62 @@ describe("outcomeText", () => {
   it("clips a title at ~24 characters with an ellipsis", () => {
     expect(shortTitle("Add a coverage gate to CI")).toBe("Add a coverage gate to…");
     expect(shortTitle("Short")).toBe("Short");
+  });
+});
+
+describe("deliverables - the cell rows", () => {
+  const m = buildOutcomeMatrix([run2, run1]);
+
+  it("lists each lane's headlines and keeps the follow-up titles only as evidence", () => {
+    const cell = m.groups.find((g) => g.repo === "acme/one")!.cells["run-2"]!;
+    expect(cell.deliverables.map((d) => d.headline)).toEqual(["Added a coverage gate to CI"]);
+    expect(cell.deliverables[0]!.covers).toEqual(["rec-1"]);
+    expect(cell.titles).toEqual(["Add a coverage gate to CI", "Write CONTRIBUTING.md"]);
+  });
+
+  it("orders by kind (closed, installed, hardened, regressed) then dimension, merging duplicates", () => {
+    const a = outcome({
+      lane: lane({ id: "x1" }),
+      deliverables: [
+        { headline: "Hardened CI/CD security", dimId: "D9", kind: "hardened", covers: ["SAST"], evidence: null },
+        { headline: "Installed the .ai/ foundation", dimId: null, kind: "installed", covers: [], evidence: null },
+        { headline: "Added agent-readable docs", dimId: "D8", kind: "hardened", covers: [], evidence: null },
+      ],
+    });
+    const b = outcome({
+      lane: lane({ id: "x2", cycle: 2 }),
+      deliverables: [
+        { headline: "Hardened CI/CD security", dimId: "D9", kind: "hardened", covers: ["token permissions"], evidence: "D9 +20 · gained token permissions" },
+        { headline: "Added permissions scope to workflows", dimId: "D9", kind: "closed", covers: ["rec-9"], evidence: null },
+      ],
+    });
+    const rows = groupDeliverables([a, b]);
+    expect(rows.map((d) => `${d.kind}:${d.headline}`)).toEqual([
+      "closed:Added permissions scope to workflows",
+      "installed:Installed the .ai/ foundation",
+      "hardened:Added agent-readable docs",
+      "hardened:Hardened CI/CD security",
+    ]);
+    const d9 = rows.find((d) => d.headline === "Hardened CI/CD security")!;
+    expect(d9.covers).toEqual(["SAST", "token permissions"]);
+    expect(d9.evidence).toBe("D9 +20 · gained token permissions");
+  });
+
+  it("prints NO movement prose under a refused verdict - the words answer to the number's rule", () => {
+    const noise = m.groups.find((g) => g.repo === "acme/noise")!.cells["run-2"]!;
+    expect(noise.verdict.kind).toBe("within-noise");
+    expect(noise.movements).toEqual([]);
+    const lost = buildOutcomeMatrix([detail("r0", "2026-08-25T10:00:00Z", [outcome({ lane: lane({ id: "l0", commits: 0 }), commits: 0 })])]);
+    const cell = lost.groups[0]!.cells["r0"]!;
+    expect(cell.verdict.kind).toBe("undelivered");
+    expect(cell.movements).toEqual([]);
+    // ...while an attributable cell keeps its (humanised) lines.
+    const moved = scan({
+      id: "am",
+      overallScore: 52,
+      dimensions: DIMENSIONS.map((d) => ({ dimId: d.id, name: d.name, score: d.id === "D9" ? 70 : 50, signalScore: d.id === "D9" ? 70 : 50, evidence: d.id === "D9" ? ["SAST [posture/medium]: 10/10 — SAST runs on PR/push."] : [], gaps: [] })),
+    });
+    const okRun = buildOutcomeMatrix([detail("r1", "2026-08-25T10:00:00Z", [outcome({ lane: lane({ id: "l1" }), after: moved, diff: diffScans(before, moved) })])]);
+    expect(okRun.groups[0]!.cells["r1"]!.movements).toEqual(["D9 +20 · gained SAST"]);
   });
 });

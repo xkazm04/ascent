@@ -268,16 +268,20 @@ interface PostureSpec {
   risk: SecurityCheck["risk"];
   weight: number;
   run: (s: RepoSnapshot, g: Governance | null, p: SecurityPosture | null, apps: AppInventory | null) => CheckResult;
+  /** Names the GitHub-only input that can turn this check's file-scan 0 into a credit (an installed
+   *  App, the org's `.github` policy). Set ⇒ in worktree mode a 0 is "not measurable", not a finding.
+   *  Branch protection already goes n/a without governance, so it needs no entry. */
+  githubCanRefuteZero?: string;
 }
 
 const POSTURE_SPEC: PostureSpec[] = [
   { id: "branch-protection", name: "Branch protection", risk: "high", weight: 3, run: (s, g) => branchProtection(g) },
   { id: "dangerous-workflow", name: "Dangerous workflow", risk: "critical", weight: 3, run: (s) => dangerousWorkflow(workflowFiles(s)) },
   { id: "token-permissions", name: "Token permissions", risk: "high", weight: 2, run: (s) => tokenPermissions(workflowFiles(s)) },
-  { id: "sast", name: "SAST", risk: "medium", weight: 2, run: (s, g, p, apps) => sast(workflowFiles(s), s, apps) },
-  { id: "dependency-updates", name: "Dependency updates", risk: "high", weight: 2, run: (s, g, p, apps) => dependencyUpdateTool(s, apps) },
+  { id: "sast", name: "SAST", risk: "medium", weight: 2, run: (s, g, p, apps) => sast(workflowFiles(s), s, apps), githubCanRefuteZero: "App inventory" },
+  { id: "dependency-updates", name: "Dependency updates", risk: "high", weight: 2, run: (s, g, p, apps) => dependencyUpdateTool(s, apps), githubCanRefuteZero: "App inventory" },
   { id: "pinned-dependencies", name: "Pinned dependencies", risk: "medium", weight: 2, run: (s) => pinnedDependencies(workflowFiles(s), s) },
-  { id: "security-policy", name: "Security policy", risk: "medium", weight: 1, run: (s, g, p) => securityPolicy(s, p) },
+  { id: "security-policy", name: "Security policy", risk: "medium", weight: 1, run: (s, g, p) => securityPolicy(s, p), githubCanRefuteZero: "org policy" },
   { id: "signed-releases", name: "Signed releases", risk: "high", weight: 1, run: (s) => signedReleases(workflowFiles(s)) },
   { id: "sbom", name: "SBOM", risk: "low", weight: 1, run: (s) => sbom(workflowFiles(s)) },
 ];
@@ -297,9 +301,26 @@ export function computeSecurityChecks(
    *  which is why it is only ever additive: SAST fills in / rises, dependency-updates gains partial
    *  credit, and nothing else moves. Passing null reproduces the pre-inventory scores exactly. */
   apps: AppInventory | null = null,
+  /**
+   * WORKTREE MODE (the loop's rescans, src/lib/local/loop-lane.ts). `platformUnobservable` says the
+   * GitHub-side inputs above are null because this scan structurally COULD NOT read them — not because
+   * the read failed or the repo has nothing. A check whose 0 could only be refuted by that read is then
+   * EXCLUDED from the denominator (score null) rather than scored 0: a worktree rescan compared against
+   * a GitHub scan would otherwise collapse D9 for every repo whose SAST/policy/updates live in Settings.
+   * When the inputs were CARRIED from an earlier observed scan (`provenance` names it), the checks run
+   * normally and every check that consumed a carried input says so in its evidence.
+   */
+  opts: { platformUnobservable?: boolean; provenance?: string | null } = {},
 ): SecurityAssessment {
+  const blind = opts.platformUnobservable === true && gov == null && apps == null && posture == null;
+  const provenance = opts.provenance ?? null;
   const checks: SecurityCheck[] = POSTURE_SPEC.map((spec) => {
-    const r = spec.run(snap, gov, posture, apps);
+    let r = spec.run(snap, gov, posture, apps);
+    if (blind && spec.githubCanRefuteZero && r.score === 0) {
+      r = { score: null, evidence: `${spec.name} not measurable from a worktree (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} not readable here).` };
+    } else if (provenance && spec.githubCanRefuteZero && r.score !== null) {
+      r = { ...r, evidence: `${r.evidence.replace(/\.$/, "")} · ${provenance}.` };
+    }
     return { id: spec.id, name: spec.name, group: "posture" as const, score: r.score, weight: spec.weight, risk: spec.risk, evidence: r.evidence, remediation: r.remediation };
   });
   const vuln = vulnerabilities(exposure);

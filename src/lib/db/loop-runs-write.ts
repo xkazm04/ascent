@@ -12,6 +12,7 @@ import {
   boundLog,
   toLaneRecord,
   toRunRecord,
+  type LaneDeliverable,
   type LoopLanePhase,
   type LoopLaneRecord,
   type LoopRunPhase,
@@ -102,14 +103,17 @@ export interface LoopLanePatch {
   error?: string | null;
   startedAt?: Date | null;
   endedAt?: Date | null;
+  /** The lane's headlines (lane-deliverables.ts). Serialized into the nullable `deliverablesJson`. */
+  deliverables?: LaneDeliverable[];
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
-  const { batchIds, closedIds, ...rest } = patch;
+  const { batchIds, closedIds, deliverables, ...rest } = patch;
   const data: Record<string, unknown> = { ...rest };
   if (batchIds) data.batchIdsJson = JSON.stringify(batchIds);
   if (closedIds) data.closedIdsJson = JSON.stringify(closedIds);
+  if (deliverables) data.deliverablesJson = JSON.stringify(deliverables);
   const row = await getPrisma()
     .loopRunLane.update({ where: { id }, data })
     .catch(() => null);

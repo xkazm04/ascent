@@ -8,6 +8,8 @@ import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
 import { attributeDelivered } from "@/lib/maturity/attribution";
+import { deriveLaneDeliverables } from "@/lib/local/lane-deliverables";
+import type { ComparableScan } from "@/lib/db/scans";
 import {
   laneKindOf,
   toLaneRecord,
@@ -207,6 +209,32 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   return { run, lanes, outcomes };
 }
 
+/**
+ * The two ends of a lane's comparison, exactly the pair the lane recorded — or null when either is
+ * missing. Shared by the read side (`laneOutcome`) and the lane itself at its end (loop-lane.ts
+ * derives the deliverable headlines from the same pair the ledger will later render).
+ *
+ * getScanComparison picks its own baseline when beforeId is absent; a lane with no recorded `before`
+ * legitimately has nothing to diff AGAINST, so only the pair we asked for is trusted.
+ */
+export async function getLanePair(args: {
+  orgSlug: string | null | undefined;
+  repoFullName: string;
+  beforeScanId: string | null;
+  afterScanId: string | null;
+}): Promise<{ before: ComparableScan | null; after: ComparableScan | null } | null> {
+  if (!isDbConfigured()) return null;
+  const [owner, name] = args.repoFullName.split("/");
+  if (!owner || !name || !args.orgSlug || !args.afterScanId) return null;
+  const cmp = await getScanComparison(owner, name, {
+    orgSlug: args.orgSlug,
+    beforeId: args.beforeScanId ?? undefined,
+    afterId: args.afterScanId,
+  });
+  if (!cmp) return null;
+  return { before: args.beforeScanId ? cmp.before : null, after: cmp.after };
+}
+
 async function laneOutcome(
   lane: LoopLaneRecord,
   orgSlug: string | undefined,
@@ -220,19 +248,25 @@ async function laneOutcome(
     diff: null,
     closedFollowUpIds: lane.closedIds,
     commits: lane.commits,
+    deliverables: lane.deliverables,
   };
-  const [owner, name] = lane.repoFullName.split("/");
-  if (!owner || !name || !orgSlug || !lane.afterScanId) return base;
-  const cmp = await getScanComparison(owner, name, {
-    orgSlug,
-    beforeId: lane.beforeScanId ?? undefined,
-    afterId: lane.afterScanId,
-  });
-  if (!cmp) return base;
-  // getScanComparison picks its own baseline when beforeId is absent; a lane with no recorded
-  // `before` legitimately has nothing to diff AGAINST, so only trust the pair we asked for.
-  const before = lane.beforeScanId ? cmp.before : null;
-  const after = cmp.after;
-  return { ...base, before, after, diff: before && after ? diffScans(before, after) : null };
+  const pair = await getLanePair({ orgSlug, repoFullName: lane.repoFullName, beforeScanId: lane.beforeScanId, afterScanId: lane.afterScanId });
+  if (!pair) return base;
+  const { before, after } = pair;
+  const verdict = attributeDelivered(before, after, lane.commits);
+  let diff = before && after ? diffScans(before, after) : null;
+  // THE PROSE ANSWERS TO THE SAME RULE AS THE NUMBER. A lane whose pair is undelivered, mock, within
+  // noise or unmeasured has its delta refused by `attributeDelivered`; its movement lines are the same
+  // claim in words and are refused with it. The raw evidence (`movementDetail`) stays — it is what
+  // was observed, not what is claimed.
+  if (diff && verdict.kind !== "attributable") diff = { ...diff, movements: [] };
+  // BACKFILL ON READ: a row written before `deliverablesJson` (or a lane that never reached its
+  // derivation) still renders headlines — the deterministic derivation from what IS persisted: the
+  // closed ids, the recs that moved to done, and the attributable part of the diff.
+  const deliverables =
+    lane.deliverables.length > 0
+      ? lane.deliverables
+      : deriveLaneDeliverables({ kind, agentClaims: [], diff, before, after, verdict, closedFollowUpIds: lane.closedIds });
+  return { ...base, before, after, diff, deliverables };
 }
 

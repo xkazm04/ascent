@@ -76,6 +76,9 @@ export function laneForLegKind(kind: LlmLegKind): UsageLane {
     case "athena_turn":
     case "athena_cycle":
       return "athena";
+    case "lane_summary":
+      // The loop's own spend: the headline polish belongs to the lane it summarises.
+      return "local";
   }
 }
 

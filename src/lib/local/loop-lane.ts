@@ -24,9 +24,13 @@ import { updateRecommendation } from "@/lib/db/scans-recommendations";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
-import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
+import type { LaneDeliverable, LoopLaneKind } from "@/lib/db/loop-runs-types";
+import type { ComparableScan } from "@/lib/db/scans";
+import { attributeDelivered } from "@/lib/maturity/attribution";
+import { diffScans } from "@/lib/report/compare";
 import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
+import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
@@ -51,6 +55,13 @@ export interface LaneDeps {
   }) => Promise<{ scanId: string | null; closedIds: string[] }>;
   /** The repo's open follow-ups, biggest projected gain first, capped at `limit`. */
   openBatch: (org: string, repo: string, limit?: number) => Promise<FollowUpItem[]>;
+  /** The lane's before/after pair, as the ledger will read it — for the deliverable headlines. */
+  loadPair: (args: { orgSlug: string; repoFullName: string; beforeScanId: string | null; afterScanId: string | null }) => Promise<{
+    before: ComparableScan | null;
+    after: ComparableScan | null;
+  } | null>;
+  /** Optional LLM polish of the derived headlines; returns the input unchanged when no model answers. */
+  summarize: (list: LaneDeliverable[], orgSlug: string) => Promise<LaneDeliverable[]>;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -60,6 +71,13 @@ export const defaultLaneDeps: LaneDeps = {
   laneKind: proposeLaneKind,
   rescan: rescanWorktree,
   openBatch,
+  // Lazy on purpose: the read module reaches for the db client, and the lane's unit tests mock the
+  // loop-runs barrel without it. A missing default here is a skipped headline, never a failed lane.
+  loadPair: async (args) => (await import("@/lib/db/loop-runs-read")).getLanePair(args),
+  summarize: async (list, orgSlug) => {
+    const { polishLaneDeliverables, resolveLaneSummaryRunner } = await import("@/lib/local/lane-summary");
+    return polishLaneDeliverables(list, await resolveLaneSummaryRunner(orgSlug));
+  },
 };
 
 export interface LaneRunInput {
@@ -173,6 +191,47 @@ export async function rescanWorktree(args: {
 }
 
 /**
+ * The lane's deliverable headlines, or null when the pair could not be read. Never throws.
+ * The verdict is `attributeDelivered` over the same pair the ledger renders, so a lane that
+ * committed nothing, straddled the mock floor or moved inside the noise band gets its closes and
+ * its install as headlines and NO movement line — the prose refuses exactly where the number does.
+ */
+async function laneDeliverables(
+  deps: LaneDeps,
+  args: {
+    org: string;
+    repo: string;
+    kind: LoopLaneKind;
+    beforeScanId: string | null;
+    afterScanId: string | null;
+    commits: number;
+    closedIds: string[];
+    agentClaims: readonly AgentClaim[];
+    practiceName: string | null;
+  },
+): Promise<LaneDeliverable[] | null> {
+  try {
+    const pair = await deps.loadPair({ orgSlug: args.org, repoFullName: args.repo, beforeScanId: args.beforeScanId, afterScanId: args.afterScanId });
+    const before = pair?.before ?? null;
+    const after = pair?.after ?? null;
+    const derived = deriveLaneDeliverables({
+      kind: args.kind,
+      agentClaims: args.agentClaims,
+      diff: before && after ? diffScans(before, after) : null,
+      before,
+      after,
+      verdict: attributeDelivered(before, after, args.commits),
+      practiceName: args.practiceName,
+      closedFollowUpIds: args.closedIds,
+    });
+    if (derived.length === 0) return derived;
+    return await deps.summarize(derived, args.org).catch(() => derived);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Drive one lane to completion. Never throws: every outcome — including a failed agent session or a
  * failed rescan — is lane data, so one bad repo can't take the run's other lanes with it.
  */
@@ -216,6 +275,8 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
 
     const kind: LoopLaneKind = input.kind ?? "backlog";
     const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
+    // The agent's own `RESOLVED: <id> - <what changed>` lines, kept for the deliverable headlines.
+    let agentClaims: AgentClaim[] = [];
 
     // A FOUNDATION lane has no batch: the repo's backlog is not what it is answering. Every other
     // kind picks one, and a curated batch NAMES its rows, so the pick has to span the repo's whole
@@ -287,6 +348,8 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
       );
+      const armed = new Set(batch.map((b) => b.id));
+      agentClaims = parseClaimLines(result.summary).filter((c) => armed.has(c.id));
       // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
@@ -381,6 +444,21 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       laneId,
       closedIds.length > 0 ? `${closedIds.length} follow-up(s) closed by trailer` : "No follow-ups closed this cycle.",
     );
+    // WHAT THE LANE DELIVERED, as headlines (lane-deliverables.ts): the agent's claims, the install,
+    // and the ATTRIBUTABLE part of the diff — under the same verdict the ledger's number answers to.
+    // Best-effort end to end: a failed pair read or a polish that never answers leaves the column
+    // null, and the read side derives the same list from what is persisted.
+    const deliverables = await laneDeliverables(deps, {
+      org,
+      repo,
+      kind,
+      beforeScanId,
+      afterScanId,
+      commits,
+      closedIds,
+      agentClaims,
+      practiceName: input.practiceId ? input.practiceId.replace(/[-_]+/g, " ") : null,
+    });
     await updateLane(laneId, {
       phase: "done",
       commits,
@@ -388,7 +466,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       afterScanId,
       stage: null,
       endedAt: new Date(),
+      ...(deliverables ? { deliverables } : {}),
     });
+    if (deliverables && deliverables.length > 0) {
+      await appendLaneLog(laneId, `Delivered: ${deliverables.map((d) => d.headline).join(" · ")}`);
+    }
     return { laneId, progressed: commits > 0 || closedIds.length > 0, commits, closed: closedIds.length, error: null };
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));

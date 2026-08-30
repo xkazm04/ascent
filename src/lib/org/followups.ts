@@ -229,7 +229,7 @@ export function buildFixPrompt(
   lines.push("- Do not edit files only to satisfy a scanner. If a gap is already covered another way, leave it and note that in your summary.");
   lines.push(
     laneCommits
-      ? "- End with ONE line per item, exactly `RESOLVED: <id> - what changed` or `SKIPPED: <id> - why`. Those ids become the commit's trailers; an id you name as SKIPPED is left out of them."
+      ? "- End with ONE line per item, exactly `RESOLVED: <id> - <what changed>` or `SKIPPED: <id> - why`. The `<what changed>` clause is printed as a headline on the outcome dashboard: at most 8 words, verb-first, past tense, naming the artefact — e.g. `RESOLVED: rec-42 - Added permissions scope to 3 workflows`. Those ids become the commit's trailers; an id you name as SKIPPED is left out of them."
       : "- End with a short summary: resolved / skipped / needs a human, per id.",
   );
   lines.push("");

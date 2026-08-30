@@ -1415,6 +1415,7 @@ CREATE TABLE "LoopRunLane" (
     "executor" TEXT NOT NULL DEFAULT 'local',
     "claimedBy" TEXT,
     "leaseUntil" TIMESTAMP(3),
+    "deliverablesJson" TEXT,
 
     CONSTRAINT "LoopRunLane_pkey" PRIMARY KEY ("id")
 );
@@ -1445,6 +1446,8 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "prUrl" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "executor" TEXT NOT NULL DEFAULT 'local';
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "claimedBy" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "leaseUntil" TIMESTAMP(3);
+-- WAVE 2 — the lane's deliverable headlines (JSON LaneDeliverable[]); NULL = derive on read.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "deliverablesJson" TEXT;
 
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");

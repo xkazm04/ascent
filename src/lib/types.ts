@@ -893,6 +893,21 @@ export interface PlatformFoldDim {
   signals: Signal[];
 }
 
+/**
+ * The GitHub-only INPUTS of the D9 security battery (`src/lib/security/checks.ts`), recorded on an
+ * observed scan so a worktree rescan can replay them. D9 cannot be carried as points the way D2/D3/D4
+ * are: the battery REPLACES the D9 signal after the fold, so the only faithful carry is to re-run the
+ * battery over the new files with the old GitHub reading — branch protection, the installed-App
+ * inventory (default-setup CodeQL, Socket, Snyk…), and the org-level security policy/advisories.
+ * Structural copies of `Governance` / `SecurityPosture` / `AppInventory` (check-suites.ts owns the
+ * latter; this module must not import it).
+ */
+export interface CarriedSecurityInputs {
+  governance: Governance | null;
+  posture: SecurityPosture | null;
+  apps: { sha: string; apps: { slug: string; name: string; conclusion: string | null }[]; total: number; truncated: boolean } | null;
+}
+
 export interface PlatformSignalRecord {
   source: PlatformFoldSource;
   /** When the signals were OBSERVED on GitHub (not when this scan ran). Null on `unavailable`. */
@@ -904,6 +919,10 @@ export interface PlatformSignalRecord {
   stale?: boolean;
   /** Per-dimension folds, empty on `unavailable`. */
   dims: PlatformFoldDim[];
+  /** The D9 battery's GitHub-side inputs as observed (or carried). Absent on a row written before the
+   *  carry existed, and on `unavailable` — an absence the D9 comparability rule reads as "this end's
+   *  D9 could not see GitHub", never as "the inputs were empty". */
+  securityInputs?: CarriedSecurityInputs;
 }
 
 // ---------------------------------------------------------------------------

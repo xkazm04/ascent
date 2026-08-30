@@ -355,3 +355,41 @@ describe("App inventory — additive only, never lowers a score", () => {
     );
   });
 });
+
+describe("computeSecurityChecks — worktree mode (the loop's rescan)", () => {
+  const wf = [{ path: ".github/workflows/ci.yml", content: "on: [push]\npermissions:\n  contents: read\n" }];
+
+  it("CARRIED GitHub inputs reproduce the observed reading and say where it came from", () => {
+    const observed = computeSecurityChecks(snap(wf), gov(), { advisoryCount: 0, advisoryCapped: false, orgSecurityPolicy: true }, null, inv("github-code-scanning"));
+    const carried = computeSecurityChecks(snap(wf), gov(), { advisoryCount: 0, advisoryCapped: false, orgSecurityPolicy: true }, null, inv("github-code-scanning"), {
+      platformUnobservable: true,
+      provenance: "GitHub-side reading carried from scan scan_1",
+    });
+    expect(carried.d9).toBe(observed.d9);
+    for (const c of observed.checks) expect(get(carried, c.id).score).toBe(c.score);
+    expect(get(carried, "sast").evidence).toContain("carried from scan scan_1");
+    expect(get(carried, "security-policy").evidence).toContain("carried from scan scan_1");
+    // A purely file-scored check is not decorated: nothing GitHub-side went into it.
+    expect(get(carried, "token-permissions").evidence).not.toContain("carried");
+  });
+
+  it("with NOTHING to carry, a 0 that only GitHub could refute is EXCLUDED, not scored", () => {
+    const blind = computeSecurityChecks(snap(wf), null, null, null, null, { platformUnobservable: true });
+    expect(get(blind, "sast").score).toBeNull();
+    expect(get(blind, "dependency-updates").score).toBeNull();
+    expect(get(blind, "security-policy").score).toBeNull();
+    expect(get(blind, "sast").evidence).toContain("not measurable from a worktree");
+    // File-observable checks still score — the workflow IS on disk.
+    expect(get(blind, "token-permissions").score).toBe(10);
+    // The same snapshot on an ordinary anonymous scan keeps its zeros: absence of a token is not a worktree.
+    const anon = computeSecurityChecks(snap(wf), null, null, null, null);
+    expect(get(anon, "sast").score).toBe(0);
+  });
+
+  it("a file-evidenced control keeps its score in worktree mode — only a refutable 0 is excluded", () => {
+    const files = [...wf, { path: ".github/dependabot.yml", content: "version: 2" }, { path: "SECURITY.md", content: "report" }];
+    const blind = computeSecurityChecks(snap(files), null, null, null, null, { platformUnobservable: true });
+    expect(get(blind, "dependency-updates").score).toBe(10);
+    expect(get(blind, "security-policy").score).toBe(10);
+  });
+});

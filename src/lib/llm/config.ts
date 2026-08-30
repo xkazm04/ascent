@@ -110,10 +110,13 @@ export function llmTemperature(legKind?: LlmLegKind): number {
 const LEG_TEMPERATURE_ENV: Partial<Record<LlmLegKind, string>> = {
   athena_turn: "ATHENA_TEMPERATURE",
   athena_cycle: "ATHENA_TEMPERATURE",
+  lane_summary: "LANE_SUMMARY_TEMPERATURE",
 };
 const LEG_TEMPERATURE_DEFAULT: Partial<Record<LlmLegKind, number>> = {
   athena_turn: 0.3,
   athena_cycle: 0.3,
+  // A rewrite of a derived list, not a judgment: greedy so the same lane summarises the same way twice.
+  lane_summary: 0,
 };
 
 /**

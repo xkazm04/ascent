@@ -181,3 +181,33 @@ describe("a folded dimension is not a lift", () => {
     expect(foldIsComparable(noFold, fold(0), "D3")).toBe(true);
   });
 });
+
+describe("foldIsComparable — D9 answers to the security INPUTS, not to fold points", () => {
+  const legacy = real(50);
+  const github = { ...real(50), platformSignals: { source: "observed" as const, observedAt: "2026-08-28T00:00:00Z", dims: [] } };
+  const carriedWith = {
+    ...real(50),
+    platformSignals: { source: "carried" as const, observedAt: "2026-08-28T00:00:00Z", fromScanId: "s1", dims: [], securityInputs: { governance: null, posture: null, apps: null } },
+  };
+  const carriedWithout = { ...real(50), platformSignals: { source: "carried" as const, observedAt: "2026-08-28T00:00:00Z", fromScanId: "s1", dims: [] } };
+  const blind = { ...real(50), platformSignals: { source: "unavailable" as const, observedAt: null, dims: [] } };
+
+  it("a GitHub scan against a blind worktree rescan is NOT comparable — the wave-2 D9 collapse", () => {
+    expect(foldIsComparable(github, blind, "D9")).toBe(false);
+    expect(foldIsComparable(legacy, blind, "D9")).toBe(false);
+    expect(foldIsComparable(github, carriedWithout, "D9")).toBe(false);
+    expect(attributeDimension("D9", -42, legacy, blind)).toEqual({ kind: "unmeasured" });
+  });
+
+  it("a carried security reading puts the rescan on the before-scan's ruler", () => {
+    expect(foldIsComparable(github, carriedWith, "D9")).toBe(true);
+    expect(foldIsComparable(legacy, carriedWith, "D9")).toBe(true);
+    expect(foldIsComparable(carriedWith, carriedWith, "D9")).toBe(true);
+    expect(attributeDimension("D9", 12, github, carriedWith)).toEqual({ kind: "attributable", delta: 12 });
+  });
+
+  it("two blind ends, or two legacy ends, are as comparable as they ever were", () => {
+    expect(foldIsComparable(blind, blind, "D9")).toBe(true);
+    expect(foldIsComparable(legacy, legacy, "D9")).toBe(true);
+  });
+});

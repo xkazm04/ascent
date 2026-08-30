@@ -1780,6 +1780,11 @@ model LoopRunLane {
   claimedBy  String? // opaque actor id of the claimant; null = unclaimed
   leaseUntil DateTime? // null = no lease held. An expired lease is releasable, never a zombie claim.
 
+  // ── WAVE 2 — what the lane DELIVERED, as headlines (JSON LaneDeliverable[], src/lib/db/loop-runs-
+  // types.ts). Written at lane end from the agent's RESOLVED claims + the attributable diff; NULL on a
+  // row written before the column, which the read side backfills deterministically from the diff.
+  deliverablesJson String?
+
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])

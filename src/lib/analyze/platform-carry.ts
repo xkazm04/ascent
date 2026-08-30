@@ -23,7 +23,7 @@
 // best evidence anyone has about a repo's installed tooling, and dropping it would swap a stated
 // uncertainty for a silent understatement — so a stale fold still applies, and says so.
 
-import type { DimensionId, DimensionSignals, PlatformSignalRecord } from "@/lib/types";
+import type { CarriedSecurityInputs, DimensionId, DimensionSignals, PlatformSignalRecord } from "@/lib/types";
 
 /**
  * The dimensions the platform folds can move — and the only ones anything here may exclude.
@@ -127,8 +127,37 @@ export function carryPlatformFold(
       fromScanId: snapshot.scanId,
       ...(stale ? { stale: true as const } : {}),
       dims: snapshot.record.dims,
+      // The D9 battery's GitHub-side inputs ride along VERBATIM: scan-score-input re-runs the battery
+      // over the worktree's files with this reading, which is the only carry that survives D9 being
+      // replaced after the fold (see CarriedSecurityInputs).
+      ...(snapshot.record.securityInputs ? { securityInputs: snapshot.record.securityInputs } : {}),
     },
   };
+}
+
+/**
+ * What one end of a comparison could see of the D9 battery's GITHUB-SIDE inputs.
+ *
+ *   - `null`     — the end never recorded the question (a legacy row). Unknown, not "none".
+ *   - `"github"` — observed live, or carried from an observed scan WITH its security inputs: the
+ *                  battery ran over the same GitHub reading either way.
+ *   - `"none"`   — declared local with nothing to carry, or carried from a record written before the
+ *                  inputs were recorded: branch protection / installed Apps / org policy were blind.
+ *
+ * D9 is not in PLATFORM_FOLD_DIMS on purpose — its GitHub reading is not points on a dimension but
+ * inputs to a battery — so `foldIsComparable` reads THIS for D9 instead of `foldPointsFor`.
+ */
+export type SecurityObservability = "github" | "none";
+export function securityObservability(record: PlatformSignalRecord | null | undefined): SecurityObservability | null {
+  if (!record) return null;
+  if (record.source === "observed") return "github";
+  if (record.source === "carried") return record.securityInputs ? "github" : "none";
+  return "none";
+}
+
+/** The security inputs a worktree rescan should hand the D9 battery, or null when it has none. */
+export function carriedSecurityInputs(record: PlatformSignalRecord | null | undefined): CarriedSecurityInputs | null {
+  return record?.source === "carried" || record?.source === "observed" ? (record.securityInputs ?? null) : null;
 }
 
 /**
@@ -166,6 +195,15 @@ export function parsePlatformSignals(raw: string | null | undefined): PlatformSi
             .filter((d) => d && typeof d.dimId === "string" && typeof d.points === "number")
             .map((d) => ({ dimId: d.dimId, points: d.points, signals: Array.isArray(d.signals) ? d.signals : [] }))
         : [],
+      ...(rec.securityInputs && typeof rec.securityInputs === "object"
+        ? {
+            securityInputs: {
+              governance: rec.securityInputs.governance ?? null,
+              posture: rec.securityInputs.posture ?? null,
+              apps: rec.securityInputs.apps && Array.isArray(rec.securityInputs.apps.apps) ? rec.securityInputs.apps : null,
+            },
+          }
+        : {}),
     };
   } catch {
     return undefined;

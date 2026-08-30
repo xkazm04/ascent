@@ -274,6 +274,54 @@ is captured at dispatch time using the *exact* ordering `scans-read` uses (`scan
 against a different "latest" scan than the comparison view later reads. A lane with no recorded
 `before` has nothing to diff against and reports `diff: null` rather than inventing a baseline.
 
+### Outcome: what the lane DELIVERED — headlines (wave 2, 2026-08-30)
+
+A lane's cell used to print raw evidence: two 90-character recommendation titles, then
+`D9 -42: Token permissions [posture/high]: 0/10 — 0/1 workflows…; removed SAST…` uncapped. It now
+prints **one short line per deliverable** — "Hardened CI/CD security", "Added permissions scope to 3
+workflows" — several rows per repo, grouped by kind then dimension (`outcomeDeliverables.ts`).
+
+```ts
+type LaneDeliverableKind = "closed" | "installed" | "hardened" | "regressed" | "noted";
+interface LaneDeliverable {
+  headline: string;            // ≤ 8 words, verb-first past tense
+  dimId: DimensionId | null;
+  kind: LaneDeliverableKind;
+  covers: string[];            // follow-up ids / signal names this covers
+  evidence: string | null;     // one line for the expanded view
+}
+```
+
+`deriveLaneDeliverables` (`src/lib/local/lane-deliverables.ts`, pure) builds the list from four
+sources, in order: the agent's own `RESOLVED: <id> - <what changed>` lines (the clause **is** the
+headline, tidied to ≤ 8 words — the lane brief now demands that shape and shows an example); the
+rescan-confirmed closes with no clause (a per-dimension template, e.g. D9 → *Hardened CI/CD
+security*, D8 → *Added agent-readable docs*, two closes in one dimension fold into one row); a
+foundation/practice lane's install; and the **attributable** dimension movements not already covered
+by a close (`hardened` up / `regressed` down, the humanised movement line as evidence). Cap 6,
+deduped by `(dimId, headline)` with `covers` merged. The verdict gate is `attributeDelivered` over
+the same pair the ledger renders — an undelivered, mock, within-noise or unmeasured lane gets its
+closes and its install as headlines and **no** movement line.
+
+Optional polish: `src/lib/local/lane-summary.ts` resolves a text runner tagged `legKind:
+"lane_summary"` (temperature 0, `LANE_SUMMARY_TEMPERATURE` overrides, spends in the `local` usage
+lane) and asks it to condense the derived list into ≤ 4 headlines by **merging indexes** — the answer
+is validated against the list it was given (no invented index, no reused index, ≤ 8 words) and any
+failure, timeout (≤ 20 s) or null runner keeps the deterministic list. It never blocks the lane.
+
+Persistence: `LoopRunLane.deliverablesJson` (nullable TEXT, `prisma/schema.prisma` + `prisma/init.sql`;
+PGlite self-repairs the column on boot). `runLane` writes it at lane end; `laneOutcome` **backfills on
+read** for a row without one — the same derivation from the persisted closed ids and diff — so runs
+that predate the column render headlines too.
+
+**Movement prose answers to the number's rule.** `laneOutcome` and the outcome matrix emit
+`diff.movements` only for an attributable pair; a refused verdict shows its word (*uncommitted*,
+*within noise*, *not measured*) and nothing else. The lines themselves are humanised by
+`buildAttribution` (`src/lib/report/compare.ts`): signal **names** only, a `changed` / `gained` /
+`lost` verb, three names then `(+n)` — `D9 −42 · changed token permissions; lost SAST, dependency
+updates (+1)`, `D2 +12 · changed found 18 test files; gained coverage tracking configured`. The raw
+evidence lines stay on `ScanDiff.movementDetail` for the expanded and report views.
+
 ### Is this lift real? The attribution rule
 
 **A subtraction is not an attribution.** Two of the three ways an Ascent score moves have nothing to
@@ -860,8 +908,21 @@ protect three.
 The same carry runs on `POST /api/org/local/rescan`, so a manual local rescan cannot silently retire
 the fold from a repo's latest reading either.
 
-Tests: `platform-carry.test.ts` (fresh / stale / absent, and the round-trip), `green.test.ts`
-(exclusion, and that it is not a blanket pass), `attribution.test.ts` (folding is not a lift).
+**D9 is carried as inputs, not points (wave 2, 2026-08-30).** The security battery *replaces* the D9
+signal after the fold, so points cannot be replayed onto it. An observed record therefore also stores
+`securityInputs` — branch protection, the installed-App inventory and the org security policy /
+advisories (`CarriedSecurityInputs`) — and a worktree rescan re-runs the battery over its own files
+with that reading, every affected check saying `GitHub-side reading carried from scan <id>`. With
+nothing to carry the battery runs blind and a check whose 0 only GitHub could refute (SAST,
+dependency updates, security policy) is **excluded from the denominator** rather than scored 0
+(branch protection already goes n/a). `foldIsComparable("D9")` reads `securityObservability` on both
+ends and refuses a GitHub-or-legacy end against a blind worktree end as `unmeasured` — the exact
+pairing that had printed `D9 −42` for a repository that had not changed. See
+[scan.md](../scanning/scan.md#ingest-from-a-worktree-srcliblocalsourcets).
+
+Tests: `platform-carry.test.ts` (fresh / stale / absent, the round-trip, the D9 inputs),
+`green.test.ts` (exclusion, and that it is not a blanket pass), `attribution.test.ts` (folding is not
+a lift; D9 comparability), `security/checks.test.ts` (carried vs blind battery).
 
 ### Claims are released when nothing adjudicated them (2026-08-26)
 

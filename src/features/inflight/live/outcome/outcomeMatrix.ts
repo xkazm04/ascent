@@ -1,6 +1,6 @@
 // THE OUTCOME MATRIX — one column per run, one row-group per repo, one cell per (run, repo) holding
-// what that run DELIVERED to that repo: the short titles of the follow-ups it closed, the lane kind,
-// and the movement it can attribute. Pure, so the two variants (Register, Storyboard) render the same
+// what that run DELIVERED to that repo: one headline per deliverable (outcomeDeliverables.ts), the lane kind,
+// and the movement it can attribute (prose and number under ONE verdict). Pure, so both variants render the same
 // facts and a test can pin the fold without a DOM.
 //
 // Every number here answers to the same rule the rail's ledger used: `laneAttribution` decides whether
@@ -9,6 +9,8 @@
 
 import { attributeDimension, type Attribution } from "@/lib/maturity/attribution";
 import { agentConfigLabel } from "@/lib/local/agent-options";
+import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
+import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution, runAttribution } from "../cockpit/cockpitDrift";
 import { isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
@@ -27,12 +29,17 @@ export interface OutcomeCell {
   kind: LoopLaneKind;
   /** "…installed" line for a deterministic lane; null for an agent lane (no tag says more than one). */
   installed: string | null;
-  /** Deliverable titles — recs moved to done plus closed follow-ups resolved to titles, deduped. */
+  /** WHAT THE LANE DID, one headline each — grouped by kind (closed · installed · hardened ·
+   *  regressed) then by dimension. The cell's rows. */
+  deliverables: LaneDeliverable[];
+  /** The full follow-up titles behind the `closed` headlines — evidence for the expanded view only. */
   titles: string[];
   verdict: Attribution;
   commits: number;
   gaps: number;
   dims: OutcomeDim[];
+  /** Humanised movement lines (`D9 −42 · lost token permissions, SAST…`) — EMPTY unless the cell's
+   *  verdict is attributable: the prose answers to the same rule as the number. */
   movements: string[];
   phase: LoopLanePhase;
   stage: string | null;
@@ -74,26 +81,6 @@ export function mergeRunDetails(base: readonly LoopRunDetail[], ...overrides: (L
   return [...byId.values()];
 }
 
-function deliverables(o: LoopLaneOutcome): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const push = (t: string) => {
-    const k = t.trim().toLowerCase();
-    if (k && !seen.has(k)) {
-      seen.add(k);
-      out.push(t.trim());
-    }
-  };
-  for (const r of o.diff?.recsMovedToDone ?? []) push(r.title);
-  const byId = new Map<string, string>();
-  for (const r of [...(o.after?.recommendations ?? []), ...(o.before?.recommendations ?? [])]) byId.set(r.id, r.title);
-  for (const id of o.closedFollowUpIds) {
-    const t = byId.get(id);
-    if (t) push(t);
-  }
-  return out;
-}
-
 function combineVerdicts(verdicts: readonly Attribution[]): Attribution {
   let sum = 0;
   let any = false;
@@ -120,19 +107,22 @@ function foldCell(runId: string, repo: string, lanes: readonly LoopLaneOutcome[]
     }));
   const first = lanes[0]!;
   const tag = laneKindTag(first.kind);
-  const titles = lanes.flatMap(deliverables).filter((t, i, all) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
+  const titles = lanes.flatMap(closedTitles).filter((t, i, all) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
   const tail = lanes[lanes.length - 1]!.lane;
   return {
     runId,
     repo,
     kind: first.kind,
     installed: tag ? `${tag} installed` : null,
+    deliverables: groupDeliverables(lanes),
     titles,
     verdict,
     commits: lanes.reduce((n, o) => n + o.commits, 0),
     gaps: lanes.reduce((n, o) => n + (o.diff?.closedGapCount ?? 0), 0),
     dims,
-    movements: (last.diff?.movements ?? []).slice(0, 2),
+    // A refused verdict has no movement prose: the number was declined, and a line saying what moved
+    // is the same claim in words (wave-2 sample: a 0-commit lane printed `D9 -42: …` under "uncommitted").
+    movements: verdict.kind === "attributable" ? (last.diff?.movements ?? []).slice(0, 2) : [],
     phase: tail.phase,
     stage: tail.stage,
     error: tail.error,

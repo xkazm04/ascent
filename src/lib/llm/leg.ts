@@ -34,8 +34,12 @@ import type { MeterContext } from "@/lib/llm/meter";
  *                      LEG_TEMPERATURE_DEFAULT (src/lib/llm/config.ts): adding a row there would change
  *                      a resolved temperature, which is a scoring-reproducibility decision (D29), not a
  *                      metering one.
+ *   - `lane_summary` — the loop's per-lane deliverable polish (src/lib/local/lane-summary.ts): condenses
+ *                      a derived headline list into ≤ 4 lines. Pinned at temperature 0 in config.ts
+ *                      (LANE_SUMMARY_TEMPERATURE overrides) — it rewrites, it does not invent — and it
+ *                      spends in the `local` usage lane, the loop's own budget.
  */
-export type LlmLegKind = "scan" | "memory" | "athena_turn" | "athena_cycle" | "briefing";
+export type LlmLegKind = "scan" | "memory" | "athena_turn" | "athena_cycle" | "briefing" | "lane_summary";
 
 /** A tool Athena may call. `inputSchema` is a JSON Schema object, the same source of truth every
  *  provider's own function-calling envelope wraps (Bedrock `inputSchema.json`, Gemini
