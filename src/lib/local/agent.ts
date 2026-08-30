@@ -21,6 +21,7 @@ import { spawn } from "node:child_process";
 import { cliProviderAllowed, envNumber } from "@/lib/llm/config";
 import { envBool } from "@/lib/env";
 import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/lib/local/agent-options";
+import { parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
 
 /** Operator consent for the autopilot (spawning editing agents). Off by default, everywhere. */
 export function autopilotEnabled(): boolean {
@@ -66,7 +67,16 @@ function agentTimeoutMs(): number {
 const MAX_STDOUT = 4 * 1024 * 1024; // mirror claude-cli.ts's runaway-subprocess caps
 const MAX_STDERR = 16 * 1024;
 
-export interface AgentRunResult {
+/**
+ * What one session did AND what it cost.
+ *
+ * `{ ok, summary }` keep their exact meaning, so every existing caller compiles and behaves
+ * unchanged; everything else is an optional MEASUREMENT that is `null` when the CLI reported nothing
+ * (never 0 — see agent-envelope.ts). The lane records these on its row, and they are the only source
+ * of a lane's cost: an OTLP `AgentSession` figure is a different population by a different path and
+ * is never added to them.
+ */
+export interface AgentRunResult extends Partial<Omit<AgentEnvelope, "ok" | "summary">> {
   ok: boolean;
   /** The session's final text (claude -p json envelope `.result`), or the failure reason. */
   summary: string;
@@ -134,16 +144,10 @@ export function runClaudeAgent(opts: { cwd: string; prompt: string; model?: stri
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      try {
-        const envelope = JSON.parse(out) as { result?: string; is_error?: boolean; subtype?: string };
-        if (envelope.is_error || typeof envelope.result !== "string") {
-          settle({ ok: false, summary: `Agent error (${envelope.subtype ?? "unknown"}): ${(envelope.result ?? err).slice(0, 500)}` });
-        } else {
-          settle({ ok: true, summary: envelope.result.slice(0, 4_000) });
-        }
-      } catch {
-        settle({ ok: false, summary: `Agent exited (${code}) without a JSON envelope: ${(out || err).slice(0, 300) || "(no output)"}` });
-      }
+      // THE WHOLE ENVELOPE, not just `.result`. The parse is pure and lives in agent-envelope.ts so
+      // it can be table-tested without a subprocess; `{ok, summary}` are byte-for-byte what they
+      // were, and the measurements ride alongside them.
+      settle(parseAgentEnvelope(out, { fallbackModel: model, exitCode: code, stderr: err }));
     });
 
     child.stdin.write(opts.prompt);
