@@ -28,7 +28,8 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse } from "next/server";
-import { verifyOrgApiToken, type SkillTokenScope } from "@/lib/db";
+import { recordOrgAudit, verifyOrgApiToken, type SkillTokenScope } from "@/lib/db";
+import { assertWriteAllowed, WRITE_TOOL_POLICY } from "@/lib/mcp/write-gate";
 import { runTool, toolResultText } from "@/lib/mcp/handlers";
 import {
   err,
@@ -42,7 +43,7 @@ import {
   type JsonRpcRequest,
 } from "@/lib/mcp/protocol";
 import { MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
-import { gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
+import { countTokenWritesToday, gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
 import { rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -189,8 +190,59 @@ export async function POST(req: Request) {
         );
       }
       const args = (body.params?.arguments ?? {}) as Record<string, unknown>;
+
+      // THE WRITE DOOR. Only tools the catalog marks `mutates` reach this block, and only after the
+      // scope and plan gates above — this is the third gate, not the first. `actorId` is what the
+      // org's audit viewer shows and what the daily ceiling is counted against.
+      const actorId = `token:${token.name}`;
+      const policy = def.mutates ? WRITE_TOOL_POLICY[name] : undefined;
+      if (def.mutates) {
+        if (!policy) {
+          // Fails CLOSED. A catalog entry marked `mutates` with no policy row is a half-finished
+          // write tool; write-gate.test.ts makes that state uncommittable, and this is the runtime
+          // half of the same rule.
+          return rpc(err(id, { code: RPC.invalidParams, message: `Unknown tool: ${name}` }), 400);
+        }
+        const writesToday = await countTokenWritesToday(token.orgSlug, actorId, policy.auditAction);
+        const denial = assertWriteAllowed({
+          tool: name,
+          scopes,
+          gates,
+          tokenId: token.tokenId,
+          writesToday,
+        });
+        if (denial) {
+          return rpc(
+            ok(id, {
+              content: [{ type: "text", text: denial.denied }],
+              structuredContent: { error: denial.denied, reason: "write_gate" },
+              isError: true,
+            }),
+            200,
+          );
+        }
+      }
+
       try {
         const result = await runTool(name, token.orgSlug, args);
+        // ONE AUDIT ROW PER ACCEPTED WRITE, after the handler and only when it did not report an
+        // error — an audit trail of attempts that failed validation would drown the trail of actual
+        // changes. `args` is recorded as its KEY SHAPE plus the idempotency key, never verbatim: a
+        // citation `note` is free text an agent wrote and the audit trail is not a second place for
+        // it to be stored and re-read.
+        if (policy && !result.isError) {
+          await recordOrgAudit(
+            policy.auditAction,
+            token.orgSlug,
+            {
+              tool: name,
+              tokenId: token.tokenId,
+              argKeys: Object.keys(args).sort(),
+              idempotencyKey: policy.idempotencyKey(token.orgSlug, args),
+            },
+            actorId,
+          );
+        }
         // Serialized by the shared helper, not inline: Athena dispatches these same handlers in-process
         // (src/lib/athena/grounding.ts), and both doors must show the model byte-identical text.
         const text = toolResultText(result);

@@ -26,6 +26,13 @@ vi.mock("@/lib/db", () => ({
   getCreditState: vi.fn(async () => ({ plan: "team" })),
   workspaceAllowsMemory: vi.fn(async () => true),
   workspaceAllowsSkills: vi.fn(async () => true),
+  recordOrgAudit: vi.fn(async () => true),
+  // `countTokenWritesToday` short-circuits on `isDbConfigured() === false` and returns null — the
+  // honest "not measurable" the ceiling treats as open. That is the right shape for this file: the
+  // ceiling's own arithmetic is proven in write-gate.test.ts, against inputs rather than a fake DB.
+  isDbConfigured: vi.fn(() => false),
+  getOrgId: vi.fn(async () => "org_1"),
+  getPrisma: vi.fn(),
 }));
 vi.mock("@/lib/mcp/handlers", () => ({
   runTool: vi.fn(async () => ({ structuredContent: { ok: true } })),
@@ -42,7 +49,7 @@ vi.mock("@/lib/rate-limit", async (importOriginal) => {
 });
 
 import { POST } from "./route";
-import { verifyOrgApiToken, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
+import { recordOrgAudit, verifyOrgApiToken, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
 import { runTool } from "@/lib/mcp/handlers";
 import { rateLimitRequest } from "@/lib/rate-limit";
 
@@ -71,7 +78,7 @@ beforeEach(() => {
 
 /** A verified token carrying `scopes`, for the org `acme`. */
 function tokenWith(scopes: string[]) {
-  mockVerify.mockResolvedValue({ orgSlug: "acme", name: "agent", scopes } as never);
+  mockVerify.mockResolvedValue({ tokenId: "tok_1", orgSlug: "acme", name: "agent", scopes } as never);
 }
 
 /** A conformant request: this revision requires the routing headers to mirror the body. */
@@ -199,6 +206,40 @@ describe("POST /api/mcp — plan gates", () => {
     expect(res.status).toBe(400);
     expect(body.error.message).toBe("Unknown tool: recall_org_memory");
     expect(body.error.message).not.toMatch(/plan|scope/i);
+  });
+
+  it("audits exactly one row for an accepted write, and none for a refused one", async () => {
+    tokenWith(["mcp:read", "skills:read", "telemetry:write"]);
+
+    await call("tools/call", { name: "report_skill_invoke", arguments: { skill: "tidy", session: "s1" } });
+    expect(vi.mocked(recordOrgAudit)).toHaveBeenCalledTimes(1);
+    const [action, org, meta, actor] = vi.mocked(recordOrgAudit).mock.calls[0]!;
+    expect(action).toBe("mcp.write.report_skill_invoke");
+    expect(org).toBe("acme");
+    expect(actor).toBe("token:agent");
+    // The key SHAPE plus the idempotency key — never the raw argument object. A citation `note` is
+    // free text an agent wrote, and the audit trail must not become a second place it is stored and
+    // re-read; the idempotency key carries only identifiers, by construction.
+    expect(meta).toMatchObject({ tool: "report_skill_invoke", argKeys: ["session", "skill"] });
+    expect(meta).not.toHaveProperty("args");
+
+    // A write the gate refuses never reaches the handler and never audits: an audit trail of
+    // rejected attempts would bury the trail of actual changes.
+    vi.mocked(recordOrgAudit).mockClear();
+    tokenWith(["mcp:read", "skills:read"]);
+    await call("tools/call", { name: "report_skill_invoke", arguments: { skill: "tidy", session: "s1" } });
+    expect(vi.mocked(recordOrgAudit)).not.toHaveBeenCalled();
+  });
+
+  it("refuses a write whose token lacks telemetry:write, with the reason", async () => {
+    // The tool IS offered (its declared scopes are `mcp:read` + `skills:read` + `telemetry:write`,
+    // so a token without the write scope never sees it) — this is the belt-and-braces path where a
+    // caller names it anyway.
+    tokenWith(["mcp:read", "skills:read"]);
+    const res = await call("tools/call", { name: "report_skill_invoke", arguments: { skill: "x", session: "s" } });
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error.message).toBe("Unknown tool: report_skill_invoke");
   });
 
   it("does not resolve the plan gates for a discovery probe", async () => {

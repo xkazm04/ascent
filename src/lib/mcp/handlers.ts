@@ -20,6 +20,7 @@ import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { PRACTICES } from "@/lib/practices";
+import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-reads";
 
 export interface ToolResult {
   structuredContent: unknown;
@@ -252,9 +253,21 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
   };
 }
 
-/** Dispatch by tool name. Scope enforcement happens BEFORE this, in the route. */
+/**
+ * Dispatch by tool name.
+ *
+ * SCOPE, PLAN AND WRITE enforcement all happen BEFORE this, in the route (`src/app/api/mcp/route.ts`)
+ * or in Athena's grounding — this function trusts its caller completely, exactly as it always has,
+ * and the two doors each carry their own gate rather than one of them assuming the other ran. That
+ * is load-bearing now that two of these tools WRITE: a caller reaching `runTool` without gating first
+ * would be writing to a store on a plan that does not carry it.
+ */
 export async function runTool(name: string, org: string, args: Args): Promise<ToolResult> {
   switch (name) {
+    case "report_skill_invoke":
+      return reportSkillInvoke(org, args, Date.now());
+    case "cite_memory":
+      return citeMemory(org, args);
     case "get_repo_standing":
       return repoStanding(org, args);
     case "get_gate_verdict":

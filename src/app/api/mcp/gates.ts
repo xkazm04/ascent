@@ -17,7 +17,7 @@
 // SELF-HOSTED. Both predicates run through `plans.ts`, where `selfHosted()` opens every plan gate, so
 // a self-hosted install reaches every tool with a locally minted token and no plan at all.
 
-import { getCreditState, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
+import { getCreditState, getOrgId, getPrisma, isDbConfigured, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
 
 /** Which plan-gated resource families the catalog knows about. */
 export type McpPlanGate = "memory" | "skills";
@@ -60,6 +60,37 @@ export function gateOpen(gates: McpGates, gate: McpPlanGate | null | undefined):
  * has already proven it belongs here, and "the workspace's plan does not include Shared Org Memory"
  * is a fact somebody can fix. Hiding it would only make the agent report a capability as broken.
  */
+const DAY_MS = 86_400_000;
+
+/**
+ * How many writes this audit actor has already made with this tool in the last 24 hours — the input
+ * to `assertWriteAllowed`'s per-token ceiling.
+ *
+ * COUNTED FROM THE AUDIT TRAIL, not from the written store, and that is the design rather than a
+ * convenience. Every accepted write at this door records exactly one `AuditLog` row, so the audit
+ * trail IS the write ledger: one query answers the ceiling for every write tool, including the ones
+ * W4-N adds, and no future write tool has to remember to make itself countable. Counting rows in each
+ * tool's own table would also count rows the web UI wrote, which are not this token's doing.
+ *
+ * A ROLLING 24 HOURS, not a calendar day, because the caller has no timezone and a UTC midnight would
+ * hand a looping agent a fresh budget at an hour it did not choose and cannot see.
+ *
+ * Returns `null` when persistence is off — an honest null, not a zero. See `WriteGateInput.writesToday`
+ * for why that opens the gate: with no database there is no row to inflate.
+ */
+export async function countTokenWritesToday(
+  orgSlug: string,
+  actorId: string,
+  action: string,
+): Promise<number | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return 0;
+  return getPrisma().auditLog.count({
+    where: { orgId, actorId, action, at: { gte: new Date(Date.now() - DAY_MS) } },
+  });
+}
+
 export function planRefusal(gate: McpPlanGate): string {
   return gate === "memory"
     ? "Shared Org Memory is not included in this workspace's plan, so there is nothing recorded here that this door can read or write. Nothing is hidden from you — the store is not enabled."

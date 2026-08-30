@@ -7,10 +7,16 @@
 // standing, its gate verdict, its open gaps, its declared AI stance and its own proven practices one
 // call away from the coding agent.
 //
-// READ-ONLY, DELIBERATELY. A write tool is a governance surface: it needs the stance model to
-// authorize it, an audit actor that is a machine, and an answer to "what stops an agent closing its
-// own recommendation". Those are real design questions, and shipping reads first answers the
-// distribution question without pre-committing any of them.
+// MOSTLY READS, AND TWO WRITES THAT EARNED THEIR DOOR. This catalog shipped read-only, and the
+// reason given was that a write tool is a governance surface needing an authorization model, a
+// machine audit actor, and an answer to "what stops an agent closing its own recommendation". Those
+// questions are now answered rather than deferred, and the answers are what the write tools are
+// allowed to be: they report the agent's OWN behaviour (it ran this skill; it used this memory) and
+// they change no judgement the org made. Nothing here closes a recommendation, adopts a practice or
+// edits a memory — the write door is for evidence, not for decisions. A write tool carries
+// `mutates: true`, needs `telemetry:write` on top of the resource scope it writes about, is gated by
+// `src/lib/mcp/write-gate.ts`, records one audit row per accepted call, and is refused outright to
+// Athena.
 //
 // SCOPES ARE PER-TOOL, and `tools/list` filters by what the caller's token actually holds. The
 // revision blesses this explicitly: the tool set "MAY vary by the authorization presented on the
@@ -60,6 +66,33 @@ const repoArg = {
  * across calls, which is what keeps an LLM's prompt cache warm.
  */
 export const MCP_TOOLS: readonly McpToolDef[] = [
+  {
+    name: "cite_memory",
+    title: "Cite a recalled memory",
+    description:
+      "Report whether a memory this door delivered to you was actually USED in what you did, or was " +
+      "read and did not help. This is the only evidence of usefulness the memory store can have — " +
+      "without it, a memory that answered your question and one you ignored look identical. Call it " +
+      "with the `id` from a recall_org_memory entry, once per memory per session.",
+    scopes: ["mcp:read", "memory:read", "telemetry:write"],
+    planGate: "memory",
+    mutates: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The memory's `id`, exactly as recall_org_memory returned it." },
+        used: { type: "boolean", description: "True if you used this memory; false if it did not help." },
+        session: {
+          type: "string",
+          description:
+            "Your own session id. One vote per memory per session — re-sending revises your vote rather than adding one.",
+        },
+        note: { type: "string", description: "One line on how it applied, or why it did not. Optional." },
+      },
+      required: ["id", "used", "session"],
+      additionalProperties: false,
+    },
+  },
   {
     name: "get_ai_stance",
     title: "AI stance",
@@ -142,6 +175,33 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         limit: { type: "integer", minimum: 1, maximum: 20, description: "Max entries (default 5)." },
       },
       required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "report_skill_invoke",
+    title: "Report a skill invocation",
+    description:
+      "Tell this organization that you actually ran one of its skills. The Skills Library ranks and " +
+      "retires skills on whether they are used, and an agent invoking a skill locally is invisible to " +
+      "it otherwise — an unreported skill reads as dormant however often it runs. Report once per " +
+      "skill per session; a repeat with the same session is not counted twice.",
+    scopes: ["mcp:read", "skills:read", "telemetry:write"],
+    planGate: "skills",
+    mutates: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        skill: { type: "string", description: "The skill's name, as find_skills or get_skill returned it." },
+        session: { type: "string", description: "Your own session id — the deduplication key." },
+        version: {
+          type: "string",
+          description:
+            "The version of the skill you ran, if your local copy declares one. Reported back to you when it does not match this organization's current version.",
+        },
+        repo: { type: "string", description: 'The repository you ran it against, as "owner/name". Optional.' },
+      },
+      required: ["skill", "session"],
       additionalProperties: false,
     },
   },
