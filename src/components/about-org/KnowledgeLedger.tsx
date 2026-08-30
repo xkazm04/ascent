@@ -47,10 +47,10 @@ export function KnowledgeLedger() {
   return (
     <div>
       <div className="flex items-center gap-2 rounded-lg border border-divider bg-ink px-3 py-2">
-        <span aria-hidden className="font-mono text-xs text-slate-600">
+        <span aria-hidden className="type-caption text-slate-600">
           ?
         </span>
-        <span className="truncate font-mono text-xs text-slate-300">
+        <span className="truncate type-caption text-slate-300">
           recall: <span className="text-accent">&quot;how do we ship a schema change safely&quot;</span>
         </span>
       </div>
@@ -69,12 +69,12 @@ export function KnowledgeLedger() {
             transition={reduced ? { duration: 0 } : { duration: 0.32, delay: 0.1 + i * 0.09 }}
           >
             <div className="flex items-center justify-between gap-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">
+              <span className="font-mono type-micro uppercase tracking-[0.2em] text-slate-500">
                 {MEMORY_KIND_LABEL[r.kind]}
               </span>
-              <span className="font-mono text-[11px] tabular-nums text-slate-400">{r.value}</span>
+              <span className="font-mono type-micro tabular-nums text-slate-400">{r.value}</span>
             </div>
-            <p className="mt-1.5 text-sm leading-snug text-slate-300">{r.text}</p>
+            <p className="mt-1.5 type-body-sm leading-snug text-slate-300">{r.text}</p>
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-divider">
               <motion.span
                 className="block h-full rounded-full bg-accent"
@@ -91,18 +91,18 @@ export function KnowledgeLedger() {
 
       <div className="mt-5 border-t border-divider pt-4">
         <div className="flex items-center justify-between gap-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">Skills library</span>
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-600">
+          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-500">Skills library</span>
+          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-600">
             {DORMANCY_WINDOW_DAYS}-day window
           </span>
         </div>
         <ul className="mt-2 divide-y divide-divider/70">
           {SKILLS.map((s) => (
             <li key={s.name} className="flex items-center justify-between gap-3 py-2">
-              <span className="truncate font-mono text-xs text-slate-300">{s.name}</span>
+              <span className="truncate type-caption text-slate-300">{s.name}</span>
               <span className="flex shrink-0 items-center gap-3">
-                <span className="font-mono text-[11px] tabular-nums text-slate-600">{s.uses} uses</span>
-                <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${VERDICT_TONE[s.verdict]}`}>
+                <span className="font-mono type-micro tabular-nums text-slate-600">{s.uses} uses</span>
+                <span className={`font-mono type-micro uppercase tracking-[0.2em] ${VERDICT_TONE[s.verdict]}`}>
                   {usageVerdictLabel(s.verdict)}
                 </span>
               </span>

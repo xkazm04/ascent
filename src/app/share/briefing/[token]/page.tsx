@@ -41,7 +41,7 @@ function BrandMark({ branding, className = "" }: { branding?: OrgBranding | null
         <img src={branding.logoUrl} alt="" className="h-6 w-6 object-contain" />
       )}
       {branding.brandName && (
-        <span className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">{branding.brandName}</span>
+        <span className="font-mono type-body font-semibold uppercase tracking-[0.22em] text-white">{branding.brandName}</span>
       )}
     </span>
   );
@@ -56,7 +56,7 @@ function ShareHeader({ branding }: { branding?: OrgBranding | null }) {
     <header className="border-b border-divider/70 bg-ink/80 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
         <BrandMark branding={branding} />
-        <span className="font-mono text-xs uppercase tracking-widest text-slate-500">Shared briefing</span>
+        <span className="type-label tracking-widest text-slate-500">Shared briefing</span>
       </div>
     </header>
   );
@@ -69,7 +69,7 @@ function ShareFooter({ branding }: { branding?: OrgBranding | null }) {
       <BrandMark branding={branding} className="justify-center opacity-70" />
       {/* The Ascent tagline is part of the identity being white-labelled — drop it when branded. */}
       {!branded && (
-        <p className="mt-2 font-mono text-xs uppercase tracking-widest text-slate-500">
+        <p className="mt-2 type-label tracking-widest text-slate-500">
           The maturity index for AI-native engineering
         </p>
       )}
@@ -182,7 +182,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
     <>
       <ShareHeader branding={branding} />
       <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">
-        <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2 font-mono text-sm text-slate-500">
+        <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2 type-mono-sm text-slate-500">
           Read-only shared briefing · {briefing.periodTitle}
           {asOf && <> · data as of {asOf}</>}
           {integrity === "unchanged" && <> · figures unchanged since this link was created</>}
@@ -191,7 +191,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             in silence — when the fingerprint the sender's link carries no longer matches what this
             period now produces, that is stated here, above the figures, not left to be discovered. */}
         {integrity === "changed" && (
-          <div className="mb-4 rounded-lg border border-warn/40 bg-warn/[0.08] px-4 py-3 text-sm text-slate-200">
+          <div className="mb-4 rounded-lg border border-warn/40 bg-warn/[0.08] px-4 py-3 type-body-sm text-slate-200">
             <span className="font-mono uppercase tracking-widest text-warn">⚠ Figures moved</span> — the period below is the
             one that was shared and is frozen, but its numbers are no longer the ones the sender saw (a benchmark, goal,
             repository set or retained scan changed underneath it). These are current. Ask the sender for a fresh link before
@@ -222,8 +222,8 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
       {valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned) && (
           <div className="mt-4 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
-            <span className="font-mono text-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
-            <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
+            <span className="type-mono-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
+            <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
           </div>
         )}
 
@@ -235,7 +235,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were
             produced by the deterministic mock engine rather than the live model. */}
         {briefing.engineMix.length > 0 && (
-          <p className="mt-4 font-mono text-sm text-slate-500">
+          <p className="mt-4 type-mono-sm text-slate-500">
             Scored by {engineMixLabel(briefing.engineMix)}
             {engineMixCaveat(briefing.engineMix) && (
               <span className="text-warn"> · ⚠ {engineMixCaveat(briefing.engineMix)}</span>
@@ -250,16 +250,16 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         {(briefing.forecastHeadline || briefing.regressionCount > 0) && (
           <Card className="mt-6">
             <SectionHeader size="sm" title="Trajectory" />
-            <p className="mt-2 text-base text-slate-300">
+            <p className="mt-2 type-body text-slate-300">
               {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
             </p>
             {/* Carry the same trend-confidence hedge the owner's page + PDF show, so a shared board link
                 can't present a noisy, low-R² projection as a firm commitment. */}
             {briefing.forecastHeadline && forecastConfidenceNote(briefing.forecastConfidence) && (
-              <p className="mt-1 font-mono text-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
+              <p className="mt-1 type-mono-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
             )}
             {briefing.regressionCount > 0 && (
-              <p className="mt-1 font-mono text-sm text-orange-300">
+              <p className="mt-1 type-mono-sm text-orange-300">
                 ⚠ {briefing.regressionCount} repo{briefing.regressionCount > 1 ? "s" : ""} regressed{" "}
                 {start ? "this period" : "since last scan"}.
               </p>

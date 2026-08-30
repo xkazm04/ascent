@@ -129,8 +129,8 @@ export default async function ComparePage({
       <div className="animate-fade-up space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Scan comparison</div>
-            <h1 className="mt-1 text-2xl font-bold text-white">{repoRef}</h1>
+            <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Scan comparison</div>
+            <h1 className="mt-1 type-heading font-bold text-white">{repoRef}</h1>
           </div>
           <div className="flex items-center gap-2">
             <Link
@@ -151,7 +151,7 @@ export default async function ComparePage({
         {unhonored.length > 0 && (
           <p
             role="status"
-            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-base text-amber-200/90"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 type-body text-amber-200/90"
           >
             <span aria-hidden>ⓘ </span>
             {unhonored.length === 1

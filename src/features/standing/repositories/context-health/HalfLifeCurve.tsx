@@ -69,7 +69,7 @@ export function BandBar({ counts, total }: { counts: { fresh: number; aging: num
           s.n > 0 ? <div key={s.key} style={{ width: `${(s.n / Math.max(1, total)) * 100}%`, backgroundColor: s.hex }} /> : null,
         )}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 type-label tracking-[0.18em] text-slate-500">
         {segs.map((s) => (
           <span key={s.key} className="inline-flex items-center gap-1.5">
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: s.hex }} />

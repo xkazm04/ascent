@@ -35,8 +35,8 @@ export function MembersTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-800">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-slate-800 bg-slate-950/50 font-mono text-sm uppercase tracking-widest text-slate-500">
+      <table className="w-full text-left type-body-sm">
+        <thead className="border-b border-slate-800 bg-slate-950/50 type-mono-sm uppercase tracking-widest text-slate-500">
           <tr>
             <th className="px-4 py-2.5">Member</th>
             <th className="px-4 py-2.5">Role</th>
@@ -50,7 +50,7 @@ export function MembersTable({
               <td className="px-4 py-2.5">
                 <span className="font-mono text-slate-200">@{m.login}</span>
                 {m.login === selfLogin && (
-                  <span className="ml-1.5 rounded border border-slate-700 px-1 py-0.5 font-mono text-[10px] text-slate-500">you</span>
+                  <span className="ml-1.5 rounded border border-slate-700 px-1 py-0.5 font-mono type-micro text-slate-500">you</span>
                 )}
                 {m.name && <span className="ml-2 text-slate-500">{m.name}</span>}
               </td>
@@ -61,7 +61,7 @@ export function MembersTable({
                   onChange={(e) => onRoleSelect(m, e.target.value as OrgRole)}
                   aria-label={`Role for ${m.login}`}
                   title={ROLE_HINT[m.role]}
-                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
                 >
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
@@ -70,7 +70,7 @@ export function MembersTable({
                   ))}
                 </select>
                 {confirmDowngrade?.login === m.login && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 font-mono text-sm">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 type-mono-sm">
                     <span className="text-orange-300">
                       Demote yourself to {confirmDowngrade.role}? You&apos;ll lose owner access to this page.
                     </span>
@@ -91,12 +91,12 @@ export function MembersTable({
                   </div>
                 )}
               </td>
-              <td className="px-4 py-2.5 font-mono text-sm text-slate-500">
+              <td className="px-4 py-2.5 type-mono-sm text-slate-500">
                 {new Date(m.createdAt).toLocaleDateString()}
               </td>
               <td className="px-4 py-2.5 text-right">
                 {confirmRemove === m.login ? (
-                  <span className="inline-flex items-center justify-end gap-2 font-mono text-sm">
+                  <span className="inline-flex items-center justify-end gap-2 type-mono-sm">
                     <span className="text-slate-400">Remove?</span>
                     <button
                       onClick={() => onConfirmRemove(m.login)}
@@ -117,7 +117,7 @@ export function MembersTable({
                   <button
                     onClick={() => onRequestRemove(m.login)}
                     disabled={busy === m.login}
-                    className="font-mono text-sm text-slate-500 transition hover:text-danger-soft disabled:opacity-50"
+                    className="type-mono-sm text-slate-500 transition hover:text-danger-soft disabled:opacity-50"
                   >
                     remove
                   </button>

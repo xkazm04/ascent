@@ -78,7 +78,7 @@ export class ReportErrorBoundary extends React.Component<Props, State> {
           <div className="text-5xl" aria-hidden>
             🧭
           </div>
-          <h1 className="mt-4 text-2xl font-bold text-white">This report couldn&apos;t be displayed</h1>
+          <h1 className="mt-4 type-heading font-bold text-white">This report couldn&apos;t be displayed</h1>
           <p className="mt-2 max-w-md text-slate-400">
             {onRetry
               ? "Something in the report data didn't render. This is usually transient; try again."
@@ -89,7 +89,7 @@ export class ReportErrorBoundary extends React.Component<Props, State> {
               <button
                 type="button"
                 onClick={this.handleRetry}
-                className="focus-ring rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
+                className="focus-ring rounded-xl bg-accent px-5 py-2.5 type-body font-medium text-on-accent transition hover:bg-accent-soft"
               >
                 Try again
               </button>
@@ -98,14 +98,14 @@ export class ReportErrorBoundary extends React.Component<Props, State> {
                 {repoRef && (
                   <Link
                     href={`/report?repo=${encodeURIComponent(repoRef)}&fresh=1`}
-                    className="focus-ring rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
+                    className="focus-ring rounded-xl bg-accent px-5 py-2.5 type-body font-medium text-on-accent transition hover:bg-accent-soft"
                   >
                     Scan {repoRef} fresh
                   </Link>
                 )}
                 <Link
                   href="/?scan=1"
-                  className="focus-ring rounded-xl border border-slate-700 px-5 py-2.5 text-base font-medium text-slate-200 transition hover:bg-slate-900"
+                  className="focus-ring rounded-xl border border-slate-700 px-5 py-2.5 type-body font-medium text-slate-200 transition hover:bg-slate-900"
                 >
                   Scan another repo
                 </Link>

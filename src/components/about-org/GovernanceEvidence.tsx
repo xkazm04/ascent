@@ -53,8 +53,8 @@ export function GovernanceEvidence() {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">Fleet controls</span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-600">{FLEET} repos</span>
+        <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-500">Fleet controls</span>
+        <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-600">{FLEET} repos</span>
       </div>
 
       <ul className="mt-3 space-y-3">
@@ -66,8 +66,8 @@ export function GovernanceEvidence() {
           return (
             <li key={c.name}>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate text-sm text-slate-300">{c.name}</span>
-                <span className="shrink-0 font-mono text-xs tabular-nums text-slate-400">
+                <span className="truncate type-body-sm text-slate-300">{c.name}</span>
+                <span className="shrink-0 type-caption tabular-nums text-slate-400">
                   {c.pass}/{FLEET}
                 </span>
               </div>
@@ -88,24 +88,24 @@ export function GovernanceEvidence() {
 
       {/* The gate policy is ONE org-wide setting, and the sheet has to say so — otherwise the last
           bar above reads as 31 repos having configured something individually. */}
-      <p className="mt-3 text-xs leading-relaxed text-slate-500">
+      <p className="mt-3 type-note leading-relaxed text-slate-500">
         One gate policy, set once for the org, applied uniformly to every scanned repository. The bar is
         how many clear it.
       </p>
 
       <div className="mt-5 border-t border-divider pt-4">
         <div className="flex items-center justify-between gap-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">Audit trail</span>
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-600">append-only</span>
+          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-500">Audit trail</span>
+          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-600">append-only</span>
         </div>
         <ul className="mt-2 divide-y divide-divider/70">
           {TRAIL.map((t) => (
             <li key={`${t.actor}-${t.action}`} className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-3 py-2">
-              <span className="font-mono text-[11px] text-slate-500">{t.actor}</span>
-              <span className="truncate font-mono text-[11px] text-slate-300">
+              <span className="font-mono type-micro text-slate-500">{t.actor}</span>
+              <span className="truncate font-mono type-micro text-slate-300">
                 {t.action} <span className="text-slate-600">· {t.target}</span>
               </span>
-              <span className="font-mono text-[11px] tabular-nums text-slate-600">{t.when}</span>
+              <span className="font-mono type-micro tabular-nums text-slate-600">{t.when}</span>
             </li>
           ))}
         </ul>

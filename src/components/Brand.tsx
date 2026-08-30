@@ -217,11 +217,11 @@ export function OrgHeader({
             <Logo />
           </Link>
           <span aria-hidden className="hidden h-6 w-px shrink-0 bg-divider sm:block" />
-          <span className="truncate text-lg font-bold text-white" title={slug}>
+          <span className="truncate type-lede font-bold text-white" title={slug}>
             {slug}
           </span>
           <span
-            className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 font-mono text-sm tabular-nums"
+            className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 type-mono-sm tabular-nums"
             style={{ color: scoreHex(score) }}
             title="Fleet maturity: level · index score"
           >
@@ -229,7 +229,7 @@ export function OrgHeader({
           </span>
           {role && (
             <span
-              className="shrink-0 rounded-md border border-accent/40 bg-accent/5 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent"
+              className="shrink-0 rounded-md border border-accent/40 bg-accent/5 px-2 py-0.5 type-label tracking-widest text-accent"
               title="Your role in this organization"
             >
               {role}
@@ -250,7 +250,7 @@ export function SiteFooter() {
   // Content (brand slot aside) is single-sourced in SiteFooterCore — shared with /about's inline
   // client footer (AboutCTA), which can't import this server component.
   return (
-    <footer className="mt-auto border-t border-divider/70 py-8 text-center text-base text-slate-400">
+    <footer className="mt-auto border-t border-divider/70 py-8 text-center type-body text-slate-400">
       <div className="mx-auto max-w-6xl px-5">
         <SiteFooterCore brand={<Logo className="justify-center opacity-80" />} />
       </div>

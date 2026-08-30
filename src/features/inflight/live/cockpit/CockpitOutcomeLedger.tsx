@@ -30,7 +30,7 @@ function ProvenanceLine({ outcome }: { outcome: LoopLaneOutcome }) {
   // difference between a score that is comparable with the fleet's and one that is not.
   const fold = platformFoldNote(end.platformSignals);
   return (
-    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-slate-600">
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 type-caption text-slate-600">
       <span title={`The engine that produced this lane's after-scan${end.engineDegraded ? " — after the requested model failed" : ""}`}>
         engine {end.engineProvider}
         {end.engineModel ? ` · ${end.engineModel}` : ""}
@@ -66,15 +66,15 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
   return (
     <li className="bg-ink px-4 py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="min-w-0 truncate font-mono text-sm text-slate-200" title={lane.repoFullName}>
+        <span className="min-w-0 truncate type-mono-sm text-slate-200" title={lane.repoFullName}>
           {lane.repoFullName}
           {tag && (
-            <span className="ml-2 rounded-sm border border-accent/40 px-1.5 font-sans text-[0.65rem] uppercase tracking-wide text-accent">
+            <span className="ml-2 rounded-sm border border-accent/40 px-1.5 font-sans type-micro uppercase tracking-wide text-accent">
               {tag}
             </span>
           )}
         </span>
-        <span className="shrink-0 font-mono text-sm tabular-nums">
+        <span className="shrink-0 type-mono-sm tabular-nums">
           {before && after ? (
             <>
               <span className="text-slate-500">
@@ -106,7 +106,7 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
               verdict.kind === "attributable" &&
               attributeDimension(d.id, d.delta, before, after).kind === "attributable";
             return (
-              <li key={d.id} className="font-mono text-xs tabular-nums">
+              <li key={d.id} className="type-caption tabular-nums">
                 <span className="text-slate-500">{dimShort(d.id)}</span>{" "}
                 <span
                   style={{ color: claimable ? deltaHex(d.delta ?? 0) : undefined }}
@@ -121,7 +121,7 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
         </ul>
       )}
 
-      <p className="mt-1.5 font-mono text-xs tabular-nums text-slate-500">
+      <p className="mt-1.5 type-caption tabular-nums text-slate-500">
         {diff ? `${diff.closedGapCount} gaps closed` : "no diff"} · {outcome.closedFollowUpIds.length} follow-ups closed ·{" "}
         {outcome.commits} commits
         {lane.branch && <span className="ml-2 text-slate-600">{lane.branch}</span>}
@@ -130,12 +130,12 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
       <ProvenanceLine outcome={outcome} />
 
       {(diff?.movements ?? []).slice(0, 2).map((line) => (
-        <p key={line} className="mt-1 text-xs leading-relaxed text-slate-400">
+        <p key={line} className="mt-1 type-note leading-relaxed text-slate-400">
           {line}
         </p>
       ))}
 
-      {lane.phase === "error" && lane.error && <p className="mt-1 font-mono text-xs text-danger">{lane.error}</p>}
+      {lane.phase === "error" && lane.error && <p className="mt-1 type-caption text-danger">{lane.error}</p>}
     </li>
   );
 }
@@ -168,16 +168,16 @@ export function OutcomeTotals({
 
   return (
     <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <span className="font-mono text-2xl tabular-nums" style={{ color: deltaHex(lift ?? 0) }}>
+      <span className="type-figure" style={{ color: deltaHex(lift ?? 0) }}>
         {lift == null ? "—" : fmtDelta(lift)}
       </span>
       <Kicker tone="muted">attributable lift</Kicker>
-      <span className="font-mono text-xs tabular-nums text-slate-500">
+      <span className="type-caption tabular-nums text-slate-500">
         {improved} improved · {flat} flat · {regressed} regressed
       </span>
       {parts.length > 0 && (
         <span
-          className="font-mono text-xs tabular-nums text-slate-600"
+          className="type-caption tabular-nums text-slate-600"
           title="Held out of the lift: a movement smaller than the measured run-to-run noise band, or one measured across a scan that fell to the deterministic mock floor, is not evidence the repository changed. Neither is a movement a lane never committed — the loop scans a worktree it then deletes, so an uncommitted lane measured a state that no longer exists."
         >
           excluded: {parts.join(" · ")}

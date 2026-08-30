@@ -49,12 +49,12 @@ export function SelfHostBand() {
           <Kicker as="span" tone="accent">
             Free forever
           </Kicker>
-          <h2 id="self-host-heading" className="deck-h2 mt-3 text-2xl font-bold text-white sm:text-3xl">
+          <h2 id="self-host-heading" className="deck-h2 mt-3 type-heading font-bold text-white sm:type-display">
             Run Ascent yourself
           </h2>
           {/* The claim a reader can check, stated as a fact rather than as a benefit: it is the same
               codebase, so "the cloud has the good version" cannot be true. */}
-          <p className="mt-3 max-w-3xl text-base leading-relaxed text-slate-300">
+          <p className="mt-3 max-w-3xl type-body leading-relaxed text-slate-300">
             Ascent is open source under the{" "}
             <span className="text-slate-100">GNU AGPL-3.0</span>. Clone it, run it, and every tier
             below is switched on — because the same code runs here. The plans on this page buy
@@ -65,13 +65,13 @@ export function SelfHostBand() {
           <dl className="mt-7 grid gap-x-8 gap-y-5 sm:grid-cols-2">
             {POINTS.map((p) => (
               <div key={p.title}>
-                <dt className="flex gap-2.5 text-sm font-medium text-white">
+                <dt className="flex gap-2.5 type-body-sm font-medium text-white">
                   <span aria-hidden="true" className="mt-px select-none text-accent">
                     ✓
                   </span>
                   {p.title}
                 </dt>
-                <dd className="mt-1 pl-6 text-sm leading-relaxed text-slate-400">{p.body}</dd>
+                <dd className="mt-1 pl-6 type-body-sm leading-relaxed text-slate-400">{p.body}</dd>
               </div>
             ))}
           </dl>
@@ -91,11 +91,11 @@ export function SelfHostBand() {
                 Self-hosting guide →
               </a>
             ) : (
-              <span className="text-sm text-slate-400">
+              <span className="type-body-sm text-slate-400">
                 Self-hosting guide: <span className="font-mono text-slate-300">docs/SELF-HOSTING.md</span>
               </span>
             )}
-            <code className="rounded-lg border border-divider bg-ink px-3 py-2 font-mono text-xs text-slate-300">
+            <code className="rounded-lg border border-divider bg-ink px-3 py-2 type-caption text-slate-300">
               docker compose --profile app up -d
             </code>
           </div>

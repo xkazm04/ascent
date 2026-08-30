@@ -95,8 +95,8 @@ export function RepoDimensionModal({
         <>
           <ModalHeader kicker={target.fullName} title={`${target.dimId} · ${short}`} />
           <ModalBody>
-            {loading && <p className="font-mono text-sm text-slate-500">Loading…</p>}
-            {error && <p className="text-sm text-danger">{error}</p>}
+            {loading && <p className="type-mono-sm text-slate-500">Loading…</p>}
+            {error && <p className="type-body-sm text-danger">{error}</p>}
             {data && (
               <>
                 {/* Reuses the report's DimensionDetail — with `series`/`prevScore` it also renders the
@@ -108,10 +108,10 @@ export function RepoDimensionModal({
           </ModalBody>
           {data && (
             <ModalFooter>
-              <span className="font-mono text-sm text-slate-500">
+              <span className="type-mono-sm text-slate-500">
                 Scanned {data.scannedAt.slice(0, 10)} · overall {data.overall} · {data.level.id}
               </span>
-              <Link href={`/report/${data.repo}`} className="focus-ring font-mono text-sm text-accent hover:text-white">
+              <Link href={`/report/${data.repo}`} className="focus-ring type-mono-sm text-accent hover:text-white">
                 Full report →
               </Link>
             </ModalFooter>
@@ -125,12 +125,12 @@ export function RepoDimensionModal({
 function NextSteps({ steps, score }: { steps: ScanReport["roadmap"]; score: number }) {
   return (
     <div className="mt-5 border-t border-divider pt-4">
-      <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Next steps</div>
+      <div className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Next steps</div>
       {steps.length === 0 ? (
         // Two different silences. Above the line the dimension has genuinely earned "nothing owed";
         // below it a missing follow-up is a scan that predates the guarantee, and the honest copy
         // says so rather than certifying a 40 as "not a gap".
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 type-body-sm text-slate-500">
           {score >= FOLLOW_UP_BELOW
             ? "No open recommendations: this dimension is in the green band, so nothing is owed here yet."
             : "No follow-up on record for this dimension. Scans now carry one for every dimension below the green band; re-scan to get it."}
@@ -141,19 +141,19 @@ function NextSteps({ steps, score }: { steps: ScanReport["roadmap"]; score: numb
             <li key={i} className="rounded-lg border border-divider bg-surface/40 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium text-white">{r.title}</span>
-                <span className={`rounded border px-1.5 py-0.5 font-mono text-xs ${IMPACT_CLASS[r.impact] ?? "border-slate-700 text-slate-400"}`}>
+                <span className={`rounded border px-1.5 py-0.5 type-caption ${IMPACT_CLASS[r.impact] ?? "border-slate-700 text-slate-400"}`}>
                   impact {r.impact}
                 </span>
-                <span className={`rounded border px-1.5 py-0.5 font-mono text-xs ${EFFORT_CLASS[r.effort] ?? "border-slate-700 text-slate-400"}`}>
+                <span className={`rounded border px-1.5 py-0.5 type-caption ${EFFORT_CLASS[r.effort] ?? "border-slate-700 text-slate-400"}`}>
                   effort {r.effort}
                 </span>
                 {r.levelUnlock && (
-                  <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">{r.levelUnlock}</span>
+                  <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">{r.levelUnlock}</span>
                 )}
               </div>
-              {r.rationale && <MarkdownLite text={r.rationale} className="mt-1.5 text-sm text-slate-300" />}
+              {r.rationale && <MarkdownLite text={r.rationale} className="mt-1.5 type-body-sm text-slate-300" />}
               {r.explore && r.explore.length > 0 && (
-                <ul className="mt-2 space-y-1 text-sm text-slate-400">
+                <ul className="mt-2 space-y-1 type-body-sm text-slate-400">
                   {r.explore.map((q, j) => (
                     <li key={j} className="flex gap-2">
                       <span className="select-none text-slate-600">→</span>

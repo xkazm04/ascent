@@ -70,9 +70,9 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
     <Surface className="p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Missing from GitHub</Kicker>
-        <span className="font-mono text-sm tabular-nums text-slate-500">{rows.length}</span>
+        <span className="type-mono-sm tabular-nums text-slate-500">{rows.length}</span>
       </div>
-      <p className="mt-2 text-sm text-slate-400">
+      <p className="mt-2 type-body-sm text-slate-400">
         {rows.length === 1 ? "This watched repo was" : `These ${rows.length} watched repos were`} absent from the
         last complete listing of <span className="font-mono">{org}</span>: renamed, transferred, made private, or
         deleted. {rows.length === 1 ? "It keeps" : "They keep"} taking a scheduled-rescan slot and failing. Nothing
@@ -86,12 +86,12 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
                 href={r.url}
                 target="_blank"
                 rel="noreferrer"
-                className="focus-ring truncate font-mono text-sm text-slate-300 transition hover:text-accent"
+                className="focus-ring truncate type-mono-sm text-slate-300 transition hover:text-accent"
               >
                 {r.fullName}
               </a>
               <span
-                className="ml-2 font-mono text-sm tabular-nums text-warn"
+                className="ml-2 type-mono-sm tabular-nums text-warn"
                 title={`First missing on ${r.missingSince.slice(0, 10)}`}
               >
                 missing since {r.missingSince.slice(0, 10)} ({timeAgo(r.missingSince)})
@@ -102,7 +102,7 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
               onClick={() => unwatch(r)}
               aria-disabled={pending !== null || undefined}
               aria-label={`Unwatch ${r.fullName}`}
-              className={`rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+              className={`rounded-md border border-slate-700 px-2 py-1 type-mono-sm text-slate-300 transition focus:border-accent focus:outline-none ${
                 pending !== null ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
               }`}
             >
@@ -112,7 +112,7 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
         ))}
       </ul>
       {error && (
-        <p role="alert" className="mt-2 text-sm text-danger">
+        <p role="alert" className="mt-2 type-body-sm text-danger">
           {error}
         </p>
       )}

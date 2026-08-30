@@ -67,8 +67,8 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
       <main id="main" className="mx-auto w-full max-w-6xl px-5 py-12">
         <div className="border-b border-divider pb-4">
           <Kicker>Public scorecard</Kicker>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">{card.owner}</h1>
-          <p className="mt-3 max-w-3xl text-lg leading-relaxed text-slate-400">
+          <h1 className="mt-2 type-display font-bold tracking-tight text-white sm:type-display-lg">{card.owner}</h1>
+          <p className="mt-3 max-w-3xl type-lede leading-relaxed text-slate-400">
             How AI-native {card.owner}&apos;s public repositories are, aggregated from the same open
             reports on the{" "}
             <Link href="/leaderboard" className="focus-ring rounded-sm text-slate-200 underline decoration-dotted underline-offset-2 hover:text-accent">
@@ -82,7 +82,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
 
         {ranked.length > 0 && (
           <section aria-labelledby="repos" className="mt-14">
-            <h2 id="repos" className="text-xl font-bold tracking-tight text-white">
+            <h2 id="repos" className="type-title font-bold tracking-tight text-white">
               Scored repositories
             </h2>
             <LeaderboardTable rows={ranked} />
@@ -91,10 +91,10 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
 
         {preview.length > 0 && (
           <section aria-labelledby="preview" className="mt-14">
-            <h2 id="preview" className="text-xl font-bold tracking-tight text-white">
+            <h2 id="preview" className="type-title font-bold tracking-tight text-white">
               Preview scans (not counted)
             </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+            <p className="mt-2 max-w-2xl type-body-sm leading-relaxed text-slate-400">
               Scored by the deterministic preview rubric with no model in the loop. Listed for
               completeness; excluded from every published number on this page.
             </p>

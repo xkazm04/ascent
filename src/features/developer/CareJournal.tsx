@@ -42,10 +42,10 @@ export function CareJournal({
         {rows.map((e, i) => (
           <li key={`${e.at}-${i}`} className="relative">
             <span className="absolute -left-[1.4rem] top-2 h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-            <div className="font-mono text-xs uppercase tracking-widest text-slate-500">
+            <div className="type-label tracking-widest text-slate-500">
               {shortDate(e.at)} · {e.kind ? KIND_LABEL[e.kind] ?? e.kind : "note"}
             </div>
-            <p className="mt-0.5 text-base text-slate-200">{e.line}</p>
+            <p className="mt-0.5 type-body text-slate-200">{e.line}</p>
           </li>
         ))}
       </ol>
@@ -56,11 +56,11 @@ export function CareJournal({
     <div className="mt-3 divide-y divide-divider border-y border-divider">
       {rows.map((e, i) => (
         <article key={`${e.at}-${i}`} className="grid gap-1 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
-          <div className="font-mono text-xs uppercase tracking-widest text-slate-500">
+          <div className="type-label tracking-widest text-slate-500">
             {shortDate(e.at)} · {timeAgo(e.at)}
             {e.kind ? <div className="text-slate-600">{KIND_LABEL[e.kind] ?? e.kind}</div> : null}
           </div>
-          <p className="text-base text-slate-200">{e.line}</p>
+          <p className="type-body text-slate-200">{e.line}</p>
         </article>
       ))}
     </div>

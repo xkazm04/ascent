@@ -29,7 +29,7 @@ export function IntegrationsPanel({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <Kicker tone="accent">How spend maps to repos</Kicker>
-            <p className="mt-1.5 text-sm text-slate-300">
+            <p className="mt-1.5 type-body-sm text-slate-300">
               Each connected provider feeds the{" "}
               <Link href={orgTabHref(slug, "delivery")} className="text-accent transition hover:text-white">
                 AI delivery
@@ -39,7 +39,7 @@ export function IntegrationsPanel({
           </div>
           <ul className="flex flex-col gap-1.5">
             {(Object.keys(FIDELITY_META) as Fidelity[]).map((f) => (
-              <li key={f} className="flex items-baseline gap-2 font-mono text-xs">
+              <li key={f} className="flex items-baseline gap-2 type-caption">
                 <span aria-hidden className="translate-y-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: FIDELITY_META[f].hex }} />
                 <span className="shrink-0" style={{ color: FIDELITY_META[f].hex }}>
                   {FIDELITY_META[f].label}

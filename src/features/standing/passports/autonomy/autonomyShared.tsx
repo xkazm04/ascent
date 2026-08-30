@@ -19,7 +19,7 @@ export function SourcePin({ source, className = "" }: { source: GateSource; clas
   return (
     <span
       title={title}
-      className={`rounded border border-dashed border-slate-600 px-1 font-mono text-xs uppercase tracking-[0.18em] text-slate-500 ${className}`}
+      className={`rounded border border-dashed border-slate-600 px-1 type-label tracking-[0.18em] text-slate-500 ${className}`}
     >
       {label}
     </span>
@@ -59,8 +59,8 @@ export function AutonomyPreamble({ kicker, title, intro }: { kicker: string; tit
   return (
     <div>
       <Kicker>{kicker}</Kicker>
-      <h2 className="mt-2 text-2xl font-medium text-white">{title}</h2>
-      <p className="mt-2 max-w-3xl text-base text-slate-300">{intro}</p>
+      <h2 className="mt-2 type-heading font-medium text-white">{title}</h2>
+      <p className="mt-2 max-w-3xl type-body text-slate-300">{intro}</p>
     </div>
   );
 }

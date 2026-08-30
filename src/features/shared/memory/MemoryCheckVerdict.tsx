@@ -35,10 +35,10 @@ export function CheckVerdict({
     <div className={`mt-3 rounded-xl border p-3 ${tone}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-200">
+          <p className="type-body-sm font-medium text-slate-200">
             {recommendationCopy(recommendation, duplicates.length)}
           </p>
-          <p className="mt-0.5 font-mono text-xs text-slate-500">
+          <p className="mt-0.5 type-caption text-slate-500">
             {/* Never imply we scanned the whole store — say exactly what was compared, and by what. */}
             compared {comparedCount} memor{comparedCount === 1 ? "y" : "ies"} ·{" "}
             {llmUnavailable ? (
@@ -52,7 +52,7 @@ export function CheckVerdict({
         </div>
         <button
           onClick={onDismiss}
-          className="shrink-0 font-mono text-xs text-slate-600 hover:text-slate-300"
+          className="shrink-0 type-caption text-slate-600 hover:text-slate-300"
           title="Dismiss this check"
         >
           dismiss
@@ -60,8 +60,8 @@ export function CheckVerdict({
       </div>
 
       {summary && (
-        <p className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-sm text-slate-300">
-          <span className="font-mono text-xs text-slate-500">suggested phrasing · </span>
+        <p className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 type-body-sm text-slate-300">
+          <span className="type-caption text-slate-500">suggested phrasing · </span>
           {summary}
         </p>
       )}
@@ -88,22 +88,22 @@ export function CheckVerdict({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+                      <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">
                         {RELATION_LABEL[d.relation]}
                       </span>
-                      <span className="font-mono text-xs text-slate-500" title="Similarity to the proposed memory">
+                      <span className="type-caption text-slate-500" title="Similarity to the proposed memory">
                         {Math.round(d.similarity * 100)}% match
                       </span>
-                      <span className="font-mono text-xs text-slate-600">
+                      <span className="type-caption text-slate-600">
                         {memoryKindLabel(d.memory.kind)}
                         {d.memory.createdBy ? ` · ${d.memory.createdBy}` : ""}
                       </span>
                     </span>
-                    <span className="mt-1 block text-sm text-slate-300">
+                    <span className="mt-1 block type-body-sm text-slate-300">
                       {d.memory.content.slice(0, EXCERPT)}
                       {d.memory.content.length > EXCERPT && "…"}
                     </span>
-                    {d.reason && <span className="mt-0.5 block text-xs text-slate-500">{d.reason}</span>}
+                    {d.reason && <span className="mt-0.5 block type-note text-slate-500">{d.reason}</span>}
                   </span>
                 </label>
               );
@@ -122,16 +122,16 @@ export function CheckVerdict({
               onChange={() => setSupersedeId(null)}
               className="shrink-0"
             />
-            <span className="text-sm text-slate-300">
+            <span className="type-body-sm text-slate-300">
               Keep both
-              <span className="ml-1.5 font-mono text-xs text-slate-600">
+              <span className="ml-1.5 type-caption text-slate-600">
                 (store this as a new, independent memory)
               </span>
             </span>
           </label>
 
           {supersedeId && (
-            <p className="mt-2 font-mono text-xs text-amber-300/80">
+            <p className="mt-2 type-caption text-amber-300/80">
               On save, the selected memory is marked superseded and leaves the default list. Its history
               is kept.
             </p>

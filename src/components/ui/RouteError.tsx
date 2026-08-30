@@ -56,10 +56,10 @@ export function RouteError({
 
   const inner = (
     <>
-      <p className="font-mono text-sm uppercase tracking-[0.3em] text-danger">Error</p>
-      <h1 className="mt-4 text-2xl font-semibold text-white sm:text-3xl">{title}</h1>
-      <p className="mt-3 max-w-md text-base text-slate-400">{description}</p>
-      {error.digest && <p className="mt-2 font-mono text-sm text-slate-500">Reference: {error.digest}</p>}
+      <p className="type-mono-sm uppercase tracking-[0.3em] text-danger">Error</p>
+      <h1 className="mt-4 type-heading font-semibold text-white sm:type-display">{title}</h1>
+      <p className="mt-3 max-w-md type-body text-slate-400">{description}</p>
+      {error.digest && <p className="mt-2 type-mono-sm text-slate-500">Reference: {error.digest}</p>}
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <button onClick={retry} className={CTA_PRIMARY}>
           Try again

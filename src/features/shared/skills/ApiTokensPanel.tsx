@@ -86,20 +86,20 @@ export function ApiTokensPanel({
 
       {revealed && (
         <div className="mt-3 rounded border border-emerald-700/60 bg-emerald-950/40 p-3">
-          <p className="text-sm text-emerald-200">Copy this token now; it won&apos;t be shown again.</p>
+          <p className="type-body-sm text-emerald-200">Copy this token now; it won&apos;t be shown again.</p>
           <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-xs text-emerald-100">{revealed}</code>
+            <code className="flex-1 overflow-x-auto rounded bg-slate-900 px-2 py-1 type-caption text-emerald-100">{revealed}</code>
             <button
               type="button"
               onClick={() => navigator.clipboard?.writeText(revealed)}
-              className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              className="rounded border border-slate-600 px-2 py-1 type-note text-slate-200 hover:bg-slate-800"
             >
               Copy
             </button>
             <button
               type="button"
               onClick={() => setRevealed(null)}
-              className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
+              className="rounded border border-slate-600 px-2 py-1 type-note text-slate-400 hover:bg-slate-800"
             >
               Done
             </button>
@@ -109,21 +109,21 @@ export function ApiTokensPanel({
 
       <div className="mt-4">
         {tokens.length === 0 ? (
-          <p className="text-sm text-slate-500">No tokens yet. Mint one below to connect a repo or CI.</p>
+          <p className="type-body-sm text-slate-500">No tokens yet. Mint one below to connect a repo or CI.</p>
         ) : (
           <ul className="divide-y divide-slate-800 rounded border border-slate-800">
             {tokens.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-3 px-3 py-2">
                 <div className="min-w-0">
                   <span className="font-medium text-slate-200">{t.name}</span>
-                  <span className="ml-2 font-mono text-xs text-slate-500">{t.tokenPrefix}…</span>
+                  <span className="ml-2 type-caption text-slate-500">{t.tokenPrefix}…</span>
                   <div className="mt-0.5 flex flex-wrap gap-1">
                     {t.scopes.map((s) => (
-                      <span key={s} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">{s}</span>
+                      <span key={s} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono type-micro text-slate-400">{s}</span>
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-slate-500">
+                <div className="flex items-center gap-3 type-note text-slate-500">
                   <span className="hidden sm:inline">{t.lastUsedAt ? `used ${new Date(t.lastUsedAt).toLocaleDateString()}` : "never used"}</span>
                   <button type="button" onClick={() => revoke(t.id)} className="rounded border border-slate-700 px-2 py-1 text-orange-300 hover:bg-slate-800">
                     Revoke
@@ -141,27 +141,27 @@ export function ApiTokensPanel({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Token name (e.g. CI, laptop)"
-            className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600"
+            className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 type-body-sm text-slate-100 placeholder:text-slate-600"
           />
           <button
             type="button"
             onClick={create}
             disabled={busy || !name.trim() || picked.size === 0}
-            className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+            className="rounded bg-emerald-700 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
           >
             {busy ? "Creating…" : "Create token"}
           </button>
         </div>
         <div className="flex flex-wrap gap-3">
           {scopes.map((s) => (
-            <label key={s} className="flex items-center gap-1.5 text-xs text-slate-300">
+            <label key={s} className="flex items-center gap-1.5 type-note text-slate-300">
               <input type="checkbox" checked={picked.has(s)} onChange={() => toggle(s)} className="accent-emerald-600" />
               {SCOPE_LABEL[s] ?? s}
             </label>
           ))}
         </div>
       </div>
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {error && <p className="mt-2 type-body-sm text-orange-300">{error}</p>}
     </Card>
   );
 }

@@ -117,7 +117,7 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
               type="button"
               onClick={installAll}
               disabled={busy || missing.length === 0}
-              className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-40"
+              className="focus-ring rounded-lg bg-accent px-4 py-2 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-40"
             >
               {missing.length === 0
                 ? "Foundation installed everywhere"
@@ -128,7 +128,7 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
       />
 
       {notice && (
-        <p role="status" className="mt-3 rounded-lg border border-divider bg-surface/60 px-3 py-2 text-sm text-slate-300">
+        <p role="status" className="mt-3 rounded-lg border border-divider bg-surface/60 px-3 py-2 type-body-sm text-slate-300">
           {notice}
         </p>
       )}
@@ -165,7 +165,7 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
         </OrgTable>
       </div>
 
-      <p className="mt-3 text-sm text-slate-500">
+      <p className="mt-3 type-body-sm text-slate-500">
         <span className="font-mono text-slate-400">—</span> under Conformance means{" "}
         <strong className="text-slate-400">never reported</strong>, not 0%.{" "}
         <span className="text-slate-400">Not provisioned</span> means Ascent has written no report-back secrets here —

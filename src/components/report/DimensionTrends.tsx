@@ -172,7 +172,7 @@ export function DimensionTrends({
           <button
             type="button"
             onClick={() => setRange("all")}
-            className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-xl border border-slate-700 px-5 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
           >
             Show all
           </button>
@@ -180,7 +180,7 @@ export function DimensionTrends({
       ) : (
         <>
           <Surface radius="2xl" className="p-6">
-            <h2 className="text-lg font-semibold text-white">Overall maturity</h2>
+            <h2 className="type-lede font-semibold text-white">Overall maturity</h2>
             <div className="mt-3">
               <TrendChart points={overall} annotations={annotations} />
             </div>
@@ -188,7 +188,7 @@ export function DimensionTrends({
 
           <div ref={dimRef}>
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">By dimension</h2>
+              <h2 className="type-lede font-semibold text-white">By dimension</h2>
               {/* Count the series ACTUALLY plotted here (dimChrono, from the lazy /api/history `full`
                   payload), not the overall series — they can differ in length if a scan lands
                   between SSR and the dim-fetch or the DB clamps the limit differently. Fall back to
@@ -204,13 +204,13 @@ export function DimensionTrends({
                 plot retained scans only, so when the overall chart above is showing a compacted head
                 the two cover different spans and the reader has to be told which. */}
             {dimState === "done" && overall.some((p) => p.compacted) && (
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 type-body-sm text-slate-500">
                 The cards below cover the retained scans only — the compacted periods on the overall
                 chart keep no per-dimension detail at this depth.
               </p>
             )}
             {dimState === "done" && hasMockPoint(meta.map((m) => m.engine)) && (
-              <p className="mt-2 flex items-start gap-2 text-sm text-slate-500">
+              <p className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
                 <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
                   <circle cx={6} cy={6} r={4} fill="var(--color-surface-strong)" stroke="currentColor" strokeWidth={2} />
                 </svg>
@@ -224,18 +224,18 @@ export function DimensionTrends({
                   <Surface key={r.id} radius="xl" className="p-4">
                     <div className="flex items-start justify-between">
                       <div>
-                        <span className="font-mono text-sm text-slate-500">{r.id}</span>
-                        <h3 className="text-base font-semibold text-white">{r.name}</h3>
+                        <span className="type-mono-sm text-slate-500">{r.id}</span>
+                        <h3 className="type-body font-semibold text-white">{r.name}</h3>
                       </div>
                       <div className="text-right">
                         <div
-                          className="font-mono text-xl font-bold tabular-nums"
+                          className="font-mono type-title font-bold tabular-nums"
                           style={{ color: r.current !== undefined ? scoreHex(r.current) : "#475569" }}
                         >
                           {/* Redundant (non-color) cue so the score's level reads without relying on
                               hue alone (CVD) — mirrors the report's treatment. */}
                           {r.current !== undefined && (
-                            <span aria-hidden className="mr-1 align-middle text-sm">
+                            <span aria-hidden className="mr-1 align-middle type-body-sm">
                               {scoreGlyph(r.current)}
                             </span>
                           )}
@@ -254,7 +254,7 @@ export function DimensionTrends({
                   <button
                     type="button"
                     onClick={() => void loadDimensions()}
-                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
                   >
                     Retry
                   </button>

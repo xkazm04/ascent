@@ -73,10 +73,10 @@ export function ConfirmActionContent({
     <>
       <ModalHeader kicker={kicker ?? "Confirm"} title={title} />
       <ModalBody>
-        <p className="text-base text-slate-300">{body}</p>
+        <p className="type-body text-slate-300">{body}</p>
       </ModalBody>
       <ModalFooter>
-        <span className="font-mono text-xs text-slate-500">Esc or Cancel to back out</span>
+        <span className="type-caption text-slate-500">Esc or Cancel to back out</span>
         <div className="flex items-center gap-2">
           <button
             ref={cancelRef}
@@ -86,7 +86,7 @@ export function ConfirmActionContent({
             autoFocus
             onClick={onCancel}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             Cancel
           </button>
@@ -94,7 +94,7 @@ export function ConfirmActionContent({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`focus-ring rounded-lg px-4 py-2 font-mono text-sm font-semibold transition disabled:opacity-50 ${CONFIRM_CLASS[tone]}`}
+            className={`focus-ring rounded-lg px-4 py-2 type-mono-sm font-semibold transition disabled:opacity-50 ${CONFIRM_CLASS[tone]}`}
           >
             {busy ? "Working…" : confirmLabel}
           </button>

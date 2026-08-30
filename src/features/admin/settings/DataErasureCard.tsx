@@ -89,7 +89,7 @@ export function DataErasureCard({ slug }: { slug: string }) {
         description="On-demand erasure for a data-subject or contract request: deletes this organization's scan history now, instead of waiting for the retention schedule. Irreversible."
         size="sm"
       />
-      <p className="mt-3 max-w-2xl text-sm text-slate-400">
+      <p className="mt-3 max-w-2xl type-body-sm text-slate-400">
         Scan results and the analysis derived from them are erased. The organization, its repositories, its members
         and everything you configured (watch flags, schedules, segments, passport overrides) are kept. You will be
         asked to type <span className="font-mono text-slate-300">{slug}</span> to confirm, and shown the full list
@@ -99,12 +99,12 @@ export function DataErasureCard({ slug }: { slug: string }) {
         <button
           type="button"
           onClick={openDialog}
-          className="focus-ring rounded-lg border border-danger/50 bg-danger/10 px-3 py-1.5 text-sm font-medium text-danger-soft transition hover:bg-danger/20 hover:text-white"
+          className="focus-ring rounded-lg border border-danger/50 bg-danger/10 px-3 py-1.5 type-body-sm font-medium text-danger-soft transition hover:bg-danger/20 hover:text-white"
         >
           Erase organization data…
         </button>
         {error && !open && (
-          <span role="alert" className="text-sm text-orange-300">
+          <span role="alert" className="type-body-sm text-orange-300">
             <span aria-hidden>⚠</span> {error}
           </span>
         )}
@@ -134,7 +134,7 @@ export function DataErasureCard({ slug }: { slug: string }) {
               onConfirm={() => void run()}
             />
             {error && (
-              <p role="alert" className="border-t border-divider px-6 py-3 text-sm text-orange-300">
+              <p role="alert" className="border-t border-divider px-6 py-3 type-body-sm text-orange-300">
                 <span aria-hidden>⚠</span> {error}
               </p>
             )}

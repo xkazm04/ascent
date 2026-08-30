@@ -28,7 +28,7 @@ export function SkillTracePanel({ slug, skill }: { slug: string; skill: string }
 
   return (
     <details className="group mt-2" onToggle={open}>
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 font-mono text-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 type-mono-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">
           ›
         </span>
@@ -37,18 +37,18 @@ export function SkillTracePanel({ slug, skill }: { slug: string; skill: string }
       </summary>
 
       <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-        {state === "loading" && <p className="font-mono text-xs text-slate-600">reading history…</p>}
+        {state === "loading" && <p className="type-caption text-slate-600">reading history…</p>}
 
         {state === "done" && trace?.error && (
           // NOT an empty timeline. "This skill has no history" and "we could not read it" are
           // different claims, and only one of them is about the skill.
-          <p className="font-mono text-xs text-warn">{trace.error}</p>
+          <p className="type-caption text-warn">{trace.error}</p>
         )}
 
         {state === "done" && trace && !trace.error && (
           <>
             {trace.stale && (
-              <p className="mb-2 font-mono text-xs text-slate-600">
+              <p className="mb-2 type-caption text-slate-600">
                 showing the last history Ascent could read — GitHub is unreachable right now
               </p>
             )}

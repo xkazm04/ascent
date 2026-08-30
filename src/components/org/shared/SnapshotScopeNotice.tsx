@@ -69,12 +69,12 @@ export function SnapshotScopeNotice({
             struck through and aria-disabled so it can never read as an active choice. */}
         <span
           aria-disabled="true"
-          className="inline-flex items-center rounded-md border border-divider px-2.5 py-1 font-mono text-sm text-slate-500 line-through decoration-slate-600"
+          className="inline-flex items-center rounded-md border border-divider px-2.5 py-1 type-mono-sm text-slate-500 line-through decoration-slate-600"
         >
           {label}
         </span>
       </div>
-      <p className="mt-2 max-w-3xl text-sm text-slate-400">
+      <p className="mt-2 max-w-3xl type-body-sm text-slate-400">
         These {subject} numbers are a <span className="text-slate-200">scan-time snapshot</span>, not a
         period aggregate. Contributor commit totals and pull-request stats are captured once per scan and
         stored without per-day history, so no time range (including the one selected above) can re-cut

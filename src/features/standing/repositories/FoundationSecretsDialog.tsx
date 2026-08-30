@@ -43,17 +43,17 @@ export function FoundationSecretsDialog({
       <ModalBody className="space-y-4">
         {provisioning ? (
           <>
-            <p className="text-sm text-slate-300">
+            <p className="type-body-sm text-slate-300">
               Ascent will write two GitHub Actions secrets into <span className="font-mono text-white">{repo}</span>, so
               the foundation&apos;s CI job can post its <span className="font-mono">doctor</span> score back here instead
               of printing <span className="font-mono">reportSkipped</span>.
             </p>
-            <ul className="space-y-1 font-mono text-sm text-slate-400">
+            <ul className="space-y-1 type-mono-sm text-slate-400">
               {CONFORMANCE_SECRET_NAMES.map((n) => (
                 <li key={n}>· {n}</li>
               ))}
             </ul>
-            <p className="text-sm text-slate-400">
+            <p className="type-body-sm text-slate-400">
               This needs the GitHub App&apos;s <strong className="text-slate-300">Secrets: write</strong> permission on
               this repo. The token is minted fresh, scoped to <span className="font-mono">telemetry:write</span> (it can
               report a score and nothing else), and is never shown again. You can remove both secrets and revoke the
@@ -61,7 +61,7 @@ export function FoundationSecretsDialog({
             </p>
           </>
         ) : (
-          <p className="text-sm text-slate-300">
+          <p className="type-body-sm text-slate-300">
             Both secrets are deleted from <span className="font-mono text-white">{repo}</span> and the report-back token
             is revoked. Nothing Ascent wrote survives this. The repo keeps its <span className="font-mono">.ai/</span>{" "}
             foundation and can still run the doctor locally — it just stops reporting.
@@ -69,7 +69,7 @@ export function FoundationSecretsDialog({
         )}
 
         <label className="block">
-          <span className="mb-1 block text-sm text-slate-400">
+          <span className="mb-1 block type-body-sm text-slate-400">
             Type <span className="font-mono text-white">{repo}</span> to confirm
           </span>
           <TextInput
@@ -83,7 +83,7 @@ export function FoundationSecretsDialog({
         </label>
 
         {error && (
-          <p role="alert" className="text-sm text-danger-soft">
+          <p role="alert" className="type-body-sm text-danger-soft">
             {error}
           </p>
         )}
@@ -93,7 +93,7 @@ export function FoundationSecretsDialog({
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
+          className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-body-sm text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
         >
           Cancel
         </button>
@@ -101,7 +101,7 @@ export function FoundationSecretsDialog({
           type="button"
           onClick={() => onConfirm(typed.trim())}
           disabled={busy || !matches}
-          className={`focus-ring rounded-lg px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ${
+          className={`focus-ring rounded-lg px-4 py-2 type-body-sm font-semibold transition disabled:opacity-40 ${
             provisioning
               ? "bg-accent text-on-accent hover:bg-accent-soft"
               : "border border-danger/50 text-danger-soft hover:border-danger"

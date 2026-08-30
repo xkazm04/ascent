@@ -47,9 +47,9 @@ export function ContributorsConcentrationTable({
         {rows.map((r) => (
           <tr key={r.fullName} className="text-slate-300">
             <td className="px-4 py-2">
-              <span className="font-mono text-sm text-white">{r.name}</span>
+              <span className="type-mono-sm text-white">{r.name}</span>
               {r.soloMaintainer && (
-                <span className="ml-2 rounded border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-orange-300">
+                <span className="ml-2 rounded border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 type-mono-sm uppercase tracking-widest text-orange-300">
                   key-person
                 </span>
               )}
@@ -59,7 +59,7 @@ export function ContributorsConcentrationTable({
                 login with a neutral placeholder, and rendering it raw makes "name withheld to
                 protect a small population" and "we have no contributor data" the same cell. The
                 typed state carries the distinction; this is the reader that shows it. */}
-            <td className="px-3 py-2 font-mono text-sm text-slate-400">{topContributorLabel(r)}</td>
+            <td className="px-3 py-2 type-mono-sm text-slate-400">{topContributorLabel(r)}</td>
             <td className="px-3 py-2">
               <AiBar pct={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : undefined} />
             </td>

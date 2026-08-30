@@ -28,9 +28,9 @@ export function FoundationRolloutRowView({
   const provisioned = row.reportBackAt != null;
   return (
     <tr>
-      <td className="px-4 py-2.5 font-mono text-sm text-white">{row.repo}</td>
+      <td className="px-4 py-2.5 type-mono-sm text-white">{row.repo}</td>
 
-      <td className="px-4 py-2.5 text-sm">
+      <td className="px-4 py-2.5 type-body-sm">
         {row.foundationPrAt ? (
           <span className="text-emerald-300">
             Installed <span className="font-mono text-slate-500">{shortDate(row.foundationPrAt)}</span>
@@ -40,7 +40,7 @@ export function FoundationRolloutRowView({
         )}
       </td>
 
-      <td className="px-4 py-2.5 text-sm">
+      <td className="px-4 py-2.5 type-body-sm">
         <div className="flex flex-wrap items-center gap-2">
           {provisioned ? (
             <span className="text-emerald-300">
@@ -53,7 +53,7 @@ export function FoundationRolloutRowView({
             type="button"
             disabled={busy}
             onClick={provisioned ? onRevoke : onProvision}
-            className={`focus-ring rounded-md border px-2 py-1 font-mono text-xs uppercase tracking-widest transition disabled:opacity-40 ${
+            className={`focus-ring rounded-md border px-2 py-1 type-label tracking-widest transition disabled:opacity-40 ${
               provisioned
                 ? "border-slate-700 text-slate-400 hover:border-danger/50 hover:text-danger-soft"
                 : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
@@ -64,7 +64,7 @@ export function FoundationRolloutRowView({
         </div>
       </td>
 
-      <td className="px-4 py-2.5 text-sm">
+      <td className="px-4 py-2.5 type-body-sm">
         {row.conformance == null ? (
           <span title="Never reported — this repo has not run node .ai/doctor.mjs --json against Ascent." className="text-slate-500">
             —

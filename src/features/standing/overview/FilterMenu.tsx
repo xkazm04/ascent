@@ -126,7 +126,7 @@ export function FilterMenu({
         }}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className={`focus-ring inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-xs transition ${
+        className={`focus-ring inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 type-caption transition ${
           count > 0 || open ? "border-accent/60 text-white" : "border-divider text-slate-400 hover:border-accent hover:text-white"
         }`}
       >
@@ -145,7 +145,7 @@ export function FilterMenu({
           className="absolute left-0 top-full z-20 mt-1 min-w-[13rem] rounded-xl border border-divider bg-surface-strong/95 p-1 shadow-xl backdrop-blur"
         >
           {sorted.length === 0 ? (
-            <p className="px-2 py-1.5 font-mono text-xs text-slate-500">No values.</p>
+            <p className="px-2 py-1.5 type-caption text-slate-500">No values.</p>
           ) : (
             sorted.map((o, i) => {
               const on = selected.has(o.value);
@@ -161,7 +161,7 @@ export function FilterMenu({
                   tabIndex={i === activeIdx ? 0 : -1}
                   onClick={() => onToggle(o.value)}
                   onFocus={() => setActiveIdx(i)}
-                  className={`focus-ring flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left font-mono text-sm transition ${
+                  className={`focus-ring flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left type-mono-sm transition ${
                     on ? "bg-accent/10 text-white" : "text-slate-300 hover:bg-surface/60"
                   }`}
                 >
@@ -185,7 +185,7 @@ export function FilterMenu({
                   closeAndRefocus();
                 }
               }}
-              className="focus-ring mt-1 w-full rounded-lg px-2 py-1.5 text-left font-mono text-xs uppercase tracking-widest text-slate-500 hover:text-accent"
+              className="focus-ring mt-1 w-full rounded-lg px-2 py-1.5 text-left type-label tracking-widest text-slate-500 hover:text-accent"
             >
               Clear {label}
             </button>

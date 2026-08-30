@@ -26,7 +26,7 @@ function BandChip({ band }: { band: RepoResilienceRisk["band"] }) {
   // Label + color, never color alone — the band name is the encoding, the hue is reinforcement.
   return (
     <span
-      className="rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest"
+      className="rounded border px-1.5 py-0.5 type-mono-sm uppercase tracking-widest"
       style={{ borderColor: `${b.color}66`, color: b.color }}
     >
       {b.label}
@@ -92,7 +92,7 @@ export function ResilienceModule({ resilience }: { resilience: OrgResilience }) 
         >
           {topRisks.map((r) => (
             <tr key={r.fullName} className="text-slate-300">
-              <td className="px-4 py-2 font-mono text-sm text-white">{r.name}</td>
+              <td className="px-4 py-2 type-mono-sm text-white">{r.name}</td>
               <td className="px-3 py-2 text-right font-mono tabular-nums">{r.contributorCount}</td>
               <td
                 className="px-3 py-2 text-right font-mono tabular-nums"
@@ -110,7 +110,7 @@ export function ResilienceModule({ resilience }: { resilience: OrgResilience }) 
         </OrgTable>
       </div>
 
-      <p className="mt-3 font-mono text-sm text-slate-600">
+      <p className="mt-3 type-mono-sm text-slate-600">
         Exposure blends concentration (60%) with the inverse bus factor (40%): either alone misleads. Top share
         calls a two-author 60/40 repo healthy, bus factor calls a 51/49 split as safe as twenty authors. Counts
         come from the recent-activity commit window captured at scan time.

@@ -27,11 +27,11 @@ export function TourStepFooter({
     <div className="border-t border-divider px-4 py-3">
       {active && (
         <>
-          <p className="text-sm leading-relaxed text-slate-300">{active.tour.body}</p>
+          <p className="type-body-sm leading-relaxed text-slate-300">{active.tour.body}</p>
           {/* An absent anchor degrades to plain navigation — the tab switch already happened,
               only the ring is missing. Never a stuck "seeking" state. */}
           {anchorMissing && (
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 type-note leading-relaxed text-slate-500">
               That control isn&apos;t on screen for this organization yet. You&apos;re on the right tab; it
               appears once there&apos;s something for it to act on.
             </p>
@@ -43,7 +43,7 @@ export function TourStepFooter({
           <button
             type="button"
             onClick={onSkip}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
           >
             Skip setup
           </button>
@@ -54,7 +54,7 @@ export function TourStepFooter({
           <button
             type="button"
             onClick={onGotIt}
-            className="focus-ring rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
+            className="focus-ring rounded-lg bg-accent px-4 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             Got it
           </button>

@@ -31,21 +31,21 @@ export function FollowupHistory({ id }: { id: string }) {
     };
   }, [id, nonce]);
 
-  if (state === "loading") return <p className="font-mono text-xs text-slate-500">Loading history…</p>;
+  if (state === "loading") return <p className="type-caption text-slate-500">Loading history…</p>;
   if (state === "error")
     return (
-      <p role="alert" className="font-mono text-xs text-orange-300">
+      <p role="alert" className="type-caption text-orange-300">
         Couldn’t load history.{" "}
         <button type="button" onClick={() => setNonce((n) => n + 1)} className="focus-ring rounded text-slate-300 hover:text-white">
           Retry
         </button>
       </p>
     );
-  if (state.length === 0) return <p className="font-mono text-xs text-slate-500">No changes recorded yet.</p>;
+  if (state.length === 0) return <p className="type-caption text-slate-500">No changes recorded yet.</p>;
   return (
     <ul className="space-y-1">
       {state.map((ev) => (
-        <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-xs text-slate-400">
+        <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 type-note text-slate-400">
           <span className="font-mono text-slate-600">{new Date(ev.at).toLocaleString()}</span>
           <span className="text-slate-300">{ev.actor ? `@${ev.actor}` : "system"}</span>
           {ev.kind === "note" ? (

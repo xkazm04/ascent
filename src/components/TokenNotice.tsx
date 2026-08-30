@@ -27,8 +27,8 @@ export function TokenNotice({
       id="main"
       className={`mx-auto flex ${minHeightClass} max-w-lg flex-col items-center justify-center px-5 text-center`}
     >
-      <h1 className="text-xl font-bold text-white">{title}</h1>
-      <p className="mt-2 text-base text-slate-400">{body}</p>
+      <h1 className="type-title font-bold text-white">{title}</h1>
+      <p className="mt-2 type-body text-slate-400">{body}</p>
     </main>
   );
 }

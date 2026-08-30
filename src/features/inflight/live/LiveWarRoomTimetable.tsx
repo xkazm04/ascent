@@ -25,7 +25,7 @@ export interface TimetableView {
 /** Checkbox + report-linked repo name — the shared first cell of every row. */
 export function RepoCheck({ row, selected, onToggle, readOnly }: { row: TimetableRow; selected: boolean; onToggle: () => void; readOnly?: boolean }) {
   const nameLink = (
-    <Link href={reportPermalink(row.fullName)} className="truncate font-mono text-sm text-slate-200 hover:text-accent" title={row.fullName}>
+    <Link href={reportPermalink(row.fullName)} className="truncate type-mono-sm text-slate-200 hover:text-accent" title={row.fullName}>
       {row.name}
     </Link>
   );
@@ -40,9 +40,9 @@ export function RepoCheck({ row, selected, onToggle, readOnly }: { row: Timetabl
 
 /** Signed evolution delta over the shown window (lime up · orange down), or a muted dash. */
 export function DeltaChip({ delta }: { delta: number | null }) {
-  if (delta == null) return <span className="font-mono text-xs text-slate-600">—</span>;
+  if (delta == null) return <span className="type-caption text-slate-600">—</span>;
   return (
-    <span className="font-mono text-sm" style={{ color: deltaHex(delta) }}>
+    <span className="type-mono-sm" style={{ color: deltaHex(delta) }}>
       {fmtDelta(delta)}
     </span>
   );
@@ -82,7 +82,7 @@ export function FleetTimetablePanel({
     return (
       <div className="mt-4 rounded-2xl border border-divider bg-surface/40 p-6">
         <Kicker>Fleet evolution</Kicker>
-        <p className="mt-2 text-base text-slate-400">No scan history yet. Scan some repositories and their score-over-time lands here.</p>
+        <p className="mt-2 type-body text-slate-400">No scan history yet. Scan some repositories and their score-over-time lands here.</p>
       </div>
     );
   }
@@ -90,14 +90,14 @@ export function FleetTimetablePanel({
   return (
     <div className="mt-4 rounded-2xl border border-divider bg-surface/40">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-divider px-4 py-2.5">
-        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Fleet evolution</h3>
-        <span className="hidden font-mono text-sm text-slate-500 sm:inline">
+        <h3 className="type-mono-sm uppercase tracking-widest text-accent">Fleet evolution</h3>
+        <span className="hidden type-mono-sm text-slate-500 sm:inline">
           {readOnly ? "overall score per scan" : "overall score per scan · pick repos to run"}
         </span>
         <span className="flex-1" />
         {!readOnly && (
           <>
-            <button type="button" onClick={selectAll} className="focus-ring rounded font-mono text-sm text-slate-500 transition hover:text-slate-300">
+            <button type="button" onClick={selectAll} className="focus-ring rounded type-mono-sm text-slate-500 transition hover:text-slate-300">
               {allOn ? "clear" : "select all"}
             </button>
             <button
@@ -105,7 +105,7 @@ export function FleetTimetablePanel({
               onClick={() => onScanSelected([...selected])}
               disabled={n === 0 || scanning}
               title={n === 0 ? "Check repos to scan" : `Scan the ${n} selected ${n === 1 ? "repo" : "repos"}`}
-              className="focus-ring rounded-lg bg-accent px-3 py-1 font-mono text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
+              className="focus-ring rounded-lg bg-accent px-3 py-1 type-mono-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
             >
               {scanning ? "Scanning…" : `▶ Scan selected (${n})`}
             </button>

@@ -14,7 +14,7 @@ export function DeliveryPrSection({ pr }: { pr: OrgPrSignals }) {
         description={`How systematically the fleet ships: ${pr.totalPrs} PRs across ${pr.repos} repos.`}
         right={
           pr.tools.length > 0 ? (
-            <span className="flex flex-wrap items-center gap-1.5 font-mono text-sm text-slate-500">
+            <span className="flex flex-wrap items-center gap-1.5 type-mono-sm text-slate-500">
               tools:
               {pr.tools.map((t) => (
                 <span key={t.name} className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-300">

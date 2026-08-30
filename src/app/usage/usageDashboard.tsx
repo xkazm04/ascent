@@ -29,11 +29,11 @@ export function UsageDashboard({
 }) {
   return (
     <div className="animate-fade-up">
-      <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
-      <h1 className="mt-1 text-2xl font-bold text-white">
+      <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
+      <h1 className="mt-1 type-heading font-bold text-white">
         Organization: <span className="font-mono">{usage.org}</span>
       </h1>
-      <p className="mt-2 max-w-2xl text-base text-slate-400">
+      <p className="mt-2 max-w-2xl type-body text-slate-400">
         Each computed scan is one metered unit (cached re-scans aren&apos;t recounted). Public
         scans are free; private scans are billable under the usage-based plan.
       </p>
@@ -48,14 +48,14 @@ export function UsageDashboard({
           that still holds its full monthly allowance. */}
       {notice && (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3">
-          <p className="text-base text-warn">
+          <p className="type-body text-warn">
             {notice.kind === "denied"
               ? "Out of private-scan credits and this month's included allowance is spent. The next private scan will be refused (402) until you top up."
               : `Low balance: ${notice.balance} credit${notice.balance === 1 ? "" : "s"} left vs ${billable.toLocaleString()} private scans in the last ${usage.periodDays}d.`}
           </p>
           <a
             href={`/org/${encodeURIComponent(org)}`}
-            className="focus-ring shrink-0 rounded-md border border-warn/40 px-3 py-1.5 text-sm font-medium text-warn transition hover:bg-warn/10"
+            className="focus-ring shrink-0 rounded-md border border-warn/40 px-3 py-1.5 type-body-sm font-medium text-warn transition hover:bg-warn/10"
           >
             Manage credits →
           </a>
@@ -117,7 +117,7 @@ export function UsageDashboard({
           does what was billed line up with what was debited? Refunds (failed/deduped scans) net it back. */}
       {recon && recon.entries > 0 && (
         <Surface className="mt-6 p-6">
-          <h2 className="text-base font-semibold text-white">
+          <h2 className="type-body font-semibold text-white">
             Reconciliation <span className="font-normal text-slate-500">· scans vs credit ledger · last {usage.periodDays}d</span>
           </h2>
           <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -131,7 +131,7 @@ export function UsageDashboard({
             />
           </div>
           {billable !== recon.debited - recon.refunded && (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 type-body-sm text-slate-500">
               {billable} billable scans vs {Math.max(0, recon.debited - recon.refunded)} net credits debited. Differences
               come from unlimited-plan scans (not debited), grants, or scans/ledger rows straddling the window edge.
             </p>
@@ -141,11 +141,11 @@ export function UsageDashboard({
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Surface className="p-6">
-          <h2 className="text-base font-semibold text-white">
+          <h2 className="type-body font-semibold text-white">
             Public vs private{" "}
             <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
           </h2>
-          <div className="mt-3 space-y-2 text-base">
+          <div className="mt-3 space-y-2 type-body">
             {usage.periodScans === 0 ? (
               // Match the "By engine" panel's empty state — without this the bars divide by a zero
               // period total and render as silent zero-width bars rather than a clear "no scans".
@@ -168,11 +168,11 @@ export function UsageDashboard({
           </div>
         </Surface>
         <Surface className="p-6">
-          <h2 className="text-base font-semibold text-white">
+          <h2 className="type-body font-semibold text-white">
             By inference engine{" "}
             <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
           </h2>
-          <div className="mt-3 space-y-2 text-base">
+          <div className="mt-3 space-y-2 type-body">
             {usage.byProvider.length === 0 ? (
               <p className="text-slate-500">No scans in this period.</p>
             ) : (
@@ -193,14 +193,14 @@ export function UsageDashboard({
       {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
       {usage.byRepo.length > 0 && (
         <Surface className="mt-6 p-6">
-          <h2 className="text-base font-semibold text-white">
+          <h2 className="type-body font-semibold text-white">
             Top repositories{" "}
             <span className="font-normal text-slate-500">· by metered scans · last {usage.periodDays}d</span>
           </h2>
-          <div className="mt-3 space-y-2 text-base">
+          <div className="mt-3 space-y-2 type-body">
             {usage.byRepo.map((r) => (
               <div key={r.fullName} className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate font-mono text-sm text-slate-300">{r.fullName}</span>
+                <span className="min-w-0 truncate type-mono-sm text-slate-300">{r.fullName}</span>
                 <span className="shrink-0 font-mono tabular-nums text-slate-400">
                   {r.scans.toLocaleString()} scan{r.scans === 1 ? "" : "s"}
                   {r.tokens > 0 ? ` · ${r.tokens.toLocaleString()} tok` : ""}
@@ -213,7 +213,7 @@ export function UsageDashboard({
 
       <AbuseLimitsPanel quotaEvents={quotaEvents} />
 
-      <p className="mt-6 text-sm text-slate-500">
+      <p className="mt-6 type-body-sm text-slate-500">
         Window:{" "}
         {usage.firstScanAt
           ? usage.lastScanAt

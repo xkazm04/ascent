@@ -28,7 +28,7 @@ export function ClassPill({ klass, muted }: { klass: DimClass; muted?: boolean }
   const color = muted ? MUTED : m.color;
   return (
     <span
-      className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs"
+      className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 type-caption"
       style={{ backgroundColor: `${color}1f`, color }}
     >
       <span aria-hidden>{m.icon}</span>
@@ -48,7 +48,7 @@ export function CoverageChip({ d, nounPlural = "stacks" }: { d: DimInsight; noun
   const low = c.level === "low";
   return (
     <span
-      className={`font-mono text-xs tabular-nums ${low ? "text-warn" : "text-slate-500"}`}
+      className={`type-caption tabular-nums ${low ? "text-warn" : "text-slate-500"}`}
       title={`This verdict is drawn from ${c.count} of the ${c.of} scored ${nounPlural} that could carry this dimension.`}
     >
       {c.count}/{c.of} {nounPlural}
@@ -59,7 +59,7 @@ export function CoverageChip({ d, nounPlural = "stacks" }: { d: DimInsight; noun
 
 export function ChangeTag({ type }: { type: ChangeType }) {
   return (
-    <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wide text-slate-400">
+    <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 type-label tracking-wide text-slate-400">
       {type}
     </span>
   );
@@ -139,7 +139,7 @@ export function RangeBar({ d, compact }: { d: DimInsight; compact?: boolean }) {
 /** The leader/laggard readout used in the diagnosis row's right column. */
 export function LeaderLaggard({ d }: { d: DimInsight }) {
   return (
-    <div className="font-mono text-sm">
+    <div className="type-mono-sm">
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-slate-300" title={d.leader.name}>{d.leader.name}</span>
         <span className="tabular-nums" style={{ color: scoreHex(d.leader.value) }}>{d.leader.value}</span>
@@ -165,7 +165,7 @@ export function ConsensusRow({ d, action, nounPlural, children }: { d: DimInsigh
         </div>
         <div>
           <RangeBar d={d} />
-          <p className="mt-1 text-sm text-slate-400">{noteFor(d)}</p>
+          <p className="mt-1 type-body-sm text-slate-400">{noteFor(d)}</p>
         </div>
         <div className="min-w-0">
           <LeaderLaggard d={d} />

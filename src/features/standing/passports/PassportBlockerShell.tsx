@@ -22,10 +22,10 @@ export function PassportBlockerShell({
     <Surface className="h-full p-4">
       <Kicker tone="muted">Top blockers · {scopeLabel}</Kicker>
       {empty ? (
-        <p className="mt-3 text-sm text-emerald-400/80">No blockers on record for the repos in view.</p>
+        <p className="mt-3 type-body-sm text-emerald-400/80">No blockers on record for the repos in view.</p>
       ) : (
         <>
-          {intro && <p className="mt-1 text-sm text-slate-500">{intro}</p>}
+          {intro && <p className="mt-1 type-body-sm text-slate-500">{intro}</p>}
           {children}
         </>
       )}

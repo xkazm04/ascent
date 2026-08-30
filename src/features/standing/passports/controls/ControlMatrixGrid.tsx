@@ -36,15 +36,15 @@ export function ControlMatrixGrid({
                     type="button"
                     onClick={() => onToggleFamily(c.family)}
                     aria-expanded={expanded.has(c.family)}
-                    className="focus-ring rounded px-1 font-mono text-xs uppercase tracking-[0.18em] text-slate-400 transition hover:text-slate-200"
+                    className="focus-ring rounded px-1 type-label tracking-[0.18em] text-slate-400 transition hover:text-slate-200"
                     title={`Expand ${c.family} into its individual checks`}
                   >
                     {c.label}
                   </button>
                 ) : (
-                  <span className="font-mono text-[11px] normal-case tracking-normal text-slate-400">{c.label}</span>
+                  <span className="font-mono type-micro normal-case tracking-normal text-slate-400">{c.label}</span>
                 )}
-                <span className="mt-1 block font-mono text-[10px] normal-case tracking-normal text-slate-600">
+                <span className="mt-1 block font-mono type-micro normal-case tracking-normal text-slate-600">
                   {totals.fail > 0 ? `${totals.fail} failing` : totals.reporting > 0 ? `${totals.reporting} reporting` : "none reporting"}
                 </span>
               </th>
@@ -56,11 +56,11 @@ export function ControlMatrixGrid({
     >
       {rows.map((row) => (
         <tr key={row.repoFullName}>
-          <td className="px-4 py-2.5 font-mono text-sm text-slate-200">{row.repoFullName}</td>
+          <td className="px-4 py-2.5 type-mono-sm text-slate-200">{row.repoFullName}</td>
           {columns.map((c) => (
             <ControlCell key={c.key} label={c.label} cell={cellFor(row, c)} />
           ))}
-          <td className="px-4 py-2.5 text-sm text-slate-500">
+          <td className="px-4 py-2.5 type-body-sm text-slate-500">
             {row.reportedAt.slice(0, 10)}
             {row.summaryOnly && (
               <span

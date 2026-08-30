@@ -22,10 +22,10 @@ const GRID =
 
 /** A single 0..100 score cell, colored by the rubric ramp; an em dash when the scan lacks it. */
 function ScoreCell({ score, big = false, className = "" }: { score?: number; big?: boolean; className?: string }) {
-  if (score == null) return <span className={`text-center font-mono text-sm text-slate-700 ${className}`}>—</span>;
+  if (score == null) return <span className={`text-center type-mono-sm text-slate-700 ${className}`}>—</span>;
   return (
     <span
-      className={`text-center font-mono font-bold tabular-nums ${big ? "text-lg" : "text-sm"} ${className}`}
+      className={`text-center font-mono font-bold tabular-nums ${big ? "type-lede" : "type-body-sm"} ${className}`}
       style={{ color: scoreHex(score) }}
     >
       {score}
@@ -51,7 +51,7 @@ export function LeaderboardTable({
   return (
     <div className="mt-8">
       {/* Column header — aligned to the row track; dimension labels only show where their columns do. */}
-      <div className={`${GRID} border-b border-divider pb-2 font-mono text-[10px] uppercase tracking-wider text-slate-500`}>
+      <div className={`${GRID} border-b border-divider pb-2 font-mono type-micro uppercase tracking-wider text-slate-500`}>
         <span className="text-center" aria-hidden>
           #
         </span>
@@ -71,7 +71,7 @@ export function LeaderboardTable({
           return (
             <li key={c.fullName} className={`group relative py-3.5 transition hover:bg-white/[0.02] ${GRID}`}>
               <span
-                className={`text-center font-mono text-sm tabular-nums ${
+                className={`text-center type-mono-sm tabular-nums ${
                   ranked && rank <= 3 ? "font-bold text-accent" : "text-slate-600"
                 }`}
                 title={ranked ? undefined : "Not ranked. This score came from the deterministic preview rubric."}
@@ -87,11 +87,11 @@ export function LeaderboardTable({
                   className="focus-ring rounded-sm after:absolute after:inset-0"
                   title={`Read the ${c.fullName} report`}
                 >
-                  <span className="block truncate text-base font-semibold text-white transition group-hover:text-accent">
+                  <span className="block truncate type-body font-semibold text-white transition group-hover:text-accent">
                     {c.fullName}
                   </span>
                 </Link>
-                <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
+                <span className="type-label tracking-widest text-slate-500">
                   {/* Crawl path into the owner's public scorecard. Dynamic per-owner routes can't be
                       enumerated in sitemap.ts, so this link is how they get discovered at all. It sits
                       above the stretched row overlay (relative z-10) or the report link would eat it. */}
@@ -107,7 +107,7 @@ export function LeaderboardTable({
                       it: a deterministic-rubric score is a preview, never a rating. Never silent. */}
                   {!c.verified && (
                     <span
-                      className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300/90"
+                      className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 type-micro text-amber-300/90"
                       title="Scored by the deterministic preview rubric. No model contributed. Not ranked."
                     >
                       demo
@@ -118,7 +118,7 @@ export function LeaderboardTable({
                       that limit bites hardest, so a low score reads as "measured less", not "worse". */}
                   {c.verified && !c.hasProcessSignals && (
                     <span
-                      className="ml-2 rounded border border-sky-500/40 px-1.5 py-0.5 text-[10px] text-sky-300/90"
+                      className="ml-2 rounded border border-sky-500/40 px-1.5 py-0.5 type-micro text-sky-300/90"
                       title="No merged pull request in the analysis window — typical of code mirrors and push-based workflows. PR-shaped process signals (reviews, merge governance) read as absent rather than measured here, so the overall score can understate the project."
                     >
                       no PR signal
@@ -126,7 +126,7 @@ export function LeaderboardTable({
                   )}
                   {c.verified && c.confidence > 0 && c.confidence < 0.75 && (
                     <span
-                      className="ml-2 rounded border border-slate-500/40 px-1.5 py-0.5 text-[10px] text-slate-400"
+                      className="ml-2 rounded border border-slate-500/40 px-1.5 py-0.5 type-micro text-slate-400"
                       title={`The scan reported reduced confidence in its own judgement (${c.confidence.toFixed(2)} of 1). Treat the score as a wider interval, not a point.`}
                     >
                       conf {c.confidence.toFixed(2)}

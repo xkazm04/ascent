@@ -40,7 +40,7 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Outcome · {run.phase}</Kicker>
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           {/* WHAT THE LIFT WAS PRODUCED UNDER. A lift on sonnet at the deployment's default effort and
               one on opus at high effort are results from two different setups, and the ledger compared
               them for months without recording which was which. Absent on a run written before the
@@ -56,7 +56,7 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
         regressed={regressed}
         excluded={totals}
       />
-      {run.error && <p className="mt-2 font-mono text-xs text-danger">{run.error}</p>}
+      {run.error && <p className="mt-2 type-caption text-danger">{run.error}</p>}
 
       {outcomes.length === 0 ? (
         <InlineEmpty>This run had no lanes.</InlineEmpty>
@@ -73,14 +73,14 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
           type="button"
           onClick={onReplay}
           disabled={!canReplay}
-          className="focus-ring flex-1 rounded-md border border-accent/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className="focus-ring flex-1 rounded-md border border-accent/60 px-3 py-2 type-label tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Replay run
         </button>
         <button
           type="button"
           onClick={onBack}
-          className="focus-ring flex-1 rounded-md border border-divider px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
+          className="focus-ring flex-1 rounded-md border border-divider px-3 py-2 type-label tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
         >
           Back to inspect
         </button>

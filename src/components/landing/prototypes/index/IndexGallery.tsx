@@ -22,10 +22,10 @@ const GRID = "grid grid-cols-[1.75rem_minmax(0,1fr)_3.25rem] gap-x-3 md:grid-col
 
 /** A single 0..100 score cell, colored by the rubric ramp; an em dash when the scan lacks it. */
 function ScoreCell({ score, big = false, className = "" }: { score?: number; big?: boolean; className?: string }) {
-  if (score == null) return <span className={`text-center font-mono text-sm text-slate-500 ${className}`}>—</span>;
+  if (score == null) return <span className={`text-center type-mono-sm text-slate-500 ${className}`}>—</span>;
   return (
     <span
-      className={`text-center font-mono font-bold tabular-nums ${big ? "text-xl" : "text-sm"} ${className}`}
+      className={`text-center font-mono font-bold tabular-nums ${big ? "type-title" : "type-body-sm"} ${className}`}
       style={{ color: scoreHex(score) }}
     >
       {score}
@@ -47,16 +47,16 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
         <div>
           <Kicker>{ranked ? "Live from the index" : "Latest public scans"}</Kicker>
-          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white sm:text-3xl">The register</h2>
+          <h2 className="deck-h2 mt-2 type-heading font-bold text-white sm:type-display">The register</h2>
         </div>
         <div className="text-right">
-          <span className="block font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
+          <span className="block type-label tracking-[0.2em] text-slate-500">
             {totalRepos} public {totalRepos === 1 ? "repo" : "repos"} rated
           </span>
           {/* DB-backed provenance: surfaces the live persistence backend (Aurora DSQL in prod) so the
               AWS database in use is visible on the page, with the corpus freshness next to it. */}
           <span
-            className="mt-1 block font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600"
+            className="mt-1 block font-mono type-micro uppercase tracking-[0.2em] text-slate-600"
             title={`This register is served live from ${dbModeLabel(dbMode)}.`}
           >
             Served live from {dbModeLabel(dbMode)}
@@ -66,7 +66,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       </div>
 
       {/* Column header — aligned to the row track; dimension labels only show where their columns do. */}
-      <div className={`${GRID} border-b border-divider/70 pb-2 pt-3 font-mono text-[10px] uppercase tracking-wider text-slate-500`}>
+      <div className={`${GRID} border-b border-divider/70 pb-2 pt-3 font-mono type-micro uppercase tracking-wider text-slate-500`}>
         <span aria-hidden />
         <span>Repository</span>
         {FEATURED_DIMS.map((d) => (
@@ -80,7 +80,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       {/* Explicit empty state: a persisted gallery with zero public scans previously rendered the
           full header + column labels around a bare zero-row list, which read as a broken table. */}
       {board.length === 0 && (
-        <p className="py-10 text-center text-sm text-slate-500">
+        <p className="py-10 text-center type-body-sm text-slate-500">
           No public scans yet. Scan a repository below to be the first on the register.
         </p>
       )}
@@ -92,12 +92,12 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
             href={c.href}
             className={`focus-ring group items-center py-4 transition hover:bg-white/[0.02] ${GRID}`}
           >
-            <span className="font-mono text-sm tabular-nums text-slate-600">{ranked ? String(i + 1).padStart(2, "0") : "·"}</span>
+            <span className="type-mono-sm tabular-nums text-slate-600">{ranked ? String(i + 1).padStart(2, "0") : "·"}</span>
             <span className="min-w-0">
-              <span className="block truncate text-base font-semibold text-white group-hover:text-accent" title={c.fullName}>
+              <span className="block truncate type-body font-semibold text-white group-hover:text-accent" title={c.fullName}>
                 {c.fullName}
               </span>
-              <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
+              <span className="type-label tracking-widest text-slate-500">
                 {c.levelName} · {timeAgo(c.scannedAt)}
               </span>
             </span>
@@ -111,10 +111,10 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
 
       {/* Growth loop: convert a register viewer into a scanned repo. */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">
-        <span className="text-sm text-slate-500">Want your repo on the register?</span>
+        <span className="type-body-sm text-slate-500">Want your repo on the register?</span>
         <Link
           href="/?scan=1"
-          className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+          className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
         >
           <span aria-hidden>▸</span> Scan your repo
         </Link>

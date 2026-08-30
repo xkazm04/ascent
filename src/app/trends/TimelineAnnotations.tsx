@@ -29,7 +29,7 @@ export function TimelineAnnotations({
 
   return (
     <section aria-labelledby="timeline-events-heading" className="mt-4">
-      <h3 id="timeline-events-heading" className="font-mono text-sm uppercase tracking-[0.2em] text-slate-500">
+      <h3 id="timeline-events-heading" className="type-mono-sm uppercase tracking-[0.2em] text-slate-500">
         Events on this timeline
       </h3>
       <ul className="mt-2 flex flex-col gap-1.5">
@@ -39,7 +39,7 @@ export function TimelineAnnotations({
           const href = a.commitSha ? reportPermalink(repoFullName, a.commitSha) : null;
           const commit = githubCommitUrl(repoFullName, a.commitSha);
           return (
-            <li key={a.scanId} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-400">
+            <li key={a.scanId} className="flex flex-wrap items-baseline gap-x-2 type-body-sm text-slate-400">
               <span aria-hidden className="font-mono" style={{ color: tone.color }}>
                 {tone.glyph}
               </span>

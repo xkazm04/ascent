@@ -26,7 +26,7 @@ import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 // route contract, so a named export here made `.next/types` reject the route and `tsc --noEmit` red on
 // a clean tree. See that file for the destinations and the degrade rules.
 const CTA_CLASS =
-  "focus-ring mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
+  "focus-ring mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center type-body-sm font-medium text-white transition hover:bg-accent/20";
 
 /** The signed-in viewer's primary (most privileged, then most recent) org slug, or null when there is
  *  no DB, no signed-in viewer, or the viewer belongs to no real org yet — mirrors the header's
@@ -108,8 +108,8 @@ export default async function PricingPage() {
             the two real first moves (scan something, or look at a populated dashboard) do the job. */}
         <header className="text-center">
           <Kicker>Plans &amp; credits</Kicker>
-          <h1 className="deck-h2 mt-3 text-3xl font-bold text-white sm:text-4xl">Pick the tier that fits your fleet</h1>
-          <p className="deck-lede mt-4 text-lg leading-relaxed text-slate-300">
+          <h1 className="deck-h2 mt-3 type-display font-bold text-white sm:type-display-lg">Pick the tier that fits your fleet</h1>
+          <p className="deck-lede mt-4 type-lede leading-relaxed text-slate-300">
             Ascent is open source and free to run yourself, with everything switched on. These plans are for
             when you would rather we ran it.
           </p>
@@ -129,7 +129,7 @@ export default async function PricingPage() {
           </div>
           {/* The demo's REFERENCE: naming the org (and showing its path) is what makes "live demo" a
               claim a visitor can check, rather than a word that could equally mean a canned tour. */}
-          <p className="mt-3 font-mono text-xs text-slate-500">
+          <p className="mt-3 type-caption text-slate-500">
             a real scanned organization · /org/{DEMO_ORG_SLUG}
           </p>
         </header>
@@ -165,12 +165,12 @@ export default async function PricingPage() {
                     than trailing the amount inline — inline, "scoped with you" wrapped under "Flexible"
                     while "/ month" didn't, making the Custom cell one line taller than its neighbours
                     and pushing every rule below it out of alignment. */}
-                <p className="mt-3 font-mono text-3xl font-bold leading-none tabular-nums text-white">{price.amount}</p>
-                <p className="mt-2 text-sm text-slate-500">{price.cadence}</p>
+                <p className="mt-3 type-figure-lg font-bold leading-none text-white">{price.amount}</p>
+                <p className="mt-2 type-body-sm text-slate-500">{price.cadence}</p>
                 {/* Three lines of room whatever the blurb's length, so the hairline rule beneath sits
                     at the SAME height in all four cells — an inner rule that stair-steps across a row
                     reads as a rendering fault, not as four different sentences. */}
-                <p className="mt-3 min-h-[4.25rem] text-sm leading-relaxed text-slate-400">{p.blurb}</p>
+                <p className="mt-3 min-h-[4.25rem] type-body-sm leading-relaxed text-slate-400">{p.blurb}</p>
                 {/* The scan volume, stated ONCE per cell, under its own rule. The bullets below
                     deliberately don't repeat it — the same sentence in two typefaces read as two
                     different facts. */}
@@ -178,9 +178,9 @@ export default async function PricingPage() {
                   <Kicker as="span" tone="muted">
                     Included
                   </Kicker>
-                  <p className="mt-1.5 font-mono text-sm text-accent">{planScanLine(id)}</p>
+                  <p className="mt-1.5 type-mono-sm text-accent">{planScanLine(id)}</p>
                 </div>
-                <ul className="mt-4 flex-1 space-y-2 text-sm leading-relaxed text-slate-300">
+                <ul className="mt-4 flex-1 space-y-2 type-body-sm leading-relaxed text-slate-300">
                   {p.features.map((f) => (
                     <li key={f} className="flex gap-2.5">
                       <span aria-hidden="true" className="mt-px select-none text-accent">✓</span>
@@ -214,7 +214,7 @@ export default async function PricingPage() {
           <CreditMatrixLedger />
         </div>
 
-        <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500">
+        <p className="mx-auto mt-8 max-w-2xl text-center type-body-sm text-slate-500">
           Every plan&apos;s monthly scan allowance <span className="text-slate-300">resets on the 1st of each month (UTC)</span>; Pro and
           Team are monthly subscriptions that bundle more of it. Need more than your plan includes? Buy prepaid scan
           credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span>, so you pay

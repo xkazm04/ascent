@@ -51,7 +51,7 @@ export function DeliveryOutcomes({ slug, outcomes, periodTitle }: { slug: string
           title="Delivery outcomes"
           description="Deployment frequency, change-failure rate, and whether AI-attributed changes fail more often than human-authored ones."
         />
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           No deployments recorded in {periodTitle.toLowerCase()}. Ascent reads the GitHub Deployments API during a scan.
           A repository that deploys another way (or whose scan ran without a token) contributes nothing here.{" "}
           <a href={orgTabHref(slug, "repositories")} className="focus-ring text-accent hover:text-white">
@@ -130,8 +130,8 @@ export function DeliveryOutcomes({ slug, outcomes, periodTitle }: { slug: string
       </div>
 
       {gap != null && (
-        <p className="mt-3 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3 text-base text-slate-200">
-          <span className="font-mono text-sm uppercase tracking-widest text-accent">
+        <p className="mt-3 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3 type-body text-slate-200">
+          <span className="type-mono-sm uppercase tracking-widest text-accent">
             {gap > 0 ? "AI changes fail more" : gap < 0 ? "AI changes fail less" : "No measured difference"}
           </span>{" "}
           {gap === 0
@@ -140,8 +140,8 @@ export function DeliveryOutcomes({ slug, outcomes, periodTitle }: { slug: string
         </p>
       )}
 
-      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
-        <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">How to read this</span>{" "}
+      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 type-body-sm text-slate-400">
+        <span className="type-label tracking-[0.22em] text-slate-500">How to read this</span>{" "}
         <strong className="font-medium text-slate-200">&ldquo;Failure&rdquo; means the deployment failed.</strong> It
         does not mean the change caused an incident. Nothing here observes your service; that claim would need a
         different source. &ldquo;Time to next success&rdquo; is the interval to the next successful deployment in the

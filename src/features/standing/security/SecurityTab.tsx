@@ -121,13 +121,13 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
             decided by Tailwind's emission, not by the class list), so the caption owns its own <p>
             below the header row and runs the full width of the card. */}
         <SectionHeader size="sm" title="Control matrix" right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />} />
-        <p className="mb-3 mt-2 text-base text-slate-400">
+        <p className="mb-3 mt-2 type-body text-slate-400">
           All {sec.scanned} scanned repos against the security gate (D9 ≥ {gate.minSecurity}, not &ldquo;ungoverned&rdquo;), each
           graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides
           posture from exposure.
         </p>
         {supplyDegraded && (
-          <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-warn">
+          <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 type-body-sm text-warn">
             Vulnerability advisories couldn&apos;t be fetched for this org, so the exposure columns below are
             blank. That is <strong>not</strong> a clean bill of health. Re-check the GitHub App installation
             and its security-advisory access, then reload.

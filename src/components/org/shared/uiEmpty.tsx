@@ -38,7 +38,7 @@ export function ExportCsvLink({
   return (
     <a
       href={href}
-      className={`focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white${className ? ` ${className}` : ""}`}
+      className={`focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white${className ? ` ${className}` : ""}`}
     >
       Export CSV
     </a>

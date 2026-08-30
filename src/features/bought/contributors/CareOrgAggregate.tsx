@@ -19,7 +19,7 @@ import {
 
 export function CareOrgFloorNote({ org }: { org: CareOrgView }) {
   return (
-    <p className="text-sm text-slate-500">
+    <p className="type-body-sm text-slate-500">
       Aggregates only, and only above a floor of {org.floor} participating developers ({org.population} in this
       workspace). No row here is a person, and no view of this tab can name one.
     </p>
@@ -59,12 +59,12 @@ export function CareOrgKeptMoves({ org, layout = "cards" }: { org: CareOrgView; 
           <div key={m.title} className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-base text-slate-200">{m.title}</span>
+                <span className="type-body text-slate-200">{m.title}</span>
                 <CareCategoryChip category={m.category} />
               </div>
               <Meter className="mt-1.5" value={(m.keptBy / max) * 100} ariaLabel={`${m.title}: kept by ${m.keptBy}`} />
             </div>
-            <span className="w-24 shrink-0 font-mono text-sm tabular-nums text-slate-400">kept by {m.keptBy}</span>
+            <span className="w-24 shrink-0 type-mono-sm tabular-nums text-slate-400">kept by {m.keptBy}</span>
             {m.promotable ? (
               <CareAction label="Author as registry skill →" intent="registry.authorFromMove" payload={{ title: m.title }} />
             ) : null}
@@ -80,16 +80,16 @@ export function CareOrgKeptMoves({ org, layout = "cards" }: { org: CareOrgView; 
         <div key={m.title} className="rounded-xl border border-divider bg-ink p-4">
           <div className="flex items-baseline justify-between gap-3">
             <CareCategoryChip category={m.category} />
-            <span className="font-mono text-sm tabular-nums text-white">{m.keptBy}</span>
+            <span className="type-mono-sm tabular-nums text-white">{m.keptBy}</span>
           </div>
-          <p className="mt-2 text-base text-slate-200">{m.title}</p>
+          <p className="mt-2 type-body text-slate-200">{m.title}</p>
           <Meter className="mt-3" value={(m.keptBy / max) * 100} ariaLabel={`${m.title}: kept by ${m.keptBy}`} />
           {m.promotable ? (
             <div className="mt-3">
               <CareAction label="Author as registry skill →" intent="registry.authorFromMove" payload={{ title: m.title }} />
             </div>
           ) : (
-            <p className="mt-3 text-sm text-slate-600">Not a registry candidate — a habit, not an artifact.</p>
+            <p className="mt-3 type-body-sm text-slate-600">Not a registry candidate — a habit, not an artifact.</p>
           )}
         </div>
       ))}
@@ -104,9 +104,9 @@ export function CareOrgAsks({ org }: { org: CareOrgView }) {
     <ol className="mt-3 divide-y divide-divider border-y border-divider">
       {org.asks.map((a) => (
         <li key={a.theme} className="flex items-center gap-4 py-2.5">
-          <span className="min-w-0 flex-1 text-base text-slate-200">&ldquo;{a.theme}&rdquo;</span>
+          <span className="min-w-0 flex-1 type-body text-slate-200">&ldquo;{a.theme}&rdquo;</span>
           <Meter className="w-24 shrink-0" value={(a.count / max) * 100} ariaLabel={`${a.theme}: ${a.count} developers`} />
-          <span className="w-16 shrink-0 text-right font-mono text-sm tabular-nums text-slate-400">{a.count}</span>
+          <span className="w-16 shrink-0 text-right type-mono-sm tabular-nums text-slate-400">{a.count}</span>
         </li>
       ))}
     </ol>
@@ -134,10 +134,10 @@ export function CareOrgBands({ org }: { org: CareOrgView }) {
         const band = org.shapeBands[f]!;
         return (
           <tr key={f}>
-            <td className="px-4 py-2.5 text-base text-slate-200">{CARE_SHAPE_LABEL[f]}</td>
-            <td className="px-4 py-2.5 text-right font-mono text-base tabular-nums text-slate-400">{careShapeValue(f, band.p25)}</td>
-            <td className="px-4 py-2.5 text-right font-mono text-base tabular-nums text-white">{careShapeValue(f, band.p50)}</td>
-            <td className="px-4 py-2.5 text-right font-mono text-base tabular-nums text-slate-400">{careShapeValue(f, band.p75)}</td>
+            <td className="px-4 py-2.5 type-body text-slate-200">{CARE_SHAPE_LABEL[f]}</td>
+            <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-slate-400">{careShapeValue(f, band.p25)}</td>
+            <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-white">{careShapeValue(f, band.p50)}</td>
+            <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-slate-400">{careShapeValue(f, band.p75)}</td>
           </tr>
         );
       })}
@@ -165,10 +165,10 @@ export function CareOrgOutcomes({ org }: { org: CareOrgView }) {
     >
       {org.outcomes.map((o) => (
         <tr key={o.move}>
-          <td className="px-4 py-2.5 text-base text-slate-200">{o.move}</td>
-          <td className="px-4 py-2.5 font-mono text-sm uppercase tracking-widest text-slate-500">{o.dimension}</td>
-          <td className="px-4 py-2.5 text-right font-mono text-base tabular-nums text-slate-400">{o.repos}</td>
-          <td className="px-4 py-2.5 text-right font-mono text-base tabular-nums" style={{ color: deltaHex(o.avgDelta) }}>
+          <td className="px-4 py-2.5 type-body text-slate-200">{o.move}</td>
+          <td className="px-4 py-2.5 type-mono-sm uppercase tracking-widest text-slate-500">{o.dimension}</td>
+          <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-slate-400">{o.repos}</td>
+          <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums" style={{ color: deltaHex(o.avgDelta) }}>
             {fmtDelta(o.avgDelta)}
           </td>
         </tr>

@@ -56,7 +56,7 @@ export function AdoptionSpectrum({
 
       <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5">
         {SEGMENTS.map((s) => (
-          <span key={s.key} className="flex items-center gap-2 font-mono text-sm text-slate-400">
+          <span key={s.key} className="flex items-center gap-2 type-mono-sm text-slate-400">
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: BAND[s.key] }} />
             <span className="font-bold tabular-nums text-slate-200">{distribution[s.key]}</span>
             {s.label}
@@ -66,7 +66,7 @@ export function AdoptionSpectrum({
       </div>
 
       {(distribution.none > 0 || knowledgeLeader) && (
-        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-divider pt-3 font-mono text-sm text-slate-500">
+        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-divider pt-3 type-mono-sm text-slate-500">
           {distribution.none > 0 &&
             (showEnablementLink ? (
               // Cross-TAB now: the "Who to enable next" table moved to Contributors (2026-08-19), so

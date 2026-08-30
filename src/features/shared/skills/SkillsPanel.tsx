@@ -104,7 +104,7 @@ export function SkillsPanel({
         create={s.create}
         applyTemplate={s.applyTemplate}
       />
-      {s.error && <p className="mt-2 text-sm text-orange-300">{s.error}</p>}
+      {s.error && <p className="mt-2 type-body-sm text-orange-300">{s.error}</p>}
     </Card>
   );
 }

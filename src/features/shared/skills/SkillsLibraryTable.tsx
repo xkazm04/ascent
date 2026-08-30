@@ -45,7 +45,7 @@ export function SkillsLibraryTable({
 }) {
   if (skills.length === 0) {
     return (
-      <p className="text-base text-slate-500">
+      <p className="type-body text-slate-500">
         {loading ? "Loading…" : filtered ? "No skills match your filters." : "No skills yet. Author your org's first reusable skill below."}
       </p>
     );
@@ -72,7 +72,7 @@ export function SkillsLibraryTable({
             <tr onClick={() => setExpanded(open ? null : s.id)} className="cursor-pointer">
               <td className="px-3 py-2">
                 <span className="font-medium text-slate-200">{s.name}</span>
-                {s.version > 1 && <span className="ml-2 font-mono text-xs text-slate-500">v{s.version}</span>}
+                {s.version > 1 && <span className="ml-2 type-caption text-slate-500">v{s.version}</span>}
                 {/* Only once a registry is mapped: before that every row is hosted and the tag is noise. */}
                 {registryBase && (
                   <span className="ml-2">
@@ -81,7 +81,7 @@ export function SkillsLibraryTable({
                 )}
               </td>
               <td className="px-3 py-2">
-                <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+                <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">
                   {skillCategoryLabel(s.category)}
                 </span>
               </td>

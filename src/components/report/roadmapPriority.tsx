@@ -82,7 +82,7 @@ export const isQuickWin = (it: Pick<LlmRoadmapItem, "impact" | "effort">) =>
 /** The shared quick-win badge, identical on the public roadmap and the persisted tracker. */
 export function QuickWinBadge() {
   return (
-    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-sm font-semibold uppercase tracking-widest text-emerald-300">
+    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 type-body-sm font-semibold uppercase tracking-widest text-emerald-300">
       ⚡ Quick win
     </span>
   );

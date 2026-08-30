@@ -58,14 +58,14 @@ export function OverviewLedger(d: OverviewLedgerData) {
         <SectionHeader
           size="sm"
           title="Posture distribution"
-          right={<span className="font-mono text-sm text-slate-500">{scored} scored</span>}
+          right={<span className="type-mono-sm text-slate-500">{scored} scored</span>}
         />
         <PostureCompositionBar slug={d.slug} postureCounts={d.postureCounts} search={d.search} />
 
         <div className="mt-5 flex flex-wrap items-baseline justify-between gap-3 border-t border-divider pt-4">
           <div>
-            <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Dimensions by SDLC phase</span>
-            <p className="mt-0.5 text-sm text-slate-500">
+            <span className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Dimensions by SDLC phase</span>
+            <p className="mt-0.5 type-body-sm text-slate-500">
               {owed === 0
                 ? "Every dimension is in the green band."
                 : `${owed} of ${readings.length} dimensions still owe a follow-up (below ${FOLLOW_UP_BELOW}). Each row names the practice that lifts it and the repos it touches.`}

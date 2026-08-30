@@ -30,7 +30,7 @@ export async function StanceSection({ slug, canEdit }: { slug: string; canEdit: 
     <section className="space-y-4 border-t border-slate-800 pt-6">
       <div>
         <Kicker>AI stance</Kicker>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">
+        <p className="mt-1 max-w-3xl type-body-sm text-slate-500">
           The org&apos;s published AI policy, versioned, acknowledged per repo, and read against observed git
           attribution. Declared policy, distinct from the enforced maturity gate above.
         </p>
@@ -41,7 +41,7 @@ export async function StanceSection({ slug, canEdit }: { slug: string; canEdit: 
       {canEdit && (
         <div>
           {draft && (
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+            <p className="font-mono type-micro uppercase tracking-[0.18em] text-slate-500">
               Unpublished draft in progress (v{draft.version})
             </p>
           )}

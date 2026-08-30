@@ -31,7 +31,7 @@ export function RoadmapMeta({
   const chip = compact ? "rounded border px-1.5 py-0.5" : "rounded-md border px-2 py-0.5";
   const sep = compact ? " " : ": ";
   return (
-    <div className={className ?? "flex items-center gap-2 text-sm"}>
+    <div className={className ?? "flex items-center gap-2 type-body-sm"}>
       <span className={`${chip} ${IMPACT_CLASS[item.impact]}`}>impact{sep}{item.impact}</span>
       <span className={`${chip} ${EFFORT_CLASS[item.effort]}`}>effort{sep}{item.effort}</span>
     </div>
@@ -61,7 +61,7 @@ export function TrackerProgress({
 }) {
   return (
     <Surface radius="xl" className="p-4">
-      <div className="flex items-center justify-between text-base">
+      <div className="flex items-center justify-between type-body">
         {allDismissed ? (
           <span className="font-medium text-slate-400">
             All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed, nothing left to track
@@ -101,7 +101,7 @@ export function RoadmapSortToggle({
   onChange: (mode: RoadmapSortMode) => void;
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-sm">
+    <div className="flex items-center gap-1.5 type-body-sm">
       <Kicker tone="muted" as="span">
         order
       </Kicker>
@@ -127,7 +127,7 @@ export function ExploreList({ items }: { items?: string[] }) {
   return (
     <div className="mt-3 rounded-lg border border-divider bg-slate-950/40 p-3">
       <Kicker tone="accent">Explore</Kicker>
-      <ul className="mt-1.5 space-y-1 text-base text-slate-300">
+      <ul className="mt-1.5 space-y-1 type-body text-slate-300">
         {items.map((q, i) => (
           <li key={i} className="flex gap-2">
             <span className="select-none text-slate-600">→</span>
@@ -151,7 +151,7 @@ export function ExemplarPointer({ dim }: { dim: DimensionId }) {
   return (
     <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3">
       <Kicker tone="accent">What good looks like</Kicker>
-      <p className="mt-1.5 text-base leading-relaxed text-slate-300">
+      <p className="mt-1.5 type-body leading-relaxed text-slate-300">
         <span className="font-semibold text-white">{practice.label}</span>: {practice.what}
       </p>
     </div>
@@ -164,7 +164,7 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
   return (
     <Surface radius="2xl" className="p-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-white">Trust ladder</h2>
+        <h2 className="type-body font-semibold text-white">Trust ladder</h2>
         <Kicker tone="muted">trust = adoption × rigor</Kicker>
       </div>
       <div className="mt-3 flex gap-1.5">
@@ -174,10 +174,10 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
           return (
             <div key={l.id} className="flex-1">
               <div className="h-1.5 rounded-full" style={{ backgroundColor: reached ? LEVEL_HEX[l.id] : "var(--color-divider)" }} />
-              <div aria-hidden className="mt-1 text-sm leading-none" style={{ color: reached ? LEVEL_HEX[l.id] : "#475569" }}>
+              <div aria-hidden className="mt-1 type-body-sm leading-none" style={{ color: reached ? LEVEL_HEX[l.id] : "#475569" }}>
                 {LEVEL_GLYPH[l.id]}
               </div>
-              <div className={`mt-0.5 font-mono text-sm ${isCurrent ? "text-white" : "text-slate-500"}`}>
+              <div className={`mt-0.5 type-mono-sm ${isCurrent ? "text-white" : "text-slate-500"}`}>
                 {l.id}
                 {isCurrent ? " ◂ you" : ""}
               </div>
@@ -185,7 +185,7 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
           );
         })}
       </div>
-      <p className="mt-2 text-sm text-slate-400">
+      <p className="mt-2 type-body-sm text-slate-400">
         {next
           ? `The next rung is ${next.id} ${next.name}: ${next.tagline}. The gaps below are inputs to explore on the way.`
           : "At the top of the ladder, the work now is sustaining trust and sharing what works."}
@@ -214,7 +214,7 @@ export function NextLevelPath({ report }: { report: ScanReport }) {
   if (!path.target || !path.reachable || path.steps.length === 0) return null;
   const names = fastestPathNames(path.steps);
   return (
-    <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 text-base">
+    <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 type-body">
       <Kicker tone="accent">Fastest path</Kicker>
       <p className="mt-1 text-slate-300">
         Closing <span className="font-semibold text-white">{names}</span> projects to{" "}
@@ -260,7 +260,7 @@ export function RoadmapSteps({
             style={quick ? { borderColor: "rgba(16,185,129,0.35)" } : { borderColor: "rgb(30,41,59)" }}
           >
             <div className="flex items-start gap-4">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-base text-slate-300">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono type-body text-slate-300">
                 {i + 1}
               </span>
               <div className="min-w-0 flex-1">
@@ -269,12 +269,12 @@ export function RoadmapSteps({
                   {quick && <QuickWinBadge />}
                 </div>
                 {item.rationale && (
-                  <p className="mt-1.5 text-base leading-relaxed text-slate-400">{item.rationale}</p>
+                  <p className="mt-1.5 type-body leading-relaxed text-slate-400">{item.rationale}</p>
                 )}
                 <ExpectedLiftBasis item={item} lifts={lifts} />
                 <ExploreList items={item.explore} />
                 <ExemplarPointer dim={item.dimension} />
-                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 type-body-sm">
                   <RoadmapMeta item={item} className="contents" />
                   {axis && (
                     <span className="rounded-md border border-slate-700 px-2 py-0.5 text-slate-400">

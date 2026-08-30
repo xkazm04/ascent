@@ -65,7 +65,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
       <div className="relative flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <Kicker>{signedIn ? "Go fleet-wide" : "Make this more than a one-off"}</Kicker>
-          <p className="mt-1.5 max-w-xl text-base leading-relaxed text-slate-300">
+          <p className="mt-1.5 max-w-xl type-body leading-relaxed text-slate-300">
             {signedIn
               ? "Scan your whole org in one shot to see this repo ranked against the rest: common gaps to fix once, and the repo-specific ones."
               : "Scan your whole org in one shot, then sign in to save history and get alerted when a repo's score moves."}
@@ -74,7 +74,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
         <div className="flex shrink-0 flex-wrap items-center gap-3">
           <Link
             href="/onboarding"
-            className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+            className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             {signedIn ? "Scan your org" : "Scan your whole org"} <span aria-hidden>→</span>
           </Link>
@@ -85,7 +85,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
             track === "tracked" ? (
               <Link
                 href="/me"
-                className="focus-ring inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 px-4 py-2.5 text-base text-emerald-300 transition hover:border-emerald-400 hover:text-emerald-200"
+                className="focus-ring inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 px-4 py-2.5 type-body text-emerald-300 transition hover:border-emerald-400 hover:text-emerald-200"
               >
                 In your workspace <span aria-hidden>→</span>
               </Link>
@@ -94,7 +94,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
                 type="button"
                 onClick={trackRepo}
                 disabled={track === "busy"}
-                className="focus-ring inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+                className="focus-ring inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
               >
                 {track === "busy" ? "Tracking…" : "Track this repo"}
               </button>
@@ -103,7 +103,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
           {!signedIn && (
             <Link
               href="/onboarding"
-              className="focus-ring inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
             >
               Sign in to track over time
             </Link>
@@ -111,7 +111,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
         </div>
       </div>
       {trackError && (
-        <p role="alert" className="relative mt-2 text-sm text-rose-400">
+        <p role="alert" className="relative mt-2 type-body-sm text-rose-400">
           {trackError}
         </p>
       )}

@@ -27,17 +27,17 @@ export function ControlMatrixPanel({ org }: { org: string }) {
         />
       </div>
 
-      {loading && <p className="text-base text-slate-400">Loading the control matrix…</p>}
+      {loading && <p className="type-body text-slate-400">Loading the control matrix…</p>}
 
       {error && (
-        <p className="rounded-2xl border border-divider bg-surface/40 p-4 text-base text-amber-300">
+        <p className="rounded-2xl border border-divider bg-surface/40 p-4 type-body text-amber-300">
           {error} Nothing is shown rather than an empty grid: an unanswered request is not evidence that
           the fleet has no controls.
         </p>
       )}
 
       {!loading && !error && rows && rows.length === 0 && (
-        <p className="text-base text-slate-400">
+        <p className="type-body text-slate-400">
           No repository in this organization has reported a doctor run yet. Wire{" "}
           <code>node .ai/doctor.mjs --json</code> into a repo&apos;s CI with{" "}
           <code>ASCENT_CONFORMANCE_URL</code> and <code>ASCENT_CONFORMANCE_TOKEN</code>, and its controls
@@ -59,7 +59,7 @@ export function ControlMatrixPanel({ org }: { org: string }) {
 
           <ControlMatrixGrid rows={rows} expanded={expanded} onToggleFamily={toggleFamily} />
 
-          <p className="text-sm text-slate-500">
+          <p className="type-body-sm text-slate-500">
             Column headers are check families; click one to expand it into its individual clauses. These
             rows are DERIVED data — the tamper-evident copy of every report is the signed{" "}
             <code>conformance.reported</code> entry in this organization&apos;s audit log.

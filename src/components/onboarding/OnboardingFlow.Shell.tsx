@@ -18,7 +18,7 @@ const STEP_LABELS = ["Choose a source", "Choose repositories", "Scan"] as const;
  */
 function Stepper({ step }: { step: 1 | 2 | 3 }) {
   return (
-    <ol className="mb-4 flex items-center font-mono text-sm uppercase tracking-widest">
+    <ol className="mb-4 flex items-center type-mono-sm uppercase tracking-widest">
       {STEP_LABELS.map((label, i) => {
         const n = (i + 1) as 1 | 2 | 3;
         const isCurrent = n === step;
@@ -33,7 +33,7 @@ function Stepper({ step }: { step: 1 | 2 | 3 }) {
           >
             <span
               aria-hidden
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs normal-case tracking-normal ${
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border type-note normal-case tracking-normal ${
                 isCurrent
                   ? "border-accent bg-accent/10 text-accent"
                   : isDone

@@ -263,7 +263,7 @@ export function ReportView({
       <div className="flex justify-center pt-2">
         <Link
           href="/?scan=1"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
+          className="rounded-xl border border-slate-700 px-5 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
         >
           ← Scan another repo
         </Link>

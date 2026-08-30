@@ -26,13 +26,13 @@ export function RepoLeaderboardBulkBar({
 }) {
   return (
     <div className="sticky bottom-4 z-10 mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-accent/40 bg-slate-900/95 px-4 py-3 shadow-lg backdrop-blur">
-      <span className="font-mono text-sm text-white">{count} selected</span>
-      <span className="font-mono text-sm text-slate-500">→ add to</span>
+      <span className="type-mono-sm text-white">{count} selected</span>
+      <span className="type-mono-sm text-slate-500">→ add to</span>
       <select
         value={target}
         onChange={(e) => setTarget(e.target.value)}
         aria-label="Add selected repos to segment"
-        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
       >
         <option value="">segment…</option>
         {segments.map((s) => (
@@ -44,14 +44,14 @@ export function RepoLeaderboardBulkBar({
       <button
         onClick={onAdd}
         disabled={busy || !target}
-        className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+        className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
       >
         {busy ? "Adding…" : "Add"}
       </button>
-      <button onClick={onClear} className="rounded-lg px-2 py-1.5 text-sm text-slate-400 hover:text-white">
+      <button onClick={onClear} className="rounded-lg px-2 py-1.5 type-body-sm text-slate-400 hover:text-white">
         Clear
       </button>
-      {error && <span className="font-mono text-sm text-orange-300">{error}</span>}
+      {error && <span className="type-mono-sm text-orange-300">{error}</span>}
     </div>
   );
 }

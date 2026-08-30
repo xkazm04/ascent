@@ -18,14 +18,14 @@ export function GovernanceFailingReposCard({ slug, g }: { slug: string; g: Gover
           {g.failures.map((f) => (
             <div key={f.fullName} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-sm text-slate-200">{f.fullName}</span>
-                <span className="font-mono text-xs text-slate-500">
+                <span className="type-mono-sm text-slate-200">{f.fullName}</span>
+                <span className="font-mono type-micro text-slate-500">
                   {f.level} · overall <span style={{ color: scoreHex(f.overall) }}>{f.overall}</span>
                 </span>
               </div>
               <ul className="mt-1.5 space-y-0.5">
                 {f.reasons.map((reason, i) => (
-                  <li key={i} className="flex gap-2 text-sm text-slate-400">
+                  <li key={i} className="flex gap-2 type-body-sm text-slate-400">
                     <span aria-hidden className="select-none text-red-400/70">✕</span>
                     <span>{reason}</span>
                   </li>
@@ -39,7 +39,7 @@ export function GovernanceFailingReposCard({ slug, g }: { slug: string; g: Gover
           server-side. Say so — otherwise the count and the list read as inconsistent ("where are the
           other repos?"). */}
       {g.failing > g.failures.length && (
-        <p className="mt-3 font-mono text-sm text-slate-500">
+        <p className="mt-3 type-mono-sm text-slate-500">
           Showing the worst {g.failures.length} of {g.failing} failing repos. See the{" "}
           <Link href={orgTabHref(slug, "repositories")} className="text-accent hover:text-white">
             Repositories

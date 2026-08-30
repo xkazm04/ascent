@@ -21,8 +21,8 @@ export function FitReadout({ fit }: { fit: DeliveryRateFit }) {
   if (fit.insufficiency) {
     return (
       <div className="min-w-0">
-        <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{meta.label}</div>
-        <div className="mt-0.5 text-sm text-slate-500">{fit.insufficiency}</div>
+        <div className="type-mono-sm uppercase tracking-widest text-slate-500">{meta.label}</div>
+        <div className="mt-0.5 type-body-sm text-slate-500">{fit.insufficiency}</div>
       </div>
     );
   }
@@ -33,12 +33,12 @@ export function FitReadout({ fit }: { fit: DeliveryRateFit }) {
   const color = deltaHex(meta.higherIsBetter ? fit.perWeek : -fit.perWeek);
   return (
     <div className="min-w-0">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{meta.label}</div>
-      <div className="mt-0.5 font-mono text-base" style={{ color }}>
+      <div className="type-mono-sm uppercase tracking-widest text-slate-500">{meta.label}</div>
+      <div className="mt-0.5 font-mono type-body" style={{ color }}>
         <span aria-hidden>{arrow}</span> {fit.perWeek > 0 ? "+" : ""}
         {fit.perWeek} {meta.suffix}
       </div>
-      <div className="font-mono text-sm text-slate-600">
+      <div className="type-mono-sm text-slate-600">
         fit over {fit.points} days · {fit.spanDays}d span
       </div>
     </div>

@@ -149,9 +149,9 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
       className="mx-auto flex w-full max-w-md flex-col items-center py-20 text-center"
       data-testid="scan-loading"
     >
-      <p className="font-mono text-base text-slate-400">{repo}</p>
+      <p className="font-mono type-body text-slate-400">{repo}</p>
       {/* Polite live region so screen readers hear each phase change ("Asking Gemini…", "Done"). */}
-      <p className="mt-2 min-h-[1.75rem] text-lg font-medium text-white" role="status" aria-live="polite">
+      <p className="mt-2 min-h-[1.75rem] type-lede font-medium text-white" role="status" aria-live="polite">
         {headline}
       </p>
 
@@ -170,7 +170,7 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
       </div>
       {/* Elapsed clock · percentage. The clock is the honest signal during the multi-minute score
           stage; the percentage is time-smoothed so it advances rather than freezing. */}
-      <p className="mt-1.5 flex items-center justify-center gap-2 font-mono text-sm tabular-nums text-slate-600">
+      <p className="mt-1.5 flex items-center justify-center gap-2 type-mono-sm tabular-nums text-slate-600">
         <span aria-label="Time elapsed">{formatDuration(elapsedMs)}</span>
         <span className="text-slate-700" aria-hidden>·</span>
         <span>{displayPct}%</span>
@@ -181,7 +181,7 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
         {SCAN_STEPS.map((step, i) => {
           const state = done || i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
           return (
-            <li key={step.stage} className="flex items-center gap-3 font-mono text-sm">
+            <li key={step.stage} className="flex items-center gap-3 type-mono-sm">
               <StepIcon state={state} />
               <span
                 className={
@@ -200,14 +200,14 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
           front and owns it when a large repo runs long. Hidden once the model bailed (the fallback
           note below takes over). */}
       {!done && !progress.fallback && (
-        <p className="mt-5 max-w-sm text-sm text-slate-500" role="status" aria-live="polite">
+        <p className="mt-5 max-w-sm type-body-sm text-slate-500" role="status" aria-live="polite">
           {expectationCopy(elapsedMs, scanEstimateMs(progress.provider))}
         </p>
       )}
 
       {/* Calm fallback note: the model took too long, deterministic scores are on the way. */}
       {progress.fallback && (
-        <p className="animate-fade-up mt-5 flex items-center gap-2 text-base text-amber-300/90" role="status">
+        <p className="animate-fade-up mt-5 flex items-center gap-2 type-body text-amber-300/90" role="status">
           <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none">
             <path
               d="M8 4v4l2.5 1.5M14 8A6 6 0 11 2 8a6 6 0 0112 0z"

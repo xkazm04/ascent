@@ -10,8 +10,8 @@ import type { ImpactLedger as ImpactLedgerModel } from "@/lib/db/org-impact";
  */
 export function FieldNotes({ ledger, periodTitle }: { ledger: ImpactLedgerModel; periodTitle: string }) {
   return (
-    <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
-      <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Field notes</span> Points are the{" "}
+    <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 type-body-sm text-slate-400">
+      <span className="type-label tracking-[0.22em] text-slate-500">Field notes</span> Points are the{" "}
       <strong className="font-medium text-slate-200">measured</strong> delta on each PR&apos;s targeted dimension (the first
       scan after the merge against the repo&apos;s scan when the PR opened), summed over {periodTitle.toLowerCase()}. Only
       re-scanned merges count.

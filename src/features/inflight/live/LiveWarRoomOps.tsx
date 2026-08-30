@@ -67,28 +67,28 @@ export function ShipLoopBand({
   return (
     <div className="mt-4 rounded-2xl border border-divider bg-surface/40">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-divider px-4 py-2.5">
-        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Ship loop</h3>
-        <span className="hidden font-mono text-sm text-slate-500 sm:inline">identify → triage → PR → merge → rescan → impact</span>
+        <h3 className="type-mono-sm uppercase tracking-widest text-accent">Ship loop</h3>
+        <span className="hidden type-mono-sm text-slate-500 sm:inline">identify → triage → PR → merge → rescan → impact</span>
         {s.mockPrs && (
           <span
-            className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 font-mono text-xs text-amber-300"
+            className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 type-caption text-amber-300"
             title="GitHub App not configured: PRs are simulated locally (they merge on their own after ~90s)"
           >
             mock PRs
           </span>
         )}
         <span className="flex-1" />
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="When a PR merges, automatically rescan that repo to measure the impact">
+        <label className="flex items-center gap-1.5 type-mono-sm text-slate-500" title="When a PR merges, automatically rescan that repo to measure the impact">
           <input type="checkbox" checked={autoVerify} onChange={toggleAutoVerify} className="accent-accent" />
           Auto-verify merges
         </label>
         {loop.polledAt && (
-          <span className="font-mono text-xs text-slate-600" suppressHydrationWarning>
+          <span className="type-caption text-slate-600" suppressHydrationWarning>
             checked {freshness(new Date(loop.polledAt).toISOString())}
           </span>
         )}
       </header>
-      {loop.error && <p className="border-b border-divider px-4 py-2 font-mono text-sm text-orange-300">{loop.error}</p>}
+      {loop.error && <p className="border-b border-divider px-4 py-2 type-mono-sm text-orange-300">{loop.error}</p>}
       <ShipLoopPipeline {...view} />
     </div>
   );

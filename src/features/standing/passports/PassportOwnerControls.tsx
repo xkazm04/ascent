@@ -68,39 +68,39 @@ export function PassportOwnerControls({
     }
   }
 
-  const selectCls = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200";
+  const selectCls = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200";
 
   return (
     <div className="mt-4 border-t border-slate-800 pt-4">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Owner settings</div>
-      <p className="mt-1 text-sm text-slate-500">Fields a scan can&apos;t infer: these frame how to read the scores and (rollback) lift the production score.</p>
+      <div className="type-mono-sm uppercase tracking-widest text-slate-500">Owner settings</div>
+      <p className="mt-1 type-body-sm text-slate-500">Fields a scan can&apos;t infer: these frame how to read the scores and (rollback) lift the production score.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+        <label className="flex items-center gap-1.5 type-mono-sm text-slate-500">
           criticality
           <select value={crit} onChange={(e) => setCrit(e.target.value)} className={selectCls} aria-label="Criticality">
             <option value="">unset</option>
             {CRITICALITY.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+        <label className="flex items-center gap-1.5 type-mono-sm text-slate-500">
           lifecycle
           <select value={life} onChange={(e) => setLife(e.target.value)} className={selectCls} aria-label="Lifecycle">
             <option value="">unset</option>
             {LIFECYCLE.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-sm text-slate-300">
+        <label className="flex items-center gap-1.5 type-body-sm text-slate-300">
           <input type="checkbox" checked={rb} onChange={(e) => setRb(e.target.checked)} className="accent-accent" />
           tested rollback
         </label>
-        <button onClick={save} disabled={busy !== null} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
+        <button onClick={save} disabled={busy !== null} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {busy === "save" ? "Saving…" : "Save"}
         </button>
-        <button onClick={openPr} disabled={busy !== null} className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Open a draft PR committing .ai/passport.json">
+        <button onClick={openPr} disabled={busy !== null} className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Open a draft PR committing .ai/passport.json">
           {busy === "pr" ? "Opening PR…" : "Commit .ai/passport.json →"}
         </button>
       </div>
-      {msg && <p className={`mt-2 text-sm ${msg.kind === "ok" ? "text-emerald-300" : "text-orange-300"}`}>{msg.text}</p>}
+      {msg && <p className={`mt-2 type-body-sm ${msg.kind === "ok" ? "text-emerald-300" : "text-orange-300"}`}>{msg.text}</p>}
     </div>
   );
 }

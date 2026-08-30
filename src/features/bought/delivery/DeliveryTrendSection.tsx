@@ -66,7 +66,7 @@ export function DeliveryTrendSection({
         ))}
       </div>
 
-      <div className="mt-4 space-y-2 font-mono text-sm text-slate-600">
+      <div className="mt-4 space-y-2 type-mono-sm text-slate-600">
         <p>
           A day&apos;s point describes the repos scanned that day, not the whole fleet. Hover any point for its
           sample size. Days nobody measured a metric are gaps in the line, never zeroes.

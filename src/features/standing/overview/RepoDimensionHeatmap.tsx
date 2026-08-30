@@ -70,7 +70,7 @@ export function RepoDimensionHeatmap({
       <div className="mt-4 overflow-x-auto">
         <table className="min-w-[640px]">
           <thead>
-            <tr className="font-mono text-sm uppercase tracking-widest text-slate-500">
+            <tr className="type-mono-sm uppercase tracking-widest text-slate-500">
               <th className="px-2 py-1 text-left" />
               {dims.map((d) => {
                 const active = sort?.dim === d;
@@ -100,7 +100,7 @@ export function RepoDimensionHeatmap({
               const byId = Object.fromEntries(r.dims.map((d) => [d.dimId, d.score]));
               return (
                 <tr key={r.fullName}>
-                  <th scope="row" className="px-2 py-1 text-left font-mono text-sm font-normal">
+                  <th scope="row" className="px-2 py-1 text-left type-mono-sm font-normal">
                     {/* GA: the row label opens the repo's stored report (cells stay the dim drill-in). */}
                     <Link
                       href={`/report/${r.fullName}`}
@@ -118,7 +118,7 @@ export function RepoDimensionHeatmap({
                         <button
                           type="button"
                           onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: d })}
-                          className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-sm transition hover:ring-2 hover:ring-accent/60"
+                          className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded type-mono-sm transition hover:ring-2 hover:ring-accent/60"
                           style={{ backgroundColor: cell.fill, color: cell.text }}
                           title={`${r.name} · ${d}: ${v} (click for detail)`}
                           aria-label={`${r.name} ${d} score ${v}, open detail`}
@@ -136,7 +136,7 @@ export function RepoDimensionHeatmap({
               scanning every row. Numbers-only (colored by score), visually set off by a top rule. */}
           <tfoot>
             <tr className="border-t border-slate-800">
-              <th scope="row" className="px-2 pt-2 text-left font-mono text-xs uppercase tracking-widest text-slate-500">
+              <th scope="row" className="px-2 pt-2 text-left type-label tracking-widest text-slate-500">
                 Fleet avg
               </th>
               {dims.map((d) => {
@@ -144,9 +144,9 @@ export function RepoDimensionHeatmap({
                 return (
                   <td key={d} className="px-1 pt-2 text-center">
                     {v == null ? (
-                      <span className="font-mono text-sm text-slate-700">—</span>
+                      <span className="type-mono-sm text-slate-700">—</span>
                     ) : (
-                      <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
+                      <span className="type-mono-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
                         {v}
                       </span>
                     )}

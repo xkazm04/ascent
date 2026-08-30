@@ -117,7 +117,7 @@ export function PassportScatter({
         ))}
       </svg>
       {/* band legend — the point palette, spelled out */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-slate-500">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 type-caption text-slate-500">
         {(Object.keys(BAND_LABEL) as (keyof typeof BAND_LABEL)[]).map((b) => (
           <span key={b} className="inline-flex items-center gap-1.5">
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: BAND_COLOR[b] }} />

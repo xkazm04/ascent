@@ -71,16 +71,16 @@ export default async function LeaderboardPage({
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
           <div>
             <Kicker>The index · ranked</Kicker>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <h1 className="mt-2 type-display font-bold tracking-tight text-white sm:type-display-lg">
               The AI-native register
             </h1>
-            <p className="mt-3 max-w-2xl text-lg leading-relaxed text-slate-400">
+            <p className="mt-3 max-w-2xl type-lede leading-relaxed text-slate-400">
               Every public repository Ascent has scored, ranked by overall maturity and broken down
               across all nine dimensions. Every public scan is open. Click any repo to read its full
               report, or open an owner&apos;s{" "}
               <span className="text-slate-300">public scorecard</span> from its name.
             </p>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">
+            <p className="mt-2 max-w-2xl type-body-sm leading-relaxed text-slate-500">
               Every score here is computed <span className="text-slate-400">outside-in</span>, from
               public artifacts alone — a repository whose reviews, CI or tests live outside its
               public tree reads lower than the project&apos;s reality, and rows where that limit
@@ -89,12 +89,12 @@ export default async function LeaderboardPage({
           </div>
           {register && (
             <div className="text-right">
-              <span className="block font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
+              <span className="block type-label tracking-[0.2em] text-slate-500">
                 {register.totalVerified} ranked · {register.totalRepos} public{" "}
                 {register.totalRepos === 1 ? "repo" : "repos"} scored
               </span>
               <span
-                className="mt-1 block font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600"
+                className="mt-1 block font-mono type-micro uppercase tracking-[0.2em] text-slate-600"
                 title={`This register is served live from ${dbModeLabel(getDbMode())}.`}
               >
                 Served live from {dbModeLabel(getDbMode())}
@@ -108,7 +108,7 @@ export default async function LeaderboardPage({
           <>
             <LeaderboardTable rows={rows} startRank={startRank} />
             {register.windowed && (
-              <p className="mt-4 font-mono text-[11px] uppercase tracking-widest text-slate-600">
+              <p className="mt-4 font-mono type-micro uppercase tracking-widest text-slate-600">
                 Ranked within the {register.totalVerified} highest-scoring scored repositories.
               </p>
             )}
@@ -116,17 +116,17 @@ export default async function LeaderboardPage({
           </>
         ) : (
           <div className="mt-12 rounded-2xl border border-divider bg-surface/40 p-10 text-center">
-            <p className="text-lg font-semibold text-white">
+            <p className="type-lede font-semibold text-white">
               {unranked.length > 0 ? "Nothing model-scored yet" : "No public scans yet"}
             </p>
-            <p className="mx-auto mt-2 max-w-md text-base text-slate-400">
+            <p className="mx-auto mt-2 max-w-md type-body text-slate-400">
               {unranked.length > 0
                 ? "Every public scan so far came from the deterministic preview rubric, so there is nothing to rank. A real scan puts a repo on the board."
                 : "The register fills as repositories get scanned. Be the first: scan a public repo and it lands on the board."}
             </p>
             <Link
               href="/?scan=1"
-              className="focus-ring mt-5 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+              className="focus-ring mt-5 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
             >
               Scan a repository <span aria-hidden>→</span>
             </Link>
@@ -137,10 +137,10 @@ export default async function LeaderboardPage({
           // NOT a second leaderboard. These scores came from the deterministic rubric with no model in
           // the loop, so they are shown without positions and with the `demo` qualifier on every row.
           <section aria-labelledby="unranked" className="mt-14">
-            <h2 id="unranked" className="text-xl font-bold tracking-tight text-white">
+            <h2 id="unranked" className="type-title font-bold tracking-tight text-white">
               Preview scans (not ranked)
             </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+            <p className="mt-2 max-w-2xl type-body-sm leading-relaxed text-slate-400">
               These repositories were scored by the deterministic preview rubric: no model contributed a
               judgement, so the numbers are a floor, not a rating. They are listed for completeness and
               are excluded from the ranking above.

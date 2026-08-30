@@ -95,7 +95,7 @@ export function MovementBadge({ count, capped }: { count: number; capped: boolea
   const label = movementBadgeLabel(count, capped);
   return (
     <span
-      className="ml-0.5 rounded-full bg-accent px-1.5 py-px font-mono text-xs tabular-nums text-on-accent"
+      className="ml-0.5 rounded-full bg-accent px-1.5 py-px type-caption tabular-nums text-on-accent"
       title={`${label} change${count === 1 && !capped ? "" : "s"} since you last looked`}
     >
       {label}
@@ -112,24 +112,24 @@ export function MovementSince({ movement }: { movement: Movement | null }) {
   if (!movement) return null;
   return (
     <div className="mb-3 border-b border-divider pb-3">
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">
+      <div className="type-label tracking-widest text-slate-500">
         {movement.firstLook ? "Since you joined" : "Since you last looked"}
       </div>
       {movement.count === 0 ? (
-        <p className="mt-1.5 font-mono text-sm text-slate-500">Nothing moved. You&apos;re up to date.</p>
+        <p className="mt-1.5 type-mono-sm text-slate-500">Nothing moved. You&apos;re up to date.</p>
       ) : (
         <ul className="mt-1.5 space-y-1">
           {movement.items.map((it, i) => (
-            <li key={`${it.at}-${i}`} className="flex items-baseline justify-between gap-2 text-sm">
+            <li key={`${it.at}-${i}`} className="flex items-baseline justify-between gap-2 type-body-sm">
               <span className="min-w-0 text-slate-300">
                 <span className="font-mono text-slate-200">{it.repo ?? "org"}</span>{" "}
                 <span className="text-slate-500">{movementEventLabel(it.event)}</span>
               </span>
-              <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500">{movementAgo(it.at)}</span>
+              <span className="shrink-0 type-caption tabular-nums text-slate-500">{movementAgo(it.at)}</span>
             </li>
           ))}
           {movement.capped && (
-            <li className="font-mono text-xs tabular-nums text-slate-500">+ more since {movement.since.slice(0, 10)}</li>
+            <li className="type-caption tabular-nums text-slate-500">+ more since {movement.since.slice(0, 10)}</li>
           )}
         </ul>
       )}

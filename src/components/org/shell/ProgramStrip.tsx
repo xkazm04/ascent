@@ -50,15 +50,15 @@ export function ProgramStrip({ slug, status }: { slug: string; status: ProgramSt
 
   return (
     <div className="border-b border-divider bg-surface/40">
-      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-2.5 gap-y-1 px-5 py-2 text-sm text-slate-400">
-        <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-2.5 gap-y-1 px-5 py-2 type-body-sm text-slate-400">
+        <span className="type-label tracking-[0.18em] text-slate-500">
           {achieved ? "Achieved" : paused ? "Paused" : `Week ${status.week}`}
         </span>
         <span className="text-slate-200">{program.name}</span>
 
         <Sep />
         {/* The rung pair is the programme's whole shape: where we are, where we said we'd get to. */}
-        <span className="font-mono text-xs">
+        <span className="type-caption">
           {status.levelNow ?? "—"} <span className="text-slate-600">→</span>{" "}
           <span className="text-slate-200">{status.levelTarget}</span>
         </span>
@@ -139,7 +139,7 @@ export function ProgramStrip({ slug, status }: { slug: string; status: ProgramSt
 
         <a
           href={orgTabHref(slug, "executive")}
-          className="focus-ring ml-auto font-mono text-xs text-slate-500 transition hover:text-accent"
+          className="focus-ring ml-auto type-caption text-slate-500 transition hover:text-accent"
         >
           Programme →
         </a>

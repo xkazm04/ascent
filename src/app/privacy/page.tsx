@@ -27,7 +27,7 @@ export const metadata = {
     "How Ascent handles repository data, contributor commit metadata, accounts, billing, cookies, retention, and data erasure.",
 };
 
-const H2 = "mt-10 text-xl font-semibold text-white";
+const H2 = "mt-10 type-title font-semibold text-white";
 const P = "mt-3 text-slate-400 leading-relaxed";
 const LI = "mt-2 text-slate-400 leading-relaxed";
 const EM = "text-slate-200";
@@ -37,8 +37,8 @@ export default function PrivacyPage() {
     <>
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-3xl px-5 py-12">
-        <h1 className="text-3xl font-bold text-white sm:text-4xl">Privacy policy</h1>
-        <p className="mt-2 font-mono text-sm uppercase tracking-widest text-slate-500">Last updated: August 4, 2026</p>
+        <h1 className="type-display font-bold text-white sm:type-display-lg">Privacy policy</h1>
+        <p className="mt-2 type-mono-sm uppercase tracking-widest text-slate-500">Last updated: August 4, 2026</p>
 
         <p className={P}>
           Ascent scores how AI-native an engineering organization is, based on the contents and history of its

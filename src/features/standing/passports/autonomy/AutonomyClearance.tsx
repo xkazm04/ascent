@@ -83,7 +83,7 @@ export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
           <button
             type="button"
             onClick={() => setFilter(null)}
-            className="focus-ring animate-fade-in rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-300 transition hover:border-accent hover:text-white"
+            className="focus-ring animate-fade-in rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-300 transition hover:border-accent hover:text-white"
           >
             <span aria-hidden>✕</span> show all clearances
           </button>

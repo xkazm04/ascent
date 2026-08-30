@@ -30,11 +30,11 @@ export function AboutFeature({
       <div className="deck-container grid items-center gap-10 lg:grid-cols-2 xl:gap-14 2xl:gap-20">
         <Reveal className={reverse ? "lg:order-last" : ""}>
           <Kicker>{kicker}</Kicker>
-          <h2 className="deck-h2 mt-3 text-2xl font-bold text-white sm:text-3xl">{title}</h2>
-          <p className="deck-body mt-4 text-base leading-relaxed text-slate-300">{body}</p>
+          <h2 className="deck-h2 mt-3 type-heading font-bold text-white sm:type-display">{title}</h2>
+          <p className="deck-body mt-4 type-body leading-relaxed text-slate-300">{body}</p>
           <ul className="mt-5 space-y-2.5 2xl:mt-7 2xl:space-y-3.5">
             {points.map((p, i) => (
-              <li key={i} className="deck-body flex gap-3 text-base text-slate-400">
+              <li key={i} className="deck-body flex gap-3 type-body text-slate-400">
                 <span aria-hidden className="mt-0.5 text-accent">
                   ▸
                 </span>
@@ -42,7 +42,7 @@ export function AboutFeature({
               </li>
             ))}
           </ul>
-          <p className="deck-body mt-6 border-l-2 border-accent/50 pl-4 text-base font-medium text-white 2xl:mt-8">
+          <p className="deck-body mt-6 border-l-2 border-accent/50 pl-4 type-body font-medium text-white 2xl:mt-8">
             {value}
           </p>
         </Reveal>

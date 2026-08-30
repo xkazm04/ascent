@@ -55,8 +55,8 @@ export function IndexOrg() {
       <div className="grid gap-6 border-y border-divider py-8 sm:grid-cols-[1fr_auto] sm:items-center 2xl:py-10">
         <div className="max-w-2xl">
           <Kicker>Organization edition</Kicker>
-          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white">Index the whole organization</h2>
-          <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
+          <h2 className="deck-h2 mt-2 type-heading font-bold text-white">Index the whole organization</h2>
+          <p className="deck-body mt-2 type-body leading-relaxed text-slate-400">
             Ascent scans every repository in an org and rolls the results into one cross-repo register: shared
             strengths, the gaps common across teams, contributor activity, and where to invest next.
           </p>
@@ -64,18 +64,18 @@ export function IndexOrg() {
         <div className="flex flex-col gap-3 sm:items-end">
           <Link
             href={demoOrgHref()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             Explore the {DEMO_ORG_NAME} org report →
           </Link>
-          <Link href="/onboarding" className="text-sm font-medium text-slate-300 transition hover:text-white">
+          <Link href="/onboarding" className="type-body-sm font-medium text-slate-300 transition hover:text-white">
             Or analyze your own organization →
           </Link>
           {/* The full org-edition story. These six cards are a teaser; /about-org walks the whole
               module map, the fleet-wide capabilities and the operating loop. */}
           <Link
             href="/about-org"
-            className="focus-ring rounded-sm font-mono text-xs uppercase tracking-widest text-slate-400 transition hover:text-accent"
+            className="focus-ring rounded-sm type-label tracking-widest text-slate-400 transition hover:text-accent"
           >
             <span aria-hidden>▸</span> What the organization edition includes
           </Link>
@@ -90,10 +90,10 @@ export function IndexOrg() {
             className="focus-ring group flex flex-col rounded-xl border border-divider bg-surface-strong/40 p-5 transition hover:border-accent/60 hover:bg-surface/40"
           >
             <span className="flex items-center justify-between gap-2">
-              <span className="text-base font-semibold text-white group-hover:text-accent">{u.title}</span>
+              <span className="type-body font-semibold text-white group-hover:text-accent">{u.title}</span>
               <span className="font-mono text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-accent">→</span>
             </span>
-            <span className="mt-2 text-sm leading-relaxed text-slate-400 2xl:text-base">{u.blurb}</span>
+            <span className="mt-2 type-body-sm leading-relaxed text-slate-400 2xl:type-body">{u.blurb}</span>
           </Link>
         ))}
       </div>

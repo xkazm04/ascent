@@ -26,8 +26,8 @@ export function IndexFleet({ selfHosted = false }: { selfHosted?: boolean }) {
       <div className="grid items-center gap-10 border-y border-divider py-8 lg:grid-cols-[1fr_minmax(0,26rem)] 2xl:gap-14 2xl:py-10">
         <div className="max-w-2xl">
           <Kicker>Mission control</Kicker>
-          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white">Your whole fleet, read at a glance</h2>
-          <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
+          <h2 className="deck-h2 mt-2 type-heading font-bold text-white">Your whole fleet, read at a glance</h2>
+          <p className="deck-body mt-2 type-body leading-relaxed text-slate-400">
             Sign in and Ascent charts every organization you connect as a living star-map: a cluster per org, a
             star per repository, each one brightening as its maturity climbs. It is the whole estate in one
             frame: where the light is, and where it is not.
@@ -36,8 +36,8 @@ export function IndexFleet({ selfHosted = false }: { selfHosted?: boolean }) {
           <dl className="mt-6 grid gap-px overflow-hidden rounded-xl bg-divider sm:grid-cols-3">
             {FLEET_NOTES.map((n) => (
               <div key={n.term} className="bg-ink p-4">
-                <dt className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">{n.term}</dt>
-                <dd className="mt-1.5 text-sm leading-relaxed text-slate-400 2xl:text-base">{n.detail}</dd>
+                <dt className="type-label tracking-[0.22em] text-slate-500">{n.term}</dt>
+                <dd className="mt-1.5 type-body-sm leading-relaxed text-slate-400 2xl:type-body">{n.detail}</dd>
               </div>
             ))}
           </dl>
@@ -45,13 +45,13 @@ export function IndexFleet({ selfHosted = false }: { selfHosted?: boolean }) {
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <Link
               href="/onboarding"
-              className="focus-ring inline-flex items-center justify-center rounded-xl bg-accent px-5 py-3 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+              className="focus-ring inline-flex items-center justify-center rounded-xl bg-accent px-5 py-3 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
             >
               Chart your fleet →
             </Link>
             {/* Both land on /onboarding, which branches by deployment: the cloud leads with a GitHub
                 sign-in, a self-hosted install with the setup guide or the wizard. The label says which. */}
-            <Link href="/onboarding" className="text-sm font-medium text-slate-300 transition hover:text-white">
+            <Link href="/onboarding" className="type-body-sm font-medium text-slate-300 transition hover:text-white">
               {selfHosted ? "Or set this install up first →" : "Or sign in with GitHub first →"}
             </Link>
           </div>
@@ -69,7 +69,7 @@ export function IndexFleet({ selfHosted = false }: { selfHosted?: boolean }) {
           <div className="relative aspect-square">
             <PublicConstellation />
           </div>
-          <div className="relative mt-2 text-center font-mono text-xs uppercase tracking-[0.22em] text-slate-600">
+          <div className="relative mt-2 text-center type-label tracking-[0.22em] text-slate-600">
             Illustrative fleet
           </div>
         </div>

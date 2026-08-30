@@ -84,7 +84,7 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
                 title="File this blocker as GitHub issues in the affected repos"
                 className="focus-ring group flex w-full items-baseline gap-3 rounded py-1.5 text-left"
               >
-                <p className="min-w-0 flex-1 text-base leading-snug text-slate-200 transition group-hover:text-white">
+                <p className="min-w-0 flex-1 type-body leading-snug text-slate-200 transition group-hover:text-white">
                   {a.label}
                 </p>
                 <span className="flex shrink-0 items-center gap-2">
@@ -106,11 +106,11 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
                       />
                     ))}
                   </span>
-                  <span className="font-mono text-sm tabular-nums text-slate-300">{a.repos.length}</span>
+                  <span className="type-mono-sm tabular-nums text-slate-300">{a.repos.length}</span>
                   {a.declinedRepos.length > 0 && (
                     <span
                       title={`${a.declinedRepos.length} repo(s) declined this gap by choice — counted, never subtracted`}
-                      className="font-mono text-xs tabular-nums text-slate-500"
+                      className="type-caption tabular-nums text-slate-500"
                     >
                       +{a.declinedRepos.length} accepted
                     </span>

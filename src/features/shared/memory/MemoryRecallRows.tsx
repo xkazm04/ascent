@@ -29,13 +29,13 @@ export function ScoredRow({ item, muted = false }: { item: ScoredMemoryRow; mute
   return (
     <li className={`py-2 ${muted ? "opacity-60" : ""}`}>
       <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 text-sm text-slate-300">{excerpt(item.content)}</p>
+        <p className="min-w-0 type-body-sm text-slate-300">{excerpt(item.content)}</p>
         {/* Score and age come straight from the response — never recomputed here. */}
-        <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500" title="Recall score">
+        <span className="shrink-0 type-caption tabular-nums text-slate-500" title="Recall score">
           {item.score.toFixed(3)}
         </span>
       </div>
-      <p className="mt-0.5 font-mono text-xs tabular-nums text-slate-600">
+      <p className="mt-0.5 type-caption tabular-nums text-slate-600">
         {memoryKindLabel(item.kind)}
         {item.namespace ? ` · ${item.namespace}` : ""} · {ageLabel(item.ageDays)} old · conf{" "}
         {item.confidence.toFixed(2)} · {item.accessCount} recall{item.accessCount === 1 ? "" : "s"} ·{" "}
@@ -48,8 +48,8 @@ export function ScoredRow({ item, muted = false }: { item: ScoredMemoryRow; mute
 export function IneligibleRow({ item }: { item: IneligibleMemoryRow }) {
   return (
     <li className="py-2 opacity-60">
-      <p className="min-w-0 text-sm text-slate-400">{excerpt(item.content)}</p>
-      <p className="mt-0.5 font-mono text-xs text-slate-600">
+      <p className="min-w-0 type-body-sm text-slate-400">{excerpt(item.content)}</p>
+      <p className="mt-0.5 type-caption text-slate-600">
         {memoryKindLabel(item.kind)}
         {item.namespace ? ` · ${item.namespace}` : ""} · {INELIGIBLE_COPY[item.reason]}
       </p>
@@ -72,10 +72,10 @@ export function OmissionGroup({
   if (count === 0) return null;
   return (
     <details className="mt-3 border-t border-divider pt-3">
-      <summary className="cursor-pointer font-mono text-xs text-slate-500 hover:text-slate-300">
+      <summary className="cursor-pointer type-caption text-slate-500 hover:text-slate-300">
         {count} {title}
       </summary>
-      <p className="mt-1 text-sm text-slate-500">{hint}</p>
+      <p className="mt-1 type-body-sm text-slate-500">{hint}</p>
       <ul className="mt-1 divide-y divide-divider">{children}</ul>
     </details>
   );

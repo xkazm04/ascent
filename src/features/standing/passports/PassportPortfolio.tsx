@@ -72,13 +72,13 @@ export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[
       <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
         <div className="rounded-2xl border border-divider bg-surface/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Automation × Production</div>
+            <div className="type-mono-sm uppercase tracking-widest text-slate-500">Automation × Production</div>
             {filter && (
               <button
                 type="button"
                 onClick={() => setFilter(null)}
                 title="Reset to all passports"
-                className="focus-ring animate-fade-in flex items-center gap-1 rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                className="focus-ring animate-fade-in flex items-center gap-1 rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-300 transition hover:border-accent hover:text-white"
               >
                 <span aria-hidden>✕</span> {COHORT_META[filter].label}
               </button>
@@ -93,7 +93,7 @@ export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[
       </div>
       <PhaseReplay dep={filter}>
         {visible.length === 0 ? (
-          <p className="rounded-2xl border border-divider bg-surface/40 p-6 text-sm text-slate-500">
+          <p className="rounded-2xl border border-divider bg-surface/40 p-6 type-body-sm text-slate-500">
             No repos in the {scopeLabel} cohort for the current scope. Click the highlighted quadrant again (or the ✕ above) to clear it.
           </p>
         ) : (

@@ -84,7 +84,7 @@ export function SecurityRiskRegister({
                 badge={
                   advisoriesDemo ? (
                     <span
-                      className="ml-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 font-mono text-xs normal-case tracking-normal text-amber-300"
+                      className="ml-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 type-caption normal-case tracking-normal text-amber-300"
                       title="SUPPLY_CHAIN_PROVIDER=mock: these counts are deterministic demo data, not this fleet's real advisories"
                     >
                       demo data
@@ -105,13 +105,13 @@ export function SecurityRiskRegister({
           return (
             <tr key={r.fullName}>
               <td className="px-3 py-2">
-                <span className="font-mono text-sm text-slate-300" title={r.fullName}>{r.name}</span>
+                <span className="type-mono-sm text-slate-300" title={r.fullName}>{r.name}</span>
               </td>
               <td className="px-3 py-1.5 text-center">
                 <button
                   type="button"
                   onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: "D9" })}
-                  className="focus-ring mx-auto flex h-7 w-10 items-center justify-center rounded font-mono text-sm transition hover:ring-2 hover:ring-accent/60"
+                  className="focus-ring mx-auto flex h-7 w-10 items-center justify-center rounded type-mono-sm transition hover:ring-2 hover:ring-accent/60"
                   style={{ backgroundColor: cell.fill, color: cell.text }}
                   title={`${r.name} · Security (D9): ${r.score}, click for per-check evidence and next steps`}
                   aria-label={`${r.name} security score ${r.score}, open detail`}
@@ -121,9 +121,9 @@ export function SecurityRiskRegister({
               </td>
               <td className="px-3 py-2">
                 {r.gateReason ? (
-                  <span className="font-mono text-sm text-red-300">✗ {r.gateReason}</span>
+                  <span className="type-mono-sm text-red-300">✗ {r.gateReason}</span>
                 ) : (
-                  <span className="font-mono text-sm text-emerald-300/80">✓ pass</span>
+                  <span className="type-mono-sm text-emerald-300/80">✓ pass</span>
                 )}
               </td>
               <td className="px-3 py-2">
@@ -134,7 +134,7 @@ export function SecurityRiskRegister({
                     {exposure.map((c) => <CheckChip key={c.id} short={c.short} check={byId.get(c.id)} />)}
                   </div>
                 ) : (
-                  <span className="font-mono text-sm text-slate-600" title="No deterministic checks on this scan. Re-scan to populate the control grid.">re-scan for checks</span>
+                  <span className="type-mono-sm text-slate-600" title="No deterministic checks on this scan. Re-scan to populate the control grid.">re-scan for checks</span>
                 )}
               </td>
               {advByRepo && (
@@ -143,25 +143,25 @@ export function SecurityRiskRegister({
                     advisoriesDemo ? (
                       // Demo counts don't exist on GitHub — a deep-link would land on a Dependabot page
                       // showing something entirely different and erode trust in the real numbers too.
-                      <span className="font-mono text-sm text-slate-400" title="Demo data, no matching advisories exist on GitHub">
+                      <span className="type-mono-sm text-slate-400" title="Demo data, no matching advisories exist on GitHub">
                         {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
                         {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
                         {adv.total}
                       </span>
                     ) : (
-                      <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring font-mono text-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories, open on GitHub`}>
+                      <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring type-mono-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories, open on GitHub`}>
                         {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
                         {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
                         {adv.total} ↗
                       </a>
                     )
                   ) : (
-                    <span className="font-mono text-sm text-slate-600">{adv ? "0" : "—"}</span>
+                    <span className="type-mono-sm text-slate-600">{adv ? "0" : "—"}</span>
                   )}
                 </td>
               )}
               <td className="px-2 py-2 text-right">
-                <Link href={`/report/${r.fullName}`} className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent" title={`Open the full report for ${r.fullName}`} aria-label={`Open the full report for ${r.name}`}>
+                <Link href={`/report/${r.fullName}`} className="focus-ring type-mono-sm text-slate-500 transition hover:text-accent" title={`Open the full report for ${r.fullName}`} aria-label={`Open the full report for ${r.name}`}>
                   →
                 </Link>
               </td>
@@ -173,7 +173,7 @@ export function SecurityRiskRegister({
         <button
           type="button"
           onClick={() => setShowAll((s) => !s)}
-          className="focus-ring mt-3 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+          className="focus-ring mt-3 rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
         >
           {showAll ? "Show fewer" : `Show all ${rows.length} repos`}
         </button>

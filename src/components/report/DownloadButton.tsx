@@ -110,12 +110,12 @@ export function DownloadButton({
           <Link
             href={upgradeHref}
             role="alert"
-            className="text-sm text-amber-300 underline decoration-amber-300/40 underline-offset-2 transition hover:text-amber-200"
+            className="type-body-sm text-amber-300 underline decoration-amber-300/40 underline-offset-2 transition hover:text-amber-200"
           >
             <span aria-hidden>⚠</span> {error} Upgrade →
           </Link>
         ) : (
-          <span role="alert" className="text-sm text-red-300">
+          <span role="alert" className="type-body-sm text-red-300">
             <span aria-hidden>⚠</span> {error}
           </span>
         ))}

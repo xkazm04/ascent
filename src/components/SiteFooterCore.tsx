@@ -51,15 +51,15 @@ export function SiteFooterCore({
   return (
     <>
       {brand}
-      <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">{SITE_TAGLINE_TITLE}</p>
-      <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 font-mono text-sm uppercase tracking-widest text-slate-400">
+      <p className="mt-3 type-mono-sm uppercase tracking-widest text-slate-400">{SITE_TAGLINE_TITLE}</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 type-mono-sm uppercase tracking-widest text-slate-400">
         {links.map((l) => (
           <Link key={l.href} href={l.href} className="focus-ring rounded-sm hover:text-accent">
             {l.label}
           </Link>
         ))}
       </div>
-      <p className="mt-3 text-sm text-slate-500">{FOOTER_ATTRIBUTION}</p>
+      <p className="mt-3 type-body-sm text-slate-500">{FOOTER_ATTRIBUTION}</p>
     </>
   );
 }

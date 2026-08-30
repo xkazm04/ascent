@@ -36,7 +36,7 @@ export function opsImpact(landed: OpsPrItem[]) {
 export function ImpactReadout({ item }: { item: OpsPrItem }) {
   if (item.impactDim != null || item.impactOverall != null) {
     return (
-      <span className="shrink-0 font-mono text-sm">
+      <span className="shrink-0 type-mono-sm">
         {item.impactDim != null && (
           <span style={{ color: deltaHex(item.impactDim) }}>
             {dimShort(item.dimId)} {fmtDelta(item.impactDim)}
@@ -46,14 +46,14 @@ export function ImpactReadout({ item }: { item: OpsPrItem }) {
       </span>
     );
   }
-  if (item.state === "merged") return <span className="shrink-0 font-mono text-sm text-slate-500">awaiting rescan</span>;
-  return <span className="shrink-0 font-mono text-sm text-slate-500">closed unmerged</span>;
+  if (item.state === "merged") return <span className="shrink-0 type-mono-sm text-slate-500">awaiting rescan</span>;
+  return <span className="shrink-0 type-mono-sm text-slate-500">closed unmerged</span>;
 }
 
 /** A repo → report link with its dimension tag — the shared identity line for a ship-loop row. */
 export function RepoTag({ item }: { item: { repoFullName: string; repoName: string; dimId: string } }) {
   return (
-    <span className="flex min-w-0 items-center gap-2 font-mono text-sm">
+    <span className="flex min-w-0 items-center gap-2 type-mono-sm">
       <Link href={reportPermalink(item.repoFullName)} className="truncate text-slate-200 hover:text-accent" title={item.repoFullName}>
         {item.repoName}
       </Link>
@@ -81,22 +81,22 @@ export function TriageDetail({
     <div className="rounded-lg border border-divider/60 bg-surface-strong/30 p-3">
       <div className="flex items-center justify-between gap-2">
         <RepoTag item={item} />
-        <span className="shrink-0 font-mono text-xs text-slate-600">{item.practiceLabel}</span>
+        <span className="shrink-0 type-caption text-slate-600">{item.practiceLabel}</span>
       </div>
-      <p className="mt-1 text-base text-slate-200" title={item.title}>
+      <p className="mt-1 type-body text-slate-200" title={item.title}>
         {item.title}
       </p>
-      {item.rationale && <p className="mt-0.5 line-clamp-2 text-sm text-slate-500">{item.rationale}</p>}
+      {item.rationale && <p className="mt-0.5 line-clamp-2 type-body-sm text-slate-500">{item.rationale}</p>}
       <div className="mt-2 flex items-center gap-1.5">
-        <span className={`rounded border px-1.5 font-mono text-xs ${IMPACT_CLASS[item.impact] ?? IMPACT_CLASS.low}`}>{item.impact} impact</span>
-        <span className={`rounded border px-1.5 font-mono text-xs ${EFFORT_CLASS[item.effort] ?? EFFORT_CLASS.low}`}>{item.effort} effort</span>
+        <span className={`rounded border px-1.5 type-caption ${IMPACT_CLASS[item.impact] ?? IMPACT_CLASS.low}`}>{item.impact} impact</span>
+        <span className={`rounded border px-1.5 type-caption ${EFFORT_CLASS[item.effort] ?? EFFORT_CLASS.low}`}>{item.effort} effort</span>
         <span className="flex-1" />
         <button
           type="button"
           onClick={onAccept}
           disabled={Boolean(busy)}
           title={`Open a draft PR seeding "${item.practiceLabel}" into ${item.repoFullName}`}
-          className="focus-ring rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-mono text-sm text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+          className="focus-ring rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 type-mono-sm text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
         >
           {busy === "accept" ? "Opening…" : "✓ Open PR"}
         </button>
@@ -105,7 +105,7 @@ export function TriageDetail({
           onClick={onReject}
           disabled={Boolean(busy)}
           title="Dismiss this direction (recorded on the backlog timeline)"
-          className="focus-ring rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-400 transition hover:border-slate-500 hover:text-slate-200 disabled:opacity-50"
+          className="focus-ring rounded-md border border-slate-700 px-2.5 py-1 type-mono-sm text-slate-400 transition hover:border-slate-500 hover:text-slate-200 disabled:opacity-50"
         >
           {busy === "reject" ? "…" : "✕ Dismiss"}
         </button>
@@ -117,22 +117,22 @@ export function TriageDetail({
 /** A draft PR being watched for merge — repo, age, PR link. */
 export function FlightRowDetail({ item }: { item: OpsPrItem }) {
   return (
-    <div className="flex items-center gap-2 px-1 text-base">
+    <div className="flex items-center gap-2 px-1 type-body">
       <Link
         href={reportPermalink(item.repoFullName)}
-        className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200 hover:text-accent"
+        className="min-w-0 flex-1 truncate type-mono-sm text-slate-200 hover:text-accent"
         title={`${item.repoFullName}: ${item.practiceLabel}`}
       >
         {item.repoName}
       </Link>
-      <span className="shrink-0 font-mono text-sm text-slate-500" suppressHydrationWarning>
+      <span className="shrink-0 type-mono-sm text-slate-500" suppressHydrationWarning>
         {freshness(item.openedAt)}
       </span>
       <a
         href={item.prUrl}
         target="_blank"
         rel="noreferrer"
-        className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 font-mono text-sm text-accent transition hover:bg-accent/20"
+        className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 type-mono-sm text-accent transition hover:bg-accent/20"
         title={`Draft PR seeding ${item.practiceLabel}, review and merge it on GitHub`}
       >
         PR #{item.prNumber} ↗
@@ -145,12 +145,12 @@ export function FlightRowDetail({ item }: { item: OpsPrItem }) {
 export function LandedRowDetail({ item, onVerify }: { item: OpsPrItem; onVerify?: () => void }) {
   const needsVerify = item.state === "merged" && !item.verified && onVerify;
   return (
-    <div className="flex items-center gap-2 px-1 text-base">
+    <div className="flex items-center gap-2 px-1 type-body">
       <a
         href={item.prUrl}
         target="_blank"
         rel="noreferrer"
-        className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200 hover:text-accent"
+        className="min-w-0 flex-1 truncate type-mono-sm text-slate-200 hover:text-accent"
         title={`${item.repoFullName}: PR #${item.prNumber} (${item.practiceLabel}), ${item.state}${item.mergedAt ? " " + freshness(item.mergedAt) : ""}`}
       >
         {item.repoName}
@@ -163,7 +163,7 @@ export function LandedRowDetail({ item, onVerify }: { item: OpsPrItem; onVerify?
           type="button"
           onClick={onVerify}
           title="Run a scoped rescan of this repo now to measure the merged PR's impact"
-          className="focus-ring shrink-0 rounded-md border border-slate-700 px-2 py-0.5 font-mono text-sm text-slate-400 transition hover:border-accent hover:text-accent"
+          className="focus-ring shrink-0 rounded-md border border-slate-700 px-2 py-0.5 type-mono-sm text-slate-400 transition hover:border-accent hover:text-accent"
         >
           awaiting rescan · verify →
         </button>

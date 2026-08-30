@@ -126,7 +126,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
         aria-expanded={open}
         className="focus-ring flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-60"
       >
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Org</span>
+        <span className="type-mono-sm uppercase tracking-widest text-slate-500">Org</span>
         <span className="max-w-[10rem] truncate normal-case tracking-normal">{labelFor(active)}</span>
         <svg
           aria-hidden
@@ -157,7 +157,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
                 aria-checked={isActive}
                 tabIndex={-1} // roving focus: arrows/Home/End move focus; Tab exits the menu
                 onClick={() => choose(org)}
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-base transition hover:bg-slate-800/70 ${
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left type-body transition hover:bg-slate-800/70 ${
                   isActive ? "text-white" : "text-slate-300"
                 }`}
               >
@@ -171,7 +171,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
       {error && (
         <div
           role="alert"
-          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger-soft shadow-xl"
+          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-danger/30 bg-danger/10 px-3 py-2 type-body-sm text-danger-soft shadow-xl"
         >
           {error}
         </div>

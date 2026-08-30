@@ -107,14 +107,14 @@ export function CopyForLlm({
       {fallbackOpen && (
         <div className="mt-2 w-full max-w-xl rounded-lg border border-slate-700 bg-slate-950/80 p-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-slate-400">
+            <p className="type-body-sm text-slate-400">
               Automatic copy is blocked here. The text is selected below: press <kbd className="rounded border border-slate-700 px-1 font-mono">Ctrl</kbd>+<kbd className="rounded border border-slate-700 px-1 font-mono">C</kbd> (⌘C on Mac).
             </p>
             <button
               type="button"
               onClick={() => setFallbackOpen(false)}
               aria-label="Close manual copy panel"
-              className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
             >
               Close
             </button>
@@ -126,7 +126,7 @@ export function CopyForLlm({
             rows={6}
             aria-label="Markdown briefing to copy manually"
             onFocus={(e) => e.currentTarget.select()}
-            className="focus-ring mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-2 font-mono text-sm text-slate-200"
+            className="focus-ring mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-2 type-mono-sm text-slate-200"
           />
         </div>
       )}

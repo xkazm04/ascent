@@ -9,8 +9,8 @@
 
 import { FIELD, QUADRANT_LABEL, frontier, projectX, projectY, type QuadrantId } from "./observatoryModel";
 
-const KICKER = "font-mono text-[10px] uppercase tracking-[0.22em] fill-slate-500";
-const AXIS = "font-mono text-[10px] tabular-nums fill-slate-600";
+const KICKER = "font-mono type-micro uppercase tracking-[0.22em] fill-slate-500";
+const AXIS = "font-mono type-micro tabular-nums fill-slate-600";
 
 const CORNERS: Record<QuadrantId, { x: number; y: number; anchor: "start" | "end" }> = {
   "rigor-heavy": { x: 4, y: 96, anchor: "start" },

@@ -23,22 +23,22 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-white">{s.name}</span>
-        {!unscanned && <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{postureText(s.posture)}</span>}
+        {!unscanned && <span className="type-mono-sm uppercase tracking-widest text-slate-500">{postureText(s.posture)}</span>}
       </div>
       {unscanned ? (
         <div className="mt-2 flex items-baseline gap-2">
-          <span aria-hidden className="font-mono text-3xl font-bold text-slate-600">—</span>
-          <span className="font-mono text-sm text-slate-500">No scans yet, scan this segment to score it</span>
+          <span aria-hidden className="type-figure-lg font-bold text-slate-600">—</span>
+          <span className="type-mono-sm text-slate-500">No scans yet, scan this segment to score it</span>
         </div>
       ) : (
         <>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-3xl font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
+            <span className="type-figure-lg font-bold" style={{ color: scoreHex(s.avgOverall) }}>
               {s.avgOverall}
             </span>
-            <span className="font-mono text-sm text-slate-500">{level.id} · {level.name}</span>
+            <span className="type-mono-sm text-slate-500">{level.id} · {level.name}</span>
           </div>
-          <div className="mt-2 flex gap-4 font-mono text-sm text-slate-400">
+          <div className="mt-2 flex gap-4 type-mono-sm text-slate-400">
             <span>adopt {s.avgAdoption}</span>
             <span>rigor {s.avgRigor}</span>
           </div>
@@ -48,7 +48,7 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
           the segment (that count is the one on the "Create & tag" chips directly above this strip) —
           the title disambiguates so the two numbers are never read as contradicting each other. They
           now sit on ONE screen, so the disambiguation matters more, not less. */}
-      <div className="mt-1 font-mono text-sm text-slate-600" title="Repos in this segment that are watched or have a scan (may be fewer than the total tagged into the segment)">
+      <div className="mt-1 type-mono-sm text-slate-600" title="Repos in this segment that are watched or have a scan (may be fewer than the total tagged into the segment)">
         {s.scannedCount}/{s.repoCount} scanned
       </div>
       {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}

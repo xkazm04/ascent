@@ -77,7 +77,7 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
 
       {/* Period control + active-scope readout (filtering lives in the view's header dropdowns). */}
       <div data-tour="results-controls" className="flex flex-wrap items-center justify-between gap-3">
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
+        <span className="type-mono-sm uppercase tracking-widest text-slate-500">
           Showing · {period.title}
           <Suspense fallback={null}>
             <OverviewScopeReadout scope={scope} />

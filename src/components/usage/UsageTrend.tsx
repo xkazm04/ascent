@@ -64,10 +64,10 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
     <div className="rounded-2xl border border-divider bg-surface/40 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-white">
+          <h2 className="type-body font-semibold text-white">
             Computed scans per {bucketed ? "week" : "day"}
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 type-body-sm text-slate-500">
             Last {days} days · <span style={{ color: BILLABLE }}>{totalBillable} billable</span> ·{" "}
             <span style={{ color: FREE }}>{totalFree} free</span>
             {/* Long windows are bucketed for readability — say so, and point at the escape hatch. */}
@@ -77,14 +77,14 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
         <div className="flex items-center gap-2">
           <a
             href={`${exportBase}&format=csv`}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
             download
           >
             Export CSV
           </a>
           <a
             href={`${exportBase}&format=json`}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
             download
           >
             Export JSON
@@ -93,7 +93,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
       </div>
 
       {/* Legend */}
-      <div className="mt-3 flex items-center gap-4 text-sm text-slate-400">
+      <div className="mt-3 flex items-center gap-4 type-body-sm text-slate-400">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: BILLABLE }} />
           Billable (private)
@@ -105,7 +105,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
       </div>
 
       {totalBillable + totalFree === 0 ? (
-        <p className="mt-6 text-base text-slate-500">No scans recorded in this period.</p>
+        <p className="mt-6 type-body text-slate-500">No scans recorded in this period.</p>
       ) : (
         <>
           {/* The hover-only tooltips never fire for keyboard/touch/AT users, so the billing data —
@@ -146,7 +146,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           {/* One flex-1 slot per day, mirroring the bar grid above, so each shown label stays under
               its own bar. (A justify-between over only the filtered labels spread them evenly across
               the full width, detaching them from the fixed per-day bar positions.) */}
-          <div className="mt-2 flex gap-px font-mono text-sm text-slate-600" aria-hidden="true">
+          <div className="mt-2 flex gap-px type-mono-sm text-slate-600" aria-hidden="true">
             {series.map((d, i) => {
               const show = i % labelEvery === 0 || i === series.length - 1;
               return (

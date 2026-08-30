@@ -63,13 +63,13 @@ export function AcceptInviteForm({
   if (result?.ok) {
     return (
       <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-center">
-        <h1 className="text-xl font-bold text-white">You&apos;ve joined {result.org}</h1>
-        <p className="mt-2 text-base text-slate-400">
+        <h1 className="type-title font-bold text-white">You&apos;ve joined {result.org}</h1>
+        <p className="mt-2 type-body text-slate-400">
           You now have the {result.role} role in {result.org}.
         </p>
         <Link
           href={`/org/${encodeURIComponent(result.org)}`}
-          className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+          className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
         >
           Open the org dashboard →
         </Link>
@@ -79,25 +79,25 @@ export function AcceptInviteForm({
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-center">
-      <h1 className="text-xl font-bold text-white">Join {org}</h1>
-      <p className="mt-2 text-base text-slate-400">
+      <h1 className="type-title font-bold text-white">Join {org}</h1>
+      <p className="mt-2 type-body text-slate-400">
         You&apos;ve been invited to <span className="font-mono text-slate-200">{org}</span> as{" "}
         <span className="font-mono text-slate-200">{role}</span>. Accept to gain access.
       </p>
       {mismatch && (
-        <p role="alert" className="mt-3 text-sm text-orange-300">
+        <p role="alert" className="mt-3 type-body-sm text-orange-300">
           This invite is pinned to <span className="font-mono">@{mismatch}</span>; accepting will fail
           unless you&apos;re signed in as that account.
         </p>
       )}
       {!mismatch && pinnedEmail && (
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           This invite is bound to <span className="font-mono text-slate-200">{pinnedEmail}</span>; accept it
           while signed in with that verified email.
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-3 text-sm text-orange-300">
+        <p role="alert" className="mt-3 type-body-sm text-orange-300">
           {error}
         </p>
       )}
@@ -106,7 +106,7 @@ export function AcceptInviteForm({
         onClick={accept}
         disabled={busy}
         aria-busy={busy}
-        className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+        className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 type-body font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
       >
         {busy ? "Accepting…" : "Accept invitation"}
       </button>

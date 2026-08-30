@@ -21,30 +21,30 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
     save,
   } = useBrandingSettings(slug, initial);
 
-  const field = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600";
+  const field = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600";
   // Live, non-blocking contrast advisory for the accent against the white PDF (org-branding #1).
   const contrastWarning = accentContrastWarning(brandColor);
 
   return (
     <details className="group rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-base font-semibold text-white [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-2 type-body font-semibold text-white [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">›</span>
         Briefing branding
-        <span className="font-mono text-sm font-normal uppercase tracking-widest text-accent">team+</span>
+        <span className="type-mono-sm font-normal uppercase tracking-widest text-accent">team+</span>
       </summary>
       {/* Honest scope: branding reaches the CLIENT-FACING deliverables (PDF + shared briefing links).
           This in-app dashboard keeps Ascent chrome — see the boundary note in ExecutiveTab.tsx. */}
-      <p className="mt-2 text-sm text-slate-500">
+      <p className="mt-2 type-body-sm text-slate-500">
         White-label your client-facing briefing deliverables: the downloaded PDF and read-only shared
         briefing links show your name and logo instead of Ascent&apos;s (the accent colours the PDF). This
         in-app dashboard keeps Ascent&apos;s look.
       </p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
+        <label className="flex flex-col gap-1 type-mono-sm text-slate-500">
           Brand name
           <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
         </label>
-        <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
+        <label className="flex flex-col gap-1 type-mono-sm text-slate-500">
           <span>
             Accent{!colorSet && <span className="ml-1.5 text-slate-600">(default)</span>}
           </span>
@@ -85,7 +85,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
                   setColorSet(false);
                   setBrandColor(DEFAULT_BRAND_ACCENT);
                 }}
-                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 transition hover:border-accent hover:text-white"
+                className="rounded-md border border-slate-700 px-2 py-1 type-note text-slate-400 transition hover:border-accent hover:text-white"
                 title="Clear the custom accent, and briefings follow Ascent's current default colour"
               >
                 Use default
@@ -93,7 +93,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
             )}
           </span>
         </label>
-        <label className="flex flex-1 flex-col gap-1 font-mono text-sm text-slate-500">
+        <label className="flex flex-1 flex-col gap-1 type-mono-sm text-slate-500">
           Logo URL (https)
           <span className="flex items-center gap-2">
             <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem] flex-1`} />
@@ -110,7 +110,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
             )}
           </span>
         </label>
-        <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
+        <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}
         </button>
       </div>
@@ -118,7 +118,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
           Associated to the colour input via aria-describedby; not a live region, so dragging the
           picker doesn't spam a screen reader. */}
       {contrastWarning && (
-        <p id="brand-accent-warning" className="mt-2 flex items-start gap-1.5 font-mono text-sm text-amber-300">
+        <p id="brand-accent-warning" className="mt-2 flex items-start gap-1.5 type-mono-sm text-amber-300">
           <span aria-hidden>⚠</span>
           <span>{contrastWarning}</span>
         </p>
@@ -129,7 +129,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         <p
           role={state === "error" ? "alert" : "status"}
           aria-live={state === "error" ? "assertive" : "polite"}
-          className={`mt-2 font-mono text-sm ${state === "error" ? "text-orange-300" : state === "warn" ? "text-amber-300" : "text-emerald-300"}`}
+          className={`mt-2 type-mono-sm ${state === "error" ? "text-orange-300" : state === "warn" ? "text-amber-300" : "text-emerald-300"}`}
         >
           {msg}
         </p>

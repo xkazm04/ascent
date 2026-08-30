@@ -24,18 +24,18 @@ function Entry({ step, children }: { step: RegistryStep; children?: React.ReactN
   return (
     <li className="py-4">
       <div className="flex items-baseline gap-3">
-        <span className={`font-mono text-sm tabular-nums ${step.state === "pending" ? "text-slate-600" : "text-accent"}`}>
+        <span className={`type-mono-sm tabular-nums ${step.state === "pending" ? "text-slate-600" : "text-accent"}`}>
           {String(step.n).padStart(2, "0")}
         </span>
-        <span className={`text-base font-medium ${tone.text}`}>{step.title}</span>
+        <span className={`type-body font-medium ${tone.text}`}>{step.title}</span>
         <span className="mx-2 hidden h-px flex-1 self-center bg-divider sm:block" aria-hidden />
-        <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+        <span className="flex items-center gap-2 type-label tracking-[0.18em] text-slate-500">
           <span className={`inline-block h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
           {STATE_READ[step.state]}
         </span>
       </div>
-      <p className="mt-1 max-w-2xl pl-9 text-sm text-slate-400">{step.blurb}</p>
-      <p className="mt-1 pl-9 font-mono text-xs text-slate-500">{step.detail}</p>
+      <p className="mt-1 max-w-2xl pl-9 type-body-sm text-slate-400">{step.blurb}</p>
+      <p className="mt-1 pl-9 type-caption text-slate-500">{step.detail}</p>
       {children ? <div className="mt-3 pl-9">{children}</div> : null}
     </li>
   );
@@ -64,12 +64,12 @@ export function RegistryStepperIndex({
     <section className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="muted">{kicker}</Kicker>
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           <span className="tabular-nums text-slate-200">{done}</span>/{steps.length} complete
         </span>
       </div>
       {shown.length === 0 ? (
-        <p className="border-y border-divider py-4 text-sm text-slate-400">
+        <p className="border-y border-divider py-4 type-body-sm text-slate-400">
           Every step is done — the registry indexes itself, the fleet syncs against the catalog, and invokes are reporting back.
         </p>
       ) : (
@@ -86,7 +86,7 @@ export function RegistryStepperIndex({
             {/* Pointing the fleet has NO endpoint yet, so it is a stated next step rather than a
                 button: a developer adds the pointer, or runs the sync command from the how-to below. */}
             {s.id === "point" && s.state === "active" ? (
-              <p className="max-w-2xl text-sm text-slate-400">
+              <p className="max-w-2xl type-body-sm text-slate-400">
                 No bulk action for this yet. Add{" "}
                 <code className="font-mono text-slate-300">{view.howTo.pointer}</code> to a repo&apos;s{" "}
                 <code className="font-mono text-slate-300">.ai/manifest.yaml</code>, or have a developer run{" "}
@@ -99,8 +99,8 @@ export function RegistryStepperIndex({
       </ol>
       )}
       {view.error ? (
-        <p className="pt-2 text-sm text-warn">
-          <span className="font-mono text-xs uppercase tracking-[0.18em]">index error · </span>
+        <p className="pt-2 type-body-sm text-warn">
+          <span className="type-label tracking-[0.18em]">index error · </span>
           {view.error.message}
         </p>
       ) : null}

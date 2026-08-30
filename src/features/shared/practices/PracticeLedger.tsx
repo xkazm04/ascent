@@ -39,9 +39,9 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
         >
           <td className="px-4 py-3">
             <div className="font-medium text-white">{r.label}</div>
-            <div className="mt-0.5 max-w-md truncate text-sm text-slate-500">{r.what}</div>
+            <div className="mt-0.5 max-w-md truncate type-body-sm text-slate-500">{r.what}</div>
           </td>
-          <td className="whitespace-nowrap px-4 py-3 font-mono text-sm text-slate-400">{categoryLabel(r.dimId)}</td>
+          <td className="whitespace-nowrap px-4 py-3 type-mono-sm text-slate-400">{categoryLabel(r.dimId)}</td>
           <td className="px-4 py-3">
             <SourcePill source={r.source} />
           </td>
@@ -50,13 +50,13 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
               {r.adoptionPct != null ? (
                 <>
                   <Meter className="w-20" size="sm" value={r.adoptionPct} color={scoreHex(r.adoptionPct)} />
-                  <span className="font-mono text-sm tabular-nums text-slate-300">{r.adoptionLabel}</span>
+                  <span className="type-mono-sm tabular-nums text-slate-300">{r.adoptionLabel}</span>
                 </>
               ) : (
-                <span className="font-mono text-sm text-slate-600">{r.adoptionLabel}</span>
+                <span className="type-mono-sm text-slate-600">{r.adoptionLabel}</span>
               )}
             </div>
-            {r.reachLabel && <div className="mt-1 font-mono text-xs text-slate-500">{r.reachLabel}</div>}
+            {r.reachLabel && <div className="mt-1 type-caption text-slate-500">{r.reachLabel}</div>}
           </td>
           <td className="px-4 py-3">
             <RolloutCell rollout={r.rollout} />
@@ -67,7 +67,7 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
                 e.stopPropagation();
                 onOpen(r);
               }}
-              className="focus-ring whitespace-nowrap rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring whitespace-nowrap rounded-md border border-slate-700 px-2.5 py-1 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
             >
               View →
             </button>
@@ -86,20 +86,20 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
  */
 function RolloutCell({ rollout }: { rollout: PracticeRow["rollout"] }) {
   if (!rollout || (rollout.open === 0 && rollout.merged === 0)) {
-    return <span className="font-mono text-sm text-slate-600">—</span>;
+    return <span className="type-mono-sm text-slate-600">—</span>;
   }
   const { open, merged, lift } = rollout;
   return (
-    <div className="space-y-0.5 whitespace-nowrap font-mono text-sm tabular-nums">
+    <div className="space-y-0.5 whitespace-nowrap type-mono-sm tabular-nums">
       {open > 0 && <div className="text-accent">{open} in flight</div>}
       {merged > 0 && <div className="text-slate-300">{merged} landed</div>}
       {merged > 0 &&
         (lift != null ? (
-          <div className="text-xs" style={{ color: deltaHex(lift) }}>
+          <div className="type-note" style={{ color: deltaHex(lift) }}>
             {fmtDelta(lift)} avg {/* the practice's own dimension, measured post-merge */}
           </div>
         ) : (
-          <div className="text-xs text-slate-500">awaiting rescan</div>
+          <div className="type-note text-slate-500">awaiting rescan</div>
         ))}
     </div>
   );
@@ -109,7 +109,7 @@ function SourcePill({ source }: { source: PracticeRow["source"] }) {
   const authored = source === "authored";
   return (
     <span
-      className={`whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider ${
+      className={`whitespace-nowrap rounded border px-1.5 py-0.5 type-label tracking-wider ${
         authored ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-700 bg-slate-900 text-slate-400"
       }`}
     >

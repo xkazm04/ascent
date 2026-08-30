@@ -15,12 +15,12 @@ const postureText = (posture: string) => POSTURE_LABEL[posture] ?? posture;
 function MetricRow({ label, a, b }: { label: string; a: number; b: number }) {
   const d = a - b;
   return (
-    <div className="flex items-center gap-3 text-base">
+    <div className="flex items-center gap-3 type-body">
       <span className="w-28 shrink-0 text-slate-400">{label}</span>
       <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(a) }}>{a}</span>
       <span className="text-slate-600">·</span>
       <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(b) }}>{b}</span>
-      <span className="ml-auto font-mono text-sm" style={{ color: deltaHex(d) }}>{fmtDelta(d)}</span>
+      <span className="ml-auto type-mono-sm" style={{ color: deltaHex(d) }}>{fmtDelta(d)}</span>
     </div>
   );
 }
@@ -40,7 +40,7 @@ export function SegmentComparisonView({
   noun: "segment" | "stack";
 }) {
   if (!comparison) {
-    return <p className="mt-4 text-base text-slate-500">Pick two {noun}s to compare.</p>;
+    return <p className="mt-4 type-body text-slate-500">Pick two {noun}s to compare.</p>;
   }
   return (
     <>
@@ -58,7 +58,7 @@ export function SegmentComparisonView({
             size="sm"
             title="Headline metrics"
             right={
-              <span className="font-mono text-sm text-slate-500">
+              <span className="type-mono-sm text-slate-500">
                 <span className="text-slate-300">{comparison.a.name}</span> · <span className="text-slate-300">{comparison.b.name}</span> · Δ
               </span>
             }
@@ -75,7 +75,7 @@ export function SegmentComparisonView({
           <SectionHeader size="sm" title="By dimension" />
           <div className="mt-4 space-y-2">
             {comparison.dimDeltas.map((d) => (
-              <div key={d.dimId} className="flex items-center gap-2 text-sm">
+              <div key={d.dimId} className="flex items-center gap-2 type-body-sm">
                 <span className="w-16 shrink-0 text-slate-400">{dimShort(d.dimId)}</span>
                 <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.a) }}>{d.a}</span>
                 <Meter className="flex-1" size="sm" value={d.a} color={scoreHex(d.a)} />
@@ -84,9 +84,9 @@ export function SegmentComparisonView({
                 <span className="w-9 text-right font-mono" style={{ color: deltaHex(d.delta) }}>{fmtDelta(d.delta)}</span>
               </div>
             ))}
-            {comparison.dimDeltas.length === 0 && <p className="text-sm text-slate-500">Neither {noun} has a scanned repo yet.</p>}
+            {comparison.dimDeltas.length === 0 && <p className="type-body-sm text-slate-500">Neither {noun} has a scanned repo yet.</p>}
           </div>
-          <p className="mt-3 font-mono text-sm text-slate-600">
+          <p className="mt-3 type-mono-sm text-slate-600">
             left bar · {comparison.a.name} · right bar · {comparison.b.name}
           </p>
         </Card>

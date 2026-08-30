@@ -35,17 +35,17 @@ function DecayRow({ r }: { r: RepoContextRow }) {
       <div className="min-w-0">
         <div className="flex items-baseline gap-2">
           {r.scanned ? (
-            <Link href={`/report/${r.fullName}`} className="truncate font-mono text-sm text-white hover:text-accent">
+            <Link href={`/report/${r.fullName}`} className="truncate type-mono-sm text-white hover:text-accent">
               {r.fullName}
             </Link>
           ) : (
-            <span className="truncate font-mono text-sm text-slate-400">{r.fullName}</span>
+            <span className="truncate type-mono-sm text-slate-400">{r.fullName}</span>
           )}
-          <span className="shrink-0 font-mono text-xs uppercase tracking-[0.18em]" style={{ color: hex }}>
+          <span className="shrink-0 type-label tracking-[0.18em]" style={{ color: hex }}>
             {!r.assessed ? "not assessed" : r.present ? r.primaryPath : "no context"}
           </span>
         </div>
-        <p className="mt-1 truncate text-sm text-slate-400">{r.verdict}</p>
+        <p className="mt-1 truncate type-body-sm text-slate-400">{r.verdict}</p>
       </div>
 
       <div className="hidden sm:block">
@@ -58,22 +58,22 @@ function DecayRow({ r }: { r: RepoContextRow }) {
 
       <div className="flex items-center gap-5 text-right">
         <div>
-          <div className="font-mono text-lg tabular-nums" style={{ color: hex }}>
+          <div className="font-mono type-lede tabular-nums" style={{ color: hex }}>
             {r.assessed && r.present ? (r.potency != null ? `${r.potency}%` : "?") : "—"}
           </div>
-          <div className="font-mono text-xs uppercase tracking-[0.18em] text-slate-600">potency</div>
+          <div className="type-label tracking-[0.18em] text-slate-600">potency</div>
         </div>
         <div className="w-16">
-          <div className="font-mono text-lg tabular-nums text-slate-300">
+          <div className="font-mono type-lede tabular-nums text-slate-300">
             {r.assessed && r.present && r.halfLifeDays != null ? days(r.halfLifeDays) : "—"}
           </div>
-          <div className="font-mono text-xs uppercase tracking-[0.18em] text-slate-600">½-life</div>
+          <div className="type-label tracking-[0.18em] text-slate-600">½-life</div>
         </div>
         <div className="hidden w-20 md:block">
-          <div className="font-mono text-lg tabular-nums text-slate-300">
+          <div className="font-mono type-lede tabular-nums text-slate-300">
             {r.commitsSinceEdit != null ? `≈${fmtCompact(r.commitsSinceEdit)}${r.windowCapped ? "+" : ""}` : "—"}
           </div>
-          <div className="font-mono text-xs uppercase tracking-[0.18em] text-slate-600">commits since</div>
+          <div className="type-label tracking-[0.18em] text-slate-600">commits since</div>
         </div>
       </div>
     </div>
@@ -101,7 +101,7 @@ export function ContextHalfLife({ slug, rows }: { slug: string; rows: RepoContex
         right={
           <Link
             href={orgTabHref(slug, "practices")}
-            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
           >
             Refresh via practice →
           </Link>
@@ -143,7 +143,7 @@ export function ContextHalfLife({ slug, rows }: { slug: string; rows: RepoContex
         <div className="mt-3">
           <BandBar counts={counts} total={banded} />
         </div>
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           {s.withContext}/{s.assessed} assessed repos carry an agent-context file;{" "}
           <span className="font-mono tabular-nums text-slate-200">≈{fmtCompact(s.unguidedCommits)}</span> commits have
           landed since those files were last edited (approximate: read from weekly commit buckets, not per-commit
@@ -170,7 +170,7 @@ export function ContextHalfLife({ slug, rows }: { slug: string; rows: RepoContex
         </div>
       )}
 
-      <p className="font-mono text-xs uppercase tracking-[0.18em] text-slate-600">
+      <p className="type-label tracking-[0.18em] text-slate-600">
         Staleness is ≈ by design · freshness &quot;?&quot; = history lookup degraded, never fabricated
       </p>
     </div>

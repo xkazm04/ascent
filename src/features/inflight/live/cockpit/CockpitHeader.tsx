@@ -28,8 +28,8 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaptio
     <div className="flex flex-wrap items-end justify-between gap-4 border-b border-divider pb-3">
       <div className="min-w-0">
         <Kicker tone="accent">Observatory</Kicker>
-        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-100">The fleet, in adoption × rigor</h2>
-        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-slate-500">
+        <h2 className="mt-1 type-heading font-semibold tracking-tight text-slate-100">The fleet, in adoption × rigor</h2>
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 type-caption text-slate-500">
           <span className="tabular-nums">{fleetCount} repos</span>
           {driveCaption && (
             <span className="inline-flex items-center gap-1.5 text-accent">
@@ -52,7 +52,7 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaptio
       <div className="flex shrink-0 items-center gap-2">
         <Link
           href={wallHref}
-          className="focus-ring rounded-md border border-divider px-3 py-1.5 font-mono text-xs uppercase tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
+          className="focus-ring rounded-md border border-divider px-3 py-1.5 type-label tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
         >
           Wall
         </Link>
@@ -61,7 +61,7 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaptio
             type="button"
             onClick={onStop}
             disabled={stopping}
-            className="focus-ring rounded-md border border-danger/60 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:opacity-50"
+            className="focus-ring rounded-md border border-danger/60 px-3 py-1.5 type-label tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:opacity-50"
           >
             {stopping ? "Stopping…" : "Stop"}
           </button>

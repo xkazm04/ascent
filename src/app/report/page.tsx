@@ -16,7 +16,7 @@ export default function ReportPage() {
       {/* useSearchParams in ReportClient requires a Suspense boundary; the client mounts
           immediately and renders its own live scan view, so a minimal fallback covers the
           brief hydration gap. */}
-      <Suspense fallback={<div className="mx-auto w-full max-w-md py-12 text-center text-sm text-slate-500">Loading…</div>}>
+      <Suspense fallback={<div className="mx-auto w-full max-w-md py-12 text-center type-body-sm text-slate-500">Loading…</div>}>
         <ReportClient />
       </Suspense>
     </ReportShell>

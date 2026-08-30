@@ -23,14 +23,14 @@ export function SharedDimensionBars({ shares }: { shares: SharedDimensions }) {
           const wide = isOrgWide(row, shares.total);
           return (
             <li key={row.dimId} className="flex items-center gap-2">
-              <span className="w-16 shrink-0 font-mono text-xs text-slate-400">{row.dimId}</span>
+              <span className="w-16 shrink-0 type-caption text-slate-400">{row.dimId}</span>
               <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-divider">
                 <span
                   className={`block h-full ${wide ? "bg-accent" : "bg-slate-600"}`}
                   style={{ width: `${Math.round(row.share * 100)}%` }}
                 />
               </span>
-              <span className={`w-32 shrink-0 text-right font-mono text-xs tabular-nums ${wide ? "text-accent" : "text-slate-500"}`}>
+              <span className={`w-32 shrink-0 text-right type-caption tabular-nums ${wide ? "text-accent" : "text-slate-500"}`}>
                 {wide ? shareLine(row, shares.total) : `${row.repos}/${shares.total}`}
               </span>
             </li>
@@ -70,23 +70,23 @@ export function ProposalList({ proposals, pruned, onTogglePrune, dimFocus, unpai
         return (
           <div key={p.repo} className="rounded-lg border border-divider bg-surface/40 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="min-w-0 truncate font-mono text-xs text-slate-300" title={p.repo}>
+              <span className="min-w-0 truncate type-caption text-slate-300" title={p.repo}>
                 {p.repo}
                 {tag && (
-                  <span className="ml-2 rounded-sm border border-accent/40 px-1.5 text-[0.65rem] uppercase tracking-wide text-accent">
+                  <span className="ml-2 rounded-sm border border-accent/40 px-1.5 type-micro uppercase tracking-wide text-accent">
                     {tag}
                   </span>
                 )}
               </span>
               {orphan ? (
-                <span className="shrink-0 font-mono text-xs text-warn">not paired · skipped</span>
+                <span className="shrink-0 type-caption text-warn">not paired · skipped</span>
               ) : (
-                <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500">+{p.projectedPoints} projected</span>
+                <span className="shrink-0 type-caption tabular-nums text-slate-500">+{p.projectedPoints} projected</span>
               )}
             </div>
-            {tag && <p className="mt-1 text-xs leading-relaxed text-slate-400">{p.reason}</p>}
+            {tag && <p className="mt-1 type-note leading-relaxed text-slate-400">{p.reason}</p>}
             {items.length === 0 ? (
-              <p className="mt-2 font-mono text-xs text-slate-600">{tag ? "no rows to curate — this lane installs files" : "nothing open here"}</p>
+              <p className="mt-2 type-caption text-slate-600">{tag ? "no rows to curate — this lane installs files" : "nothing open here"}</p>
             ) : (
               <ul className="mt-2 space-y-1">
                 {items.map((item) => (
@@ -98,10 +98,10 @@ export function ProposalList({ proposals, pruned, onTogglePrune, dimFocus, unpai
                       onChange={() => onTogglePrune(item.id)}
                       className="focus-ring mt-1 h-3 w-3 shrink-0 accent-[color:var(--color-accent)]"
                     />
-                    <label htmlFor={`batch-${item.id}`} className="min-w-0 flex-1 cursor-pointer text-sm text-slate-300">
+                    <label htmlFor={`batch-${item.id}`} className="min-w-0 flex-1 cursor-pointer type-body-sm text-slate-300">
                       <span className={pruned.has(item.id) ? "text-slate-600 line-through" : ""}>{item.title}</span>
                       <span className="ml-2 inline-flex items-center gap-2 align-middle">
-                        <span className="font-mono text-xs text-slate-500">{item.dimId}</span>
+                        <span className="type-caption text-slate-500">{item.dimId}</span>
                         <ImpactEffort r={item} />
                         <Points n={item.projectedPoints} />
                       </span>

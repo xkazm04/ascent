@@ -11,12 +11,12 @@ export function Celebrations({ celebrations }: { celebrations: Celebration[] }) 
         >
           <span aria-hidden className="burst-ring absolute -left-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-emerald-400/40" />
           <div className="relative flex items-center gap-3">
-            <span className="text-xl" aria-hidden>
+            <span className="type-title" aria-hidden>
               🎉
             </span>
             <div>
-              <div className="font-mono text-sm uppercase tracking-widest text-emerald-300">Crossed into AI-Native</div>
-              <div className="text-base font-semibold text-white">
+              <div className="type-mono-sm uppercase tracking-widest text-emerald-300">Crossed into AI-Native</div>
+              <div className="type-body font-semibold text-white">
                 {c.name} {c.overall != null && <span className="font-mono text-emerald-300">· {c.overall}</span>}
               </div>
             </div>

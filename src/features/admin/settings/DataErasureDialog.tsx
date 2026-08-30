@@ -71,12 +71,12 @@ export function DataErasureDialog({
       <ModalBody className="space-y-5">
         <DataErasureManifest includeAudit={includeAudit} />
 
-        <p className="rounded-lg border border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
+        <p className="rounded-lg border border-divider bg-surface/40 px-3 py-2 type-body-sm text-slate-400">
           Because watch flags and schedules survive, any repo still on a scan cadence will begin building a new
           history on its next run. Unwatch those repos first if you want the org to stay empty.
         </p>
 
-        <label className="flex items-start gap-2 text-sm text-slate-300">
+        <label className="flex items-start gap-2 type-body-sm text-slate-300">
           <input
             type="checkbox"
             checked={includeAudit}
@@ -93,7 +93,7 @@ export function DataErasureDialog({
         <DataErasurePreview state={preview} />
 
         <div>
-          <label htmlFor="erase-confirm" className="block text-sm text-slate-300">
+          <label htmlFor="erase-confirm" className="block type-body-sm text-slate-300">
             Type <span className="font-mono font-semibold text-white">{slug}</span> to confirm. This cannot be undone.
           </label>
           <input
@@ -106,17 +106,17 @@ export function DataErasureDialog({
             aria-invalid={mismatch || undefined}
             aria-describedby={mismatch ? "erase-confirm-hint" : undefined}
             placeholder={slug}
-            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-danger disabled:opacity-50"
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-danger disabled:opacity-50"
           />
           {mismatch && (
-            <p id="erase-confirm-hint" className="mt-1 font-mono text-xs text-orange-300">
+            <p id="erase-confirm-hint" className="mt-1 type-caption text-orange-300">
               That doesn&apos;t match {slug}.
             </p>
           )}
         </div>
       </ModalBody>
       <ModalFooter>
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           {shown ? "Esc or Cancel to back out" : "Waiting for the count before this can be confirmed"}
         </span>
         <div className="flex items-center gap-2">
@@ -124,7 +124,7 @@ export function DataErasureDialog({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             Cancel
           </button>
@@ -132,7 +132,7 @@ export function DataErasureDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy || !armed}
-            className="focus-ring rounded-lg bg-danger px-4 py-2 font-mono text-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
+            className="focus-ring rounded-lg bg-danger px-4 py-2 type-mono-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
           >
             {busy ? "Erasing…" : includeAudit ? `Erase ${slug} and redact its audit trail` : `Erase ${slug}`}
           </button>

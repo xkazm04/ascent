@@ -116,21 +116,21 @@ export function SandboxCommitBar({
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-divider bg-slate-950/30 p-4">
       <div className="min-w-0">
         <Kicker tone="accent">Commit plan</Kicker>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-slate-400">
+        <p className="mt-1 max-w-prose type-body-sm leading-relaxed text-slate-400">
           Persist the recommendations you tried as <span className="text-slate-200">in progress</span> on the
           tracker: your modeled path, saved instead of lost on close.
         </p>
         {/* Polite live region so the commit outcome is announced without stealing focus. */}
         <div role="status" aria-live="polite">
           {state.kind === "done" && (
-            <p className="mt-1 text-sm text-emerald-300">
+            <p className="mt-1 type-body-sm text-emerald-300">
               {state.saved > 0
                 ? `${state.saved} recommendation${state.saved > 1 ? "s" : ""} marked in progress. Reload the roadmap to see the tracker update.`
                 : "Nothing new to commit."}
             </p>
           )}
           {state.kind === "blocked" && (
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-amber-200/90">
+            <p className="mt-1 flex items-center gap-1.5 type-body-sm text-amber-200/90">
               <span aria-hidden>ⓘ</span>
               {state.message}
             </p>
@@ -142,7 +142,7 @@ export function SandboxCommitBar({
         onClick={commit}
         disabled={n === 0 || state.kind === "saving" || state.kind === "blocked"}
         title={disabledTitle}
-        className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+        className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {state.kind === "saving"
           ? `Committing ${state.done}/${state.total}…`

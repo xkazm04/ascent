@@ -62,11 +62,11 @@ export function AboutAscentSteps() {
             className="flex items-baseline gap-3 rounded-md border-l-2 bg-white/[0.02] py-2 pl-3 pr-2"
             style={{ borderColor: LEVEL_HEX[l.id] }}
           >
-            <span className="font-mono text-sm font-bold" style={{ color: LEVEL_HEX[l.id] }}>
+            <span className="type-mono-sm font-bold" style={{ color: LEVEL_HEX[l.id] }}>
               {l.id}
             </span>
-            <span className="font-mono text-sm text-slate-200">{l.name}</span>
-            <span className="ml-auto text-right font-mono text-xs text-slate-500">{UNLOCK[l.id]}</span>
+            <span className="type-mono-sm text-slate-200">{l.name}</span>
+            <span className="ml-auto text-right type-caption text-slate-500">{UNLOCK[l.id]}</span>
           </li>
         ))}
       </ol>

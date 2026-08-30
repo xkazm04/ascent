@@ -31,9 +31,9 @@ function scaleMax(field: CareShapeField, value: number | null, band: CareBand | 
 function NotShared({ label }: { label: string }) {
   return (
     <div className="bg-ink px-5 py-3.5">
-      <div className="font-mono text-[13px] uppercase leading-snug tracking-[0.12em] text-slate-600">{label}</div>
-      <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums text-slate-700">—</div>
-      <div className="mt-0.5 text-sm text-slate-600">not shared</div>
+      <div className="font-mono type-micro uppercase leading-snug tracking-[0.12em] text-slate-600">{label}</div>
+      <div className="mt-0.5 type-figure font-bold text-slate-700">—</div>
+      <div className="mt-0.5 type-body-sm text-slate-600">not shared</div>
     </div>
   );
 }
@@ -92,13 +92,13 @@ export function CareSessionShape({
           return (
             <div key={field}>
               <div className="flex flex-wrap items-baseline justify-between gap-x-4">
-                <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-400">{CARE_SHAPE_LABEL[field]}</span>
-                <span className="font-mono text-sm tabular-nums text-white">
+                <span className="type-label tracking-[0.18em] text-slate-400">{CARE_SHAPE_LABEL[field]}</span>
+                <span className="type-mono-sm tabular-nums text-white">
                   {shared.has(field) ? careShapeValue(field, value) : <span className="text-slate-600">not shared</span>}
                 </span>
               </div>
               <BandRule field={field} value={value} band={band} />
-              <p className="text-sm text-slate-500">
+              <p className="type-body-sm text-slate-500">
                 {band ? (
                   <>
                     org band {careShapeValue(field, band.p25)}–{careShapeValue(field, band.p75)} · median {careShapeValue(field, band.p50)}
@@ -125,8 +125,8 @@ export function CareSessionShape({
         return (
           <div key={field} className="rounded-xl border border-divider bg-ink p-4">
             <div className="flex items-baseline justify-between">
-              <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-400">{CARE_SHAPE_LABEL[field]}</span>
-              <span className="font-mono text-xl font-bold tabular-nums text-white">
+              <span className="type-label tracking-[0.18em] text-slate-400">{CARE_SHAPE_LABEL[field]}</span>
+              <span className="font-mono type-title font-bold tabular-nums text-white">
                 {value == null ? <span className="text-slate-700">—</span> : careShapeValue(field, value)}
               </span>
             </div>
@@ -136,7 +136,7 @@ export function CareSessionShape({
               threshold={band ? (band.p50 / max) * 100 : undefined}
               ariaLabel={`${CARE_SHAPE_LABEL[field]} against the org median`}
             />
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 type-body-sm text-slate-500">
               {value == null ? "not shared" : verdict ? `org median marked · you are ${verdict}` : "no org band"}
             </p>
           </div>

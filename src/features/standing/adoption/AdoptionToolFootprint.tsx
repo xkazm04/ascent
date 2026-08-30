@@ -8,11 +8,11 @@ export function AdoptionToolFootprint({ tools }: { tools: { name: string; count:
     <Surface radius="xl" className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
       <Kicker tone="muted" className="mr-1">AI tooling in PRs</Kicker>
       {tools.map((t) => (
-        <span key={t.name} className="rounded border border-slate-700 px-2 py-0.5 font-mono text-sm text-slate-300">
+        <span key={t.name} className="rounded border border-slate-700 px-2 py-0.5 type-mono-sm text-slate-300">
           {t.name} <span className="text-slate-500">×{t.count}</span>
         </span>
       ))}
-      <span className="text-sm text-slate-600">detected via PR co-authorship / body markers</span>
+      <span className="type-body-sm text-slate-600">detected via PR co-authorship / body markers</span>
     </Surface>
   );
 }

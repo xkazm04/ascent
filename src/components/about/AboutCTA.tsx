@@ -36,8 +36,8 @@ export function AboutCTA() {
                 strataOpacity="opacity-50"
                 glow="radial-gradient(50% 60% at 50% 0%, rgba(59,158,255,0.14), transparent 70%)"
               >
-                <h2 className="deck-h2 text-2xl font-bold text-white sm:text-3xl">{"See your organization's index"}</h2>
-                <p className="deck-lede mx-auto mt-3 max-w-xl text-base text-slate-300 2xl:max-w-2xl">
+                <h2 className="deck-h2 type-heading font-bold text-white sm:type-display">{"See your organization's index"}</h2>
+                <p className="deck-lede mx-auto mt-3 max-w-xl type-body text-slate-300 2xl:max-w-2xl">
                   Connect your GitHub org and Ascent scores the fleet in minutes, or explore the live demo first.
                 </p>
                 <AboutCtaButtons size="lg" className="mt-7 justify-center" />
@@ -55,7 +55,7 @@ export function AboutCTA() {
       <footer className="border-t border-divider/70 pb-24 pt-8 text-center lg:pb-8">
         <div className="deck-container">
           <SiteFooterCore
-            brand={<div className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">Ascent</div>}
+            brand={<div className="font-mono type-body font-semibold uppercase tracking-[0.22em] text-white">Ascent</div>}
             links={ABOUT_FOOTER_LINKS}
           />
         </div>

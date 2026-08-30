@@ -46,14 +46,14 @@ export function LocalRescanButton({ org, repos }: { org: string; repos: string[]
         type="button"
         onClick={run}
         disabled={busy}
-        className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 font-mono text-xs text-white transition hover:bg-accent/20 disabled:opacity-60"
+        className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-caption text-white transition hover:bg-accent/20 disabled:opacity-60"
       >
         {busy
           ? `Scanning ${state!.busy} (${state!.done + 1}/${repos.length})…`
           : `Rescan ${repos.length} paired repo${repos.length === 1 ? "" : "s"} locally`}
       </button>
       {state && !busy && (
-        <span className="font-mono text-xs text-slate-400">
+        <span className="type-caption text-slate-400">
           {state.closed > 0 ? (
             <span className="text-success-soft">{state.closed} follow-up{state.closed === 1 ? "" : "s"} closed ✓</span>
           ) : (

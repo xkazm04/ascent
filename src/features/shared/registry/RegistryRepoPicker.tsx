@@ -33,13 +33,13 @@ function Row({ repo, selected, onPick }: { repo: RegistryRepoOption; selected: b
         onClick={onPick}
         className={`${ROW} ${selected ? "bg-surface text-slate-100" : "text-slate-400 hover:bg-surface/60 hover:text-slate-100"}`}
       >
-        <span className="truncate font-mono text-sm">{repo.fullName}</span>
+        <span className="truncate type-mono-sm">{repo.fullName}</span>
         {looksLikeRegistry ? (
-          <span className="shrink-0 rounded-full border border-accent/40 px-1.5 font-mono text-[10px] uppercase tracking-widest text-accent">
+          <span className="shrink-0 rounded-full border border-accent/40 px-1.5 font-mono type-micro uppercase tracking-widest text-accent">
             {repo.hasLayout ? "has layout" : "name match"}
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 font-mono text-[11px] text-slate-600">
+        <span className="ml-auto shrink-0 font-mono type-micro text-slate-600">
           {repo.private ? "private" : "public"} · {timeAgo(repo.pushedAt ?? undefined)}
         </span>
       </button>
@@ -66,12 +66,12 @@ export function RegistryRepoPicker({
   );
 
   if (options.status === "loading") {
-    return <p className="text-xs text-slate-500">Reading the repositories ascent can see…</p>;
+    return <p className="type-note text-slate-500">Reading the repositories ascent can see…</p>;
   }
   // Both failure shapes degrade to the same place — the text field below — so they say so rather than
   // leaving an empty box that reads as "your org has no repositories".
   if (options.status === "error") {
-    return <p className="text-xs text-slate-500">{options.message} Type the repository below instead.</p>;
+    return <p className="type-note text-slate-500">{options.message} Type the repository below instead.</p>;
   }
   if (options.status === "idle" || repos.length === 0) return null;
 
@@ -86,10 +86,10 @@ export function RegistryRepoPicker({
             aria-label="Filter repositories"
           />
         </div>
-        {value ? <span className="font-mono text-xs text-slate-500">selected · {value}</span> : null}
+        {value ? <span className="type-caption text-slate-500">selected · {value}</span> : null}
       </div>
       {matches.length === 0 ? (
-        <p className="text-xs text-slate-500">Nothing matches “{query.trim()}”.</p>
+        <p className="type-note text-slate-500">Nothing matches “{query.trim()}”.</p>
       ) : (
         <ul className="max-h-64 space-y-0.5 overflow-y-auto rounded-lg border border-divider bg-ink/60 p-1">
           {matches.slice(0, MAX_ROWS).map((r) => (
@@ -98,7 +98,7 @@ export function RegistryRepoPicker({
         </ul>
       )}
       {matches.length > MAX_ROWS ? (
-        <p className="font-mono text-xs text-slate-600">
+        <p className="type-caption text-slate-600">
           showing {MAX_ROWS} of {matches.length} — narrow the filter to see the rest
         </p>
       ) : null}

@@ -32,7 +32,7 @@ export function SkillDormancyBadge({ usage }: { usage: SkillUsage | undefined })
   if (!usage) return null;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-xs ${TONE[usage.verdict]}`}
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 type-caption ${TONE[usage.verdict]}`}
       title={`${usageVerdictLabel(usage.verdict)}: ${usageDetail(usage)}${
         usage.lastUsedAt ? ` (${usage.lastUsedAt.slice(0, 10)})` : ""
       }`}

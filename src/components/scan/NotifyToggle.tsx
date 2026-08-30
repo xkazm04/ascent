@@ -38,7 +38,7 @@ export function NotifyToggle({
     // Nothing to sign into on this deployment → keep the prior "render nothing" behavior.
     if (!auth) return null;
     return (
-      <div className="mt-3 text-left font-mono text-sm text-slate-400">
+      <div className="mt-3 text-left type-mono-sm text-slate-400">
         <p>
           <span className="text-slate-500">Don&apos;t want to wait?</span> Scans take a few minutes.
           Sign in and we&apos;ll email you the report when it&apos;s ready.
@@ -54,7 +54,7 @@ export function NotifyToggle({
     // account address, so there is genuinely nothing to opt into. Say so honestly instead of offering
     // a checkbox + custom-address field whose promise the stream route silently drops.
     return (
-      <p className="mt-3 text-left font-mono text-sm text-slate-400">
+      <p className="mt-3 text-left type-mono-sm text-slate-400">
         <span className="text-slate-500">Don&apos;t want to wait?</span> Your account has no email address,
         so we can&apos;t notify you when a scan finishes. Add one to your GitHub account (Settings →
         Emails) and sign in again to get the report link by email.
@@ -64,7 +64,7 @@ export function NotifyToggle({
 
   return (
     <div className="mt-3 text-left">
-      <label htmlFor={id} className="flex cursor-pointer items-center gap-2 font-mono text-sm text-slate-300">
+      <label htmlFor={id} className="flex cursor-pointer items-center gap-2 type-mono-sm text-slate-300">
         <input
           id={id}
           type="checkbox"
@@ -77,7 +77,7 @@ export function NotifyToggle({
       </label>
 
       {notifyOn && (
-        <p className="mt-1.5 pl-6 font-mono text-sm text-slate-500">
+        <p className="mt-1.5 pl-6 type-mono-sm text-slate-500">
           We&apos;ll email you at <span className="text-slate-300">{viewerEmail}</span>.
         </p>
       )}

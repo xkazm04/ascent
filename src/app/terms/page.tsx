@@ -19,7 +19,7 @@ export const metadata = {
     "The terms that govern using Ascent: accounts, scan permissions, plans and credits, AI-generated reports, and your data.",
 };
 
-const H2 = "mt-10 text-xl font-semibold text-white";
+const H2 = "mt-10 type-title font-semibold text-white";
 const P = "mt-3 text-slate-400 leading-relaxed";
 const LI = "mt-2 text-slate-400 leading-relaxed";
 const EM = "text-slate-200";
@@ -29,8 +29,8 @@ export default function TermsPage() {
     <>
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-3xl px-5 py-12">
-        <h1 className="text-3xl font-bold text-white sm:text-4xl">Terms of service</h1>
-        <p className="mt-2 font-mono text-sm uppercase tracking-widest text-slate-500">Last updated: August 4, 2026</p>
+        <h1 className="type-display font-bold text-white sm:type-display-lg">Terms of service</h1>
+        <p className="mt-2 type-mono-sm uppercase tracking-widest text-slate-500">Last updated: August 4, 2026</p>
 
         <p className={P}>
           These terms govern your use of Ascent, a service that scores how AI-native an engineering

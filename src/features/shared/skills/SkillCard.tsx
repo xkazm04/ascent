@@ -88,11 +88,11 @@ export function SkillCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <span className="font-medium text-white">{s.name}</span>
-          <span className="ml-2 rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
+          <span className="ml-2 rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-400">
             {skillCategoryLabel(s.category)}
           </span>
           {s.version > 1 && (
-            <span className="ml-2 font-mono text-sm text-slate-500" title={`Last edited ${s.updatedAt.slice(0, 10)}`}>
+            <span className="ml-2 type-mono-sm text-slate-500" title={`Last edited ${s.updatedAt.slice(0, 10)}`}>
               v{s.version}
             </span>
           )}
@@ -113,19 +113,19 @@ export function SkillCard({
             <OpenInRegistry href={registryBlobHref(registryBase, s.registryPath)} />
           ) : (
             canArchive && (
-              <button onClick={onArchive} className="font-mono text-sm text-slate-600 hover:text-orange-300" title="Archive this skill (admins only)">
+              <button onClick={onArchive} className="type-mono-sm text-slate-600 hover:text-orange-300" title="Archive this skill (admins only)">
                 archive
               </button>
             )
           )}
         </div>
       </div>
-      {s.description && <p className="mt-1 text-base text-slate-400">{s.description}</p>}
+      {s.description && <p className="mt-1 type-body text-slate-400">{s.description}</p>}
 
       {s.tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {s.tags.map((t) => (
-            <span key={t} className="rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+            <span key={t} className="rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400">
               #{t}
             </span>
           ))}
@@ -133,16 +133,16 @@ export function SkillCard({
       )}
 
       <details className="group mt-2">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 font-mono text-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 type-mono-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
           <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">›</span>
           Preview skill
         </summary>
-        <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono text-xs whitespace-pre-wrap text-slate-300">
+        <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 type-caption whitespace-pre-wrap text-slate-300">
           {s.content}
         </pre>
       </details>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 text-sm">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-body-sm">
         <span className="font-mono text-slate-400">
           Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
         </span>
@@ -169,7 +169,7 @@ export function SkillCard({
       {applied.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {applied.map((r) => (
-            <span key={r} className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-sm text-slate-300">
+            <span key={r} className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-mono-sm text-slate-300">
               {r.split("/").pop()}
               <button onClick={() => unadopt(r)} className="text-slate-600 hover:text-orange-300" title={`Unmark ${r}`}>×</button>
             </span>
@@ -179,13 +179,13 @@ export function SkillCard({
 
       {available.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select value={pick} onChange={(e) => setPick(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+          <select value={pick} onChange={(e) => setPick(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200">
             <option value="">Pick a repo…</option>
             {available.map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
           </select>
-          <button onClick={adopt} disabled={!pick} className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Record that this repo adopted the skill">
+          <button onClick={adopt} disabled={!pick} className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Record that this repo adopted the skill">
             Mark adopted
           </button>
         </div>

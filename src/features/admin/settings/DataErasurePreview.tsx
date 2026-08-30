@@ -135,7 +135,7 @@ export function DataErasurePreview({ state }: { state: ErasePreviewState }) {
     return (
       <div
         role={failed ? "alert" : "status"}
-        className={`rounded-lg border px-3 py-2 font-mono text-xs ${
+        className={`rounded-lg border px-3 py-2 type-caption ${
           failed ? "border-orange-500/40 bg-orange-500/5 text-orange-200" : "border-divider bg-surface/40 text-slate-400"
         }`}
       >
@@ -163,13 +163,13 @@ export function DataErasurePreview({ state }: { state: ErasePreviewState }) {
 
   return (
     <div className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
-      <p className="font-mono text-xs uppercase tracking-widest text-danger">Would be erased now</p>
-      <dl className="mt-1.5 space-y-0 font-mono text-sm">
+      <p className="type-label tracking-widest text-danger">Would be erased now</p>
+      <dl className="mt-1.5 space-y-0 type-mono-sm">
         <Row label="Scans" value={`${floor}${num(counts.scansDeleted)}`} />
         <Row label="Repositories" value={`${floor}${num(counts.reposProcessed)}`} />
         <Row label="Audit rows" hint={auditHint} value={num(auditAffected)} />
       </dl>
-      <p className="mt-1.5 text-xs text-slate-500">
+      <p className="mt-1.5 type-note text-slate-500">
         {counts.complete
           ? "Counted by the same query the erase runs; nothing has been touched."
           : "This organization is large enough that the count stopped at a safe boundary — the real totals are higher."}

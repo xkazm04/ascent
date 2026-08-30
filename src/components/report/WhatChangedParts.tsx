@@ -67,7 +67,7 @@ export function scanOptionCaptions(
 export function LevelChip({ id, name }: { id: LevelId; name: string }) {
   const lc = LEVEL_CLASSES[id] ?? LEVEL_CLASSES.L1;
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border ${lc.border} ${lc.bg} px-2.5 py-1 text-sm font-semibold ${lc.text}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border ${lc.border} ${lc.bg} px-2.5 py-1 type-body-sm font-semibold ${lc.text}`}>
       <span aria-hidden>{LEVEL_GLYPH[id]}</span>
       {id} · {name}
     </span>
@@ -91,9 +91,9 @@ export function Transition({
       <div className="flex items-center justify-between">
         <Kicker tone="muted">{label}</Kicker>
         {changed ? (
-          <span className="font-mono text-sm uppercase tracking-widest text-accent">changed</span>
+          <span className="type-mono-sm uppercase tracking-widest text-accent">changed</span>
         ) : (
-          <span className="font-mono text-sm uppercase tracking-widest text-slate-600">no change</span>
+          <span className="type-mono-sm uppercase tracking-widest text-slate-600">no change</span>
         )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -124,7 +124,7 @@ function OneSidedBadge({ kind }: { kind: "added" | "removed" | "neither" }) {
     neither: { cls: "border-slate-600 bg-slate-800/60 text-slate-400", glyph: "·", text: "Not scored in either scan" },
   }[kind];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-sm font-semibold ${spec.cls}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 type-body-sm font-semibold ${spec.cls}`}>
       <span aria-hidden>{spec.glyph}</span>
       {spec.text}
     </span>
@@ -177,10 +177,10 @@ function GapList({ title, gaps, tone }: { title: string; gaps: string[]; tone: "
   const good = tone === "closed";
   return (
     <div>
-      <div className={`text-sm font-semibold uppercase tracking-wide ${good ? "text-emerald-400/80" : "text-amber-400/80"}`}>
+      <div className={`type-body-sm font-semibold uppercase tracking-wide ${good ? "text-emerald-400/80" : "text-amber-400/80"}`}>
         {title}
       </div>
-      <ul className="mt-1 space-y-1 text-base">
+      <ul className="mt-1 space-y-1 type-body">
         {gaps.map((g, i) => (
           <li key={i} className={`flex gap-2 ${good ? "text-emerald-200/90" : "text-amber-200/90"}`}>
             <span aria-hidden className={good ? "text-emerald-400" : "text-amber-400"}>
@@ -201,10 +201,10 @@ function SignalList({ title, signals, tone }: { title: string; signals: string[]
   const gained = tone === "gained";
   return (
     <div>
-      <div className={`text-sm font-semibold uppercase tracking-wide ${gained ? "text-emerald-400/80" : "text-red-400/80"}`}>
+      <div className={`type-body-sm font-semibold uppercase tracking-wide ${gained ? "text-emerald-400/80" : "text-red-400/80"}`}>
         {title}
       </div>
-      <ul className="mt-1 space-y-1 text-base">
+      <ul className="mt-1 space-y-1 type-body">
         {signals.map((sig, i) => (
           <li key={i} className={`flex gap-2 ${gained ? "text-emerald-200/90" : "text-red-200/90"}`}>
             <span aria-hidden className={gained ? "text-emerald-400" : "text-red-400"}>
@@ -223,14 +223,14 @@ export function DimensionDiffCard({ d }: { d: DimensionDiff }) {
   return (
     <Surface radius="xl" className="p-4">
       <div className="flex items-center gap-3">
-        <span className="font-mono text-sm text-slate-500">{d.id}</span>
+        <span className="type-mono-sm text-slate-500">{d.id}</span>
         <span className="flex-1 font-semibold text-white">{d.name}</span>
         {d.delta !== null && <DeltaTag delta={d.delta} />}
-        <span className="flex items-center gap-1 font-mono text-base tabular-nums text-slate-400">
+        <span className="flex items-center gap-1 font-mono type-body tabular-nums text-slate-400">
           <span>{d.before ?? "—"}</span>
           <span aria-hidden className="text-slate-600">→</span>
           <span className="flex items-center gap-1 font-bold" style={{ color: afterColor }}>
-            <span aria-hidden className="text-sm">{d.after !== null ? scoreGlyph(d.after) : ""}</span>
+            <span aria-hidden className="type-body-sm">{d.after !== null ? scoreGlyph(d.after) : ""}</span>
             {d.after ?? "—"}
           </span>
         </span>
@@ -257,8 +257,8 @@ export function AxisDeltaRow({ label, axis }: { label: string; axis: ScanDiff["a
   return (
     <Surface radius="xl" className="p-4">
       <div className="flex items-center justify-between">
-        <span className="text-base font-medium text-white">{label}</span>
-        <div className="flex items-center gap-2 font-mono text-base tabular-nums">
+        <span className="type-body font-medium text-white">{label}</span>
+        <div className="flex items-center gap-2 font-mono type-body tabular-nums">
           <span className="text-slate-400">{axis.before}</span>
           <span aria-hidden className="text-slate-600">→</span>
           <span className="font-bold" style={{ color }}>{axis.after}</span>

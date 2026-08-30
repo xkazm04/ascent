@@ -51,7 +51,7 @@ export function TechStacksAnalysis({ org, stacks, fleet, dims }: {
         onHover={setHovered}
       />
       <div>
-        <p className="text-sm text-slate-500">
+        <p className="type-body-sm text-slate-500">
           Dimension analysis of the{" "}
           <span className="font-medium text-slate-300">{activeStacks.length}</span> selected{" "}
           {activeStacks.length === 1 ? "stack" : "stacks"}. Toggle stacks above to focus the diagnosis and playbooks.

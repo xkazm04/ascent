@@ -138,7 +138,7 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
               description={
                 <>
                   Weekly commits across the fleet (real, from GitHub): {activity.total.toLocaleString()} commits over {activity.weeks} week{activity.weeks === 1 ? "" : "s"}{" "}
-                  <span className="font-mono text-sm text-slate-600">· {activity.repos} repo{activity.repos > 1 ? "s" : ""} reporting</span>
+                  <span className="type-mono-sm text-slate-600">· {activity.repos} repo{activity.repos > 1 ? "s" : ""} reporting</span>
                 </>
               }
             />

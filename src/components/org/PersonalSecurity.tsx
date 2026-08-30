@@ -52,7 +52,7 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
                 <Link href={`/report/${r.owner}/${r.name}?tab=dimensions`} className="focus-ring rounded font-medium text-slate-200 hover:text-white">
                   {r.fullName}
                 </Link>
-                {r.summary && <p className="mt-0.5 max-w-2xl text-sm text-slate-400">{r.summary}</p>}
+                {r.summary && <p className="mt-0.5 max-w-2xl type-body-sm text-slate-400">{r.summary}</p>}
               </div>
               <MeterRow value={r.score} display={`${r.score}`} label="Security (D9)" color={scoreHex(r.score)} />
             </li>

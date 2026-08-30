@@ -23,8 +23,8 @@ export function FirstRunSignIn({ mode, auth }: { mode: "cloud" | "self-hosted"; 
   return (
     <Surface radius="2xl" className="tick-corners mb-8 p-6 sm:p-8">
       <Kicker as="span">Start here</Kicker>
-      <h2 className="mt-2 text-2xl font-bold text-white">Sign in with GitHub to scan your organization</h2>
-      <p className="mt-2 max-w-2xl text-base leading-relaxed text-slate-300">
+      <h2 className="mt-2 type-heading font-bold text-white">Sign in with GitHub to scan your organization</h2>
+      <p className="mt-2 max-w-2xl type-body leading-relaxed text-slate-300">
         One round-trip. Your scans persist under your account, private repositories become reachable once the
         Ascent GitHub App is installed, and the org dashboard fills in as results stream back.
       </p>
@@ -34,7 +34,7 @@ export function FirstRunSignIn({ mode, auth }: { mode: "cloud" | "self-hosted"; 
         ) : auth === "github" ? (
           <GitHubSignInButton next={NEXT} label="Sign in with GitHub" />
         ) : null}
-        <span className="text-sm text-slate-500">
+        <span className="type-body-sm text-slate-500">
           Or scan public repositories without an account, below — they don&apos;t persist to a dashboard of yours.
         </span>
       </div>

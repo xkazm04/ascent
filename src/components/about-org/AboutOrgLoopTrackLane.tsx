@@ -53,8 +53,8 @@ export function LoopLane({ lane, index, p }: { lane: TrackLane; index: number; p
   return (
     <li className="px-5 py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="min-w-0 truncate font-mono text-sm text-slate-200">{lane.repo}</span>
-        <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500">
+        <span className="min-w-0 truncate type-mono-sm text-slate-200">{lane.repo}</span>
+        <span className="shrink-0 type-caption tabular-nums text-slate-500">
           {commits} commits · {closed} closed
           <span className="ml-2" style={{ color: deltaHex(lift) }}>
             {fmtDelta(lift)}

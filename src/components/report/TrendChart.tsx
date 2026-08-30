@@ -252,7 +252,7 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
       )}
       <CompactedNote points={points} />
       {showEngineNote && (
-        <p className="mt-2 flex items-start gap-2 text-sm text-slate-500">
+        <p className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
           <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
             <circle cx={6} cy={6} r={4} fill="var(--color-surface-strong)" stroke="currentColor" strokeWidth={2} />
           </svg>

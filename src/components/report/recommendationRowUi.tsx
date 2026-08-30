@@ -51,7 +51,7 @@ export function RowErrorNotice({
   return (
     <div
       role="alert"
-      className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+      className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 type-body-sm ${
         transient ? "border-red-500/30 bg-red-500/5 text-red-200/90" : "border-amber-500/30 bg-amber-500/5 text-amber-200/90"
       }`}
     >
@@ -107,7 +107,7 @@ export function DoneReconciliation({
 }) {
   const r = reconcileDoneRec(dimension, prevScore, currentScore);
   return (
-    <p className={`mt-2 rounded-lg border px-3 py-1.5 text-sm ${RECONCILE_TONE[r.state]}`}>
+    <p className={`mt-2 rounded-lg border px-3 py-1.5 type-body-sm ${RECONCILE_TONE[r.state]}`}>
       <span className="font-medium">You marked this done.</span> {r.note}
     </p>
   );
@@ -131,10 +131,10 @@ export function DismissReasonPrompt({
   const tooLong = trimmed.length > REC_NOTE_MAX_LENGTH;
   return (
     <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/40 p-3">
-      <label htmlFor="dismiss-reason" className="block text-sm font-medium text-slate-200">
+      <label htmlFor="dismiss-reason" className="block type-body-sm font-medium text-slate-200">
         Why is this gap not for you?
       </label>
-      <p className="mt-0.5 text-sm text-slate-400">
+      <p className="mt-0.5 type-body-sm text-slate-400">
         Whatever you write here is read by the next scan, so it stops re-raising this gap. Skip it and
         the next scan will surface it again, because it has no way of knowing.
       </p>
@@ -145,10 +145,10 @@ export function DismissReasonPrompt({
         rows={2}
         onChange={(e) => setReason(e.target.value)}
         placeholder="e.g. we build with Bazel, so this doesn't apply here"
-        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-accent focus:outline-none"
+        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 type-body-sm text-slate-100 placeholder:text-slate-600 focus:border-accent focus:outline-none"
       />
       {tooLong && (
-        <p role="alert" className="mt-1 text-sm text-amber-300/90">
+        <p role="alert" className="mt-1 type-body-sm text-amber-300/90">
           That&rsquo;s {trimmed.length} characters, so trim it to {REC_NOTE_MAX_LENGTH} or fewer.
         </p>
       )}
@@ -157,21 +157,21 @@ export function DismissReasonPrompt({
           type="button"
           disabled={!trimmed || tooLong}
           onClick={() => onConfirm(trimmed)}
-          className="rounded-md border border-accent/40 px-2 py-0.5 text-sm font-medium text-accent transition hover:bg-accent/10 disabled:opacity-40"
+          className="rounded-md border border-accent/40 px-2 py-0.5 type-body-sm font-medium text-accent transition hover:bg-accent/10 disabled:opacity-40"
         >
           Dismiss with this reason
         </button>
         <button
           type="button"
           onClick={() => onConfirm("")}
-          className="rounded-md border border-slate-700 px-2 py-0.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800"
+          className="rounded-md border border-slate-700 px-2 py-0.5 type-body-sm font-medium text-slate-300 transition hover:bg-slate-800"
         >
           Dismiss without a reason
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md px-2 py-0.5 text-sm font-medium text-slate-500 transition hover:text-slate-300"
+          className="rounded-md px-2 py-0.5 type-body-sm font-medium text-slate-500 transition hover:text-slate-300"
         >
           Cancel
         </button>

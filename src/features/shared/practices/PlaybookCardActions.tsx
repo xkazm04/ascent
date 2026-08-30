@@ -36,7 +36,7 @@ export function PlaybookApplyControls({
   // A genuinely empty scope is a different state from "all adopted" and must not be silent either.
   if (repoOptions.length === 0) {
     return (
-      <p className="mt-2 font-mono text-sm text-slate-500">
+      <p className="mt-2 type-mono-sm text-slate-500">
         No repos in scope. Connect or select a repo to apply this playbook.
       </p>
     );
@@ -51,7 +51,7 @@ export function PlaybookApplyControls({
           value={pick}
           onChange={(e) => onPick(e.target.value)}
           aria-label="Repo to apply this playbook to"
-          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
         >
           <option value="">Pick a repo…</option>
           {repoOptions.map((r) => (
@@ -63,7 +63,7 @@ export function PlaybookApplyControls({
         <button
           onClick={onApply}
           disabled={!pick || alreadyApplied}
-          className="focus-ring shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
+          className="focus-ring shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
           title={
             alreadyApplied
               ? `${pick} is already marked as having adopted this playbook`
@@ -75,7 +75,7 @@ export function PlaybookApplyControls({
         <button
           onClick={onOpenPr}
           disabled={!pick || prBusy}
-          className="focus-ring shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+          className="focus-ring shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
           title={
             alreadyApplied
               ? `Open another draft PR seeding this playbook into ${pick}`
@@ -87,7 +87,7 @@ export function PlaybookApplyControls({
       </div>
       {remaining === 0 && (
         // The former dead end, now explained: state the good news AND the action that remains.
-        <p className="font-mono text-sm text-slate-500">
+        <p className="type-mono-sm text-slate-500">
           All {repoOptions.length} repo{repoOptions.length === 1 ? "" : "s"} have adopted this playbook; pick one to
           re-open a draft PR, or unmark it above.
         </p>

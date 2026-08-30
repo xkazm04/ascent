@@ -14,7 +14,7 @@ export function RepoCategoryRollupGroup({ g, orgSlug }: { g: Group; orgSlug: str
   return (
     <div className="overflow-hidden rounded-2xl border border-divider bg-surface/40">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-divider px-4 py-3">
-        <span className="flex items-center gap-2 font-mono text-sm text-slate-100">
+        <span className="flex items-center gap-2 type-mono-sm text-slate-100">
           {g.badge}
           {g.label}
           <span className="text-slate-500">· {g.rows.length}</span>
@@ -25,7 +25,7 @@ export function RepoCategoryRollupGroup({ g, orgSlug }: { g: Group; orgSlug: str
             Meter — a 0-width bar in scoreHex(0) alarm-red would read as a real, terrible score. */}
         {avg == null ? (
           <span
-            className="font-mono text-sm text-slate-600"
+            className="type-mono-sm text-slate-600"
             title={`No live-scored repositories in this group${mock > 0 ? ` (all ${mock} carry a deterministic mock score)` : ""}`}
           >
             — no score
@@ -35,15 +35,15 @@ export function RepoCategoryRollupGroup({ g, orgSlug }: { g: Group; orgSlug: str
             className="flex items-center gap-2"
             title={`Average over the ${realScored} live-scored repo${realScored === 1 ? "" : "s"}${mock > 0 ? ` · ${mock} mock placeholder${mock === 1 ? "" : "s"} excluded` : ""}`}
           >
-            <span className="font-mono text-lg font-bold tabular-nums" style={{ color: scoreHex(avg) }}>
+            <span className="font-mono type-lede font-bold tabular-nums" style={{ color: scoreHex(avg) }}>
               {avg}
             </span>
             <Meter value={avg} size="sm" color={scoreHex(avg)} className="w-24" />
-            {mock > 0 && <span className="font-mono text-xs tabular-nums text-slate-500">{mock} mock excl.</span>}
+            {mock > 0 && <span className="type-caption tabular-nums text-slate-500">{mock} mock excl.</span>}
           </span>
         )}
         {net != null && (
-          <span className="font-mono text-xs tabular-nums" style={{ color: deltaHex(net) }}>
+          <span className="type-caption tabular-nums" style={{ color: deltaHex(net) }}>
             {fmtDelta(net)} avg move
           </span>
         )}

@@ -59,8 +59,8 @@ export function ImpactLedger({
   // not an error, and it must not render a wall of zeroes.
   if (ledger.mergedCount === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-divider bg-surface/40 px-4 py-3 text-sm text-slate-400">
-        <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Bought</span> No improvement PRs
+      <div className="rounded-xl border border-dashed border-divider bg-surface/40 px-4 py-3 type-body-sm text-slate-400">
+        <span className="type-label tracking-[0.22em] text-slate-500">Bought</span> No improvement PRs
         merged in {periodTitle.toLowerCase()}. Accept a direction on the{" "}
         <a href={`/org/${encodeURIComponent(slug)}?tab=live`} className="focus-ring text-accent hover:text-white">
           Live
@@ -111,7 +111,7 @@ export function ImpactLedger({
           {ledger.byDim.map((d) => (
             <span
               key={d.dimId}
-              className="rounded border border-divider bg-surface/60 px-2 py-1 font-mono text-xs text-slate-300"
+              className="rounded border border-divider bg-surface/60 px-2 py-1 type-caption text-slate-300"
               title={`${d.prs} verified ${d.prs === 1 ? "PR" : "PRs"} targeting ${d.dimId}`}
             >
               {d.dimId}{" "}
@@ -143,29 +143,29 @@ export function ImpactLedger({
               <td className="px-4 py-3">
                 <a
                   href={`https://github.com/${row.repoFullName}`}
-                  className="focus-ring text-base font-medium text-white hover:text-accent"
+                  className="focus-ring type-body font-medium text-white hover:text-accent"
                 >
                   {row.repoName}
                 </a>
-                <div className="font-mono text-xs text-slate-500">{new Date(row.mergedAt).toISOString().slice(0, 10)}</div>
+                <div className="type-caption text-slate-500">{new Date(row.mergedAt).toISOString().slice(0, 10)}</div>
               </td>
               <td className="px-4 py-3">
                 <a href={row.prUrl} className="focus-ring text-slate-200 hover:text-accent">
-                  {row.practiceLabel} <span className="font-mono text-xs text-slate-500">#{row.prNumber}</span>
+                  {row.practiceLabel} <span className="type-caption text-slate-500">#{row.prNumber}</span>
                 </a>
                 {/* Plain slate, NOT the score ramp — the ramp means "how good is this number", and a
                     dimension id is a label, not a score. */}
-                <div className="font-mono text-xs text-slate-500">{row.dimId}</div>
+                <div className="type-caption text-slate-500">{row.dimId}</div>
               </td>
               <td className="px-4 py-3 text-right">{deltaCell(row.verified ? row.impactDim : null, unmeasured)}</td>
               <td className="px-4 py-3 text-right">{deltaCell(row.verified ? row.impactOverall : null, unmeasured)}</td>
               <td className="px-4 py-3">
                 {row.verified ? (
-                  <span className="font-mono text-xs uppercase tracking-widest" style={{ color: GOOD }}>
+                  <span className="type-label tracking-widest" style={{ color: GOOD }}>
                     verified
                   </span>
                 ) : (
-                  <span className="font-mono text-xs uppercase tracking-widest text-amber-200">awaiting rescan</span>
+                  <span className="type-label tracking-widest text-amber-200">awaiting rescan</span>
                 )}
               </td>
             </tr>

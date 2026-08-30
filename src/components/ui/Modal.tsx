@@ -130,8 +130,8 @@ export function ModalHeader({ kicker, title, context }: { kicker?: string; title
     <div className="flex items-start justify-between gap-4 border-b border-divider px-6 py-4">
       <div className="min-w-0">
         {kicker && <Kicker tone="muted">{kicker}</Kicker>}
-        <h2 className={`${kicker ? "mt-1 " : ""}text-lg font-semibold text-white`}>{title}</h2>
-        {context && <p className="mt-0.5 font-mono text-sm text-slate-400">{context}</p>}
+        <h2 className={`${kicker ? "mt-1 " : ""}type-lede font-semibold text-white`}>{title}</h2>
+        {context && <p className="mt-0.5 type-mono-sm text-slate-400">{context}</p>}
       </div>
       <button
         type="button"

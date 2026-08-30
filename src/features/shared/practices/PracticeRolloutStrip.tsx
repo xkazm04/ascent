@@ -12,9 +12,9 @@ import { rolloutIsMeaningful, type PracticeRollout } from "./practiceRows";
 function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: string }) {
   return (
     <div className="min-w-[8rem]">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
-      <div className={`font-mono text-xl font-bold tabular-nums ${tone ?? "text-white"}`}>{value}</div>
-      {hint && <div className="font-mono text-sm text-slate-500">{hint}</div>}
+      <div className="type-mono-sm uppercase tracking-widest text-slate-500">{label}</div>
+      <div className={`font-mono type-title font-bold tabular-nums ${tone ?? "text-white"}`}>{value}</div>
+      {hint && <div className="type-mono-sm text-slate-500">{hint}</div>}
     </div>
   );
 }

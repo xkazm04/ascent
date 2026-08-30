@@ -148,20 +148,20 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
 
           {/* Said out loud, because a form that silently moved the origin would erase every
               measurement taken since the start. */}
-          <p className="text-sm text-slate-500">
+          <p className="type-body-sm text-slate-500">
             {program
               ? "Re-targeting keeps the original baseline; movement stays measured from where you started."
               : "Starting freezes today's fleet standing as the baseline. It is never recomputed."}
           </p>
 
-          {error && <p className="text-sm text-orange-300">{error}</p>}
+          {error && <p className="type-body-sm text-orange-300">{error}</p>}
 
           <div className="flex gap-2">
-            <button type="submit" disabled={busy || !name.trim()} className="focus-ring rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ink transition disabled:opacity-50">
+            <button type="submit" disabled={busy || !name.trim()} className="focus-ring rounded-md bg-accent px-3 py-1.5 type-body-sm font-medium text-ink transition disabled:opacity-50">
               {busy ? "Saving…" : program ? "Save" : "Start programme"}
             </button>
             {program && (
-              <button type="button" onClick={() => setEditing(false)} disabled={busy} className="focus-ring rounded-md border border-divider px-3 py-1.5 text-sm text-slate-400 transition hover:text-white disabled:opacity-50">
+              <button type="button" onClick={() => setEditing(false)} disabled={busy} className="focus-ring rounded-md border border-divider px-3 py-1.5 type-body-sm text-slate-400 transition hover:text-white disabled:opacity-50">
                 Cancel
               </button>
             )}

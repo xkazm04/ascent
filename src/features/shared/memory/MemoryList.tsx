@@ -59,12 +59,12 @@ export function MemoryList({
                 )}
               </td>
               <td className="px-3 py-2">
-                <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+                <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">
                   {memoryKindLabel(m.kind)}
                 </span>
               </td>
-              <td className="px-3 py-2 font-mono text-xs text-slate-500">{m.namespace || "—"}</td>
-              <td className="px-3 py-2 text-right font-mono text-xs text-slate-400">
+              <td className="px-3 py-2 type-caption text-slate-500">{m.namespace || "—"}</td>
+              <td className="px-3 py-2 text-right type-caption text-slate-400">
                 {confidenceLabel(m.confidence)}
               </td>
               <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{m.accessCount}</td>

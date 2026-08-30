@@ -41,10 +41,10 @@ export function DimensionCard({
         aria-expanded={open}
         className="flex w-full items-center gap-3 text-left"
       >
-        <span className="font-mono text-sm text-slate-500">{d.id}</span>
+        <span className="type-mono-sm text-slate-500">{d.id}</span>
         <span className="flex-1 font-semibold text-white">{d.name}</span>
         {delta !== null && delta !== 0 && (
-          <span className={`text-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+          <span className={`type-body-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
             {delta > 0 ? "▲+" : "▼"}
             {/* Absolute value after the arrow — the ▼ glyph already encodes the sign, so the raw
                 signed delta rendered "▼-3" (a down-arrow next to a minus), inconsistent with
@@ -52,9 +52,9 @@ export function DimensionCard({
             {Math.abs(delta)}
           </span>
         )}
-        <span className="text-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
-        <span className="flex w-14 items-center justify-end gap-1 text-lg font-bold" style={{ color }}>
-          <span aria-hidden className="text-sm">{scoreGlyph(d.score)}</span>
+        <span className="type-body-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
+        <span className="flex w-14 items-center justify-end gap-1 type-lede font-bold" style={{ color }}>
+          <span aria-hidden className="type-body-sm">{scoreGlyph(d.score)}</span>
           {d.score}
         </span>
         <span
@@ -73,11 +73,11 @@ export function DimensionCard({
         style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0, transition: detailTransition }}
       >
         <div className="overflow-hidden" aria-hidden={!open}>
-          <div className="mt-3 space-y-3 text-base">
+          <div className="mt-3 space-y-3 type-body">
             {d.summary && <p className="leading-relaxed text-slate-300">{d.summary}</p>}
             {d.evidence.length > 0 && (
               <div>
-                <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
+                <div className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
                 <ul className="mt-1 space-y-1 text-slate-400">
                   {d.evidence.map((e, i) => (
                     <li key={i} className="flex gap-2">
@@ -90,15 +90,15 @@ export function DimensionCard({
             )}
             {d.gaps.length > 0 && (
               <div className="text-slate-400">
-                <span className="text-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps: </span>
+                <span className="type-body-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps: </span>
                 {d.gaps.join(" · ")}
               </div>
             )}
             {series && series.length >= 2 && (
               <div className="flex items-center gap-3 border-t border-divider pt-2">
-                <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
+                <span className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
                 <Sparkline points={series} />
-                <span className="text-sm text-slate-500">
+                <span className="type-body-sm text-slate-500">
                   {series[0]!.score} → {series[series.length - 1]!.score}
                 </span>
               </div>

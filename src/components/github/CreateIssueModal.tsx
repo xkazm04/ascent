@@ -107,7 +107,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             onChange={(e) => setBody(e.target.value)}
             disabled={running || done}
             rows={6}
-            className="font-mono text-sm text-slate-200"
+            className="type-mono-sm text-slate-200"
           />
         </Field>
 
@@ -119,7 +119,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             {targets.map((t) => {
               const st = status[t.fullName];
               return (
-                <li key={t.fullName} className="flex items-center gap-3 text-sm">
+                <li key={t.fullName} className="flex items-center gap-3 type-body-sm">
                   <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
@@ -130,14 +130,14 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
                     />
                     <span className="truncate font-mono text-slate-300">{t.name}</span>
                   </label>
-                  {st?.state === "creating" && <span className="shrink-0 font-mono text-xs text-slate-500">filing…</span>}
+                  {st?.state === "creating" && <span className="shrink-0 type-caption text-slate-500">filing…</span>}
                   {st?.state === "done" && (
-                    <a href={st.url} target="_blank" rel="noreferrer" className="focus-ring shrink-0 font-mono text-xs text-accent hover:text-white">
+                    <a href={st.url} target="_blank" rel="noreferrer" className="focus-ring shrink-0 type-caption text-accent hover:text-white">
                       #{st.number} ↗
                     </a>
                   )}
                   {st?.state === "error" && (
-                    <span className="min-w-0 shrink truncate text-xs text-danger" title={st.error}>
+                    <span className="min-w-0 shrink truncate type-note text-danger" title={st.error}>
                       {st.error}
                     </span>
                   )}
@@ -148,14 +148,14 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
         </div>
       </ModalBody>
       <ModalFooter>
-        <span className="text-xs text-slate-500">
+        <span className="type-note text-slate-500">
           Filed by the Ascent App on this org&apos;s installation, attributed to your login and audit-logged.
         </span>
         {done && !running ? (
           <button
             type="button"
             onClick={onClose}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white"
           >
             Close
           </button>
@@ -164,7 +164,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             type="button"
             onClick={fileIssues}
             disabled={!canFile}
-            className="focus-ring rounded-lg bg-accent px-4 py-2 font-mono text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-4 py-2 type-mono-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {running ? "Filing…" : `File ${picked.length} issue${picked.length === 1 ? "" : "s"}`}
           </button>

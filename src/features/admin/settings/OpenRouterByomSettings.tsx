@@ -18,7 +18,7 @@ import type { OrgLlmConfigPublic } from "@/lib/db";
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const input =
-  "mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600 disabled:opacity-50";
+  "mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 placeholder:text-slate-600 disabled:opacity-50";
 
 export function OpenRouterByomSettings({
   slug,
@@ -102,22 +102,22 @@ export function OpenRouterByomSettings({
       />
 
       {!planAllowed ? (
-        <p className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm text-slate-300">
+        <p className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-3 type-body-sm text-slate-300">
           Connecting your own model is a <span className="text-accent">Custom</span> plan feature.
         </p>
       ) : !encryptionConfigured ? (
-        <p className="mt-4 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-sm text-orange-200">
+        <p className="mt-4 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 type-body-sm text-orange-200">
           Secret encryption isn&apos;t configured (no <code>ENCRYPTION_KEY</code>); the key can&apos;t be stored securely.
         </p>
       ) : null}
 
       <div className="mt-4 space-y-3" aria-disabled={disabledAll}>
         <label className="block">
-          <span className="font-mono text-sm text-slate-500">Model slug</span>
+          <span className="type-mono-sm text-slate-500">Model slug</span>
           <input value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={disabledAll} placeholder={DEFAULT_MODEL} className={input} />
         </label>
         <label className="block">
-          <span className="font-mono text-sm text-slate-500">OpenRouter API key</span>
+          <span className="type-mono-sm text-slate-500">OpenRouter API key</span>
           <input
             type="password"
             value={apiKey}
@@ -128,7 +128,7 @@ export function OpenRouterByomSettings({
             className={input}
           />
         </label>
-        <label className="flex items-center gap-2 text-sm text-slate-300">
+        <label className="flex items-center gap-2 type-body-sm text-slate-300">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} disabled={disabledAll} className="accent-accent" />
           Use this provider for scans (replaces any other connected provider)
         </label>
@@ -137,14 +137,14 @@ export function OpenRouterByomSettings({
           <button
             onClick={test}
             disabled={disabledAll || busy !== null || !modelId.trim()}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
+            className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
           >
             {busy === "test" ? "Testing…" : "Test connection"}
           </button>
           <button
             onClick={save}
             disabled={disabledAll || busy !== null || !modelId.trim()}
-            className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+            className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
           >
             {busy === "save" ? "Saving…" : "Save"}
           </button>
@@ -152,7 +152,7 @@ export function OpenRouterByomSettings({
             <button
               onClick={disable}
               disabled={disabledAll || busy !== null}
-              className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 hover:border-orange-400 hover:text-orange-300 disabled:opacity-50"
+              className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-400 hover:border-orange-400 hover:text-orange-300 disabled:opacity-50"
             >
               {busy === "disable" ? "Disabling…" : "Disable & clear"}
             </button>
@@ -160,7 +160,7 @@ export function OpenRouterByomSettings({
         </div>
 
         {lastValidatedAt && (
-          <p className="text-sm text-slate-500">Last validated {lastValidatedAt.slice(0, 16).replace("T", " ")} UTC.</p>
+          <p className="type-body-sm text-slate-500">Last validated {lastValidatedAt.slice(0, 16).replace("T", " ")} UTC.</p>
         )}
         {/* ONE persistent polite live region (always rendered, content swapped) so save / test /
             disable outcomes are ANNOUNCED. The old `{msg && <p role="status">…}` mounted the region
@@ -172,7 +172,7 @@ export function OpenRouterByomSettings({
         <p
           role="status"
           aria-live="polite"
-          className={`text-sm ${msg?.kind === "err" ? "text-orange-300" : "text-emerald-300"}`}
+          className={`type-body-sm ${msg?.kind === "err" ? "text-orange-300" : "text-emerald-300"}`}
         >
           {msg ? (msg.kind === "err" ? `Error: ${msg.text}` : msg.text) : ""}
         </p>

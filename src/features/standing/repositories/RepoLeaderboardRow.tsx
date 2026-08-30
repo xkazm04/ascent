@@ -53,19 +53,19 @@ export function RepoLeaderboardRow({
           <Link
             href={`/report/${r.fullName}`}
             title={`View ${r.fullName}'s latest report`}
-            className="font-mono text-sm text-white hover:text-accent"
+            className="type-mono-sm text-white hover:text-accent"
           >
             {r.fullName}
           </Link>
         ) : (
-          <span title={`${r.fullName} (not scanned yet)`} className="font-mono text-sm text-slate-400">
+          <span title={`${r.fullName} (not scanned yet)`} className="type-mono-sm text-slate-400">
             {r.fullName}
           </span>
         )}
         {r.lastScanStatus === "error" && (
           <span
             title={r.lastScanError ?? "The most recent scan attempt failed."}
-            className="ml-2 rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 font-mono text-sm text-danger-soft"
+            className="ml-2 rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 type-mono-sm text-danger-soft"
           >
             ⚠ scan failed
           </span>
@@ -73,7 +73,7 @@ export function RepoLeaderboardRow({
         {r.aiConformance != null && (
           <span
             title="`.ai/` standard conformance reported by this repo's doctor (node .ai/doctor.mjs --json)"
-            className="ml-2 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-sm"
+            className="ml-2 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-mono-sm"
             style={{ color: scoreHex(r.aiConformance) }}
           >
             .ai {r.aiConformance}%
@@ -82,7 +82,7 @@ export function RepoLeaderboardRow({
         <TechBadges stack={r.techStack} />
       </td>
       <td className="px-3 py-2">
-        {l && rlc ? <span className={`font-mono text-sm ${rlc.text}`}>{l.level}</span> : <span className="text-slate-600">—</span>}
+        {l && rlc ? <span className={`type-mono-sm ${rlc.text}`}>{l.level}</span> : <span className="text-slate-600">—</span>}
       </td>
       {/* Commits — trailing weekly sparkline + total over the ~1-month window (real, from GitHub
           commit_activity). The number is the period total, matching the column's sort key. */}
@@ -91,7 +91,7 @@ export function RepoLeaderboardRow({
           <span className="flex items-center gap-2">
             <Sparkline values={a.commitsWeekly} ariaLabel={`${r.name} weekly commits, past ${a.commitsWeekly.length} weeks`} />
             <span
-              className="font-mono text-sm tabular-nums text-slate-400"
+              className="type-mono-sm tabular-nums text-slate-400"
               title={`${sum(a.commitsWeekly).toLocaleString()} commits over the past ${a.commitsWeekly.length} weeks (from GitHub)`}
             >
               {sum(a.commitsWeekly).toLocaleString()}
@@ -109,7 +109,7 @@ export function RepoLeaderboardRow({
       <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">
         {a && a.locChanged > 0 ? <span title={`${a.locChanged.toLocaleString()} lines changed`}>{fmtCompact(a.locChanged)}</span> : "—"}
       </td>
-      <td className="px-3 py-2 text-sm text-slate-500">{l ? l.scannedAt.slice(0, 10) : "not scanned"}</td>
+      <td className="px-3 py-2 type-body-sm text-slate-500">{l ? l.scannedAt.slice(0, 10) : "not scanned"}</td>
       <td className="px-3 py-2">
         <ScheduleSelect
           org={slug}

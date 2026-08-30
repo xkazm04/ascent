@@ -31,6 +31,25 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 
 `.strata` (altimeter rule-lines), `.focus-ring`, `.animate-fade-up/-meter` remain the shared motion/texture utilities.
 
+## Type scale (`globals.css` `@theme` + `@utility type-*`)
+
+Every size is a semantic class, never a raw `text-xs`/`text-sm` or an arbitrary pixel value. The
+Tailwind size tokens are re-based one pixel over the framework defaults (xs 13 · sm 15 · base 17 …)
+so the dark canvas reads at 100% zoom; the classes resolve to those tokens.
+
+| Class | Size | Voice |
+|---|---|---|
+| `type-micro` | 12px | the floor — dense metadata only |
+| `type-label` | 13px mono uppercase | eyebrow / table head (tracking stays a separate utility) |
+| `type-caption` / `type-note` | 13px mono / sans | metadata, footnotes |
+| `type-mono-sm` / `type-body-sm` | 15px mono / sans | row figures, secondary copy, controls |
+| `type-body` · `type-lede` | 17 · 19px | paragraph copy · intro line |
+| `type-title` · `type-heading` | 21 · 25px | card title · page heading |
+| `type-figure` · `type-figure-lg` | 25 · 31px mono tabular | the typeset stat |
+| `type-display` · `type-display-lg` | 31 · 37px | editorial display, masthead |
+
+Weight, colour and tracking stay on the element (`font-medium text-slate-400 tracking-[0.2em]`).
+
 ## Primitives (`@/components/ui`)
 
 - **`Kicker`** — mono uppercase eyebrow. `tone="accent"` (section eyebrow) | `"muted"` (metadata/table head). Replaces hand-rolled `font-mono uppercase tracking-widest` labels.

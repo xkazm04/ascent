@@ -106,7 +106,7 @@ export function LiveWarRoomTv({
       {active === "inflight" && <TvInflight data={data} />}
       {active === "standing" && <TvStanding data={data} />}
 
-      {loop.error && <p className="mt-4 font-mono text-sm text-orange-300">{loop.error}</p>}
+      {loop.error && <p className="mt-4 type-mono-sm text-orange-300">{loop.error}</p>}
     </div>
   );
 }

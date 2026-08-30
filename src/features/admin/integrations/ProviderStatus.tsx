@@ -19,7 +19,7 @@ export function ProviderStatus({ status, available }: { status: ProviderIngestSt
 
   if (!status) {
     return (
-      <p className="mt-2 flex items-center gap-2 font-mono text-xs text-slate-500">
+      <p className="mt-2 flex items-center gap-2 type-caption text-slate-500">
         <Dot hex="#475569" />
         No telemetry received yet. Finish the setup below, then run Claude Code once.
       </p>
@@ -29,7 +29,7 @@ export function ProviderStatus({ status, available }: { status: ProviderIngestSt
   const when = freshness(status.lastReceived.toISOString());
   if (status.repos === 0) {
     return (
-      <p className="mt-2 flex items-start gap-2 font-mono text-xs text-orange-300">
+      <p className="mt-2 flex items-start gap-2 type-caption text-orange-300">
         <span className="mt-1.5">
           <Dot hex="#fb923c" />
         </span>
@@ -44,7 +44,7 @@ export function ProviderStatus({ status, available }: { status: ProviderIngestSt
 
   const fid = FIDELITY_META[status.measured ? "measured" : "allocated"];
   return (
-    <p className="mt-2 flex items-center gap-2 font-mono text-xs text-slate-400">
+    <p className="mt-2 flex items-center gap-2 type-caption text-slate-400">
       <Dot hex={fid.hex} />
       <span>
         Last received <span className="tabular-nums text-slate-300">{when}</span> ·{" "}

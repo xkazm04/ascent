@@ -33,7 +33,7 @@ export function ColdScanGate({ repo }: { repo: string }) {
     // its own live-scan Loading view, so a minimal fallback only covers the brief hydration gap.
     return (
       <Suspense
-        fallback={<div className="mx-auto w-full max-w-md py-12 text-center text-sm text-slate-500">Loading…</div>}
+        fallback={<div className="mx-auto w-full max-w-md py-12 text-center type-body-sm text-slate-500">Loading…</div>}
       >
         <ReportClient repo={repo} />
       </Suspense>
@@ -57,7 +57,7 @@ export function ColdScanGate({ repo }: { repo: string }) {
         <button
           type="button"
           onClick={() => setScanning(true)}
-          className="focus-ring rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
+          className="focus-ring rounded-xl bg-accent px-5 py-2.5 type-body font-medium text-on-accent transition hover:bg-accent-soft"
         >
           Scan {display}{sha ? ` @ ${sha.slice(0, 7)}` : ""} now
         </button>

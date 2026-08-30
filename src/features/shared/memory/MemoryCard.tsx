@@ -55,23 +55,23 @@ export function MemoryCard({
     <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">
             {memoryKindLabel(m.kind)}
           </span>
           {m.namespace && (
-            <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+            <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400">
               {m.namespace}
             </span>
           )}
           <span
-            className={`rounded border px-1.5 py-0.5 font-mono text-xs ${CONFIDENCE_TONE[band] ?? "border-slate-700 text-slate-400"}`}
+            className={`rounded border px-1.5 py-0.5 type-caption ${CONFIDENCE_TONE[band] ?? "border-slate-700 text-slate-400"}`}
             title={`Trust score ${m.confidence.toFixed(2)}: drives ranking and pruning`}
           >
             {band} trust
           </span>
           {m.visibility === "private" && (
             <span
-              className="rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-400"
+              className="rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400"
               title={mine ? "Only you can see this memory." : "Private to its author."}
             >
               private
@@ -79,7 +79,7 @@ export function MemoryCard({
           )}
           {fromScan && (
             <span
-              className="rounded border border-sky-500/40 px-1.5 py-0.5 font-mono text-xs text-sky-300"
+              className="rounded border border-sky-500/40 px-1.5 py-0.5 type-caption text-sky-300"
               title="Recorded automatically by the scan pipeline: an observed fact, not a human claim."
             >
               auto · scan
@@ -87,14 +87,14 @@ export function MemoryCard({
           )}
           {fromRepo && (
             <span
-              className="rounded border border-sky-500/40 px-1.5 py-0.5 font-mono text-xs text-sky-300"
+              className="rounded border border-sky-500/40 px-1.5 py-0.5 type-caption text-sky-300"
               title="Mirrored from this repository's own .ai/memory: what an agent working there wrote down. A claim from the repo, not a verified fact — recorded at the medium trust band."
             >
               auto · repo
             </span>
           )}
           {m.version > 1 && (
-            <span className="font-mono text-xs text-slate-500" title="This memory superseded an earlier one">
+            <span className="type-caption text-slate-500" title="This memory superseded an earlier one">
               v{m.version}
             </span>
           )}
@@ -114,7 +114,7 @@ export function MemoryCard({
             canArchive && (
               <button
                 onClick={onArchive}
-                className="font-mono text-sm text-slate-600 hover:text-orange-300"
+                className="type-mono-sm text-slate-600 hover:text-orange-300"
                 title="Archive this memory (admins only)"
               >
                 archive
@@ -124,7 +124,7 @@ export function MemoryCard({
         </div>
       </div>
 
-      <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono text-xs whitespace-pre-wrap text-slate-300">
+      <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 type-caption whitespace-pre-wrap text-slate-300">
         {m.content}
       </pre>
 
@@ -133,7 +133,7 @@ export function MemoryCard({
           {m.tags.map((t) => (
             <span
               key={t}
-              className="rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-400"
+              className="rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400"
             >
               #{t}
             </span>
@@ -141,7 +141,7 @@ export function MemoryCard({
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 font-mono text-sm text-slate-500">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-mono-sm text-slate-500">
         {/* Provenance — the design doc's answer to memory poisoning: always show who/what wrote this. */}
         <span title="Who recorded this memory">
           by{" "}

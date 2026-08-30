@@ -28,11 +28,11 @@ export function PostureMix({
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex items-center justify-between">
-        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Posture mix</h3>
+        <h3 className="type-mono-sm uppercase tracking-widest text-accent">Posture mix</h3>
         {readOnly ? (
-          <span className="font-mono text-sm text-slate-500">{scored} scored</span>
+          <span className="type-mono-sm text-slate-500">{scored} scored</span>
         ) : (
-          <Link href={`/org/${slug}/repositories`} className="font-mono text-sm text-slate-500 transition hover:text-accent">
+          <Link href={`/org/${slug}/repositories`} className="type-mono-sm text-slate-500 transition hover:text-accent">
             {scored} scored →
           </Link>
         )}
@@ -58,14 +58,14 @@ export function PostureMix({
               <span className={`min-w-0 flex-1 truncate ${isNative ? "font-medium text-white" : "text-slate-300"}`}>
                 {POSTURE_LABEL[s.posture]}
               </span>
-              <span className="font-mono text-sm tabular-nums" style={{ color: s.n > 0 ? s.color : "#64748b" }}>
+              <span className="type-mono-sm tabular-nums" style={{ color: s.n > 0 ? s.color : "#64748b" }}>
                 {s.n}
                 {s.n > 0 && <span className="text-slate-500"> · {Math.round(s.pct)}%</span>}
               </span>
             </>
           );
           return (
-            <li key={s.posture} className="text-base">
+            <li key={s.posture} className="type-body">
               {/* Each posture drills into the repositories view filtered to that quadrant — the wall
                   shows the mix, the fleet table answers "which repos?". Kiosk rows stay inert. */}
               {readOnly || s.n === 0 ? (
@@ -100,11 +100,11 @@ export function MoversTicker({
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex items-center justify-between">
-        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Live movers</h3>
+        <h3 className="type-mono-sm uppercase tracking-widest text-accent">Live movers</h3>
         {running && <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />}
       </div>
       {ticker.length === 0 ? (
-        <p className="mt-4 text-base text-slate-500">
+        <p className="mt-4 type-body text-slate-500">
           {running ? "Waiting for the first result…" : "Results stream in here as each repo lands."}
         </p>
       ) : (
@@ -116,27 +116,27 @@ export function MoversTicker({
         // strip's settled summary. This list stays navigable on demand via its accessible name.
         <ul className="mt-3 space-y-1.5" aria-label={`Live movers, most recent first: ${ticker.length} ${ticker.length === 1 ? "result" : "results"}`}>
           {ticker.map((m) => (
-            <li key={m.id} className="animate-pop-in flex items-center justify-between gap-3 rounded-md px-1 text-base">
+            <li key={m.id} className="animate-pop-in flex items-center justify-between gap-3 rounded-md px-1 type-body">
               {/* Each mover jumps to its report — a fresh result begs "what changed?", the report answers. */}
               {readOnly ? (
-                <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200" title={m.fullName}>
+                <span className="min-w-0 flex-1 truncate type-mono-sm text-slate-200" title={m.fullName}>
                   {m.name}
                 </span>
               ) : (
                 <Link
                   href={reportPermalink(m.fullName)}
                   title={m.fullName}
-                  className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200 underline-offset-2 hover:text-accent hover:underline"
+                  className="min-w-0 flex-1 truncate type-mono-sm text-slate-200 underline-offset-2 hover:text-accent hover:underline"
                 >
                   {m.name}
                 </Link>
               )}
               {m.failed ? (
-                <span className="shrink-0 font-mono text-sm text-orange-400">scan failed</span>
+                <span className="shrink-0 type-mono-sm text-orange-400">scan failed</span>
               ) : m.skipped ? (
-                <span className="shrink-0 font-mono text-sm text-slate-500">skipped · no credits</span>
+                <span className="shrink-0 type-mono-sm text-slate-500">skipped · no credits</span>
               ) : (
-                <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
+                <span className="flex shrink-0 items-center gap-2 type-mono-sm">
                   {m.posture === "ai-native" && <span aria-hidden>🎉</span>}
                   {m.delta != null && m.delta !== 0 && (
                     <span style={{ color: m.delta > 0 ? "#84cc16" : "#f97316" }}>

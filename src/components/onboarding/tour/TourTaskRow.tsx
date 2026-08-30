@@ -34,16 +34,16 @@ export function TourTaskRow({ item, state, onSelect }: { item: DrawerItem; state
       >
         <Marker state={state} />
         <span className="min-w-0 flex-1">
-          <span className={`block text-sm ${muted ? "text-slate-400" : "text-white"}`}>{item.title}</span>
+          <span className={`block type-body-sm ${muted ? "text-slate-400" : "text-white"}`}>{item.title}</span>
           {state === "unavailable" && item.unavailableReason && (
-            <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">{item.unavailableReason}</span>
+            <span className="mt-0.5 block type-note leading-relaxed text-slate-500">{item.unavailableReason}</span>
           )}
           {state !== "unavailable" && item.detail && (
-            <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">{item.detail}</span>
+            <span className="mt-0.5 block type-note leading-relaxed text-slate-500">{item.detail}</span>
           )}
         </span>
         {state === "unavailable" && (
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">n/a</span>
+          <span className="type-label tracking-widest text-slate-500">n/a</span>
         )}
       </button>
     </li>
@@ -56,7 +56,7 @@ export function Marker({ state }: { state: RowState }) {
   }
   if (state === "done") {
     return (
-      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-xs text-on-accent">
+      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent type-note text-on-accent">
         ✓
       </span>
     );

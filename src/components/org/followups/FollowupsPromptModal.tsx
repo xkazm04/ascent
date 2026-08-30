@@ -75,27 +75,27 @@ export function FollowupsPromptModal({
         context={`Paste into your local agent. Each resolving commit should carry \`${FOLLOWUP_TRAILER}: <id>\`; the next scan of the default branch closes what landed.`}
       />
       <ModalBody>
-        <pre className="max-h-[52vh] overflow-auto whitespace-pre-wrap rounded-xl border border-divider bg-ink p-4 font-mono text-sm leading-relaxed text-slate-200">{prompt}</pre>
+        <pre className="max-h-[52vh] overflow-auto whitespace-pre-wrap rounded-xl border border-divider bg-ink p-4 type-mono-sm leading-relaxed text-slate-200">{prompt}</pre>
         {alreadyOff > 0 && (
-          <p className="mt-3 font-mono text-xs text-slate-500">
+          <p className="mt-3 type-caption text-slate-500">
             {alreadyOff} of these {alreadyOff === 1 ? "is" : "are"} already handed off — included in the prompt, not re-marked.
           </p>
         )}
-        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+        {error && <p className="mt-3 type-body-sm text-danger">{error}</p>}
       </ModalBody>
       <ModalFooter>
-        <button type="button" onClick={copy} className="focus-ring rounded-lg border border-divider px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white">
+        <button type="button" onClick={copy} className="focus-ring rounded-lg border border-divider px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white">
           {copied ? "Copied ✓" : "Copy prompt"}
         </button>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-xs text-slate-500">
+          <span className="type-caption text-slate-500">
             {toMark.length === 0 ? "Nothing new to mark" : `Marks ${toMark.length} as handed off`}
           </span>
           <button
             type="button"
             onClick={handoff}
             disabled={busy}
-            className="focus-ring rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-4 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {busy ? "Marking…" : toMark.length === 0 ? "Close" : "Hand off"}
           </button>

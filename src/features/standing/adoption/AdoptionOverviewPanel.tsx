@@ -112,16 +112,16 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
       ) : (
         <Surface radius="xl" className="px-5 py-4">
           <Kicker tone="muted">Delivery · context</Kicker>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 type-body-sm text-slate-500">
             No pull-request data yet. Connect a GitHub token or the GitHub App to read PR signals alongside adoption.{" "}
-            <Link href={`/org/${slug}/settings`} className="font-mono text-xs uppercase tracking-widest transition hover:text-accent">
+            <Link href={`/org/${slug}/settings`} className="type-label tracking-widest transition hover:text-accent">
               Settings →
             </Link>
           </p>
         </Surface>
       )}
 
-      <p className="font-mono text-sm text-slate-600">
+      <p className="type-mono-sm text-slate-600">
         {/* The SnapshotScopeNotice banner that used to lead this panel is gone (2026-08-19), so the
             scan-time framing comes back HERE as one clause. It is not decoration: the period picker
             is cross-tab state, so someone who chose "90 days" on Overview arrives with that selection

@@ -43,7 +43,7 @@ export function MembersPanel({
           reads the same across MembersPanel / MemberInvites / OrgSwitcher; orange stays reserved for
           genuine warnings like the self-demotion confirm below. (ambiguity-ui 2026-07-16 #5) */}
       {p.error && (
-        <p role="alert" className="mb-3 text-sm text-danger-soft">
+        <p role="alert" className="mb-3 type-body-sm text-danger-soft">
           {p.error}
         </p>
       )}
@@ -65,7 +65,7 @@ export function MembersPanel({
         onConfirmRemove={(login) => p.remove(login)}
         onCancelRemove={() => p.setConfirmRemove(null)}
       />
-      <p className="mt-3 font-mono text-sm text-slate-500">
+      <p className="mt-3 type-mono-sm text-slate-500">
         Roles: owner → admin → member → viewer. Installation owners are seeded as owner automatically;
         the last owner can&apos;t be removed.
       </p>

@@ -74,7 +74,7 @@ export function SecurityFindings({
             <span className="text-slate-300">
               Accept the work, or dismiss with a reason: the reason reaches connected agents and the next scan.
             </span>{" "}
-            <span className="font-mono text-sm text-slate-500">
+            <span className="type-mono-sm text-slate-500">
               ({openCount} open · {settledCount} settled)
             </span>
           </>

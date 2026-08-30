@@ -56,7 +56,7 @@ export function FleetGrid() {
             key={s}
             type="button"
             onClick={() => selectSeg(s)}
-            className={`focus-ring rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wider transition ${
+            className={`focus-ring rounded-md px-2.5 py-1 type-label tracking-wider transition ${
               seg === s ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-white"
             }`}
           >
@@ -123,7 +123,7 @@ export function FleetGrid() {
         )}
       </div>
 
-      <div className="mt-4 flex h-5 items-center justify-between gap-3 font-mono text-xs">
+      <div className="mt-4 flex h-5 items-center justify-between gap-3 type-caption">
         {inspect ? (
           <span className="truncate text-slate-300">
             {inspect.name} ·{" "}

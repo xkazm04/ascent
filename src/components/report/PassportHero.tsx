@@ -33,8 +33,8 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-divider pb-4">
           <div>
             <Kicker>App Readiness Passport</Kicker>
-            <h2 className="mt-1.5 text-xl font-bold text-white">{repo}</h2>
-            <p className="mt-1 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+            <h2 className="mt-1.5 type-title font-bold text-white">{repo}</h2>
+            <p className="mt-1 type-label tracking-[0.18em] text-slate-500">
               Instrument readout · {pp.generatedAt}
             </p>
           </div>
@@ -83,13 +83,13 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
 
         {/* Provenance + export */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <p className="font-mono text-xs text-slate-600">
+          <p className="type-caption text-slate-600">
             {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
             {pp.identity.license ? ` · ${pp.identity.license}` : ""}
           </p>
           <a
             href={`/api/report/passport?repo=${encodeURIComponent(repo)}&download`}
-            className="focus-ring shrink-0 rounded-md border border-divider px-3 py-1.5 font-mono text-xs text-slate-300 transition hover:border-accent hover:text-white"
+            className="focus-ring shrink-0 rounded-md border border-divider px-3 py-1.5 type-caption text-slate-300 transition hover:border-accent hover:text-white"
             title="Download app-passport.json"
           >
             ↓ passport.json
@@ -173,7 +173,7 @@ function CredentialSeal({
           </tspan>
         </text>
       </svg>
-      <span className="mt-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">{caption}</span>
+      <span className="mt-1 font-mono type-micro uppercase tracking-wider text-slate-500">{caption}</span>
     </motion.div>
   );
 }
@@ -193,8 +193,8 @@ function RungEqualizer({ rungs, reduced }: { rungs: Rung[]; reduced: boolean }) 
               transition={reduced ? { duration: 0 } : { duration: 0.7, ease: "easeOut", delay: 0.1 + i * 0.06 }}
             />
           </div>
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-300">{r.label}</span>
-          <span className="text-center font-mono text-[10px] leading-tight text-slate-500">{r.level}</span>
+          <span className="font-mono type-micro font-semibold uppercase tracking-wider text-slate-300">{r.label}</span>
+          <span className="text-center font-mono type-micro leading-tight text-slate-500">{r.level}</span>
         </div>
       ))}
     </div>
@@ -213,12 +213,12 @@ function StackChips({ pp }: { pp: AppPassport }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {pp.stack.languages.map((l) => (
-        <span key={`lang-${l.name}`} className="rounded border border-accent/30 bg-accent/5 px-2 py-0.5 font-mono text-xs text-accent">
+        <span key={`lang-${l.name}`} className="rounded border border-accent/30 bg-accent/5 px-2 py-0.5 type-caption text-accent">
           {l.name}
         </span>
       ))}
       {chips.map((ch) => (
-        <span key={ch} className="rounded border border-divider bg-surface/60 px-2 py-0.5 font-mono text-xs text-slate-400">
+        <span key={ch} className="rounded border border-divider bg-surface/60 px-2 py-0.5 type-caption text-slate-400">
           {ch}
         </span>
       ))}
