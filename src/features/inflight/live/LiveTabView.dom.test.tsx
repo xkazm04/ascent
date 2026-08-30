@@ -20,7 +20,7 @@ vi.mock("@/lib/db", () => ({
   listLocalPairings: async () => [{ fullName: "acme/one", localPath: "C:/code/one" }],
   isDbConfigured: () => true,
 }));
-vi.mock("@/lib/db/loop-runs", () => ({ getActiveLoopRun: async () => null, listLoopRuns: async () => [] }));
+vi.mock("@/lib/db/loop-runs", () => ({ getActiveLoopRun: async () => null, listLoopRuns: async () => [], getLoopRunDetail: async () => null }));
 vi.mock("@/lib/db/org-share", () => ({ isLiveShareRevoked: async () => false }));
 vi.mock("@/lib/db/members", () => ({ getMembershipRole: async () => "owner", roleAtLeast: () => true }));
 vi.mock("@/lib/env", () => ({ selfHosted: () => true }));
