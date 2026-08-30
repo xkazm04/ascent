@@ -14,6 +14,7 @@ import {
   toRunRecord,
   type LoopLanePhase,
   type LoopLaneRecord,
+  type LoopModelPolicy,
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopTarget,
@@ -37,6 +38,11 @@ export interface CreateLoopRunInput {
   /** RESOLVED agent configuration (see resolveAgentConfig) — what the sessions will actually run as. */
   model?: string | null;
   effort?: string | null;
+  /** How the run spends models. Defaults to `single`, which is what every run before #27 was. */
+  modelPolicy?: LoopModelPolicy;
+  /** The models the run is armed with, IN ORDER — one for `single`, the two arms for `ab`. Recorded
+   *  so the price list can attribute a lane to an arm long after the run ended. */
+  models?: string[];
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
 }
@@ -56,6 +62,8 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       curated: input.curated === true,
       model: input.model ?? null,
       effort: input.effort ?? null,
+      modelPolicy: input.modelPolicy ?? "single",
+      modelsJson: JSON.stringify(input.models ?? (input.model ? [input.model] : [])),
     },
   });
   return toRunRecord(row);
@@ -102,6 +110,21 @@ export interface LoopLanePatch {
   error?: string | null;
   startedAt?: Date | null;
   endedAt?: Date | null;
+
+  // ── MOONSHOT #27. Written in the SAME patch that records `commits`, so a lane that dies later
+  // still carries what its session cost. `null` is a legitimate value on every one of them and means
+  // "the CLI reported nothing" — the patch writes it rather than skipping the field, because a lane
+  // whose second attempt reported nothing must not keep the first attempt's figure.
+  model?: string | null;
+  costSource?: string | null;
+  costMicros?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  turns?: number | null;
+  agentDurationMs?: number | null;
+  agentSessionId?: string | null;
+  abPairKey?: string | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {

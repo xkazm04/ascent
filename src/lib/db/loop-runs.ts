@@ -16,11 +16,14 @@
 // `-types` (shapes, constants, row→record parsing), `-write`, `-read`. Callers import from here.
 
 export {
+  LANE_COST_SOURCE,
   LANE_LOG_LINES,
   LOOP_CONCURRENCY_CAP,
   LOOP_DEFAULT_CONCURRENCY,
   LOOP_MAX_CYCLES_CAP,
+  LOOP_MODEL_POLICIES,
   LANE_KINDS,
+  asModelPolicy,
   boundLog,
   laneKindOf,
   parseTargets,
@@ -30,6 +33,7 @@ export {
   type LoopLaneOutcome,
   type LoopLanePhase,
   type LoopLaneRecord,
+  type LoopModelPolicy,
   type LoopRunDetail,
   type LoopRunPhase,
   type LoopRunRecord,

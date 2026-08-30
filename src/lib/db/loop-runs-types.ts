@@ -17,6 +17,28 @@ export const LOOP_MAX_CYCLES_CAP = 5;
 export const LANE_LOG_LINES = 200;
 
 export type LoopRunPhase = "curating" | "running" | "done" | "stopped" | "error";
+
+/**
+ * How a run spends models (MOONSHOT #27).
+ *
+ *   • `single` — every lane runs the one resolved model. What every run before #27 was.
+ *   • `ab`     — the same curated batch is worked by TWO lanes per repo per cycle, one per model,
+ *                each in its own worktree and each rescanned by the same guardbanded scorer. Two
+ *                arms of one experiment, so a cost/lift difference is a MEASUREMENT rather than a
+ *                comparison of two runs that differed in a dozen other ways.
+ */
+export type LoopModelPolicy = "single" | "ab";
+
+export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
+
+/** A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`. */
+export const asModelPolicy = (v: unknown): LoopModelPolicy =>
+  v === "ab" ? "ab" : "single";
+
+/** The ONE declared cost source for a lane. A second value would be a second source, which is the
+ *  thing the one-source rule exists to forbid — an envelope figure added to an OTLP figure
+ *  double-counts the same tokens. See `src/lib/local/lane-economics.ts`. */
+export const LANE_COST_SOURCE = "envelope" as const;
 export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "error";
 
 /**
@@ -64,6 +86,12 @@ export interface LoopRunRecord {
   /** The reasoning effort passed to the CLI, or null when none was chosen (the flag is then not
    *  passed at all — see src/lib/local/agent.ts). */
   effort: string | null;
+  /** How this run spends models. `single` = every lane runs the one resolved model; `ab` = each repo
+   *  is worked by TWO lanes, one per arm, sharing an `abPairKey`. */
+  modelPolicy: LoopModelPolicy;
+  /** The models this run is armed with, in order: one for `single`, two for `ab`. Empty on a row
+   *  written before the column — "not recorded", which `model` above still answers for. */
+  models: string[];
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -89,6 +117,27 @@ export interface LoopLaneRecord {
   error: string | null;
   startedAt: string | null;
   endedAt: string | null;
+
+  // ── MOONSHOT #27 — what this lane's agent session cost, from ONE declared source.
+  // Every field is null on a lane that reported nothing, and null is NOT zero: a 0 here would be
+  // averaged downstream as a free session, which is a claim nobody made.
+  /** The model this lane actually ran. Null on a pre-#27 row — unknown, not "the default". */
+  model: string | null;
+  /** `"envelope"` and nothing else today. Stamped so a reader never has to guess which population a
+   *  figure came from, and so a second source can never be quietly added to the first. */
+  costSource: string | null;
+  /** MICRO-CENTS (`round(total_cost_usd * 100 * 1e6)`). Displays divide; the store never rounds. */
+  costMicros: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  turns: number | null;
+  agentDurationMs: number | null;
+  /** The CLI's own session id — A JOIN KEY ONLY. Never a licence to add an `AgentSession` row's cost
+   *  to this lane's: that is OTLP export of sessions a DEVELOPER ran, a different population. */
+  agentSessionId: string | null;
+  /** Joins the two arms of one `ab` pair; null on a `single` run. */
+  abPairKey: string | null;
 }
 
 export interface LoopRunSummary {
@@ -106,6 +155,9 @@ export interface LoopRunSummary {
    *  the number, because comparing two lifts means comparing two setups. Null = unknown. */
   model?: string | null;
   effort?: string | null;
+  /** MICRO-CENTS summed over the lanes that recorded a cost. `null` when NONE did — "not measured",
+   *  which is a different fact from a run that cost nothing. */
+  costMicros?: number | null;
 }
 
 /** One lane's before/after, as the detail view needs it. */
@@ -205,6 +257,8 @@ type RunRow = {
   curated: boolean;
   model?: string | null;
   effort?: string | null;
+  modelPolicy?: string | null;
+  modelsJson?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -228,6 +282,18 @@ type LaneRow = {
   error: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
+  // Optional so a read that predates the columns (or a fixture that does not select them) degrades
+  // to `null` per field rather than failing to type — the same posture `model`/`effort` take above.
+  model?: string | null;
+  costSource?: string | null;
+  costMicros?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  turns?: number | null;
+  agentDurationMs?: number | null;
+  agentSessionId?: string | null;
+  abPairKey?: string | null;
 };
 
 export function toRunRecord(row: RunRow): LoopRunRecord {
@@ -245,6 +311,8 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     curated: row.curated,
     model: row.model ?? null,
     effort: row.effort ?? null,
+    modelPolicy: asModelPolicy(row.modelPolicy),
+    models: parseList(row.modelsJson),
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -270,6 +338,18 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     error: row.error,
     startedAt: row.startedAt ? row.startedAt.toISOString() : null,
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
+    // `?? null` per field, never `?? 0`: a column the row does not carry is UNKNOWN, and the fold
+    // that prices a verified point has to be able to tell that apart from a free session.
+    model: row.model ?? null,
+    costSource: row.costSource ?? null,
+    costMicros: row.costMicros ?? null,
+    inputTokens: row.inputTokens ?? null,
+    outputTokens: row.outputTokens ?? null,
+    cacheReadTokens: row.cacheReadTokens ?? null,
+    turns: row.turns ?? null,
+    agentDurationMs: row.agentDurationMs ?? null,
+    agentSessionId: row.agentSessionId ?? null,
+    abPairKey: row.abPairKey ?? null,
   };
 }
 
