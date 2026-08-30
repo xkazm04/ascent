@@ -178,6 +178,16 @@ export interface OrgRepoRow {
    *  unparseable: such a repo is excluded from the "repos with contradicting agent guidance"
    *  denominator and the label says so, because 0-of-unknown is not a measurement. */
   guidanceGraph: GuidanceGraph | null;
+  /** Two-speed freshness (moonshot #10): when this repo was last SCORED (a paid LLM scan) and when
+   *  its CONTROLS were last observed (a free probe). They move independently by design — the point of
+   *  the two-speed fleet is that posture can be current while a score is a week old. Every field is
+   *  null when the thing has never happened; the UI renders "—", never a fabricated "now". */
+  freshness: {
+    scoredAt: string | null;
+    controlsAt: string | null;
+    /** An unsettled `ScanJob` exists for this repo — a rescan is owed, not lost. */
+    queued: boolean;
+  };
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -474,6 +484,32 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     orderBy: { fullName: "asc" },
   });
 
+  // Two-speed freshness (moonshot #10), two cheap fleet-wide reads rather than a per-row query:
+  // the newest control observation per repo, and which repos have unsettled queue rows. Both degrade
+  // to "nothing known" on failure — an empty map renders as "—", which is the honest answer, and is
+  // also what an org that has never been probed genuinely looks like.
+  const controlsByRepo = new Map<string, string>();
+  const queuedRepos = new Set<string>();
+  try {
+    const grouped = await prisma.controlObservation.groupBy({
+      by: ["repoFullName"],
+      where: { orgId: org.id },
+      _max: { observedAt: true },
+    });
+    for (const g of grouped) if (g._max.observedAt) controlsByRepo.set(g.repoFullName, g._max.observedAt.toISOString());
+  } catch {
+    // No observations table access / no rows — leave the map empty.
+  }
+  try {
+    const pending = (await prisma.scanJob.findMany({
+      where: { orgId: org.id, state: { in: ["queued", "claimed"] } },
+      select: { repoFullName: true },
+    })) as { repoFullName: string }[];
+    for (const p of pending) queuedRepos.add(p.repoFullName);
+  } catch {
+    // Same: an unreadable queue means "we don't know of any queued work", not "there is none".
+  }
+
   const rows: OrgRepoRow[] = repos.map((r) => {
     const s = r.scans[0];
     // Parse the persisted default-branch governance blob so the fleet gate can enforce
@@ -499,6 +535,11 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       contextHealth: parseContextHealthJson(r.contextHealthJson),
       manifest: parseManifestReadoutJson(r.manifestJson),
       guidanceGraph: parseGuidanceGraphJson(r.guidanceGraphJson),
+      freshness: {
+        scoredAt: s ? s.scannedAt.toISOString() : (r.lastScanAt?.toISOString() ?? null),
+        controlsAt: controlsByRepo.get(r.fullName) ?? null,
+        queued: queuedRepos.has(r.fullName),
+      },
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

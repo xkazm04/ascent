@@ -23,12 +23,17 @@ interface Progress {
   /** Repos skipped for lack of prepaid scan credits (`notice` up front, `repo.skipped` mid-run,
    *  authoritative total on the final `result`) — a truncated paid run must not read as success. */
   skipped: number;
-  /** Set when the server stopped issuing new repos to stay inside its wall-clock budget. Carries the
-   *  exact remainder so "Continue" walks what's LEFT rather than re-driving the whole fleet. Kept
-   *  strictly separate from `error`: a truncated run scanned (and persisted) real repos. */
-  truncated?: { scanned: number; total: number; repos: string[] };
+  /** Set when the server stopped claiming new work to stay inside its wall-clock budget. Since
+   *  moonshot #10 the remainder is a DURABLE QUEUE, not a list the user must re-drive: the background
+   *  worker finishes it, and this carries the run handle so the hook can poll how much is left. Kept
+   *  strictly separate from `error` — a budget-stopped run scanned (and persisted) real repos. */
+  queued?: { runId: string; pending: number; total: number };
   error?: string;
 }
+
+/** How often the background remainder is re-read. Slow on purpose: the work is durable and a cron
+ *  pass is minutes away, so a tighter poll would buy nothing and cost a query per tick. */
+const QUEUE_POLL_MS = 15_000;
 
 /** Scope for one bulk-scan request — the stale-only filter, or an explicit remainder to continue. */
 export type ScanScope = { staleOnlyDays?: number; repos?: string[] };
@@ -83,21 +88,23 @@ export function useOrgScanButton(org: string, watchedCount: number) {
             skipped: s.skipped + (Number.isFinite(skippedN) && skippedN > 0 ? skippedN : 0),
             total: Number.isFinite(scanning) && scanning > 0 ? scanning : s.total,
           }));
-        } else if (event === "truncated") {
-          // The run hit its server-side wall-clock budget and stopped issuing NEW repos. Everything it
-          // did scan is already persisted; the named remainder was never touched. This is deliberately
-          // NOT the error state — the transport succeeded.
-          const repos = Array.isArray(data.repos) ? (data.repos as unknown[]).map(String) : [];
-          const scannedN = Number(data.scanned);
+        } else if (event === "queued") {
+          // The run hit its server-side wall-clock budget and stopped claiming NEW work. Everything it
+          // did scan is already persisted, and the remainder is a queued job the background worker
+          // finishes with no further action from the user. Deliberately NOT the error state.
+          const pendingN = Number(data.queued);
           const totalN = Number(data.total);
-          setP((s) => ({
-            ...s,
-            truncated: {
-              scanned: Number.isFinite(scannedN) ? scannedN : s.done,
-              total: Number.isFinite(totalN) ? totalN : s.total,
-              repos,
-            },
-          }));
+          const runId = String(data.runId ?? "");
+          if (runId) {
+            setP((s) => ({
+              ...s,
+              queued: {
+                runId,
+                pending: Number.isFinite(pendingN) ? pendingN : 0,
+                total: Number.isFinite(totalN) ? totalN : s.total,
+              },
+            }));
+          }
         } else if (event === "result") {
           // Final summary — skippedForCredits is the authoritative total (up-front slice +
           // mid-run reservation losses), so prefer it over the incremental count.
@@ -141,6 +148,36 @@ export function useOrgScanButton(org: string, watchedCount: number) {
     // Mount-only by design: the flag is one-shot and `run` is stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // PASSIVE POLL of a budget-stopped run's remainder (moonshot #10). The old UI handed the user a
+  // "Continue (N left)" button — i.e. asked them to re-drive work the server had dropped. The server
+  // no longer drops it, so the honest surface is a count that ticks down on its own. The poll is
+  // read-only, costs one small query, and stops the moment nothing is pending.
+  const queuedRunId = p.queued?.runId;
+  useEffect(() => {
+    if (!queuedRunId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/org/scan/queue?org=${encodeURIComponent(org)}&runId=${encodeURIComponent(queuedRunId)}`);
+        // A failed poll is NOT evidence the work vanished — keep the last known count rather than
+        // silently showing "finished" for a run still in the queue.
+        if (!res.ok || cancelled) return;
+        const d = (await res.json()) as { pending?: number };
+        const pending = Number(d.pending);
+        if (cancelled || !Number.isFinite(pending)) return;
+        setP((s) => (s.queued?.runId === queuedRunId ? { ...s, queued: pending > 0 ? { ...s.queued, pending } : undefined } : s));
+        if (pending === 0) router.refresh(); // the fleet's rows are now current — reload them
+      } catch {
+        // Network blip: same reasoning as a non-ok response — say nothing rather than something false.
+      }
+    };
+    const id = setInterval(tick, QUEUE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [org, queuedRunId, router]);
 
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
   // The curated demo org is seeded with synthetic histories, not live-scannable repos — a "Stale only"

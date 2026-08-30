@@ -75,27 +75,15 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped (out of scan credits).
           </p>
         )}
-        {/* Time-budget stop — distinct from the network-error state below. The run succeeded for the
-            repos it reached (they are persisted); the remainder was never started, so continuing costs
-            nothing for work already done. The button carries the exact remainder, so a continue walks
-            only what's left. */}
-        {!p.running && p.truncated && !p.error && p.truncated.repos.length > 0 && (
-          <div className="flex flex-col items-end gap-1">
-            <p className="type-body-sm text-warn">
-              Time budget reached:{" "}
-              <span className="font-mono tabular-nums">
-                {p.truncated.scanned} of {p.truncated.total}
-              </span>{" "}
-              scanned.
-            </p>
-            <button
-              type="button"
-              onClick={() => run({ repos: p.truncated?.repos })}
-              className="focus-ring rounded-lg border border-divider px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
-            >
-              Continue ({p.truncated.repos.length} left)
-            </button>
-          </div>
+        {/* Time-budget stop — distinct from the network-error state below, and no longer an ASK.
+            The repos this run reached are persisted; the remainder is a queued job the background
+            worker finishes, so the surface is a count that ticks down on its own (polled in
+            useOrgScanButton) rather than a "Continue" button handing the user back work the server
+            dropped. It sits inside the same live region, so a screen-reader user hears it too. */}
+        {!p.running && p.queued && !p.error && p.queued.pending > 0 && (
+          <p className="type-body-sm text-warn">
+            <span className="font-mono tabular-nums">{p.queued.pending}</span> queued — finishing in the background.
+          </p>
         )}
         {p.error && <p className="type-body-sm text-danger">{p.error}</p>}
       </div>

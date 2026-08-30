@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
-import { LeaderboardHead } from "./RepoLeaderboardParts";
+import { FreshnessCell, LeaderboardHead, relAge } from "./RepoLeaderboardParts";
 
 function renderHead(props: { allSelected: boolean; indeterminate: boolean }) {
   const { container } = render(
@@ -44,5 +44,39 @@ describe("LeaderboardHead select-all checkbox", () => {
     const checkbox = renderHead({ allSelected: true, indeterminate: false });
     expect(checkbox.checked).toBe(true);
     expect(checkbox.indeterminate).toBe(false);
+  });
+});
+
+// The two-speed freshness cell (moonshot #10). The invariant worth a test is the honest null: a repo
+// nobody has probed must read "—", never a stand-in age, and the two speeds must stay separable —
+// controls fresh while the score is stale is the NORMAL state of a two-speed fleet, not an anomaly.
+describe("FreshnessCell", () => {
+  const now = Date.parse("2026-08-30T12:00:00.000Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+
+  it("renders an em dash for an absent timestamp rather than inventing an age", () => {
+    const { container } = render(<FreshnessCell f={{ scoredAt: null, controlsAt: null, queued: false }} />);
+    expect(container.textContent).toContain("Scored —");
+    expect(container.textContent).toContain("Controls —");
+  });
+
+  it("shows a stale score beside fresh controls — the whole point of the two lanes", () => {
+    const { container } = render(
+      <FreshnessCell f={{ scoredAt: ago(7 * 86_400_000), controlsAt: ago(3_600_000), queued: false }} />,
+    );
+    // Both are present and distinct; neither is collapsed into a single "last updated".
+    expect(container.textContent).toMatch(/Scored \d+d/);
+    expect(container.textContent).toMatch(/Controls \d+h/);
+  });
+
+  it("tags a repo with owed work as queued, so a truncated run reads as pending, not lost", () => {
+    const { container } = render(<FreshnessCell f={{ scoredAt: ago(3_600_000), controlsAt: null, queued: true }} />);
+    expect(container.textContent).toContain("queued");
+  });
+
+  it("relAge refuses an unparseable stamp instead of rendering NaN", () => {
+    expect(relAge("not-a-date")).toBeNull();
+    expect(relAge(null)).toBeNull();
+    expect(relAge(ago(90 * 60_000), now)).toBe("2h");
   });
 });

@@ -14,6 +14,58 @@ export interface RepoActivity {
   locChanged: number;
 }
 
+/** Two-speed freshness for one repo (moonshot #10) — the paid score and the free control probe move
+ *  independently, so the row shows both. Structural, so an `OrgRepoRow` satisfies it directly. */
+export interface RepoFreshness {
+  scoredAt: string | null;
+  controlsAt: string | null;
+  queued: boolean;
+}
+
+/** Compact relative age ("3h", "12d"), or null when there is nothing to age. NEVER "now" for an
+ *  absent timestamp — an unmeasured thing has no age. */
+export function relAge(iso: string | null | undefined, now: number = Date.now()): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const mins = Math.max(0, Math.round((now - t) / 60_000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+/**
+ * The freshness cell: `Scored <age>` over `Controls <age>`, hairline-separated, mono tabular-nums.
+ *
+ * Two lines rather than one because they answer different questions and can legitimately disagree by
+ * days: a repo's controls may have been re-observed an hour ago (free, on a webhook) while its score
+ * is a week old (paid, on cadence). Collapsing them to one "last updated" would hide exactly the
+ * distinction the two-speed fleet exists to make. A missing value renders "—", never a stand-in.
+ */
+export function FreshnessCell({ f }: { f: RepoFreshness | null | undefined }) {
+  const scored = relAge(f?.scoredAt);
+  const controls = relAge(f?.controlsAt);
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span className="type-mono-sm tabular-nums text-slate-400" title={f?.scoredAt ? `Last scored ${f.scoredAt}` : "Never scored"}>
+        Scored {scored ?? <span className="text-slate-600">—</span>}
+      </span>
+      <span
+        className="border-t border-slate-800 pt-0.5 type-mono-sm tabular-nums text-slate-500"
+        title={f?.controlsAt ? `Controls last observed ${f.controlsAt}` : "Controls not observed yet"}
+      >
+        Controls {controls ?? <span className="text-slate-600">—</span>}
+      </span>
+      {f?.queued && (
+        <span className="type-mono-sm text-slate-500" title="A scan for this repo is queued and will run in the background">
+          queued
+        </span>
+      )}
+    </span>
+  );
+}
+
 export type SortKey = "commits" | "pr" | "loc";
 export type SortState = { key: SortKey; dir: 1 | -1 } | null;
 
@@ -121,7 +173,9 @@ export function LeaderboardHead({
         dir={dir}
         onClick={() => onCycle("loc")}
       />
-      <th className="px-3 py-2 text-left">Last scan</th>
+      <th className="px-3 py-2 text-left" title="Two speeds: the last paid score, and the last free control observation.">
+        Freshness
+      </th>
       <th className="px-3 py-2 text-left">Autoscan</th>
       <th className="px-3 py-2 text-left">
         <span className="sr-only">Rescan</span>
