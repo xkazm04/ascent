@@ -110,7 +110,13 @@ export async function buildGovernanceOverview(
   // headline. The rollup now carries `latest.incomplete` (org-rollup.ts, derived from the same
   // zero-dimension predicate the engine and the per-repo gate use), so this count is real.
   const byReason: Record<GateFailure["code"], number> = {
+    // `admission` (#8) and `control` (#16) are carried at 0 for shape completeness AND can be
+    // observed here: both are GatePolicy fields, but evaluateGateLite skips both by construction
+    // (a rollup row carries neither PR stats nor a conformance ledger — see the two null inputs in
+    // evaluateGateLite). So on the fleet path these stay 0 honestly, because the criteria were
+    // never DUE here, not because nothing failed. The per-repo gate is where they are judged.
     level: 0, overall: 0, dimension: 0, posture: 0, governance: 0, provenance: 0, incomplete: 0,
+    admission: 0, control: 0,
   };
   const failures: GovernanceFailure[] = [];
   let passing = 0;

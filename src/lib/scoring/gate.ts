@@ -3,13 +3,33 @@
 // and returns the specific failing conditions; defaults are archetype-aware (a solo repo is
 // held to a lower bar than an org/platform). Consumed by the public CI endpoint.
 
+//
+// THE POLICY-SOURCE CONTRACT (docs/resolutions/gate-as-code.md, option A). Ascent has ONE policy
+// type and ONE merge. A new source of gate policy — an org row, a per-repo admission decision, a
+// repo-declared manifest bar, a query param — produces a `GatePolicy` and NOTHING ELSE, and the
+// gate resolves them as one ordered strictest-wins fold:
+//
+//   effective = tighten(tighten(tighten(org ?? archetype, admission), manifest), params)
+//
+// Nothing in the chain can WEAKEN what precedes it, which is why the unauthenticated endpoint can
+// safely accept every layer. A new bar is therefore FOUR edits and never a fifth resolution path:
+//   (1) the `GatePolicy` field, (2) a `sanitizeGatePolicy` clause (untrusted -> clean),
+//   (3) a `tightenGatePolicy` rule (strictest wins), (4) a `describeGatePolicy` row —
+// plus either an absolute input on `NormalizedGate` or an honest-null skip there. `gate.test.ts`
+// holds this as a table-driven structural guard, so a field added without its four places fails.
+
 import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
 import { LEVELS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { parseFloor } from "@/lib/scoring/gate-numeric";
+import { isValidCheckId, type CheckLevel } from "@/lib/standard/check-ids";
 
 /** The Security dimension + the default floor a security gate holds it to (`?security=1`). */
 const SECURITY_DIM: DimensionId = "D9";
 export const DEFAULT_SECURITY_MIN = 50;
+
+/** Ceiling on `requireChecks`. A policy is untrusted input (a DB column, an admission fragment); a
+ *  10k-entry list would turn every gate evaluation into a scan of it. */
+export const MAX_REQUIRE_CHECKS = 100;
 
 export interface GatePolicy {
   /** Minimum overall maturity level (inclusive), e.g. "L3". */
@@ -44,10 +64,45 @@ export interface GatePolicy {
    * which inverts the policy's whole intent.
    */
   minAiGovernedRate?: number;
+  /**
+   * ADMISSION (#8). No AI-attributed change may land at all — the policy fragment a repo admitted in
+   * `mode: "blocked"` compiles to. Distinct from `minAiGovernedRate: 100` ("AI work must be approved"):
+   * this says AI work must not be here.
+   *
+   * ONLY ENFORCED WHEN MEASURABLE, the same fail-OPEN exception `minAiGovernedRate` documents and for
+   * the same reason: `aiInvolvedRate` is null with no token and null under the PR-sample floor, and a
+   * repo with no observable AI activity must not be blocked by an AI policy. Null -> SKIPPED, and
+   * `evaluateGateLite` (whose snapshot carries no PR stats) skips it always rather than inventing a
+   * verdict the CI gate would not also reach.
+   */
+  forbidAiAuthorship?: boolean;
+  /**
+   * CONTROLS (#16). Doctor check ids that must not be REPORTED FAILING. Union-merged, exactly like
+   * `forbidPostures` — a second source can add a required check, never drop one.
+   *
+   * Honest-null skip, three ways, because a control gate that invents failures is worse than none:
+   *   - `checkStates === null` (the repo has never reported a conformance run, or the caller has no
+   *     ledger to read) -> every named check is SKIPPED. The measurement was never due.
+   *   - a named check absent from the latest report -> `unchecked`, which is a RESULT, not a pass and
+   *     not a failure. Skipped.
+   *   - `unchecked` / `warn` / `pass` -> no failure. Only an explicit `fail` fails the gate.
+   */
+  requireChecks?: string[];
 }
 
 export interface GateFailure {
-  code: "level" | "overall" | "dimension" | "posture" | "governance" | "provenance" | "incomplete";
+  code:
+    | "level"
+    | "overall"
+    | "dimension"
+    | "posture"
+    | "governance"
+    | "provenance"
+    | "incomplete"
+    /** #8 — an admission decision (a blocked repo with observed AI authorship). */
+    | "admission"
+    /** #16 — a `requireChecks` control the repo's own doctor reports failing. */
+    | "control";
   message: string;
 }
 
@@ -166,6 +221,21 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
       ci: `min-ai-governed: '${p.minAiGovernedRate}'`,
     });
   }
+  if (p.forbidAiAuthorship) {
+    // No `query`/`ci`: admission is a decision the ORG records, never something an anonymous caller
+    // or a workflow file asks for. It reaches the fold only through the admission overlay.
+    out.push({
+      text: "No AI-attributed change may land in this repository (admission: blocked)",
+      bit: "no AI authorship",
+    });
+  }
+  if (p.requireChecks?.length) {
+    const checks = p.requireChecks;
+    out.push({
+      text: `Reported controls must not be failing: ${checks.join(", ")}`,
+      bit: `controls ${checks.length === 1 ? checks[0] : `(${checks.length})`}`,
+    });
+  }
   return out;
 }
 
@@ -227,6 +297,16 @@ export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
   // policy's clothes, >100 is unreachable — both drop the key rather than install a fake gate.
   const air = floorScore(r.minAiGovernedRate);
   if (air !== undefined) pol.minAiGovernedRate = air;
+  // #8. Strictly `=== true`: a truthy "1"/"yes" from a hand-edited JSON column must not install the
+  // strictest bar in the file by accident, the same rule requireProtectedBranch keeps above.
+  if (r.forbidAiAuthorship === true) pol.forbidAiAuthorship = true;
+  // #16. Only well-formed check ids survive; an unknown-but-valid id is KEPT (spec principle 3 — a
+  // newer doctor may invent checks), a malformed one is dropped rather than stored as a bar that can
+  // never be satisfied. Deduped and sorted so two equivalent policies serialize identically.
+  if (Array.isArray(r.requireChecks)) {
+    const checks = [...new Set(r.requireChecks.filter((c): c is string => typeof c === "string" && isValidCheckId(c)))].sort();
+    if (checks.length) pol.requireChecks = checks.slice(0, MAX_REQUIRE_CHECKS);
+  }
   return Object.keys(pol).length ? pol : null;
 }
 
@@ -263,6 +343,18 @@ interface NormalizedGate {
   aiGovernedRate: number | null;
   /** How many AI PRs backed that rate, for the failure message. */
   aiPrSample: number | null;
+  /**
+   * #8 — share (0..100) of analyzed PRs that are AI-involved, or NULL when unmeasurable. The input
+   * `forbidAiAuthorship` reads: null (or 0) SKIPS the rule. See that policy field for why the
+   * admission bar fails OPEN on an unmeasurable repo while every score criterion fails closed.
+   */
+  aiInvolvedRate: number | null;
+  /**
+   * #16 — the latest conformance report's per-check levels, or NULL when the repo has never reported
+   * (or the caller has no ledger to read). Null SKIPS every `requireChecks` entry; an id absent from a
+   * non-null map is `unchecked`, which is also a skip. Only an explicit `fail` fails.
+   */
+  checkStates: Record<string, CheckLevel> | null;
 }
 
 function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
@@ -346,12 +438,51 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
       });
     }
   }
+  // ADMISSION (#8). Same fail-OPEN exception as the provenance rule directly above, for the same
+  // reason: an unmeasurable repo (`aiInvolvedRate == null`) or one with no observed AI activity at
+  // all has not violated an AI-authorship policy. Blocking it would hold every quiet repo to a bar
+  // its data cannot even test — and this criterion arrives from an admission row on an
+  // UNAUTHENTICATED endpoint, so a false positive here is the most expensive kind of wrong.
+  if (pol.forbidAiAuthorship && g.aiInvolvedRate != null && g.aiInvolvedRate > 0) {
+    failures.push({
+      code: "admission",
+      message:
+        `${Math.round(g.aiInvolvedRate)}% of analyzed PRs are AI-attributed, but this repository's admission ` +
+        `decision is "blocked": no AI-attributed change may land here.`,
+    });
+  }
+  // CONTROLS (#16). Three honest-null skips, all of which mean "the measurement was never due":
+  // no ledger at all, no report naming this check, or a report that named it `unchecked`.
+  if (pol.requireChecks?.length && g.checkStates) {
+    const states = g.checkStates;
+    for (const check of pol.requireChecks) {
+      if (states[check] !== "fail") continue;
+      failures.push({
+        code: "control",
+        message: `The control "${check}" is reported FAILING by this repository's own conformance run; the gate requires it to pass.`,
+      });
+    }
+  }
 
   return failures;
 }
 
+/**
+ * Criteria inputs a `ScanReport` structurally cannot carry, supplied by whichever caller HAS them.
+ * Kept as one optional bag rather than a second evaluator so `evaluateNormalized` stays the single
+ * place gate rules run (the property this module exists to hold). Omitting the bag is the honest
+ * default: every field in it degrades to a documented skip, never to a pass.
+ */
+export interface GateInputs {
+  /**
+   * #16 — the latest conformance report's per-check levels for THIS repo. Null/absent = the caller
+   * has no ledger (no DB, no org, no report), so `requireChecks` is skipped rather than guessed.
+   */
+  checkStates?: Record<string, CheckLevel> | null;
+}
+
 /** Evaluate a report against a policy (defaults to the archetype policy), listing every failure. */
-export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResult {
+export function evaluateGate(report: ScanReport, policy?: GatePolicy, inputs: GateInputs = {}): GateResult {
   const pol = policy ?? defaultGatePolicy(report.archetype);
   // An unscorable scan short-circuits: running the criteria would emit a wall of "D1 scored 0" style
   // failures that read as findings about the repository, when the only true statement is that nothing
@@ -374,6 +505,13 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
       // which is exactly the "not measurable" the provenance rule skips on.
       aiGovernedRate: report.prStats?.aiGovernedRate ?? null,
       aiPrSample: report.prStats ? Math.round((report.prStats.aiInvolvedRate / 100) * report.prStats.analyzed) : null,
+      // #8: null on a token-less scan — the admission rule skips rather than blocking a repo whose AI
+      // activity nobody could observe.
+      aiInvolvedRate: report.prStats?.aiInvolvedRate ?? null,
+      // #16: a full ScanReport carries no conformance ledger (the reports are org-scoped rows, not a
+      // scan artifact), so a caller that has one threads it in through `inputs`. Everything else —
+      // the CLI, a test, an anonymous gate on an org with no ledger — honestly skips.
+      checkStates: inputs.checkStates ?? null,
     },
     pol,
   );
@@ -423,6 +561,13 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
       // so the fleet view never invents a provenance failure the CI gate wouldn't also raise.
       aiGovernedRate: snap.aiGovernedRate ?? null,
       aiPrSample: snap.aiPrSample ?? null,
+      // #8: the lite snapshot has no PR stats at all, so `forbidAiAuthorship` is ALWAYS skipped here
+      // and the fleet view reports it as unobserved rather than as a pass. Inventing a rate from the
+      // rollup would let the dashboard condemn a repo the CI gate would clear — the exact drift this
+      // shared evaluator exists to prevent.
+      aiInvolvedRate: null,
+      // #16: likewise no ledger in a rollup row. Skipped, never green.
+      checkStates: null,
     },
     policy,
   );
@@ -479,20 +624,26 @@ export function explicitPolicyFromParams(params: URLSearchParams): GatePolicy {
 /**
  * Build a policy from URL query params, falling back to the archetype default for anything
  * unset — so the CI endpoint accepts e.g. `?min_level=L4&min_dimension=50&no_ungoverned=1`.
+ *
+ * DEFECT D10 (BACKLOG group-05), fixed here: this function used to hand-list SIX fields, and
+ * `minAiGovernedRate` was not one of them. `explicitPolicyFromParams` parsed `?min_ai_governed=90` /
+ * `?no_ungoverned_ai=1` correctly and this function then DROPPED it — on the no-org-policy path,
+ * which is every self-hosted deployment, every DB-less one, and every repo whose org has not set a
+ * bar. The strictest criterion in the product silently did nothing exactly where nothing else was
+ * enforcing it. It matters twice over now: an admission overlay is folded in through this same path,
+ * and an overlay whose fields are dropped is an overlay that means nothing.
+ *
+ * The fix is written as "the explicit policy wins, the archetype default fills the gaps" over the
+ * WHOLE object rather than as a seventh hand-listed line, so the next `GatePolicy` field cannot
+ * reintroduce the same drop. `gate.test.ts` holds that as a structural guard over every key.
  */
 export function policyFromParams(params: URLSearchParams, archetype: RepoArchetype): GatePolicy {
   const base = defaultGatePolicy(archetype);
   const p = explicitPolicyFromParams(params);
-  return {
-    minLevel: p.minLevel ?? base.minLevel,
-    // A <=0 / >100 / fractional / invalid value falls back to the archetype default rather than
-    // installing an always-pass (<=0) or unreachable (>100) floor.
-    minOverall: p.minOverall ?? base.minOverall,
-    minDimension: p.minDimension ?? base.minDimension,
-    minDimensionFor: p.minDimensionFor ?? base.minDimensionFor,
-    forbidPostures: p.forbidPostures ?? base.forbidPostures,
-    requireProtectedBranch: p.requireProtectedBranch ?? base.requireProtectedBranch,
-  };
+  // Spread order is the precedence: every field the params explicitly set overrides the archetype
+  // default; every field they did not set keeps it. `explicitPolicyFromParams` only ever assigns keys
+  // it actually parsed (it never writes `undefined`), so a spread cannot erase a base field.
+  return { ...base, ...p };
 }
 
 /**
@@ -535,5 +686,11 @@ export function tightenGatePolicy(a: GatePolicy, b: GatePolicy): GatePolicy {
   // provenance requirement but never lower it.
   const minAiGoverned = maxOpt(a.minAiGovernedRate, b.minAiGovernedRate);
   if (minAiGoverned !== undefined) pol.minAiGovernedRate = minAiGoverned;
+  // #8: ORs, like requireProtectedBranch — an admission fragment can forbid AI authorship, and a
+  // second layer can never un-forbid it.
+  if (a.forbidAiAuthorship || b.forbidAiAuthorship) pol.forbidAiAuthorship = true;
+  // #16: UNION, like forbidPostures — a layer adds required controls, never removes them.
+  const checks = [...new Set([...(a.requireChecks ?? []), ...(b.requireChecks ?? [])])].sort();
+  if (checks.length) pol.requireChecks = checks.slice(0, MAX_REQUIRE_CHECKS);
   return pol;
 }
