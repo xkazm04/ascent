@@ -156,6 +156,36 @@ function landRun(detail, say) {
   }
 }
 
+/**
+ * Land every `ascent/loop-*` branch that is still a fast-forward, oldest first.
+ *
+ * Idempotent by construction: once a branch is merged the next `--ff-only` on it is a no-op, and a
+ * branch that has been superseded simply refuses and is skipped. This is what makes an interrupted
+ * campaign resumable — the work its last run committed is merged before the next one is dispatched.
+ */
+function landPending(say) {
+  for (const [repo, dir] of Object.entries(CFG.paths)) {
+    let landed = 0;
+    let branches = [];
+    try {
+      branches = git(dir, "branch", "--list", "ascent/loop-*", "--format=%(refname:short)").split("\n").filter(Boolean).sort();
+    } catch {
+      say(`  (no git checkout at ${dir})`);
+      continue;
+    }
+    for (const branch of branches) {
+      try {
+        if (git(dir, "rev-list", "--count", `HEAD..${branch}`) === "0") continue;
+        git(dir, "merge", "--ff-only", branch);
+        landed++;
+      } catch {
+        /* superseded or would touch a modified file — leave it alone and say so in the total */
+      }
+    }
+    if (landed > 0) say(`  landed ${landed} pending branch(es) into ${shortRepo(repo)} @ ${git(dir, "rev-parse", "--short", "HEAD")}`);
+  }
+}
+
 async function waitForIdle(deadline) {
   for (;;) {
     if (Date.now() > deadline) return { timedOut: true, active: null };
@@ -182,7 +212,16 @@ async function main() {
 
   const status = await api(`/api/org/loop?org=${encodeURIComponent(CFG.org)}`);
   if (!status.enabled) throw new Error("The loop is not enabled on this deployment (self-hosted + ASCENT_AUTOPILOT).");
-  if (status.active) throw new Error(`A run is already active (${status.active.id}) — one run per org at a time.`);
+  // A run already in flight is NOT an error: a campaign restarted after an interruption should queue
+  // behind the run it left behind rather than refuse to start (one run per org is the engine's rule).
+  if (status.active) {
+    say(`waiting for the in-flight run ${status.active.id} to finish…`);
+    const { timedOut } = await waitForIdle(Date.now() + CFG.runTimeoutMs);
+    if (timedOut) throw new Error("The in-flight run never finished — stop it before starting a campaign.");
+  }
+  // Land anything an earlier, interrupted campaign left unmerged, oldest first, so run 1 of this
+  // campaign starts from the true accumulated state rather than re-doing work already committed.
+  if (Object.keys(CFG.paths).length > 0) landPending(say);
 
   let dryStreak = 0;
   for (let i = 1; i <= CFG.runs; i++) {
