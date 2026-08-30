@@ -429,3 +429,4 @@ export * from "@/lib/db/scan-jobs";
 export * from "@/lib/db/control-observations";
 // ── MOONSHOT wave 4 — barrel lines landed by the Director at integration ─────────────────────────
 export { claimFollowups, releaseFollowups, reportAttempt, sweepExpiredLeases, heldFollowups, type FollowupClaimRow, type ClaimRefusal } from "@/lib/db/followup-claims";
+export { getForgeInstallation, upsertForgeInstallation, deleteForgeInstallation } from "@/lib/db/forge-installations";

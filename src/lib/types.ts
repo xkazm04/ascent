@@ -123,6 +123,8 @@ export interface RepoMeta {
   owner: string;
   name: string;
   url: string;
+  /** Which forge this repo was read from (moonshot #4). Absent ⇒ github. */
+  forge?: "github" | "gitlab" | "local";
   description?: string;
   stars: number;
   forks: number;

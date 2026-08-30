@@ -272,7 +272,13 @@
             "src/lib/github/list.test.ts",
             "src/lib/github/source.test.ts",
             "src/lib/github/webhook-delivery.test.ts",
-            "src/lib/github/webhook-delivery.ts"
+            "src/lib/github/webhook-delivery.ts",
+            "src/lib/forge/types.ts",
+            "src/lib/forge/registry.ts",
+            "src/lib/forge/github.ts",
+            "src/lib/forge/local.ts",
+            "src/lib/forge/gitlab",
+            "src/lib/db/forge-installations.ts"
           ],
           "target": null,
           "apiRoutes": []
