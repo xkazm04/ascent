@@ -112,6 +112,9 @@ import type { GuidanceGraph, GuidanceNode } from "@/lib/types";
 // #10 — the two-speed fleet queue's row type. `ScanJobRow` reaches the OrgScanButton through
 // GET /api/org/scan/queue and carries eight DateTime columns, every one a string here.
 import type { ScanJobRow } from "@/lib/db/scan-jobs";
+// #10 — the frozen control-observation contract W3-M's governance ledger reads. Four DateTime
+// columns (occurredAt, observedAt, createdAt and the row's own stamps), every one a string here.
+import type { ControlObservationRow } from "@/lib/db/control-observations";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -200,6 +203,7 @@ export const WIRE_TYPES = {
   RepositoryHistory: true satisfies WireSafe<RepositoryHistory>,
   SandboxScenarioRecord: true satisfies WireSafe<SandboxScenarioRecord>,
   ScanJobRow: true satisfies WireSafe<ScanJobRow>,
+  ControlObservationRow: true satisfies WireSafe<ControlObservationRow>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
   SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
