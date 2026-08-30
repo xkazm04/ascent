@@ -91,6 +91,16 @@ import type { LoopLessonRow } from "@/lib/db/loop-lessons";
 // both populations and is deliberately a string here, mapped with .toISOString() in the reader.
 import type { ImprovementEvent } from "@/lib/db/improvement-events";
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
+// MOONSHOT #3 — the work protocol's two crossing shapes.
+//   • `FollowupClaimRow` is what claim/report hand back over MCP and what the Follow-ups ledger
+//     renders; its `leaseUntil` comes off a Prisma `DateTime` and is declared `string`, mapped by
+//     `toClaimRow`.
+//   • `LoopLaneRecord` is RE-ASSERTED here (00-INDEX §5 wave 4). It already crossed to the cockpit
+//     and was already string-typed on `startedAt`/`endedAt`, but this lane adds a THIRD timestamp
+//     (`leaseUntil`) to it — precisely the moment a long-standing wire type acquires the bug this
+//     guard exists for, and the reason the guard enumerates by what crosses rather than by age.
+import type { FollowupClaimRow } from "@/lib/db/followup-claims";
+import type { LoopLaneRecord } from "@/lib/db/loop-runs-types";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 // Not a db module, but a db ROW TYPE all the same: ManifestReadout is parsed off
 // Repository.manifestJson in org-rollup and crosses to the Passports client via OrgRepoRow.manifest.
@@ -186,6 +196,8 @@ export const WIRE_TYPES = {
   // Prisma `DateTime` and `listMemoryCitations` does the `.toISOString()`.
   MemoryCitationRow: true satisfies WireSafe<MemoryCitationRow>,
   LaneBriefProvenance: true satisfies WireSafe<LaneBriefProvenance>,
+  FollowupClaimRow: true satisfies WireSafe<FollowupClaimRow>,
+  LoopLaneRecord: true satisfies WireSafe<LoopLaneRecord>,
   ImprovementEvent: true satisfies WireSafe<ImprovementEvent>,
   LaneOutcomeRow: true satisfies WireSafe<LaneOutcomeRow>,
   LoopLessonRow: true satisfies WireSafe<LoopLessonRow>,

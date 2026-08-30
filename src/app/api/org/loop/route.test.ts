@@ -49,6 +49,8 @@ vi.mock("@/lib/db/loop-runs", () => ({
 }));
 vi.mock("@/lib/local/loop-engine", () => ({
   startLoopRun: vi.fn(async () => ({ id: "run-new", phase: "running", repos: ["acme/web"] })),
+  // #3 — the hosted half. A remote run is armed in `curating` and driven by nobody here.
+  startRemoteRun: vi.fn(async () => ({ id: "run-remote", phase: "curating", repos: ["acme/web"] })),
   stopLoopRun: vi.fn(async () => true),
   retryLane: vi.fn(async () => true),
   isLoopRunLive: vi.fn((id: string) => id === "run-live"),
@@ -56,7 +58,7 @@ vi.mock("@/lib/local/loop-engine", () => ({
 
 import { GET, POST } from "./route";
 import { GET as DETAIL } from "./[id]/route";
-import { startLoopRun } from "@/lib/local/loop-engine";
+import { startLoopRun, startRemoteRun } from "@/lib/local/loop-engine";
 
 const post = (body: unknown) =>
   POST(new Request("http://localhost/api/org/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
@@ -71,12 +73,32 @@ beforeEach(() => {
   gates.role = null;
 });
 
-describe("the self-host guard runs first", () => {
-  it("404s the GET, the POST and the detail route on managed cloud", async () => {
+describe("the self-host guard runs first — for the executor that needs it", () => {
+  it("404s a LOCAL start and the detail route on managed cloud", async () => {
     gates.selfHosted = false;
-    expect((await get("org=acme")).status).toBe(404);
     expect((await post({ action: "start", org: "acme", repos: ["acme/web"] })).status).toBe(404);
     expect((await detail("run-acme", "org=acme")).status).toBe(404);
+  });
+
+  // MOONSHOT #3. The read is no longer self-hosted-only, because a cloud org can now arm a
+  // `remote-agent` run and 404ing its own runs would hide the operator's rows from them. `enabled`
+  // stays the honest answer to the question it always asked — can this deployment run a LOCAL loop.
+  it("still serves the GET on managed cloud, saying the local loop is not enabled", async () => {
+    gates.selfHosted = false;
+    gates.autopilot = false;
+    const res = await get("org=acme");
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { enabled: boolean }).toMatchObject({ enabled: false });
+  });
+
+  it("accepts a remote-agent start with no self-hosted flag and no autopilot", async () => {
+    gates.selfHosted = false;
+    gates.autopilot = false;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], executor: "remote-agent" });
+    expect(res.status).toBe(200);
+    expect(startRemoteRun).toHaveBeenCalledWith(expect.objectContaining({ org: "acme", repos: ["acme/web"] }));
+    // And it NEVER reaches the local engine, which would spawn a process.
+    expect(startLoopRun).not.toHaveBeenCalled();
   });
 });
 

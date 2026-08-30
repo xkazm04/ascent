@@ -17,6 +17,7 @@ const laneOf = (o: Partial<OutcomeCell> & { runId: string; repo: string }): Loop
   model: null, costSource: null, costMicros: null, inputTokens: null, outputTokens: null,
   cacheReadTokens: null, turns: null, agentDurationMs: null, agentSessionId: null, abPairKey: null,
   brief: null, report: null, dimId: null,
+  executor: "local", claimedBy: null, leaseUntil: null,
 });
 
 const d = (headline: string, kind: LaneDeliverable["kind"], dimId: LaneDeliverable["dimId"] = null, evidence: string | null = null): LaneDeliverable => ({

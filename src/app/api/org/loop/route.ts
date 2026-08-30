@@ -33,15 +33,20 @@ import {
   markStaleRunsStopped,
   reviewDeliverable,
 } from "@/lib/db/loop-runs";
-import { isLoopRunLive, retryLane, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { isLoopRunLive, retryLane, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const guard = selfHostGuard();
-  if (guard) return guard;
+  // THE READ IS NO LONGER SELF-HOSTED-ONLY (moonshot #3), and the old reasoning is what changed
+  // rather than being overruled. `selfHostGuard` 404'd here because on managed cloud the surface did
+  // not exist, and a 403 would have advertised a feature the deployment could not run. A cloud org
+  // can now arm a `remote-agent` run, so the surface DOES exist there and 404ing its own runs would
+  // hide the operator's own rows from them. What is still honest is `enabled`, which stays
+  // `autopilotEnabled()` — the answer to "can this deployment run a LOCAL loop", which on cloud is
+  // still no. The write path keeps the guard for exactly the executor that needs it.
   const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   const denied = await requireOrgAccess(org);
@@ -78,6 +83,8 @@ type Body = {
   effort?: unknown;
   modelPolicy?: unknown;
   models?: unknown;
+  /** #3 — `local` (the default, and what every caller before it meant) or `remote-agent`. */
+  executor?: unknown;
 };
 
 /**
@@ -102,10 +109,18 @@ function parseArms(body: Body): string[] | null {
 }
 
 export async function POST(request: Request) {
-  const guard = selfHostGuard() ?? dbGuard("The improvement loop", "The improvement loop requires a database.");
+  // THE BODY IS READ BEFORE THE SELF-HOST GUARD (moonshot #3), and only for that guard's sake.
+  // `executor: "remote-agent"` starts a run Ascent does not drive: no worktree, no process, no
+  // filesystem. The self-hosted and autopilot gates exist because a LOCAL run spawns an editing agent
+  // inside a paired working copy — neither reason applies to a run whose work happens in somebody
+  // else's harness, and applying them anyway would make the hosted half of the protocol unreachable
+  // on the exact deployments it exists for. Every other gate below is unchanged, including
+  // `requireOrgRole("owner")`.
+  const body = (await request.json().catch(() => ({}))) as Body;
+  const remote = body.executor === "remote-agent";
+  const guard = (remote ? null : selfHostGuard()) ?? dbGuard("The improvement loop", "The improvement loop requires a database.");
   if (guard) return guard;
 
-  const body = (await request.json().catch(() => ({}))) as Body;
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   const action =
     body.action === "start" || body.action === "stop" || body.action === "retry" || body.action === "review"
@@ -117,13 +132,15 @@ export async function POST(request: Request) {
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
 
+  // `stop` / `retry` / `review` are unaffected by the executor: they name a row, and a remote run's
+  // rows are stopped and reviewed by exactly the same owner-gated, tenancy-rechecked path.
   if (action === "stop") return stop(org, body);
   if (action === "retry") return retry(org, body);
   // `review` sits with stop/retry, BEFORE the autopilot gate: ruling on what a past run delivered
   // must work on a deployment where the loop itself has since been switched off.
   if (action === "review") return review(org, body);
 
-  if (!autopilotEnabled()) {
+  if (!remote && !autopilotEnabled()) {
     return NextResponse.json(
       { error: "The loop is not enabled on this deployment — set ASCENT_AUTOPILOT=1 (and make sure the claude CLI is available)." },
       { status: 409 },
@@ -131,6 +148,26 @@ export async function POST(request: Request) {
   }
   const repos = Array.isArray(body.repos) ? body.repos.filter((r): r is string => typeof r === "string") : [];
   if (repos.length === 0) return NextResponse.json({ error: "Missing 'repos'." }, { status: 400 });
+
+  if (remote) {
+    // A REMOTE RUN takes none of the local dials — no concurrency (Ascent schedules nothing), no
+    // cycle count (an agent decides its own), no model or A/B arms (Ascent does not choose the model
+    // and must not record one it did not choose). Silently accepting them would put numbers on the
+    // row that describe a run nobody configured.
+    const viewer = await getViewer().catch(() => null);
+    try {
+      const run = await startRemoteRun({
+        org,
+        repos,
+        batches: parseBatches(body.batches),
+        actor: viewer?.login ?? null,
+      });
+      return NextResponse.json({ run });
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Could not arm the run." }, { status: 409 });
+    }
+  }
+
   const maxCycles = intOr(body.maxCycles, 3);
   if (maxCycles < 1 || maxCycles > LOOP_MAX_CYCLES_CAP) {
     return NextResponse.json({ error: `maxCycles must be 1–${LOOP_MAX_CYCLES_CAP}.` }, { status: 400 });

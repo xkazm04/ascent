@@ -19,6 +19,7 @@
 
 import { claimFollowups, heldFollowups, reportAttempt, type FollowupClaimRow } from "@/lib/db/followup-claims";
 import { getActiveOrgStance, getStanceRepoFacts } from "@/lib/db/org-stance";
+import { attachRemoteClaim } from "@/lib/db/loop-runs-write";
 import { repoGlobMatches } from "@/lib/org/stance";
 import { openBatch } from "@/lib/local/loop-lane";
 import {
@@ -110,6 +111,18 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
     tokenId,
   });
   if (!res) return fail("This installation has no persistence configured, so there is no queue to claim from.");
+
+  // The cockpit's half. A `remote-agent` lane sits in `queued` under a `curating` run until somebody
+  // claims into it; this is the moment that becomes visible. Best-effort by contract — a claim that
+  // succeeded is never undone because its display could not be updated.
+  if (res.claimed.length > 0) {
+    await attachRemoteClaim({
+      orgSlug: org,
+      repoFullName: repo,
+      claimedBy: actor,
+      leaseUntil: res.claimed[0]!.leaseUntil ? new Date(res.claimed[0]!.leaseUntil) : null,
+    }).catch(() => false);
+  }
 
   return {
     structuredContent: {

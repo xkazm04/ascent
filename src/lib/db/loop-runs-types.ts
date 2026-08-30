@@ -247,7 +247,26 @@ export interface LoopLaneRecord {
    *  the contract; a lane that ran and wrote nothing carries `{ parsed: false }`, which is a
    *  different fact and is not the same as "it skipped nothing". */
   report: LaneReport | null;
+
+  // ── MOONSHOT #3 — WHO IS DOING THIS LANE'S WORK.
+  /** `local` (Ascent spawned an agent in a worktree on the operator's own box) or `remote-agent`
+   *  (some agent elsewhere pulls this lane's rows over MCP; Ascent starts no process and opens no
+   *  worktree for it). Defaults to `local`, so every lane written before this reads as what it was. */
+  executor: LoopLaneExecutor;
+  /** The claimant's opaque actor id — `agent:<token name>` for a remote lane. Null = unclaimed. */
+  claimedBy: string | null;
+  /** ISO. When the current claim lapses; null = no lease held, which for a remote lane means nobody
+   *  has claimed into it yet, and is never read as "expired". */
+  leaseUntil: string | null;
 }
+
+/** Who runs a lane's work. A remote lane deliberately carries NO cost envelope: #27's figures come
+ *  from a `claude -p` session Ascent spawned, and there is no such session here. `costMicros` stays
+ *  null on one — unknown, never zero. */
+export type LoopLaneExecutor = "local" | "remote-agent";
+
+export const asLaneExecutor = (v: string | null | undefined): LoopLaneExecutor =>
+  v === "remote-agent" ? "remote-agent" : "local";
 
 export interface LoopRunSummary {
   id: string;
@@ -418,6 +437,9 @@ type LaneRow = {
   prUrl?: string | null;
   briefJson?: string | null;
   reportJson?: string | null;
+  executor?: string | null;
+  claimedBy?: string | null;
+  leaseUntil?: Date | null;
 };
 
 /** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
@@ -521,6 +543,12 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     prUrl: row.prUrl ?? null,
     brief: parseBriefProvenance(row.briefJson),
     report: parseReportColumn(row.reportJson),
+    // #3 — the lane's worker. `asLaneExecutor` floors an unreadable value to `local`, which is what
+    // every row written before the column actually was; `leaseUntil` crosses as an ISO STRING, never
+    // a Date (AGENTS.md's wire-safe rule — the cockpit renders a countdown off it).
+    executor: asLaneExecutor(row.executor),
+    claimedBy: row.claimedBy ?? null,
+    leaseUntil: row.leaseUntil ? row.leaseUntil.toISOString() : null,
   };
 }
 

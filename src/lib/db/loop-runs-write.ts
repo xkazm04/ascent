@@ -75,6 +75,55 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
   return toRunRecord(row);
 }
 
+/**
+ * THE `curating` → `running` TRANSITION, and the only thing that performs it (moonshot #3).
+ *
+ * A remote run is armed and then waits: its lanes name their repos and their proposed batches, and
+ * nothing is in flight until an agent somewhere claims into one. This is called from the claim tool
+ * on a successful claim and moves that repo's queued lane to `dispatching`, stamping who took it and
+ * when their lease lapses; the run itself flips to `running` on the first such claim.
+ *
+ * BEST-EFFORT BY CONTRACT. A claim that succeeded must never be undone because the cockpit's row
+ * could not be updated — the ledger is the source of truth about who holds a row, and this is the
+ * display of it. Every failure path returns false and the claim stands.
+ */
+export async function attachRemoteClaim(args: {
+  orgSlug: string;
+  repoFullName: string;
+  claimedBy: string;
+  leaseUntil: Date | null;
+}): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const org = await getOrgBySlug(args.orgSlug);
+  if (!org) return false;
+  const prisma = getPrisma();
+  const run = await prisma.loopRun
+    .findFirst({ where: { orgId: org.id, phase: { in: ["curating", "running"] } }, orderBy: { createdAt: "desc" } })
+    .catch(() => null);
+  if (!run) return false;
+  const lane = await prisma.loopRunLane
+    .findFirst({ where: { runId: run.id, repoFullName: args.repoFullName, executor: "remote-agent" } })
+    .catch(() => null);
+  if (!lane) return false;
+  await prisma.loopRunLane
+    .update({
+      where: { id: lane.id },
+      data: {
+        // `queued` is the only phase a claim advances. A lane already `dispatching` gets its claimant
+        // and lease refreshed (the same agent re-claiming, or a second one after an expiry) without
+        // being dragged backwards through the rail, and a `done` lane is left alone entirely.
+        ...(lane.phase === "queued" ? { phase: "dispatching", startedAt: new Date() } : {}),
+        claimedBy: args.claimedBy,
+        leaseUntil: args.leaseUntil,
+      },
+    })
+    .catch(() => null);
+  if (run.phase === "curating") {
+    await prisma.loopRun.update({ where: { id: run.id }, data: { phase: "running" } }).catch(() => null);
+  }
+  return true;
+}
+
 export interface LoopRunPatch {
   phase?: LoopRunPhase;
   cycle?: number;
@@ -105,14 +154,27 @@ export async function upsertLane(key: {
   cycle: number;
   model?: string | null;
   abPairKey?: string | null;
+  /** #3 — set on CREATE only, and only on a remote lane. An existing row's executor is never
+   *  rewritten by an upsert: which worker a lane belongs to is decided when the run is armed. */
+  executor?: string;
+  /** #3 — the batch a remote lane is armed with. There is no local process to pick one later, so a
+   *  remote lane carries its proposed batch from the moment it exists. */
+  batchIds?: string[];
 }): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const { model, abPairKey, ...base } = key;
+  const { model, abPairKey, executor, batchIds, ...base } = key;
   const existing = await prisma.loopRunLane.findFirst({ where: model ? { ...base, model } : base });
   if (existing) return toLaneRecord(existing);
   const row = await prisma.loopRunLane.create({
-    data: { ...base, phase: "queued", ...(model ? { model } : {}), ...(abPairKey ? { abPairKey } : {}) },
+    data: {
+      ...base,
+      phase: "queued",
+      ...(model ? { model } : {}),
+      ...(abPairKey ? { abPairKey } : {}),
+      ...(executor ? { executor } : {}),
+      ...(batchIds ? { batchIdsJson: JSON.stringify(batchIds) } : {}),
+    },
   });
   return toLaneRecord(row);
 }
@@ -158,6 +220,13 @@ export interface LoopLanePatch {
   dimId?: string | null;
   prNumber?: number | null;
   prUrl?: string | null;
+
+  // ── MOONSHOT #3 — who is doing this lane's work, and under what lease. All three are writable
+  // because a remote lane's claimant changes DURING the lane: `claim_followups` is what moves it out
+  // of `queued`, and the lease it stamps is what the cockpit counts down.
+  executor?: string;
+  claimedBy?: string | null;
+  leaseUntil?: Date | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
