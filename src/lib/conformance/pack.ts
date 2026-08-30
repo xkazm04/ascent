@@ -33,8 +33,12 @@
 
 import { createHash } from "node:crypto";
 
-import type { AiChangePopulation, AiChangeRecord, RepoControlEnvironment } from "@/lib/db/ai-changes";
-import { POPULATION_CAP } from "@/lib/db/ai-changes";
+import type { AiChangePopulation, AiChangeRecord, AsOfEnvironment, RepoControlEnvironment } from "@/lib/db/ai-changes";
+import { AS_OF_CAP, POPULATION_CAP } from "@/lib/db/ai-changes";
+// MOONSHOT #1 — the LATEST-SCAN fallback is built with the SAME mapper the ledger's rows come from
+// (governanceToSamples), so a fallback environment and a ledger environment are directly comparable
+// instead of being two hand-written projections of the same settings that can drift apart.
+import { governanceToSamples } from "@/lib/scan-probe-controls";
 import { drawSample, sampleSeed, DEFAULT_SAMPLE_SIZE } from "@/lib/conformance/sample";
 
 /** How a sampled item's review control is judged. Deterministic; no model involved. */
@@ -70,6 +74,21 @@ export interface SampledItem {
     requiresStatusChecks: boolean;
     protectedBranch: boolean;
   } | null;
+  /**
+   * MOONSHOT #1 — the control environment AS OF the moment this change merged, and where it came
+   * from.
+   *
+   * `source: "ledger"` is the strong claim: the control ledger held an observation at or before the
+   * merge instant, so these are the settings that change actually merged under.
+   * `source: "latest-scan"` is the weaker one this pack used to make everywhere without saying so:
+   * the ledger did not cover the instant, so the most recent scan's settings are substituted. The
+   * label is PER ROW because that is the granularity at which the claim differs — a global footnote
+   * would let a reader treat every row as as-of when only some are.
+   */
+  environmentAsOf: AsOfEnvironment;
+  /** MOONSHOT #1 — how the approval evidence reached us, and when it was observed live. */
+  evidenceSource: string;
+  approvalObservedAt: string | null;
   /** One sentence stating what this row does and does not evidence. */
   note: string;
 }
@@ -110,6 +129,23 @@ export interface ConformancePack {
   /** Every merged-without-approval row in the FULL population, not just the sample. */
   findings: SampledItem[];
   environments: RepoControlEnvironment[];
+  /**
+   * MOONSHOT #1 — the pack's own statement of how much of it is as-of-merge evidence.
+   *
+   * Published as a structure, not only as prose, so the export and the UI print the SAME numbers the
+   * limitation sentence does. `mergedRows` is the denominator every claim here is made against — the
+   * rule this feature is built on is that a coverage figure is never stated without its N.
+   */
+  environmentCoverage: {
+    mergedRows: number;
+    /** Rows whose environment came from the ledger, i.e. genuinely as-of-merge. */
+    fromLedger: number;
+    /** Rows that fell back to the repository's latest scanned settings. */
+    fromLatestScan: number;
+    /** How many rows an as-of lookup was even attempted for (the AS_OF_CAP ceiling). */
+    attempted: number;
+    cap: number;
+  };
   provenance: {
     /** Distinct scan engines that produced the underlying data, with counts. */
     engines: { provider: string; model: string; repos: number }[];
@@ -188,13 +224,32 @@ const NOTE: Record<ControlVerdict, string> = {
     "This change did not merge in the period, so the pre-merge review control was never due to operate on it.",
 };
 
+/**
+ * The latest-scan fallback, expressed in the ledger's own vocabulary.
+ *
+ * Built from `governanceToSamples` — the same mapper that produced every scan- and probe-sourced
+ * ledger row — so `environmentAsOf.controls` carries identical keys and states whichever branch a
+ * row took. A reader comparing two rows in the pack is then comparing like with like; two separate
+ * hand-written projections of the same settings would drift the moment either side changed.
+ *
+ * An unreadable/absent governance blob yields the full control set as `unmeasurable`, never as
+ * `fail` — the same contract everywhere else in this feature.
+ */
+function fallbackEnvironment(env: RepoControlEnvironment | undefined): AsOfEnvironment {
+  const controls: Record<string, { state: string; value: string | null }> = {};
+  for (const s of governanceToSamples(env?.governance ?? null)) controls[s.controlId] = { state: s.state, value: s.value };
+  return { source: "latest-scan", observedAt: null, controls };
+}
+
 function toItem(
   c: AiChangeRecord,
   envByRepo: Map<string, RepoControlEnvironment>,
   name: (login: string | null) => string,
+  asOfByPr: Record<string, AsOfEnvironment>,
 ): SampledItem {
   const verdict = verdictFor(c);
   const env = envByRepo.get(c.repoFullName)?.governance ?? null;
+  const asOf = asOfByPr[`${c.repoFullName}#${c.prNumber}`] ?? fallbackEnvironment(envByRepo.get(c.repoFullName));
   return {
     repoFullName: c.repoFullName,
     prNumber: c.prNumber,
@@ -217,6 +272,9 @@ function toItem(
           protectedBranch: env.protected,
         }
       : null,
+    environmentAsOf: asOf,
+    evidenceSource: c.source,
+    approvalObservedAt: c.approvalObservedAt,
     note: NOTE[verdict],
   };
 }
@@ -277,6 +335,34 @@ export function buildConformancePack(pop: AiChangePopulation, opts: PackOptions)
     "Review evidence is what the GitHub API reported at scan time. A review recorded after the most " +
       "recent scan of a repository is not reflected until that repository is re-scanned.",
   ];
+
+  // MOONSHOT #1 — the as-of-merge disclosure. The line this REPLACES was an omission rather than a
+  // statement: the pack described `environment` as the repository's control settings without saying
+  // they were read at the LATEST SCAN, which for a change that merged three months earlier is a
+  // different repository than the one being evidenced. Now every row carries its own source label and
+  // the pack counts them.
+  const ledgerRows = Object.keys(pop.asOfByPr).length;
+  const fallbackRows = summary.merged - ledgerRows;
+  limitations.push(
+    ledgerRows > 0
+      ? `Control environment: ${ledgerRows} of ${summary.merged} merged rows carry the settings observed AT OR ` +
+          "BEFORE the moment they merged, read from the control-observation ledger and labelled " +
+          `environmentAsOf.source = "ledger". The remaining ${Math.max(0, fallbackRows)} carry the ` +
+          'repository\'s LATEST scanned settings instead, labelled "latest-scan" — the ledger held no ' +
+          "observation at or before those merge instants (typically because the change predates the " +
+          "ledger for that repository). The two are not equivalent evidence and the label is per row."
+      : "Control environment: NO row in this pack carries an as-of-merge control observation. Every " +
+          'environment shown is the repository\'s LATEST scanned settings ("latest-scan"), which may ' +
+          "differ from the settings in force when a change merged. The control-observation ledger has " +
+          "no coverage for this organization and period.",
+  );
+  if (summary.merged > AS_OF_CAP) {
+    limitations.push(
+      `As-of-merge resolution stops after ${AS_OF_CAP} merged rows (${pop.asOfAttempted} attempted of ` +
+        `${summary.merged}). Rows beyond that ceiling fall back to latest-scan settings for reasons of ` +
+        "export size, not of evidence — narrow the period to obtain as-of evidence for all of it.",
+    );
+  }
   if (summary.truncated) {
     limitations.push(
       `The population hit the ${POPULATION_CAP}-row export ceiling and is TRUNCATED. Narrow the period to ` +
@@ -309,12 +395,19 @@ export function buildConformancePack(pop: AiChangePopulation, opts: PackOptions)
       seed,
       algorithm: "seeded Fisher-Yates (mulberry32, sha256(seed) → uint32) over created-at ascending order",
       exhaustive: pop.changes.length <= requested,
-      items: drawn.map((c) => toItem(c, envByRepo, name)),
+      items: drawn.map((c) => toItem(c, envByRepo, name, pop.asOfByPr)),
     },
     // The findings are drawn from the FULL population, never only the sample: a sample bounds the
     // work an auditor does, it must not bound what the vendor discloses.
-    findings: ungoverned.map((c) => toItem(c, envByRepo, name)),
+    findings: ungoverned.map((c) => toItem(c, envByRepo, name, pop.asOfByPr)),
     environments: pop.environments,
+    environmentCoverage: {
+      mergedRows: summary.merged,
+      fromLedger: ledgerRows,
+      fromLatestScan: Math.max(0, fallbackRows),
+      attempted: pop.asOfAttempted,
+      cap: AS_OF_CAP,
+    },
     provenance: {
       engines: [...engineMap.values()].sort((a, b) => b.repos - a.repos),
       generatedAt: opts.generatedAt,

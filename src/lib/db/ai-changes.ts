@@ -13,6 +13,10 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import type { Governance } from "@/lib/types";
+// MOONSHOT #1 — the as-of-merge read. `controlsAt` is the ledger's one-query "what were this repo's
+// controls at this instant". Without it the pack could only ever describe the LATEST scan's settings
+// and would silently present them as the environment a change merged under.
+import { controlsAt } from "@/lib/db/control-observations";
 
 /** One AI-attributed change, as the pack sees it. Mirrors the AiChange columns, dates as ISO. */
 export interface AiChangeRecord {
@@ -32,6 +36,35 @@ export interface AiChangeRecord {
   approverLogin: string | null;
   approvedAt: string | null;
   reviewCount: number;
+  /** MOONSHOT #1 — how the row reached us: "scan" (a PR window paged at scan time) or "webhook" (the
+   *  live event stream). Not interchangeable evidence, and an examiner asks which. */
+  source: string;
+  /** When the approval was OBSERVED — the webhook's delivery time, NOT `approvedAt` (the review's own
+   *  submission time). Null on scan-sourced rows: a scan learns of an approval at an unknowable delay,
+   *  and stamping the scan's clock here would dress a cadence artifact up as an observation time.
+   *  Null is "not observed live", never "not approved". */
+  approvalObservedAt: string | null;
+}
+
+/** One control's state as the ledger held it at a given instant. */
+export interface AsOfControl {
+  state: string;
+  value: string | null;
+}
+
+/**
+ * The control environment in force AT AN INSTANT, as opposed to at the latest scan.
+ *
+ * `source` is the whole point of the type. `ledger` means the ledger held an observation at or
+ * before the instant, so this IS the environment that change merged under. `latest-scan` means it
+ * did not and the caller substituted the most recent scan's settings — a materially weaker claim,
+ * and one the pack prints PER ROW rather than burying in a global footnote.
+ */
+export interface AsOfEnvironment {
+  source: "ledger" | "latest-scan";
+  /** When the newest contributing observation was made. Null on the fallback. */
+  observedAt: string | null;
+  controls: Record<string, AsOfControl>;
 }
 
 /** The branch-protection settings in force on a repo at its latest scan — the control environment. */
@@ -52,10 +85,33 @@ export interface AiChangePopulation {
   /** Earliest and latest `createdAt` across the returned rows — the window actually covered. */
   observedFrom: string | null;
   observedTo: string | null;
+  /**
+   * MOONSHOT #1 — the as-of-merge environment per row, keyed `${repoFullName}#${prNumber}`.
+   *
+   * Present only for rows the ledger could answer for, and only up to `AS_OF_CAP` resolutions. An
+   * absent key is NOT an assertion that the ledger is empty there; the pack falls back per row and
+   * labels it, and `asOfAttempted` says how many rows were even looked up.
+   */
+  asOfByPr: Record<string, AsOfEnvironment>;
+  /** How many rows an as-of lookup was attempted for. Published so a reader can tell "no ledger
+   *  coverage" apart from "we stopped looking at the cap". */
+  asOfAttempted: number;
 }
 
 /** Hard ceiling on rows pulled into one pack. Stated in the pack when it bites — never silent. */
 export const POPULATION_CAP = 5000;
+
+/**
+ * Ceiling on as-of-merge ledger lookups per pack. Each is one indexed query, so an uncapped 5000-row
+ * population would be 5000 of them. The cap keeps an export bounded and is STATED in the pack's
+ * limitations when it bites, rather than quietly downgrading part of the period to latest-scan
+ * evidence with no indication why.
+ *
+ * Only MERGED rows are resolved. An unmerged change's verdict is `not-applicable` — the pre-merge
+ * control was never due to operate on it — so the environment it would have merged under evidences
+ * nothing.
+ */
+export const AS_OF_CAP = 500;
 
 function parseGovernance(json: string | null): Governance | null {
   if (!json) return null;
@@ -106,6 +162,8 @@ export async function getAiChangePopulation(
       approverLogin: true,
       approvedAt: true,
       reviewCount: true,
+      source: true,
+      approvalObservedAt: true,
       repo: { select: { fullName: true } },
     },
   });
@@ -125,6 +183,8 @@ export async function getAiChangePopulation(
     approverLogin: r.approverLogin,
     approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
     reviewCount: r.reviewCount,
+    source: r.source,
+    approvalObservedAt: r.approvalObservedAt ? r.approvalObservedAt.toISOString() : null,
   }));
 
   // The control environment, only for repos that actually contributed rows — a pack should not
@@ -155,10 +215,34 @@ export async function getAiChangePopulation(
     };
   });
 
+  // The as-of-merge read. `changes` is already in stable created-at order, so when the cap bites it
+  // is the NEWEST rows that fall back — the ones a reader is most likely to be able to check against
+  // the live repository themselves.
+  const mergedRows = changes.filter((c) => c.state === "MERGED").slice(0, AS_OF_CAP);
+  const asOfByPr: Record<string, AsOfEnvironment> = {};
+  for (const c of mergedRows) {
+    const at = c.mergedAt ?? c.createdAt;
+    const rows = await controlsAt(orgSlug, c.repoFullName, at).catch(() => []);
+    // No observation at or before the merge instant: the ledger does NOT cover this row. Leave the
+    // key absent so the pack falls back and says so, rather than writing an empty `controls: {}` that
+    // would read as "we checked and there were no controls".
+    if (rows.length === 0) continue;
+    const controls: Record<string, AsOfControl> = {};
+    for (const r of rows) controls[r.controlId] = { state: r.state, value: r.value };
+    asOfByPr[`${c.repoFullName}#${c.prNumber}`] = {
+      source: "ledger",
+      // The newest contributing observation — i.e. how fresh the freshest part of this environment is.
+      observedAt: rows.reduce<string | null>((max, r) => (max === null || r.occurredAt > max ? r.occurredAt : max), null),
+      controls,
+    };
+  }
+
   return {
     changes,
     environments,
     observedFrom: changes[0]?.createdAt ?? null,
     observedTo: changes[changes.length - 1]?.createdAt ?? null,
+    asOfByPr,
+    asOfAttempted: mergedRows.length,
   };
 }
