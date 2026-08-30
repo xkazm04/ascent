@@ -7,7 +7,38 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EFFORT_CLASS, IMPACT_CLASS, timeAgo } from "@/lib/ui";
-import { STATUS_LABEL, type FollowUpRow, type FollowUpStatus } from "./followupsModel";
+import { STATUS_LABEL, claimLine, type FollowUpRow, type FollowUpStatus } from "./followupsModel";
+
+/**
+ * NEEDS HUMAN (moonshot #3) — an agent tried this row and stopped deliberately.
+ *
+ * A chip and not a status, which is the whole distinction: the row is still `in_progress` and still
+ * owed, and a fifth status would have hidden it from every "what is open" count in the product. It
+ * sits beside the status pill rather than replacing it, and it is the ONE row state on this ledger
+ * that a machine can raise and only a person can clear.
+ */
+export function NeedsHumanChip({ r }: { r: Pick<FollowUpRow, "needsHuman"> }) {
+  if (!r.needsHuman) return null;
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap rounded-full border border-warn/60 px-2 py-px type-caption text-warn"
+      title="An agent worked this and stopped deliberately — it needs a person. The row is still open."
+    >
+      needs human
+    </span>
+  );
+}
+
+/** Who holds this row and for how long. Renders nothing when nobody does — the ordinary open row. */
+export function ClaimLine({ r }: { r: Pick<FollowUpRow, "claimActor" | "leaseUntil" | "status"> }) {
+  const line = claimLine(r);
+  if (!line) return null;
+  return (
+    <span className="whitespace-nowrap type-caption tabular-nums text-slate-500" title="A work lease. When it expires the row returns to the queue.">
+      {line}
+    </span>
+  );
+}
 
 export function ImpactEffort({ r }: { r: Pick<FollowUpRow, "impact" | "effort"> }) {
   return (

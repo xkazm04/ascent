@@ -15,6 +15,6 @@ describe("wire-safe dates (structural guard)", () => {
   });
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(54);
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(56);
   });
 });

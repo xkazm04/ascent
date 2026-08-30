@@ -10,10 +10,42 @@ const updates: { id: string; patch: Record<string, unknown>; note: string }[] = 
 const lanePatches: Record<string, unknown>[] = [];
 const metered: Record<string, unknown>[] = [];
 
-vi.mock("@/lib/db/scans-recommendations", () => ({
-  updateRecommendation: vi.fn(async (id: string, patch: Record<string, unknown>, meta: { note?: string }) => {
-    updates.push({ id, patch, note: meta?.note ?? "" });
-    return { id };
+// THE SEAM MOVED, THE BEHAVIOUR DID NOT (moonshot #3). The lane used to claim and release through
+// `updateRecommendation`; it now goes through the shared compare-and-set claim path, which a remote
+// agent also calls. This stub records the same `{id, patch, note}` shape the old one did, so every
+// assertion below is UNCHANGED — which is exactly the proof the cut-over owed: the zombie-release
+// contract is byte-equivalent in outcome, only the module enforcing it is now single.
+const claimed = new Set<string>();
+/** Ids a DIFFERENT worker already holds — the contention case the shared claim path introduced. */
+const heldByOthers = new Set<string>();
+vi.mock("@/lib/db/followup-claims", () => ({
+  claimFollowups: vi.fn(async ({ ids, note }: { ids: readonly string[]; note: string }) => {
+    const won = ids.filter((id) => !heldByOthers.has(id));
+    for (const id of won) {
+      claimed.add(id);
+      updates.push({ id, patch: { status: "in_progress" }, note });
+    }
+    return {
+      claimed: won.map((id) => ({
+        id,
+        repo: "o/r",
+        title: "t",
+        claimActor: "autopilot",
+        claimExecutor: "local" as const,
+        leaseUntil: null,
+        needsHuman: false,
+      })),
+      refused: ids.filter((id) => heldByOthers.has(id)).map((id) => ({ id, reason: "held" as const })),
+    };
+  }),
+  releaseFollowups: vi.fn(async (ids: readonly string[], why: string) => {
+    let n = 0;
+    for (const id of ids) {
+      if (!claimed.delete(id)) continue;
+      n += 1;
+      updates.push({ id, patch: { status: "open" }, note: `Released: ${why}` });
+    }
+    return n;
   }),
 }));
 vi.mock("@/lib/db/loop-runs", () => ({
@@ -77,6 +109,46 @@ beforeEach(() => {
   updates.length = 0;
   lanePatches.length = 0;
   metered.length = 0;
+  claimed.clear();
+  heldByOthers.clear();
+});
+
+// CONTENTION WITH A REMOTE AGENT (moonshot #3). The local engine and an agent pulling over MCP now
+// call the same compare-and-set, so a partly-held batch is an ordinary outcome rather than a bug —
+// and the lane must work what it won and touch nothing else. Before the cut-over the lane's
+// unconditional update took all five and two workers wrote into the same gap.
+describe("a batch partly held by another worker", () => {
+  it("works the rest and releases only what it claimed", async () => {
+    heldByOthers.add("a");
+    const d = deps({
+      rescan: vi.fn(async () => {
+        throw new Error("scan exploded");
+      }) as never,
+    });
+    await runLane({ runId: "run", org: "kiro", repo: "o/r", cycle: 1, worktree: wt, batch: null, deps: d });
+    expect(claimsOf().map((u) => u.id)).toEqual(["b"]);
+    // The release names "b" and NEVER "a": releasing a row this lane never held would hand a working
+    // agent's rows back to the queue underneath it.
+    expect(releasesOf().map((u) => u.id)).toEqual(["b"]);
+  });
+
+  it("dispatches nothing when every item is held, rather than an empty session", async () => {
+    heldByOthers.add("a");
+    heldByOthers.add("b");
+    const runAgent = vi.fn(async () => ({ ok: true, summary: "done" }));
+    const res = await runLane({
+      runId: "run",
+      org: "kiro",
+      repo: "o/r",
+      cycle: 1,
+      worktree: wt,
+      batch: null,
+      deps: deps({ runAgent: runAgent as never }),
+    });
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(res.progressed).toBe(false);
+    expect(releasesOf()).toEqual([]);
+  });
 });
 
 /** The first patch that carried a cost source — the #27 write, wherever in the sequence it landed. */

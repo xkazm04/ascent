@@ -46,6 +46,7 @@ import {
 } from "@/lib/db/loop-runs";
 import type { LoopModelPolicy, LoopTarget } from "@/lib/db/loop-runs-types";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { recordAudit } from "@/lib/db/scans-audit";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import { defaultLaneDeps, runLane, type LaneDeps } from "@/lib/local/loop-lane";
 import { createLoopWorktree, removeLoopWorktree, runStamp, type LoopWorktree } from "@/lib/local/loop-worktree";
@@ -197,6 +198,75 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     });
     live.delete(run.id);
   });
+  return run;
+}
+
+export interface StartRemoteRunInput {
+  org: string;
+  repos: string[];
+  /** The proposed batch per repo, from `/propose`. Stamped on each lane at arm time. */
+  batches?: Record<string, string[]>;
+  actor?: string | null;
+}
+
+/**
+ * ARM A RUN NOBODY HERE WILL DRIVE (moonshot #3) — the hosted half of the work protocol.
+ *
+ * This is the function that finally writes a `LoopRun` in phase `curating`. The phase has been the
+ * schema default and a readable value since the loop shipped, and no code path ever wrote a row in
+ * it — `live.md` said so under Known gaps. `curating` is exactly right here: the run EXISTS, its
+ * lanes name their repos and their proposed batches, and nothing is in flight until an agent
+ * somewhere else claims into one of them.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO, and the list is the design: no `selfHosted()` check, no
+ * `autopilotEnabled()` check, no pairing verification, no worktree, no process, no filesystem read.
+ * Those four guards exist because `startLoopRun` spawns an editing agent inside a working copy on the
+ * operator's own box. A remote run spawns nothing. Ascent never executes remote work — if a question
+ * about this function is answered by "and then Ascent runs the agent", it is the wrong answer.
+ *
+ * There is also no live registry entry and no `drive()`. A remote run cannot be a restart casualty
+ * because no process was ever driving it, which is why `markStaleRunsStopped` must never be pointed
+ * at one: `isLoopRunLive` returning false for a remote run is the truth, not a death certificate.
+ */
+export async function startRemoteRun(input: StartRemoteRunInput): Promise<LoopRunRecord> {
+  const org = input.org.trim().toLowerCase();
+  const repos = [...new Set(input.repos.map((r) => r.trim()).filter(Boolean))];
+  if (repos.length === 0) throw new Error("Pick at least one repository for the run.");
+
+  const active = await getActiveLoopRun(org);
+  if (active && live.has(active.id)) throw new Error(`A loop run is already active for ${org}.`);
+
+  const run = await createLoopRun({
+    orgSlug: org,
+    repos,
+    // Every remote lane is a `backlog` lane. `foundation` and `practice` are DETERMINISTIC INSTALLS
+    // Ascent performs itself in a worktree it owns, which is precisely what a remote run has none of.
+    targets: repos.map<LoopTarget>((repo) => ({ repo, kind: "backlog", practiceId: null })),
+    concurrency: repos.length,
+    maxCycles: 1,
+    curated: Boolean(input.batches),
+    createdBy: input.actor ?? null,
+    // HONEST NULLS. Ascent does not choose the model a remote agent runs and never will, so the run's
+    // `model` and `effort` stay null — unknown, not "the default". A figure here would be the first
+    // false number in the economics fold.
+    model: null,
+    effort: null,
+    modelPolicy: "single",
+    models: [],
+    phase: "curating",
+  });
+  if (!run) throw new Error("A remote run requires a database.");
+
+  for (const repo of repos) {
+    await upsertLane({
+      runId: run.id,
+      repoFullName: repo,
+      cycle: 1,
+      executor: "remote-agent",
+      batchIds: input.batches?.[repo] ?? [],
+    });
+  }
+  await recordAudit("loop.remote_run_started", { runId: run.id, repos, actor: input.actor ?? null }, { orgId: run.orgId });
   return run;
 }
 

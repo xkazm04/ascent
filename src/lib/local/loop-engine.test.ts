@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // ── in-memory stand-in for the persistence layer ─────────────────────────────────────────────────
 type Target = { repo: string; kind: string; practiceId: string | null };
 type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; modelPolicy: string; models: string[]; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
-type Lane = { id: string; runId: string; repoFullName: string; cycle: number; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null; model: string | null; abPairKey: string | null };
+type Lane = { id: string; runId: string; repoFullName: string; cycle: number; executor?: string; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null; model: string | null; abPairKey: string | null };
 
 const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0 };
 
@@ -23,11 +23,12 @@ vi.mock("@/lib/db/loop-runs", () => ({
   LOOP_DEFAULT_CONCURRENCY: 2,
   LOOP_MAX_CYCLES_CAP: 5,
   LANE_LOG_LINES: 200,
-  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null; modelPolicy?: string; models?: string[] }) => {
+  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null; modelPolicy?: string; models?: string[]; phase?: string }) => {
     const run: Run = {
       id: `run${++db.seq}`,
       orgId: "org1",
-      phase: "running",
+      // #3 — a REMOTE run is armed in `curating`, the phase nothing ever wrote a row in before.
+      phase: input.phase ?? "running",
       repos: input.repos,
       // The row records the ARMED kinds — the ledger reads them back long after the run ended.
       targets: input.targets ?? input.repos.map((r) => ({ repo: r, kind: "backlog", practiceId: null })),
@@ -62,13 +63,13 @@ vi.mock("@/lib/db/loop-runs", () => ({
   }),
   // The MODEL is part of the key when it is given: two arms of one `ab` repo are two rows in one
   // cycle, and on the three-part key the second would resolve to the first's row.
-  upsertLane: vi.fn(async (key: { runId: string; repoFullName: string; cycle: number; model?: string | null; abPairKey?: string | null }) => {
-    const { model = null, abPairKey = null, ...base } = key;
+  upsertLane: vi.fn(async (key: { runId: string; repoFullName: string; cycle: number; model?: string | null; abPairKey?: string | null; executor?: string; batchIds?: string[] }) => {
+    const { model = null, abPairKey = null, executor = "local", batchIds = [], ...base } = key;
     const found = db.lanes.find(
       (l) => l.runId === base.runId && l.repoFullName === base.repoFullName && l.cycle === base.cycle && (!model || l.model === model),
     );
     if (found) return found;
-    const lane: Lane = { id: `lane${++db.seq}`, ...base, model, abPairKey, phase: "queued", branch: null, batchIds: [], closedIds: [], commits: 0, beforeScanId: null, afterScanId: null, stage: null, log: [], error: null, startedAt: null, endedAt: null };
+    const lane: Lane = { id: `lane${++db.seq}`, ...base, model, abPairKey, executor, phase: "queued", branch: null, batchIds, closedIds: [], commits: 0, beforeScanId: null, afterScanId: null, stage: null, log: [], error: null, startedAt: null, endedAt: null };
     db.lanes.push(lane);
     return lane;
   }),
@@ -88,6 +89,7 @@ vi.mock("@/lib/db/loop-runs", () => ({
 }));
 
 vi.mock("@/lib/env", () => ({ selfHosted: () => true, envBool: () => true }));
+vi.mock("@/lib/db/scans-audit", () => ({ recordAudit: vi.fn(async () => true) }));
 // resolveAgentConfig is NOT stubbed to a constant: the engine's job is to resolve the operator's pick
 // against the deployment env exactly once and persist the answer, so the real resolver runs here.
 vi.mock("@/lib/local/agent", async () => {
@@ -132,7 +134,7 @@ vi.mock("@/lib/db/org-insights", () => ({ getOrgBacklog: vi.fn(async () => null)
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 vi.mock("@/lib/local/source", () => ({ LocalFsSource: class {} }));
 
-import { isLoopRunLive, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { isLoopRunLive, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
@@ -582,5 +584,46 @@ describe("modelPolicy: 'ab' — two arms of ONE experiment", () => {
     const lanes = db.lanes.filter((l) => l.runId === run.id);
     expect(lanes).toHaveLength(2);
     expect(lanes.every((l) => l.abPairKey === null)).toBe(true);
+  });
+});
+
+// ── MOONSHOT #3 — the HOSTED half ────────────────────────────────────────────────────────────────
+//
+// `startRemoteRun` is the first code path that ever writes a `LoopRun` in phase `curating`. It also
+// deliberately skips every guard `startLoopRun` takes, and each skip is asserted rather than assumed:
+// those guards exist because a local run spawns an editing agent inside a paired working copy, and a
+// remote run spawns nothing at all. Ascent never executes remote work.
+describe("startRemoteRun — a run Ascent arms and does not drive", () => {
+  it("writes the run in `curating`, the phase nothing used to write", async () => {
+    const run = await startRemoteRun({ org: "acme", repos: ["acme/web", "acme/api"] });
+    expect(run.phase).toBe("curating");
+    expect(run.repos).toEqual(["acme/web", "acme/api"]);
+  });
+
+  it("opens one queued remote lane per repo, carrying its proposed batch", async () => {
+    const run = await startRemoteRun({ org: "acme", repos: ["acme/web"], batches: { "acme/web": ["rec-1", "rec-2"] } });
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]).toMatchObject({ repoFullName: "acme/web", phase: "queued", executor: "remote-agent" });
+    expect(lanes[0]!.batchIds).toEqual(["rec-1", "rec-2"]);
+  });
+
+  it("spawns nothing: no worktree, no agent, no pairing read", async () => {
+    const { getRepoLocalPath } = await import("@/lib/db");
+    const { runClaudeAgent } = await import("@/lib/local/agent");
+    vi.mocked(getRepoLocalPath).mockClear();
+    await startRemoteRun({ org: "acme", repos: ["acme/web"] });
+    expect(getRepoLocalPath).not.toHaveBeenCalled();
+    expect(runClaudeAgent).not.toHaveBeenCalled();
+  });
+
+  it("records NO model and NO effort — Ascent does not choose what a remote agent runs", async () => {
+    const run = await startRemoteRun({ org: "acme", repos: ["acme/web"] });
+    expect(run.model).toBeNull();
+    expect(run.effort).toBeNull();
+  });
+
+  it("still refuses an empty repo set", async () => {
+    await expect(startRemoteRun({ org: "acme", repos: [] })).rejects.toThrow(/at least one repository/i);
   });
 });

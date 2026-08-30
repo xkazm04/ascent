@@ -22,7 +22,12 @@ import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
 import { getCraftItems, getCraftLedger } from "@/lib/db/org-insights-craft";
 import { axesByCoverage, emptyAxisTally } from "@/lib/scoring/craft";
-import { updateRecommendation } from "@/lib/db/scans-recommendations";
+// THE SHARED CLAIM PATH (moonshot #3). The lane used to claim with an unconditional
+// `updateRecommendation(id, {status:"in_progress"})`, which was correct while the engine was the only
+// worker and became a race the moment a remote agent could pull from the same queue. Both callers now
+// go through `claimFollowups`, so the database — not the order the two happened to arrive in —
+// decides who holds a row, and this lane simply works what it won.
+import { claimFollowups, releaseFollowups } from "@/lib/db/followup-claims";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
@@ -46,6 +51,10 @@ import { excludeLaneReport, recordAgentCost } from "@/lib/local/lane-cost";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
 export const BATCH_SIZE = 5;
+
+/** Who the LOCAL engine claims as. Unchanged from the string the inline claim wrote, so the ledger's
+ *  existing rows and this lane's new ones are the same actor. */
+const LANE_ACTOR = "autopilot";
 
 /** The side-effecting primitives a lane drives, injectable so tests never spawn an agent or shell. */
 export interface LaneDeps {
@@ -374,9 +383,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // 350 points of debt. Every failure path below releases; only a lane whose RESCAN ran keeps them.
   let claimedIds: string[] = [];
   const releaseClaims = async (why: string): Promise<void> => {
-    for (const id of claimedIds) {
-      await updateRecommendation(id, { status: "open" }, { actor: "autopilot", note: `Released: ${why}` }).catch(() => null);
-    }
+    // `releaseFollowups` releases only rows THIS actor still holds, which is strictly safer than the
+    // unconditional per-id reopen it replaces: a lane whose cleanup arrives late can no longer
+    // un-claim a row a different worker has since picked up.
+    if (claimedIds.length > 0) await releaseFollowups(claimedIds, why, LANE_ACTOR).catch(() => 0);
     claimedIds = [];
   };
   const fail = async (message: string): Promise<LaneRunResult> => {
@@ -451,13 +461,41 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
 
       // The hand-off claim, so the rescan's trailer/restatement feedback applies to these rows
       // (scans-persist only resolves IN-PROGRESS rows — an unclaimed row is nobody's promise).
-      for (const it of batch) {
-        const claimed = await updateRecommendation(
-          it.id,
-          { status: "in_progress" },
-          { actor: "autopilot", note: `Loop cycle ${cycle}: dispatched to a local agent on ${worktree.branch}` },
-        ).catch(() => null);
-        if (claimed) claimedIds.push(it.id);
+      //
+      // ONE CALL, and it can now come back PARTIAL. A remote agent holding two of the five rows means
+      // this lane works the other three and says which it could not take, rather than stealing them
+      // and having two workers write into the same gap. `leaseMs: null` is deliberate: the local
+      // engine already has a release on every failure path, so an expiry clock would be a second,
+      // slower mechanism for a job this lane finishes or fails loudly.
+      const claim = await claimFollowups({
+        org,
+        ids: batch.map((it) => it.id),
+        actor: LANE_ACTOR,
+        executor: "local",
+        leaseMs: null,
+        note: `Loop cycle ${cycle}: dispatched to a local agent on ${worktree.branch}`,
+      }).catch(() => null);
+      claimedIds = claim?.claimed.map((c) => c.id) ?? [];
+      const lost = claim?.refused.filter((r) => r.reason === "held") ?? [];
+      if (lost.length > 0) {
+        await appendLaneLog(
+          laneId,
+          `${lost.length} of ${batch.length} item(s) are already held by another worker — this lane works the rest.`,
+        );
+        // The batch shrinks to what was actually won, so the brief, the dispatch and the per-item
+        // adjudication all describe the same rows. A prompt naming work somebody else holds is a
+        // prompt asking for a merge conflict.
+        const won = new Set(claimedIds);
+        batch = batch.filter((it) => won.has(it.id));
+        // Re-stamp what was actually dispatched. The row's `batchIds` is what the outcome ledger
+        // adjudicates against, so leaving the pre-claim list there would file a stranger's row under
+        // this lane's verdict.
+        await updateLane(laneId, { batchIds: batch.map((b) => b.id), dimId: dominantDimId(batch) });
+      }
+      if (batch.length === 0) {
+        await appendLaneLog(laneId, "Every follow-up in this batch is held by another worker — nothing to dispatch.");
+        await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
+        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
     }
 

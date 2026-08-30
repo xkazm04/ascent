@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { fmtDelta } from "@/components/ui";
 import { LANE_STOPS, laneCaption, laneIsLive, laneMarkerPct, laneStopIndex } from "./laneStages";
-import type { LoopLaneRecord } from "./loopTypes";
+import { laneExecutorTag, leaseCountdown, type LoopLaneRecord } from "./loopTypes";
 
 export interface LaneRailProps {
   lane: LoopLaneRecord;
@@ -34,6 +34,8 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
   const live = laneIsLive(lane.phase);
   const failed = lane.phase === "error";
   const tail = lane.log.slice(-6);
+  const executor = laneExecutorTag(lane.executor);
+  const countdown = leaseCountdown(lane.leaseUntil);
 
   return (
     <li className="bg-ink px-4 py-3">
@@ -52,14 +54,25 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
           reported nothing says `cost unknown` rather than $0.00 — the CLI not telling us is not the
           same fact as a free session. */}
       <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-        {(lane.model || lane.costMicros != null || lane.turns != null) && (
+        {/* WHO IS DOING THIS LANE (moonshot #3). The chip appears only on a remote lane — a badge on
+            every row of a self-hosted board would say nothing. The claimant and the lease countdown
+            sit beside it in the same muted counter type: who holds the work and for how long is a
+            FACT, not a verdict, and colouring it would read as one. */}
+        {executor && (
+          <span data-testid="lane-executor" className="font-mono text-xs tabular-nums text-slate-500">
+            {[executor, lane.claimedBy, countdown].filter(Boolean).join(" · ")}
+          </span>
+        )}
+        {(executor || lane.model || lane.costMicros != null || lane.turns != null) && (
           <span
             data-testid="lane-cost"
             className="font-mono text-xs tabular-nums text-slate-500"
             title={
-              lane.costSource
-                ? `Cost as the agent's own session envelope reported it (source: ${lane.costSource}). Never summed with any other measurement of the same session.`
-                : undefined
+              executor
+                ? "This lane's work happens in an agent Ascent did not spawn, so there is no session envelope to read a cost from. Unknown — not free."
+                : lane.costSource
+                  ? `Cost as the agent's own session envelope reported it (source: ${lane.costSource}). Never summed with any other measurement of the same session.`
+                  : undefined
             }
           >
             {[lane.model, lane.turns != null ? `${lane.turns} turns` : null, fmtLaneCost(lane.costMicros)]

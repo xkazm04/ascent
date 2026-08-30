@@ -19,7 +19,19 @@ const TOKEN_PREFIX = "askl_";
 // alone sees only the org-standing tools, and `memory:read` / `skills:read` each unlock their own
 // tool on top. So granting an agent the door does not silently grant it the org's memory, and an
 // existing memory token does not silently become an agent door.
-export const SKILL_TOKEN_SCOPES = ["skills:read", "skills:write", "telemetry:write", "memory:read", "mcp:read"] as const;
+// MOONSHOT #3 adds `followups:write` — the scope that lets a machine CLAIM work off the Follow-ups
+// ledger and report an attempt against it. Same rule as every scope above and stated once more
+// because this is the first one that lets a token change a row an org's own people planned: it is
+// never implied by `mcp:read`. The door is not the resource. What it emphatically does NOT buy is
+// closure — no scope reaches `status: "done"`, which only a rescan of the default branch writes.
+export const SKILL_TOKEN_SCOPES = [
+  "skills:read",
+  "skills:write",
+  "telemetry:write",
+  "memory:read",
+  "mcp:read",
+  "followups:write",
+] as const;
 export type SkillTokenScope = (typeof SKILL_TOKEN_SCOPES)[number];
 
 export function isSkillTokenScope(v: string): v is SkillTokenScope {

@@ -101,11 +101,82 @@ Row vocabulary (`FollowupChips.tsx`): impact/effort as one-letter chips (`IMPACT
 `+pts`, and **resolve / dismiss / reopen** by hand via the per-item PATCH — the human half of the
 feedback loop, for fixes a scan can't see.
 
+## The protocol: any agent can pull from this queue (moonshot #3)
+
+The ledger stopped being a list you copy a prompt out of and became a **work queue**. A human still
+hands a batch off from the browser; a machine — Claude Code, Copilot, Codex, Cursor, a CI job, the
+local loop engine — claims from the same queue over the
+[MCP work tools](../org-knowledge/skills.md#the-work-protocol-claim--brief--report) with a token
+holding `mcp:read + followups:write + telemetry:write`, or through `npx ascent work`
+(`scripts/ascent-work.mjs`). **Ascent runs none of the work.** It adjudicates.
+
+```
+claim_followups ──▶ get_fix_brief ──▶  your agent, your harness  ──▶ report_attempt
+   (a lease)         (gap + the org's                                  (an account,
+                      own perimeter)                                    not a verdict)
+                                                                             │
+                     next scan of the DEFAULT branch ◀──────────────────────┘
+                     the only thing that writes `done`
+```
+
+### One claim path
+
+`src/lib/db/followup-claims.ts` is the single compare-and-set every worker calls —
+`updateMany({ where: { id, status: "open", OR: [{leaseUntil: null}, {leaseUntil: {lt: now}}] } })`,
+`count === 1` won, `0` lost. There is no `FollowupClaim` side table on purpose: a second place to ask
+"who holds this" is exactly the race the module exists to prevent, and it would need its own
+retention rule and erase cascade. `runLane` claims through it too, so the local engine gets the same
+refusal a remote agent gets — a lane whose batch is partly held works the rest and logs what it could
+not take, instead of stealing rows and having two workers write into the same gap.
+
+### The claim columns on `Recommendation`
+
+| Column | Meaning |
+| --- | --- |
+| `claimActor` | Who holds it — `agent:<token name>`, `autopilot`, a login. |
+| `claimExecutor` | *What* holds it: `local` \| `remote-agent` \| `human`. |
+| `leaseUntil` | When the claim lapses. **`null` on an in-progress row means a human took it** — an unleased claim the sweep must never reclaim, and never read as "expired". |
+| `needsHuman` | An agent tried and stopped deliberately. An **escalation flag, not a status**: the row stays `in_progress` and stays counted as open. A fifth status would have hidden it from every "what is open" figure in the product. |
+
+`assigneeLogin` is deliberately not reused for any of this. It is the human planning layer — who is
+*accountable*, over a sprint — and an agent holding a row for forty minutes is a different fact.
+Collapsing the two would let a lease expiry silently un-assign a person.
+
+Leases expire **lazily**: `sweepExpiredLeases` runs at the top of a claim, the same precedent
+`markStaleRunsStopped` sets on `GET /api/org/loop`. No cron entry is needed, and a claim path that
+required a scheduler to be correct would be wrong on any deployment whose scheduler was down.
+
+### Who may claim
+
+`claimability()` gates a **remote agent** on the repo's derived autonomy tier (`passport.autonomy.tier`):
+**T0 refused**, **no assessed tier refused** (unknown is not green), **T1/T2 allowed and flagged for
+human review**, **T3 allowed**; a repo inside a declared no-AI zone is refused whatever its tier. It
+is one pure function over one input struct, so the agent-admission compiler can swap its source
+without any caller changing. `local` and `human` executors are unaffected.
+
+### Nothing in the protocol closes a row
+
+This is load-bearing, and the section below ("Only the trailer and title-disappearance close a row")
+is what makes it true. `report_attempt` writes a `RecommendationEvent` and clears a lease:
+
+| Verdict | Effect |
+| --- | --- |
+| `resolved` | Stays `in_progress`, lease cleared. The rescan owns it now. |
+| `skipped` | Back to `open`, unclaimed. Whoever comes next may take it. |
+| `needs_human` | Stays `in_progress`, `needsHuman = true`, lease cleared. |
+
+`status: "done"` is reachable only from `decideInProgress` at carry-forward. An agent's "I fixed it"
+is exactly as much of a claim as the trailer it also wrote — and every claim and attempt is audited
+(`followup.claim`, `followup.attempt`) with the org resolved, so both show in the audit viewer.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
-| `src/lib/org/followups.ts` (+ `.test.ts`) | Trailer, resolve rule, prompt builder. |
+| `src/lib/org/followups.ts` (+ `.test.ts`, `followups-lease.test.ts`) | Trailer, resolve rule, prompt builder, and the pure lease/`claimability` layer + `buildAgentBrief`. |
+| `src/lib/db/followup-claims.ts` (+ `.test.ts`) | **The one claim path**: compare-and-set claim, release, lazy sweep, attempt. |
+| `src/lib/mcp/work-tools.ts` (+ `handlers-write.test.ts`) | `claim_followups` / `get_fix_brief` / `report_attempt`. |
+| `scripts/ascent-work.mjs` · `examples/ascent-work.action.yml` | The zero-dep client and a reference Action (outside `.github/`, so it never runs here). |
 | `src/lib/scoring/engine.ts` | Collects `resolvedFollowUpIds` from the commit sample. |
 | `src/lib/db/scans-persist.ts` (+ `.test.ts`, "follow-up feedback") | Applies the rule at carry-forward; writes resolved rows + events. |
 | `src/app/api/org/followups/handoff/route.ts` | The hand-off write. |

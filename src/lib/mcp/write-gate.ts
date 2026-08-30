@@ -67,12 +67,55 @@ const argStr = (args: Record<string, unknown>, k: string): string | null => {
 };
 
 /**
- * The table. TWO rows today.
+ * The table. FOUR rows: two evidence writes (#17) and two work-protocol writes (#3).
  *
- * W4-N (#3) adds `claim_followup` / `report_work` here — with `followups:write` as their resource
- * scope once that scope exists — and adds nothing to this file's logic.
+ * The extension contract held exactly as written — #3 added rows and handlers and changed nothing in
+ * this file's logic. Note what its third tool, `get_fix_brief`, is NOT: it reads a brief for rows the
+ * caller already holds and mutates nothing, so it carries no `mutates` marker, no `telemetry:write`
+ * and no row here. Marking a read as a write to make it "feel" gated would have broken the structural
+ * test's own equivalence (mutating ⟺ `telemetry:write` ⟺ a policy row) and told a reader something
+ * untrue about what the tool does. Its `followups:write` scope is what keeps it out of a read token's
+ * catalog, which is the actual requirement.
  */
 export const WRITE_TOOL_POLICY: Record<string, WriteToolPolicy> = {
+  // MOONSHOT #3 — the work protocol. A claim takes rows off the org's own queue, so it is gated on
+  // `followups:write` and on nothing else: there is no plan family behind the Follow-ups ledger,
+  // which every org has by virtue of having been scanned. `planGate: null` is therefore a fact, not
+  // an omission.
+  //
+  // The ceiling is deliberately LOW relative to the other two. This is not an anti-inflation ceiling
+  // — a claim inflates no ranking — it is an anti-HOARDING one: an agent looping on
+  // `claim_followups` could otherwise lease every open row in the fleet and make the ledger read
+  // empty to everyone else until the leases lapsed. 60 calls a day is far past any honest session
+  // and far short of a fleet.
+  claim_followups: {
+    resourceScope: "followups:write",
+    planGate: null,
+    auditAction: "mcp.write.claim_followups",
+    perTokenDailyMax: 60,
+    // NO IDEMPOTENCY KEY, and the honesty of that null is the point: the compare-and-set IS the
+    // idempotency. A repeated claim of a row this token already holds is refused as `held` by the
+    // database, and a claim with `count` instead of `ids` names no rows at all, so there is nothing
+    // stable for a key to describe. Claiming one would make the audit row promise a guarantee this
+    // call does not have.
+    idempotencyKey: () => null,
+  },
+  // An attempt is the agent's own account of one row it holds — the same event the local lane writes
+  // into `.ascent/lane-report.json`. It changes no judgement: `report_attempt` cannot reach
+  // `status: "done"`, which only a rescan writes. The ceiling is the claim ceiling times a batch,
+  // since an honest session reports once per row it took.
+  report_attempt: {
+    resourceScope: "followups:write",
+    planGate: null,
+    auditAction: "mcp.write.report_attempt",
+    perTokenDailyMax: 600,
+    // One verdict per row per token: a retried report re-states the same account of the same row,
+    // and the handler's holder check makes the second call a no-op once the lease has been cleared.
+    idempotencyKey: (org, args) => {
+      const id = argStr(args, "id");
+      return id ? `${org}/followup/${id}` : null;
+    },
+  },
   // A citation is a vote on whether a delivered memory helped. It feeds `OrgMemory.citedCount`, which
   // feeds recall ranking — the most inflatable thing this door exposes, hence the tightest ceiling
   // relative to plausible honest use (200 cited memories in one day is already an extreme session).

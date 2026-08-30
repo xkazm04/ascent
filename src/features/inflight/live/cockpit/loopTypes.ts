@@ -18,6 +18,7 @@ import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
 import type { LoopLessonRow } from "@/lib/db/loop-lessons";
 import type {
+  LoopLaneExecutor,
   LoopLaneKind,
   LoopLaneOutcome,
   LoopLaneRecord,
@@ -36,6 +37,7 @@ export type {
   LoopLessonRow,
   PriceRow,
   RemediationPriceList,
+  LoopLaneExecutor,
   LoopLaneKind,
   LoopLaneOutcome,
   LoopLaneRecord,
@@ -45,6 +47,29 @@ export type {
   LoopRunRecord,
   LoopRunSummary,
 };
+
+/** The one-word chip a lane's executor renders as. `null` for `local`, which needs none — the local
+ *  lane is what every row on a self-hosted board already is, and a chip on all of them says nothing.
+ *  Same rule `laneKindTag` follows, for the same reason. */
+export const laneExecutorTag = (executor: LoopLaneExecutor): string | null =>
+  executor === "remote-agent" ? "agent" : null;
+
+/**
+ * A lease countdown, in the coarsest unit that is still true. Pure so the rail can render it without
+ * a clock of its own and a test can pin it.
+ *
+ * `null` in, `null` out — and that is not "expired". A lane with no lease is one nobody has claimed
+ * into yet; rendering it as `0m` would say an agent's time had run out when no agent ever started.
+ */
+export function leaseCountdown(leaseUntil: string | null, now: Date = new Date()): string | null {
+  if (!leaseUntil) return null;
+  const ms = Date.parse(leaseUntil) - now.getTime();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return "lease expired";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `lease ${Math.max(1, mins)}m`;
+  return `lease ${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
 
 /** One repo's proposed lane batch — GET /api/org/loop/propose. */
 export interface LoopProposal {

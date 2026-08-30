@@ -15,10 +15,27 @@ const logs: string[] = [];
 const recUpdates: { id: string; status: unknown; note: string }[] = [];
 const git = { commits: "0" };
 
-vi.mock("@/lib/db/scans-recommendations", () => ({
-  updateRecommendation: vi.fn(async (id: string, patch: Record<string, unknown>, meta: { note?: string }) => {
-    recUpdates.push({ id, status: patch.status, note: meta?.note ?? "" });
-    return { id };
+// The claim/release seam moved to the shared compare-and-set path (moonshot #3); this stub records
+// the same shape the old `updateRecommendation` stub did, so the assertions below are unchanged.
+vi.mock("@/lib/db/followup-claims", () => ({
+  claimFollowups: vi.fn(async ({ ids, note }: { ids: readonly string[]; note: string }) => {
+    for (const id of ids) recUpdates.push({ id, status: "in_progress", note });
+    return {
+      claimed: ids.map((id) => ({
+        id,
+        repo: "o/r",
+        title: "t",
+        claimActor: "autopilot",
+        claimExecutor: "local" as const,
+        leaseUntil: null,
+        needsHuman: false,
+      })),
+      refused: [],
+    };
+  }),
+  releaseFollowups: vi.fn(async (ids: readonly string[], why: string) => {
+    for (const id of ids) recUpdates.push({ id, status: "open", note: `Released: ${why}` });
+    return ids.length;
   }),
 }));
 vi.mock("@/lib/db/loop-runs", () => ({

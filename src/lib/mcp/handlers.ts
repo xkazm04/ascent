@@ -30,6 +30,7 @@ import { PRACTICES } from "@/lib/practices";
 import { fail, findSkills, getGoverningSubject, getSkill, getSkillLessons, str, type Args } from "@/lib/mcp/registry-reads";
 import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
 import { compareAgainstExemplar } from "@/lib/mcp/exemplar-tool";
+import { claimFollowupsTool, getFixBriefTool, reportAttemptTool } from "@/lib/mcp/work-tools";
 
 export interface ToolResult {
   structuredContent: unknown;
@@ -50,6 +51,10 @@ export interface ToolResult {
 export function toolResultText(result: ToolResult): string {
   return result.text ?? JSON.stringify(result.structuredContent, null, 2);
 }
+
+/** A work tool reached with no verified caller. Fails closed — see `runTool`. */
+const unattributed = (name: string): ToolResult =>
+  fail(`"${name}" acts on this organization's work queue on behalf of a named holder, and this call carried none.`);
 
 const num = (a: Args, k: string, dflt: number, max: number): number => {
   const v = a[k];
@@ -277,12 +282,39 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
 }
 
 /**
+ * WHO IS CALLING, for the tools that need to know (moonshot #3).
+ *
+ * The read tools ignore it entirely and always will: a projection of an org's own data is the same
+ * projection whoever asked. The WORK tools cannot — a claim has a holder, a brief is only for rows
+ * that holder holds, and an attempt is that holder's account — so the actor arrives as an explicit
+ * argument rather than as ambient state. That is what lets Athena dispatch the same handlers
+ * in-process without either door having to know how the other authenticated.
+ */
+export interface McpPrincipal {
+  /** The value stored in `Recommendation.claimActor` — `agent:<token name>`. */
+  actor: string;
+  /** The verified token's id, for the audit row. */
+  tokenId: string | null;
+}
+
+/**
  * Dispatch by tool name. SCOPE, PLAN and WRITE enforcement all happen BEFORE this, in the route or in
  * Athena's grounding — this function trusts its caller completely, as it always has, and each door
- * carries its own gate rather than assuming the other ran. Load-bearing now that two tools WRITE.
+ * carries its own gate rather than assuming the other ran. Load-bearing now that four tools WRITE.
+ *
+ * `principal` is OPTIONAL and its absence FAILS CLOSED: a work tool reached without one is refused
+ * rather than run under an invented actor. Athena passes none (it refuses `mutates` tools outright),
+ * and the MCP route always passes one, so the refusal is unreachable in practice — which is exactly
+ * the state a fail-closed default should be in.
  */
-export async function runTool(name: string, org: string, args: Args): Promise<ToolResult> {
+export async function runTool(name: string, org: string, args: Args, principal?: McpPrincipal): Promise<ToolResult> {
   switch (name) {
+    case "claim_followups":
+      return principal ? claimFollowupsTool(org, args, principal.actor, principal.tokenId) : unattributed(name);
+    case "get_fix_brief":
+      return principal ? getFixBriefTool(org, args, principal.actor) : unattributed(name);
+    case "report_attempt":
+      return principal ? reportAttemptTool(org, args, principal.actor, principal.tokenId) : unattributed(name);
     case "report_skill_invoke":
       return reportSkillInvoke(org, args, Date.now());
     case "cite_memory":

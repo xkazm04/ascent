@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { OrgTable, SectionEmpty } from "@/components/org/shared/ui";
 import { reportPermalink, timeAgo } from "@/lib/ui";
-import { ImpactEffort, Points, RowActions, StatusPill } from "./FollowupChips";
+import { ClaimLine, ImpactEffort, NeedsHumanChip, Points, RowActions, StatusPill } from "./FollowupChips";
 import { FollowupHistory } from "./FollowupHistory";
 import { FollowupsFilterBar } from "./FollowupsFilterBar";
 import { FollowupsPromptModal } from "./FollowupsPromptModal";
@@ -199,7 +199,16 @@ function RowPair({
         </td>
         <td className="px-3 py-1.5 align-top"><ImpactEffort r={r} /></td>
         <td className="px-3 py-1.5 text-right align-top"><Points n={r.projectedPoints} /></td>
-        <td className="px-3 py-1.5 align-top"><StatusPill status={r.status} at={r.lastActivityAt} /></td>
+        {/* WHO HOLDS IT, beside what state it is in (moonshot #3). The claim line and the escalation
+            chip sit WITH the status rather than replacing it: a claimed row and a row needing a
+            person are both still open, and a reader counting open work must keep counting them. */}
+        <td className="px-3 py-1.5 align-top">
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            <StatusPill status={r.status} at={r.lastActivityAt} />
+            <NeedsHumanChip r={r} />
+            <ClaimLine r={r} />
+          </span>
+        </td>
         <td className="px-3 py-1.5 text-right align-top type-caption text-slate-500">{timeAgo(r.lastActivityAt)}</td>
       </tr>
       {isOpen && (
