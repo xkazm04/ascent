@@ -9,7 +9,12 @@
 // `org/local/rescan/route.ts`, `loop-lane.ts`) — unchanged by this lane. `localSource(root)` is the
 // same construction, exposed so a future caller that HAS a root goes through the forge.
 
-import { LocalFsSource } from "@/lib/local/source";
+// `LocalFsSource` is imported LAZILY, inside `localSource()`. A static import would put
+// `node:fs/promises` and `child_process` in this module's graph — and `registry.ts` imports this
+// module, so anything that reaches the registry would inherit them. The Integrations card does
+// exactly that (through the capability table), which makes it a CLIENT bundle pulling node builtins:
+// `tsc` and the full vitest suite stay green, and `next build` fails. That is the trap the repo's
+// "build is not in the gate" note describes, and this dynamic import is the fix pattern for it.
 import { GitHubError } from "@/lib/forge/types";
 import type { Forge, ForgeCapabilities, ParsedRepo, RepoSource } from "@/lib/forge/types";
 
@@ -35,9 +40,18 @@ export const LOCAL_CAPABILITIES: ForgeCapabilities = {
   anonymous: true,
 };
 
-/** Construct the local source for an already-resolved working-copy root. */
+/**
+ * The local source for an already-resolved working-copy root. Returns a thin `RepoSource` that loads
+ * `LocalFsSource` on first use, so the node-only ingestion code is pulled in when a local scan
+ * actually runs and never merely because something imported the registry (see the header).
+ */
 export function localSource(root: string): RepoSource {
-  return new LocalFsSource(root);
+  return {
+    async fetchSnapshot(repo, opts) {
+      const { LocalFsSource } = await import("@/lib/local/source");
+      return new LocalFsSource(root).fetchSnapshot(repo, opts);
+    },
+  };
 }
 
 export const localForge: Forge = {

@@ -1,11 +1,18 @@
 // The per-forge observability table, in reader-facing words.
 //
-// It is DERIVED from `forgeCapabilities("gitlab")` — the adapter's own compiled manifest — rather than
-// hand-listed, so the card cannot claim a capability the code does not have. That is the same reason
-// `github-parity.test.ts` asserts the manifest against bound members: a capability table is only worth
-// showing if it is a statement about the code.
+// WHY THIS IS A STATIC TABLE AND NOT A LIVE READ. The obvious implementation derives each row from
+// `forgeCapabilities("gitlab")` — the adapter's own compiled manifest — so the card could not claim a
+// capability the code lacks. That import is a CLIENT/SERVER BOUNDARY BREAK: this module is reached
+// from a `"use client"` card, and `@/lib/forge/registry` pulls in the local-working-copy adapter,
+// which pulls `node:fs/promises` and `child_process`. `tsc` and the whole vitest suite stay green on
+// it; `next build` fails. (Caught here by exactly that: a build failure with a clean typecheck.)
+//
+// So the values are literals, and `forgeCapabilityLabels.test.ts` asserts them against
+// `forgeCapabilities("gitlab")` on the SERVER side. The "cannot drift from the code" property is kept
+// — it is enforced by a test that runs in a node environment instead of by an import that drags the
+// server graph into the browser bundle. Change a capability in the adapter and the test names the row
+// to update here.
 
-import { forgeCapabilities } from "@/lib/forge/registry";
 import type { ForgeCapabilities } from "@/lib/forge/types";
 
 const LABELS: Record<keyof ForgeCapabilities, string> = {
@@ -21,6 +28,22 @@ const LABELS: Record<keyof ForgeCapabilities, string> = {
   anonymous: "Keyless scanning of a public project",
 };
 
+/** Mirror of `GITLAB_CAPABILITIES` (src/lib/forge/gitlab/source.ts). Held to it by the sibling test. */
+const GITLAB: Record<keyof ForgeCapabilities, boolean> = {
+  pullRequests: true,
+  branchGovernance: true,
+  deployments: true,
+  ciHealth: true,
+  securityPosture: false,
+  securityExposure: false,
+  appInventory: false,
+  codeowners: true,
+  write: false,
+  anonymous: false,
+};
+
+/** Display order: what GitLab CAN be asked first, then the gaps — but both in one list, so the card
+ *  never reads as a pure feature advertisement. */
 const ORDER: (keyof ForgeCapabilities)[] = [
   "pullRequests",
   "branchGovernance",
@@ -34,6 +57,5 @@ const ORDER: (keyof ForgeCapabilities)[] = [
   "anonymous",
 ];
 
-export const CAPABILITY_LABELS: { key: keyof ForgeCapabilities; label: string; gitlab: boolean }[] = ORDER.map(
-  (key) => ({ key, label: LABELS[key], gitlab: forgeCapabilities("gitlab")[key] }),
-);
+export const CAPABILITY_LABELS: { key: keyof ForgeCapabilities; label: string; gitlab: boolean }[] =
+  ORDER.map((key) => ({ key, label: LABELS[key], gitlab: GITLAB[key] }));
