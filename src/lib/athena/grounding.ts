@@ -17,29 +17,51 @@
 //      and the turn never reaches a model — rather than refusing tool-by-tool. A caller who may not
 //      read this org must not be able to spend its tokens either.
 //
-//   2. THE MEMORY PLAN GATE, before `recall_org_memory` specifically. POST /api/org/memory checks
-//      `workspaceAllowsMemory(org, plan)` before anything touches the store; the MCP tool does NOT,
-//      so an `mcp:read` + `memory:read` token reaches an org's memory on any plan. **That is a
-//      separate finding about the MCP route and it is NOT fixed here** — this module is not the place
-//      to change another door's authorization. What is decided here is only that Athena will be the
-//      stricter of the two doors, not that she will inherit the looser one.
+//   2. THE PLAN GATES, before a tool over a plan-gated resource. This block used to say the memory
+//      gate was "a separate finding about the MCP route" that this module would not fix, because a
+//      module has no business changing another door's authorization from the inside. That finding is
+//      now FIXED at its own door: `src/app/api/mcp/gates.ts` resolves the same predicates per request
+//      and `POST /api/mcp` refuses a plan-closed tool in words (moonshot #17). Both doors now gate,
+//      and Athena remains the stricter of the two — she also refuses every WRITE tool outright.
 //
-// ── MEMORY IS UNTRUSTED ON EVERY PATH IT TRAVELS ────────────────────────────────────────────────
+//   3. NO WRITES, EVER. The catalog gained two tools that write (`cite_memory`,
+//      `report_skill_invoke`); Athena is offered neither, and refuses them by name if a model invents
+//      the call. The reason is not squeamishness about writes: those tools report an AGENT's OWN
+//      behaviour — "I ran this skill", "I used this memory" — and Athena is not that agent. Her
+//      writing them would put an operator's chat turn into the org's use-evidence, inflating exactly
+//      the counters the write ceiling exists to protect.
+//
+// ── ORG-AUTHORED TEXT IS UNTRUSTED ON EVERY PATH IT TRAVELS ─────────────────────────────────────
 //
 // Memory content is written by org members, harvested from scanned repositories, and written by their
-// AGENTS. The recall route and the MCP tool both return it RAW today. Athena is a new consumer and
-// does not inherit that hole: a `recall_org_memory` result is neutralized and quoted inside
-// `wrapUntrusted` before the model sees it, exactly as consolidation.ts and reflection.ts do. The
-// boundary INSTRUCTION (MEMORY_UNTRUSTED_BOUNDARY) is stated once in the system prompt (prompt.ts);
-// this is the block that instruction is about.
+// AGENTS. So are skills, their LESSONS.md entries, and the registry subjects a customer publishes:
+// every one is text ascent stores but did not author, and every one now reaches the model through
+// these tools. Each is neutralized and quoted inside `wrapUntrusted` before the model sees it,
+// exactly as consolidation.ts and reflection.ts do. The boundary INSTRUCTION
+// (MEMORY_UNTRUSTED_BOUNDARY) is stated once in the system prompt (prompt.ts); this is the block that
+// instruction is about. Ascent's own computed standing — scores, gate verdicts, recommendations — is
+// NOT fenced, because ascent authored it.
 
 import type { AthenaTool, ToolCall } from "@/lib/llm/leg";
 import { MCP_TOOLS } from "@/lib/mcp/tools";
 import { toolResultText, type ToolResult } from "@/lib/mcp/handlers";
 import { neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
 
-/** The one tool that reads the org's memory store — plan-gated here, unlike at the MCP door. */
+/** The one tool that reads the org's memory store. */
 export const ATHENA_MEMORY_TOOL = "recall_org_memory";
+
+/**
+ * Every tool whose result carries text the ORG wrote rather than text ascent computed. Derived by
+ * name and asserted in the tests, because the failure mode of a missing entry is silent: a skill body
+ * containing "ignore your previous instructions" would reach the model unfenced.
+ */
+export const ATHENA_UNTRUSTED_TOOLS = new Set([
+  ATHENA_MEMORY_TOOL,
+  "find_skills",
+  "get_skill",
+  "get_skill_lessons",
+  "get_governing_subject",
+]);
 
 /**
  * Ceiling on one tool result, in characters. Bounds the prompt no matter how large the org's fleet
@@ -53,6 +75,16 @@ export interface AthenaGroundingDeps {
   canReadOrg: (org: string) => Promise<boolean>;
   /** May this workspace use memory on its plan. In the routes, `workspaceAllowsMemory(org, plan)`. */
   memoryAllowed: (org: string) => Promise<boolean>;
+  /**
+   * May this workspace use the Skills Library on its plan (`workspaceAllowsSkills(org, plan)`).
+   *
+   * OPTIONAL, AND ABSENT MEANS CLOSED. The skills tools arrived at this door before the route that
+   * builds these deps was widened to resolve the predicate (that route is another lane's file). An
+   * unwired gate must fail closed: offering the org's curated skills on a plan that does not carry
+   * them would reopen, on this door, exactly the hole moonshot #17 closed on the other one. When the
+   * route supplies it, the tools appear with no further change here.
+   */
+  skillsAllowed?: (org: string) => Promise<boolean>;
   /** Dispatch. In the routes this is `runTool` from @/lib/mcp/handlers, unchanged. */
   runTool: (name: string, org: string, args: Record<string, unknown>) => Promise<ToolResult>;
 }
@@ -64,13 +96,18 @@ export interface AthenaGrounding {
   execute: (call: ToolCall) => Promise<string>;
 }
 
-/** The catalog as the leg transports want it — the MCP definitions minus their server-side `scopes`. */
-export function athenaToolCatalog(opts: { memoryAllowed: boolean }): AthenaTool[] {
-  return MCP_TOOLS.filter((t) => opts.memoryAllowed || t.name !== ATHENA_MEMORY_TOOL).map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.inputSchema,
-  }));
+/**
+ * The catalog as the leg transports want it — the MCP definitions minus their server-side `scopes`.
+ *
+ * Filtered on the tool's OWN `mutates` marker and `planGate` rather than on a list kept here: a write
+ * tool added by a future lane is refused to Athena the moment it is marked, with no edit to this file
+ * and no chance of the list being forgotten.
+ */
+export function athenaToolCatalog(opts: { memoryAllowed: boolean; skillsAllowed?: boolean }): AthenaTool[] {
+  const open = { memory: opts.memoryAllowed, skills: Boolean(opts.skillsAllowed) };
+  return MCP_TOOLS.filter((t) => !t.mutates)
+    .filter((t) => !t.planGate || open[t.planGate])
+    .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
 }
 
 const argsOf = (call: ToolCall): Record<string, unknown> =>
@@ -96,11 +133,19 @@ export async function createAthenaGrounding(
   // and then re-asserted inside `execute` — so a future refactor that builds an `execute` by some
   // other path still cannot dispatch the memory tool on a plan that does not carry it.
   const memoryAllowed = await deps.memoryAllowed(slug).catch(() => false);
-  const tools = athenaToolCatalog({ memoryAllowed });
+  const skillsAllowed = deps.skillsAllowed ? await deps.skillsAllowed(slug).catch(() => false) : false;
+  const tools = athenaToolCatalog({ memoryAllowed, skillsAllowed });
   const offered = new Set(tools.map((t) => t.name));
 
   const execute = async (call: ToolCall): Promise<string> => {
     const name = call?.name ?? "";
+
+    // A WRITE TOOL IS REFUSED BY NAME, before the offered-tools check, so the answer explains itself
+    // rather than reading as "that tool does not exist". Athena reports nobody's behaviour: the write
+    // tools exist for the agent that did the work, and she did not do it.
+    if (MCP_TOOLS.find((t) => t.name === name)?.mutates) {
+      return `I can read this organization's data, but I do not write to it. "${name}" reports what an agent did with a skill or a memory, and that report has to come from the agent that did the work — not from me relaying a conversation.`;
+    }
 
     // The plan gate is checked BEFORE the offered-tools check, and it answers with the REASON. The MCP
     // door deliberately conflates "no such tool" with "not yours" so an anonymous token cannot probe
@@ -109,6 +154,9 @@ export async function createAthenaGrounding(
     // does not exist" is a dead end that would make her deny a capability the org can simply buy.
     if (name === ATHENA_MEMORY_TOOL && !memoryAllowed) {
       return "Shared Org Memory is a Team-plan feature and is not available for this workspace, so there is nothing recorded that I can read here.";
+    }
+    if (!skillsAllowed && MCP_TOOLS.find((t) => t.name === name)?.planGate === "skills") {
+      return "The Skills Library is not available for this workspace, so there are no curated skills or registry subjects I can read here.";
     }
     if (!offered.has(name)) {
       // A name that is not in the catalog at all: a hallucinated tool. Reported as unavailable rather
@@ -131,8 +179,9 @@ export async function createAthenaGrounding(
         ? `${raw.slice(0, ATHENA_TOOL_RESULT_MAX)}\n…[result truncated — this is not the whole list]`
         : raw;
 
-    // Memory is foreign-authored. Everything else here is Ascent's own computed standing.
-    return name === ATHENA_MEMORY_TOOL ? wrapUntrusted(neutralize(text)) : text;
+    // Memory, skills, lessons and registry subjects are foreign-authored: the org wrote them, or its
+    // agents did. Everything else here is ascent's own computed standing and is not fenced.
+    return ATHENA_UNTRUSTED_TOOLS.has(name) ? wrapUntrusted(neutralize(text)) : text;
   };
 
   return { tools, execute };

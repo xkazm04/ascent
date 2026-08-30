@@ -72,6 +72,7 @@ import type { CompactedPoint } from "@/lib/db/scan-digest";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
 import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
+import type { MemoryCitationRow } from "@/lib/db/org-memory-citations";
 import type { RegistrySignalRow, SignalContributionRow } from "@/lib/db/org-registry-signals";
 import type { MemoryProposalRow } from "@/lib/db/org-registry-proposals";
 import type { SkillLessonRow } from "@/lib/db/org-skill-lessons";
@@ -158,6 +159,9 @@ export const WIRE_TYPES = {
   KnowledgeSubjectRow: true satisfies WireSafe<KnowledgeSubjectRow>,
   MemoryProposalRow: true satisfies WireSafe<MemoryProposalRow>,
   InterventionOutcomeRow: true satisfies WireSafe<InterventionOutcomeRow>,
+  // MOONSHOT #17: a citation is evidence a memory was used; its `createdAt` comes straight off a
+  // Prisma `DateTime` and `listMemoryCitations` does the `.toISOString()`.
+  MemoryCitationRow: true satisfies WireSafe<MemoryCitationRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,

@@ -7,10 +7,16 @@
 // standing, its gate verdict, its open gaps, its declared AI stance and its own proven practices one
 // call away from the coding agent.
 //
-// READ-ONLY, DELIBERATELY. A write tool is a governance surface: it needs the stance model to
-// authorize it, an audit actor that is a machine, and an answer to "what stops an agent closing its
-// own recommendation". Those are real design questions, and shipping reads first answers the
-// distribution question without pre-committing any of them.
+// MOSTLY READS, AND TWO WRITES THAT EARNED THEIR DOOR. This catalog shipped read-only, and the
+// reason given was that a write tool is a governance surface needing an authorization model, a
+// machine audit actor, and an answer to "what stops an agent closing its own recommendation". Those
+// questions are now answered rather than deferred, and the answers are what the write tools are
+// allowed to be: they report the agent's OWN behaviour (it ran this skill; it used this memory) and
+// they change no judgement the org made. Nothing here closes a recommendation, adopts a practice or
+// edits a memory — the write door is for evidence, not for decisions. A write tool carries
+// `mutates: true`, needs `telemetry:write` on top of the resource scope it writes about, is gated by
+// `src/lib/mcp/write-gate.ts`, records one audit row per accepted call, and is refused outright to
+// Athena.
 //
 // SCOPES ARE PER-TOOL, and `tools/list` filters by what the caller's token actually holds. The
 // revision blesses this explicitly: the tool set "MAY vary by the authorization presented on the
@@ -19,6 +25,9 @@
 
 import type { SkillTokenScope } from "@/lib/db";
 
+/** The plan-gated resource families the catalog knows about (see `src/app/api/mcp/gates.ts`). */
+export type McpPlanGate = "memory" | "skills";
+
 /** A tool definition plus the scope a caller must hold to see and call it. */
 export interface McpToolDef {
   name: string;
@@ -26,6 +35,20 @@ export interface McpToolDef {
   description: string;
   /** Every tool needs `mcp:read`; a tool over a scoped resource ALSO needs that resource's scope. */
   scopes: SkillTokenScope[];
+  /**
+   * The workspace-plan family this tool reads or writes, resolved per REQUEST by the route — scopes
+   * say what this token may do, a plan says what this workspace has. They are different questions and
+   * the catalog cannot answer the second one, which is why this is a marker and not a predicate.
+   */
+  planGate?: McpPlanGate;
+  /**
+   * Present and `true` on a tool that WRITES. The marker is what makes "is this a write?" a property
+   * of the catalog rather than a list maintained somewhere else that a new tool can be forgotten
+   * from: the route runs `assertWriteAllowed` on exactly the tools carrying it, and
+   * `src/lib/mcp/write-gate.ts` asserts structurally that every policy row is a marked tool and every
+   * marked tool has a policy row. Athena refuses every tool carrying it outright.
+   */
+  mutates?: true;
   inputSchema: Record<string, unknown>;
 }
 
@@ -43,6 +66,54 @@ const repoArg = {
  * across calls, which is what keeps an LLM's prompt cache warm.
  */
 export const MCP_TOOLS: readonly McpToolDef[] = [
+  {
+    name: "cite_memory",
+    title: "Cite a recalled memory",
+    description:
+      "Report whether a memory this door delivered to you was actually USED in what you did, or was " +
+      "read and did not help. This is the only evidence of usefulness the memory store can have — " +
+      "without it, a memory that answered your question and one you ignored look identical. Call it " +
+      "with the `id` from a recall_org_memory entry, once per memory per session.",
+    scopes: ["mcp:read", "memory:read", "telemetry:write"],
+    planGate: "memory",
+    mutates: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The memory's `id`, exactly as recall_org_memory returned it." },
+        used: { type: "boolean", description: "True if you used this memory; false if it did not help." },
+        session: {
+          type: "string",
+          description:
+            "Your own session id. One vote per memory per session — re-sending revises your vote rather than adding one.",
+        },
+        note: { type: "string", description: "One line on how it applied, or why it did not. Optional." },
+      },
+      required: ["id", "used", "session"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "find_skills",
+    title: "Find applicable skills",
+    description:
+      "Which of this organization's own curated skills apply to the task you are about to do. These " +
+      "are the house's proven ways of doing things, written by the people who work here — matching one " +
+      "is how you write code that looks like it belongs. Name the repository too and the ranking also " +
+      "weights the dimensions that repository is measurably weakest in.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "What you are about to do, in a sentence." },
+        repo: { type: "string", description: 'Repository as "owner/name". Optional; sharpens the ranking.' },
+        limit: { type: "integer", minimum: 1, maximum: 25, description: "Max skills (default 5)." },
+      },
+      required: ["task"],
+      additionalProperties: false,
+    },
+  },
   {
     name: "get_ai_stance",
     title: "AI stance",
@@ -64,6 +135,25 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: { repo: { type: "string", description: 'Repository as "owner/name".' } },
       required: ["repo"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_governing_subject",
+    title: "Governing registry subject",
+    description:
+      "The subject in this organization's AI registry whose declared `use_when` governs the file you " +
+      "are about to change or the decision you are about to make. This is the organization's own " +
+      "written standard, not a general best practice — read it before choosing an approach in a " +
+      "domain it covers, and follow the returned `file` path into the registry for the full text.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Repo-relative path of the file you are about to change." },
+        topic: { type: "string", description: "What you are deciding, if there is no single file." },
+      },
       additionalProperties: false,
     },
   },
@@ -94,6 +184,39 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     inputSchema: repoArg as unknown as Record<string, unknown>,
   },
   {
+    name: "get_skill",
+    title: "Read a skill",
+    description:
+      "The full text of one of this organization's skills — the SKILL.md body it publishes, plus its " +
+      "version, content hash and registry path. Read this before following a skill you found with " +
+      "find_skills; the summary in a search result is not the instruction.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", description: "The skill's name, as find_skills returned it." } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_skill_lessons",
+    title: "Lessons from a skill",
+    description:
+      "What people and agents in this organization actually learned running a skill: the entries from " +
+      "its LESSONS.md, grouped by the version they were learned against. These are experience reports " +
+      "— where the skill was awkward, what it missed — and they are the fastest way to avoid repeating " +
+      "a mistake this organization has already made.",
+    scopes: ["mcp:read", "skills:read"],
+    planGate: "skills",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", description: "The skill's name." } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_open_recommendations",
     title: "Open recommendations",
     description:
@@ -117,6 +240,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       "has chosen to remember). Use before proposing an approach someone here has already ruled on.",
     // Two scopes: the door AND the resource. An `mcp:read`-only token does not silently gain memory.
     scopes: ["mcp:read", "memory:read"],
+    planGate: "memory",
     inputSchema: {
       type: "object",
       properties: {
@@ -127,7 +251,49 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "report_skill_invoke",
+    title: "Report a skill invocation",
+    description:
+      "Tell this organization that you actually ran one of its skills. The Skills Library ranks and " +
+      "retires skills on whether they are used, and an agent invoking a skill locally is invisible to " +
+      "it otherwise — an unreported skill reads as dormant however often it runs. Report once per " +
+      "skill per session; a repeat with the same session is not counted twice.",
+    scopes: ["mcp:read", "skills:read", "telemetry:write"],
+    planGate: "skills",
+    mutates: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        skill: { type: "string", description: "The skill's name, as find_skills or get_skill returned it." },
+        session: { type: "string", description: "Your own session id — the deduplication key." },
+        version: {
+          type: "string",
+          description:
+            "The version of the skill you ran, if your local copy declares one. Reported back to you when it does not match this organization's current version.",
+        },
+        repo: { type: "string", description: 'The repository you ran it against, as "owner/name". Optional.' },
+      },
+      required: ["skill", "session"],
+      additionalProperties: false,
+    },
+  },
 ] as const;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// SEAM: `compare_against_exemplar` — NOT REGISTERED, and deliberately not stubbed.
+//
+// The thirteenth tool of moonshot #17 is a thin wrapper over `exemplarDiff(org, repo, opts)` from
+// `src/lib/report/exemplar.ts` (#34, lane W2-J1), which does not exist in this tree: J1 had not
+// merged when this lane finished. A wrapper over a missing engine could only be a stub returning a
+// fabricated or empty diff, and a tool that answers "here is how you compare to your best peer" with
+// invented content is worse than a tool that is absent — the agent cannot tell the difference.
+//
+// TO LAND IT, once `exemplarDiff` is on the branch: add the definition here (alphabetically, between
+// `cite_memory` and `find_skills`; scopes `["mcp:read"]`, no plan gate, no `mutates`), a projection
+// beside the other reads in `registry-reads.ts`, and one `case` in `runTool`. Nothing else changes —
+// the door, the gates and the catalog tests already accommodate it.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The tools a caller holding `granted` may see and call. Pure. */
 export function toolsForScopes(granted: readonly SkillTokenScope[]): McpToolDef[] {

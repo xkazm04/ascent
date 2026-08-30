@@ -5,8 +5,11 @@
 // the same as the most VALUABLE one; ordering by confidence hands it a year-old certainty. So recall
 // scores every eligible memory on three axes and packs the winners into a character budget:
 //
-//   score = confidence × 0.5^(ageDays / halfLife(kind)) × min(MAX_DELIVERY_BONUS, 1 + 0.25·ln(1 + accessCount))
-//           └ trust ──┘  └──── exponential decay ─────┘  └──── times DELIVERED, capped ──────────────┘
+//   score = confidence × 0.5^(ageDays / halfLife(kind)) × min(MAX_COMBINED_BONUS, delivery × evidence)
+//           └ trust ──┘  └──── exponential decay ─────┘  └─── two counted signals, one ceiling ────┘
+//
+//     delivery = min(MAX_DELIVERY_BONUS, 1 + ACCESS_BONUS_WEIGHT·ln(1 + accessCount))   ← times SENT
+//     evidence = min(MAX_EVIDENCE_BONUS, 1 + CITED_WEIGHT·ln(1 + citedCount))           ← times CITED
 //
 // The decay is per-KIND because kinds age at wildly different rates: what happened last sprint
 // (episodic) is stale in a month, a runbook step (procedural) is good for a year. Half-lives, not a
@@ -14,21 +17,34 @@
 // bounded stay of execution via the accessCount term, which is sub-linear (ln) AND capped so a hot
 // memory can neither dominate the ranking nor keep itself alive forever.
 //
-// WHAT THE THIRD TERM ACTUALLY MEASURES — read this before tuning it. `accessCount` counts DELIVERIES:
-// times this memory was packed into a recall result and handed to an agent. It does NOT measure whether
-// the agent read it, used it, or was helped by it. A memory injected into fifty prompts and ignored in
-// all fifty scores exactly like one that answered the question fifty times.
+// WHAT THE TWO COUNTED TERMS MEASURE — read this before tuning either. `accessCount` counts
+// DELIVERIES: times this memory was packed into a recall result and handed to an agent. It does NOT
+// measure whether the agent read it, used it, or was helped by it. A memory injected into fifty prompts
+// and ignored in all fifty is delivered exactly as often as one that answered the question fifty times.
 //
-// That gap is not a bug we are hiding — it is the honest limit of the evidence available at the call
-// site, and it is stated here so nobody reads this term as "usefulness". The delivering adapter learns
-// nothing about the agent's subsequent reasoning; there is no citation, no acceptance, no outcome
-// flowing back. The two ways to close it would be (a) a distinct, evidence-bearing counter fed only by
-// an act that PROVES use — the "Copy" click behind POST /api/org/memory/:id/recall is one such act, a
-// tool-call citation would be another — which needs a schema column this module cannot add, or (b) an
-// LLM judging usefulness after the fact, which would be a fabricated signal dressed as a measurement.
-// Neither is done here. What IS done: the term is named for what it measures, its influence is bounded
-// (MAX_DELIVERY_BONUS), and the "delivered" contract it depends on is expressed as an API the adapter
-// must call rather than a sentence the adapter must remember (see `deliveredMemoryIds`).
+// This module used to say that gap could not be closed from here, and named the two ways it could be:
+// (a) a distinct, evidence-bearing counter fed only by an act that PROVES use — "which needs a schema
+// column this module cannot add" — or (b) an LLM judging usefulness after the fact, which would be a
+// fabricated signal dressed as a measurement. (b) is still refused and always will be. (a) SHIPPED: the
+// column landed (`OrgMemory.citedCount`), and `citedCount` is now the second term.
+//
+// THE NEW TERM'S OWN HONEST LIMIT, stated as plainly as the old one. A citation is an agent's
+// SELF-REPORT that it used a memory (`cite_memory` at the MCP door, `src/lib/db/org-memory-citations.ts`).
+// It is strictly stronger evidence than delivery — the agent had to take a second, deliberate action
+// naming this specific memory, which a memory it ignored never gets — and it is NOT proof: an agent can
+// be wrong, or generous with itself. So the term is named for exactly what it measures, weighted above
+// delivery (`CITED_WEIGHT > ACCESS_BONUS_WEIGHT`) because it is better evidence, and bounded, because
+// self-reported evidence must not be able to dominate trust and recency. `notUsefulCount` — an agent
+// saying a memory did NOT help — is deliberately absent from this arithmetic: it is a real signal, but
+// it belongs to the forget/curation decision, and netting it against citations here would let two
+// agents disagreeing cancel out into "never mentioned".
+//
+// A memory with NO citations scores as if the term were absent (an unset `citedCount` is 0 → a factor
+// of exactly 1). That is "no evidence", never "evidence of uselessness"; almost every row in an
+// existing store is in that state and must not be penalized for a channel that did not exist yet.
+//
+// The "delivered" contract both terms depend on is expressed as an API the adapter must call rather
+// than a sentence the adapter must remember (see `deliveredMemoryIds`).
 //
 // This module is FRAMEWORK-AGNOSTIC AND PURE, exactly like consolidation.ts: no Prisma, no Next, and —
 // load-bearing for the tests — NO `Date.now()`. `now` is always injected, so a scoring assertion is a
@@ -44,6 +60,13 @@ export interface RecallCandidate {
   /** ISO timestamp — the recency axis. Edits refresh it, which is intended: a corrected memory is fresh. */
   updatedAt: string;
   accessCount: number;
+  /**
+   * Times an agent REPORTED USING this memory. Optional, and an absent value is scored as 0 — "no
+   * evidence", never "found not useful". Optional rather than required on purpose: most callers read
+   * rows that predate the citation channel, and forcing them to supply a number would mean each one
+   * inventing a zero, which is the fabricated-measurement failure this module exists to avoid.
+   */
+  citedCount?: number;
   namespace?: string;
   /** Set when a correction replaced this memory — such rows are never recallable. */
   supersededBy?: string | null;
@@ -122,6 +145,49 @@ export const ACCESS_BONUS_WEIGHT = 0.25;
  */
 export const MAX_DELIVERY_BONUS = 2;
 
+/**
+ * Weight of the CITATION bonus — 0.4·ln(1+n), deliberately larger than `ACCESS_BONUS_WEIGHT`.
+ *
+ * The inequality is the whole point of having two terms: at equal counts, four agents saying they
+ * USED a memory must outrank four sends of a memory nobody acknowledged. If the weights were equal,
+ * the citation channel would be an expensive way to re-measure delivery.
+ */
+export const CITED_WEIGHT = 0.4;
+
+/**
+ * Ceiling on the citation bonus, reached at 1 + 0.4·ln(1+n) = 1.6, i.e. n = e^1.5 − 1 ≈ 3.5 (four
+ * citations). Bounded for the same reason delivery is: a self-report is evidence, and evidence that
+ * can grow without limit eventually outranks trust and recency, which are the two axes that are not
+ * self-reported at all.
+ */
+export const MAX_EVIDENCE_BONUS = 1.6;
+
+/**
+ * The ceiling on the two terms COMBINED — and it is exactly the value `MAX_DELIVERY_BONUS` alone used
+ * to carry, which is the single most important property of this change.
+ *
+ * Adding a second multiplicative term is the classic way to quietly inflate a value model: every
+ * memory carrying both signals would score higher than anything could score before, decay.ts's forget
+ * floor (which scores with this same function) would stop retiring rows it used to retire, and the
+ * store would grow an unexamined tail nobody decided to keep. Clamping the PRODUCT at the value
+ * delivery alone already carried is what prevents that. Consequences, both intended:
+ *
+ *  - Nothing scores higher than it could have before this change, so no memory crosses the forget
+ *    floor that would not have crossed it, and no ranking is inflated wholesale.
+ *  - What DID change is the ORDER within that unchanged range: at equal deliveries, a cited memory
+ *    outranks an uncited one, and a modestly delivered memory with real citations can now reach a
+ *    height that used to require ~54 deliveries.
+ *
+ * WHAT WAS CONSIDERED AND NOT DONE: also dropping `MAX_DELIVERY_BONUS` (2 → 1.5), so that reaching
+ * the ceiling would REQUIRE both signals rather than heavy delivery alone. It is the better shape and
+ * it is deliberately not taken here, for a stated reason: `decay.ts` scores with this function and
+ * `decay.test.ts` pins the archive boundary at exactly two half-lives, which is arithmetic derived
+ * from a delivery cap of 2. Lowering it makes the store forget delivery-only memories EARLIER — a
+ * real change to what an org retains, and a decision belonging to the memory lane rather than to the
+ * lane that added a tool. Left as the obvious next move, with the number to change named here.
+ */
+export const MAX_COMBINED_BONUS = 2;
+
 /** Default context budget in characters — roughly 1.5k tokens, a polite slice of any agent's window. */
 export const DEFAULT_CHAR_BUDGET = 6000;
 
@@ -159,8 +225,14 @@ export function memoryValue(m: RecallCandidate, nowMs: number): number {
     MAX_DELIVERY_BONUS,
     1 + ACCESS_BONUS_WEIGHT * Math.log(1 + Math.max(0, m.accessCount)),
   );
+  // SELF-REPORTED USE. An absent count is 0 → a factor of exactly 1, so a memory from before the
+  // citation channel existed is neither rewarded nor punished for it.
+  const evidence = Math.min(
+    MAX_EVIDENCE_BONUS,
+    1 + CITED_WEIGHT * Math.log(1 + Math.max(0, m.citedCount ?? 0)),
+  );
   const confidence = Math.min(1, Math.max(0, m.confidence));
-  return Number((confidence * decay * delivery).toFixed(4));
+  return Number((confidence * decay * Math.min(MAX_COMBINED_BONUS, delivery * evidence)).toFixed(4));
 }
 
 /**

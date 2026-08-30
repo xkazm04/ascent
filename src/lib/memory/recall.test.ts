@@ -21,6 +21,10 @@ import {
   isRecallable,
   KIND_HALF_LIFE_DAYS,
   MAX_DELIVERY_BONUS,
+  MAX_COMBINED_BONUS,
+  MAX_EVIDENCE_BONUS,
+  CITED_WEIGHT,
+  ACCESS_BONUS_WEIGHT,
   deliveredMemoryIds,
   memoryValue,
   normalizeCharBudget,
@@ -106,6 +110,48 @@ describe("memoryValue", () => {
     const warm = memoryValue(mem({ id: "b", accessCount: 20 }), NOW);
     expect(warm).toBeGreaterThan(cold);
     expect(warm).toBeLessThan(MAX_DELIVERY_BONUS);
+  });
+
+  // ── The citation term (moonshot #17) ───────────────────────────────────────────────────────────
+  //
+  // The module's header used to say the delivery/usefulness gap needed "a schema column this module
+  // cannot add". The column landed, and these are the properties the new term must hold.
+
+  it("ranks a CITED memory above an equally delivered, uncited one", () => {
+    const cited = memoryValue(mem({ id: "a", accessCount: 5, citedCount: 3 }), NOW);
+    const uncited = memoryValue(mem({ id: "b", accessCount: 5 }), NOW);
+    expect(cited).toBeGreaterThan(uncited);
+  });
+
+  it("weights a citation above a delivery at equal counts — better evidence, more weight", () => {
+    expect(CITED_WEIGHT).toBeGreaterThan(ACCESS_BONUS_WEIGHT);
+    const byCitation = memoryValue(mem({ id: "a", accessCount: 0, citedCount: 4 }), NOW);
+    const byDelivery = memoryValue(mem({ id: "b", accessCount: 4, citedCount: 0 }), NOW);
+    expect(byCitation).toBeGreaterThan(byDelivery);
+  });
+
+  // FAIL-BEFORE for the ceiling: drop the `Math.min(MAX_COMBINED_BONUS, …)` clamp and this fails —
+  // a memory with both signals scores 2.4, above anything the model could produce before, which
+  // would silently lift every ranking and stop decay.ts retiring rows it used to retire.
+  it("does not raise the combined ceiling above what delivery alone already carried", () => {
+    expect(MAX_COMBINED_BONUS).toBe(MAX_DELIVERY_BONUS);
+    const both = memoryValue(mem({ id: "a", accessCount: 1_000_000, citedCount: 1_000_000 }), NOW);
+    expect(both).toBe(MAX_COMBINED_BONUS);
+    expect(both).toBeLessThanOrEqual(MAX_DELIVERY_BONUS * MAX_EVIDENCE_BONUS);
+  });
+
+  it("caps the citation bonus so a self-report cannot outgrow trust and recency", () => {
+    const many = memoryValue(mem({ id: "a", accessCount: 0, citedCount: 1_000_000 }), NOW);
+    expect(many).toBe(MAX_EVIDENCE_BONUS);
+  });
+
+  // An absent count is NO EVIDENCE, never evidence of uselessness. Almost every row in an existing
+  // store is in this state, and penalizing them for a channel that did not exist would re-rank the
+  // whole store on the day this shipped.
+  it("scores an absent citedCount exactly as the term being absent", () => {
+    const unset = memoryValue(mem({ id: "a", accessCount: 4 }), NOW);
+    const zero = memoryValue(mem({ id: "a", accessCount: 4, citedCount: 0 }), NOW);
+    expect(unset).toBe(zero);
   });
 
   it("cannot fabricate value from a zero-confidence memory", () => {
