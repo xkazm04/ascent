@@ -19,6 +19,9 @@
 
 import type { SkillTokenScope } from "@/lib/db";
 
+/** The plan-gated resource families the catalog knows about (see `src/app/api/mcp/gates.ts`). */
+export type McpPlanGate = "memory" | "skills";
+
 /** A tool definition plus the scope a caller must hold to see and call it. */
 export interface McpToolDef {
   name: string;
@@ -26,6 +29,20 @@ export interface McpToolDef {
   description: string;
   /** Every tool needs `mcp:read`; a tool over a scoped resource ALSO needs that resource's scope. */
   scopes: SkillTokenScope[];
+  /**
+   * The workspace-plan family this tool reads or writes, resolved per REQUEST by the route — scopes
+   * say what this token may do, a plan says what this workspace has. They are different questions and
+   * the catalog cannot answer the second one, which is why this is a marker and not a predicate.
+   */
+  planGate?: McpPlanGate;
+  /**
+   * Present and `true` on a tool that WRITES. The marker is what makes "is this a write?" a property
+   * of the catalog rather than a list maintained somewhere else that a new tool can be forgotten
+   * from: the route runs `assertWriteAllowed` on exactly the tools carrying it, and
+   * `src/lib/mcp/write-gate.ts` asserts structurally that every policy row is a marked tool and every
+   * marked tool has a policy row. Athena refuses every tool carrying it outright.
+   */
+  mutates?: true;
   inputSchema: Record<string, unknown>;
 }
 
@@ -117,6 +134,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       "has chosen to remember). Use before proposing an approach someone here has already ruled on.",
     // Two scopes: the door AND the resource. An `mcp:read`-only token does not silently gain memory.
     scopes: ["mcp:read", "memory:read"],
+    planGate: "memory",
     inputSchema: {
       type: "object",
       properties: {

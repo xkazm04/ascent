@@ -12,6 +12,14 @@
 // scopes, which the revision explicitly permits ("the tool set MAY vary by the authorization
 // presented on the request … credentials are per-request input, not connection state").
 //
+// TWO AUTHORIZATIONS, NOT ONE (moonshot #17). A token's SCOPES say what this caller may do; the
+// workspace's PLAN says what this org has. The door used to check only the first, so an `mcp:read` +
+// `memory:read` token read an org's Shared Memory on any plan while `POST /api/org/memory` refused
+// the same read — and where two doors onto one store disagree, the looser one is the policy. Both are
+// now checked, and they refuse DIFFERENTLY on purpose: a scope refusal is opaque (`Unknown tool`) so
+// the door cannot be used to enumerate an org's surface, a plan refusal is stated in words because
+// the caller already holds this org's own token and is owed a fact it can act on.
+//
 // HONEST LIMIT: this is bearer-token auth, not the OAuth 2.1 resource-server flow the revision
 // describes. A `WWW-Authenticate` challenge is emitted on 401 so a client is told how to
 // authenticate, but ascent is not yet an OAuth resource server with a paired authorization server.
@@ -34,6 +42,7 @@ import {
   type JsonRpcRequest,
 } from "@/lib/mcp/protocol";
 import { MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
+import { gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
 import { rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -114,7 +123,15 @@ export async function POST(req: Request) {
   );
   if (headerError) return rpc(err(id, headerError), httpStatusFor(headerError.code));
 
-  const allowed = toolsForScopes(scopes);
+  const scoped = toolsForScopes(scopes);
+  // TWO filters, in this order and never collapsed into one. Scopes are what this TOKEN may do; the
+  // plan is what this WORKSPACE has. `server/discover` needs neither, so the gates are resolved only
+  // for the two methods that can name a tool — a discovery probe must not cost a credit-state read.
+  const needsGates = body.method === "tools/list" || body.method === "tools/call";
+  const gates = needsGates
+    ? await resolveMcpGates(token.orgSlug)
+    : { memory: false as boolean, skills: false as boolean };
+  const allowed = scoped.filter((t) => gateOpen(gates, t.planGate));
 
   switch (body.method) {
     // MUST be implemented by every server in this revision: it is how a client selects a version
@@ -151,8 +168,25 @@ export async function POST(req: Request) {
       // An unknown tool is a PROTOCOL error (the request names something that does not exist); a
       // tool that exists but is out of scope is answered the same way ON PURPOSE, so the door does
       // not become an oracle for which tools an org has that this token cannot reach.
-      if (!def || !allowed.some((t) => t.name === name)) {
+      if (!def || !scoped.some((t) => t.name === name)) {
         return rpc(err(id, { code: RPC.invalidParams, message: `Unknown tool: ${name}` }), 400);
+      }
+      // A PLAN refusal is answered in words, and the split from the opaque scope refusal above is the
+      // whole point. A caller past the scope check holds this org's own token for a tool this org's
+      // token type carries — it has proven it belongs here — so "your workspace's plan does not
+      // include this" is a fixable fact it is owed. Reported as a tool-execution error (isError on a
+      // 200) rather than a protocol error, because the model should choose another tool, not decide
+      // the server is broken.
+      if (def.planGate && !gateOpen(gates, def.planGate)) {
+        const reason = planRefusal(def.planGate);
+        return rpc(
+          ok(id, {
+            content: [{ type: "text", text: reason }],
+            structuredContent: { error: reason, reason: "plan", gate: def.planGate },
+            isError: true,
+          }),
+          200,
+        );
       }
       const args = (body.params?.arguments ?? {}) as Record<string, unknown>;
       try {

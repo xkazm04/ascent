@@ -17,8 +17,21 @@ vi.mock("next/server", () => ({
 }));
 // The refusal is charged before any token crypto or tool dispatch, so these boundaries are stubbed
 // only to keep their (DB / handler) module graphs out of this test.
-vi.mock("@/lib/db", () => ({ verifyOrgApiToken: vi.fn(async () => null) }));
-vi.mock("@/lib/mcp/handlers", () => ({ runTool: vi.fn() }));
+//
+// `getCreditState` + the two plan predicates are the REAL inputs of `resolveMcpGates`, stubbed at the
+// db boundary rather than by mocking `./gates` itself: the plan gate is the behaviour under test, so
+// mocking the module that decides it would test nothing.
+vi.mock("@/lib/db", () => ({
+  verifyOrgApiToken: vi.fn(async () => null),
+  getCreditState: vi.fn(async () => ({ plan: "team" })),
+  workspaceAllowsMemory: vi.fn(async () => true),
+  workspaceAllowsSkills: vi.fn(async () => true),
+}));
+vi.mock("@/lib/mcp/handlers", () => ({
+  runTool: vi.fn(async () => ({ structuredContent: { ok: true } })),
+  toolResultText: (r: { structuredContent: unknown; text?: string }) =>
+    r.text ?? JSON.stringify(r.structuredContent, null, 2),
+}));
 vi.mock("@/lib/rate-limit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
   return {
@@ -29,11 +42,14 @@ vi.mock("@/lib/rate-limit", async (importOriginal) => {
 });
 
 import { POST } from "./route";
-import { verifyOrgApiToken } from "@/lib/db";
+import { verifyOrgApiToken, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
+import { runTool } from "@/lib/mcp/handlers";
 import { rateLimitRequest } from "@/lib/rate-limit";
 
 const mockLimiter = vi.mocked(rateLimitRequest);
 const mockVerify = vi.mocked(verifyOrgApiToken);
+const mockMemoryPlan = vi.mocked(workspaceAllowsMemory);
+const mockSkillsPlan = vi.mocked(workspaceAllowsSkills);
 
 /** No Origin header: a non-browser client, which `originAllowed` permits (the normal agent case). */
 function post() {
@@ -49,7 +65,32 @@ function post() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockLimiter.mockReturnValue({ ok: true, retryAfterSec: 0 } as never);
+  mockMemoryPlan.mockResolvedValue(true);
+  mockSkillsPlan.mockResolvedValue(true);
 });
+
+/** A verified token carrying `scopes`, for the org `acme`. */
+function tokenWith(scopes: string[]) {
+  mockVerify.mockResolvedValue({ orgSlug: "acme", name: "agent", scopes } as never);
+}
+
+/** A conformant request: this revision requires the routing headers to mirror the body. */
+function call(method: string, params?: Record<string, unknown>) {
+  const name = typeof params?.name === "string" ? { "mcp-name": params.name } : {};
+  return POST(
+    new Request("http://localhost/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer askl_test",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": method,
+        ...name,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    }),
+  );
+}
 
 describe("POST /api/mcp — the 429 names the scope that refused", () => {
   it("per-IP refusal states the scope, the limiter, and the budget the agent must fit", async () => {
@@ -98,5 +139,74 @@ describe("POST /api/mcp — the 429 names the scope that refused", () => {
   it("does not refuse a request under the budget", async () => {
     const res = await post();
     expect(res.status).not.toBe(429);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE PLAN GATE (moonshot #17). Before this, the door checked scopes and nothing else, so an
+// `mcp:read` + `memory:read` token reached an org's Shared Memory on any plan while POST
+// /api/org/memory — the same store, the same org — refused it. The looser of two doors is the
+// effective policy, so this was the shipped bug, not a missing nicety.
+//
+// FAIL-BEFORE: delete the `.filter((t) => gateOpen(...))` and the `def.planGate` block in route.ts
+// and both assertions below fail — `recall_org_memory` is listed to a free-plan token and a direct
+// call dispatches into the handler.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe("POST /api/mcp — plan gates", () => {
+  it("withholds a plan-closed tool from tools/list even when the token holds its scopes", async () => {
+    tokenWith(["mcp:read", "memory:read"]);
+    mockMemoryPlan.mockResolvedValue(false);
+
+    const body = await (await call("tools/list")).json();
+    const names = (body.result.tools as { name: string }[]).map((t) => t.name);
+
+    expect(names).not.toContain("recall_org_memory");
+    // The ungated tools are unaffected — a closed memory plan is not a closed door.
+    expect(names).toContain("get_repo_standing");
+  });
+
+  it("lists a plan-open tool the token holds the scopes for", async () => {
+    tokenWith(["mcp:read", "memory:read"]);
+    const body = await (await call("tools/list")).json();
+    expect((body.result.tools as { name: string }[]).map((t) => t.name)).toContain("recall_org_memory");
+  });
+
+  it("answers a plan-closed CALL with the reason, and never dispatches the handler", async () => {
+    tokenWith(["mcp:read", "memory:read"]);
+    mockMemoryPlan.mockResolvedValue(false);
+
+    const res = await call("tools/call", { name: "recall_org_memory", arguments: { query: "postgres" } });
+    const body = await res.json();
+
+    // A tool-execution error on a 200: the model should pick another tool, not conclude the server
+    // is broken. And the caller holds this org's own token, so it is owed the fixable reason.
+    expect(res.status).toBe(200);
+    expect(body.result.isError).toBe(true);
+    expect(body.result.structuredContent).toMatchObject({ reason: "plan", gate: "memory" });
+    expect(String(body.result.content[0].text)).toMatch(/plan/i);
+    expect(vi.mocked(runTool)).not.toHaveBeenCalled();
+  });
+
+  it("keeps the OPAQUE refusal for a tool the token lacks the scope for", async () => {
+    // The two refusals are deliberately different in kind: a scope refusal must not tell an
+    // unauthorized caller which tools this org has that it cannot reach.
+    tokenWith(["mcp:read"]);
+
+    const res = await call("tools/call", { name: "recall_org_memory", arguments: { query: "x" } });
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error.message).toBe("Unknown tool: recall_org_memory");
+    expect(body.error.message).not.toMatch(/plan|scope/i);
+  });
+
+  it("does not resolve the plan gates for a discovery probe", async () => {
+    tokenWith(["mcp:read"]);
+    await call("server/discover");
+    // `server/discover` names no tool, so charging it a credit-state read would put a DB round trip
+    // on the cheapest, most-polled method the protocol has.
+    expect(mockMemoryPlan).not.toHaveBeenCalled();
+    expect(mockSkillsPlan).not.toHaveBeenCalled();
   });
 });
