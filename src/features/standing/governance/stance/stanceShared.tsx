@@ -42,9 +42,9 @@ export function AckMark({
   showLabel?: boolean;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: ACK_HEX[ack] }} title={ackLabel(ack, ackedVersion)}>
+    <span className="inline-flex items-center gap-1.5 type-body-sm" style={{ color: ACK_HEX[ack] }} title={ackLabel(ack, ackedVersion)}>
       <span aria-hidden className="inline-block size-1.5 rounded-full" style={{ backgroundColor: ACK_HEX[ack] }} />
-      {showLabel && <span className="font-mono text-xs uppercase tracking-[0.18em]">{ack}</span>}
+      {showLabel && <span className="font-mono type-micro uppercase tracking-[0.18em]">{ack}</span>}
     </span>
   );
 }
@@ -64,10 +64,10 @@ export function StancePublishCta({ slug, canEdit }: { slug: string; canEdit: boo
   return (
     <div className="rounded-2xl border border-divider bg-surface/40 p-8">
       <Kicker>{slug} · perimeter undrawn</Kicker>
-      <h3 className="mt-3 max-w-2xl text-2xl font-medium text-white sm:text-3xl">
+      <h3 className="mt-3 max-w-2xl type-heading font-medium text-white sm:type-display">
         There is no line. Every repo is treated the same by every agent.
       </h3>
-      <p className="mt-3 max-w-2xl text-base text-slate-300">
+      <p className="mt-3 max-w-2xl type-body text-slate-300">
         Without a published stance the fleet has one undifferentiated risk surface: a docs PR and a migration get the
         same review, and nothing marks the paths that should never be agent-authored. Draw the perimeter once and every
         repo inherits a band.
@@ -77,12 +77,12 @@ export function StancePublishCta({ slug, canEdit }: { slug: string; canEdit: boo
         {bullets.map((b) => (
           <div key={b.label} className="bg-ink px-4 py-3.5">
             <Kicker tone="muted">{b.label}</Kicker>
-            <p className="mt-1.5 text-sm text-slate-300">{b.text}</p>
+            <p className="mt-1.5 type-body-sm text-slate-300">{b.text}</p>
           </div>
         ))}
       </div>
 
-      <p className="mt-6 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+      <p className="mt-6 font-mono type-micro uppercase tracking-[0.18em] text-slate-500">
         {canEdit
           ? "Draft the stance below, then publish v1 so repos adopt it as a committed AI_POLICY.md."
           : "An org owner publishes the stance; once live, this section reads the fleet against it."}

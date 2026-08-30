@@ -68,7 +68,7 @@ export function PlanControl({ org, plan, enabled }: { org: string; plan: string;
   if (!enabled) {
     return (
       <span
-        className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-400"
+        className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 type-mono-sm uppercase tracking-widest text-slate-400"
         title="Current plan"
       >
         {current}
@@ -83,15 +83,15 @@ export function PlanControl({ org, plan, enabled }: { org: string; plan: string;
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+        className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
         title="Change plan tier (demo)"
       >
         Plan · <span className="font-semibold uppercase tracking-widest">{current}</span>
       </button>
       {open && (
         <div role="menu" aria-label="Plan tier" className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-3 shadow-2xl">
-          <div className="font-mono text-sm uppercase tracking-widest text-accent">Switch plan</div>
-          <p className="mt-1 text-xs text-slate-500">Demo override: paid upgrades normally go through checkout.</p>
+          <div className="type-mono-sm uppercase tracking-widest text-accent">Switch plan</div>
+          <p className="mt-1 type-note text-slate-500">Demo override: paid upgrades normally go through checkout.</p>
           <div className="mt-2 flex flex-col gap-1">
             {PLANS.map((p) => (
               <button
@@ -101,7 +101,7 @@ export function PlanControl({ org, plan, enabled }: { org: string; plan: string;
                 aria-checked={p.id === plan}
                 disabled={busy}
                 onClick={() => change(p.id)}
-                className={`focus-ring flex items-center justify-between rounded-md px-3 py-1.5 text-sm transition disabled:opacity-50 ${
+                className={`focus-ring flex items-center justify-between rounded-md px-3 py-1.5 type-body-sm transition disabled:opacity-50 ${
                   p.id === plan ? "bg-accent/10 text-accent" : "text-slate-300 hover:bg-slate-900"
                 }`}
               >
@@ -110,7 +110,7 @@ export function PlanControl({ org, plan, enabled }: { org: string; plan: string;
               </button>
             ))}
           </div>
-          {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+          {error && <p className="mt-2 type-body-sm text-danger">{error}</p>}
         </div>
       )}
     </div>

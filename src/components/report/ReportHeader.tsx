@@ -62,12 +62,12 @@ export function ReportHeader({
           owner/name break instead of forcing horizontal overflow of the header (mobile). */}
       <div className="min-w-0">
         <Kicker tone="muted">AI-native readiness briefing</Kicker>
-        <h1 className="mt-2 break-words text-2xl font-bold text-white">
+        <h1 className="mt-2 break-words type-heading font-bold text-white">
           <a href={repo.url} target="_blank" rel="noreferrer" className="hover:text-accent">
             {repo.owner}/{repo.name}
           </a>
         </h1>
-        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-slate-400">
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 type-body text-slate-400">
           {repo.primaryLanguage && <span>{repo.primaryLanguage}</span>}
           <span>★ {repo.stars.toLocaleString()}</span>
           <span>updated {timeAgo(repo.pushedAt)}</span>
@@ -76,13 +76,13 @@ export function ReportHeader({
             and archetype lens are explained on the methodology page. */}
         <Link
           href="/about"
-          className="focus-ring mt-2 inline-flex items-center gap-1 rounded-sm font-mono text-sm uppercase tracking-widest text-slate-500 transition hover:text-accent"
+          className="focus-ring mt-2 inline-flex items-center gap-1 rounded-sm type-mono-sm uppercase tracking-widest text-slate-500 transition hover:text-accent"
         >
           How scoring works <span aria-hidden>→</span>
         </Link>
       </div>
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        <div className="flex flex-wrap items-center gap-2 text-sm sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 type-body-sm sm:justify-end">
           <span
             className="cursor-help rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400"
             title={ARCHETYPE_HINT[report.archetype]}

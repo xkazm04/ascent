@@ -32,25 +32,25 @@ export function AiRoiQuadrantActions({ model, slug, noCostSource }: { model: AiD
           <div key={verdict} className="rounded-xl border border-divider bg-surface/40 p-3">
             <div className="flex items-center justify-between gap-2">
               <VerdictChip verdict={verdict} />
-              {!noCostSource && spend > 0 && <span className="font-mono text-xs tabular-nums text-slate-400">{fmtMoney(spend)}/mo</span>}
+              {!noCostSource && spend > 0 && <span className="type-caption tabular-nums text-slate-400">{fmtMoney(spend)}/mo</span>}
             </div>
-            <p className="mt-1.5 text-xs text-slate-500">
+            <p className="mt-1.5 type-note text-slate-500">
               {verb} {rows.length} repo{rows.length > 1 ? "s" : ""}:
             </p>
             <ul className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
               {rows.slice(0, 8).map((r) => (
                 <li key={r.fullName}>
-                  <Link href={`/report/${r.fullName}`} className="focus-ring font-mono text-sm text-slate-300 transition hover:text-accent">
+                  <Link href={`/report/${r.fullName}`} className="focus-ring type-mono-sm text-slate-300 transition hover:text-accent">
                     {r.name}
                   </Link>
                 </li>
               ))}
-              {rows.length > 8 && <li className="font-mono text-sm text-slate-600">+{rows.length - 8}</li>}
+              {rows.length > 8 && <li className="type-mono-sm text-slate-600">+{rows.length - 8}</li>}
             </ul>
             <div className="mt-2">
               {/* The concrete gaps behind this cohort live in the Follow-ups ledger, dimension-scoped
                   (initiatives and the Plan tab were retired 2026-08-17). */}
-              <Link href={`/org/${slug}?tab=followups&dim=${dimId}`} className="focus-ring font-mono text-xs text-accent transition hover:text-white">
+              <Link href={`/org/${slug}?tab=followups&dim=${dimId}`} className="focus-ring type-caption text-accent transition hover:text-white">
                 work the {dimId} follow-ups →
               </Link>
             </div>
@@ -58,7 +58,7 @@ export function AiRoiQuadrantActions({ model, slug, noCostSource }: { model: AiD
         );
       })}
       {noCostSource ? (
-        <div className="rounded-xl border border-divider bg-surface/40 p-3 text-xs text-slate-500">
+        <div className="rounded-xl border border-divider bg-surface/40 p-3 type-note text-slate-500">
           Idle-seat and shadow-AI verdicts rest on spend Ascent can&apos;t see yet.{" "}
           <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">
             Connect a provider
@@ -69,7 +69,7 @@ export function AiRoiQuadrantActions({ model, slug, noCostSource }: { model: AiD
         model.summary.counts.ungoverned === 0 &&
         model.summary.counts.idle === 0 &&
         model.summary.counts.shadow === 0 && (
-          <div className="rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-400">
+          <div className="rounded-xl border border-divider bg-surface/40 p-4 type-body-sm text-slate-400">
             <span aria-hidden className="mr-2 text-lime-400">✓</span>
             No idle, ungoverned, or shadow AI spend detected across the fleet.
           </div>

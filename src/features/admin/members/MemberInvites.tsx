@@ -82,8 +82,8 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
 
   return (
     <div className="mt-6 border-t border-slate-800 pt-4">
-      <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Invite a teammate</h3>
-      <p className="mt-1 text-sm text-slate-500">
+      <h3 className="type-mono-sm uppercase tracking-widest text-accent">Invite a teammate</h3>
+      <p className="mt-1 type-body-sm text-slate-500">
         Creates a single-use link (expires in 7 days). A GitHub login pins the invite to that account.
         Owner is granted by promoting an existing member, not by invite.
       </p>
@@ -100,13 +100,13 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
             }
           }}
           placeholder="GitHub login or email"
-          className="min-w-[14rem] flex-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
+          className="min-w-[14rem] flex-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 outline-none focus:border-accent"
         />
         <select
           value={inviteRole}
           onChange={(e) => setInviteRole(e.target.value as OrgRole)}
           aria-label="Invite role"
-          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
+          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 type-mono-sm text-slate-200 outline-none focus:border-accent"
         >
           {INVITE_ROLES.map((r) => (
             <option key={r} value={r}>
@@ -117,13 +117,13 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
         <button
           onClick={sendInvite}
           disabled={inviteBusy || !inviteTarget.trim()}
-          className="rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+          className="rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
         >
           {inviteBusy ? "Creating…" : "Create invite"}
         </button>
       </div>
       {inviteError && (
-        <p role="alert" className="mt-2 text-sm text-danger-soft">
+        <p role="alert" className="mt-2 type-body-sm text-danger-soft">
           {inviteError}
         </p>
       )}
@@ -131,7 +131,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
       {invites.length > 0 && (
         <ul className="mt-3 space-y-1.5">
           {invites.map((i) => (
-            <li key={i.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
+            <li key={i.id} className="flex flex-wrap items-center gap-2 type-mono-sm">
               <span className="text-slate-300">{i.githubLogin ? `@${i.githubLogin}` : i.email}</span>
               <span className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-400">{i.role}</span>
               {i.token ? (

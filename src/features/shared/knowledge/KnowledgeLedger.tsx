@@ -31,8 +31,8 @@ function DomainRow({ domain }: { domain: KnowledgeDomain }) {
   return (
     <div className="bg-ink px-5 py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="text-base font-medium text-slate-100">{domain.title}</h3>
-        <span className="font-mono text-xs text-slate-600">knowledge/{domain.name}/</span>
+        <h3 className="type-body font-medium text-slate-100">{domain.title}</h3>
+        <span className="type-caption text-slate-600">knowledge/{domain.name}/</span>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-4">
@@ -42,14 +42,14 @@ function DomainRow({ domain }: { domain: KnowledgeDomain }) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-divider pt-3">
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           <span className="tabular-nums text-slate-300">{total.toLocaleString()}</span> artifacts ·{" "}
           <span className="tabular-nums text-slate-300">{domain.categories.length}</span> categories ·{" "}
           <span className="tabular-nums text-slate-300">{domain.laws}</span> laws cited
         </span>
         {/* Consult-readiness earns a colour because it is a genuine 0-100 completion, the same
             reason the migration ramp is coloured in RegistryArtifactLedger. */}
-        <span className="font-mono text-xs uppercase tracking-[0.16em]" style={{ color: scoreHex(consultPct) }}>
+        <span className="type-label tracking-[0.16em]" style={{ color: scoreHex(consultPct) }}>
           consult-ready {written}/{techniques}
         </span>
       </div>
@@ -87,7 +87,7 @@ export function KnowledgeLedger({ view }: { view: KnowledgeView }) {
             <DomainRow key={d.name} domain={d} />
           ))}
         </div>
-        <p className="font-mono text-xs text-slate-500">
+        <p className="type-caption text-slate-500">
           Evidence is not counted here — it stays in each consuming repo, so a number in this column
           would always read zero and mean the wrong thing.
         </p>

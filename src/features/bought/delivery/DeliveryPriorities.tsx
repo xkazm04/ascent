@@ -134,7 +134,7 @@ export function DeliveryPriorities({ pr, gov }: { pr: OrgPrSignals | null; gov: 
     return (
       <Surface radius="xl" className="flex items-center gap-3 px-4 py-3">
         <span aria-hidden className="text-lime-400">✓</span>
-        <p className="text-sm text-slate-400">
+        <p className="type-body-sm text-slate-400">
           No delivery red flags: branch protection, review coverage, and merge flow all clear the bar.
         </p>
       </Surface>
@@ -143,20 +143,20 @@ export function DeliveryPriorities({ pr, gov }: { pr: OrgPrSignals | null; gov: 
 
   return (
     <Surface radius="xl">
-      <div className="border-b border-divider px-4 py-2.5 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
+      <div className="border-b border-divider px-4 py-2.5 type-label tracking-[0.2em] text-slate-500">
         Fix first · {priorities.length} action{priorities.length > 1 ? "s" : ""} from this fleet&apos;s signals
       </div>
       <ul className="divide-y divide-divider">
         {priorities.map((p) => (
           <li key={p.title} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 sm:flex-nowrap">
-            <span className={`shrink-0 self-center rounded border px-1.5 py-0.5 font-mono text-xs uppercase tracking-widest ${CHIP[p.severity]}`}>
+            <span className={`shrink-0 self-center rounded border px-1.5 py-0.5 type-label tracking-widest ${CHIP[p.severity]}`}>
               {p.severity === "fix" ? "fix now" : "improve"}
             </span>
             <div className="min-w-0 flex-1">
               <span className="font-medium text-white">{p.title}</span>
-              <span className="ml-2 text-sm text-slate-400">{p.evidence}</span>
+              <span className="ml-2 type-body-sm text-slate-400">{p.evidence}</span>
             </div>
-            <a href={p.href} className="focus-ring shrink-0 self-center font-mono text-sm text-accent transition hover:text-white">
+            <a href={p.href} className="focus-ring shrink-0 self-center type-mono-sm text-accent transition hover:text-white">
               {p.action} ↓
             </a>
           </li>

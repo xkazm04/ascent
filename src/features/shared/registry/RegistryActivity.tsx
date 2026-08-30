@@ -30,8 +30,8 @@ export function RegistryActivity({ view, limit = 8 }: { view: RegistryView; limi
         <ul className="mt-2 divide-y divide-divider">
           {rows.map((a, i) => (
             <li key={`${a.at}-${i}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2">
-              <span className="w-16 shrink-0 font-mono text-xs uppercase tracking-[0.16em] text-slate-500">{KIND_TAG[a.kind]}</span>
-              <span className="min-w-0 flex-1 text-sm text-slate-300">
+              <span className="w-16 shrink-0 type-label tracking-[0.16em] text-slate-500">{KIND_TAG[a.kind]}</span>
+              <span className="min-w-0 flex-1 type-body-sm text-slate-300">
                 {a.url ? (
                   <a href={a.url} className="transition hover:text-white">
                     {a.title}
@@ -40,7 +40,7 @@ export function RegistryActivity({ view, limit = 8 }: { view: RegistryView; limi
                   a.title
                 )}
               </span>
-              <span className="font-mono text-xs tabular-nums text-slate-600">{timeAgo(a.at)}</span>
+              <span className="type-caption tabular-nums text-slate-600">{timeAgo(a.at)}</span>
             </li>
           ))}
         </ul>

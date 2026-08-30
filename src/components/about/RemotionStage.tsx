@@ -103,7 +103,7 @@ export function RemotionStage({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-3 font-mono text-xs text-slate-500">
+      <div className="mt-3 flex items-center justify-between gap-3 type-caption text-slate-500">
         <span className="flex items-center gap-4">{legend}</span>
         {/* Honor the reduced-motion contract the rest of the stage upholds: a reduced-motion user only
             ever sees the static last frame, so replaying would abruptly play the full animation the page

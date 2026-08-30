@@ -57,7 +57,7 @@ export function MemoryAuthorForm({
   if (!canWrite) {
     return (
       !planAllowed && (
-        <p className="mt-5 border-t border-slate-800 pt-4 text-sm text-slate-500">
+        <p className="mt-5 border-t border-slate-800 pt-4 type-body-sm text-slate-500">
           Writing to Shared Org Memory is a <span className="text-slate-300">Team-plan</span> feature.
           Members can read, search and recall everything the org already remembers.
         </p>
@@ -75,7 +75,7 @@ export function MemoryAuthorForm({
         placeholder="What should the org remember? e.g. “We chose Supabase GitHub OAuth over the custom flow; the custom one is dormant.”"
         rows={4}
         aria-label="Memory content"
-        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
+        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 placeholder:text-slate-600"
       />
 
       <MemoryAuthorFormFields kinds={kinds} namespaces={namespaces} form={form} setForm={setForm} />
@@ -93,7 +93,7 @@ export function MemoryAuthorForm({
         {checking ? (
           <button
             onClick={onCancelCheck}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 hover:border-orange-400/60 hover:text-orange-300"
+            className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-400 hover:border-orange-400/60 hover:text-orange-300"
             title="Stop the running check"
           >
             Checking… cancel
@@ -102,7 +102,7 @@ export function MemoryAuthorForm({
           <button
             onClick={onCheck}
             disabled={!hasContent || busy}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
             title="Ask the configured model whether this duplicates or corrects an existing memory"
           >
             Check for duplicates
@@ -111,7 +111,7 @@ export function MemoryAuthorForm({
         <button
           onClick={onSave}
           disabled={busy || checking || !hasContent}
-          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
         >
           {busy ? "Saving…" : supersedeId ? "Save & supersede" : "Save memory"}
         </button>

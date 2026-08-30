@@ -71,11 +71,11 @@ function ChartTip({ active, payload }: { active?: boolean; payload?: Array<{ pay
   return (
     <div className="rounded-md border border-accent/40 bg-ink/95 px-3 py-2 font-mono shadow-xl">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-bold" style={{ color: LEVEL_HEX[p.level as LevelId] }}>[{p.level}]</span>
-        <span className="text-sm font-semibold text-white">{p.name}</span>
+        <span className="type-body-sm font-bold" style={{ color: LEVEL_HEX[p.level as LevelId] }}>[{p.level}]</span>
+        <span className="type-body-sm font-semibold text-white">{p.name}</span>
       </div>
-      <div className="mt-0.5 text-xs text-slate-400">ALT {p.low}–{p.high} · band</div>
-      <div className="mt-1 max-w-[15rem] font-sans text-sm text-slate-400">{p.tagline}</div>
+      <div className="mt-0.5 type-note text-slate-400">ALT {p.low}–{p.high} · band</div>
+      <div className="mt-1 max-w-[15rem] font-sans type-body-sm text-slate-400">{p.tagline}</div>
     </div>
   );
 }

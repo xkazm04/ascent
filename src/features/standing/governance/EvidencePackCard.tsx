@@ -21,7 +21,7 @@ function href(slug: string, file: string, named: boolean): string {
 }
 
 const linkClass =
-  "focus-ring rounded-md border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white";
+  "focus-ring rounded-md border border-divider px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white";
 
 export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canExportNamed: boolean }) {
   return (
@@ -32,7 +32,7 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
         description="The artifact an examiner asks for: the population of AI-attributed changes in the period, a reproducible sample drawn from it, and per-item evidence of whether a human approving review happened before merge."
       />
 
-      <div className="mt-4 space-y-3 text-sm text-slate-400">
+      <div className="mt-4 space-y-3 type-body-sm text-slate-400">
         <p>
           Evidence <strong className="font-medium text-slate-200">for</strong> an internal change-management control:
           the criterion a SOC 2 Type II examination tests, and an input to an ISO/IEC 42001 Statement of Applicability.
@@ -46,7 +46,7 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
           change in the <em>full</em> population, not only the sampled ones.
         </p>
         <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2">
-          <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">Before you file it</span> The
+          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-500">Before you file it</span> The
           population is a <strong className="font-medium text-slate-200">lower bound</strong>: a change is recorded
           only when it falls inside a repository&apos;s scanned pull-request window, and AI assistance left unmarked is
           not detected at all. Identities are pseudonymous unless an owner exports named evidence. Every limitation is
@@ -71,7 +71,7 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
           <a href={href(slug, "manifest", true)} className={`${linkClass} border-amber-500/40 text-amber-200`}>
             <span aria-hidden>↓</span> Named manifest (real logins)
           </a>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 type-body-sm text-slate-500">
             Named evidence puts real GitHub logins against changes that merged unreviewed. Export it when an examiner
             needs to re-verify specific rows against GitHub, not as the default artifact you circulate.
           </p>

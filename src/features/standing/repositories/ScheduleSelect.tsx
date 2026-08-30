@@ -82,7 +82,7 @@ export function ScheduleSelect({
         onChange={(e) => onChange(normalize(e.target.value))}
         aria-label={`Autoscan cadence for ${fullName}`}
         aria-describedby={disabled && disabledHint ? hintId : undefined}
-        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 type-mono-sm text-slate-300 transition focus:border-accent focus:outline-none ${
           inert ? "cursor-not-allowed opacity-50" : "hover:border-accent"
         }`}
       >
@@ -99,7 +99,7 @@ export function ScheduleSelect({
       )}
       {/* Announced rollback error, on the semantic danger token (was silent text-red-400). */}
       {error && (
-        <span role="alert" className="font-mono text-sm text-danger">
+        <span role="alert" className="type-mono-sm text-danger">
           {error}
         </span>
       )}

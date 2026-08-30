@@ -42,7 +42,7 @@ export function RadarChart({
   if (dimensions.length === 0) {
     return (
       <div
-        className="mx-auto flex aspect-square w-full max-w-[340px] items-center justify-center text-sm text-slate-500"
+        className="mx-auto flex aspect-square w-full max-w-[340px] items-center justify-center type-body-sm text-slate-500"
         role="img"
         aria-label="No dimension data to chart"
       >
@@ -209,13 +209,13 @@ export function RadarChart({
       </svg>
       {actPt && actDim && (
         <ChartTooltip xFrac={(actPt[0] + labelPadX) / vbWidth} yFrac={actPt[1] / size}>
-          <div className="text-sm">
+          <div className="type-body-sm">
             <div className="font-semibold text-white">{actDim.name}</div>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(actDim.score) }}>
+              <span className="font-mono type-body font-bold tabular-nums" style={{ color: scoreHex(actDim.score) }}>
                 {actDim.score}
               </span>
-              <span className="text-sm text-slate-400">
+              <span className="type-body-sm text-slate-400">
                 {levelForScore(actDim.score).id} {levelForScore(actDim.score).name}
               </span>
             </div>
@@ -225,7 +225,7 @@ export function RadarChart({
       {anyZero && (
         // Legend for the zero mark. Shape-only encoding needs a key, and this is the one mark on the
         // chart that means "no magnitude" rather than "a small magnitude".
-        <p className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+        <p className="mt-2 flex items-center gap-2 type-body-sm text-slate-500">
           <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3 shrink-0">
             <circle cx={6} cy={6} r={4} fill="none" stroke="currentColor" strokeWidth={1.5} strokeDasharray="2 2" />
           </svg>

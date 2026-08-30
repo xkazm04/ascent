@@ -32,10 +32,10 @@ export function CreditMatrixLedger() {
           </caption>
           <thead>
             <tr className="border-b border-divider">
-              <th scope="col" className="px-5 py-4 font-mono text-xs uppercase tracking-widest text-slate-500">
+              <th scope="col" className="px-5 py-4 type-label tracking-widest text-slate-500">
                 Operation
               </th>
-              <th scope="col" className="px-3 py-4 font-mono text-xs uppercase tracking-widest text-slate-500">
+              <th scope="col" className="px-3 py-4 type-label tracking-widest text-slate-500">
                 Cost
               </th>
               {MATRIX_PLANS.map((p) => (
@@ -57,8 +57,8 @@ export function CreditMatrixLedger() {
           reader has to hover to find is a caveat written to be missed. Rendered only when a row
           actually carries the flag, so retiring the last one retires the note with it. */}
       {PLANNED_ROW_LABELS.length > 0 && (
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-500">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-400">Planned ·</span>{" "}
+        <p className="mt-4 max-w-3xl type-body-sm leading-relaxed text-slate-500">
+          <span className="type-label tracking-widest text-slate-400">Planned ·</span>{" "}
           {PLANNED_NOTE}
         </p>
       )}
@@ -71,8 +71,8 @@ function GroupBlock({ group, reduced }: { group: (typeof MATRIX_GROUPS)[number];
     <>
       <tr className="border-b border-divider bg-surface-strong/30">
         <th colSpan={2 + MATRIX_PLANS.length} scope="colgroup" className="px-5 py-2.5">
-          <span className="font-mono text-xs uppercase tracking-[0.22em] text-accent">{group.title}</span>
-          <span className="ml-3 text-sm font-normal text-slate-500">{group.intro}</span>
+          <span className="type-label tracking-[0.22em] text-accent">{group.title}</span>
+          <span className="ml-3 type-body-sm font-normal text-slate-500">{group.intro}</span>
         </th>
       </tr>
       {group.rows.map((r, i) => (
@@ -86,10 +86,10 @@ function GroupBlock({ group, reduced }: { group: (typeof MATRIX_GROUPS)[number];
         >
           <th scope="row" className="px-5 py-4 align-top font-normal">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="text-sm font-semibold text-white">{r.label}</span>
+              <span className="type-body-sm font-semibold text-white">{r.label}</span>
               {r.planned ? <PlannedMark /> : null}
             </div>
-            <div className="mt-0.5 max-w-sm text-sm leading-snug text-slate-500">{r.detail}</div>
+            <div className="mt-0.5 max-w-sm type-body-sm leading-snug text-slate-500">{r.detail}</div>
           </th>
           <td className="px-3 py-4 align-top">
             <CreditTagChip tag={r.tag} />
@@ -108,10 +108,10 @@ function GroupBlock({ group, reduced }: { group: (typeof MATRIX_GROUPS)[number];
 function RuleBar() {
   return (
     <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-accent/30 bg-accent/[0.06] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <p className="max-w-3xl text-base text-slate-200">
-        <span className="font-mono text-xs uppercase tracking-widest text-accent">The rule ·</span> {CREDIT_RULE}
+      <p className="max-w-3xl type-body text-slate-200">
+        <span className="type-label tracking-widest text-accent">The rule ·</span> {CREDIT_RULE}
       </p>
-      <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-1.5 font-mono text-xs uppercase tracking-widest text-slate-500">
+      <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-1.5 type-label tracking-widest text-slate-500">
         {(["credit", "free", "plan"] as const).map((t) => (
           <span key={t} className="flex items-center gap-1.5">
             <span aria-hidden className={t === "credit" ? "text-accent" : "text-slate-400"}>

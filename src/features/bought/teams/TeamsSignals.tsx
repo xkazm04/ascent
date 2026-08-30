@@ -36,13 +36,13 @@ export function TeamsSignals({
     <Surface className="mt-6">
       <div className="grid divide-y divide-divider md:grid-cols-2 md:divide-x md:divide-y-0">
         <div className="p-5">
-          <div className="text-sm font-medium text-accent">🧠 Most institutional AI knowledge</div>
+          <div className="type-body-sm font-medium text-accent">🧠 Most institutional AI knowledge</div>
           {leader ? (
             <>
-              <div className="mt-2 text-lg">
+              <div className="mt-2 type-lede">
                 <TeamAnchor slug={leader.slug} label={leader.slug} />
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 type-mono-sm text-slate-400">
                 <span>
                   <span style={{ color: scoreHex(leader.aiCommitShare) }}>{leader.aiCommitShare}%</span> AI-attributed commits
                 </span>
@@ -50,7 +50,7 @@ export function TeamsSignals({
                   <span style={{ color: scoreHex(leader.avgAdoption) }}>{leader.avgAdoption}</span> adoption avg
                 </span>
               </div>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 type-body-sm text-slate-500">
                 A natural source of patterns others can borrow: an input, not a verdict.{" "}
                 <Link href={orgTabHref(slug, "contributors")} className="focus-ring rounded text-accent transition hover:text-white">
                   See contributors →
@@ -58,34 +58,34 @@ export function TeamsSignals({
               </p>
             </>
           ) : (
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 type-body-sm text-slate-500">
               No AI-attributed activity yet. A leader appears once teams&apos; recent commits carry AI attribution.
             </p>
           )}
         </div>
         <div className="p-5">
-          <div className="text-sm font-medium text-accent">🤝 Pairings to consider</div>
+          <div className="type-body-sm font-medium text-accent">🤝 Pairings to consider</div>
           {pairings.length > 0 ? (
             <>
               <ul className="mt-2 space-y-2">
                 {pairings.map((p) => (
-                  <li key={p.dimId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                    <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-300">{p.label}</span>
-                    <TeamAnchor slug={p.mentorSlug} label={p.mentorName} className="text-sm" />
+                  <li key={p.dimId} className="flex flex-wrap items-center gap-x-2 gap-y-1 type-body-sm">
+                    <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-300">{p.label}</span>
+                    <TeamAnchor slug={p.mentorSlug} label={p.mentorName} className="type-body-sm" />
                     <span className="font-mono" style={{ color: scoreHex(p.mentorScore) }}>{p.mentorScore}</span>
                     <span aria-hidden className="text-slate-600">→</span>
-                    <TeamAnchor slug={p.learnerSlug} label={p.learnerName} className="text-sm" />
+                    <TeamAnchor slug={p.learnerSlug} label={p.learnerName} className="type-body-sm" />
                     <span className="font-mono" style={{ color: scoreHex(p.learnerScore) }}>{p.learnerScore}</span>
-                    <span className="font-mono text-xs text-slate-500">{p.gap}-pt gap</span>
+                    <span className="type-caption text-slate-500">{p.gap}-pt gap</span>
                   </li>
                 ))}
               </ul>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 type-body-sm text-slate-500">
                 The biggest learnable gaps on a shared dimension: invitations to pair, never directives.
               </p>
             </>
           ) : (
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 type-body-sm text-slate-500">
               No clear strong→weak gap between teams right now. A pairing appears when one team is strong (≥65) on a
               dimension where another sits below 50.
             </p>

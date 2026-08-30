@@ -37,7 +37,7 @@ function Cell({ capability, row }: { capability: string; row: ReturnType<typeof 
     <td className="px-3 py-2 text-center">
       <span
         title={title}
-        className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-xs ${style.className} ${wire}`}
+        className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 type-caption ${style.className} ${wire}`}
       >
         {cell.failed ? "×" : style.mark}
       </span>
@@ -75,7 +75,7 @@ export function CapabilityMatrix({ repos }: { repos: CapabilityMatrixInput[] }) 
       )}
 
       {matrix.rows.length === 0 ? (
-        <p className="text-base text-slate-400">
+        <p className="type-body text-slate-400">
           No repository in this view has had its <code>.ai/manifest.yaml</code> read yet. Re-scan a repository that
           carries one and it appears here — nothing is inferred in the meantime.
         </p>
@@ -100,15 +100,15 @@ export function CapabilityMatrix({ repos }: { repos: CapabilityMatrixInput[] }) 
             <tr key={row.fullName}>
               <td className="px-4 py-2.5 text-slate-200">
                 {row.name}
-                <span className="ml-2 font-mono text-xs text-slate-500">{row.fullName}</span>
+                <span className="ml-2 type-caption text-slate-500">{row.fullName}</span>
               </td>
               {matrix.capabilities.map((c) => (
                 <Cell key={c} capability={c} row={row} />
               ))}
-              <td className="px-4 py-2.5 text-right font-mono text-sm text-slate-300">
+              <td className="px-4 py-2.5 text-right type-mono-sm text-slate-300">
                 {row.declared === 0 ? "—" : `${row.verified}/${row.declared}`}
               </td>
-              <td className="px-4 py-2.5 text-sm text-slate-500">
+              <td className="px-4 py-2.5 type-body-sm text-slate-500">
                 {row.generatedAt ? `manifest of ${row.generatedAt}` : "no generatedAt declared"}
                 {row.unbacked.length > 0 && (
                   <span className="ml-2 text-amber-400/80" title={`Controls with no backing capability: ${row.unbacked.join(", ")}`}>
@@ -125,14 +125,14 @@ export function CapabilityMatrix({ repos }: { repos: CapabilityMatrixInput[] }) 
 
       {matrix.unassessed.length > 0 && (
         <div className="rounded-2xl border border-dashed border-divider p-5">
-          <p className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">not assessed — re-scan</p>
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="type-label tracking-[0.2em] text-slate-500">not assessed — re-scan</p>
+          <p className="mt-2 type-body-sm text-slate-400">
             These repositories are counted in no ratio above. Their latest scan did not read a manifest, so the honest
             statement is that we do not know what they declare — not that they declare nothing.
           </p>
-          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-slate-300">
+          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 type-body-sm text-slate-300">
             {matrix.unassessed.map((u) => (
-              <li key={u.fullName} className="font-mono text-xs">
+              <li key={u.fullName} className="type-caption">
                 {u.fullName}
                 <span className="ml-1.5 text-slate-500">
                   ({u.reason === "unreadable" ? "manifest unreadable" : "no manifest in this scan"})

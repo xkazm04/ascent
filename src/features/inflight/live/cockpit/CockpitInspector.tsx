@@ -133,13 +133,13 @@ export function CockpitInspector(props: CockpitInspectorProps) {
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Inspector</Kicker>
-        <span className="font-mono text-xs tabular-nums text-slate-500">{repos.length} selected</span>
+        <span className="type-caption tabular-nums text-slate-500">{repos.length} selected</span>
       </div>
       <ul className="mt-2 flex flex-wrap gap-1">
         {repos.slice(0, 12).map((r) => (
           <li
             key={r}
-            className={`rounded border px-1.5 py-px font-mono text-xs ${
+            className={`rounded border px-1.5 py-px type-caption ${
               unpaired.has(r) ? "border-warn/50 text-warn" : "border-divider text-slate-400"
             }`}
             title={unpaired.has(r) ? `${r} — no local pairing` : r}
@@ -147,7 +147,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
             {r.split("/")[1] ?? r}
           </li>
         ))}
-        {repos.length > 12 && <li className="font-mono text-xs text-slate-600">+{repos.length - 12} more</li>}
+        {repos.length > 12 && <li className="type-caption text-slate-600">+{repos.length - 12} more</li>}
       </ul>
 
       <SharedDimensionBars shares={shares} />
@@ -164,14 +164,14 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       />
 
       {blockedReason || !canRun ? (
-        <p className="mt-4 font-mono text-xs text-slate-500">{blockedReason ?? "Running the loop needs org-owner access."}</p>
+        <p className="mt-4 type-caption text-slate-500">{blockedReason ?? "Running the loop needs org-owner access."}</p>
       ) : (
         <>
           <button
             type="button"
             onClick={run}
             disabled={busy || runnable.length === 0}
-            className="focus-ring mt-4 w-full rounded-md bg-accent px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
+            className="focus-ring mt-4 w-full rounded-md bg-accent px-3 py-2 type-label tracking-[0.18em] text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
           >
             {runnable.length === 0 ? "No paired repos selected" : `Run (${runnable.length} ${runnable.length === 1 ? "repo" : "repos"})`}
           </button>
@@ -181,11 +181,11 @@ export function CockpitInspector(props: CockpitInspectorProps) {
                 type="button"
                 onClick={drive}
                 disabled={busy || runnable.length === 0}
-                className="focus-ring mt-2 w-full rounded-md border border-accent/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+                className="focus-ring mt-2 w-full rounded-md border border-accent/60 px-3 py-2 type-label tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Drive to green
               </button>
-              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+              <p className="mt-1.5 type-note leading-relaxed text-slate-500">
                 Runs again and again until every selected repo clears the band, a whole run moves nothing, or the{" "}
                 {dials.maxRuns}-run budget is spent.
               </p>
@@ -193,7 +193,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
           )}
         </>
       )}
-      {error && <p className="mt-3 font-mono text-xs text-danger">{error}</p>}
+      {error && <p className="mt-3 type-caption text-danger">{error}</p>}
     </div>
   );
 }

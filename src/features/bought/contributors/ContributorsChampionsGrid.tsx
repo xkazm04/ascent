@@ -29,17 +29,17 @@ export function ContributorsChampionsGrid({
         {champions.map((c, i) => (
           <div key={c.login} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 flex-1 truncate font-mono text-base text-white" title={c.login}>{c.login}</span>
-              <span className="shrink-0 font-mono text-sm uppercase tracking-widest text-accent">#{i + 1} ★</span>
+              <span className="min-w-0 flex-1 truncate font-mono type-body text-white" title={c.login}>{c.login}</span>
+              <span className="shrink-0 type-mono-sm uppercase tracking-widest text-accent">#{i + 1} ★</span>
             </div>
-            {c.name && <div className="text-sm text-slate-500">{c.name}</div>}
+            {c.name && <div className="type-body-sm text-slate-500">{c.name}</div>}
             {isViewer(c.login, viewerLogin) && (
               <div className="mt-2">
                 <YouMark slug={slug} />
               </div>
             )}
             <div className="mt-3"><AiBar pct={c.aiShare} /></div>
-            <div className="mt-2 flex gap-4 font-mono text-sm text-slate-400">
+            <div className="mt-2 flex gap-4 type-mono-sm text-slate-400">
               <span>{c.commits} commits</span>
               <span>{c.aiCommits} AI</span>
               <span>{c.repos} repos</span>

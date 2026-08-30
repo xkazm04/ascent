@@ -56,8 +56,8 @@ export function RoiSimulator() {
       <div className="space-y-2">
         {DIMS.map((d) => (
           <div key={d.key} className="flex items-center gap-3">
-            <label htmlFor={`roi-${d.key}`} className="w-32 shrink-0 font-mono text-xs uppercase tracking-wider text-slate-400">
-              {d.label} <span className="text-sm text-accent">{t[d.key]}</span>
+            <label htmlFor={`roi-${d.key}`} className="w-32 shrink-0 type-label tracking-wider text-slate-400">
+              {d.label} <span className="type-body-sm text-accent">{t[d.key]}</span>
             </label>
             <input
               id={`roi-${d.key}`}
@@ -76,7 +76,7 @@ export function RoiSimulator() {
       <div className="mt-4 space-y-2 border-t border-divider pt-4">
         {rows.map((r) => (
           <div key={r.name} className="flex items-center gap-3">
-            <span className="w-28 shrink-0 truncate font-mono text-xs text-slate-400">{r.name}</span>
+            <span className="w-28 shrink-0 truncate type-caption text-slate-400">{r.name}</span>
             <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-surface-strong">
               <motion.div
                 className="h-full rounded-full"
@@ -88,13 +88,13 @@ export function RoiSimulator() {
               />
               <span aria-hidden className="absolute inset-y-0 w-px bg-white/40" style={{ left: `${r.base}%` }} />
             </div>
-            <span className="w-7 text-right font-mono text-xs tabular-nums" style={{ color: scoreHex(r.next) }}>
+            <span className="w-7 text-right type-caption tabular-nums" style={{ color: scoreHex(r.next) }}>
               {r.next}
             </span>
             {/* ABOUT #2: only render the promotion badge when the repo actually crossed a level —
                 a transparent badge on every row was still read by screen readers as a phantom
                 promotion. The fixed-width wrapper preserves row alignment when absent. */}
-            <span className="w-8 font-mono text-xs text-emerald-400">
+            <span className="w-8 type-caption text-emerald-400">
               {r.promoted ? `↑${r.after.id}` : ""}
             </span>
           </div>

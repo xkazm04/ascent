@@ -113,8 +113,8 @@ export function AiRoiQuadrantMap({
           className="pointer-events-none absolute z-10 rounded-lg border border-divider bg-surface-strong/95 px-2.5 py-1.5 shadow-lg"
           style={{ left: `${(px(hover.aiInvolvedRate) / W) * 100}%`, top: `${(py(hover.monthlySpend) / H) * 100}%`, transform: "translate(-50%, calc(-100% - 10px))" }}
         >
-          <div className="whitespace-nowrap font-mono text-sm font-bold text-white">{hover.name}</div>
-          <div className="whitespace-nowrap font-mono text-xs text-slate-400">
+          <div className="whitespace-nowrap type-mono-sm font-bold text-white">{hover.name}</div>
+          <div className="whitespace-nowrap type-caption text-slate-400">
             {hover.aiInvolvedRate}% AI{noCostSource ? " · sample spend" : ` · ${fmtMoney(hover.monthlySpend)}/mo · ${hover.seats} seats`}
           </div>
         </div>
@@ -132,7 +132,7 @@ export function AiRoiQuadrantMap({
               disabled={n === 0}
               onClick={() => setActive(on ? null : v)}
               aria-pressed={on}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-xs transition disabled:opacity-30 ${on ? "border-current" : "border-divider hover:border-slate-600"}`}
+              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 type-caption transition disabled:opacity-30 ${on ? "border-current" : "border-divider hover:border-slate-600"}`}
               style={{ color: VERDICT_META[v].hex }}
             >
               <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: VERDICT_META[v].hex }} />

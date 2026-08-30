@@ -49,7 +49,7 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
           title="Unit economics"
           description="What a unit of AI work costs: cost per session that produced code, and cost per merged AI-attributed change."
         />
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           No agent sessions recorded in {periodTitle.toLowerCase()}. This reads per-session telemetry, which needs the
           Claude Code exporter to send a <code className="font-mono text-slate-300">session.id</code> resource attribute.
           Connect it on{" "}
@@ -90,8 +90,8 @@ export function UnitEconomics({ slug, view, periodTitle }: { slug: string; view:
         />
       </div>
 
-      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
-        <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">How to read this</span>{" "}
+      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 type-body-sm text-slate-400">
+        <span className="type-label tracking-[0.22em] text-slate-500">How to read this</span>{" "}
         <strong className="font-medium text-slate-200">&ldquo;Produced code&rdquo; is not a success rate.</strong> A
         session with no commit is often a question, a code read or a debugging pass: the measure says what was observed
         and leaves the judgement to you.{" "}

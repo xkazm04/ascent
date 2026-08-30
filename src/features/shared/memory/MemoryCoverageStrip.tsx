@@ -48,7 +48,7 @@ export function MemoryCoverageStrip({ coverage }: { coverage: MemoryCoverage }) 
       </div>
 
       {shown.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-xs text-slate-500">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 type-caption text-slate-500">
           <span className="uppercase tracking-[0.2em]">stale</span>
           {shown.map((r) => (
             <span

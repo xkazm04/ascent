@@ -38,14 +38,14 @@ export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, erro
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Drive · to green</Kicker>
-        <span className="font-mono text-xs tabular-nums text-slate-500">
+        <span className="type-caption tabular-nums text-slate-500">
           run {Math.min(p.runsDone + (p.currentRunId ? 1 : 0), p.maxRuns)}/{p.maxRuns}
         </span>
       </div>
 
       <DebtLine debtStart={p.debtStart} debtNow={p.debtNow} debtDrop={p.debtDrop} burned={p.burned} />
 
-      <p className="mt-2 font-mono text-xs tabular-nums text-slate-500">
+      <p className="mt-2 type-caption tabular-nums text-slate-500">
         {p.greenCount}/{p.inScope} green
         {p.remaining.length > 0 && <span className="ml-2 text-slate-600">· {p.remaining.length} short</span>}
         {p.unscanned.length > 0 && <span className="ml-2 text-warn">· {p.unscanned.length} never scanned</span>}
@@ -53,7 +53,7 @@ export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, erro
 
       {p.notMeasurable && (
         <p
-          className="mt-1 font-mono text-xs text-slate-500"
+          className="mt-1 type-caption text-slate-500"
           title="These dimensions are credited partly for tooling that is installed rather than committed (review, CI and coverage Apps; default-branch Actions health), which a local scan cannot observe and no earlier GitHub scan recorded. They are EXCLUDED from the green verdict rather than counted as failed — driving at a number the reading cannot produce is how a loop runs forever."
         >
           {p.notMeasurable}
@@ -61,17 +61,17 @@ export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, erro
       )}
 
       {inFlight ? (
-        <p className="mt-3 inline-flex items-center gap-1.5 font-mono text-xs tabular-nums text-accent">
+        <p className="mt-3 inline-flex items-center gap-1.5 type-caption tabular-nums text-accent">
           <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
           cycle {inFlight.run.cycle}/{inFlight.run.maxCycles} · {inFlight.lanes.filter((l) => l.phase === "done").length}/
           {inFlight.lanes.length} lanes done
         </p>
       ) : p.live ? (
-        <p className="mt-3 font-mono text-xs text-slate-500">Re-scoring the fleet before the next run…</p>
+        <p className="mt-3 type-caption text-slate-500">Re-scoring the fleet before the next run…</p>
       ) : null}
 
-      {drive.error && <p className="mt-2 font-mono text-xs text-danger">{drive.error}</p>}
-      {error && <p className="mt-2 font-mono text-xs text-danger">{error}</p>}
+      {drive.error && <p className="mt-2 type-caption text-danger">{drive.error}</p>}
+      {error && <p className="mt-2 type-caption text-danger">{error}</p>}
 
       {drive.runs.length === 0 ? (
         <InlineEmpty>No run dispatched yet.</InlineEmpty>
@@ -88,7 +88,7 @@ export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, erro
           type="button"
           onClick={onStop}
           disabled={busy || drive.stopRequested}
-          className="focus-ring mt-4 w-full rounded-md border border-danger/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring mt-4 w-full rounded-md border border-danger/60 px-3 py-2 type-label tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {drive.stopRequested ? "Stopping after this run…" : "Stop drive"}
         </button>
@@ -108,14 +108,14 @@ function DebtLine({
   debtDrop: number | null;
   burned: number | null;
 }) {
-  if (debtNow == null) return <p className="mt-2 font-mono text-xs text-slate-500">Measuring the fleet…</p>;
+  if (debtNow == null) return <p className="mt-2 type-caption text-slate-500">Measuring the fleet…</p>;
   return (
     <div className="mt-2">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-2xl tabular-nums text-slate-200">{debtNow}</span>
+        <span className="type-figure text-slate-200">{debtNow}</span>
         <Kicker tone="muted">points of debt</Kicker>
         {debtStart != null && debtDrop != null && (
-          <span className="font-mono text-xs tabular-nums" style={{ color: deltaHex(debtDrop) }}>
+          <span className="type-caption tabular-nums" style={{ color: deltaHex(debtDrop) }}>
             {signedDelta(-debtDrop)} from {debtStart}
           </span>
         )}
@@ -133,10 +133,10 @@ function DriveRunRow({ record, index }: { record: DriveRunRecord; index: number 
   const moved = record.debtAfter != null ? record.debtBefore - record.debtAfter : null;
   return (
     <li className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-ink px-4 py-2.5">
-      <span className="font-mono text-xs text-slate-400">
+      <span className="type-caption text-slate-400">
         run {index + 1} · {record.repos.length} {record.repos.length === 1 ? "repo" : "repos"}
       </span>
-      <span className="font-mono text-xs tabular-nums">
+      <span className="type-caption tabular-nums">
         {moved == null ? (
           <span className="text-slate-600">in flight</span>
         ) : (
@@ -173,19 +173,19 @@ export function DriveVerdict({ drive, onBack }: { drive: DriveStatus; onBack?: (
     <div className={`mb-3 rounded-md border px-3 py-2.5 ${TONE_CLASS[v.tone]}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Drive · {v.label}</Kicker>
-        <span className="font-mono text-xs tabular-nums text-slate-500">
+        <span className="type-caption tabular-nums text-slate-500">
           {p.runsDone}/{p.maxRuns} runs · {p.greenCount}/{p.inScope} green
         </span>
       </div>
-      <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{v.detail}</p>
+      <p className="mt-1.5 type-body-sm leading-relaxed text-slate-400">{v.detail}</p>
       {/* A terminal verdict has to disclose what it could not see. "Green" over six dimensions is a
           real result and a different claim from "green" over nine. */}
-      {p.notMeasurable && <p className="mt-1 font-mono text-xs text-slate-500">{p.notMeasurable}</p>}
+      {p.notMeasurable && <p className="mt-1 type-caption text-slate-500">{p.notMeasurable}</p>}
       {onBack && (
         <button
           type="button"
           onClick={onBack}
-          className="focus-ring mt-3 rounded-md border border-divider px-3 py-1.5 font-mono text-xs uppercase tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
+          className="focus-ring mt-3 rounded-md border border-divider px-3 py-1.5 type-label tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
         >
           Back to inspect
         </button>

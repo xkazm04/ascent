@@ -53,7 +53,7 @@ export function PlaybookAdoptionRow({
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 text-sm">
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-body-sm">
       <span className="font-mono text-slate-400">
         Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
       </span>
@@ -78,18 +78,18 @@ export function PlaybookAdoptionRow({
       )}
       {applied.length > 0 &&
         (trackedUpToDate ? (
-          <span className="font-mono text-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
+          <span className="type-mono-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
         ) : (
           <button
             onClick={trackAsInitiative}
             disabled={tracking}
-            className="font-mono text-sm text-accent hover:text-white disabled:opacity-50"
+            className="type-mono-sm text-accent hover:text-white disabled:opacity-50"
             title={trackedRepos ? "Update the tracked initiative to cover the newly-adopted repos" : "Track this playbook's rollout as an initiative on the Plan tab"}
           >
             {tracking ? "Tracking…" : trackedRepos ? "Update initiative →" : "Track as initiative →"}
           </button>
         ))}
-      {trackError && <span role="alert" className="font-mono text-sm text-orange-300">{trackError}</span>}
+      {trackError && <span role="alert" className="type-mono-sm text-orange-300">{trackError}</span>}
     </div>
   );
 }

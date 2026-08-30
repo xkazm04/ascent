@@ -45,7 +45,7 @@ function Counts({ totals, auditHint }: { totals: EraseTotals; auditHint: string 
     [`Audit rows ${auditHint}`, auditAffectedTotal(totals)],
   ];
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-sm sm:grid-cols-3">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 type-mono-sm sm:grid-cols-3">
       {rows.map(([label, value]) => (
         <div key={label} className="flex items-baseline justify-between gap-2 border-b border-divider py-1">
           <dt className="text-slate-500">{label}</dt>
@@ -90,7 +90,7 @@ export function DataErasureOutcome({
       />
       <ModalBody className="space-y-4">
         {resumable && (
-          <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-200">
+          <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-200">
             This organization is too large to erase inside one request, so the erase stopped cleanly at a batch
             boundary instead of being cut off mid-delete. Everything counted below is already gone for good; the rest
             is still here. Running it again picks up exactly where it stopped. Repeating the request is safe.
@@ -99,7 +99,7 @@ export function DataErasureOutcome({
         {!result.audited && (
           <p
             role="alert"
-            className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger-soft"
+            className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 type-body-sm text-danger-soft"
           >
             The deletes below were applied and cannot be undone, but the <code>data.erased</code> audit entry could
             not be written. This erasure has no trace in the audit trail. Record it out of band (ticket, DSR log)
@@ -107,19 +107,19 @@ export function DataErasureOutcome({
           </p>
         )}
         {clean && (
-          <p role="status" className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-200">
+          <p role="status" className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 type-body-sm text-emerald-200">
             Every scan in scope is erased and the <code>data.erased</code> audit entry is written. The organization,
             its repositories, its members and your configuration are untouched.
           </p>
         )}
         <Counts totals={totals} auditHint={auditDispositionHint(disposition)} />
-        <p className="font-mono text-xs text-slate-500">
+        <p className="type-caption text-slate-500">
           {totals.passes === 1 ? "One pass" : `${totals.passes} passes`}
           {` · ${auditDispositionSummary(disposition)}`}
         </p>
       </ModalBody>
       <ModalFooter>
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           {resumable ? "Erased batches are already durable" : "This cannot be undone"}
         </span>
         <div className="flex items-center gap-2">
@@ -127,7 +127,7 @@ export function DataErasureOutcome({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             {resumable ? "Stop here" : "Close"}
           </button>
@@ -136,7 +136,7 @@ export function DataErasureOutcome({
               type="button"
               onClick={onResume}
               disabled={busy}
-              className="focus-ring rounded-lg bg-danger px-4 py-2 font-mono text-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
+              className="focus-ring rounded-lg bg-danger px-4 py-2 type-mono-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
             >
               {busy ? "Erasing…" : "Continue erasing"}
             </button>

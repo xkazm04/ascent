@@ -34,11 +34,11 @@ export function CockpitDriveResume({ drive, onResume, onDismiss, busy = false, e
     <div data-testid="drive-interrupted" className="mb-3 rounded-md border border-warn/60 px-3 py-2.5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Drive · {verdict.label}</Kicker>
-        <span className="font-mono text-xs tabular-nums text-slate-500">
+        <span className="type-caption tabular-nums text-slate-500">
           {resume ? `${resume.runsDone}/${drive.maxRuns} runs spent` : `${drive.maxRuns}/${drive.maxRuns} runs spent`}
         </span>
       </div>
-      <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{verdict.detail}</p>
+      <p className="mt-1.5 type-body-sm leading-relaxed text-slate-400">{verdict.detail}</p>
 
       {resume ? (
         <button
@@ -46,23 +46,23 @@ export function CockpitDriveResume({ drive, onResume, onDismiss, busy = false, e
           data-testid="drive-resume"
           onClick={onResume}
           disabled={busy}
-          className="focus-ring mt-3 w-full rounded-md border border-accent/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className="focus-ring mt-3 w-full rounded-md border border-accent/60 px-3 py-2 type-label tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy ? "Resuming…" : `Resume drive (${resume.runsLeft} ${resume.runsLeft === 1 ? "run" : "runs"} left)`}
         </button>
       ) : (
-        <p className="mt-3 font-mono text-xs text-slate-500">
+        <p className="mt-3 type-caption text-slate-500">
           The run budget is spent — start a fresh drive with more rope to keep going.
         </p>
       )}
 
-      {error && <p className="mt-2 font-mono text-xs text-danger">{error}</p>}
+      {error && <p className="mt-2 type-caption text-danger">{error}</p>}
 
       <button
         type="button"
         data-testid="drive-dismiss"
         onClick={onDismiss}
-        className="focus-ring mt-2 w-full rounded-md border border-divider px-3 py-1.5 font-mono text-xs uppercase tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
+        className="focus-ring mt-2 w-full rounded-md border border-divider px-3 py-1.5 type-label tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
       >
         Dismiss
       </button>

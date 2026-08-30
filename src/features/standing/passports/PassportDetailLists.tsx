@@ -42,16 +42,16 @@ export function BlockerList({
 }) {
   return (
     <div>
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{title}</div>
+      <div className="type-label tracking-widest text-slate-500">{title}</div>
       {items.length === 0 ? (
-        <p className="mt-1.5 text-sm text-emerald-400/80">{allClear}</p>
+        <p className="mt-1.5 type-body-sm text-emerald-400/80">{allClear}</p>
       ) : (
         <ul className="mt-1.5 space-y-2.5">
           {items.map((b) => {
             const key = blockerKey(fullName, b);
             const decision = decisions[key];
             return (
-              <li key={b} className={`text-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
+              <li key={b} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
                   <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
                   {b}
@@ -84,22 +84,22 @@ export function DeclinedList({ items }: { items: DeclinedByChoice[] }) {
   const stale = items.filter((d) => d.needsReconfirm).length;
   return (
     <div>
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">
+      <div className="type-label tracking-widest text-slate-500">
         Accepted by choice
         {stale > 0 && <span className="ml-2 text-amber-400">{stale} need re-confirmation</span>}
       </div>
       <ul className="mt-1.5 space-y-2.5">
         {items.map((d) => (
-          <li key={d.path} className="text-sm">
+          <li key={d.path} className="type-body-sm">
             <span className="flex gap-2">
               <span aria-hidden className={`mt-0.5 shrink-0 ${d.needsReconfirm ? "text-amber-400" : "text-slate-600"}`}>
                 {d.needsReconfirm ? "!" : "◇"}
               </span>
               <span className="min-w-0">
                 <span className="text-slate-400">{d.label}</span>
-                {d.at && <span className="font-mono text-xs text-slate-600"> · declined {d.at}</span>}
+                {d.at && <span className="type-caption text-slate-600"> · declined {d.at}</span>}
                 {d.needsReconfirm && (
-                  <span className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-amber-400">
+                  <span className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 font-mono type-micro uppercase tracking-widest text-amber-400">
                     needs re-confirmation
                   </span>
                 )}

@@ -35,10 +35,10 @@ function NetImpact({ ops }: { ops: OpsView }) {
   return (
     <div className="rounded-2xl border border-divider bg-surface-strong/30 p-5">
       <Kicker tone="muted">Net impact shipped</Kicker>
-      <div className="mt-1 font-mono text-4xl font-bold tabular-nums" style={{ color: deltaHex(imp.netOverall) }}>
+      <div className="mt-1 font-mono type-display-lg font-bold tabular-nums" style={{ color: deltaHex(imp.netOverall) }}>
         {fmtDelta(imp.netOverall)}
       </div>
-      <p className="mt-1 font-mono text-base text-slate-500">
+      <p className="mt-1 font-mono type-body text-slate-500">
         {imp.verified} PRs verified · {imp.dimsLifted} dims lifted{imp.awaiting > 0 ? ` · ${imp.awaiting} awaiting` : ""}
       </p>
     </div>
@@ -57,10 +57,10 @@ export function TvStanding({ data }: { data: TvStageData }) {
               <Kicker tone="muted">Goal</Kicker>
               <PaceChip pace={goal.pace} />
             </div>
-            <p className="mt-1 text-lg font-medium text-white">{goal.label}</p>
-            <div className="mt-2 font-mono text-4xl font-bold tabular-nums" style={{ color: goal.achieved ? "#34d399" : scoreHex(goal.current) }}>
+            <p className="mt-1 type-lede font-medium text-white">{goal.label}</p>
+            <div className="mt-2 font-mono type-display-lg font-bold tabular-nums" style={{ color: goal.achieved ? "#34d399" : scoreHex(goal.current) }}>
               {goal.current}
-              <span className="text-xl text-slate-500">/{goal.target}</span>
+              <span className="type-title text-slate-500">/{goal.target}</span>
             </div>
             {/* TV mode is a wall in a room: no hover, no screen reader, read from across it. So the
                 attainment basis is VISIBLE text under the bar (the aria label repeats it for the
@@ -68,7 +68,7 @@ export function TvStanding({ data }: { data: TvStageData }) {
                 next to a progress goal that opens empty it invites a comparison neither supports. */}
             <Meter className="mt-2" value={goal.current} threshold={goal.target} color={goal.achieved ? "#34d399" : scoreHex(goal.current)} ariaLabel={goalMeterAriaLabel(goal)} />
             {goalBasisMarker(goal) && (
-              <p className="mt-1.5 font-mono text-base text-slate-500">{goalBasisMarker(goal)}</p>
+              <p className="mt-1.5 font-mono type-body text-slate-500">{goalBasisMarker(goal)}</p>
             )}
           </div>
         )}
@@ -85,7 +85,7 @@ export function TvScanning({ data }: { data: TvStageData }) {
         <div>
           <div className="flex items-baseline justify-between">
             <Kicker>Scanning the fleet</Kicker>
-            <span className="font-mono text-lg tabular-nums text-slate-300">
+            <span className="font-mono type-lede tabular-nums text-slate-300">
               {data.progress.done}/{data.progress.total}
             </span>
           </div>
@@ -93,7 +93,7 @@ export function TvScanning({ data }: { data: TvStageData }) {
             <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, data.pct)}%` }} />
           </div>
           {data.progress.current && (
-            <p className="mt-2 truncate font-mono text-base text-slate-500" suppressHydrationWarning>
+            <p className="mt-2 truncate font-mono type-body text-slate-500" suppressHydrationWarning>
               scanning {shortName(data.progress.current)}…
             </p>
           )}
@@ -112,34 +112,34 @@ export function TvDecide({ data }: { data: TvStageData }) {
   const { ops } = data;
   const next = ops.state.triage[0];
   if (!next) {
-    return <p className="py-10 text-center text-lg text-slate-400">Radar clear. Every direction triaged.</p>;
+    return <p className="py-10 text-center type-lede text-slate-400">Radar clear. Every direction triaged.</p>;
   }
   const busy = ops.busy[next.recommendationId];
   return (
     <div className="mx-auto max-w-3xl rounded-2xl border border-accent/30 bg-accent/5 p-6">
       <div className="flex items-center justify-between">
         <Kicker>Next decision</Kicker>
-        <span className="font-mono text-base text-slate-500">{ops.state.counts.triage} queued</span>
+        <span className="font-mono type-body text-slate-500">{ops.state.counts.triage} queued</span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-base">
+      <div className="mt-2 flex flex-wrap items-center gap-2 font-mono type-body">
         <Link href={reportPermalink(next.repoFullName)} className="text-slate-100 hover:text-accent">
           {next.repoName}
         </Link>
         <span className="text-slate-500">
           {next.dimId} · {dimShort(next.dimId)}
         </span>
-        <span className={`rounded border px-1.5 text-sm ${IMPACT_CLASS[next.impact] ?? IMPACT_CLASS.low}`}>{next.impact} impact</span>
-        <span className={`rounded border px-1.5 text-sm ${EFFORT_CLASS[next.effort] ?? EFFORT_CLASS.low}`}>{next.effort} effort</span>
+        <span className={`rounded border px-1.5 type-body-sm ${IMPACT_CLASS[next.impact] ?? IMPACT_CLASS.low}`}>{next.impact} impact</span>
+        <span className={`rounded border px-1.5 type-body-sm ${EFFORT_CLASS[next.effort] ?? EFFORT_CLASS.low}`}>{next.effort} effort</span>
       </div>
-      <p className="mt-3 text-2xl leading-snug text-white">{next.title}</p>
-      {next.rationale && <p className="mt-2 text-lg text-slate-400">{next.rationale}</p>}
-      <p className="mt-2 font-mono text-sm text-slate-600">seeds: {next.practiceLabel}</p>
+      <p className="mt-3 type-heading leading-snug text-white">{next.title}</p>
+      {next.rationale && <p className="mt-2 type-lede text-slate-400">{next.rationale}</p>}
+      <p className="mt-2 type-mono-sm text-slate-600">seeds: {next.practiceLabel}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => ops.accept(next.recommendationId)}
           disabled={Boolean(busy)}
-          className="focus-ring rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 font-mono text-base font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+          className="focus-ring rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 font-mono type-body font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
         >
           {busy === "accept" ? "Opening PR…" : "✓ Open PR & watch it merge"}
         </button>
@@ -147,7 +147,7 @@ export function TvDecide({ data }: { data: TvStageData }) {
           type="button"
           onClick={() => ops.reject(next.recommendationId)}
           disabled={Boolean(busy)}
-          className="focus-ring rounded-md border border-slate-700 px-4 py-2 font-mono text-base text-slate-400 transition hover:border-slate-500 hover:text-slate-200 disabled:opacity-50"
+          className="focus-ring rounded-md border border-slate-700 px-4 py-2 font-mono type-body text-slate-400 transition hover:border-slate-500 hover:text-slate-200 disabled:opacity-50"
         >
           {busy === "reject" ? "…" : "✕ Dismiss"}
         </button>
@@ -163,11 +163,11 @@ export function TvInflight({ data }: { data: TvStageData }) {
       <div className="rounded-2xl border border-divider bg-surface-strong/30 p-5">
         <div className="flex items-baseline justify-between">
           <Kicker>PRs in flight</Kicker>
-          <span className="font-mono text-base tabular-nums text-slate-300">{ops.state.counts.inFlight}</span>
+          <span className="font-mono type-body tabular-nums text-slate-300">{ops.state.counts.inFlight}</span>
         </div>
         <div className="mt-3 space-y-2.5">
           {ops.state.inFlight.length === 0 ? (
-            <p className="text-lg text-slate-400">No PRs in flight. Accept a direction to open one.</p>
+            <p className="type-lede text-slate-400">No PRs in flight. Accept a direction to open one.</p>
           ) : (
             ops.state.inFlight.map((p) => <FlightRowDetail key={p.id} item={p} />)
           )}

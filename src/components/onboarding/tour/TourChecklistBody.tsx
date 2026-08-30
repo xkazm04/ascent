@@ -24,7 +24,7 @@ function Rail({
   if (rows.length === 0) return null;
   return (
     <div>
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="type-label tracking-widest text-slate-500">{label}</div>
       <ul className="mt-2 space-y-1">
         {rows.map((item) => (
           <TourTaskRow
@@ -71,7 +71,7 @@ export function TourChecklistBody({
       <Rail label="Learn the dashboard" rows={teach} active={active} onShow={onShow} />
 
       {loaded && items.length === 0 && (
-        <p className="text-sm leading-relaxed text-slate-400">
+        <p className="type-body-sm leading-relaxed text-slate-400">
           Nothing to guide here yet: this workspace has no setup steps to derive.
         </p>
       )}

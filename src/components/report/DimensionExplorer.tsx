@@ -32,8 +32,8 @@ export function DimensionExplorer({
   return (
     <section aria-label="Dimensions" data-testid="report-tab-dimensions" className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white">Dimension breakdown</h2>
-        <p className="mt-1 text-base text-slate-400">
+        <h2 className="type-title font-bold text-white">Dimension breakdown</h2>
+        <p className="mt-1 type-body text-slate-400">
           Nine weighted dimensions on a 0–100 scale. Pick one (on the radar or in the list) to read its
           evidence, gaps, and how the deterministic signal and the AI judgment blended into the score.
         </p>
@@ -110,17 +110,17 @@ function DimBar({
       }
     >
       <div className="flex items-center gap-3">
-        <span className="font-mono text-sm text-slate-500">{d.id}</span>
+        <span className="type-mono-sm text-slate-500">{d.id}</span>
         <span className={`flex-1 truncate font-semibold ${selected ? "text-white" : "text-slate-200"}`}>{d.name}</span>
         {delta !== null && delta !== 0 && (
-          <span className={`text-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+          <span className={`type-body-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
             {delta > 0 ? "▲+" : "▼"}
             {delta}
           </span>
         )}
-        <span className="text-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
-        <span className="flex w-12 items-center justify-end gap-1 text-base font-bold tabular-nums" style={{ color }}>
-          <span aria-hidden className="text-xs">{scoreGlyph(d.score)}</span>
+        <span className="type-body-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
+        <span className="flex w-12 items-center justify-end gap-1 type-body font-bold tabular-nums" style={{ color }}>
+          <span aria-hidden className="type-note">{scoreGlyph(d.score)}</span>
           {d.score}
         </span>
       </div>

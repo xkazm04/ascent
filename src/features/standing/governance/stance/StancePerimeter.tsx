@@ -26,7 +26,7 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
         title="AI perimeter"
         description="One line around the fleet: what the stance permits to cross, how deep a change may go without extra review, and what stays sealed. Every scanned repo is placed in the band its REAL autonomy tier puts it in, and every readout compares the declaration with observed git attribution: declared, not enforced."
         right={
-          <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+          <span className="font-mono type-micro uppercase tracking-[0.18em] text-slate-500">
             v{o.stanceVersion}
             {o.publishedAt ? ` · effective ${o.publishedAt}` : ""}
             {o.publishedBy ? ` · @${o.publishedBy}` : ""}
@@ -55,7 +55,7 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
 
       <section>
         <Kicker>The checkpoint</Kicker>
-        <p className="mb-3 mt-2 max-w-3xl text-base text-slate-300">
+        <p className="mb-3 mt-2 max-w-3xl type-body text-slate-300">
           Nothing reaches a band until it clears the edge. Left: what the stance declares permitted. Right: what PR
           attribution shows crossing without a declaration.
         </p>

@@ -36,17 +36,17 @@ export function OnboardingErrorBanner({
   return (
     <>
       {error && (
-        <div role="alert" className="mb-6 rounded-xl border border-danger/30 bg-danger/5 p-4 text-base text-danger-soft">
+        <div role="alert" className="mb-6 rounded-xl border border-danger/30 bg-danger/5 p-4 type-body text-danger-soft">
           {ONBOARDING_ERROR_COPY[error] ?? "Something went wrong."}
         </div>
       )}
       {resynced && (
-        <div role="status" className="mb-6 rounded-xl border border-success/30 bg-success/10 p-4 text-base text-success-soft">
+        <div role="status" className="mb-6 rounded-xl border border-success/30 bg-success/10 p-4 type-body text-success-soft">
           GitHub access re-synced. {installCount} installation{installCount === 1 ? "" : "s"} now available.
         </div>
       )}
       {revoked && (
-        <div role="status" className="mb-6 rounded-xl border border-success/30 bg-success/10 p-4 text-base text-success-soft">
+        <div role="status" className="mb-6 rounded-xl border border-success/30 bg-success/10 p-4 type-body text-success-soft">
           {revoked === "others"
             ? "Signed out of all other sessions. This browser stays signed in."
             : "Your session was refreshed, but other sessions can't be centrally revoked without a database."}

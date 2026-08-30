@@ -46,11 +46,11 @@ export function GoalBanner({
     <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm uppercase tracking-widest text-accent">Goal</span>
+          <span className="type-mono-sm uppercase tracking-widest text-accent">Goal</span>
           <span className="font-medium text-white">{goal.label}</span>
           <PaceChip pace={goal.pace} />
         </div>
-        <Link href={orgTabHref(slug, "executive")} className="font-mono text-sm text-accent hover:text-white">
+        <Link href={orgTabHref(slug, "executive")} className="type-mono-sm text-accent hover:text-white">
           briefing →
         </Link>
       </div>
@@ -64,7 +64,7 @@ export function GoalBanner({
         color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
         ariaLabel={goalMeterAriaLabel(goal)}
       />
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 type-mono-sm text-slate-400">
         <span>
           {goal.metricLabel} {goal.current}/{goal.target}
           {basisMarker ? <span className="text-slate-500"> · {basisMarker}</span> : null}

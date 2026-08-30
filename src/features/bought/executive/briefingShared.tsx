@@ -36,12 +36,12 @@ export function DimRow({ dimId, label, avg, href }: { dimId: string; label: stri
     <Link
       href={href}
       title={`See the ${label} practice: exemplar, gap repos, and how to lift this dimension`}
-      className="focus-ring group -mx-1 flex items-center gap-3 rounded-md px-1 py-0.5 text-sm transition hover:bg-slate-800/40"
+      className="focus-ring group -mx-1 flex items-center gap-3 rounded-md px-1 py-0.5 type-body-sm transition hover:bg-slate-800/40"
     >
       {body}
     </Link>
   ) : (
-    <div className="flex items-center gap-3 text-sm">{body}</div>
+    <div className="flex items-center gap-3 type-body-sm">{body}</div>
   );
 }
 
@@ -65,21 +65,21 @@ export function MoveRow({
 }) {
   const { arrow, color } = DIRECTION_TONE[tone === "up" ? "rising" : "falling"];
   return (
-    <div className="flex items-center justify-between gap-3 text-base">
+    <div className="flex items-center justify-between gap-3 type-body">
       {/* GA: a mover is a lead — open its stored report to see WHAT moved (older briefings without
           fullName keep the static row). */}
       {fullName ? (
         <Link
           href={`/report/${fullName}`}
           title={`Open ${fullName}'s report`}
-          className="focus-ring min-w-0 truncate font-mono text-sm text-slate-200 transition hover:text-accent"
+          className="focus-ring min-w-0 truncate type-mono-sm text-slate-200 transition hover:text-accent"
         >
           {name}
         </Link>
       ) : (
-        <span className="min-w-0 truncate font-mono text-sm text-slate-200">{name}</span>
+        <span className="min-w-0 truncate type-mono-sm text-slate-200">{name}</span>
       )}
-      <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
+      <span className="flex shrink-0 items-center gap-2 type-mono-sm">
         {from !== to && <span className="text-slate-500">{from}→{to}</span>}
         <span style={{ color }}>
           {arrow} {Math.abs(d)}
@@ -123,11 +123,11 @@ export function PriorPeriodGrid({
           ["Rigor", prior.rigor, now.rigor, prior.dRigor],
         ] as const).map(([label, priorVal, nowVal, delta]) => (
           <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-            <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
+            <div className="type-mono-sm uppercase tracking-widest text-slate-500">{label}</div>
             <div className="mt-1 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(nowVal) }}>{nowVal}</span>
-              <span className="font-mono text-sm text-slate-500">from {priorVal}</span>
-              <span className="font-mono text-sm" style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
+              <span className="type-figure font-bold" style={{ color: scoreHex(nowVal) }}>{nowVal}</span>
+              <span className="type-mono-sm text-slate-500">from {priorVal}</span>
+              <span className="type-mono-sm" style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
             </div>
           </div>
         ))}
@@ -137,7 +137,7 @@ export function PriorPeriodGrid({
           {prior.dims
             .filter((d) => d.delta !== 0)
             .map((d) => (
-              <div key={d.dimId} className="flex items-center justify-between gap-3 font-mono text-sm">
+              <div key={d.dimId} className="flex items-center justify-between gap-3 type-mono-sm">
                 <span className="text-slate-400">{d.dimId} · {d.label}</span>
                 <span>
                   <span className="text-slate-500">{d.prior} → </span>

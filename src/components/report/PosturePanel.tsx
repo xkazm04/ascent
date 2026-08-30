@@ -15,8 +15,8 @@ export function PosturePanel({
     <Surface radius="2xl" className="grid items-center gap-6 p-6 sm:grid-cols-2">
       <div className="flex flex-col justify-center">
         <Kicker tone="accent">Posture</Kicker>
-        <h2 className="mt-1 text-xl font-bold text-white">{report.posture.label}</h2>
-        <p className="mt-1 text-base leading-relaxed text-slate-400">{report.posture.blurb}</p>
+        <h2 className="mt-1 type-title font-bold text-white">{report.posture.label}</h2>
+        <p className="mt-1 type-body leading-relaxed text-slate-400">{report.posture.blurb}</p>
         <div className="mt-5 flex flex-col gap-4">
           <AxisBar label="AI Adoption" value={report.adoptionScore} hint="tooling · agentic · commit signals" index={0} />
           <AxisBar label="Engineering Rigor" value={report.rigorScore} hint="tests · CI/CD · docs · quality" index={1} />
@@ -39,8 +39,8 @@ function AxisBar({ label, value, hint, index }: { label: string; value: number; 
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-base font-medium text-white">{label}</span>
-        <span className="flex items-center gap-1 font-mono text-base tabular-nums" style={{ color }}>
+        <span className="type-body font-medium text-white">{label}</span>
+        <span className="flex items-center gap-1 font-mono type-body tabular-nums" style={{ color }}>
           <span aria-hidden>{scoreGlyph(value)}</span>
           {value}
         </span>
@@ -48,7 +48,7 @@ function AxisBar({ label, value, hint, index }: { label: string; value: number; 
       {/* FillBar (client island) rather than a hand-rolled `transition-all` div: gets the shared
           mount-grow + stagger + reduced-motion snap every sibling report bar gates on. */}
       <FillBar pct={value} color={color} index={index} />
-      <div className="mt-1 font-mono text-sm uppercase tracking-wider text-slate-400">{hint}</div>
+      <div className="mt-1 type-mono-sm uppercase tracking-wider text-slate-400">{hint}</div>
     </div>
   );
 }

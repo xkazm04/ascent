@@ -58,7 +58,7 @@ export function FreshnessControl({
 
   return (
     <>
-    <div className="flex items-center gap-2 font-mono text-sm text-slate-500">
+    <div className="flex items-center gap-2 type-mono-sm text-slate-500">
       <span className="inline-flex items-center gap-1.5">
         <svg aria-hidden viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none">
           <path

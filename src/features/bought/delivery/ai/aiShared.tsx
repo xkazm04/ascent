@@ -8,7 +8,7 @@ export function VerdictChip({ verdict, className = "" }: { verdict: Verdict; cla
   const m = VERDICT_META[verdict];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-xs ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 type-caption ${className}`}
       style={{ borderColor: `${m.hex}66`, backgroundColor: `${m.hex}1a`, color: m.hex }}
       title={m.blurb}
     >
@@ -29,7 +29,7 @@ export function FidelityBadge({ fidelity, className = "" }: { fidelity: string; 
   const m = FIDELITY_UI[fidelity] ?? FIDELITY_UI.noCostSource!;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-xs uppercase tracking-widest ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 type-label tracking-widest ${className}`}
       style={{ borderColor: `${m.hex}66`, backgroundColor: `${m.hex}1a`, color: m.hex }}
       title={m.title}
     >

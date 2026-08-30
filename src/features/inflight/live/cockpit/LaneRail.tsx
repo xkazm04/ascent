@@ -31,10 +31,10 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
   return (
     <li className="bg-ink px-4 py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="min-w-0 truncate font-mono text-sm text-slate-200" title={lane.repoFullName}>
+        <span className="min-w-0 truncate type-mono-sm text-slate-200" title={lane.repoFullName}>
           {lane.repoFullName}
         </span>
-        <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500">
+        <span className="shrink-0 type-caption tabular-nums text-slate-500">
           cycle {lane.cycle} · {lane.commits} commits · {lane.closedIds.length} closed
           {lift != null && lift !== 0 && <span className="ml-2 text-slate-300">{fmtDelta(lift)}</span>}
         </span>
@@ -67,10 +67,10 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
       </div>
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-        <span className={`font-mono text-xs ${failed ? "text-danger" : "text-slate-500"}`}>
+        <span className={`type-caption ${failed ? "text-danger" : "text-slate-500"}`}>
           {failed ? lane.error || "error" : laneCaption(lane)}
         </span>
-        <span className="flex items-center gap-3 font-mono text-xs">
+        <span className="flex items-center gap-3 type-caption">
           {lane.branch && <span className="text-slate-600">{lane.branch}</span>}
           {failed && onRetry && (
             <button
@@ -91,7 +91,7 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
       </div>
 
       {open && tail.length > 0 && (
-        <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded border border-divider bg-surface-strong/60 p-2 font-mono text-[11px] leading-relaxed text-slate-400">
+        <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded border border-divider bg-surface-strong/60 p-2 font-mono type-micro leading-relaxed text-slate-400">
           {tail.join("\n")}
         </pre>
       )}

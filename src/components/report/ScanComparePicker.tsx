@@ -56,7 +56,7 @@ export function ScanComparePicker({
   };
 
   const selectClass =
-    "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-200 outline-none focus:border-accent";
+    "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 type-body text-slate-200 outline-none focus:border-accent";
 
   return (
     <Surface radius="2xl" className="p-4">
@@ -86,7 +86,7 @@ export function ScanComparePicker({
             onClick={() => go(beforeId, afterId)}
             aria-label="Swap baseline and compared scans"
             title="Swap"
-            className="rounded-md border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-md border border-slate-700 px-3 py-2 type-body text-slate-300 transition hover:border-accent hover:text-white"
           >
             ⇄
           </button>
@@ -108,7 +108,7 @@ export function ScanComparePicker({
         </Field>
       </div>
       {isInverted && (
-        <p className="mt-3 font-mono text-sm text-warn">
+        <p className="mt-3 type-mono-sm text-warn">
           ⚠ Baseline is newer than the compared scan, so this diff looks backward in time and may read as a
           regression that&apos;s actually a prior improvement. Swap to compare chronologically.
         </p>

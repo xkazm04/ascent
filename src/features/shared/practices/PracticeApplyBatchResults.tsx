@@ -20,7 +20,7 @@ export function PracticeApplyBatchResults({
           const failed = batchResults.length - opened;
           if (failed === 0 && batchSummary.skipped === 0) return null;
           return (
-            <p className="mt-2 text-sm text-amber-300">
+            <p className="mt-2 type-body-sm text-amber-300">
               Opened {opened} of {batchSummary.attempted} attempted
               {failed > 0 ? ` (${failed} failed)` : ""}
               {batchSummary.skipped > 0
@@ -34,7 +34,7 @@ export function PracticeApplyBatchResults({
           {/* Key includes the index: the server dedupes, but a defensive duplicate repo in
               the results must not blow up the list with colliding React keys. */}
           {batchResults.map((res, i) => (
-            <li key={`${res.repo}-${i}`} className="font-mono text-sm">
+            <li key={`${res.repo}-${i}`} className="type-mono-sm">
               {res.ok ? (
                 <span className="text-emerald-300">
                   ✓ {res.repo.split("/").pop()}:{" "}

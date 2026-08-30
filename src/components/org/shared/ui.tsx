@@ -89,9 +89,9 @@ export function OrgTable({
 }) {
   return (
     <div className={`overflow-x-auto rounded-2xl border border-divider ${className}`}>
-      <table className="w-full text-base" style={{ minWidth: `${minWidth}px` }}>
+      <table className="w-full type-body" style={{ minWidth: `${minWidth}px` }}>
         {caption ? <caption className="sr-only">{caption}</caption> : null}
-        <thead className="bg-surface/60 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{head}</thead>
+        <thead className="bg-surface/60 type-label tracking-[0.2em] text-slate-500">{head}</thead>
         <tbody className="divide-y divide-divider [&>tr]:transition-colors [&>tr:hover]:bg-surface/40">
           {children}
         </tbody>
@@ -144,5 +144,5 @@ export function SectionEmpty({ children }: { children: React.ReactNode }) {
  * EmptyState section variant.
  */
 export function InlineEmpty({ children }: { children: React.ReactNode }) {
-  return <p className="mt-3 text-sm text-slate-500">{children}</p>;
+  return <p className="mt-3 type-body-sm text-slate-500">{children}</p>;
 }

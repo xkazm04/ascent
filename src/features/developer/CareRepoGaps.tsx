@@ -37,7 +37,7 @@ export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView
         {repos.map((r) => (
           <tr key={r.fullName}>
             <td className="px-4 py-3 align-top">
-              <a className="focus-ring font-mono text-base text-accent hover:text-white" href={reportPermalink(r.fullName)}>
+              <a className="focus-ring font-mono type-body text-accent hover:text-white" href={reportPermalink(r.fullName)}>
                 {r.fullName}
               </a>
             </td>
@@ -47,8 +47,8 @@ export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView
             <td className="px-4 py-3 align-top">
               <ul className="space-y-1">
                 {r.openRecommendations.map((rec) => (
-                  <li key={rec.title} className="text-base text-slate-300">
-                    <span className="font-mono text-xs uppercase tracking-widest text-slate-500">{rec.dimension} · </span>
+                  <li key={rec.title} className="type-body text-slate-300">
+                    <span className="type-label tracking-widest text-slate-500">{rec.dimension} · </span>
                     {rec.title}
                   </li>
                 ))}
@@ -65,7 +65,7 @@ export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView
       {repos.map((r) => (
         <div key={r.fullName} className="rounded-xl border border-divider bg-ink p-4">
           <div className="flex items-baseline justify-between gap-3">
-            <a className="focus-ring min-w-0 truncate font-mono text-base text-accent hover:text-white" href={reportPermalink(r.fullName)} title={r.fullName}>
+            <a className="focus-ring min-w-0 truncate font-mono type-body text-accent hover:text-white" href={reportPermalink(r.fullName)} title={r.fullName}>
               {r.fullName}
             </a>
             <CareLevelMark level={r.level} score={r.score} />
@@ -73,8 +73,8 @@ export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView
           <ul className="mt-3 space-y-2 border-t border-divider pt-3">
             {r.openRecommendations.map((rec) => (
               <li key={rec.title}>
-                <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{rec.dimension}</div>
-                <div className="text-base text-slate-300">{rec.title}</div>
+                <div className="type-label tracking-widest text-slate-500">{rec.dimension}</div>
+                <div className="type-body text-slate-300">{rec.title}</div>
                 <div className="mt-1">
                   <CareLinkAction label="Make this a move" intent="move.fromRecommendation" payload={{ repo: r.fullName, title: rec.title }} />
                 </div>

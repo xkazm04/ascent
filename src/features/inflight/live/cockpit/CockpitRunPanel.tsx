@@ -40,13 +40,13 @@ export function CockpitRunPanel({ detail, live, onStop, onRetry, busy = false, e
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="accent">Run · {run.phase}</Kicker>
-        <span className="font-mono text-xs tabular-nums text-slate-500">
+        <span className="type-caption tabular-nums text-slate-500">
           cycle {run.cycle}/{run.maxCycles} · {done}/{lanes.length} lanes done
         </span>
       </div>
 
-      {run.error && <p className="mt-2 font-mono text-xs text-danger">{run.error}</p>}
-      {error && <p className="mt-2 font-mono text-xs text-danger">{error}</p>}
+      {run.error && <p className="mt-2 type-caption text-danger">{run.error}</p>}
+      {error && <p className="mt-2 type-caption text-danger">{error}</p>}
 
       {lanes.length === 0 ? (
         <InlineEmpty>No lanes on the board yet.</InlineEmpty>
@@ -63,7 +63,7 @@ export function CockpitRunPanel({ detail, live, onStop, onRetry, busy = false, e
           type="button"
           onClick={onStop}
           disabled={busy}
-          className="focus-ring mt-4 w-full rounded-md border border-danger/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:opacity-50"
+          className="focus-ring mt-4 w-full rounded-md border border-danger/60 px-3 py-2 type-label tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:opacity-50"
         >
           Stop after in-flight
         </button>

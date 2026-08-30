@@ -107,13 +107,13 @@ export function PlaybookApplyBatch({
       <button
         onClick={() => setOpen((s) => !s)}
         aria-expanded={open}
-        className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white"
+        className="type-mono-sm uppercase tracking-widest text-accent hover:text-white"
       >
         {open ? "▾" : "▸"} Roll out to the fleet ({repoOptions.length} repos)
       </button>
       {open && (
         <div className="mt-2">
-          <div className="mb-2 flex flex-wrap items-center gap-3 font-mono text-sm text-slate-500">
+          <div className="mb-2 flex flex-wrap items-center gap-3 type-mono-sm text-slate-500">
             <button onClick={() => setSelected(new Set(repoOptions))} className="hover:text-white">
               select all
             </button>
@@ -125,7 +125,7 @@ export function PlaybookApplyBatch({
           </div>
           <div className="grid max-h-44 gap-1 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3 sm:grid-cols-2">
             {repoOptions.map((r) => (
-              <label key={r} className="flex items-center gap-2 font-mono text-sm text-slate-300">
+              <label key={r} className="flex items-center gap-2 type-mono-sm text-slate-300">
                 <input type="checkbox" checked={selected.has(r)} onChange={() => toggle(r)} className="accent-accent" />
                 <span className="truncate">{r.split("/").pop()}</span>
                 {applied.includes(r) && <span className="shrink-0 text-slate-600">· adopted</span>}
@@ -135,11 +135,11 @@ export function PlaybookApplyBatch({
           <button
             onClick={() => setConfirming(true)}
             disabled={busy || singleBusy || count === 0}
-            className="mt-3 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+            className="mt-3 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
           >
             {busy ? `Opening ${count} PRs…` : `Open draft PRs across ${count} repo${count === 1 ? "" : "s"} →`}
           </button>
-          {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+          {error && <p className="mt-2 type-body-sm text-orange-300">{error}</p>}
           <PracticeApplyBatchResults batchResults={results} batchSummary={summary} />
         </div>
       )}

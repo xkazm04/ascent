@@ -23,8 +23,8 @@ function Notice({ title, body }: { title: string; body: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-divider bg-ink px-6 py-8">
       <Kicker tone="muted">Knowledge base</Kicker>
-      <h2 className="mt-2 text-lg font-medium text-slate-100">{title}</h2>
-      <p className="mt-2 max-w-2xl text-sm text-slate-400">{body}</p>
+      <h2 className="mt-2 type-lede font-medium text-slate-100">{title}</h2>
+      <p className="mt-2 max-w-2xl type-body-sm text-slate-400">{body}</p>
     </div>
   );
 }
@@ -39,7 +39,7 @@ export async function KnowledgeTab({ slug }: { slug: string }) {
         body={
           <>
             Knowledge bundles live in the org&apos;s registry repo under{" "}
-            <span className="font-mono text-xs text-slate-300">knowledge/&lt;domain&gt;/</span>. Map the registry
+            <span className="type-caption text-slate-300">knowledge/&lt;domain&gt;/</span>. Map the registry
             first — the Registry tab is the onboarding step this one depends on.
           </>
         }
@@ -67,8 +67,8 @@ export async function KnowledgeTab({ slug }: { slug: string }) {
         title="The registry publishes no bundles"
         body={
           <>
-            <span className="font-mono text-xs text-slate-300">{view.registry?.fullName}</span> is mapped and indexed,
-            but carries no <span className="font-mono text-xs text-slate-300">knowledge/</span> lane. A bundle is a
+            <span className="type-caption text-slate-300">{view.registry?.fullName}</span> is mapped and indexed,
+            but carries no <span className="type-caption text-slate-300">knowledge/</span> lane. A bundle is a
             directory of markdown plus a generated index; adding one is a pull request like any other.
           </>
         }
@@ -81,10 +81,10 @@ export async function KnowledgeTab({ slug }: { slug: string }) {
       {view.provisional ? (
         <div className="rounded-2xl border border-divider bg-ink px-5 py-4">
           <Kicker tone="muted">Preview</Kicker>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 type-body-sm text-slate-400">
             These counts are the registry&apos;s real contents read once by hand, not an index pass — the
             indexer walks skills, practices and memory today and does not parse{" "}
-            <span className="font-mono text-xs text-slate-300">knowledge/**</span> yet. Shape is final;
+            <span className="type-caption text-slate-300">knowledge/**</span> yet. Shape is final;
             freshness is not.
           </p>
         </div>

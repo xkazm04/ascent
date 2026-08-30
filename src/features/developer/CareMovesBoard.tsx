@@ -25,26 +25,26 @@ function MoveCard({ move, showState }: { move: CareMove; showState: boolean }) {
         {showState ? <CareStateChip state={move.state} /> : null}
         <CareCategoryChip category={move.category} />
         {move.tryFor != null ? (
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">try for {move.tryFor} sessions</span>
+          <span className="type-label tracking-widest text-slate-500">try for {move.tryFor} sessions</span>
         ) : null}
       </div>
-      <h4 className={`mt-2 text-base ${closed ? "text-slate-400" : "font-medium text-white"}`}>{move.title}</h4>
-      <p className="mt-2 text-sm text-slate-400">
-        <span className="font-mono text-xs uppercase tracking-widest text-slate-500">why · </span>
+      <h4 className={`mt-2 type-body ${closed ? "text-slate-400" : "font-medium text-white"}`}>{move.title}</h4>
+      <p className="mt-2 type-body-sm text-slate-400">
+        <span className="type-label tracking-widest text-slate-500">why · </span>
         {move.why}
       </p>
       {move.evidence ? (
-        <p className="mt-1.5 text-sm text-slate-300">
-          <span className="font-mono text-xs uppercase tracking-widest text-accent">fleet · </span>
+        <p className="mt-1.5 type-body-sm text-slate-300">
+          <span className="type-label tracking-widest text-accent">fleet · </span>
           {move.evidence}
         </p>
       ) : (
-        <p className="mt-1.5 text-sm text-slate-600">
-          <span className="font-mono text-xs uppercase tracking-widest">fleet · </span>
+        <p className="mt-1.5 type-body-sm text-slate-600">
+          <span className="type-label tracking-widest">fleet · </span>
           nothing observed yet
         </p>
       )}
-      {move.droppedReason ? <p className="mt-1.5 text-sm text-slate-500">Dropped: {move.droppedReason}</p> : null}
+      {move.droppedReason ? <p className="mt-1.5 type-body-sm text-slate-500">Dropped: {move.droppedReason}</p> : null}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-divider pt-3">
         <CareSaving minutes={move.expectedSaving} />
         <div className="flex flex-wrap items-center gap-2">
@@ -96,11 +96,11 @@ export function CareMovesBoard({
         <section key={state} aria-label={CARE_STATE_LABEL[state]}>
           <div className="flex items-baseline justify-between border-b border-divider pb-2">
             <CareStateChip state={state} />
-            <span className="font-mono text-sm tabular-nums text-slate-500">{byState[state].length}</span>
+            <span className="type-mono-sm tabular-nums text-slate-500">{byState[state].length}</span>
           </div>
           <div className="mt-3 space-y-3">
             {byState[state].length === 0 ? (
-              <p className="text-sm text-slate-600">—</p>
+              <p className="type-body-sm text-slate-600">—</p>
             ) : (
               byState[state].map((m) => <MoveCard key={m.id} move={m} showState={false} />)
             )}

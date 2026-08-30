@@ -60,7 +60,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-3xl text-base text-slate-400">
+        <p className="max-w-3xl type-body text-slate-400">
           The fleet rolled up by the teams that own it (from each repo&apos;s{" "}
           <span className="font-mono text-slate-300">CODEOWNERS</span>), showing where institutional AI knowledge sits and where a
           pairing could spread it. Inputs to explore, not a ranking.
@@ -109,7 +109,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
 
       <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />
 
-      <p className="mt-6 max-w-3xl font-mono text-sm text-slate-600">
+      <p className="mt-6 max-w-3xl type-mono-sm text-slate-600">
         Attribution parses CODEOWNERS at scan time; a repo counts toward every team that owns part of it, so numbers reflect
         responsibility, never a ranking. Δ compares each repo&apos;s two latest scans. GitHub Teams (GraphQL) attribution is
         on the roadmap.

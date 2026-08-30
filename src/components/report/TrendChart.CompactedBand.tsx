@@ -38,7 +38,7 @@ export function CompactedNote({ points }: { points: readonly { compacted?: boole
   if (compacted.length === 0) return null;
   const scans = compacted.reduce((n, p) => n + (p.scans ?? 0), 0);
   return (
-    <p data-compacted-note className="mt-2 flex items-start gap-2 text-sm text-slate-500">
+    <p data-compacted-note className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
       <svg aria-hidden viewBox="0 0 24 12" className="mt-1 h-3 w-6 shrink-0">
         <line x1={0} y1={6} x2={24} y2={6} stroke="currentColor" strokeWidth={2} strokeDasharray="5 4" />
         <circle cx={12} cy={6} r={3.5} fill="var(--color-surface-strong)" stroke="currentColor" strokeWidth={2} />
@@ -54,7 +54,7 @@ export function CompactedNote({ points }: { points: readonly { compacted?: boole
 /** The extra tooltip lines a compacted point carries: what it summarises, and under which rubric. */
 export function CompactedTooltipLines({ point }: { point: { scans?: number; rubric?: string | null } }) {
   return (
-    <div className="mt-1 text-xs text-slate-400">
+    <div className="mt-1 type-note text-slate-400">
       <div>
         Period average of {point.scans ?? 0} {point.scans === 1 ? "scan" : "scans"} · no permalink
       </div>

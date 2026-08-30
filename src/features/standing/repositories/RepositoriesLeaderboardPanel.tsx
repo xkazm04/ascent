@@ -93,7 +93,7 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
               <a
                 href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
                 title={posture || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV"}
-                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
               >
                 Export CSV
               </a>
@@ -106,7 +106,7 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
           <Link
             href={chipHref(null)}
             aria-current={posture === null ? "true" : undefined}
-            className={`focus-ring rounded-full border px-2.5 py-1 font-mono text-sm transition ${posture === null ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
+            className={`focus-ring rounded-full border px-2.5 py-1 type-mono-sm transition ${posture === null ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
           >
             All <span className="text-slate-500">{leaderboard.length}</span>
           </Link>
@@ -115,7 +115,7 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
               key={p}
               href={chipHref(p)}
               aria-current={posture === p ? "true" : undefined}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-sm transition ${posture === p ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
+              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 type-mono-sm transition ${posture === p ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
             >
               <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_HEX[p] ?? "#64748b" }} />
               {postureLabel(p)} <span className="text-slate-500">{postureCounts.get(p)}</span>

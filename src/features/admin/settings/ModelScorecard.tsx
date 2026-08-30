@@ -36,17 +36,17 @@ const barTone = (s: number) =>
 function ArtifactRow({ m }: { m: ModelScore }) {
   return (
     <div className="grid grid-cols-1 gap-2 border-b border-slate-800 px-1 py-3 last:border-0 sm:grid-cols-[1.5fr_1.7fr_0.9fr_0.9fr_0.7fr] sm:items-center sm:gap-3">
-      <span className="text-sm font-medium text-slate-200" title={m.model}>
+      <span className="type-body-sm font-medium text-slate-200" title={m.model}>
         {short(m.model)}
       </span>
-      <span className="text-sm text-slate-400 sm:col-span-3">
+      <span className="type-body-sm text-slate-400 sm:col-span-3">
         <span className="text-amber-300">{ADAPTER_ARTIFACT_LABEL}</span>
         <span className="text-slate-500">
           : output was truncated at the {m.outTok.toLocaleString()}-token cap on every attempt, so nothing was
           scored. See <span className="font-mono">docs/features/scanning/llm-model-matrix.md</span>.
         </span>
       </span>
-      <span className="text-sm tabular-nums text-slate-400 sm:text-right" title="Median assess latency">
+      <span className="type-body-sm tabular-nums text-slate-400 sm:text-right" title="Median assess latency">
         {secs(m.p50Ms)}
       </span>
     </div>
@@ -57,12 +57,12 @@ function Row({ m, best }: { m: ModelScore; best: boolean }) {
   const overall = overallScore(m);
   return (
     <div className="grid grid-cols-1 gap-2 border-b border-slate-800 px-1 py-3 last:border-0 sm:grid-cols-[1.5fr_1.7fr_0.9fr_0.9fr_0.7fr] sm:items-center sm:gap-3">
-      <span className="text-sm font-medium text-slate-200" title={m.model}>
+      <span className="type-body-sm font-medium text-slate-200" title={m.model}>
         {short(m.model)}
-        {best ? <span className="ml-2 text-xs font-normal text-accent">★ top</span> : null}
+        {best ? <span className="ml-2 type-note font-normal text-accent">★ top</span> : null}
         {m.reliability < LOW_RELIABILITY ? (
           <span
-            className="ml-2 text-xs font-normal text-orange-300"
+            className="ml-2 type-note font-normal text-orange-300"
             title={`Produced a usable assessment on ${pct(m.reliability)} of repos; the rest errored or under-covered the rubric.`}
           >
             ⚠ {pct(m.reliability)}
@@ -70,7 +70,7 @@ function Row({ m, best }: { m: ModelScore; best: boolean }) {
         ) : null}
       </span>
       <div className="flex items-center gap-2">
-        <span className="w-8 text-sm font-semibold tabular-nums text-slate-100">{overall.toFixed(1)}</span>
+        <span className="w-8 type-body-sm font-semibold tabular-nums text-slate-100">{overall.toFixed(1)}</span>
         <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800" aria-hidden>
           <span
             className={`block h-full rounded-full ${barTone(overall)}`}
@@ -78,16 +78,16 @@ function Row({ m, best }: { m: ModelScore; best: boolean }) {
           />
         </span>
       </div>
-      <span className="text-sm tabular-nums text-slate-400 sm:text-right" title="LLM-as-judge output quality (1–10)">
+      <span className="type-body-sm tabular-nums text-slate-400 sm:text-right" title="LLM-as-judge output quality (1–10)">
         {m.quality.toFixed(1)} <span className="text-slate-600">qual</span>
       </span>
       <span
-        className="text-sm tabular-nums text-slate-400 sm:text-right"
+        className="type-body-sm tabular-nums text-slate-400 sm:text-right"
         title={`Calibration: ${pct(m.within1)} within one level, ${pct(m.exact)} exact (MAE ${m.mae.toFixed(1)})`}
       >
         {pct(m.within1)} <span className="text-slate-600">cal</span>
       </span>
-      <span className="text-sm tabular-nums text-slate-400 sm:text-right" title="Median assess latency">
+      <span className="type-body-sm tabular-nums text-slate-400 sm:text-right" title="Median assess latency">
         {secs(m.p50Ms)}
       </span>
     </div>
@@ -118,7 +118,7 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
         description="How each model performs on Ascent's repo-maturity assessment: judged output quality, calibration against the labeled benchmark, reliability, and speed. Use it to pick the model to connect above."
       />
       <div className="mt-4">
-        <div className="hidden grid-cols-[1.5fr_1.7fr_0.9fr_0.9fr_0.7fr] gap-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+        <div className="hidden grid-cols-[1.5fr_1.7fr_0.9fr_0.9fr_0.7fr] gap-3 px-1 pb-2 type-note font-semibold uppercase tracking-wide text-slate-500 sm:grid">
           <span>Model</span>
           <span>Overall</span>
           <span className="text-right">Quality</span>
@@ -136,13 +136,13 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
       {stale && (
         <p
           role="status"
-          className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-xs leading-relaxed text-orange-200"
+          className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 type-note leading-relaxed text-orange-200"
         >
           This benchmark is {ageDays} days old (over {MATRIX_STALE_AFTER_DAYS}). Model lineups turn over faster
           than that. Treat it as a historical record and re-run the matrix before pinning a model.
         </p>
       )}
-      <p className="mt-3 text-xs leading-relaxed text-slate-500">
+      <p className="mt-3 type-note leading-relaxed text-slate-500">
         Measured {date} · judge {short(MATRIX_SCORES.judge)} · {MATRIX_SCORES.repos} labeled repos.
         Overall = 60% judged quality + 40% calibration, scaled by reliability. Small sample: directional,
         not a leaderboard to the decimal. Cost is not billed for these slugs; latency is the speed proxy.

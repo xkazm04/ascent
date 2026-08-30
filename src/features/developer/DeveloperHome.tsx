@@ -38,7 +38,7 @@ export function DeveloperHome({ view, slug }: { view: DeveloperView; slug: strin
               type="button"
               aria-pressed={preview === null}
               onClick={() => setPreview(null)}
-              className={`focus-ring rounded-md px-2.5 py-1.5 font-mono text-sm transition-colors ${
+              className={`focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors ${
                 preview === null ? "bg-surface text-slate-200" : "text-slate-500 hover:text-slate-200"
               }`}
             >
@@ -50,7 +50,7 @@ export function DeveloperHome({ view, slug }: { view: DeveloperView; slug: strin
                 type="button"
                 aria-pressed={preview === p}
                 onClick={() => setPreview(p)}
-                className={`focus-ring rounded-md px-2.5 py-1.5 font-mono text-sm transition-colors ${
+                className={`focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors ${
                   preview === p ? "bg-surface text-slate-200" : "text-slate-500 hover:text-slate-200"
                 }`}
               >
@@ -58,7 +58,7 @@ export function DeveloperHome({ view, slug }: { view: DeveloperView; slug: strin
               </button>
             ))}
           </div>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 type-body-sm text-slate-500">
             Nothing of yours has landed here yet. These are shaped examples, stamped as previews — they are not
             anyone&apos;s data, and switching away from &quot;your view&quot; never writes anything.
           </p>

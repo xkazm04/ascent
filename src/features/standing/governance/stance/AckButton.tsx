@@ -36,11 +36,11 @@ export function AckButton({ org, repo, version }: { org: string; repo: string; v
         onClick={ack}
         disabled={busy}
         title={error ?? `Record that ${repo} adopted stance v${version}`}
-        className="focus-ring rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs uppercase tracking-[0.14em] text-slate-400 transition hover:border-accent hover:text-white disabled:opacity-50"
+        className="focus-ring rounded border border-slate-700 px-1.5 py-0.5 font-mono type-micro uppercase tracking-[0.14em] text-slate-400 transition hover:border-accent hover:text-white disabled:opacity-50"
       >
         {busy ? "…" : `Ack v${version}`}
       </button>
-      {error && <span className="text-xs text-orange-300">{error}</span>}
+      {error && <span className="type-micro text-orange-300">{error}</span>}
     </span>
   );
 }

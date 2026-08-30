@@ -33,7 +33,7 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="muted">Fleet sync</Kicker>
-        <Link href={orgTabHref(slug, "skills")} className="font-mono text-xs text-accent transition hover:text-white">
+        <Link href={orgTabHref(slug, "skills")} className="type-caption text-accent transition hover:text-white">
           skills heatmap →
         </Link>
       </div>
@@ -66,7 +66,7 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
       </div>
 
       {totalStates === 0 ? (
-        <p className="text-sm text-slate-500">
+        <p className="type-body-sm text-slate-500">
           No adoption measured yet — the next scan of each repo hashes its <code className="font-mono">.claude/skills</code> against
           the catalog and fills this in.
         </p>
@@ -79,9 +79,9 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
             const color = s.key === "inSync" ? scoreHex(90) : s.key === "stale" ? scoreHex(55) : s.key === "diverged" ? scoreHex(25) : scoreHex(40);
             return (
               <li key={s.key} className="flex items-center gap-3 bg-surface/40 px-4 py-2" title={s.hint}>
-                <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{s.label}</span>
+                <span className="w-24 shrink-0 type-caption text-slate-400">{s.label}</span>
                 <Meter value={pct} color={color} size="sm" className="flex-1" ariaLabel={`${s.label} share`} />
-                <span className="w-8 shrink-0 text-right font-mono text-sm tabular-nums text-slate-200">{n}</span>
+                <span className="w-8 shrink-0 text-right type-mono-sm tabular-nums text-slate-200">{n}</span>
               </li>
             );
           })}

@@ -6,7 +6,7 @@
 import Link from "next/link";
 
 const CHIP =
-  "focus-ring inline-flex items-center gap-2 rounded-md border border-divider px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white";
+  "focus-ring inline-flex items-center gap-2 rounded-md border border-divider px-3 py-1.5 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white";
 
 export function RegisterPager({ page, totalPages, basePath }: { page: number; totalPages: number; basePath: string }) {
   if (totalPages <= 1) return null;
@@ -20,7 +20,7 @@ export function RegisterPager({ page, totalPages, basePath }: { page: number; to
       ) : (
         <span />
       )}
-      <span className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
+      <span className="type-label tracking-[0.2em] text-slate-500">
         Page {page} of {totalPages}
       </span>
       {page < totalPages ? (
@@ -38,7 +38,7 @@ export function RegisterPager({ page, totalPages, basePath }: { page: number; to
 export function RegisterCta({ prompt }: { prompt: string }) {
   return (
     <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-5">
-      <span className="text-sm text-slate-500">{prompt}</span>
+      <span className="type-body-sm text-slate-500">{prompt}</span>
       <Link href="/?scan=1" className={CHIP}>
         <span aria-hidden>▸</span> Scan your repo
       </Link>

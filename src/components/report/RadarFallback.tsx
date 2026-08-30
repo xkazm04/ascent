@@ -28,7 +28,7 @@ export function RadarFallback({
 }) {
   return (
     <div className="mx-auto w-full max-w-[340px]">
-      <p className="text-sm text-slate-500">
+      <p className="type-body-sm text-slate-500">
         {dimensions.length === 1 ? "One dimension" : "Two dimensions"} scored. A radar needs three or
         more axes to describe a shape, so {dimensions.length === 1 ? "it is" : "they are"} shown as bars.
       </p>
@@ -44,7 +44,7 @@ export function RadarFallback({
           );
           return (
             <li key={d.id}>
-              <div className="flex items-baseline justify-between gap-2 text-sm">
+              <div className="flex items-baseline justify-between gap-2 type-body-sm">
                 {onSelect ? (
                   <button type="button" className="text-left hover:text-white" onClick={() => onSelect(d.id)}>
                     {label}
@@ -70,7 +70,7 @@ export function RadarFallback({
                   <div className="h-full rounded-full" style={{ width: `${d.score}%`, backgroundColor: scoreHex(d.score) }} />
                 )}
               </div>
-              {d.score === 0 && <div className="mt-0.5 text-sm text-slate-500">Zero: nothing detected for this dimension.</div>}
+              {d.score === 0 && <div className="mt-0.5 type-body-sm text-slate-500">Zero: nothing detected for this dimension.</div>}
             </li>
           );
         })}

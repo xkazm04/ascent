@@ -134,10 +134,10 @@ export default async function TrendsPage({
       <div className="animate-fade-up">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">
+            <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">
               Maturity trends
             </div>
-            <h1 className="mt-1 text-2xl font-bold text-white">{history.repo.fullName}</h1>
+            <h1 className="mt-1 type-heading font-bold text-white">{history.repo.fullName}</h1>
           </div>
           <div className="flex items-center gap-2">
             <LevelBadge id={latest.level as LevelId} name={latest.levelName} />
@@ -162,13 +162,13 @@ export default async function TrendsPage({
         {/* One retained scan AND nothing compacted behind it: with a compacted tail present the trend
             lines are already drawn, so the "run another scan" nudge would contradict the chart. */}
         {retainedCount === 1 && history.scans.length === 1 && (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-base text-slate-400">
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 type-body text-slate-400">
             Only a baseline scan so far. The trend lines fill in after the next scan.
           </p>
         )}
 
         {capNote && (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-sm text-slate-400">
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 type-body-sm text-slate-400">
             {capNote}
           </p>
         )}

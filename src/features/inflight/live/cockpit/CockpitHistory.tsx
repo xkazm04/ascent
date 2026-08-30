@@ -43,8 +43,8 @@ export function CockpitHistory({ runs, selectedId, onOpen }: CockpitHistoryProps
                 aria-pressed={on}
                 className={`focus-ring block h-full px-4 py-2.5 text-left transition ${on ? "bg-accent/10" : "bg-ink hover:bg-surface/60"}`}
               >
-                <span className="block font-mono text-xs text-slate-500">{timeAgo(r.startedAt)}</span>
-                <span className="mt-0.5 block font-mono text-sm tabular-nums text-slate-300">
+                <span className="block type-caption text-slate-500">{timeAgo(r.startedAt)}</span>
+                <span className="mt-0.5 block type-mono-sm tabular-nums text-slate-300">
                   {r.repos.length} {r.repos.length === 1 ? "repo" : "repos"}
                   {r.lift != null && (
                     <span className="ml-2" style={{ color: deltaHex(r.lift) }}>
@@ -52,10 +52,10 @@ export function CockpitHistory({ runs, selectedId, onOpen }: CockpitHistoryProps
                     </span>
                   )}
                 </span>
-                <span className={`mt-0.5 block font-mono text-xs uppercase tracking-[0.18em] ${PHASE_TONE[r.phase] ?? "text-slate-500"}`}>
+                <span className={`mt-0.5 block type-label tracking-[0.18em] ${PHASE_TONE[r.phase] ?? "text-slate-500"}`}>
                   {r.phase}
                 </span>
-                {agentConfig && <span className="mt-0.5 block font-mono text-xs text-slate-600">{agentConfig}</span>}
+                {agentConfig && <span className="mt-0.5 block type-caption text-slate-600">{agentConfig}</span>}
               </button>
             </li>
           );

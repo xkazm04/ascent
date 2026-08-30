@@ -65,19 +65,19 @@ export function AllotmentPanel({
 
   return (
     <Surface className="mt-4 p-6">
-      <h2 className="text-base font-semibold text-white">
+      <h2 className="type-body font-semibold text-white">
         Monthly allotment{" "}
         <span className="font-normal text-slate-500">· {label} plan · {included.toLocaleString()} credits / mo</span>
       </h2>
-      <p className="mt-2 font-mono text-sm text-slate-300">
+      <p className="mt-2 type-mono-sm text-slate-300">
         ≈ <span className="font-bold text-white">{monthlyBurn.toLocaleString()}</span> credits / mo at this pace ·{" "}
         <span style={{ color }}>{pct}%</span> of your {included.toLocaleString()} / mo allotment
       </p>
       <Meter className="mt-3" value={Math.min(100, pct)} color={color} threshold={90} />
-      <p className="mt-3 text-sm" style={{ color }}>
+      <p className="mt-3 type-body-sm" style={{ color }}>
         {msg}
       </p>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="mt-1 type-body-sm text-slate-500">
         Unused credits roll over. They never expire, so a quiet month is not lost. The 90% mark is your
         top-up line, well before the hard 402.
       </p>

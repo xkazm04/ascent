@@ -23,7 +23,7 @@ import { turnBlocks, turnChips } from "./model";
 
 function Speaker({ who }: { who: string }) {
   return (
-    <div className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{who}</div>
+    <div className="type-label tracking-[0.2em] text-slate-500">{who}</div>
   );
 }
 
@@ -39,7 +39,7 @@ export function AthenaTurnView({
     return (
       <div className="border-l-2 border-slate-700 pl-3">
         <Speaker who="You" />
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">{turn.content}</p>
+        <p className="mt-1 whitespace-pre-wrap type-body-sm leading-relaxed text-slate-200">{turn.content}</p>
       </div>
     );
   }
@@ -74,7 +74,7 @@ export function AthenaTurnView({
       {chips.length > 0 && (
         <ul className="mt-3 space-y-1">
           {chips.map((insight, i) => (
-            <li key={i} className="flex gap-2 text-xs leading-relaxed text-slate-500">
+            <li key={i} className="flex gap-2 type-note leading-relaxed text-slate-500">
               <span aria-hidden className="select-none">↳</span>
               <span>{insight}</span>
             </li>

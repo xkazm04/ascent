@@ -197,8 +197,8 @@ export function TourChecklist({ slug }: { slug: string }) {
             className="focus-ring pointer-events-auto absolute right-full top-1/2 flex -translate-y-1/2 items-center gap-2 rounded-l-xl border border-r-0 border-divider bg-surface-strong px-2.5 py-4 text-accent shadow-2xl transition hover:bg-accent/10"
             style={{ writingMode: "vertical-rl" }}
           >
-            <span aria-hidden className="text-sm">{open ? "▸" : "◂"}</span>
-            <span className="font-mono text-xs uppercase tracking-[0.2em]">Guided setup</span>
+            <span aria-hidden className="type-body-sm">{open ? "▸" : "◂"}</span>
+            <span className="type-label tracking-[0.2em]">Guided setup</span>
           </button>
 
           {/* Panel — flush to the right edge (left-rounded, no right border). A COMPLEMENTARY region,

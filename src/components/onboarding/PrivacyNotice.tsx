@@ -48,8 +48,8 @@ export function ScanPrivacyNotice() {
   // would be advising a self-hoster to send their source to a third party for privacy reasons.
   const staysOnPremises = provider === "local" || provider === "claude-cli";
   return (
-    <section className="mt-5 rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-300">
-      <div className="font-mono text-xs uppercase tracking-[0.25em] text-accent">Where your code goes</div>
+    <section className="mt-5 rounded-xl border border-divider bg-surface/40 p-4 type-body-sm text-slate-300">
+      <div className="type-label tracking-[0.25em] text-accent">Where your code goes</div>
       <p className="mt-2">
         During a private scan, a budgeted sample of your repository&apos;s file contents (≤{MAX_FILES} files,
         plus CI workflow files) is sent to{" "}
@@ -73,7 +73,7 @@ export function ScanPrivacyNotice() {
           AWS boundary and is never used for model training.
         </p>
       )}
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 type-note text-slate-500">
         Active inference provider: <span className="font-mono text-slate-300">{provider}</span>
       </p>
     </section>

@@ -29,7 +29,7 @@ export function SegmentChips({
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
       {segments.map((s) => (
-        <span key={s.id} className="group inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/60 py-1 pl-2.5 pr-1.5 text-sm">
+        <span key={s.id} className="group inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/60 py-1 pl-2.5 pr-1.5 type-body-sm">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
           {/* Double-click the name to rename (also reachable via the ✎ editor below). */}
           <span className="text-slate-200" onDoubleClick={() => startEdit(s)} title="Double-click to rename">
@@ -39,7 +39,7 @@ export function SegmentChips({
               scanned or not) — a different universe than the "N/M scanned" count on the segment
               maturity cards below, which only counts watched-or-scanned repos. The title spells that
               out so the two counts don't read as disagreeing. */}
-          <span className="font-mono text-sm text-slate-500" title={`${s.repoCount} repo${s.repoCount === 1 ? "" : "s"} tagged`}>
+          <span className="type-mono-sm text-slate-500" title={`${s.repoCount} repo${s.repoCount === 1 ? "" : "s"} tagged`}>
             {s.repoCount}
           </span>
           <button
@@ -60,7 +60,7 @@ export function SegmentChips({
           </button>
         </span>
       ))}
-      {segments.length === 0 && <span className="text-sm text-slate-500">No segments yet. Create one to start tagging.</span>}
+      {segments.length === 0 && <span className="type-body-sm text-slate-500">No segments yet. Create one to start tagging.</span>}
     </div>
   );
 }
@@ -95,7 +95,7 @@ export function SegmentEditor({
         maxLength={NAME_MAX}
         autoFocus
         aria-label="Segment name"
-        className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200"
+        className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200"
       />
       <div className="flex items-center gap-1">
         {PALETTE.map((c) => (
@@ -109,10 +109,10 @@ export function SegmentEditor({
           />
         ))}
       </div>
-      <button onClick={() => saveEdit(editingId)} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20">
+      <button onClick={() => saveEdit(editingId)} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20">
         Save
       </button>
-      <button onClick={() => setEditingId(null)} className="rounded-lg px-2 py-1.5 text-sm text-slate-400 hover:text-white">
+      <button onClick={() => setEditingId(null)} className="rounded-lg px-2 py-1.5 type-body-sm text-slate-400 hover:text-white">
         Cancel
       </button>
     </div>

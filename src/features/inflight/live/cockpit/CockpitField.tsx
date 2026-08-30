@@ -30,7 +30,7 @@ export function CockpitField(props: CockpitFieldProps) {
           type="button"
           onClick={onToggleList}
           aria-expanded={listOpen}
-          className="focus-ring rounded font-mono text-xs uppercase tracking-[0.18em] text-slate-500 hover:text-accent"
+          className="focus-ring rounded type-label tracking-[0.18em] text-slate-500 hover:text-accent"
         >
           {listOpen ? "Hide fleet list" : "Show fleet list"}
         </button>

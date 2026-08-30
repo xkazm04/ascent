@@ -11,14 +11,14 @@ export function ExecutiveTrajectoryCard({ briefing, periodHasStart }: { briefing
   return (
     <Card>
       <SectionHeader size="sm" title="Trajectory" />
-      <p className="mt-2 text-base text-slate-300">
+      <p className="mt-2 type-body text-slate-300">
         {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
       </p>
       {briefing.forecastHeadline && forecastConfidenceNote(briefing.forecastConfidence) && (
-        <p className="mt-1 font-mono text-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
+        <p className="mt-1 type-mono-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
       )}
       {briefing.regressionCount > 0 && (
-        <p className="mt-1 font-mono text-sm text-orange-300">
+        <p className="mt-1 type-mono-sm text-orange-300">
           ⚠ {briefing.regressionCount} repo{briefing.regressionCount > 1 ? "s" : ""} regressed{" "}
           {periodHasStart ? "this period" : "since last scan"}.
         </p>

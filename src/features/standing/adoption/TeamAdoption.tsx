@@ -26,7 +26,7 @@ export function TeamAdoption({
         title="Team adoption"
         description="AI commit share per CODEOWNERS team: where AI habits live, and where they haven't spread yet."
         right={
-          <Link href={orgTabHref(slug, "teams")} className="shrink-0 font-mono text-xs uppercase tracking-widest text-slate-500 transition hover:text-accent">
+          <Link href={orgTabHref(slug, "teams")} className="shrink-0 type-label tracking-widest text-slate-500 transition hover:text-accent">
             Teams →
           </Link>
         }
@@ -48,18 +48,18 @@ export function TeamAdoption({
                 display={`${t.aiCommitShare}% · ${t.aiContributors}/${t.contributors}`}
                 color={scoreHex(t.aiCommitShare)}
                 meterClassName="flex-1"
-                valueClassName="w-28 shrink-0 text-right font-mono text-sm text-slate-400"
+                valueClassName="w-28 shrink-0 text-right type-mono-sm text-slate-400"
               />
             ))}
           </div>
           {teams.length > SHOW_LIMIT && (
-            <p className="mt-2 font-mono text-sm text-slate-600">
+            <p className="mt-2 type-mono-sm text-slate-600">
               +{teams.length - SHOW_LIMIT} more team{teams.length - SHOW_LIMIT === 1 ? "" : "s"} on the Teams tab.
             </p>
           )}
           {pairing && (
-            <p className="mt-4 border-l-2 border-accent pl-3 text-sm text-slate-400">
-              <span className="font-mono text-xs uppercase tracking-widest text-accent">Suggested pairing</span>
+            <p className="mt-4 border-l-2 border-accent pl-3 type-body-sm text-slate-400">
+              <span className="type-label tracking-widest text-accent">Suggested pairing</span>
               <br />
               <span className="text-slate-200">{pairing.leader.name}</span> ({pairing.leader.aiCommitShare}%) could mentor{" "}
               <span className="text-slate-200">{pairing.learner.name}</span> ({pairing.learner.aiCommitShare}%), a {pairing.gap}-point gap in

@@ -39,7 +39,7 @@ function DeltaRow({ o }: { o: SkillOutcome }) {
           )}
           {o.withinPairingBound === false && (
             <span
-              className="font-mono text-xs text-amber-300/90"
+              className="type-caption text-amber-300/90"
               title={`One side of this pair is more than ${PAIRING_MAX_DISTANCE_DAYS} days from the adoption (${o.beforeGapDays ?? "?"}d before, ${o.afterGapDays ?? "?"}d after). The scans are far enough apart that other work dominates the window.`}
             >
               · wide window
@@ -57,13 +57,13 @@ export function SkillOutcomes({ outcomes }: { outcomes: SkillOutcome[] | undefin
   if (!outcomes || outcomes.length === 0) return null;
   return (
     <div className="mt-3 border-t border-slate-800 pt-3">
-      <p className="font-mono text-xs uppercase tracking-widest text-slate-500">Score movement since adoption</p>
-      <ul className="mt-1.5 space-y-1 text-sm">
+      <p className="type-label tracking-widest text-slate-500">Score movement since adoption</p>
+      <ul className="mt-1.5 space-y-1 type-body-sm">
         {outcomes.map((o) => (
           <DeltaRow key={`${o.repoFullName}-${o.adoptedAt}`} o={o} />
         ))}
       </ul>
-      <p className="mt-1.5 text-xs text-slate-600">
+      <p className="mt-1.5 type-note text-slate-600">
         Movement in the same window as the adoption: correlation, not proof of cause.
       </p>
     </div>

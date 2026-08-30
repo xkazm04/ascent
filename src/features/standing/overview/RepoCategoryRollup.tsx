@@ -82,14 +82,14 @@ export function RepoCategoryRollup({
         description={`Every repository grouped by ${mode}: where each cohort stands and how it's moving · ${periodTitle}`}
         right={
           <div className="flex items-center gap-1" role="group" aria-label="Group by">
-            <span className="mr-1 font-mono text-xs uppercase tracking-widest text-slate-500">Group</span>
+            <span className="mr-1 type-label tracking-widest text-slate-500">Group</span>
             {MODES.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 onClick={() => setMode(m.id)}
                 aria-pressed={mode === m.id}
-                className={`focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition ${
+                className={`focus-ring rounded-full border px-2.5 py-1 type-caption transition ${
                   mode === m.id ? "border-accent/60 text-white" : "border-divider text-slate-400 hover:border-accent hover:text-white"
                 }`}
               >
@@ -106,7 +106,7 @@ export function RepoCategoryRollup({
           and rendering "avg 0" in scoreHex(0) alarm-red reads as a catastrophic fleet grade rather
           than "no rows matched" (the empty message below already says that). */}
       {filtered.length > 0 && (
-      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-sm">
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 type-mono-sm">
         <span className="text-slate-500">
           <span className="tabular-nums text-slate-200">{fleet.repos}</span> repos
         </span>
@@ -162,7 +162,7 @@ export function RepoCategoryRollup({
           <button
             type="button"
             onClick={() => setFilters(emptyFilters())}
-            className="focus-ring font-mono text-xs uppercase tracking-widest text-accent hover:text-white"
+            className="focus-ring type-label tracking-widest text-accent hover:text-white"
           >
             clear · {filtered.length} of {trajectories.length}
           </button>
@@ -170,7 +170,7 @@ export function RepoCategoryRollup({
       </div>
 
       {groups.length === 0 ? (
-        <p className="mt-6 text-center font-mono text-sm text-slate-500">No repositories match these filters.</p>
+        <p className="mt-6 text-center type-mono-sm text-slate-500">No repositories match these filters.</p>
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {groups.map((g) => (

@@ -46,13 +46,13 @@ export function ScoringTab({
         </div>
         <div className="relative flex flex-col justify-center">
           <LevelBadge id={level.id} name={level.name} />
-          <p className="mt-3 text-lg font-medium text-white">{report.headline}</p>
+          <p className="mt-3 type-lede font-medium text-white">{report.headline}</p>
           {isMock && (
-            <p className="mt-1 text-base text-sky-300/80">
+            <p className="mt-1 type-body text-sky-300/80">
               Scores are computed from deterministic signals, not LLM-written analysis.
             </p>
           )}
-          <p className="mt-2 text-base leading-relaxed text-slate-400">{level.description}</p>
+          <p className="mt-2 type-body leading-relaxed text-slate-400">{level.description}</p>
           <LevelLadder currentId={level.id} />
         </div>
       </Surface>
@@ -68,8 +68,8 @@ export function ScoringTab({
         <Surface radius="2xl" className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-lg font-semibold text-white">Maturity over time</h2>
-              <p className="text-base text-slate-400">
+              <h2 className="type-lede font-semibold text-white">Maturity over time</h2>
+              <p className="type-body text-slate-400">
                 {histError
                   ? "Couldn't load history, showing this scan only."
                   : trendPoints.length === 1
@@ -86,14 +86,14 @@ export function ScoringTab({
             {scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(`${repo.owner}/${repo.name}`)}`}
-                className="font-mono text-sm uppercase tracking-widest text-accent hover:text-accent-soft"
+                className="type-mono-sm uppercase tracking-widest text-accent hover:text-accent-soft"
               >
                 What changed →
               </Link>
             )}
             <Link
               href={`/trends?repo=${encodeURIComponent(`${repo.owner}/${repo.name}`)}`}
-              className="font-mono text-sm uppercase tracking-widest text-accent hover:text-accent-soft"
+              className="type-mono-sm uppercase tracking-widest text-accent hover:text-accent-soft"
             >
               Dimension-level trends →
             </Link>

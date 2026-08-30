@@ -74,15 +74,15 @@ export function FoundationPanel({
 
   return (
     <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-      <h2 className="text-base font-semibold text-white">Install the standard</h2>
-      <p className="mt-1 text-sm text-slate-400">
+      <h2 className="type-body font-semibold text-white">Install the standard</h2>
+      <p className="mt-1 type-body-sm text-slate-400">
         Open a <strong className="text-slate-300">draft</strong> PR in the {repos.length}{" "}
         {repos.length === 1 ? "repository" : "repositories"} you just scanned, seeding the{" "}
         <span className="font-mono text-slate-300">.ai/</span> foundation Ascent generated from each scan: the agent
         contract, the executable <span className="font-mono">doctor</span> check, its CI backstop, and the CONTEXT
         seed. Nothing merges without you.
       </p>
-      <p className="mt-2 text-sm text-slate-500">
+      <p className="mt-2 type-body-sm text-slate-500">
         Afterwards, the Repositories tab can provision two GitHub Actions secrets —{" "}
         <span className="font-mono">ASCENT_CONFORMANCE_URL</span> and{" "}
         <span className="font-mono">ASCENT_CONFORMANCE_TOKEN</span> — so each repo reports its own conformance back on
@@ -94,7 +94,7 @@ export function FoundationPanel({
         <button
           onClick={install}
           disabled={busy || done != null}
-          className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+          className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
         >
           {busy ? "Opening PRs…" : `Install the foundation in ${repos.length} repo${repos.length === 1 ? "" : "s"}`}
         </button>
@@ -102,7 +102,7 @@ export function FoundationPanel({
           <button
             onClick={() => setSkipped(true)}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 hover:border-slate-600 disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-400 hover:border-slate-600 disabled:opacity-50"
           >
             Skip
           </button>
@@ -110,12 +110,12 @@ export function FoundationPanel({
       </div>
 
       {done && (
-        <p className="mt-2 font-mono text-sm text-emerald-300">
+        <p className="mt-2 type-mono-sm text-emerald-300">
           {done} · review them on GitHub, then merge when you&apos;re ready.
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-2 font-mono text-sm text-danger-soft">
+        <p role="alert" className="mt-2 type-mono-sm text-danger-soft">
           {error}
         </p>
       )}

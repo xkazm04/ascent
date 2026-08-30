@@ -47,10 +47,10 @@ export function LanePanels({
   return (
     <div className="mt-6 grid gap-4 lg:grid-cols-2">
       <Surface className="p-6">
-        <h2 className="text-base font-semibold text-white">
+        <h2 className="type-body font-semibold text-white">
           Spend by lane <span className="font-normal text-slate-500">· model calls · last {periodDays}d</span>
         </h2>
-        <div className="mt-3 space-y-2 text-base">
+        <div className="mt-3 space-y-2 type-body">
           {byLane.length === 0 ? (
             <p className="text-slate-500">No model calls in this period.</p>
           ) : (
@@ -63,7 +63,7 @@ export function LanePanels({
                   color={LANE_COLOR[l.lane]}
                 />
                 {l.unpricedCalls > 0 && (
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 type-body-sm text-slate-500">
                     {l.unpricedCalls.toLocaleString()} of {l.calls.toLocaleString()} call
                     {l.calls === 1 ? "" : "s"} could not be priced (no rate for the model, your own
                     provider account, or no tokens reported).
@@ -73,17 +73,17 @@ export function LanePanels({
             ))
           )}
         </div>
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 type-body-sm text-slate-500">
           The scan lane is counted from stored scans; every other lane is counted from the model-call
           ledger. A lane that ran nothing in the period is not listed.
         </p>
       </Surface>
 
       <Surface className="p-6">
-        <h2 className="text-base font-semibold text-white">
+        <h2 className="type-body font-semibold text-white">
           Spend by team <span className="font-normal text-slate-500">· code owners · last {periodDays}d</span>
         </h2>
-        <div className="mt-3 space-y-2 text-base">
+        <div className="mt-3 space-y-2 type-body">
           {byTeam.length === 0 ? (
             <p className="text-slate-500">No attributable work in this period.</p>
           ) : (
@@ -99,7 +99,7 @@ export function LanePanels({
             ))
           )}
         </div>
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 type-body-sm text-slate-500">
           A team is a CODEOWNERS team, never a person: no contributor is named or attributed here.
           Work with no owning team — a briefing, an org-wide memory pass — is counted org-wide rather
           than dropped.

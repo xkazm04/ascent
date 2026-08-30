@@ -18,7 +18,7 @@ export function CheckChip({ short, check }: { short: string; check?: SecurityRow
   const grade = !check || check.score === null ? "n/a" : `${check.score}/10`;
   const title = check ? `${check.name} (${check.risk}), ${grade}: ${check.detail}` : `${short}: not evaluated in this scan`;
   return (
-    <span title={title} className={`rounded border px-1.5 py-0.5 font-mono text-xs ${TONE[tone]}`}>
+    <span title={title} className={`rounded border px-1.5 py-0.5 type-caption ${TONE[tone]}`}>
       {short}
     </span>
   );

@@ -40,7 +40,7 @@ export interface PassportDetail {
 /** ✓/✗ chip — one self-verify script or delivery capability. */
 function CheckChip({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-xs ${ok ? "border-emerald-500/30 text-emerald-400" : "border-slate-700 text-slate-500"}`}>
+    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 type-caption ${ok ? "border-emerald-500/30 text-emerald-400" : "border-slate-700 text-slate-500"}`}>
       <span aria-hidden>{ok ? "✓" : "✗"}</span>
       {label}
     </span>
@@ -49,8 +49,8 @@ function CheckChip({ label, ok }: { label: string; ok: boolean }) {
 
 function FactRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline gap-3 text-sm">
-      <span className="w-24 shrink-0 font-mono text-xs uppercase tracking-widest text-slate-500">{label}</span>
+    <div className="flex items-baseline gap-3 type-body-sm">
+      <span className="w-24 shrink-0 type-label tracking-widest text-slate-500">{label}</span>
       <span className="min-w-0 text-slate-300">{children}</span>
     </div>
   );
@@ -123,7 +123,7 @@ export function PassportRowDetail({
           <FactRow label="Stack">
             <span className="flex flex-wrap gap-1.5">
               {d.stack.map((s) => (
-                <span key={s} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">{s}</span>
+                <span key={s} className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">{s}</span>
               ))}
             </span>
           </FactRow>
@@ -132,10 +132,10 @@ export function PassportRowDetail({
 
       {/* Footer: context + the deep link to act on it */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-3 md:col-span-2">
-        <span className="min-w-0 truncate text-sm text-slate-500" title={d.purpose}>
+        <span className="min-w-0 truncate type-body-sm text-slate-500" title={d.purpose}>
           {d.purpose} · scan confidence {Math.round(d.confidence * 100)}%
         </span>
-        <Link href={`/report?repo=${encodeURIComponent(fullName)}`} className="focus-ring shrink-0 font-mono text-sm text-accent hover:text-white">
+        <Link href={`/report?repo=${encodeURIComponent(fullName)}`} className="focus-ring shrink-0 type-mono-sm text-accent hover:text-white">
           Full report →
         </Link>
       </div>

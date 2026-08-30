@@ -25,10 +25,10 @@ const tabHref = (slug: string, tab: string) => `/org/${encodeURIComponent(slug)}
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span aria-hidden className="mt-px font-mono text-xs tabular-nums text-accent">
+      <span aria-hidden className="mt-px type-caption tabular-nums text-accent">
         {n}
       </span>
-      <span className="min-w-0 flex-1 text-sm leading-relaxed text-slate-400">{children}</span>
+      <span className="min-w-0 flex-1 type-body-sm leading-relaxed text-slate-400">{children}</span>
     </li>
   );
 }
@@ -39,18 +39,18 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
     return (
       <div>
         <Kicker tone="accent">Loops run where your code is</Kicker>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
           An improvement loop dispatches a coding agent into a real working copy on disk, so it exists only on a
           self-hosted Ascent. This chart is the read-only half — the fleet&rsquo;s standing in adoption × rigor — and it
           works here.
         </p>
-        <p className="mt-3 text-sm leading-relaxed text-slate-500">
+        <p className="mt-3 type-body-sm leading-relaxed text-slate-500">
           {href ? (
             <a href={href} className="focus-ring rounded text-accent hover:text-accent-soft">
               Self-hosting guide →
             </a>
           ) : (
-            <>See <span className="font-mono text-xs">docs/SETUP.md</span> in the source repository.</>
+            <>See <span className="type-caption">docs/SETUP.md</span> in the source repository.</>
           )}
         </p>
       </div>
@@ -61,10 +61,10 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
     return (
       <div>
         <Kicker tone="accent">Nothing to plot yet</Kicker>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
           The observatory places repos by their last scan. Watch and scan a few and they will appear here.
         </p>
-        <Link href={tabHref(slug, "repositories")} className="focus-ring mt-3 inline-block rounded font-mono text-xs text-accent hover:text-accent-soft">
+        <Link href={tabHref(slug, "repositories")} className="focus-ring mt-3 inline-block rounded type-caption text-accent hover:text-accent-soft">
           Repositories →
         </Link>
       </div>
@@ -75,11 +75,11 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
     return (
       <div>
         <Kicker tone="accent">Loop disabled on this deployment</Kicker>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
           {message ??
             "The loop is not enabled on this deployment — set ASCENT_AUTOPILOT=1 (and make sure the claude CLI is available)."}
         </p>
-        <p className="mt-3 font-mono text-xs text-slate-500">Restart the server after setting it.</p>
+        <p className="mt-3 type-caption text-slate-500">Restart the server after setting it.</p>
       </div>
     );
   }
@@ -88,7 +88,7 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
     return (
       <div>
         <Kicker tone="accent">Read-only</Kicker>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
           Starting a run dispatches editing agents into paired working copies, so it takes org-owner access. You can
           still read the chart and every past run.
         </p>

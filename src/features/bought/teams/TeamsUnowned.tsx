@@ -32,12 +32,12 @@ export function TeamsUnowned({
     <details id="unowned" className="mt-8 scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20">
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-medium text-slate-200 marker:text-slate-600">
         <span>
-          Unowned repos <span className="font-mono text-sm text-slate-500">({open.length} to decide)</span>
+          Unowned repos <span className="type-mono-sm text-slate-500">({open.length} to decide)</span>
         </span>
-        <span className="font-mono text-sm uppercase tracking-widest text-orange-400">no CODEOWNERS team, expand to fix</span>
+        <span className="type-mono-sm uppercase tracking-widest text-orange-400">no CODEOWNERS team, expand to fix</span>
       </summary>
       <div className="border-t border-slate-800 px-4 py-4">
-        <p className="max-w-3xl text-sm text-slate-400">
+        <p className="max-w-3xl type-body-sm text-slate-400">
           These scanned repos aren&apos;t attributed to any team, so their scores roll up to no one. Add a{" "}
           <span className="font-mono text-slate-300">.github/CODEOWNERS</span> naming an{" "}
           <span className="font-mono text-slate-300">@{slug}/…</span> team, then re-scan. Listed weakest first, where an
@@ -55,7 +55,7 @@ export function TeamsUnowned({
               >
                 <Link
                   href={`/report/${r.fullName}`}
-                  className="focus-ring min-w-0 truncate rounded font-mono text-sm text-slate-300 transition hover:text-white"
+                  className="focus-ring min-w-0 truncate rounded type-mono-sm text-slate-300 transition hover:text-white"
                   title={`${r.fullName} · overall ${r.overall} · open report`}
                 >
                   {r.name}
@@ -77,7 +77,7 @@ export function TeamsUnowned({
           })}
         </ul>
 
-        <pre className="mt-4 max-w-md overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono text-sm text-slate-300">
+        <pre className="mt-4 max-w-md overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 type-mono-sm text-slate-300">
           {`# .github/CODEOWNERS\n*  @${slug}/your-team`}
         </pre>
       </div>

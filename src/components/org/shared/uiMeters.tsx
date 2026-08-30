@@ -94,7 +94,7 @@ export function MeterRow({
   if (layout === "stacked") {
     return (
       <div>
-        <div className={labelClassName ?? "flex items-center justify-between font-mono text-sm uppercase tracking-widest text-slate-500"}>
+        <div className={labelClassName ?? "flex items-center justify-between type-mono-sm uppercase tracking-widest text-slate-500"}>
           <span>{label}</span>
           <span style={valueColor ? { color: valueColor } : undefined}>{readout}</span>
         </div>
@@ -104,10 +104,10 @@ export function MeterRow({
   }
   // inline + labelled share a single flex row; `labelled` adds a leading label cell.
   return (
-    <div className={layout === "labelled" ? "flex items-center gap-3 text-sm" : "flex items-center gap-2"}>
+    <div className={layout === "labelled" ? "flex items-center gap-3 type-body-sm" : "flex items-center gap-2"}>
       {layout === "labelled" && <span className={labelClassName ?? "w-36 shrink-0 text-slate-400"}>{label}</span>}
       <Meter className={meterClassName} size={meterSize} value={value} color={color} threshold={threshold} ariaLabel={meterLabel} />
-      <span className={valueClassName ?? "w-9 font-mono text-sm text-slate-500"} style={valueColor ? { color: valueColor } : undefined}>
+      <span className={valueClassName ?? "w-9 type-mono-sm text-slate-500"} style={valueColor ? { color: valueColor } : undefined}>
         {readout}
       </span>
     </div>

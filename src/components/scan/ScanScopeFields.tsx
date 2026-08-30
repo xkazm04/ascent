@@ -78,7 +78,7 @@ export function ScanScopeFields({
         type="button"
         onClick={() => setUserToggled(!open)}
         aria-expanded={open}
-        className="focus-ring rounded font-mono text-sm uppercase tracking-widest text-slate-400 transition hover:text-accent"
+        className="focus-ring rounded type-mono-sm uppercase tracking-widest text-slate-400 transition hover:text-accent"
       >
         {open ? "−" : "+"} Branch &amp; sub-path
         {!open && (value.ref || value.subPath) ? (
@@ -91,7 +91,7 @@ export function ScanScopeFields({
       {open && (
         <div className="mt-2 grid gap-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3 sm:grid-cols-2">
           <div>
-            <label htmlFor={refId} className="block font-mono text-sm text-slate-400">
+            <label htmlFor={refId} className="block type-mono-sm text-slate-400">
               Branch, tag or commit
             </label>
             <input
@@ -101,11 +101,11 @@ export function ScanScopeFields({
               onChange={(e) => onChange({ ...value, ref: e.target.value })}
               placeholder="default branch"
               aria-describedby={noteId}
-              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 font-mono text-base text-slate-100 placeholder-slate-600 outline-none focus:border-accent disabled:opacity-50"
+              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 font-mono type-body text-slate-100 placeholder-slate-600 outline-none focus:border-accent disabled:opacity-50"
             />
           </div>
           <div>
-            <label htmlFor={pathId} className="block font-mono text-sm text-slate-400">
+            <label htmlFor={pathId} className="block type-mono-sm text-slate-400">
               Sub-path (monorepo)
             </label>
             <input
@@ -115,10 +115,10 @@ export function ScanScopeFields({
               onChange={(e) => onChange({ ...value, subPath: e.target.value })}
               placeholder="whole repository"
               aria-describedby={noteId}
-              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 font-mono text-base text-slate-100 placeholder-slate-600 outline-none focus:border-accent disabled:opacity-50"
+              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 font-mono type-body text-slate-100 placeholder-slate-600 outline-none focus:border-accent disabled:opacity-50"
             />
           </div>
-          <p id={noteId} className="text-sm text-slate-500 sm:col-span-2">
+          <p id={noteId} className="type-body-sm text-slate-500 sm:col-span-2">
             A sub-path spends the code-sample budget on that folder; repo-wide files (CI workflows,
             root manifests, CODEOWNERS) are always read. Scoped scans aren&apos;t comparable with
             default-branch scores and aren&apos;t saved to the repo&apos;s history.

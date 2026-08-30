@@ -81,7 +81,7 @@ export function PracticesView({
               setDraft(null);
               setShowCreate(true);
             }}
-            className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20"
+            className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20"
           >
             + New practice
           </button>

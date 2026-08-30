@@ -34,7 +34,7 @@ export function RegistryButton({
   title?: string;
   href?: string;
 }) {
-  const cls = `${tone === "primary" ? CTA_PRIMARY : CTA_OUTLINE} text-sm disabled:cursor-not-allowed disabled:opacity-40`;
+  const cls = `${tone === "primary" ? CTA_PRIMARY : CTA_OUTLINE} type-body-sm disabled:cursor-not-allowed disabled:opacity-40`;
   if (href) {
     return (
       <a href={href} title={title} className={cls} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
@@ -58,19 +58,19 @@ export function RegistryOutcomeLine({ m, action }: { m: RegistryMutation; action
     // region is routinely never read out when focus has moved on, which is exactly what happens after
     // clicking an action button. Matches every other error rendering under src/features/shared.
     return (
-      <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 text-sm text-warn" role="alert">
+      <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 type-body-sm text-warn" role="alert">
         {err.message}
       </p>
     );
   }
   if (!ok) return null;
   return (
-    <p className="text-sm text-slate-300" role="status">
+    <p className="type-body-sm text-slate-300" role="status">
       {ok.message}
       {ok.href ? (
         <>
           {" "}
-          <a href={ok.href} className="font-mono text-xs text-accent hover:text-white" target="_blank" rel="noreferrer">
+          <a href={ok.href} className="type-caption text-accent hover:text-white" target="_blank" rel="noreferrer">
             {ok.hrefLabel ?? "open ↗"}
           </a>
         </>
@@ -86,7 +86,7 @@ export function RegistryCapabilityNote({ view, slug }: { view: RegistryView; slu
   const actions = visibleActions(view.capabilities, { mapped: view.status !== "unmapped" });
   return (
     <div className="space-y-2">
-      <p className="max-w-2xl text-sm text-slate-400">{notice}</p>
+      <p className="max-w-2xl type-body-sm text-slate-400">{notice}</p>
       {actions.includes("install-app") && view.capabilities.installUrl ? (
         <RegistryButton href={view.capabilities.installUrl}>Install the GitHub App ↗</RegistryButton>
       ) : null}
@@ -150,22 +150,22 @@ export function RegistryMigrateAction({
 
   if (step.state === "merged") {
     return (
-      <span className="font-mono text-xs text-slate-500">
+      <span className="type-caption text-slate-500">
         merged · {step.moved}/{step.total}
       </span>
     );
   }
-  if (step.state === "n/a") return <span className="font-mono text-xs text-slate-500">hosted mode</span>;
+  if (step.state === "n/a") return <span className="type-caption text-slate-500">hosted mode</span>;
   if (step.state === "pr-open" && step.prUrl) {
     return (
-      <a href={step.prUrl} className="font-mono text-xs text-accent hover:text-white" target="_blank" rel="noreferrer">
+      <a href={step.prUrl} className="type-caption text-accent hover:text-white" target="_blank" rel="noreferrer">
         review PR ↗
       </a>
     );
   }
   if (!allowed) {
     return (
-      <span className="font-mono text-xs text-slate-600">
+      <span className="type-caption text-slate-600">
         {view.status === "unmapped" ? "map a registry first" : "admin only"}
       </span>
     );
@@ -190,7 +190,7 @@ export function RegistryMigrateAction({
         type="button"
         onClick={migrate}
         disabled={m.pending !== null}
-        className="focus-ring font-mono text-xs text-accent transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        className="focus-ring type-caption text-accent transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
       >
         {m.pending === "migrate" ? "opening PR…" : "open migration PR →"}
       </button>

@@ -25,5 +25,5 @@ export function stripFences(text: string): string {
 export function AthenaProse({ text, className = "" }: { text: string; className?: string }) {
   const clean = stripFences(text);
   if (!clean) return null;
-  return <MarkdownLite text={clean} className={`text-sm text-slate-300 ${className}`} />;
+  return <MarkdownLite text={clean} className={`type-body-sm text-slate-300 ${className}`} />;
 }

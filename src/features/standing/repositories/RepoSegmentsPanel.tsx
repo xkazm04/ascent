@@ -103,7 +103,7 @@ export function RepoSegmentsPanel({
       )}
 
       <CreateSegmentRow color={p.color} setColor={p.setColor} name={p.name} setName={p.setName} createSegment={p.createSegment} busy={p.busy} />
-      {p.error && <p role="alert" aria-live="polite" className="mt-2 text-sm text-orange-300">{p.error}</p>}
+      {p.error && <p role="alert" aria-live="polite" className="mt-2 type-body-sm text-orange-300">{p.error}</p>}
 
       {/* Per-repo tagging */}
       {p.segments.length > 0 && (

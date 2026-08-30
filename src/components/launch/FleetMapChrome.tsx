@@ -30,12 +30,12 @@ export function Stat({ label, value, color }: { label: string; value: string; co
     <Pill className="text-slate-400">
       {/* text-white keeps the fallback in token-land (was a hardcoded #fff literal). */}
       <span
-        className={`font-mono text-base font-bold tabular-nums${color ? "" : " text-white"}`}
+        className={`font-mono type-body font-bold tabular-nums${color ? "" : " text-white"}`}
         style={color ? { color } : undefined}
       >
         {value}
       </span>{" "}
-      <span className="font-mono uppercase tracking-widest text-sm">{label}</span>
+      <span className="uppercase tracking-widest type-mono-sm">{label}</span>
     </Pill>
   );
 }
@@ -53,14 +53,14 @@ export function EmptyFleet() {
       <Kicker className="mt-4" tone="muted">
         Fleet map
       </Kicker>
-      <h2 className="mt-1 text-lg font-semibold text-white">No constellations yet</h2>
-      <p className="mx-auto mt-1 max-w-md text-base text-slate-400">
+      <h2 className="mt-1 type-lede font-semibold text-white">No constellations yet</h2>
+      <p className="mx-auto mt-1 max-w-md type-body text-slate-400">
         Install the Ascent GitHub App on an organization or account and your repositories will appear here as a
         star-map of maturity.
       </p>
       <Link
         href="/onboarding"
-        className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+        className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
       >
         Connect GitHub →
       </Link>

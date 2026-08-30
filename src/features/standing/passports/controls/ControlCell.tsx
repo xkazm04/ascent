@@ -35,7 +35,7 @@ export function ControlCell({ label, cell }: { label: string; cell: ControlCellS
       <span
         title={title}
         aria-label={title}
-        className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-xs ${tone.className}`}
+        className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 type-caption ${tone.className}`}
       >
         {tone.mark}
       </span>

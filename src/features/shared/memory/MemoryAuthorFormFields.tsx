@@ -8,9 +8,9 @@ import { CONFIDENCE_BANDS, MEMORY_KIND_HINT, MEMORY_KIND_LABEL, type MemoryKind 
 import type { MemoryFormState } from "@/features/shared/memory/MemoryTypes";
 
 const fieldClass =
-  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600";
+  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600";
 const selectClass =
-  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200";
+  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200";
 
 export function MemoryAuthorFormFields({
   kinds,

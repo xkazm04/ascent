@@ -29,12 +29,12 @@ function Frame({ children }: { children: React.ReactNode }) {
 function Card({ title, body, cta }: { title: string; body: React.ReactNode; cta?: { href: string; label: string } }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-center">
-      <h1 className="text-xl font-bold text-white">{title}</h1>
-      <p className="mt-2 text-base text-slate-400">{body}</p>
+      <h1 className="type-title font-bold text-white">{title}</h1>
+      <p className="mt-2 type-body text-slate-400">{body}</p>
       {cta && (
         <Link
           href={cta.href}
-          className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+          className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
         >
           {cta.label}
         </Link>

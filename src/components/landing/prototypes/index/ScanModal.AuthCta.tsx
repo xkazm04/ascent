@@ -17,7 +17,7 @@ export function SignInButton({ auth, next, label }: { auth: AuthMode; next: stri
   return (
     <Link
       href="/onboarding"
-      className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+      className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
     >
       <GitHubMark size={18} /> {label} →
     </Link>
@@ -32,7 +32,7 @@ export function AuthCta({ auth, consent }: { auth: AuthMode; consent: boolean })
       <button
         type="button"
         disabled
-        className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-divider px-5 py-2.5 text-base font-semibold text-slate-500"
+        className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-divider px-5 py-2.5 type-body font-semibold text-slate-500"
       >
         <GitHubMark size={18} /> Continue with GitHub
       </button>

@@ -13,7 +13,7 @@ export function SessionControls({ pendingInstall }: { pendingInstall?: string | 
           <h2 className="font-semibold text-white">
             Finish connecting <span className="font-mono">{pendingInstall}</span>
           </h2>
-          <p className="mt-2 text-base text-slate-400">
+          <p className="mt-2 type-body text-slate-400">
             The Ascent GitHub App was installed on <span className="font-mono">{pendingInstall}</span>. Re-sync
             your GitHub access to load its repositories. This refreshes your session without signing you out.
           </p>
@@ -30,7 +30,7 @@ export function SessionControls({ pendingInstall }: { pendingInstall?: string | 
       )}
       <div className="flex flex-wrap items-center gap-3">
         <GitHubSignInButton variant="nav" resync next="/onboarding" label="Re-sync access" pendingLabel="Re-syncing…" />
-        <p className="text-sm text-slate-500">
+        <p className="type-body-sm text-slate-500">
           Added a repo or org on GitHub but don&apos;t see it here? Re-sync to refresh your installations without
           signing out.
         </p>
@@ -39,12 +39,12 @@ export function SessionControls({ pendingInstall }: { pendingInstall?: string | 
         <form action="/api/auth/revoke-sessions" method="post" className="contents">
           <button
             type="submit"
-            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-300 transition hover:border-danger hover:text-danger-soft"
+            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-300 transition hover:border-danger hover:text-danger-soft"
           >
             Sign out everywhere else
           </button>
         </form>
-        <p className="text-sm text-slate-500">
+        <p className="type-body-sm text-slate-500">
           Lost or shared a device? Revoke every other signed-in session and keep only this browser.
         </p>
       </div>

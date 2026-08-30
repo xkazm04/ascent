@@ -120,7 +120,7 @@ export function BriefingDimensionCards({
         <SectionHeader
           size="sm"
           title="Weakest dimensions"
-          right={practiceOrgSlug ? <span className="font-mono text-sm text-slate-500">→ practices</span> : undefined}
+          right={practiceOrgSlug ? <span className="type-mono-sm text-slate-500">→ practices</span> : undefined}
         />
         <div className="mt-3 space-y-1.5">
           {risks.map((d) => (

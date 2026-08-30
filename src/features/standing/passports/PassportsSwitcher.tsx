@@ -48,7 +48,7 @@ export function PassportsSwitcher({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-divider bg-surface/40 px-3 py-2">
-        <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-600">prototype</span>
+        <span className="type-label tracking-[0.22em] text-slate-600">prototype</span>
         <div className="flex flex-wrap gap-1">
           {VARIANTS.map((v) => (
             <button
@@ -56,7 +56,7 @@ export function PassportsSwitcher({
               type="button"
               onClick={() => setVariant(v.id)}
               aria-pressed={v.id === variant}
-              className={`focus-ring rounded px-2.5 py-1 font-mono text-xs uppercase tracking-[0.18em] transition ${
+              className={`focus-ring rounded px-2.5 py-1 type-label tracking-[0.18em] transition ${
                 v.id === variant ? "bg-accent/15 text-accent" : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -64,7 +64,7 @@ export function PassportsSwitcher({
             </button>
           ))}
         </div>
-        <span className="text-sm text-slate-500">{active.note}</span>
+        <span className="type-body-sm text-slate-500">{active.note}</span>
       </div>
 
       {variant === "baseline" && <PassportPortfolio rows={rows} org={org} decisions={decisions} />}

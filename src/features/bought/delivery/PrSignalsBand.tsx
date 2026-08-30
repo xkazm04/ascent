@@ -29,12 +29,12 @@ function Cell({
 }) {
   return (
     <div className="-ml-px -mt-px flex flex-col border-l border-t border-divider px-4 py-3">
-      <div className="font-mono text-[11px] uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="font-mono type-micro uppercase tracking-wider text-slate-400">{label}</div>
       <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
-        <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: color ?? "#e2e8f0" }}>
+        <span className="type-figure font-bold" style={{ color: color ?? "#e2e8f0" }}>
           {value}
         </span>
-        {sub && <span className="text-xs text-slate-500">{sub}</span>}
+        {sub && <span className="type-note text-slate-500">{sub}</span>}
       </div>
       <div className="mt-auto pt-2">
         {meter != null && <Meter size="sm" value={meter} color={color} threshold={threshold} />}

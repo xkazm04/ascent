@@ -90,13 +90,13 @@ function StackRow({ org, s, color, scopeQ, active, onToggle, onHover, onLeave }:
           style={{ borderColor: color, backgroundColor: active ? color : "transparent" }}
         />
         <span className="min-w-0 flex-1 truncate font-medium text-white">{s.name}</span>
-        <span className="shrink-0 font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
+        <span className="shrink-0 font-mono type-body font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
           {s.avgOverall}
         </span>
       </button>
       <div className="mt-1 flex items-center justify-between pl-[1.375rem]">
-        <span className="font-mono text-xs text-slate-500">{postureLabel(s.posture)}</span>
-        <span className="font-mono text-sm">
+        <span className="type-caption text-slate-500">{postureLabel(s.posture)}</span>
+        <span className="type-mono-sm">
           <Link href={repositoriesHref(org, scopeQ(s.id))} className="text-accent transition hover:text-white">repos</Link>
           <span className="text-slate-700"> · </span>
           <Link href={buildUrl(org, { tab: "executive", stack: s.id ?? null }, "")} className="text-accent transition hover:text-white">brief</Link>
@@ -118,9 +118,9 @@ export function StackProfiles({ org, stacks, dims, scope, active, allActive, hov
       {/* Left rail — the entity list, each a show/hide toggle with its own onward links. */}
       <Surface radius="2xl" className="p-3">
         <div className="flex items-center justify-between px-2 pb-2">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">{scope.nounPlural}</span>
+          <span className="type-label tracking-widest text-slate-500">{scope.nounPlural}</span>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-slate-600">{active.size}/{stacks.length}</span>
+            <span className="type-caption text-slate-600">{active.size}/{stacks.length}</span>
             <SelectAllButton allActive={allActive} nounPlural={scope.nounPlural} onToggle={onToggleAll} />
           </div>
         </div>
@@ -135,7 +135,7 @@ export function StackProfiles({ org, stacks, dims, scope, active, allActive, hov
 
       {/* Right pane — the shared overlay radar. */}
       <Surface radius="2xl" className="flex flex-col p-4">
-        <p className="mb-1 font-mono text-sm text-slate-500">
+        <p className="mb-1 type-mono-sm text-slate-500">
           Overlaid maturity profiles · color = {scope.noun} · radius = each dimension&apos;s score · hover a {scope.noun} to isolate it
         </p>
         {series.length === 0 ? (

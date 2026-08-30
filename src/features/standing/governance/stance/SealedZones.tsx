@@ -12,7 +12,7 @@ export function SealedZones({ zones }: { zones: StanceZoneView[] }) {
   return (
     <div className="rounded-2xl border border-danger/30 bg-surface/40 p-5">
       <Kicker>Sealed · no AI authorship declared</Kicker>
-      <p className="mt-2 max-w-3xl text-base text-slate-300">
+      <p className="mt-2 max-w-3xl type-body text-slate-300">
         Inside the perimeter these repos and paths are declared closed regardless of tier. The readout below compares
         the declaration with OBSERVED git attribution: it reports contradictions, it does not enforce the seal.
       </p>
@@ -20,20 +20,20 @@ export function SealedZones({ zones }: { zones: StanceZoneView[] }) {
         {zones.map((z, i) => (
           <li key={i} className="bg-ink p-4">
             {z.repoGlobs.length > 0 && (
-              <div className="font-mono text-sm text-slate-100">{z.repoGlobs.join(", ")}</div>
+              <div className="type-mono-sm text-slate-100">{z.repoGlobs.join(", ")}</div>
             )}
             {z.pathGlobs.length > 0 && (
-              <div className="mt-1 font-mono text-sm text-slate-300">
+              <div className="mt-1 type-mono-sm text-slate-300">
                 {z.pathGlobs.join(", ")}{" "}
-                <span className="font-sans text-xs text-slate-500" title={PATH_ZONE_ADVISORY_LABEL}>
+                <span className="font-sans type-micro text-slate-500" title={PATH_ZONE_ADVISORY_LABEL}>
                   · advisory
                 </span>
               </div>
             )}
-            {z.pathGlobs.length > 0 && <p className="mt-1 text-xs text-slate-500">{PATH_ZONE_ADVISORY_LABEL}</p>}
-            {z.reason && <p className="mt-1.5 text-sm text-slate-400">{z.reason}</p>}
+            {z.pathGlobs.length > 0 && <p className="mt-1 type-micro text-slate-500">{PATH_ZONE_ADVISORY_LABEL}</p>}
+            {z.reason && <p className="mt-1.5 type-body-sm text-slate-400">{z.reason}</p>}
             {z.repoGlobs.length > 0 && (
-              <p className="mt-2 font-mono text-xs uppercase tracking-[0.18em]" style={{ color: z.breachedRepos.length ? "#ef4444" : "#10b981" }}>
+              <p className="mt-2 font-mono type-micro uppercase tracking-[0.18em]" style={{ color: z.breachedRepos.length ? "#ef4444" : "#10b981" }}>
                 {z.matchedRepos.length} repo{z.matchedRepos.length === 1 ? "" : "s"} bound ·{" "}
                 {z.breachedRepos.length ? `AI attribution observed in ${z.breachedRepos.join(", ")}` : "no AI attribution observed"}
               </p>

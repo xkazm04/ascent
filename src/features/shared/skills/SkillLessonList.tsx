@@ -16,7 +16,7 @@ export function SkillLessonList({ lessons }: { lessons: TraceLessonView[] }) {
     <ul className="mt-2 space-y-2">
       {lessons.map((l) => (
         <li key={l.id} className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
-          <div className="flex flex-wrap items-baseline gap-x-2 font-mono text-xs text-slate-500">
+          <div className="flex flex-wrap items-baseline gap-x-2 type-caption text-slate-500">
             <span className="tabular-nums text-slate-400" title={l.headingRaw}>
               {day(l.learnedOn)}
             </span>
@@ -24,9 +24,9 @@ export function SkillLessonList({ lessons }: { lessons: TraceLessonView[] }) {
             {l.versionUsed ? <span className="text-slate-600">used v{l.versionUsed}</span> : null}
           </div>
           {l.body ? (
-            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs text-slate-300">{l.body}</pre>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap type-caption text-slate-300">{l.body}</pre>
           ) : (
-            <p className="mt-1 font-mono text-xs text-slate-600">no body under this heading</p>
+            <p className="mt-1 type-caption text-slate-600">no body under this heading</p>
           )}
         </li>
       ))}

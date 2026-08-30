@@ -29,7 +29,7 @@ export function ExpectedLiftBasis({
   const clause = expectedLiftClause(lifts?.get(roadmapLiftKey(item)));
   if (!clause) return null;
   return (
-    <div className={className ?? "mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400"}>
+    <div className={className ?? "mt-2 flex flex-wrap items-center gap-2 type-body-sm text-slate-400"}>
       <Kicker as="span" tone="muted">
         measured
       </Kicker>

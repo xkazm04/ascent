@@ -34,12 +34,12 @@ export function StanceApplyControl({ org, repos, version }: { org: string; repos
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <label className="flex items-center gap-2 text-sm text-slate-400">
+      <label className="flex items-center gap-2 type-body-sm text-slate-400">
         <span className="sr-only">Repository for the policy PR</span>
         <select
           value={repo}
           onChange={(e) => setRepo(e.target.value)}
-          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200 outline-none focus:border-accent"
+          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono type-micro text-slate-200 outline-none focus:border-accent"
         >
           {repos.map((r) => (
             <option key={r} value={r}>
@@ -51,11 +51,11 @@ export function StanceApplyControl({ org, repos, version }: { org: string; repos
       <button
         onClick={apply}
         disabled={busy || !repo}
-        className="focus-ring rounded-md border border-accent/50 bg-accent/10 px-3 py-1 font-mono text-xs uppercase tracking-[0.14em] text-white transition hover:bg-accent/20 disabled:opacity-50"
+        className="focus-ring rounded-md border border-accent/50 bg-accent/10 px-3 py-1 font-mono type-micro uppercase tracking-[0.14em] text-white transition hover:bg-accent/20 disabled:opacity-50"
       >
         {busy ? "Opening…" : `Open AI_POLICY.md PR (v${version})`}
       </button>
-      <span role="status" aria-live="polite" className={`text-xs ${msg?.kind === "error" ? "text-orange-300" : "text-emerald-300"}`}>
+      <span role="status" aria-live="polite" className={`type-micro ${msg?.kind === "error" ? "text-orange-300" : "text-emerald-300"}`}>
         {msg ? (msg.kind === "error" ? `Error: ${msg.text}` : msg.text) : ""}
       </span>
     </div>

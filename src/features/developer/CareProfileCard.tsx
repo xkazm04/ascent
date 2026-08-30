@@ -20,11 +20,11 @@ export function CareProfileCard({ profile, tone = "calm" }: { profile: Developer
         {shared ? (
           <>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h3 className={mono ? "font-mono text-2xl font-bold text-white" : "text-2xl font-medium text-white"}>
+              <h3 className={mono ? "type-figure font-bold text-white" : "type-heading font-medium text-white"}>
                 {profile.role ?? "Role not stated"}
               </h3>
               {profile.archetypeHint ? (
-                <span className="rounded-full border border-accent/50 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent">
+                <span className="rounded-full border border-accent/50 px-2 py-0.5 type-label tracking-widest text-accent">
                   {profile.archetypeHint} (your word, not ours)
                 </span>
               ) : null}
@@ -34,21 +34,21 @@ export function CareProfileCard({ profile, tone = "calm" }: { profile: Developer
               {profile.goals.length ? (
                 <ul className="mt-2 space-y-1.5">
                   {profile.goals.map((g) => (
-                    <li key={g} className="flex gap-2 text-base text-slate-200">
+                    <li key={g} className="flex gap-2 type-body text-slate-200">
                       <span aria-hidden className="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent" />
                       {g}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="mt-2 text-base text-slate-500">No goals recorded yet.</p>
+                <p className="mt-2 type-body text-slate-500">No goals recorded yet.</p>
               )}
             </div>
           </>
         ) : (
           <>
-            <h3 className="text-2xl font-medium text-white">Your profile lives on your machine</h3>
-            <p className="mt-2 max-w-prose text-base text-slate-400">
+            <h3 className="type-heading font-medium text-white">Your profile lives on your machine</h3>
+            <p className="mt-2 max-w-prose type-body text-slate-400">
               Run the mentor locally and it interviews you, reads your own transcripts and writes{" "}
               <span className="font-mono text-slate-300">profile.md</span>. Nothing appears here until you choose to share
               it — and then it is here on the next laptop too.
@@ -57,7 +57,7 @@ export function CareProfileCard({ profile, tone = "calm" }: { profile: Developer
         )}
       </div>
       <div className="flex flex-col items-start gap-2 md:items-end">
-        <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
+        <span className="type-label tracking-widest text-slate-500">
           {shared ? `shared ${timeAgo(profile.sharedAt!)}` : "never shared"}
         </span>
         {shared ? (

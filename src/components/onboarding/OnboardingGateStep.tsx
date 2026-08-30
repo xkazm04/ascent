@@ -44,7 +44,7 @@ export function GateStep({
   return (
     <div key="gate" className="animate-phase-in">
       {/* Focus target for the step transition, matching every other step (ONB a11y #1). */}
-      <h2 data-step-heading tabIndex={-1} className="text-2xl font-bold text-white focus:outline-none">
+      <h2 data-step-heading tabIndex={-1} className="type-heading font-bold text-white focus:outline-none">
         {GATE_TITLE[gate.kind]}
       </h2>
 
@@ -69,7 +69,7 @@ function BackButton({ onBack }: { onBack: () => void }) {
     <button
       type="button"
       onClick={onBack}
-      className="focus-ring rounded-lg border border-divider px-4 py-2.5 text-base text-slate-300 transition hover:border-slate-600"
+      className="focus-ring rounded-lg border border-divider px-4 py-2.5 type-body text-slate-300 transition hover:border-slate-600"
     >
       Back to repositories
     </button>
@@ -94,7 +94,7 @@ function AuthGatePanel({
   return (
     <Surface radius="xl" className="mt-4 p-5">
       <Kicker>{signin ? "One step left" : "Access"}</Kicker>
-      <p className="mt-2 text-base text-slate-300">
+      <p className="mt-2 type-body text-slate-300">
         {signin ? (
           <>
             Scanning <span className="font-mono text-white">{gate.org}</span> needs a GitHub sign-in on
@@ -127,12 +127,12 @@ function AuthGatePanel({
           // /api/app/setup to this page with the new installation.
           <a
             href={installUrl}
-            className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+            className="focus-ring rounded-lg bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             Install the GitHub App →
           </a>
         ) : (
-          <span className="text-sm text-slate-500">
+          <span className="type-body-sm text-slate-500">
             Set <span className="font-mono text-slate-300">GITHUB_APP_SLUG</span> to enable the install link.
           </span>
         )}
@@ -142,7 +142,7 @@ function AuthGatePanel({
       {signin && auth === null && (
         // No OAuth backend on this deployment — a sign-in button would be a dead affordance, so say
         // what's actually true instead of rendering one.
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 type-body-sm text-slate-500">
           Sign-in isn&apos;t configured on this deployment. Ask an administrator to enable GitHub
           login, or run the scan from a deployment that has it.
         </p>

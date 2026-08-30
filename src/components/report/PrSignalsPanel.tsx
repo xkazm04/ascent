@@ -75,19 +75,19 @@ function PrMetric({
     <div className="rounded-xl border border-divider bg-slate-950/40 p-3" title={basis}>
       <Kicker tone="muted">{label}</Kicker>
       <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="font-mono text-xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
+        <span className="font-mono type-title font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
           {value}
         </span>
         {elevated && (
           <span
-            className="font-mono text-xs font-semibold uppercase tracking-wide"
+            className="type-label font-semibold tracking-wide"
             style={{ color: "var(--color-warn)" }}
           >
             <span aria-hidden>▲ </span>elevated
           </span>
         )}
       </div>
-      {hint && <div className="mt-0.5 text-sm text-slate-500">{hint}</div>}
+      {hint && <div className="mt-0.5 type-body-sm text-slate-500">{hint}</div>}
       {basis && <span className="sr-only">{basis}</span>}
     </div>
   );
@@ -109,14 +109,14 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
     <Surface radius="2xl" className="p-6">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold text-white">Pull request signals</h2>
-          <p className="mt-1 text-base text-slate-400">
+          <h2 className="type-lede font-semibold text-white">Pull request signals</h2>
+          <p className="mt-1 type-body text-slate-400">
             How systematically the team ships, based on the {stats.analyzed} most recent of {stats.totalCount} PRs.
           </p>
         </div>
         {(aiInvolved.percent ?? 0) > 0 && (
           <span
-            className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-sm text-accent"
+            className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 type-mono-sm text-accent"
             title={aiInvolved.basis}
           >
             {aiInvolved.value} AI-involved
@@ -184,13 +184,13 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
           </div>
           {/* The caveats are rendered VISIBLY, not tucked into a tooltip: both signals read as
               accusations when quoted bare, and the panel that publishes them owns saying so. */}
-          <ul className="mt-2 space-y-0.5 text-sm text-slate-500">
+          <ul className="mt-2 space-y-0.5 type-body-sm text-slate-500">
             {selfApproved && <li>{RATE_BASIS.selfApproved.caveat}</li>}
             {fastApproval && <li>{RATE_BASIS.fastApproval.caveat}</li>}
           </ul>
         </div>
       )}
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-sm text-slate-500">
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 type-mono-sm text-slate-500">
         <span>avg {stats.avgLineChanges} lines · {stats.avgChangedFiles} files</span>
         <span>{stats.avgReviews} reviews / {stats.avgComments} comments per PR</span>
         {stats.botAuthoredRate > 0 && <span>{stats.botAuthoredRate}% bot-authored</span>}

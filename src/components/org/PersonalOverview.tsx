@@ -15,11 +15,11 @@ import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
 function DeltaChip({ delta }: { delta: number | null }) {
-  if (delta === null) return <span className="font-mono text-sm text-slate-600">—</span>;
+  if (delta === null) return <span className="type-mono-sm text-slate-600">—</span>;
   const tone = delta > 0 ? "text-emerald-400" : delta < 0 ? "text-rose-400" : "text-slate-500";
   const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "•";
   return (
-    <span className={`font-mono text-sm tabular-nums ${tone}`} title="Change vs the previous scan">
+    <span className={`type-mono-sm tabular-nums ${tone}`} title="Change vs the previous scan">
       <span aria-hidden>{arrow}</span> {delta > 0 ? `+${delta}` : delta}
     </span>
   );
@@ -37,13 +37,13 @@ function RepoRow({ repo }: { repo: PersonalRepo }) {
       {repo.latest ? (
         <>
           <span className="inline-flex items-baseline gap-1.5">
-            <span className="font-mono text-lg font-bold tabular-nums" style={{ color: scoreHex(repo.latest.score) }}>
+            <span className="font-mono type-lede font-bold tabular-nums" style={{ color: scoreHex(repo.latest.score) }}>
               {repo.latest.score}
             </span>
-            <span className="font-mono text-sm text-slate-400" aria-hidden>
+            <span className="type-mono-sm text-slate-400" aria-hidden>
               {LEVEL_GLYPH[repo.latest.level as LevelId] ?? ""}
             </span>
-            <span className="font-mono text-sm text-slate-400">{repo.latest.level}</span>
+            <span className="type-mono-sm text-slate-400">{repo.latest.level}</span>
           </span>
           <DeltaChip delta={repo.delta} />
           {repo.series.length > 1 ? (
@@ -52,11 +52,11 @@ function RepoRow({ repo }: { repo: PersonalRepo }) {
               ariaLabel={`${repo.scanCount}-scan maturity sparkline for ${repo.fullName}`}
             />
           ) : (
-            <span className="font-mono text-sm text-slate-600" title="The trend fills in after the next scan">
+            <span className="type-mono-sm text-slate-600" title="The trend fills in after the next scan">
               baseline
             </span>
           )}
-          <span className="flex items-center gap-2 font-mono text-sm">
+          <span className="flex items-center gap-2 type-mono-sm">
             <Link href={`/trends?repo=${enc}`} className="focus-ring rounded text-slate-400 hover:text-white">
               Trends
             </Link>
@@ -71,7 +71,7 @@ function RepoRow({ repo }: { repo: PersonalRepo }) {
           </span>
         </>
       ) : (
-        <span className="flex items-center gap-3 font-mono text-sm text-slate-500">
+        <span className="flex items-center gap-3 type-mono-sm text-slate-500">
           not scanned yet
           <Link href={`/report?repo=${enc}`} className="focus-ring rounded text-accent hover:text-white">
             Scan →
@@ -87,7 +87,7 @@ function UsageChip({ label, meter }: { label: string; meter: PersonalMeter }) {
   const full = meter.used >= meter.limit;
   return (
     <span
-      className={`rounded-full border px-2.5 py-1 font-mono text-sm tabular-nums ${full ? "border-amber-500/40 text-amber-400" : "border-slate-700 text-slate-400"}`}
+      className={`rounded-full border px-2.5 py-1 type-mono-sm tabular-nums ${full ? "border-amber-500/40 text-amber-400" : "border-slate-700 text-slate-400"}`}
       title={full ? `${label} limit reached` : `${label} used vs the free workspace limit`}
     >
       {label} {meter.used}/{meter.limit}
@@ -131,7 +131,7 @@ export async function PersonalOverview({ slug }: { slug: string }) {
                 <UsageChip label="skills" meter={usage.skills} />
               </span>
             ) : (
-              <span className="font-mono text-sm text-slate-500">
+              <span className="type-mono-sm text-slate-500">
                 {repos.length}/{PERSONAL_WATCH_LIMIT} tracked
               </span>
             )
@@ -141,7 +141,7 @@ export async function PersonalOverview({ slug }: { slug: string }) {
           <AddRepoForm remaining={PERSONAL_WATCH_LIMIT - repos.length} />
         </div>
         {repos.length === 0 ? (
-          <p className="mt-6 text-base text-slate-400">
+          <p className="mt-6 type-body text-slate-400">
             Track your first public repository to see its maturity standing, history, and trajectory here.
           </p>
         ) : (
@@ -157,7 +157,7 @@ export async function PersonalOverview({ slug }: { slug: string }) {
         <section aria-label="Repository trajectories" className="grid gap-4 lg:grid-cols-2">
           {withForecast.map((r) => (
             <div key={r.fullName}>
-              <div className="mb-1.5 font-mono text-sm uppercase tracking-widest text-slate-500">{r.fullName}</div>
+              <div className="mb-1.5 type-mono-sm uppercase tracking-widest text-slate-500">{r.fullName}</div>
               <Trajectory forecast={r.forecast!} />
             </div>
           ))}
@@ -170,7 +170,7 @@ export async function PersonalOverview({ slug }: { slug: string }) {
         <section aria-label="App Readiness Passports" className="grid gap-4 lg:grid-cols-2">
           {passports.map((p) => (
             <div key={p.fullName}>
-              <div className="mb-1.5 font-mono text-sm uppercase tracking-widest text-slate-500">{p.fullName}</div>
+              <div className="mb-1.5 type-mono-sm uppercase tracking-widest text-slate-500">{p.fullName}</div>
               <PassportCard passport={p.passport} repo={p.fullName} />
             </div>
           ))}

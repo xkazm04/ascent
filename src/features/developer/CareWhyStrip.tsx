@@ -13,9 +13,9 @@ import type { DeveloperView } from "@/lib/org/developer-view";
 function Line({ label, value, body }: { label: string; value: string; body: string }) {
   return (
     <div className="bg-ink px-4 py-3.5">
-      <div className="font-mono text-xs uppercase tracking-[0.18em] text-accent">{label}</div>
-      <div className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{value}</div>
-      <p className="mt-1 text-sm text-slate-400">{body}</p>
+      <div className="type-label tracking-[0.18em] text-accent">{label}</div>
+      <div className="mt-1 font-mono type-title font-bold tabular-nums text-white">{value}</div>
+      <p className="mt-1 type-body-sm text-slate-400">{body}</p>
     </div>
   );
 }

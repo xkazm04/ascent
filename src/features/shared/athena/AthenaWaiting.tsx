@@ -59,10 +59,10 @@ export function AthenaWaiting({
     <div aria-hidden className="border-l-2 border-slate-800 pl-3">
       <div className="flex items-center gap-2">
         <span className="h-1.5 w-1.5 rounded-full bg-accent motion-safe:animate-pulse" />
-        <span className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{line}</span>
+        <span className="type-label tracking-[0.2em] text-slate-500">{line}</span>
       </div>
       {slow && (
-        <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+        <p className="mt-1.5 type-note leading-relaxed text-slate-600">
           Still going. Her whole reply arrives at once rather than a word at a time, so nothing shows up
           until she has finished — a grounded answer runs several reads against this org first.
         </p>

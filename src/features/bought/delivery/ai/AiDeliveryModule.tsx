@@ -29,7 +29,7 @@ export function AiDeliveryModule({ model, slug }: { model: AiDeliveryModel; slug
         right={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <FidelityBadge fidelity={model.fidelity} />
-            <div role="tablist" aria-label="AI delivery view" className="inline-flex rounded-md border border-divider bg-surface/40 p-0.5 font-mono text-sm">
+            <div role="tablist" aria-label="AI delivery view" className="inline-flex rounded-md border border-divider bg-surface/40 p-0.5 type-mono-sm">
               {VIEWS.map((v) => (
                 <button
                   key={v.id}

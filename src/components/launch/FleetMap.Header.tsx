@@ -16,8 +16,8 @@ export function FleetHeader({ userName, stats, hydrating }: { userName: string; 
 
   return (
     <header className="animate-fade-up">
-      <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
-      <h1 className="mt-1 text-3xl font-bold text-white">
+      <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
+      <h1 className="mt-1 type-display font-bold text-white">
         {greeting.lead}
         {greeting.name && (
           <>
@@ -30,7 +30,7 @@ export function FleetHeader({ userName, stats, hydrating }: { userName: string; 
         brightens with its maturity. Scores stream in below as Ascent reads your installations.
       </p>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
+      <div className="mt-5 flex flex-wrap items-center gap-2 type-body-sm">
         <Stat label="orgs" value={String(stats.orgs)} />
         <Stat label="repos" value={hydrating && stats.repos === 0 ? "…" : String(stats.repos)} />
         <Stat label="scanned" value={hydrating && stats.scanned === 0 ? "…" : String(stats.scanned)} />

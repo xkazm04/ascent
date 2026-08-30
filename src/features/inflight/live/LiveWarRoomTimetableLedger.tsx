@@ -21,11 +21,11 @@ export function TimetableLedger({ data, selected, onToggle, readOnly }: Timetabl
               <Kicker tone="muted">Repo</Kicker>
             </th>
             {data.columns.map((c) => (
-              <th key={c.key} className="px-2 py-1.5 text-right font-mono text-xs uppercase tracking-widest text-slate-500">
+              <th key={c.key} className="px-2 py-1.5 text-right type-label tracking-widest text-slate-500">
                 {c.label}
               </th>
             ))}
-            <th className="px-2 py-1.5 text-right font-mono text-xs uppercase tracking-widest text-slate-500">Δ</th>
+            <th className="px-2 py-1.5 text-right type-label tracking-widest text-slate-500">Δ</th>
           </tr>
         </thead>
         <tbody>
@@ -38,11 +38,11 @@ export function TimetableLedger({ data, selected, onToggle, readOnly }: Timetabl
                 const d = r.cellDeltas[i];
                 return (
                   <td key={i} className="whitespace-nowrap px-2 py-1 text-right">
-                    <span className="font-mono text-sm tabular-nums" style={{ color: v != null ? scoreHex(v) : "#334155" }}>
+                    <span className="type-mono-sm tabular-nums" style={{ color: v != null ? scoreHex(v) : "#334155" }}>
                       {v ?? "·"}
                     </span>
                     {d != null && d !== 0 && (
-                      <span className="ml-1 font-mono text-xs tabular-nums" style={{ color: deltaHex(d) }}>
+                      <span className="ml-1 type-caption tabular-nums" style={{ color: deltaHex(d) }}>
                         {d > 0 ? `+${d}` : d}
                       </span>
                     )}
@@ -57,9 +57,9 @@ export function TimetableLedger({ data, selected, onToggle, readOnly }: Timetabl
         </tbody>
         <tfoot>
           <tr className="border-t border-divider">
-            <td className="sticky left-0 z-10 bg-surface px-2 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-500">Fleet avg</td>
+            <td className="sticky left-0 z-10 bg-surface px-2 py-1.5 type-label tracking-widest text-slate-500">Fleet avg</td>
             {avgs.map((v, i) => (
-              <td key={i} className="px-2 py-1.5 text-right font-mono text-sm font-bold tabular-nums" style={{ color: v != null ? scoreHex(v) : undefined }}>
+              <td key={i} className="px-2 py-1.5 text-right type-mono-sm font-bold tabular-nums" style={{ color: v != null ? scoreHex(v) : undefined }}>
                 {v ?? "—"}
               </td>
             ))}

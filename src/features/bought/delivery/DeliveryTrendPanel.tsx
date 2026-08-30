@@ -100,16 +100,16 @@ export function DeliveryTrendPanel({
   return (
     <div className="rounded-xl border border-divider bg-surface/40 p-4">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-400">{label}</span>
+        <span className="type-mono-sm uppercase tracking-widest text-slate-400">{label}</span>
         {last && (
-          <span className="font-mono text-lg font-bold tabular-nums text-white">{fmt(last.value)}</span>
+          <span className="font-mono type-lede font-bold tabular-nums text-white">{fmt(last.value)}</span>
         )}
       </div>
-      <p className="mt-1 text-sm text-slate-500">{help}</p>
+      <p className="mt-1 type-body-sm text-slate-500">{help}</p>
 
       {present.length === 0 ? (
         <div
-          className="mt-3 flex aspect-[320/84] w-full items-center justify-center rounded-lg border border-dashed border-divider text-sm text-slate-500"
+          className="mt-3 flex aspect-[320/84] w-full items-center justify-center rounded-lg border border-dashed border-divider type-body-sm text-slate-500"
           role="img"
           aria-label={`${label}: no measurements in this period`}
         >
@@ -148,21 +148,21 @@ export function DeliveryTrendPanel({
 
           {act && (
             <ChartTooltip xFrac={x(act.i) / W} yFrac={y(act.value) / H}>
-              <div className="text-sm">
-                <div className="font-mono text-base font-bold tabular-nums text-white">{fmt(act.value)}</div>
-                <div className="mt-0.5 text-sm text-slate-300">{dayLabel(act.date)}</div>
+              <div className="type-body-sm">
+                <div className="font-mono type-body font-bold tabular-nums text-white">{fmt(act.value)}</div>
+                <div className="mt-0.5 type-body-sm text-slate-300">{dayLabel(act.date)}</div>
                 {/* Sample size, always — a point built from one scan is a claim about one repo. */}
-                <div className="text-sm text-slate-500">
+                <div className="type-body-sm text-slate-500">
                   {act.scans} scan{act.scans === 1 ? "" : "s"} · {act.repos} repo{act.repos === 1 ? "" : "s"}
                 </div>
-                {act.mock && <div className="text-sm text-slate-500">demo scans only (no model graded this day)</div>}
+                {act.mock && <div className="type-body-sm text-slate-500">demo scans only (no model graded this day)</div>}
               </div>
             </ChartTooltip>
           )}
         </div>
       )}
 
-      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 font-mono text-sm">
+      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 type-mono-sm">
         {delta === null ? (
           <span className="text-slate-500">one measured day: no change to read</span>
         ) : (

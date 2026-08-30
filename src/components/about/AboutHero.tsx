@@ -54,10 +54,10 @@ export function AboutHero({ bg }: { bg?: string }) {
           {/* This headline is a full sentence, so it runs one step below the landing masthead at every
               width — the `--h1-*` floor/ceiling keep the deck's ramp while preserving that relationship
               (see the .deck-h1 note in globals.css). */}
-          <h1 className="deck-h1 mt-4 text-4xl font-bold leading-[1.05] text-white [--h1-ceil:4.5rem] [--h1-floor:3rem] sm:text-5xl">
+          <h1 className="deck-h1 mt-4 type-display-lg font-bold leading-[1.05] text-white [--h1-ceil:4.5rem] [--h1-floor:3rem] sm:text-5xl">
             Make the move to AI-native development: <span className="text-accent">measured, not guessed</span>
           </h1>
-          <p className="deck-lede mt-5 max-w-xl text-lg leading-relaxed text-slate-300 2xl:max-w-2xl">{INTRO}</p>
+          <p className="deck-lede mt-5 max-w-xl type-lede leading-relaxed text-slate-300 2xl:max-w-2xl">{INTRO}</p>
 
           <AboutCtaButtons className="mt-8" />
 

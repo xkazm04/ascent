@@ -18,7 +18,7 @@ export function PairingList({ org, initial }: { org: string; initial: PairingVie
   const paired = initial.filter((r) => r.localPath != null).length;
   return (
     <section aria-label="Local pairings">
-      <p className="mb-2 font-mono text-xs text-slate-500">
+      <p className="mb-2 type-caption text-slate-500">
         {paired}/{initial.length} paired · paths resolve on the server running Ascent
         {" · "}under Docker, mount your code and pair the in-container path
       </p>

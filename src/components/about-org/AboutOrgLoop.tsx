@@ -79,9 +79,9 @@ export function AboutOrgLoop() {
                       i > 0 ? "border-l border-divider/60" : ""
                     } ${on ? "text-accent" : "text-slate-500 hover:text-slate-200"}`}
                   >
-                    <span className="font-mono text-xs tabular-nums">{s.n}</span>
-                    <span className="truncate font-mono text-xs uppercase tracking-[0.16em]">{s.title}</span>
-                    <span className="font-mono text-xs tabular-nums text-slate-600">
+                    <span className="type-caption tabular-nums">{s.n}</span>
+                    <span className="truncate type-label tracking-[0.16em]">{s.title}</span>
+                    <span className="type-caption tabular-nums text-slate-600">
                       {here > 0 ? `${here} here` : "—"}
                     </span>
                     <span aria-hidden className={`h-px w-8 transition ${on ? "bg-accent" : "bg-transparent"}`} />
@@ -108,13 +108,13 @@ export function AboutOrgLoop() {
               }}
             />
             <span
-              className="absolute -top-1 -translate-x-1/2 font-mono text-xs leading-none text-accent"
+              className="absolute -top-1 -translate-x-1/2 type-caption leading-none text-accent"
               style={{ left: `${stopPct(LOOP_RETURN_INDEX)}%` }}
             >
               ▲
             </span>
             <span
-              className="absolute bottom-0 -translate-x-1/2 font-mono text-xs uppercase tracking-[0.2em] text-slate-500"
+              className="absolute bottom-0 -translate-x-1/2 type-label tracking-[0.2em] text-slate-500"
               style={{ left: `${(stopPct(LOOP_RETURN_INDEX) + stopPct(LOOP_STEPS.length - 1)) / 2}%` }}
             >
               ↺ next scheduled scan
@@ -122,7 +122,7 @@ export function AboutOrgLoop() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-divider px-5 py-3">
-            <span className="font-mono text-xs tabular-nums text-slate-500">
+            <span className="type-caption tabular-nums text-slate-500">
               Illustrative cycle · net{" "}
               <span style={{ color: deltaHex(netLift) }}>{fmtDelta(netLift)}</span> across {LANES.length} lanes ·{" "}
               {improved} improved
@@ -130,7 +130,7 @@ export function AboutOrgLoop() {
             <button
               type="button"
               onClick={replay}
-              className="focus-ring rounded font-mono text-xs uppercase tracking-[0.2em] text-slate-500 transition hover:text-accent"
+              className="focus-ring rounded type-label tracking-[0.2em] text-slate-500 transition hover:text-accent"
             >
               {playing ? "running…" : "↻ replay cycle"}
             </button>
@@ -146,7 +146,7 @@ export function AboutOrgLoop() {
           <Kicker>
             {step.n} {step.title} · {step.module}
           </Kicker>
-          <p className="deck-body text-base text-slate-300 group-hover:text-white">
+          <p className="deck-body type-body text-slate-300 group-hover:text-white">
             {step.detail}{" "}
             <span aria-hidden className="font-mono text-slate-600 transition group-hover:text-accent">
               →

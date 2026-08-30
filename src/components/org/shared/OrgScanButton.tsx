@@ -19,7 +19,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           aria-disabled={inert || undefined}
           title={noWatched ? "Watch repositories on Connect to enable scanning" : undefined}
           aria-describedby={noWatched ? hintId : undefined}
-          className={`rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition ${
+          className={`rounded-lg bg-accent px-4 py-2 type-body font-semibold text-on-accent transition ${
             inert ? "cursor-not-allowed opacity-50" : "hover:bg-accent-soft"
           }`}
         >
@@ -36,7 +36,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             aria-disabled={inert || undefined}
             title="Rescan only repos not scanned in the last 14 days: saves token budget"
             aria-describedby={noWatched ? hintId : undefined}
-            className={`rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition ${
+            className={`rounded-lg border border-slate-700 px-3 py-2 type-body text-slate-300 transition ${
               inert ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
             }`}
           >
@@ -59,19 +59,19 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             <div aria-hidden="true">
               <Meter value={Math.max(4, pct)} size="sm" />
             </div>
-            <p className="mt-1 truncate font-mono text-sm text-slate-500">
+            <p className="mt-1 truncate type-mono-sm text-slate-500">
               {p.total ? `Scanning ${p.done} of ${p.total}` : "Scanning"}
               {p.current ? ` · ${p.current}` : "…"}
             </p>
           </div>
         )}
         {!p.running && p.failed > 0 && !p.error && (
-          <p className="text-sm text-warn">
+          <p className="type-body-sm text-warn">
             {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan. See the Repositories tab.
           </p>
         )}
         {!p.running && p.skipped > 0 && !p.error && (
-          <p className="text-sm text-warn">
+          <p className="type-body-sm text-warn">
             {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped (out of scan credits).
           </p>
         )}
@@ -81,7 +81,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             only what's left. */}
         {!p.running && p.truncated && !p.error && p.truncated.repos.length > 0 && (
           <div className="flex flex-col items-end gap-1">
-            <p className="text-sm text-warn">
+            <p className="type-body-sm text-warn">
               Time budget reached:{" "}
               <span className="font-mono tabular-nums">
                 {p.truncated.scanned} of {p.truncated.total}
@@ -91,18 +91,18 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             <button
               type="button"
               onClick={() => run({ repos: p.truncated?.repos })}
-              className="focus-ring rounded-lg border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring rounded-lg border border-divider px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
             >
               Continue ({p.truncated.repos.length} left)
             </button>
           </div>
         )}
-        {p.error && <p className="text-sm text-danger">{p.error}</p>}
+        {p.error && <p className="type-body-sm text-danger">{p.error}</p>}
       </div>
       {!p.running && watchedCount === 0 && (
         <Link
           href={orgTabHref(org, "repositories")}
-          className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent"
+          className="focus-ring type-mono-sm text-slate-500 transition hover:text-accent"
         >
           Watch repos in Repositories →
         </Link>

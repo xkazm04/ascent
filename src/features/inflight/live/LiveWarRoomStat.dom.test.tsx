@@ -122,12 +122,12 @@ describe("HeadlineStrip type scale (G6-01)", () => {
     const { container } = render(<HeadlineStrip stats={S()} scale="wall" />);
     const value = container.querySelector(".tabular-nums")!;
     expect(value.className).toContain(HEADLINE_SCALE.wall.value);
-    expect(value.className).not.toContain("text-3xl");
+    expect(value.className).not.toContain("type-figure-lg");
     // The labels are the real legibility failure at 4m, so they must step up too — a bigger numeral
     // over a 14px label is still unreadable from across a room.
     const label = container.querySelector(".uppercase")!;
     expect(label.className).toContain(HEADLINE_SCALE.wall.label);
-    expect(label.className).not.toContain("text-sm");
+    expect(label.className).not.toContain("type-mono-sm");
   });
 
   it("keeps the wall hero figure at or above the 48px hero floor at every breakpoint", () => {

@@ -45,12 +45,12 @@ export function RegistryPractices({
             <div className="min-w-0">
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="font-medium text-slate-200">{r.title || r.slug}</span>
-                <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+                <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">
                   {dimensionLabel(r.dimension)}
                 </span>
                 <OriginTag origin={r.origin} path={r.registryPath} />
               </div>
-              {r.appliesWhen && <p className="mt-1 text-sm text-slate-400">{r.appliesWhen}</p>}
+              {r.appliesWhen && <p className="mt-1 type-body-sm text-slate-400">{r.appliesWhen}</p>}
             </div>
             <OpenInRegistry href={registryBlobHref(registryBase, r.registryPath)} />
           </li>

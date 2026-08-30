@@ -16,7 +16,7 @@ export function StackInsights({ org, stacks, fleet, dims, scope }: {
 }) {
   const ins = computeFleetInsights(stacks, fleet, dims);
   if (!ins) {
-    return <p className="mt-3 text-sm text-slate-500">Scan at least two {scope.nounPlural} to compare their dimension profiles.</p>;
+    return <p className="mt-3 type-body-sm text-slate-500">Scan at least two {scope.nounPlural} to compare their dimension profiles.</p>;
   }
   const labels = (arr: DimInsight[]) => (arr.length ? arr.map((d) => d.label).join(" · ") : "none");
 
@@ -54,7 +54,7 @@ export function StackInsights({ org, stacks, fleet, dims, scope }: {
         <div className="mt-3">
           <AnalysisPlaybookBoard org={org} dims={ins.dims} scope={scope} />
         </div>
-        <p className="mt-3 font-mono text-xs text-slate-500">
+        <p className="mt-3 type-caption text-slate-500">
           hollow dot = laggard · filled dot = leader · vertical line = whole-fleet baseline · bar = spread · n/N = {scope.nounPlural} the
           verdict rests on, of {ins.scoredCount} scored
         </p>

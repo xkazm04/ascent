@@ -41,7 +41,7 @@ export function BriefingMovementCard({
     <Card className={className}>
       <SectionHeader size="sm" title="Movement this period" />
       {movement && movement.compared > 0 && (
-        <p className="mt-2 font-mono text-sm text-slate-500">
+        <p className="mt-2 type-mono-sm text-slate-500">
           {movement.up + movement.down} of {movement.compared} compared repos moved
           ({movement.up} ▲ / {movement.down} ▼)
         </p>
@@ -99,7 +99,7 @@ export function BriefingGoalsCard({
       ) : (
         <div className="mt-3 space-y-2.5">
           {goals.map((g) => (
-            <div key={g.label} className="flex items-center gap-3 text-base">
+            <div key={g.label} className="flex items-center gap-3 type-body">
               <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
               {/* The meter's basis rides in the tooltip and, when a goal can only report
                   attainment, as a visible marker: an attainment bar opens near-full and a
@@ -111,7 +111,7 @@ export function BriefingGoalsCard({
                 color={scoreHex(g.pct)}
                 ariaLabel={`${g.label}: ${g.pct}% — ${g.pctLabel}`}
               />
-              <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400" title={g.pctLabel}>
+              <span className="w-28 shrink-0 text-right type-mono-sm text-slate-400" title={g.pctLabel}>
                 {g.current}/{g.target}
                 {g.pctBasis === "attainment" ? (
                   <span className="text-slate-500"> · {GOAL_ATTAINMENT_MARKER}</span>

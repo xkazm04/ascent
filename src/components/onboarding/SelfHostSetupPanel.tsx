@@ -20,12 +20,12 @@ export function SelfHostSetupPanel() {
   return (
     <Surface radius="2xl" className="tick-corners p-6 sm:p-8">
       <Kicker as="span">Self-hosted · nothing configured yet</Kicker>
-      <h2 className="mt-2 text-2xl font-bold text-white">Set this install up with the onboarding skill</h2>
-      <p className="mt-2 max-w-2xl text-base leading-relaxed text-slate-300">
+      <h2 className="mt-2 type-heading font-bold text-white">Set this install up with the onboarding skill</h2>
+      <p className="mt-2 max-w-2xl type-body leading-relaxed text-slate-300">
         This Ascent has no organization to scan into yet. Open the repository in Claude Code and run the skill:
         it takes a fresh clone to a booted install whose capability story matches reality, in one conversation.
       </p>
-      <pre className="mt-4 overflow-x-auto rounded-lg border border-divider bg-ink px-4 py-3 font-mono text-sm text-slate-200">
+      <pre className="mt-4 overflow-x-auto rounded-lg border border-divider bg-ink px-4 py-3 type-mono-sm text-slate-200">
         <span className="select-none text-slate-600">$ </span>claude
         {"\n"}
         <span className="select-none text-slate-600">&gt; </span>/onboarding
@@ -33,15 +33,15 @@ export function SelfHostSetupPanel() {
       <ol className="mt-6 grid gap-x-8 gap-y-4 sm:grid-cols-2">
         {ONBOARDING_STEPS.map((s) => (
           <li key={s.n} className="grid grid-cols-[2.25rem_1fr] gap-x-2">
-            <span className="font-mono text-sm tabular-nums text-accent">{s.n}</span>
+            <span className="type-mono-sm tabular-nums text-accent">{s.n}</span>
             <div>
-              <div className="text-sm font-medium text-white">{s.title}</div>
-              <p className="mt-0.5 text-sm leading-relaxed text-slate-400">{s.body}</p>
+              <div className="type-body-sm font-medium text-white">{s.title}</div>
+              <p className="mt-0.5 type-body-sm leading-relaxed text-slate-400">{s.body}</p>
             </div>
           </li>
         ))}
       </ol>
-      <p className="mt-6 text-sm leading-relaxed text-slate-400">
+      <p className="mt-6 type-body-sm leading-relaxed text-slate-400">
         The dashboard for your own projects needs an organization to hang off. The skill&apos;s{" "}
         <span className="font-mono text-slate-300">local-mode</span> group declares one (
         <span className="font-mono text-slate-300">ASCENT_LOCAL_ORG</span>), or install the GitHub App under{" "}
@@ -58,11 +58,11 @@ export function SelfHostSetupPanel() {
             Self-hosting guide →
           </a>
         ) : (
-          <span className="text-sm text-slate-400">
+          <span className="type-body-sm text-slate-400">
             Guide: <span className="font-mono text-slate-300">docs/SELF-HOSTING.md</span>
           </span>
         )}
-        <Link href="/onboarding?wizard=1" className="focus-ring text-sm text-slate-400 transition hover:text-white">
+        <Link href="/onboarding?wizard=1" className="focus-ring type-body-sm text-slate-400 transition hover:text-white">
           Skip setup and scan a public organization →
         </Link>
       </div>

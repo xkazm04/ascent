@@ -46,7 +46,7 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
         title="Dead ends other repos already hit"
         description="Approaches an agent tried in one of your repositories and recorded as failed, in that repo's own .ai/memory. Mirrored here so the next team reads it before spending the same week. These are claims from a repository, not verified facts — the entry says what was tried and what ruled it out."
         right={
-          <span className="font-mono text-sm text-slate-500">
+          <span className="type-mono-sm text-slate-500">
             {rows.length} across {groups.length} repo{groups.length === 1 ? "" : "s"}
           </span>
         }
@@ -56,10 +56,10 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
         {groups.map((g) => (
           <div key={g.repo}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+              <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400">
                 {g.repo}
               </span>
-              <span className="font-mono text-xs text-slate-600">
+              <span className="type-caption text-slate-600">
                 {g.rows.length} dead end{g.rows.length === 1 ? "" : "s"}
               </span>
             </div>
@@ -67,13 +67,13 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
               {g.rows.map((r) => (
                 <li key={r.id} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 truncate font-mono text-xs text-slate-500" title={r.path}>
+                    <span className="min-w-0 truncate type-caption text-slate-500" title={r.path}>
                       {r.path}
                     </span>
                     <div className="flex shrink-0 items-center gap-2">
                       {/* The repo-authored date, VERBATIM. Not reformatted: it is the repo's text, and
                           a date we re-render is a date we have implicitly re-asserted. */}
-                      <span className="font-mono text-xs text-slate-600">
+                      <span className="type-caption text-slate-600">
                         {r.entryDate ?? "undated"}
                       </span>
                       <CopyForLlm
@@ -83,11 +83,11 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
                       />
                     </div>
                   </div>
-                  <pre className="mt-2 max-h-40 overflow-auto font-mono text-xs whitespace-pre-wrap text-slate-300">
+                  <pre className="mt-2 max-h-40 overflow-auto type-caption whitespace-pre-wrap text-slate-300">
                     {excerpt(r.body)}
                   </pre>
                   {r.scope && (
-                    <p className="mt-1 font-mono text-xs text-slate-600">scope: {r.scope}</p>
+                    <p className="mt-1 type-caption text-slate-600">scope: {r.scope}</p>
                   )}
                 </li>
               ))}

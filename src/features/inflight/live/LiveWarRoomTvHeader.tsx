@@ -30,7 +30,7 @@ export function LiveWarRoomTvHeader({
 }) {
   return (
     <header className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <span className="flex items-center gap-2 font-mono text-sm uppercase tracking-[0.3em] text-accent">
+      <span className="flex items-center gap-2 type-mono-sm uppercase tracking-[0.3em] text-accent">
         <span className="live-dot inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden />
         Live · {slug}
       </span>
@@ -38,7 +38,7 @@ export function LiveWarRoomTvHeader({
       {/* Stage indicator: the relevant states, active highlighted, click to jump. text-sm (not xs):
           this wall is "big enough for a room", and the hints live in the title for discoverability. */}
       <div
-        className="flex flex-wrap gap-1 font-mono text-sm uppercase tracking-widest"
+        className="flex flex-wrap gap-1 type-mono-sm uppercase tracking-widest"
         title="Stages auto-rotate: ← / → switch stages, Space pauses"
       >
         {stages.map((sId, i) => (
@@ -61,7 +61,7 @@ export function LiveWarRoomTvHeader({
           onClick={onTogglePause}
           aria-pressed={manualPaused}
           title={manualPaused ? "Resume the stage auto-rotation (Space)" : "Pause the stage auto-rotation (Space)"}
-          className="focus-ring rounded-lg border border-slate-700 px-3 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+          className="focus-ring rounded-lg border border-slate-700 px-3 py-1 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
         >
           {manualPaused ? "▶ Play" : "⏸ Pause"}
         </button>
@@ -72,14 +72,14 @@ export function LiveWarRoomTvHeader({
         onClick={onScanSelected}
         disabled={selectedCount === 0 || running}
         title={selectedCount === 0 ? "Pick repos on the wall's timetable before entering TV mode" : `Scan the ${selectedCount} selected repos`}
-        className="focus-ring rounded-lg bg-accent px-3 py-1 font-mono text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
+        className="focus-ring rounded-lg bg-accent px-3 py-1 type-mono-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
       >
         {running ? "Scanning…" : `▶ Scan selected (${selectedCount})`}
       </button>
       <button
         type="button"
         onClick={onExit}
-        className="focus-ring rounded-lg border border-slate-700 px-3 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+        className="focus-ring rounded-lg border border-slate-700 px-3 py-1 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
       >
         Exit TV ⏏
       </button>

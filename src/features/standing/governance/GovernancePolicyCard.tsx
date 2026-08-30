@@ -21,7 +21,7 @@ export function GovernancePolicyCard({
       <SectionHeader size="sm" title="Active policy" description="The bar every repo is held to. Change it once, enforce it everywhere." />
       <ul className="mt-3 space-y-1.5">
         {policyText.map((t) => (
-          <li key={t} className="flex items-start gap-2 text-sm text-slate-300">
+          <li key={t} className="flex items-start gap-2 type-body-sm text-slate-300">
             <span aria-hidden className="mt-0.5 text-accent">▸</span>
             <span>{t}</span>
           </li>

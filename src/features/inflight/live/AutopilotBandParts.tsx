@@ -50,7 +50,7 @@ export function AutopilotControls({
 
   if (!enabled) {
     return (
-      <p className="font-mono text-xs text-slate-500">
+      <p className="type-caption text-slate-500">
         Disabled — set <span className="text-slate-300">ASCENT_AUTOPILOT=1</span> on this deployment to arm it.
       </p>
     );
@@ -61,7 +61,7 @@ export function AutopilotControls({
         type="button"
         onClick={onStop}
         disabled={busy}
-        className="focus-ring rounded-lg border border-danger/50 bg-danger/10 px-4 py-1.5 font-mono text-xs text-danger-soft transition hover:bg-danger/20 disabled:opacity-50"
+        className="focus-ring rounded-lg border border-danger/50 bg-danger/10 px-4 py-1.5 type-caption text-danger-soft transition hover:bg-danger/20 disabled:opacity-50"
       >
         Stop after this phase
       </button>
@@ -73,7 +73,7 @@ export function AutopilotControls({
         value={repo}
         onChange={(e) => setRepo(e.target.value)}
         aria-label="Paired repository to work"
-        className="focus-ring rounded-lg border border-divider bg-ink px-2 py-1.5 font-mono text-xs text-slate-200"
+        className="focus-ring rounded-lg border border-divider bg-ink px-2 py-1.5 type-caption text-slate-200"
       >
         {pairedRepos.map((r) => (
           <option key={r} value={r}>
@@ -85,7 +85,7 @@ export function AutopilotControls({
         value={cycles}
         onChange={(e) => setCycles(Number(e.target.value))}
         aria-label="Maximum cycles"
-        className="focus-ring rounded-lg border border-divider bg-ink px-2 py-1.5 font-mono text-xs text-slate-200"
+        className="focus-ring rounded-lg border border-divider bg-ink px-2 py-1.5 type-caption text-slate-200"
       >
         {[1, 2, 3, 4, 5].map((n) => (
           <option key={n} value={n}>
@@ -97,7 +97,7 @@ export function AutopilotControls({
         type="button"
         onClick={() => repo && onStart(repo, cycles)}
         disabled={busy || !repo}
-        className="focus-ring rounded-lg bg-accent px-4 py-1.5 font-mono text-xs font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+        className="focus-ring rounded-lg bg-accent px-4 py-1.5 type-caption font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
       >
         {busy ? "Starting…" : "Start autopilot"}
       </button>
@@ -109,7 +109,7 @@ export function AutopilotLog({ job }: { job: AutopilotJobView }) {
   const running = job.endedAt == null;
   return (
     <div className="mt-3 rounded-lg border border-divider bg-ink p-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 type-caption">
         <span className={running ? "text-accent" : job.error ? "text-danger" : "text-success-soft"}>
           {PHASE_LABEL[job.phase] ?? job.phase}
         </span>
@@ -122,7 +122,7 @@ export function AutopilotLog({ job }: { job: AutopilotJobView }) {
         </span>
         {job.branch && <span className="text-slate-500">branch {job.branch}</span>}
       </div>
-      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-slate-400">
+      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono type-micro leading-relaxed text-slate-400">
         {job.log.slice(-40).join("\n")}
       </pre>
     </div>

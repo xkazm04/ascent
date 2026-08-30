@@ -88,12 +88,12 @@ export function ConstellationField({
         <div className="min-w-0">
           <Link
             href={`/org/${encodeURIComponent(c.login)}`}
-            className="block truncate font-mono text-base text-white hover:text-accent"
+            className="block truncate font-mono type-body text-white hover:text-accent"
             title={c.login}
           >
             {c.login}
           </Link>
-          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-500">
             {c.status === "loading" && "charting…"}
             {c.status === "error" && "unreachable"}
             {c.status === "done" && `${scanned}/${total} scanned`}
@@ -103,7 +103,7 @@ export function ConstellationField({
           {avg != null && (
             <Pill
               size="sm"
-              className="font-mono text-sm font-bold tabular-nums"
+              className="type-mono-sm font-bold tabular-nums"
               style={{ color: scoreHex(avg) }}
               title="Average maturity of scanned repos"
             >
@@ -139,7 +139,7 @@ export function ConstellationField({
                     ? `Scan ${c.login}: unavailable, one scan at a time; another organization is scanning`
                     : `Scan ${c.login}'s watched repos`
               }
-              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-accent/10"
+              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 type-mono-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-accent/10"
             >
               {scanning ? "Scanning…" : "Scan"}
             </button>
@@ -247,14 +247,14 @@ export function ConstellationField({
 
         {c.status === "done" && total === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 font-mono text-sm text-slate-500">
+            <span className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 type-mono-sm text-slate-500">
               no repositories
             </span>
           </div>
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2 text-sm">
+      <div className="mt-3 flex items-center justify-between gap-2 type-body-sm">
         {c.status === "error" ? (
           <span className="text-amber-400/80">{c.message}</span>
         ) : scanError ? (

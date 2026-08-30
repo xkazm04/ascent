@@ -33,7 +33,7 @@ export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
             const denom = r.key === "incomplete" ? g.scanned : g.assessed;
             const pct = denom ? Math.round((n / denom) * 100) : 0;
             return (
-              <div key={r.key} className="flex items-center gap-3 text-sm">
+              <div key={r.key} className="flex items-center gap-3 type-body-sm">
                 <span className="w-44 shrink-0 text-slate-400">{r.label}</span>
                 <Meter className="flex-1" value={pct} color={n ? "#ef4444" : "#334155"} />
                 <span className="w-16 shrink-0 text-right font-mono text-slate-300">{n} repo{n === 1 ? "" : "s"}</span>

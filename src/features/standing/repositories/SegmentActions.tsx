@@ -103,7 +103,7 @@ export function SegmentActions({
         disabled={cadenceBusy}
         onChange={(e) => setSchedule(e.target.value)}
         aria-label="Set autoscan cadence for this segment"
-        className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-300 outline-none focus:border-accent disabled:opacity-50"
+        className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-300 outline-none focus:border-accent disabled:opacity-50"
       >
         <option value="">Cadence…</option>
         {CADENCES.map((c) => (
@@ -122,15 +122,15 @@ export function SegmentActions({
               : "No repos tagged into this segment yet"
             : "Scan the watched repos in this segment"
         }
-        className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+        className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 type-mono-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
       >
         {scan?.running
           ? `Scanning ${scan.done}/${scan.total}…`
           : // Honest scope: only the WATCHED slice is scanned, so say so whenever it's a subset.
             `Scan segment (${repos.length < taggedCount ? `${repos.length} of ${taggedCount} watched` : repos.length})`}
       </button>
-      {note && <span className="font-mono text-sm text-slate-500">{note}</span>}
-      {scan?.error && <span className="font-mono text-sm text-orange-300">{scan.error}</span>}
+      {note && <span className="type-mono-sm text-slate-500">{note}</span>}
+      {scan?.error && <span className="type-mono-sm text-orange-300">{scan.error}</span>}
     </div>
   );
 }

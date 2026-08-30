@@ -37,7 +37,7 @@ function snoozeDate(): string {
   return d.toISOString();
 }
 
-const BTN = "focus-ring rounded-md border px-2.5 py-1 font-mono text-xs transition disabled:opacity-50";
+const BTN = "focus-ring rounded-md border px-2.5 py-1 type-caption transition disabled:opacity-50";
 const IDLE = "border-divider text-slate-400 hover:border-accent hover:text-white";
 
 export function DecisionControl({
@@ -99,15 +99,15 @@ export function DecisionControl({
   if (status !== "open") {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`rounded-full border px-2 py-0.5 font-mono text-xs ${TONE[status]}`}>
+        <span className={`rounded-full border px-2 py-0.5 type-caption ${TONE[status]}`}>
           {RESOLVED_LABEL[status]}
           {decidedBy ? ` · ${decidedBy}` : ""}
         </span>
-        {rationale && <span className="min-w-0 truncate text-xs text-slate-500">{rationale}</span>}
+        {rationale && <span className="min-w-0 truncate type-note text-slate-500">{rationale}</span>}
         <button type="button" disabled={working} onClick={() => send("open", "")} className={`${BTN} ${IDLE}`}>
           Reopen
         </button>
-        {error && <span className="text-xs text-danger">{error}</span>}
+        {error && <span className="type-note text-danger">{error}</span>}
       </div>
     );
   }
@@ -124,7 +124,7 @@ export function DecisionControl({
           autoFocus
           onChange={(e) => setWhy(e.target.value)}
           placeholder="Why is this not a problem here? (agents will read this)"
-          className="focus-ring w-full rounded-md border border-divider bg-ink px-2.5 py-1.5 text-sm text-white placeholder:text-slate-600"
+          className="focus-ring w-full rounded-md border border-divider bg-ink px-2.5 py-1.5 type-body-sm text-white placeholder:text-slate-600"
         />
         <div className="flex items-center gap-2">
           <button
@@ -138,7 +138,7 @@ export function DecisionControl({
           <button type="button" disabled={working} onClick={() => setDrafting(false)} className={`${BTN} ${IDLE}`}>
             Cancel
           </button>
-          {error && <span className="text-xs text-danger">{error}</span>}
+          {error && <span className="type-note text-danger">{error}</span>}
         </div>
       </div>
     );
@@ -155,7 +155,7 @@ export function DecisionControl({
       <button type="button" disabled={working} onClick={() => send("snoozed", "Snoozed for 30 days")} className={`${BTN} ${IDLE}`}>
         Snooze 30d
       </button>
-      {error && <span className="text-xs text-danger">{error}</span>}
+      {error && <span className="type-note text-danger">{error}</span>}
     </div>
   );
 }

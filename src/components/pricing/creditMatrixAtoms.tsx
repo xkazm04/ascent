@@ -16,7 +16,7 @@ export function CreditTagChip({ tag, className = "" }: { tag: CreditTag; classNa
   const m = CREDIT_TAG_META[tag];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-xs uppercase tracking-widest ${TAG_TONE[tag]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 type-label tracking-widest ${TAG_TONE[tag]} ${className}`}
       title={m.label}
     >
       <span aria-hidden>{m.glyph}</span>
@@ -28,7 +28,7 @@ export function CreditTagChip({ tag, className = "" }: { tag: CreditTag; classNa
 /** A per-plan cell: ✓ (accent) / — (muted, sr-only "not included") / a mono value. */
 export function CellMark({ value, className = "" }: { value: Cell; className?: string }) {
   if (typeof value === "string") {
-    return <span className={`font-mono text-sm tabular-nums text-slate-200 ${className}`}>{value}</span>;
+    return <span className={`type-mono-sm tabular-nums text-slate-200 ${className}`}>{value}</span>;
   }
   if (value) {
     return (
@@ -53,7 +53,7 @@ export function CellMark({ value, className = "" }: { value: Cell; className?: s
  */
 export function PlannedMark() {
   return (
-    <span className="inline-flex items-center rounded-full border border-slate-700 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+    <span className="inline-flex items-center rounded-full border border-slate-700 px-2 py-0.5 font-mono type-micro uppercase tracking-widest text-slate-500">
       Planned
     </span>
   );
@@ -63,8 +63,8 @@ export function PlannedMark() {
 export function PlanHead({ plan, align = "center" }: { plan: MatrixPlan; align?: "center" | "left" }) {
   return (
     <div className={align === "center" ? "text-center" : "text-left"}>
-      <div className={`text-sm font-semibold ${plan.featured ? "text-accent" : "text-white"}`}>{plan.label}</div>
-      <div className="mt-0.5 font-mono text-xs uppercase tracking-widest text-slate-500">
+      <div className={`type-body-sm font-semibold ${plan.featured ? "text-accent" : "text-white"}`}>{plan.label}</div>
+      <div className="mt-0.5 type-label tracking-widest text-slate-500">
         {plan.allowance === "∞" ? "Unlimited" : `${plan.allowance} / mo`}
       </div>
     </div>

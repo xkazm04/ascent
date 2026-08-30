@@ -16,8 +16,8 @@ function Readout({ label, value, tone = "plain" }: { label: string; value: strin
     tone === "ok" ? "text-accent" : tone === "warn" ? "text-warn" : tone === "off" ? "text-slate-600" : "text-slate-200";
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <span className="font-mono text-xs uppercase tracking-[0.16em] text-slate-500">{label}</span>
-      <span className={`font-mono text-sm tabular-nums ${color}`}>{value}</span>
+      <span className="type-label tracking-[0.16em] text-slate-500">{label}</span>
+      <span className={`type-mono-sm tabular-nums ${color}`}>{value}</span>
     </div>
   );
 }
@@ -66,7 +66,7 @@ export function RegistryInstrumentPanel({ view }: { view: RegistryView }) {
         <Readout label="lessons" value={String(view.counts.lessons)} tone={view.counts.lessons > 0 ? "plain" : "off"} />
       </Surface>
       {view.error ? (
-        <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 font-mono text-xs text-warn">
+        <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 type-caption text-warn">
           index fault {timeAgo(view.error.at)} — {view.error.message}
         </p>
       ) : null}

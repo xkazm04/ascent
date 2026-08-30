@@ -212,9 +212,9 @@ function ReportMasthead({ repoRef, loading = false }: { repoRef: string; loading
   return (
     <div className="animate-fade-up">
       <Kicker tone="muted">Repository report</Kicker>
-      <h1 className="mt-2 text-2xl font-bold text-white">{repoRef}</h1>
+      <h1 className="mt-2 type-heading font-bold text-white">{repoRef}</h1>
       {loading && (
-        <p className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+        <p className="mt-2 flex items-center gap-2 type-body-sm text-slate-500">
           <span aria-hidden className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           Reading the latest scan…
         </p>
@@ -232,22 +232,22 @@ function SkillHistorySection({ rows }: { rows: { headSha: string | null; trackId
   const diff = prev ? diffTrackSets(prev.trackIds, latest.trackIds) : null;
   return (
     <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-base font-semibold text-white">
+      <h2 className="type-body font-semibold text-white">
         Onboarding skill <span className="font-normal text-slate-500">· generated {rows.length}× · last {latest.generatedAt.slice(0, 10)}</span>
       </h2>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {latest.trackIds.length === 0 ? (
-          <span className="text-sm text-slate-500">No open tracks. The skill targeted no gaps at last generation.</span>
+          <span className="type-body-sm text-slate-500">No open tracks. The skill targeted no gaps at last generation.</span>
         ) : (
           latest.trackIds.map((id) => (
-            <span key={id} className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-0.5 font-mono text-sm text-slate-300">
+            <span key={id} className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-0.5 type-mono-sm text-slate-300">
               {labelFor(id)}
             </span>
           ))
         )}
       </div>
       {diff && (diff.added.length > 0 || diff.dropped.length > 0) && (
-        <p className="mt-3 font-mono text-sm">
+        <p className="mt-3 type-mono-sm">
           {diff.added.length > 0 && <span className="text-emerald-300">+ {diff.added.map(labelFor).join(", ")}</span>}
           {diff.added.length > 0 && diff.dropped.length > 0 && <span className="text-slate-600"> · </span>}
           {diff.dropped.length > 0 && <span className="text-slate-500">✓ done: {diff.dropped.map(labelFor).join(", ")}</span>}

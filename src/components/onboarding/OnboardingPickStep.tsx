@@ -85,7 +85,7 @@ export function PickStep({
       />
       {/* ONB-6: a zero-setup escape hatch — jump straight to a real, already-scanned org rollup
           instead of picking/scanning anything, for a user without an obvious org to start with. */}
-      <p className="text-center text-sm text-slate-500">
+      <p className="text-center type-body-sm text-slate-500">
         Not sure where to start?{" "}
         {/* The zero-setup "just show me" path (ONB-6): the SAME curated org the landing showcases (lib/site),
             so a user with no obvious org of their own can see a real rollup now. */}
@@ -118,9 +118,9 @@ export function InstallationPicker({
 }) {
   return (
     <div className="rounded-2xl border border-accent/30 bg-accent/5 p-6">
-      <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">From your GitHub App</div>
+      <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">From your GitHub App</div>
       <h2 className="mt-1 font-semibold text-white">Scan an installed organization</h2>
-      <p className="mt-1 text-base text-slate-400">
+      <p className="mt-1 type-body text-slate-400">
         These are connected through the Ascent GitHub App, so{" "}
         <span className="text-slate-200">private repositories</span> are included.
       </p>
@@ -133,12 +133,12 @@ export function InstallationPicker({
             onClick={() => onPick(inst.login, inst.id)}
             className="focus-ring rounded-lg border border-accent/40 bg-slate-950/60 px-4 py-2.5 text-left transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
           >
-            <span className="font-mono text-base text-white">{inst.login}</span>
+            <span className="font-mono type-body text-white">{inst.login}</span>
           </button>
         ))}
       </div>
       {error && (
-        <p role="alert" className="mt-3 text-base text-danger-soft">
+        <p role="alert" className="mt-3 type-body text-danger-soft">
           {error}
         </p>
       )}
@@ -154,17 +154,17 @@ export function InstallationPicker({
 export function SeededOrgBanner({ org }: { org: string }) {
   return (
     <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6">
-      <div className="font-mono text-sm uppercase tracking-[0.3em] text-emerald-300">Ready for you</div>
+      <div className="type-mono-sm uppercase tracking-[0.3em] text-emerald-300">Ready for you</div>
       <h2 className="mt-1 font-semibold text-white">
         We pre-loaded <span className="font-mono">{org}</span>&apos;s top repositories
       </h2>
-      <p className="mt-1 text-base text-slate-400">
+      <p className="mt-1 type-body text-slate-400">
         Your most active organization is already on your watchlist. Open its dashboard to scan the
         fleet and see the cross-repo rollup, or start a fresh scan below.
       </p>
       <a
         href={`/org/${encodeURIComponent(org)}`}
-        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-emerald-400"
+        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-emerald-400"
       >
         View {org} dashboard →
       </a>
@@ -193,11 +193,11 @@ export function SuggestedOrgs({
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="font-mono text-sm uppercase tracking-[0.3em] text-slate-500">
+      <div className="type-mono-sm uppercase tracking-[0.3em] text-slate-500">
         Organizations you belong to
       </div>
       <h2 className="mt-1 font-semibold text-white">Scan one of your organizations</h2>
-      <p className="mt-1 text-base text-slate-400">
+      <p className="mt-1 type-body text-slate-400">
         Discovered from your GitHub account. Scanning lists each org&apos;s{" "}
         <span className="text-slate-200">public repositories</span>. Install the GitHub App to
         include private ones.
@@ -211,12 +211,12 @@ export function SuggestedOrgs({
             onClick={() => onPick(login)}
             className="focus-ring rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-2.5 text-left transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
           >
-            <span className="font-mono text-base text-white">{login}</span>
+            <span className="font-mono type-body text-white">{login}</span>
           </button>
         ))}
       </div>
       {error && (
-        <p role="alert" className="mt-3 text-base text-danger-soft">
+        <p role="alert" className="mt-3 type-body text-danger-soft">
           {error}
         </p>
       )}
@@ -252,7 +252,7 @@ export function PickForm({
   }, [error]);
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <label className="font-mono text-sm uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
+      <label className="type-mono-sm uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
         {dimmed ? "Or scan any public organization or user" : "GitHub organization or user"}
       </label>
       <form onSubmit={onSubmit} className="mt-2">
@@ -271,12 +271,12 @@ export function PickForm({
           <button
             type="submit"
             disabled={loading}
-            className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {loading ? "Listing…" : "List repos"}
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+        <div className="mt-3 flex flex-wrap items-center gap-2 type-body-sm text-slate-500">
           try:
           {SUGGESTIONS.map((s) => (
             <button
@@ -290,7 +290,7 @@ export function PickForm({
           ))}
         </div>
         {error && (
-          <p id="onboarding-org-error" role="alert" className="mt-3 text-base text-danger-soft">
+          <p id="onboarding-org-error" role="alert" className="mt-3 type-body text-danger-soft">
             {error}
           </p>
         )}

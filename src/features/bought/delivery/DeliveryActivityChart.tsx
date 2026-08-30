@@ -130,10 +130,10 @@ export function DeliveryActivityChart({
               transform: `translate(${hover < n * 0.12 ? "0" : hover > n * 0.88 ? "-100%" : "-50%"}, calc(-100% - 6px))`,
             }}
           >
-            <div className="whitespace-nowrap font-mono text-sm font-bold text-white">
+            <div className="whitespace-nowrap type-mono-sm font-bold text-white">
               {hoverVal.toLocaleString()} <span className="font-normal text-slate-400">commits</span>
             </div>
-            <div className="whitespace-nowrap font-mono text-xs text-slate-500">week of {fmtWeek.format(weekMs(hover))}</div>
+            <div className="whitespace-nowrap type-caption text-slate-500">week of {fmtWeek.format(weekMs(hover))}</div>
           </div>
         )}
       </div>

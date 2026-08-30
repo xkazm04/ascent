@@ -82,7 +82,7 @@ export function RepoRescanButton({
         title={disabled ? disabledHint : `Rescan ${fullName} now. Draws 1 credit (free if unchanged).`}
         aria-label={`Rescan ${fullName}`}
         aria-describedby={disabled && disabledHint ? hintId : undefined}
-        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 type-mono-sm text-slate-300 transition focus:border-accent focus:outline-none ${
           inert ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
         }`}
       >
@@ -98,7 +98,7 @@ export function RepoRescanButton({
         <span
           role={outcome.kind === "error" ? "alert" : "status"}
           title={outcome.message}
-          className={`max-w-40 truncate font-mono text-sm ${outcome.kind === "credits" ? "text-warn" : "text-danger"}`}
+          className={`max-w-40 truncate type-mono-sm ${outcome.kind === "credits" ? "text-warn" : "text-danger"}`}
         >
           {outcome.message}
         </span>

@@ -16,7 +16,7 @@ export function ExecutiveSignalsStrip({ briefing }: { briefing: ExecBriefing }) 
   }
   const { benchmark } = briefing;
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-sm text-slate-500">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 type-mono-sm text-slate-500">
       {briefing.adoptionRate != null && (
         <span>
           Fleet adoption <span className="text-slate-300">{briefing.adoptionRate}%</span> at high-adoption posture

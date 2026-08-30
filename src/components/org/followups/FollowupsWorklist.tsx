@@ -123,21 +123,21 @@ export function FollowupsWorklist({ org, rows, initialDim }: { org: string; rows
           "Dismiss 40" can never read as "Dismiss". */}
       {sel.count > 0 && (
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-accent/40 bg-surface-strong/95 px-4 py-2.5 shadow-2xl backdrop-blur">
-          <span className="font-mono text-sm text-slate-200">
+          <span className="type-mono-sm text-slate-200">
             <span className="font-bold tabular-nums">{sel.count}</span> selected · <span className="tabular-nums">{sel.repos}</span> repo{sel.repos === 1 ? "" : "s"} ·{" "}
             <span className="tabular-nums text-white">+{sel.points}</span> pts if all close
           </span>
-          <button type="button" onClick={() => setSelected(new Set())} className="focus-ring font-mono text-xs uppercase tracking-widest text-slate-500 hover:text-white">
+          <button type="button" onClick={() => setSelected(new Set())} className="focus-ring type-label tracking-widest text-slate-500 hover:text-white">
             clear
           </button>
           <span className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={() => bulkStatus("dismissed")} disabled={bulk !== null} className="focus-ring rounded-lg border border-divider px-3 py-1.5 font-mono text-xs text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50">
+            <button type="button" onClick={() => bulkStatus("dismissed")} disabled={bulk !== null} className="focus-ring rounded-lg border border-divider px-3 py-1.5 type-caption text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50">
               {bulk === "dismissed" ? "Dismissing…" : `Dismiss ${sel.count}`}
             </button>
-            <button type="button" onClick={() => bulkStatus("done")} disabled={bulk !== null} className="focus-ring rounded-lg border border-emerald-500/50 px-3 py-1.5 font-mono text-xs text-emerald-400 transition hover:bg-emerald-500/10 disabled:opacity-50">
+            <button type="button" onClick={() => bulkStatus("done")} disabled={bulk !== null} className="focus-ring rounded-lg border border-emerald-500/50 px-3 py-1.5 type-caption text-emerald-400 transition hover:bg-emerald-500/10 disabled:opacity-50">
               {bulk === "done" ? "Resolving…" : `Resolve ${sel.count}`}
             </button>
-            <button type="button" onClick={() => setPromptFor(sel.picked)} disabled={bulk !== null} className="focus-ring rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50">
+            <button type="button" onClick={() => setPromptFor(sel.picked)} disabled={bulk !== null} className="focus-ring rounded-lg bg-accent px-4 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50">
               Generate fix prompt →
             </button>
           </span>
@@ -174,17 +174,17 @@ function RowPair({
           <input type="checkbox" checked={on} onChange={onToggle} disabled={closed} aria-label={`Select ${r.title}`} className="accent-accent" />
         </td>
         <td className="px-3 py-1.5 align-top">
-          <Link href={reportPermalink(r.repo, null, org)} className="focus-ring whitespace-nowrap rounded font-mono text-xs text-slate-400 hover:text-accent" title={r.repo}>
+          <Link href={reportPermalink(r.repo, null, org)} className="focus-ring whitespace-nowrap rounded type-caption text-slate-400 hover:text-accent" title={r.repo}>
             {r.repoName}
           </Link>
         </td>
         <td className="px-3 py-1.5 align-top">
-          <span className="whitespace-nowrap font-mono text-xs text-slate-400" title={r.dimLabel}>
+          <span className="whitespace-nowrap type-caption text-slate-400" title={r.dimLabel}>
             {r.dimId}
           </span>
           {spread?.orgWide && (
             <span
-              className="ml-1.5 whitespace-nowrap rounded border border-amber-400/40 px-1 font-mono text-[10px] uppercase tracking-wider text-amber-300"
+              className="ml-1.5 whitespace-nowrap rounded border border-amber-400/40 px-1 font-mono type-micro uppercase tracking-wider text-amber-300"
               title={`Open in ${spread.repos} of ${spread.of} repos — an org-wide gap: fix it once as a practice, copying whoever already nails it`}
             >
               org-wide {spread.repos}/{spread.of}
@@ -192,23 +192,23 @@ function RowPair({
           )}
         </td>
         <td className="px-3 py-1.5 align-top">
-          <button type="button" onClick={onExpand} aria-expanded={isOpen} className="focus-ring text-left text-sm text-slate-100 hover:text-white">
+          <button type="button" onClick={onExpand} aria-expanded={isOpen} className="focus-ring text-left type-body-sm text-slate-100 hover:text-white">
             {r.title}
-            {r.unlocks && <span className="ml-2 font-mono text-xs text-slate-500">→ {r.unlocks}</span>}
+            {r.unlocks && <span className="ml-2 type-caption text-slate-500">→ {r.unlocks}</span>}
           </button>
         </td>
         <td className="px-3 py-1.5 align-top"><ImpactEffort r={r} /></td>
         <td className="px-3 py-1.5 text-right align-top"><Points n={r.projectedPoints} /></td>
         <td className="px-3 py-1.5 align-top"><StatusPill status={r.status} at={r.lastActivityAt} /></td>
-        <td className="px-3 py-1.5 text-right align-top font-mono text-xs text-slate-500">{timeAgo(r.lastActivityAt)}</td>
+        <td className="px-3 py-1.5 text-right align-top type-caption text-slate-500">{timeAgo(r.lastActivityAt)}</td>
       </tr>
       {isOpen && (
         <tr className="!bg-surface/30">
           <td />
           <td colSpan={7} className="px-3 pb-3 pt-1">
-            {r.rationale && <p className="max-w-3xl text-sm text-slate-300">{r.rationale}</p>}
+            {r.rationale && <p className="max-w-3xl type-body-sm text-slate-300">{r.rationale}</p>}
             {r.explore.length > 0 && (
-              <ul className="mt-2 space-y-1 text-sm text-slate-400">
+              <ul className="mt-2 space-y-1 type-body-sm text-slate-400">
                 {r.explore.map((q, i) => (
                   <li key={i} className="flex gap-2"><span className="select-none text-slate-600">→</span><span>{q}</span></li>
                 ))}
@@ -216,8 +216,8 @@ function RowPair({
             )}
             <div className="mt-2 flex items-center gap-4">
               <RowActions r={r} />
-              {r.assigneeLogin && <span className="font-mono text-xs text-slate-500">owner {r.assigneeLogin}</span>}
-              <span className="font-mono text-xs text-slate-600">id {r.id}</span>
+              {r.assigneeLogin && <span className="type-caption text-slate-500">owner {r.assigneeLogin}</span>}
+              <span className="type-caption text-slate-600">id {r.id}</span>
             </div>
             <div className="mt-2 border-t border-divider pt-2">
               <FollowupHistory id={r.id} />

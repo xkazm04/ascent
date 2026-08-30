@@ -88,11 +88,11 @@ export function ScanStep({
       {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
           h2, not h1: the page-level h1 lives in onboarding/page.tsx; a step-level h1 made two h1s
           coexist in the document (ambiguity-ui #4). Visual size is explicit, so nothing changes. */}
-      <h2 data-step-heading tabIndex={-1} className="flex items-center gap-2 text-2xl font-bold text-white focus:outline-none">
+      <h2 data-step-heading tabIndex={-1} className="flex items-center gap-2 type-heading font-bold text-white focus:outline-none">
         {phase === "done" && (
           <span
             aria-hidden
-            className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-base ${
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-full border type-body ${
               errorCount > 0
                 ? "border-orange-500/50 bg-orange-500/15 text-orange-300"
                 : "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
@@ -126,14 +126,14 @@ export function ScanStep({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className="font-mono text-sm tabular-nums text-slate-400">
+        <span className="type-mono-sm tabular-nums text-slate-400">
           {pct}% · {completed}/{scanTotal}
         </span>
         {phase === "scanning" && (
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-danger/50 hover:text-danger-soft"
+            className="rounded-md border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-danger/50 hover:text-danger-soft"
           >
             Cancel
           </button>
@@ -141,7 +141,7 @@ export function ScanStep({
       </div>
 
       {error && (
-        <p role="alert" className="mt-3 text-base text-danger-soft">
+        <p role="alert" className="mt-3 type-body text-danger-soft">
           {error}
         </p>
       )}
@@ -153,7 +153,7 @@ export function ScanStep({
       </div>
 
       {phase === "done" && preview && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-300">
           {upgradePlanned ? (
             // Preview-then-upgrade: the live scan is queued, not missing — the default recovery copy
             // ("install the App / top up") would misdiagnose a fully set-up, paying org.
@@ -182,7 +182,7 @@ export function ScanStep({
       )}
 
       {phase === "done" && creditSkipped > 0 && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-300">
           {creditSkipped} {creditSkipped === 1 ? "repository was" : "repositories were"}{" "}
           <strong>skipped (out of credits)</strong>. Top up your prepaid balance, then scan the rest from the dashboard.
         </p>
@@ -192,12 +192,12 @@ export function ScanStep({
         <>
           {/* ONB-4: a compact "what your score means" legend, so the scores land with meaning. */}
           <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-            <summary className="cursor-pointer font-mono text-sm uppercase tracking-widest text-slate-400 hover:text-white">
+            <summary className="cursor-pointer type-mono-sm uppercase tracking-widest text-slate-400 hover:text-white">
               How maturity levels work
             </summary>
             <ul className="mt-2 space-y-1.5">
               {LEVELS.map((l) => (
-                <li key={l.id} className="flex items-start gap-2 text-sm text-slate-300">
+                <li key={l.id} className="flex items-start gap-2 type-body-sm text-slate-300">
                   <span aria-hidden className={`mt-0.5 ${LEVEL_CLASSES[l.id as LevelId]?.text ?? "text-slate-400"}`}>
                     {LEVEL_GLYPH[l.id as LevelId]} {l.id}
                   </span>
@@ -235,13 +235,13 @@ export function ScanStep({
           <div className="mt-6 flex gap-3">
             <button
               onClick={onViewDashboard}
-              className="rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+              className="rounded-lg bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
             >
               {upgradePlanned ? "Open dashboard (live scan starts there)" : "View dashboard"}
             </button>
             <button
               onClick={onScanAnother}
-              className="rounded-lg border border-slate-700 px-4 py-2.5 text-base text-slate-300 hover:border-slate-600"
+              className="rounded-lg border border-slate-700 px-4 py-2.5 type-body text-slate-300 hover:border-slate-600"
             >
               Scan another
             </button>

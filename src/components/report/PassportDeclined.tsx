@@ -18,8 +18,8 @@ export function PassportDeclined({ declined }: { declined: AppPassport["declined
       </Kicker>
       <ul className="flex flex-col gap-1">
         {declined.map((d) => (
-          <li key={d.path} className="flex flex-wrap items-baseline gap-x-2 font-mono text-xs text-slate-500">
-            <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-400">
+          <li key={d.path} className="flex flex-wrap items-baseline gap-x-2 type-caption text-slate-500">
+            <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 type-micro uppercase tracking-wider text-slate-400">
               declined
             </span>
             <span className="text-slate-300">{d.label}</span>
@@ -52,13 +52,13 @@ export function PassportArtifactGrades({ pp }: { pp: AppPassport }) {
       </Kicker>
       <div className="flex flex-wrap items-center gap-1.5">
         {rows.map(([label, grade]) => (
-          <span key={label} className="rounded border border-divider bg-surface/60 px-2 py-0.5 font-mono text-xs text-slate-400">
+          <span key={label} className="rounded border border-divider bg-surface/60 px-2 py-0.5 type-caption text-slate-400">
             {label}: <span className="text-slate-300">{GRADE_LABEL[grade] ?? grade}</span>
           </span>
         ))}
         {pp.migratedFrom ? (
           <span
-            className="cursor-help rounded border border-divider px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-600"
+            className="cursor-help rounded border border-divider px-2 py-0.5 font-mono type-micro uppercase tracking-wider text-slate-600"
             title={`Grades lifted from passport ${pp.migratedFrom} (a stored boolean only proves presence). Re-scan to assess them.`}
           >
             migrated from {pp.migratedFrom}

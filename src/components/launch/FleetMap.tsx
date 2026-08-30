@@ -242,13 +242,13 @@ export function FleetMap({
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
             href={next}
-            className="focus-ring rounded-xl bg-accent px-6 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+            className="focus-ring rounded-xl bg-accent px-6 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             Enter mission control →
           </Link>
           <Link
             href="/"
-            className="focus-ring rounded-xl border border-slate-700 px-6 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-xl border border-slate-700 px-6 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
           >
             Scan a public repo
           </Link>

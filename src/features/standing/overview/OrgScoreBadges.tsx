@@ -32,20 +32,20 @@ export function OrgScoreBadges({
     <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-divider bg-surface/40 px-5 py-3.5">
       {badges.map((b) => (
         <div key={b.label} className="flex flex-col gap-0.5">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">{b.label}</span>
+          <span className="type-label tracking-widest text-slate-500">{b.label}</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-xl font-bold tabular-nums" style={{ color: b.color ?? scoreHex(50) }}>
+            <span className="type-title font-bold tabular-nums" style={{ color: b.color ?? scoreHex(50) }}>
               {b.value}
             </span>
-            {b.sub && <span className="text-sm text-slate-400">{b.sub}</span>}
+            {b.sub && <span className="type-body-sm text-slate-400">{b.sub}</span>}
             {b.delta != null && b.delta !== 0 && (
-              <span className={`font-mono text-xs ${b.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+              <span className={`type-caption ${b.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {b.delta > 0 ? "▲" : "▼"}
                 {Math.abs(b.delta)}
               </span>
             )}
             {b.goal && (
-              <span className="font-mono text-xs" style={{ color: b.goal.color }}>
+              <span className="type-caption" style={{ color: b.goal.color }}>
                 goal {b.goal.target} · {b.goal.label}
               </span>
             )}
@@ -54,7 +54,7 @@ export function OrgScoreBadges({
       ))}
       {trend && trend.points.length >= 2 && (
         <div className="ml-auto flex flex-col gap-0.5">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">Trend · {trend.label}</span>
+          <span className="type-label tracking-widest text-slate-500">Trend · {trend.label}</span>
           <Sparkline points={trend.points} />
         </div>
       )}

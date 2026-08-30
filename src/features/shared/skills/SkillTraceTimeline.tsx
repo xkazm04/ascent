@@ -24,7 +24,7 @@ export function SkillTraceTimeline({
 }) {
   const groups = groupLessonsByVersion(entries, lessons);
   if (!groups.length) {
-    return <p className="text-sm text-slate-500">No commits and no lessons for this skill yet.</p>;
+    return <p className="type-body-sm text-slate-500">No commits and no lessons for this skill yet.</p>;
   }
   const byId = new Map(lessons.map((l) => [l.id, l]));
 
@@ -33,16 +33,16 @@ export function SkillTraceTimeline({
       {groups.map((g, i) => (
         <section key={`${g.version ?? "unresolved"}-${i}`} className="border-l border-slate-800 pl-3">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className={`font-mono text-sm ${g.version ? "text-slate-200" : "text-slate-600"}`}>
+            <span className={`type-mono-sm ${g.version ? "text-slate-200" : "text-slate-600"}`}>
               {g.version ? `v${g.version}` : "—"}
             </span>
-            <span className="font-mono text-xs text-slate-600">{traceGroupLabel(g)}</span>
+            <span className="type-caption text-slate-600">{traceGroupLabel(g)}</span>
           </div>
 
           {g.entries.length > 0 && (
             <ul className="mt-1 space-y-0.5">
               {g.entries.map((e) => (
-                <li key={e.sha} className="flex flex-wrap items-baseline gap-x-2 font-mono text-xs text-slate-500">
+                <li key={e.sha} className="flex flex-wrap items-baseline gap-x-2 type-caption text-slate-500">
                   <span className="text-slate-400">{e.sha.slice(0, 7)}</span>
                   <span className="text-slate-300">{e.message}</span>
                   <span title={e.authoredAt}>{timeAgo(e.authoredAt)}</span>
@@ -58,7 +58,7 @@ export function SkillTraceTimeline({
       ))}
 
       {truncated && (
-        <p className="font-mono text-xs text-slate-600">
+        <p className="type-caption text-slate-600">
           older commits exist beyond the read budget — this is the recent end of the history
         </p>
       )}

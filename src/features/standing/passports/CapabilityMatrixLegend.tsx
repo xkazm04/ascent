@@ -15,11 +15,11 @@ const STATES: { state: CapabilityState; what: string }[] = [
 
 export function CapabilityMatrixLegend({ unassessed }: { unassessed: number }) {
   return (
-    <div className="space-y-3 text-sm text-slate-400">
+    <div className="space-y-3 type-body-sm text-slate-400">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         {STATES.map(({ state, what }) => (
           <span key={state} className="flex items-center gap-2">
-            <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded px-1.5 font-mono text-xs ${CELL_STYLE[state].className}`}>
+            <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded px-1.5 type-caption ${CELL_STYLE[state].className}`}>
               {CELL_STYLE[state].mark}
             </span>
             <span>
@@ -30,11 +30,11 @@ export function CapabilityMatrixLegend({ unassessed }: { unassessed: number }) {
       </div>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <span className="flex items-center gap-2">
-          <span className="border-b border-accent/70 px-2 font-mono text-xs text-slate-300">abc</span>
+          <span className="border-b border-accent/70 px-2 type-caption text-slate-300">abc</span>
           <span>enforced pre-push</span>
         </span>
         <span className="flex items-center gap-2">
-          <span className="border-b border-dotted border-accent/70 px-2 font-mono text-xs text-slate-300">abc</span>
+          <span className="border-b border-dotted border-accent/70 px-2 type-caption text-slate-300">abc</span>
           <span>enforced as a CI hard pass</span>
         </span>
       </div>

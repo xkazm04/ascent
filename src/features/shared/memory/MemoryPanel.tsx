@@ -73,7 +73,7 @@ export function MemoryPanel({
 
       <div className="mt-4">
         {m.memories.length === 0 ? (
-          <p className="text-base text-slate-500">
+          <p className="type-body text-slate-500">
             {m.loading
               ? "Loading…"
               : m.filtered
@@ -110,7 +110,7 @@ export function MemoryPanel({
         onDismissVerdict={m.dismissVerdict}
         onSave={m.save}
       />
-      {m.error && <p className="mt-2 text-sm text-orange-300">{m.error}</p>}
+      {m.error && <p className="mt-2 type-body-sm text-orange-300">{m.error}</p>}
     </Card>
   );
 }

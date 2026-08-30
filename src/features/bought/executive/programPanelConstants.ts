@@ -11,5 +11,5 @@ export const CADENCE_LABEL: Record<ProgramCadence, string> = {
 };
 
 export const inputClass =
-  "w-full rounded-md border border-divider bg-ink px-3 py-2 text-sm text-white placeholder:text-slate-600 focus-ring";
-export const labelClass = "block font-mono text-xs uppercase tracking-[0.14em] text-slate-500";
+  "w-full rounded-md border border-divider bg-ink px-3 py-2 type-body-sm text-white placeholder:text-slate-600 focus-ring";
+export const labelClass = "block type-label tracking-[0.14em] text-slate-500";

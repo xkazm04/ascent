@@ -24,14 +24,14 @@ function FactorBar({ factor, maxAbsDelta }: { factor: StandingFactor; maxAbsDelt
       className="flex items-center gap-3"
       title={`${factor.label}: this team ${factor.teamAvg} vs fleet ${factor.fleetAvg} (${signedDelta(factor.delta)})`}
     >
-      <span className="w-20 shrink-0 truncate text-sm text-slate-300">{short}</span>
+      <span className="w-20 shrink-0 truncate type-body-sm text-slate-300">{short}</span>
       <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
         <div className="animate-meter h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="w-8 shrink-0 text-right font-mono text-sm" style={{ color: scoreHex(factor.teamAvg) }}>
+      <span className="w-8 shrink-0 text-right type-mono-sm" style={{ color: scoreHex(factor.teamAvg) }}>
         {factor.teamAvg}
       </span>
-      <span className="w-9 shrink-0 text-right font-mono text-sm" style={{ color }}>
+      <span className="w-9 shrink-0 text-right type-mono-sm" style={{ color }}>
         {signedDelta(factor.delta)}
       </span>
     </div>
@@ -59,27 +59,27 @@ function StandingColumn({
     standing.contributors >= CHAMPION_MIN_POP && standing.champions.length > 0 && standing.aiCommitShare > 0;
   return (
     <div className="p-5">
-      <div className="text-sm font-medium" style={{ color: badgeColor }}>
+      <div className="type-body-sm font-medium" style={{ color: badgeColor }}>
         {leads ? "▲ Leads the fleet" : "▼ Trails the fleet"}
       </div>
       <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <a
           href={`#${teamAnchorId(standing.slug)}`}
           title={`${standing.slug}: jump to its row`}
-          className="focus-ring rounded font-mono text-lg text-white transition hover:text-accent"
+          className="focus-ring rounded font-mono type-lede text-white transition hover:text-accent"
         >
           {standing.slug}
         </a>
-        <span className="font-mono text-lg" style={{ color: scoreHex(standing.avgOverall) }}>
+        <span className="font-mono type-lede" style={{ color: scoreHex(standing.avgOverall) }}>
           {standing.avgOverall}
         </span>
-        <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs" style={{ color: badgeColor }}>
+        <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption" style={{ color: badgeColor }}>
           {signedDelta(standing.overallDelta)} vs fleet {fleetAvgOverall}
         </span>
-        <span className="font-mono text-xs text-slate-500">{postureLabel(standing.posture)}</span>
+        <span className="type-caption text-slate-500">{postureLabel(standing.posture)}</span>
       </div>
 
-      <p className="mt-3 text-sm text-slate-500">
+      <p className="mt-3 type-body-sm text-slate-500">
         {leads ? "Widest leads over the fleet average, by dimension:" : "Biggest drags below the fleet average, by dimension:"}
       </p>
       <div className="mt-2 space-y-1.5">
@@ -89,12 +89,12 @@ function StandingColumn({
       </div>
 
       {/* Human / trajectory context — separate signals from the maturity-score bars above. */}
-      <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-divider pt-3 text-sm">
+      <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-divider pt-3 type-body-sm">
         <div>
           <dt className="text-slate-500">AI adoption</dt>
           <dd className="mt-0.5 font-mono" style={{ color: scoreHex(standing.aiCommitShare) }}>
             {standing.aiCommitShare}%{" "}
-            <span className="text-xs" style={{ color: deltaHex(standing.aiShareDelta) }}>
+            <span className="type-note" style={{ color: deltaHex(standing.aiShareDelta) }}>
               {signedDelta(standing.aiShareDelta)}
             </span>
           </dd>
@@ -105,7 +105,7 @@ function StandingColumn({
             {standing.comparedRepos > 0 ? (
               <span style={{ color: deltaHex(standing.avgDelta) }}>
                 {fmtDelta(standing.avgDelta)}{" "}
-                <span className="text-xs text-slate-500">
+                <span className="type-note text-slate-500">
                   ▲{standing.improving} ▼{standing.declining}
                 </span>
               </span>
@@ -121,7 +121,7 @@ function StandingColumn({
               {standing.champions.slice(0, 3).map((c) => (
                 <span
                   key={c.login}
-                  className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-xs text-accent"
+                  className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-accent"
                   title={`${c.aiCommits} AI commits · ${c.aiShare}% of their commits AI-attributed`}
                 >
                   {c.login}
@@ -150,7 +150,7 @@ export function TeamsStandings({ standings, capturedAt }: { standings: TeamStand
           </>
         }
         right={
-          <span className="font-mono text-xs text-slate-600">
+          <span className="type-caption text-slate-600">
             {capturedAt ? `captured by the org scan ${timeAgo(capturedAt.toISOString())}` : "live preview · captured on your next org scan"}
           </span>
         }
@@ -161,7 +161,7 @@ export function TeamsStandings({ standings, capturedAt }: { standings: TeamStand
           <StandingColumn standing={laggard} maxAbsDelta={maxAbsDelta} role="laggard" fleetAvgOverall={fleetAvgOverall} />
         </div>
       </Surface>
-      <p className="mt-2 text-sm text-slate-500">
+      <p className="mt-2 type-body-sm text-slate-500">
         A decomposition, not a verdict: a low dimension is where a pairing or a borrowed pattern would move the number most.
         {/* Honest caption for the gate above — the old `CHAMPION_MIN_POP > 0 &&` was compile-time
             true (it guarded nothing) and the copy omitted the population floor entirely. */}

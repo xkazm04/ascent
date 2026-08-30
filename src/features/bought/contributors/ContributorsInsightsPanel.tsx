@@ -65,7 +65,7 @@ export async function ContributorsInsightsPanel({
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-3xl text-base text-slate-400">
+        <p className="max-w-3xl type-body text-slate-400">
           Inputs to explore where trust in AI could grow across the team: who&apos;s leaning in, whose approach others could
           learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
         </p>
@@ -140,7 +140,7 @@ export async function ContributorsInsightsPanel({
 
       <ContributorsConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
 
-      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-base text-slate-400">
+      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 type-body text-slate-400">
         <span className="text-slate-300">How to read this:</span> these are inputs to explore, never directives. Someone active
         in a repo with thin agent guidance is well placed to seed it; a champion&apos;s approach is a pattern others can borrow.
         The aim is to surface where trust could grow. People decide what to pick up.
@@ -149,12 +149,12 @@ export async function ContributorsInsightsPanel({
           snapshot recency trails the fleet's newest scan by ~6 months, so a long-unscanned repo
           can't crown a departed engineer champion — say so instead of silently excluding. */}
       {insights.staleRepos > 0 && (
-        <p className="mt-4 font-mono text-sm text-slate-500">
+        <p className="mt-4 type-mono-sm text-slate-500">
           {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded: last scanned too long ago for
           its activity snapshot to blend honestly with the rest. Rescan to include {insights.staleRepos === 1 ? "it" : "them"}.
         </p>
       )}
-      <p className="mt-4 font-mono text-sm text-slate-600">
+      <p className="mt-4 type-mono-sm text-slate-600">
         {/* The scan-time framing leads the panel now (SnapshotScopeNotice); this keeps only the
             pointers it uniquely carries. */}
         For team-level rollups, see the{" "}

@@ -83,19 +83,19 @@ export function AboutOrgQuestions() {
             >
               <span className="flex items-start gap-4">
                 {/* The row's own number — an index, in the publication's voice. */}
-                <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-slate-600 transition group-hover:text-accent">
+                <span className="mt-0.5 shrink-0 type-caption tabular-nums text-slate-600 transition group-hover:text-accent">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <span className="deck-body text-base leading-relaxed text-slate-200 group-hover:text-white">
+                <span className="deck-body type-body leading-relaxed text-slate-200 group-hover:text-white">
                   {q.ask}
                 </span>
               </span>
               <span className="flex items-center gap-2 pl-8 sm:justify-end sm:pl-0">
-                <span className="font-mono text-xs uppercase tracking-[0.2em] text-slate-600">{orgGroupLabelFor(q.tab)}</span>
+                <span className="type-label tracking-[0.2em] text-slate-600">{orgGroupLabelFor(q.tab)}</span>
                 <span aria-hidden className="text-slate-700">
                   ›
                 </span>
-                <span className="font-mono text-xs uppercase tracking-[0.2em] text-accent">{q.view}</span>
+                <span className="type-label tracking-[0.2em] text-accent">{q.view}</span>
                 <span aria-hidden className="font-mono text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-accent">
                   →
                 </span>

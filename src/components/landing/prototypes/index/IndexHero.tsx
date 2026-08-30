@@ -17,8 +17,8 @@ import type { LandingData } from "../types";
 function RuleStat({ value, label }: { value: string; label: string }) {
   return (
     <div className="flex flex-col">
-      <span className="deck-figure font-mono text-2xl font-bold tabular-nums text-white">{value}</span>
-      <span className="mt-1 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{label}</span>
+      <span className="deck-figure type-figure font-bold text-white">{value}</span>
+      <span className="mt-1 type-label tracking-[0.2em] text-slate-500">{label}</span>
     </div>
   );
 }
@@ -69,13 +69,13 @@ export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted
             has to clear the fold by more than the rhythm it turns on. */}
         <div className="mt-12 grid items-center gap-12 lg:grid-cols-[1.25fr_0.75fr] xl:gap-16 2xl:gap-20 [@media(min-height:68rem)]:mt-16">
           <div>
-            <h1 className="deck-h1 text-4xl font-bold leading-[1.04] tracking-tight text-white sm:text-6xl">
+            <h1 className="deck-h1 type-display-lg font-bold leading-[1.04] tracking-tight text-white sm:text-6xl">
               Every engineering org has a maturity.
               <span className="text-accent"> Now it has an index.</span>
             </h1>
             {/* The measure grows a step with the type, so the lede keeps ~60 characters a line at the
                 top of the ramp instead of narrowing to a ragged column. */}
-            <p className="deck-lede mt-6 max-w-xl text-lg leading-relaxed text-slate-300 2xl:max-w-2xl [@media(min-height:68rem)]:mt-8">
+            <p className="deck-lede mt-6 max-w-xl type-lede leading-relaxed text-slate-300 2xl:max-w-2xl [@media(min-height:68rem)]:mt-8">
               Ascent reads a GitHub repository and rates how AI-native the engineering is: a single 0–100
               score on a {LEVELS.length}-level ladder across {DIMENSIONS.length} weighted dimensions, with the
               evidence behind every number.
@@ -84,7 +84,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted
                 buy operation, not capability" / "the Claude subscription you already pay for") so the
                 two surfaces can't drift apart in spirit — the landing makes the claim, the pricing
                 page substantiates it. */}
-            <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-400 2xl:max-w-2xl">
+            <p className="mt-4 max-w-xl type-body-sm leading-relaxed text-slate-400 2xl:max-w-2xl">
               <span className="font-medium text-slate-200">Open source under AGPL-3.0.</span> Run it yourself
               with any model — including the Claude subscription you already pay for. The cloud plans buy
               operation, not capability.
@@ -96,7 +96,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted
               <ScanModal examples={exampleRepos} auth={auth} gated={gated} />
               <Link
                 href="/onboarding"
-                className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
               >
                 Scan your whole org <span aria-hidden>→</span>
               </Link>
@@ -111,7 +111,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted
                 setup === "unset" && (
                   <Link
                     href="/onboarding"
-                    className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                    className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
                   >
                     Finish setup · /onboarding <span aria-hidden>→</span>
                   </Link>
@@ -121,14 +121,14 @@ export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted
                   href={sourceHref}
                   target="_blank"
                   rel="noreferrer"
-                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
                 >
                   Open source · run it yourself <span aria-hidden>→</span>
                 </a>
               ) : (
                 <Link
                   href="/pricing#self-host"
-                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
                 >
                   Open source · run it yourself <span aria-hidden>→</span>
                 </Link>
@@ -139,7 +139,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false, selfHosted
                 configurable slug — see lib/site); the sample report points at a real top-scored repo from
                 the live index when one exists (so it opens a finished report, never a cold scan — and is
                 simply omitted until the corpus has a public scan). */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-widest text-slate-400">
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 type-label tracking-widest text-slate-400">
               {sampleRepo && (
                 <Link href={`/report/${sampleRepo}`} className="focus-ring rounded-sm transition hover:text-accent">
                   <span aria-hidden>▸</span> See a sample report

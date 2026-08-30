@@ -18,7 +18,7 @@ import { REGISTRY_DEMO_STATES, fixtureRegistryView } from "@/lib/org/registry-vi
 import { RegistryPanel } from "./RegistryPanel";
 import { RegistryPreviewContext } from "./useRegistryMutation";
 
-const CHIP = "focus-ring rounded-md px-2.5 py-1.5 font-mono text-sm transition-colors";
+const CHIP = "focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors";
 
 export function RegistryPreviewShell({
   slug,
@@ -62,7 +62,7 @@ export function RegistryPreviewShell({
             </button>
           ))}
         </div>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 type-body-sm text-slate-500">
           Nothing is mapped yet, so these are shaped examples of what the tab reads once a registry exists. They are not
           your data and not anyone else&apos;s, switching between them writes nothing, and none of it is in the URL.
         </p>
@@ -71,10 +71,10 @@ export function RegistryPreviewShell({
       {shown ? (
         <div className="rounded-2xl border border-warn/40 p-4">
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-warn/40 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-warn">
+            <span className="rounded-full border border-warn/40 px-2 py-0.5 type-label tracking-widest text-warn">
               preview · {preview}
             </span>
-            <span className="text-sm text-slate-500">
+            <span className="type-body-sm text-slate-500">
               Example data. The actions render exactly as they would, but they are inert here — clicking one sends nothing.
             </span>
           </div>

@@ -120,7 +120,7 @@ export function TeamsMatrix({
               const v = byId[d];
               if (v == null) {
                 return (
-                  <td key={d} className="px-1 py-1.5 text-center font-mono text-sm text-slate-700" title={`${t.slug}: no ${DIMENSION_BY_ID[d as DimensionId]?.name ?? d} score yet`}>
+                  <td key={d} className="px-1 py-1.5 text-center type-mono-sm text-slate-700" title={`${t.slug}: no ${DIMENSION_BY_ID[d as DimensionId]?.name ?? d} score yet`}>
                     ·
                   </td>
                 );
@@ -129,7 +129,7 @@ export function TeamsMatrix({
               return (
                 <td key={d} className="px-1 py-1.5">
                   <div
-                    className="mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-sm"
+                    className="mx-auto flex h-7 w-9 items-center justify-center rounded type-mono-sm"
                     style={{ backgroundColor: cell.fill, color: cell.text }}
                     title={`${t.slug} · ${DIMENSION_BY_ID[d as DimensionId]?.name ?? d}: ${v}`}
                   >

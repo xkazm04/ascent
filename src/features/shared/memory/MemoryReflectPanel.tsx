@@ -102,8 +102,8 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
               onClick={running ? () => abort.current?.abort() : propose}
               className={
                 running
-                  ? "rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 hover:border-orange-400/60 hover:text-orange-300"
-                  : "rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20"
+                  ? "rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-400 hover:border-orange-400/60 hover:text-orange-300"
+                  : "rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20"
               }
               title={
                 running
@@ -118,14 +118,14 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
       />
 
       {!canWrite && (
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 type-body-sm text-slate-500">
           Reflection spends a model call and can supersede memories, so it follows the same entitlement as
           writing: a member on a Team plan, or your personal workspace.
         </p>
       )}
 
       {result && (
-        <p className="mt-3 font-mono text-xs text-slate-500">
+        <p className="mt-3 type-caption text-slate-500">
           considered {result.consideredCount} active memor{result.consideredCount === 1 ? "y" : "ies"} ·{" "}
           {result.clusterCount} candidate famil{result.clusterCount === 1 ? "y" : "ies"} ·{" "}
           {result.llmUnavailable ? "no model engine" : `judged by ${result.engine}`}
@@ -134,8 +134,8 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
 
       {outcome && (
         <div className="mt-2 rounded-xl border border-slate-700 bg-slate-950/40 p-3">
-          <p className="text-sm font-medium text-slate-200">{outcome.headline}</p>
-          <p className="mt-1 text-sm text-slate-500">{outcome.detail}</p>
+          <p className="type-body-sm font-medium text-slate-200">{outcome.headline}</p>
+          <p className="mt-1 type-body-sm text-slate-500">{outcome.detail}</p>
         </div>
       )}
 
@@ -156,8 +156,8 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
         </div>
       )}
 
-      {notice && <p className="mt-2 text-sm text-emerald-300">{notice}</p>}
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {notice && <p className="mt-2 type-body-sm text-emerald-300">{notice}</p>}
+      {error && <p className="mt-2 type-body-sm text-orange-300">{error}</p>}
     </Card>
   );
 }

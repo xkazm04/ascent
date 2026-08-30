@@ -22,17 +22,17 @@ function Row({ r, fix }: { r: RepoGovernance; fix: boolean }) {
   return (
     <tr className="text-slate-300">
       <td className="px-4 py-1.5">
-        <Link href={`/report/${r.fullName}`} className="focus-ring font-mono text-sm text-white transition hover:text-accent">
+        <Link href={`/report/${r.fullName}`} className="focus-ring type-mono-sm text-white transition hover:text-accent">
           {r.name}
         </Link>
         {!r.protected && (
-          <span className="ml-2 rounded border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 font-mono text-xs uppercase tracking-widest text-orange-300">
+          <span className="ml-2 rounded border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 type-label tracking-widest text-orange-300">
             unprotected
           </span>
         )}
       </td>
       <td className="px-3 py-1.5 text-center">{yes(r.protected)}</td>
-      <td className="px-3 py-1.5 text-center font-mono text-sm">
+      <td className="px-3 py-1.5 text-center type-mono-sm">
         {r.requiresPullRequest ? (
           <span className={r.requiredApprovals > 0 ? "text-lime-400" : "text-orange-300"} title={r.requiredApprovals > 0 ? undefined : "PR required, but 0 approvals, so authors can self-merge"}>
             {r.requiredApprovals > 0 ? `✓ ${r.requiredApprovals}` : "0"}
@@ -50,7 +50,7 @@ function Row({ r, fix }: { r: RepoGovernance; fix: boolean }) {
             href={`https://github.com/${r.fullName}/settings/branches`}
             target="_blank"
             rel="noreferrer"
-            className="focus-ring whitespace-nowrap font-mono text-sm text-accent transition hover:text-white"
+            className="focus-ring whitespace-nowrap type-mono-sm text-accent transition hover:text-white"
             title="Opens this repo's branch-protection settings (needs admin access)"
           >
             Fix on GitHub ↗
@@ -89,14 +89,14 @@ export function GovernanceTable({ gov }: { gov: OrgGovernance }) {
           ))}
         </OrgTable>
       ) : (
-        <p className="text-sm text-slate-400">
+        <p className="type-body-sm text-slate-400">
           <span aria-hidden className="mr-2 text-lime-400">✓</span>
           Every scanned repo gates merges with protection, a required approval, and status checks.
         </p>
       )}
       {governed.length > 0 && (
         <details className="group">
-          <summary className="focus-ring inline-flex cursor-pointer list-none items-center gap-2 rounded font-mono text-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+          <summary className="focus-ring inline-flex cursor-pointer list-none items-center gap-2 rounded type-mono-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
             <span aria-hidden className="inline-block text-slate-600 transition-transform group-open:rotate-90">›</span>
             {governed.length} repo{governed.length > 1 ? "s" : ""} fully governed <span aria-hidden className="text-lime-400">✓</span>
           </summary>

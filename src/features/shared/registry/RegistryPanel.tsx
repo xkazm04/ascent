@@ -56,8 +56,8 @@ function Masthead({ view, slug }: { view: RegistryView; slug: string }) {
 function ErrorLine({ view }: { view: RegistryView }) {
   if (!view.error) return null;
   return (
-    <p className="rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn">
-      <span className="font-mono text-xs uppercase tracking-[0.18em]">last index failed {timeAgo(view.error.at)} · </span>
+    <p className="rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 type-body-sm text-warn">
+      <span className="type-label tracking-[0.18em]">last index failed {timeAgo(view.error.at)} · </span>
       {view.error.message}
     </p>
   );
@@ -67,14 +67,14 @@ function Telemetry({ view }: { view: RegistryView }) {
   return (
     <div className="space-y-2">
       <Kicker tone="muted">Telemetry</Kicker>
-      <p className="text-sm text-slate-400">
+      <p className="type-body-sm text-slate-400">
         Invocation counts only — never prompts, never code. The sink is{" "}
         <span className="font-mono text-slate-200">{SINK_LABEL[view.telemetry.sink]}</span>.
       </p>
-      <div className="font-mono text-sm text-slate-300">
-        <span className="text-2xl font-bold tabular-nums text-white">{view.telemetry.invokes30d.toLocaleString()}</span> invokes · 30d
+      <div className="type-mono-sm text-slate-300">
+        <span className="type-heading font-bold tabular-nums text-white">{view.telemetry.invokes30d.toLocaleString()}</span> invokes · 30d
       </div>
-      <div className="font-mono text-xs text-slate-500">
+      <div className="type-caption text-slate-500">
         from <span className="tabular-nums text-slate-300">{view.telemetry.reposReporting}</span> repos
       </div>
     </div>

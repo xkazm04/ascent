@@ -48,12 +48,12 @@ export function RegenerateTokenButton({ slug, onRotated }: { slug: string; onRot
             setError(null);
             setConfirming(true);
           }}
-          className="focus-ring rounded-lg border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:border-orange-400/60 hover:text-white"
+          className="focus-ring rounded-lg border border-divider px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-orange-400/60 hover:text-white"
         >
           Regenerate token
         </button>
         {error && (
-          <p role="status" className="text-sm text-orange-300">
+          <p role="status" className="type-body-sm text-orange-300">
             {error}
           </p>
         )}
@@ -63,7 +63,7 @@ export function RegenerateTokenButton({ slug, onRotated }: { slug: string; onRot
 
   return (
     <div className="rounded-lg border border-orange-400/40 bg-orange-400/5 p-3">
-      <p className="text-sm text-slate-300">
+      <p className="type-body-sm text-slate-300">
         Regenerating invalidates the current token <strong className="font-semibold text-white">immediately</strong>. Every Claude Code
         exporter, CI job and collector still configured with it stops reporting (HTTP 401) until it is reconfigured with the new token.
         Telemetry sent in the meantime is not queued or recovered. Only this organization is affected.
@@ -73,7 +73,7 @@ export function RegenerateTokenButton({ slug, onRotated }: { slug: string; onRot
           type="button"
           onClick={rotate}
           disabled={busy}
-          className="focus-ring rounded-lg border border-orange-400/50 bg-orange-400/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-400/20 disabled:opacity-50"
+          className="focus-ring rounded-lg border border-orange-400/50 bg-orange-400/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-orange-400/20 disabled:opacity-50"
         >
           {busy ? "Regenerating…" : "Yes, regenerate"}
         </button>
@@ -81,12 +81,12 @@ export function RegenerateTokenButton({ slug, onRotated }: { slug: string; onRot
           type="button"
           onClick={() => setConfirming(false)}
           disabled={busy}
-          className="focus-ring rounded-lg border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+          className="focus-ring rounded-lg border border-divider px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
         >
           Cancel
         </button>
         {error && (
-          <p role="status" className="text-sm text-orange-300">
+          <p role="status" className="type-body-sm text-orange-300">
             {error}
           </p>
         )}

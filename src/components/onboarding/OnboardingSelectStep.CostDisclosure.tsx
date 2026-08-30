@@ -54,7 +54,7 @@ export function ScanCostDisclosure({
 
   if (!sourceInstallId) {
     return (
-      <p className="mt-3 max-w-xl text-sm text-slate-500">
+      <p className="mt-3 max-w-xl type-body-sm text-slate-500">
         Free live scan: real scoring on public repositories, drawn from your free monthly scan
         allowance. No prepaid credits are used. Install the GitHub App to scan private repos too.
       </p>
@@ -74,7 +74,7 @@ export function ScanCostDisclosure({
           from the dashboard header and replaces the preview rows in place. This is WHERE the credit
           draw moves, so the choice sits with the money copy — the immediate credits quoted below are
           drawn by the live upgrade on the dashboard, not by the wizard click, while it's ticked. */}
-      <label htmlFor={previewFirstId} className="flex cursor-pointer items-start gap-2 text-sm text-slate-400">
+      <label htmlFor={previewFirstId} className="flex cursor-pointer items-start gap-2 type-body-sm text-slate-400">
         <input
           id={previewFirstId}
           type="checkbox"
@@ -94,7 +94,7 @@ export function ScanCostDisclosure({
           )}
         </span>
       </label>
-      <label htmlFor={toggleId} className="flex cursor-pointer items-start gap-2 text-sm text-slate-400">
+      <label htmlFor={toggleId} className="flex cursor-pointer items-start gap-2 type-body-sm text-slate-400">
         <input
           id={toggleId}
           type="checkbox"
@@ -107,7 +107,7 @@ export function ScanCostDisclosure({
           turn off anytime on Connect).
         </span>
       </label>
-      <p className="text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+      <p className="type-body-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
         {optedIn ? (
           <>
             {IMPORT_WATCH_SCHEDULE[0]?.toUpperCase()}

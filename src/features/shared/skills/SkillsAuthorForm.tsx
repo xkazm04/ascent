@@ -46,7 +46,7 @@ export function SkillsAuthorForm({
   if (!canAuthor) {
     return (
       !planAllowed && (
-        <p className="mt-5 border-t border-slate-800 pt-4 text-sm text-slate-500">
+        <p className="mt-5 border-t border-slate-800 pt-4 type-body-sm text-slate-500">
           Authoring the Skills Library is a <span className="text-slate-300">Team-plan</span> feature. Members can browse, copy and download existing skills.
         </p>
       )
@@ -56,12 +56,12 @@ export function SkillsAuthorForm({
   return (
     <div className="mt-5 space-y-2 border-t border-slate-800 pt-4">
       {/* Skills P3: start from a curated template instead of a blank form. */}
-      <label className="flex flex-wrap items-center gap-2 font-mono text-sm text-slate-500">
+      <label className="flex flex-wrap items-center gap-2 type-mono-sm text-slate-500">
         Start from a template
         <select
           value=""
           onChange={(e) => e.target.value !== "" && applyTemplate(Number(e.target.value))}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
         >
           <option value="">choose a template…</option>
           {SKILL_TEMPLATES.map((t, i) => (
@@ -76,12 +76,12 @@ export function SkillsAuthorForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Skill name, e.g. PR review checklist"
-          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600"
         />
         <select
           value={formCategory}
           onChange={(e) => setFormCategory(e.target.value as SkillCategory)}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
         >
           {categories.map((c) => (
             <option key={c} value={c}>{SKILL_CATEGORY_LABEL[c as SkillCategory] ?? c}</option>
@@ -92,26 +92,26 @@ export function SkillsAuthorForm({
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="What it is / when to use it (optional)"
-        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600"
       />
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder="Skill body (markdown / SKILL.md): the reusable prompt or workflow"
         rows={6}
-        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
+        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 placeholder:text-slate-600"
       />
       <input
         value={tagsText}
         onChange={(e) => setTagsText(e.target.value)}
         placeholder="Tags, comma-separated (optional)"
-        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600"
       />
       <div className="flex justify-end">
         <button
           onClick={create}
           disabled={busy || !name.trim() || !content.trim()}
-          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
         >
           {busy ? "Adding…" : "Add skill"}
         </button>

@@ -31,7 +31,7 @@ const MIN_BUDGET = 200;
 const MAX_BUDGET = 60_000;
 
 const selectClass =
-  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200";
+  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200";
 
 export function MemoryRecallPanel({
   slug,
@@ -97,7 +97,7 @@ export function MemoryRecallPanel({
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">budget (chars)</span>
+          <span className="type-label tracking-widest text-slate-500">budget (chars)</span>
           <input
             type="number"
             min={MIN_BUDGET}
@@ -109,7 +109,7 @@ export function MemoryRecallPanel({
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">namespace</span>
+          <span className="type-label tracking-widest text-slate-500">namespace</span>
           <select value={namespace} onChange={(e) => setNamespace(e.target.value)} className={selectClass}>
             <option value="">all</option>
             {namespaces.map((n) => (
@@ -120,7 +120,7 @@ export function MemoryRecallPanel({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">kind</span>
+          <span className="type-label tracking-widest text-slate-500">kind</span>
           <select value={kind} onChange={(e) => setKind(e.target.value)} className={selectClass}>
             <option value="">all</option>
             {kinds.map((k) => (
@@ -133,7 +133,7 @@ export function MemoryRecallPanel({
         <button
           onClick={recall}
           disabled={running}
-          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
         >
           {running ? "Recalling…" : "Recall"}
         </button>
@@ -141,7 +141,7 @@ export function MemoryRecallPanel({
 
       {result && (
         <div className="mt-4">
-          <p className="font-mono text-xs tabular-nums text-slate-500">
+          <p className="type-caption tabular-nums text-slate-500">
             packed {result.memories.length} of {result.consideredCount} eligible · {result.usedChars}/
             {result.charBudget} chars ({fill}%)
           </p>
@@ -150,7 +150,7 @@ export function MemoryRecallPanel({
           </div>
 
           {result.memories.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 type-body-sm text-slate-500">
               Nothing was packed. {result.omittedCount > 0
                 ? "Everything eligible was larger than the budget. Raise it below."
                 : "There is no recallable memory in this scope yet."}
@@ -185,7 +185,7 @@ export function MemoryRecallPanel({
         </div>
       )}
 
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {error && <p className="mt-2 type-body-sm text-orange-300">{error}</p>}
     </Card>
   );
 }

@@ -39,7 +39,7 @@ export function SecurityBandSpectrum({
           />
         ))}
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-2 font-mono text-xs text-slate-400">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-2 type-caption text-slate-400">
         {BANDS.map((b) => (
           <span key={b.key} className="inline-flex items-center gap-1.5">
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: band[b.key] > 0 ? b.color : "#334155" }} />

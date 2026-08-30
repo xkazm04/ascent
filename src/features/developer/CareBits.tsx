@@ -46,7 +46,7 @@ export function CareLinkAction({ label, intent, payload }: { label: string; inte
   return (
     <button
       type="button"
-      className="focus-ring rounded text-sm text-accent underline decoration-dotted underline-offset-4 transition-colors hover:text-white"
+      className="focus-ring rounded type-body-sm text-accent underline decoration-dotted underline-offset-4 transition-colors hover:text-white"
       onClick={() => console.info(`[care] ${intent}`, payload ?? {})}
     >
       {label}
@@ -71,7 +71,7 @@ export const CARE_STATE_LABEL: Record<CareMoveState, string> = {
 
 export function CareStateChip({ state }: { state: CareMoveState }) {
   return (
-    <span className={`rounded-full border px-2 py-0.5 font-mono text-xs uppercase tracking-widest ${STATE_CLASS[state]}`}>
+    <span className={`rounded-full border px-2 py-0.5 type-label tracking-widest ${STATE_CLASS[state]}`}>
       {CARE_STATE_LABEL[state]}
     </span>
   );
@@ -79,7 +79,7 @@ export function CareStateChip({ state }: { state: CareMoveState }) {
 
 export function CareCategoryChip({ category }: { category: CareMoveCategory }) {
   return (
-    <span className="rounded-full border border-divider px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-slate-500">
+    <span className="rounded-full border border-divider px-2 py-0.5 type-label tracking-widest text-slate-500">
       {CARE_CATEGORY_LABEL[category]}
     </span>
   );
@@ -87,10 +87,10 @@ export function CareCategoryChip({ category }: { category: CareMoveCategory }) {
 
 /** Minutes/week rendered as the mentor's own unit — honest em-dash when nothing was quantified. */
 export function CareSaving({ minutes, className = "" }: { minutes: number | null | undefined; className?: string }) {
-  if (minutes == null) return <span className={`font-mono text-sm text-slate-600 ${className}`}>unquantified</span>;
+  if (minutes == null) return <span className={`type-mono-sm text-slate-600 ${className}`}>unquantified</span>;
   const h = minutes / 60;
   return (
-    <span className={`font-mono text-sm tabular-nums text-slate-300 ${className}`}>
+    <span className={`type-mono-sm tabular-nums text-slate-300 ${className}`}>
       {h >= 1 ? `${h.toFixed(1)} h/wk` : `${minutes} min/wk`}
     </span>
   );
@@ -100,7 +100,7 @@ export function CareSaving({ minutes, className = "" }: { minutes: number | null
 export function CareLevelMark({ level, score }: { level: string | null; score: number | null }) {
   const hex = level && level in LEVEL_HEX ? LEVEL_HEX[level as LevelId] : score != null ? scoreHex(score) : undefined;
   return (
-    <span className="font-mono text-sm tabular-nums" style={hex ? { color: hex } : undefined}>
+    <span className="type-mono-sm tabular-nums" style={hex ? { color: hex } : undefined}>
       {level ?? "—"}
       {score != null ? <span className="text-slate-500"> · {score}</span> : null}
     </span>
@@ -113,7 +113,7 @@ export function CareLevelMark({ level, score }: { level: string | null; score: n
  */
 export function CarePrivacyNote({ children }: { children?: React.ReactNode }) {
   return (
-    <p className="text-sm text-slate-500">
+    <p className="type-body-sm text-slate-500">
       {children ?? "Only what you chose to share is here. Transcripts, prompts and diffs never leave your machine."}
     </p>
   );
@@ -123,7 +123,7 @@ export function CarePrivacyNote({ children }: { children?: React.ReactNode }) {
 export function CareFixtureChip({ demo }: { demo?: string }) {
   if (!demo) return null;
   return (
-    <span className="rounded-full border border-warn/40 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-warn">
+    <span className="rounded-full border border-warn/40 px-2 py-0.5 type-label tracking-widest text-warn">
       preview · {demo}
     </span>
   );

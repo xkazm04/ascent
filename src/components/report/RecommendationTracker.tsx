@@ -227,7 +227,7 @@ export function RecommendationTracker({
                   min-w-0 lets the title shrink; break-words then wraps a long unbroken rec title
                   instead of overflowing the row (a rec title is descriptive text — wrap, don't clip). */}
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-sm text-slate-300">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-700 type-mono-sm text-slate-300">
                   {i + 1}
                 </span>
                 <h3 className={`min-w-0 break-words font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
@@ -235,7 +235,7 @@ export function RecommendationTracker({
                 </h3>
                 {isQuickWin(item) && !muted && <QuickWinBadge />}
               </div>
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-2 type-body-sm">
                 <RoadmapMeta item={item} />
                 <PayoffChip report={report} dim={item.dimension} />
                 {saving && <RowSpinner />}
@@ -253,7 +253,7 @@ export function RecommendationTracker({
                 />
               </div>
             </div>
-            {item.rationale && <p className="mt-2 text-base leading-relaxed text-slate-400">{item.rationale}</p>}
+            {item.rationale && <p className="mt-2 type-body leading-relaxed text-slate-400">{item.rationale}</p>}
             {item.status === "done" && (
               <DoneReconciliation
                 dimension={item.dimension}

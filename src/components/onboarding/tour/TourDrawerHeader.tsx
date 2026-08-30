@@ -26,7 +26,7 @@ function ModeButton({ label, on, onClick }: { label: string; on: boolean; onClic
       type="button"
       onClick={onClick}
       aria-pressed={on}
-      className={`focus-ring rounded-md px-2 py-0.5 font-mono text-xs uppercase tracking-widest transition ${
+      className={`focus-ring rounded-md px-2 py-0.5 type-label tracking-widest transition ${
         on ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-slate-300"
       }`}
     >
@@ -56,11 +56,11 @@ export function TourDrawerHeader({
       <div className="flex items-start justify-between gap-3">
         <div>
           <Kicker>{copy.kicker}</Kicker>
-          <h2 className="mt-1 text-base font-semibold text-white">{copy.title}</h2>
+          <h2 className="mt-1 type-body font-semibold text-white">{copy.title}</h2>
         </div>
         <div className="flex items-center gap-2">
           {!athena && progress.total > 0 && (
-            <span className="font-mono text-xs tabular-nums text-slate-500">
+            <span className="type-caption tabular-nums text-slate-500">
               {progress.done}/{progress.total}
             </span>
           )}

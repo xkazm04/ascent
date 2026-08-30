@@ -87,8 +87,8 @@ export function IndexLocal() {
       <div className="border-y border-divider py-8 2xl:py-10">
         <div className="max-w-2xl">
           <Kicker>The local loop</Kicker>
-          <h2 className="deck-h2 mt-2 text-2xl font-bold text-white">Runs where your code lives</h2>
-          <p className="deck-body mt-2 text-base leading-relaxed text-slate-400">
+          <h2 className="deck-h2 mt-2 type-heading font-bold text-white">Runs where your code lives</h2>
+          <p className="deck-body mt-2 type-body leading-relaxed text-slate-400">
             Self-host Ascent and it runs beside the code it scores — the same AGPL-3.0 codebase as the
             cloud, every tier switched on. That closes a loop no scan-the-cloud service can offer:
             score, improve, and verify, before anything is pushed.
@@ -98,9 +98,9 @@ export function IndexLocal() {
         <div className="mt-8 grid gap-3 sm:grid-cols-3 2xl:gap-4">
           {LOCAL_FEATURES.map((f) => (
             <div key={f.term} className="flex flex-col rounded-xl border border-divider bg-surface-strong/40 p-5">
-              <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">{f.term}</span>
-              <span className="mt-2 text-base font-semibold text-white">{f.title}</span>
-              <span className="mt-2 text-sm leading-relaxed text-slate-400 2xl:text-base">{f.body}</span>
+              <span className="type-label tracking-[0.22em] text-slate-500">{f.term}</span>
+              <span className="mt-2 type-body font-semibold text-white">{f.title}</span>
+              <span className="mt-2 type-body-sm leading-relaxed text-slate-400 2xl:type-body">{f.body}</span>
             </div>
           ))}
         </div>
@@ -110,16 +110,16 @@ export function IndexLocal() {
             so this block cannot outlive the caps it advertises. */}
         <div className="mt-8 rounded-xl border border-accent/25 bg-accent/[0.04] p-5 2xl:p-6">
           <Kicker>Drive it to green</Kicker>
-          <p className="deck-body mt-2 max-w-3xl text-base leading-relaxed text-slate-300">
+          <p className="deck-body mt-2 max-w-3xl type-body leading-relaxed text-slate-300">
             The cockpit runs the whole climb for you: it reads the open gaps, proposes a batch, works
             each repo in its own isolated worktree — a coding agent on the backlog, or a deterministic
-            lane that installs the <code className="font-mono text-sm text-slate-200">.ai/</code>{" "}
+            lane that installs the <code className="type-mono-sm text-slate-200">.ai/</code>{" "}
             foundation and practice starters — then rescans from disk and keeps going until the fleet
             clears the bar. What decides whether it landed is the rescan, never the agent&apos;s own
             report.
           </p>
 
-          <ol className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-xs uppercase tracking-[0.18em] text-slate-400">
+          <ol className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 type-label tracking-[0.18em] text-slate-400">
             {LOOP_STAGES.map((stage, i) => (
               <li key={stage} className="flex items-center gap-2">
                 {i > 0 && (
@@ -135,13 +135,13 @@ export function IndexLocal() {
           <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-divider bg-divider sm:grid-cols-4">
             {LOOP_FACTS.map((f) => (
               <div key={f.label} className="bg-ink px-4 py-3">
-                <dt className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">{f.label}</dt>
-                <dd className="mt-1 font-mono text-xl font-bold tabular-nums text-white">{f.value}</dd>
+                <dt className="font-mono type-micro uppercase tracking-[0.2em] text-slate-500">{f.label}</dt>
+                <dd className="mt-1 font-mono type-title font-bold tabular-nums text-white">{f.value}</dd>
               </div>
             ))}
           </dl>
 
-          <p className="mt-3 text-sm leading-relaxed text-slate-500">
+          <p className="mt-3 type-body-sm leading-relaxed text-slate-500">
             Bounded on purpose. A drive ends exactly three ways —{" "}
             <span className="font-mono text-slate-400">{DRIVE_STOPS.join(" · ")}</span> — every repo in
             scope cleared the bar, a whole run moved nothing, or the rope ran out. Never because
@@ -151,7 +151,7 @@ export function IndexLocal() {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2">
-          <Link href="/pricing#self-host" className="text-sm font-medium text-slate-300 transition hover:text-white">
+          <Link href="/pricing#self-host" className="type-body-sm font-medium text-slate-300 transition hover:text-white">
             Free forever — what self-hosting includes →
           </Link>
           {guideHref ? (
@@ -159,12 +159,12 @@ export function IndexLocal() {
               href={guideHref}
               target="_blank"
               rel="noreferrer"
-              className="focus-ring rounded-sm font-mono text-xs uppercase tracking-widest text-slate-400 transition hover:text-accent"
+              className="focus-ring rounded-sm type-label tracking-widest text-slate-400 transition hover:text-accent"
             >
               <span aria-hidden>▸</span> Self-hosting guide
             </a>
           ) : (
-            <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
+            <span className="type-label tracking-widest text-slate-500">
               Self-hosting guide: <span className="text-slate-400">docs/SELF-HOSTING.md</span>
             </span>
           )}

@@ -18,7 +18,7 @@ export function DeveloperActivityStrip({ view, slug }: { view: DeveloperView; sl
   if (!a) {
     return (
       <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/20 px-4 py-4">
-        <p className="max-w-2xl text-sm text-slate-400">
+        <p className="max-w-2xl type-body-sm text-slate-400">
           {view.login
             ? <>No commits attributed to <span className="font-mono text-slate-300">{view.login}</span> in this workspace&apos;s scanned repositories yet — or the workspace has too few contributors for per-person rows to be readable at all. Scanning a repository you commit to fills this in.</>
             : <>Sign in and this reads your own commits, AI-attributed share and the gaps of the repos you touch.</>}

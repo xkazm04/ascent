@@ -39,10 +39,10 @@ export function AboutCost() {
             <Reveal key={c.t} delay={i * 0.08}>
               <div className="h-full rounded-xl border border-divider bg-surface/40 p-6 2xl:p-8">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="font-mono text-sm uppercase tracking-[0.2em] text-danger-soft">{c.t}</div>
+                  <div className="type-mono-sm uppercase tracking-[0.2em] text-danger-soft">{c.t}</div>
                   <DownTrend />
                 </div>
-                <p className="deck-body mt-3 text-base leading-relaxed text-slate-400">{c.d}</p>
+                <p className="deck-body mt-3 type-body leading-relaxed text-slate-400">{c.d}</p>
               </div>
             </Reveal>
           ))}

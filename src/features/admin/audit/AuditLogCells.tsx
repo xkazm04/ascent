@@ -104,7 +104,7 @@ export const ACTION_FILTERS = [
 export function ActionBadge({ action }: { action: string }) {
   const m = ACTION_META[action] ?? { label: action, cls: "border-slate-600 bg-slate-700/30 text-slate-300" };
   return (
-    <span className={`rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest ${m.cls}`}>
+    <span className={`rounded border px-1.5 py-0.5 type-mono-sm uppercase tracking-widest ${m.cls}`}>
       {m.label}
     </span>
   );
@@ -134,12 +134,12 @@ const VERDICT_META: Record<Exclude<AuditVerdict, "no-secret">, { label: string; 
 
 /** Per-row integrity verdict badge. Renders nothing when the deployment has no signing secret. */
 export function IntegrityBadge({ verdict }: { verdict: AuditVerdict | undefined }) {
-  if (!verdict || verdict === "no-secret") return <span className="text-sm text-slate-600">—</span>;
+  if (!verdict || verdict === "no-secret") return <span className="type-body-sm text-slate-600">—</span>;
   const m = VERDICT_META[verdict];
   return (
     <span
       title={m.title}
-      className={`whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest ${m.cls}`}
+      className={`whitespace-nowrap rounded border px-1.5 py-0.5 type-mono-sm uppercase tracking-widest ${m.cls}`}
     >
       {m.label}
     </span>
@@ -153,19 +153,19 @@ export function Details({ entry }: { entry: AuditLogEntry }) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         {s.repo && (
-          <span className="max-w-[16rem] truncate font-mono text-sm text-white" title={s.repo}>
+          <span className="max-w-[16rem] truncate type-mono-sm text-white" title={s.repo}>
             {s.repo}
           </span>
         )}
         {s.level && (
-          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-300">
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-300">
             {s.level}
             {s.overall != null ? ` · ${s.overall}` : ""}
           </span>
         )}
-        {s.headSha && <span className="font-mono text-sm text-slate-500">{s.headSha.slice(0, 7)}</span>}
+        {s.headSha && <span className="type-mono-sm text-slate-500">{s.headSha.slice(0, 7)}</span>}
         {permalink && (
-          <Link href={permalink} className="font-mono text-sm text-accent hover:text-accent-soft">
+          <Link href={permalink} className="type-mono-sm text-accent hover:text-accent-soft">
             view report →
           </Link>
         )}
@@ -177,11 +177,11 @@ export function Details({ entry }: { entry: AuditLogEntry }) {
   const id = typeof entry.meta.id === "string" ? entry.meta.id : null;
   if (status) {
     return (
-      <span className="block max-w-[22rem] truncate font-mono text-sm text-slate-300" title={status}>
+      <span className="block max-w-[22rem] truncate type-mono-sm text-slate-300" title={status}>
         {id ? `${id.slice(0, 8)}… → ` : ""}
         <span className="text-white">{status}</span>
       </span>
     );
   }
-  return <span className="text-sm text-slate-600">—</span>;
+  return <span className="type-body-sm text-slate-600">—</span>;
 }

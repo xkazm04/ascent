@@ -23,11 +23,11 @@ export function SectionHelp({
       <summary
         aria-label={label}
         title={label}
-        className="focus-ring flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full border border-divider font-mono text-xs leading-none text-slate-500 transition hover:border-accent hover:text-accent group-open:border-accent group-open:text-accent [&::-webkit-details-marker]:hidden"
+        className="focus-ring flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full border border-divider type-caption leading-none text-slate-500 transition hover:border-accent hover:text-accent group-open:border-accent group-open:text-accent [&::-webkit-details-marker]:hidden"
       >
         <span aria-hidden>?</span>
       </summary>
-      <div className="absolute left-0 top-full z-20 mt-2 w-[34rem] max-w-[calc(100vw-4rem)] rounded-xl border border-divider bg-surface-strong p-3.5 text-sm text-slate-400 shadow-2xl">
+      <div className="absolute left-0 top-full z-20 mt-2 w-[34rem] max-w-[calc(100vw-4rem)] rounded-xl border border-divider bg-surface-strong p-3.5 type-body-sm text-slate-400 shadow-2xl">
         {children}
       </div>
     </details>

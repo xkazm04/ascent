@@ -141,7 +141,7 @@ export function PassportTable({
               <Link
                 href={`/report?repo=${encodeURIComponent(r.fullName)}`}
                 onClick={(e) => e.stopPropagation()}
-                className="font-mono text-sm text-white hover:text-accent"
+                className="type-mono-sm text-white hover:text-accent"
               >
                 {r.name}
               </Link>
@@ -152,10 +152,10 @@ export function PassportTable({
             <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: bandColor(r.band) }}>
               {bandLabel(r.band)} <span className="text-slate-500">·</span> {r.prodScore}
             </td>
-            <td className="px-3 py-2 font-mono text-sm" style={{ color: r.ci === "gated" || r.ci === "delivery" || r.ci === "progressive" ? "#84cc16" : "#94a3b8" }}>{r.ci}</td>
-            <td className="px-3 py-2 font-mono text-sm text-slate-400">{r.tests}</td>
-            <td className="px-3 py-2 font-mono text-sm" style={{ color: r.security === "gated" || r.security === "supply-chain" ? "#84cc16" : "#94a3b8" }}>{r.security}</td>
-            <td className="px-3 py-2 font-mono text-sm" style={{ color: r.observability === "none" ? "#f97316" : "#94a3b8" }}>{r.observability}</td>
+            <td className="px-3 py-2 type-mono-sm" style={{ color: r.ci === "gated" || r.ci === "delivery" || r.ci === "progressive" ? "#84cc16" : "#94a3b8" }}>{r.ci}</td>
+            <td className="px-3 py-2 type-mono-sm text-slate-400">{r.tests}</td>
+            <td className="px-3 py-2 type-mono-sm" style={{ color: r.security === "gated" || r.security === "supply-chain" ? "#84cc16" : "#94a3b8" }}>{r.security}</td>
+            <td className="px-3 py-2 type-mono-sm" style={{ color: r.observability === "none" ? "#f97316" : "#94a3b8" }}>{r.observability}</td>
             <td className="px-2 py-2 text-center">
               <button
                 type="button"
@@ -165,7 +165,7 @@ export function PassportTable({
                   e.stopPropagation();
                   setExpanded(open ? null : r.fullName);
                 }}
-                className="focus-ring rounded px-1 font-mono text-sm text-slate-500 transition hover:text-accent"
+                className="focus-ring rounded px-1 type-mono-sm text-slate-500 transition hover:text-accent"
               >
                 <span
                   aria-hidden

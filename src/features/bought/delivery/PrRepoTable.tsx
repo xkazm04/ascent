@@ -30,52 +30,52 @@ function Row({ r }: { r: PrRepoRow }) {
   return (
     <tr className="text-slate-300">
       <td className="px-4 py-1.5">
-        <Link href={`/report/${r.fullName}`} className="focus-ring font-mono text-sm text-white transition hover:text-accent">
+        <Link href={`/report/${r.fullName}`} className="focus-ring type-mono-sm text-white transition hover:text-accent">
           {r.name}
         </Link>
       </td>
-      <td className="px-3 py-1.5 text-right font-mono text-sm tabular-nums text-slate-400">{r.analyzed}</td>
-      <td className="px-3 py-1.5 text-center text-sm"><Rate value={r.mergeRate} /></td>
-      <td className="px-3 py-1.5 text-center text-sm">
+      <td className="px-3 py-1.5 text-right type-mono-sm tabular-nums text-slate-400">{r.analyzed}</td>
+      <td className="px-3 py-1.5 text-center type-body-sm"><Rate value={r.mergeRate} /></td>
+      <td className="px-3 py-1.5 text-center type-body-sm">
         <Rate value={r.reviewedRate} dashTitle="no human-merged PRs in the window" />
       </td>
-      <td className="px-3 py-1.5 text-center text-sm"><Rate value={r.smallPrRate} /></td>
-      <td className="px-3 py-1.5 text-center font-mono text-sm tabular-nums text-slate-400">
+      <td className="px-3 py-1.5 text-center type-body-sm"><Rate value={r.smallPrRate} /></td>
+      <td className="px-3 py-1.5 text-center type-mono-sm tabular-nums text-slate-400">
         {r.aiInvolvedRate}%
       </td>
       {/* W2 — trailer-grounded AI share (commit trailers on merged PRs). Uncolored like AI share:
           adoption context, not a target. Null = pre-W2 scan or under the 5-merged-PR floor. */}
-      <td className="px-3 py-1.5 text-center font-mono text-sm tabular-nums text-slate-400">
+      <td className="px-3 py-1.5 text-center type-mono-sm tabular-nums text-slate-400">
         {r.aiTrailerRate == null ? (
           <span className="text-slate-600" title="scan predates trailer tracking, or fewer than 5 merged PRs">—</span>
         ) : (
           `${r.aiTrailerRate}%`
         )}
       </td>
-      <td className="px-3 py-1.5 text-center font-mono text-sm tabular-nums text-slate-400">
+      <td className="px-3 py-1.5 text-center type-mono-sm tabular-nums text-slate-400">
         {r.aiPreReviewedRate == null ? (
           <span className="text-slate-600" title="scan predates pre-review tracking, or fewer than 5 merged PRs">—</span>
         ) : (
           `${r.aiPreReviewedRate}%`
         )}
       </td>
-      <td className="px-3 py-1.5 text-center text-sm">
+      <td className="px-3 py-1.5 text-center type-body-sm">
         <Rate value={r.aiGovernedRate} dashTitle="too few AI-involved PRs to measure" />
       </td>
       {/* Reverts: deliberately UNCOLORED (like AI share) — scoreHex tones high=good, and a revert
           rate is the opposite; a plain figure beats an inverted traffic light. Null = the stored
           scan predates the field, not a clean 0. */}
-      <td className="px-3 py-1.5 text-center font-mono text-sm tabular-nums text-slate-400">
+      <td className="px-3 py-1.5 text-center type-mono-sm tabular-nums text-slate-400">
         {r.revertRate == null ? (
           <span className="text-slate-600" title="scan predates revert tracking (rescan to measure)">—</span>
         ) : (
           `${r.revertRate}%`
         )}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono text-sm tabular-nums text-slate-400" title="median hours to first review">
+      <td className="px-3 py-1.5 text-right type-mono-sm tabular-nums text-slate-400" title="median hours to first review">
         {fmtHours(r.medianHoursToFirstReview)}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono text-sm tabular-nums text-slate-400">{fmtHours(r.medianHoursToMerge)}</td>
+      <td className="px-3 py-1.5 text-right type-mono-sm tabular-nums text-slate-400">{fmtHours(r.medianHoursToMerge)}</td>
     </tr>
   );
 }
@@ -111,7 +111,7 @@ export function PrRepoTable({ rows }: { rows: PrRepoRow[] }) {
       </OrgTable>
       {folded.length > 0 && (
         <details className="group mt-2">
-          <summary className="focus-ring inline-flex cursor-pointer list-none items-center gap-2 rounded font-mono text-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+          <summary className="focus-ring inline-flex cursor-pointer list-none items-center gap-2 rounded type-mono-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
             <span aria-hidden className="inline-block text-slate-600 transition-transform group-open:rotate-90">›</span>
             {folded.length} more repo{folded.length > 1 ? "s" : ""} with healthier signals
           </summary>

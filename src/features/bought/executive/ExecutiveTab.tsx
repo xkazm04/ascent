@@ -136,8 +136,8 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
       {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
       {valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned) && (
         <div className="rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
-          <span className="font-mono text-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
-          <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
+          <span className="type-mono-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
+          <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
         </div>
       )}
 

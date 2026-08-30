@@ -70,6 +70,20 @@ crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
 floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
 floor and is not the posture threshold.
 
+## The app type scale (`type-*`)
+
+Since 2026-08-30 every font size in the app comes from one scale in `src/app/globals.css`: the
+Tailwind size tokens are re-based **+1px** over the framework defaults (xs 13px, sm 15px, base 17px,
+lg 19px, xl 21px, 2xl 25px, …) and fourteen semantic `@utility type-*` classes name the voice —
+`type-label` (mono uppercase eyebrow), `type-caption` / `type-note` (13px metadata),
+`type-body-sm` / `type-mono-sm` (15px), `type-body` (17px), `type-lede`, `type-title`,
+`type-heading`, `type-figure` / `type-figure-lg` (mono tabular stats), `type-display` /
+`type-display-lg`, and `type-micro` (12px, the floor). A repo-wide sweep replaced ~470 files of
+raw `text-xs…text-4xl` and `text-[10px]`-style sizes; `text-5xl`/`text-6xl` remain raw on the
+hero/kiosk surfaces. The table in `src/components/ui/BRAND.md` is the reference; `type-label`
+deliberately sets no letter-spacing (Tailwind v4 emits `tracking-*` before multi-declaration
+custom utilities, so a fixed tracking would beat the explicit one on the element).
+
 ## The deck reading scale (large-screen typography & measure)
 
 Marketing decks used to stop growing at `lg`: the container was pinned at

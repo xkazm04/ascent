@@ -22,20 +22,20 @@ export function DimensionDetail({
 }) {
   const delta = prevScore !== undefined ? d.score - prevScore : null;
   return (
-    <div className="space-y-3 text-base">
+    <div className="space-y-3 type-body">
       {/* Headline row — name + weight + score + since-last delta — so the detail stands on its own
           once a bar selects it (the bar list lives in a separate column above). */}
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-sm text-slate-500">{d.id}</span>
-        <span className="text-lg font-semibold text-white">{d.name}</span>
-        <span className="text-sm text-slate-500">weight {Math.round(d.weight * 100)}%</span>
+        <span className="type-mono-sm text-slate-500">{d.id}</span>
+        <span className="type-lede font-semibold text-white">{d.name}</span>
+        <span className="type-body-sm text-slate-500">weight {Math.round(d.weight * 100)}%</span>
         {delta !== null && delta !== 0 && (
-          <span className={`text-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+          <span className={`type-body-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
             {delta > 0 ? "▲+" : "▼"}
             {delta} since last scan
           </span>
         )}
-        <span className="ml-auto text-2xl font-bold tabular-nums" style={{ color: scoreHex(d.score) }}>
+        <span className="ml-auto type-heading font-bold tabular-nums" style={{ color: scoreHex(d.score) }}>
           {d.score}
         </span>
       </div>
@@ -48,7 +48,7 @@ export function DimensionDetail({
 
       {d.evidence.length > 0 && (
         <div>
-          <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
+          <div className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
           <ul className="mt-1 space-y-1 text-slate-300">
             {d.evidence.map((e, i) => (
               <li key={i} className="flex gap-2">
@@ -64,7 +64,7 @@ export function DimensionDetail({
           findings read as one sentence and hid where each ended. */}
       {d.gaps.length > 0 && (
         <div>
-          <div className="text-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps</div>
+          <div className="type-body-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps</div>
           <ul className="mt-1 space-y-1 text-slate-300">
             {d.gaps.map((g, i) => (
               <li key={i} className="flex gap-2">
@@ -78,9 +78,9 @@ export function DimensionDetail({
 
       {series && series.length >= 2 && (
         <div className="flex items-center gap-3 border-t border-divider pt-2">
-          <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
+          <span className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
           <Sparkline points={series} />
-          <span className="text-sm text-slate-500">
+          <span className="type-body-sm text-slate-500">
             {series[0]!.score} → {series[series.length - 1]!.score}
           </span>
         </div>
