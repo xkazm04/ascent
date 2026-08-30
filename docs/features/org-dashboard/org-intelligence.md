@@ -651,6 +651,87 @@ both directions.
 Its enforcement counterpart is the [ungoverned-AI-change gate](../scanning/gate.md#the-ungoverned-ai-change-gate-w2-2026-08-14),
 which reads the same signal.
 
+### As-of-merge control environment (moonshot #1, 2026-08-30)
+
+Each sampled item and each finding now carries **`environmentAsOf`** — the control settings in force
+**at the moment that change merged**, resolved from the control-observation ledger
+(`controlsAt`, keyed on `occurredAt`, not on when we noticed).
+
+The defect this closes was an *omission*, not a wrong number. The pack described `environment` as the
+repository's control settings without saying they were read at the **latest scan**, which for a
+change that merged three months earlier is a different repository from the one being evidenced.
+
+- **The label is per row, not global.** `environmentAsOf.source` is `"ledger"` when the ledger held
+  an observation at or before the merge instant, and `"latest-scan"` when it did not and the most
+  recent scan's settings were substituted. A global footnote would let a reader treat every row as
+  as-of when only some are; the label is a column in both CSVs
+  (`environment_as_of_source`, `environment_as_of_observed_at`) so it survives a spreadsheet sort.
+- **The fallback speaks the ledger's vocabulary.** It is built with `governanceToSamples` — the same
+  mapper every scan- and probe-sourced ledger row comes from — so two rows in one pack are directly
+  comparable. An unreadable governance blob falls back to `unmeasurable`, never to `fail`.
+- **Coverage is stated with its denominator.** `pack.environmentCoverage`
+  (`mergedRows` / `fromLedger` / `fromLatestScan` / `attempted` / `cap`) is published as a structure
+  *and* rendered as a "Control-environment coverage" table in the manifest, so the pack's prose and
+  its numbers cannot drift. When no row has ledger coverage the pack says so plainly rather than
+  omitting the section.
+- **The as-of read is capped** at `AS_OF_CAP` (500) merged rows per pack, and the cap is stated as a
+  limitation when it bites — rows beyond it fall back for reasons of export size, not of evidence.
+- **The export audit row records the evidence grade** (`asOfLedgerRows` / `asOfFallbackRows` /
+  `mergedRows`), so "which version did we send them" has an answer after the file is filed.
+
+Rows also carry `evidenceSource` (`scan | webhook`) and `approvalObservedAt` — when a webhook
+observed the approval, as distinct from `approvedAt` (the review's own submission time). Null
+`approvalObservedAt` means "not observed live", never "not approved".
+
+### Control observations (Governance tab, moonshot #1)
+
+`ControlTimelineCard` sits directly below the evidence pack, because it is the source the pack's
+as-of environments are read from. One row per (repository, control): the current state, the last
+observed change with its actor, and — always beside the state — the **coverage**: the observation
+count and the largest gap between observations. That pairing is the point. "Branch protection held
+all quarter" read off two observations three months apart is a sentence the evidence does not
+support, so the card never prints a state without its N.
+
+`unmeasurable` renders as an **em dash with a tooltip** — never a zero, never a red — and is counted
+separately from "not operating" in the header. A control we could not read is missing evidence, not
+a finding; colouring it like one would turn every expired token into a fleet-wide governance failure
+on the page a lead screenshots.
+
+Reads: `GET /api/org/controls?org=&repo=&controlId=&from=&to=&transitionsOnly=1`
+(`requireOrgRead`, 503 without a DB), which always returns `coverage` beside `timeline` and flags
+`truncated` rather than presenting a capped page as everything. Coverage is deliberately **not**
+narrowed by `transitionsOnly`: the heartbeat rows that filter hides are exactly the rows that prove
+a control held.
+
+### Ledger integrity (`GET /api/audit/verify`)
+
+`ControlObservation` rows are sealed **one root per (org, UTC day)** — a hash chain over *days*, not
+over rows. A per-row chain was rejected for the reason `audit-integrity.ts` already documents:
+webhook deliveries are concurrent, so every append would be a read-modify-write on the previous
+row's digest and two writers would fork the chain permanently.
+
+What the seal buys: deleting a row changes its day's root; deleting a whole day breaks the next
+day's `prevRoot`; editing a row changes both. Writers never contend, because a day is sealed once,
+after it has closed.
+
+- **Sealing is lazy and closed-day-only.** `/api/audit/verify` seals any closed day that holds rows
+  and has no seal, so the ledger needs no cron and no `vercel.json` entry. `verifySeals` itself never
+  writes — a verifier that produced its own input would be checking its own homework.
+- **A purged day is `no-rows`, not `tampered`.** Both tables age out under the org's `auditDays`
+  policy and a purged day **keeps its seal** on purpose: the seal still says "1,204 rows were here on
+  2026-05-01" long after the rows are gone, which is what makes a deleted window *detectable*.
+  Reporting that as a tamper would cry wolf on every org that retains anything for less than forever.
+- **The check is reproducible without our secret.** The response ships `SEAL_RECIPE` — the exact
+  canonical field order and the sha256 construction — so an examiner recomputes the roots from an
+  export. The stored HMAC is deliberately **not** returned: it proves nothing to someone who cannot
+  recompute it, and publishing it hands out a distinguisher against the signing secret.
+- **Stated limit, not glossed:** the seals are ours and live in the same database as the rows, so
+  they detect alteration by anything *without* database write access. They do not detect an operator
+  with database access re-sealing a rewritten day. Independent attestation needs a published key and
+  an external timestamp, which ascent does not yet issue.
+
+Both reads are audited (`controls.verify`).
+
 ## Canonical time-zone policy (`src/lib/org/timezone.ts`)
 
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
@@ -1270,6 +1351,16 @@ from existing scan data, never "enforced", and the copy must never claim it is.
   behind it. Labelling any of these "DORA" would invite a leader to benchmark a proxy against
   published industry figures. Unblocking it needs GitHub Deployments/Releases ingestion plus an
   incident source: a data-ingestion project, not a dashboard one.
+- (Closed 2026-08-30, moonshot #1.) ~~The evidence pack's limitations omit that `environment` is the
+  LATEST scan's settings, not the settings as of merge.~~ Every merged row now carries
+  `environmentAsOf` with a per-row `source` label, and the pack states its coverage with the
+  denominator (see "As-of-merge control environment" above). **The honest remainder:** rows the
+  ledger cannot answer for still fall back to latest-scan settings — labelled, counted, and never
+  presented as as-of evidence — and any change that merged before the ledger began for a repository
+  will always be one of them.
+- **No backfill of the control ledger from scan history:** `Scan.governance` blobs predating the
+  ledger are not replayed into `ControlObservation`, so an org's as-of coverage starts when the
+  ledger does rather than when its scan history does.
 - **No regression notifications in the UI**: movers show on the dashboard; push/email
   alerts go through the webhook sink (see [../alerts.md](../fleet/alerts.md)).
 - **Org trend is overall-only**: per-dimension org trends over time aren't surfaced yet.
