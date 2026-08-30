@@ -16,6 +16,8 @@ import {
   RETENTION_DEFAULT_BATCH_SIZE,
   RETENTION_MIN_AUDIT_DAYS,
   RETENTION_MIN_SCANS_PER_REPO,
+  SCAN_JOB_RETENTION_DAYS,
+  SCAN_JOB_SETTLED_STATES,
   type RetentionPolicy,
 } from "@/lib/db/retention";
 
@@ -79,6 +81,13 @@ const WAVE1_LEDGERS = [
   "practiceAdoption",
   "housePatternVersion",
   "orgMemoryCitation",
+  // MOONSHOT WAVE 3 — the queue and the control ledger, in the same array for the same reason: the
+  // erase path drains all three, and a fixture missing one delegate makes the sweep throw inside the
+  // per-org try, where it is caught and reported as an ERROR rather than a failure. `controlObservation`
+  // additionally gets `groupBy`/`findFirst` below, which the purge path's keep-newest rule needs.
+  "scanJob",
+  "controlObservation",
+  "controlLedgerSeal",
 ] as const;
 type Wave1Ledger = (typeof WAVE1_LEDGERS)[number];
 type LedgerDelegate = {
@@ -115,6 +124,18 @@ function makeWave1Ledgers(seed: Partial<Record<Wave1Ledger, string[]>> = {}) {
       }),
     };
   }
+  // MOONSHOT #1 — the purge path reaches ControlObservation through groupBy (one group per
+  // (repoFullName, controlId)) and findFirst (the pair's surviving newest row). The generic delegate
+  // above has neither, so give the default fixture the "no pairs observed" answer: every pre-existing
+  // test in this file is about a fleet with no control ledger, and the wave-3 tests below supply their
+  // own row-aware fake. Without these two, the sweep throws inside the per-org try and every one of
+  // those tests turns into a silently-caught error instead of a failure.
+  (delegates.controlObservation as LedgerDelegate & { groupBy: unknown; findFirst: unknown }).groupBy = vi.fn(
+    async () => [] as Array<{ repoFullName: string; controlId: string }>,
+  );
+  (delegates.controlObservation as LedgerDelegate & { groupBy: unknown; findFirst: unknown }).findFirst = vi.fn(
+    async () => null,
+  );
   return { rows, delegates };
 }
 
@@ -2474,6 +2495,12 @@ function fakeWave1ErasePrisma() {
     practiceAdoption: ["pa_1", "pa_2"],
     housePatternVersion: ["hp_1"],
     orgMemoryCitation: ["ct_1", "ct_2", "ct_3"],
+    // MOONSHOT WAVE 3 — seeded here for the same reason wave 2 was: the "nothing survives an erase"
+    // and "a preview removes nothing" assertions sweep WAVE1_LEDGERS, so an unseeded table would pass
+    // both while never being erased at all.
+    scanJob: ["sj_1", "sj_2"],
+    controlObservation: ["co_1", "co_2", "co_3"],
+    controlLedgerSeal: ["sl_1"],
   });
   const tx = {
     ...ledgers.delegates,
@@ -3067,5 +3094,401 @@ describe("eraseOrgData — compaction refusal (moonshot #32)", () => {
     if (!preview.ok) return;
     expect(preview.digestsDeleted).toBe(2);
     expect(ledgers.rows.scanDigest).toEqual(["dg_1", "dg_2"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOONSHOT WAVE 3 — the scan queue (#10) and the governance evidence ledger (#1).
+//
+// Three rules that no schema can express and that therefore live here:
+//   1. the queue drains on a FIXED horizon and for EVERY org, including one that configured no
+//      retention at all — the per-org loop skips those, so a policy-coupled sweep would let the
+//      queue grow forever on the default deployment;
+//   2. the control ledger ages out on the audit horizon but ALWAYS keeps the newest row per
+//      (repoFullName, controlId) — deleting a pair's last row makes the read layer report
+//      `unmeasurable`, i.e. retention manufacturing a governance finding out of a control that has
+//      been on the whole time;
+//   3. a ControlLedgerSeal is NEVER purged with its rows — a sealed day that keeps its seal after the
+//      rows age out is DETECTABLY short, which is the entire point of sealing days.
+// Each assertion below names what fails without its line.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+type ObsRow = { id: string; repoFullName: string; controlId: string; observedAt: Date };
+type ObsWhere = {
+  orgId?: string;
+  repoFullName?: string;
+  controlId?: string;
+  observedAt?: { lt?: Date };
+  id?: { in?: string[]; not?: string };
+};
+type JobRow = { id: string; state: string; settledAt: Date | null };
+type JobWhere = { orgId?: string; state?: { in: string[] }; settledAt?: { lt?: Date }; id?: { in?: string[] } };
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * A purge/erase fixture with ROW-AWARE control-observation and scan-job tables: the pair grouping,
+ * the survivor lookup and the date predicates are all evaluated against real rows, so "the newest row
+ * of each pair survived" is a fact about the fixture rather than a mock returning what the assertion
+ * wants. Everything else is the wave-1 ledger set, empty.
+ */
+function fakeWave3Prisma(
+  opts: {
+    observations?: ObsRow[];
+    jobs?: JobRow[];
+    seals?: string[];
+    org?: { retentionMaxScans: number; retentionAuditDays: number };
+  } = {},
+) {
+  const ledgers = makeWave1Ledgers({ controlLedgerSeal: opts.seals ?? ["sl_1", "sl_2"] });
+  const obs = [...(opts.observations ?? [])];
+  const jobs = [...(opts.jobs ?? [])];
+
+  const obsMatches = (where: ObsWhere, r: ObsRow) =>
+    (where.repoFullName === undefined || where.repoFullName === r.repoFullName) &&
+    (where.controlId === undefined || where.controlId === r.controlId) &&
+    (where.observedAt?.lt === undefined || r.observedAt < where.observedAt.lt) &&
+    (where.id?.not === undefined || where.id.not !== r.id) &&
+    (where.id?.in === undefined || where.id.in.includes(r.id));
+
+  const controlObservation = {
+    groupBy: vi.fn(async () => {
+      const seen = new Map<string, { repoFullName: string; controlId: string }>();
+      for (const r of obs) seen.set(`${r.repoFullName} ${r.controlId}`, { repoFullName: r.repoFullName, controlId: r.controlId });
+      return [...seen.values()];
+    }),
+    findFirst: vi.fn(async ({ where }: { where: ObsWhere }) => {
+      const pair = obs
+        .filter((r) => r.repoFullName === where.repoFullName && r.controlId === where.controlId)
+        .sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime() || (a.id < b.id ? 1 : -1));
+      return pair[0] ? { id: pair[0].id } : null;
+    }),
+    findMany: vi.fn(async ({ where, take }: { where: ObsWhere; take: number }) =>
+      obs
+        .filter((r) => obsMatches(where, r))
+        .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime())
+        .slice(0, take)
+        .map((r) => ({ id: r.id })),
+    ),
+    count: vi.fn(async ({ where }: { where: ObsWhere }) => obs.filter((r) => obsMatches(where, r)).length),
+    deleteMany: vi.fn(async ({ where }: { where: ObsWhere }) => {
+      const ids = where.id?.in ?? obs.map((r) => r.id);
+      let count = 0;
+      for (const id of ids) {
+        const at = obs.findIndex((r) => r.id === id);
+        if (at >= 0) {
+          obs.splice(at, 1);
+          count++;
+        }
+      }
+      return { count };
+    }),
+  };
+
+  const jobMatches = (where: JobWhere, r: JobRow) =>
+    (where.state === undefined || where.state.in.includes(r.state)) &&
+    (where.settledAt?.lt === undefined || (r.settledAt !== null && r.settledAt < where.settledAt.lt)) &&
+    (where.id?.in === undefined || where.id.in.includes(r.id));
+
+  const scanJob = {
+    findMany: vi.fn(async ({ where, take }: { where: JobWhere; take: number }) =>
+      jobs.filter((r) => jobMatches(where, r)).slice(0, take).map((r) => ({ id: r.id })),
+    ),
+    count: vi.fn(async ({ where }: { where: JobWhere }) => jobs.filter((r) => jobMatches(where, r)).length),
+    deleteMany: vi.fn(async ({ where }: { where: JobWhere }) => {
+      const ids = where.id?.in ?? jobs.map((r) => r.id);
+      let count = 0;
+      for (const id of ids) {
+        const at = jobs.findIndex((r) => r.id === id);
+        if (at >= 0) {
+          jobs.splice(at, 1);
+          count++;
+        }
+      }
+      return { count };
+    }),
+  };
+
+  const tx = {
+    ...ledgers.delegates,
+    controlObservation,
+    scanJob,
+    recommendation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    recommendationEvent: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    scanDimension: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    scan: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    loopRunLane: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    loopRun: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    athenaProposal: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    athenaTurn: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    athenaThread: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+  };
+
+  const orgPolicy = opts.org ?? { retentionMaxScans: 5, retentionAuditDays: 30 };
+  const prisma = {
+    ...ledgers.delegates,
+    controlObservation,
+    scanJob,
+    organization: {
+      findMany: vi.fn(async () => [{ id: "org_1", slug: "acme", ...orgPolicy }]),
+      findUnique: vi.fn(async () => ({ id: "org_1" })),
+    },
+    repository: {
+      findMany: vi.fn(async () => [{ id: "repo_1" }]),
+      findUnique: vi.fn(async () => ({ id: "repo_1" })),
+      update: vi.fn(async () => ({ id: "repo_1" })),
+    },
+    scan: {
+      findMany: vi.fn(async () => []),
+      count: vi.fn(async () => 0),
+      groupBy: vi.fn(async () => [{ repoId: "repo_1", _count: { _all: 0 } }]),
+    },
+    loopRun: { findMany: vi.fn(async () => []) },
+    loopRunLane: { count: vi.fn(async () => 0) },
+    athenaThread: { findMany: vi.fn(async () => []) },
+    athenaTurn: { count: vi.fn(async () => 0) },
+    athenaProposal: { count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    athenaIdentity: { count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    orgMemory: { findMany: vi.fn(async () => []), count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    auditLog: { findMany: vi.fn(async () => []), count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+  };
+  return { prisma, ledgers, obs, jobs };
+}
+
+/** Two repos × one control, three observations each: two aged, one fresh. */
+function agedObservations(now: number): ObsRow[] {
+  const at = (days: number) => new Date(now - days * DAY);
+  return [
+    { id: "co_a1", repoFullName: "acme/api", controlId: "branch-protection", observedAt: at(120) },
+    { id: "co_a2", repoFullName: "acme/api", controlId: "branch-protection", observedAt: at(90) },
+    { id: "co_a3", repoFullName: "acme/api", controlId: "branch-protection", observedAt: at(60) },
+    { id: "co_b1", repoFullName: "acme/web", controlId: "required-reviews", observedAt: at(200) },
+    { id: "co_b2", repoFullName: "acme/web", controlId: "required-reviews", observedAt: at(150) },
+  ];
+}
+
+describe("purgeExpiredData — moonshot wave-3 control ledger (#1)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  // FAIL-BEFORE: with a plain `observedAt < cutoff` sweep (no per-pair survivor exclusion), acme/web
+  // loses BOTH its rows — every observation of that control is older than the window — and the
+  // posture read, finding nothing, reports `unmeasurable`. Retention would have invented a
+  // governance finding for a control that was observed passing and never changed.
+  it("ages observations out on the audit horizon but keeps the newest of every (repo, control) pair", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, obs } = fakeWave3Prisma({ observations: agedObservations(now) });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ now: () => now });
+
+    // acme/api: co_a1 + co_a2 die, co_a3 survives. acme/web: co_b1 dies, co_b2 survives although it
+    // is itself well past the cutoff — being the pair's newest outranks the horizon.
+    expect(obs.map((r) => r.id).sort()).toEqual(["co_a3", "co_b2"]);
+    expect(summary?.controlObservationsDeleted).toBe(3);
+    // The survivor is excluded in the PREDICATE, not filtered out of a selected page — a page that
+    // happened to be all survivors would otherwise end the sweep early and silently.
+    const where = prisma.controlObservation.findMany.mock.calls[0]![0].where;
+    expect(where.orgId).toBe("org_1");
+    expect(where.observedAt?.lt).toBeInstanceOf(Date);
+    expect(where.id?.not).toBeTruthy();
+  });
+
+  // FAIL-BEFORE: without the ControlLedgerSeal exception, the seals age out beside their rows and a
+  // shortened evidence window becomes indistinguishable from a day on which nothing happened. The
+  // seal surviving is what makes the deletion detectable — its root no longer reproduces.
+  it("never purges a ControlLedgerSeal with its rows", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, ledgers } = fakeWave3Prisma({ observations: agedObservations(now), seals: ["sl_1", "sl_2"] });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await purgeExpiredData({ now: () => now });
+
+    expect(ledgers.rows.controlLedgerSeal).toEqual(["sl_1", "sl_2"]);
+    expect(prisma.controlLedgerSeal.deleteMany).not.toHaveBeenCalled();
+  });
+
+  // FAIL-BEFORE: a preview that reported 0 while the confirmed run destroyed three rows of
+  // governance evidence is the number a human reads before approving the purge.
+  it("counts the same rows in a dry run and deletes nothing", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, obs } = fakeWave3Prisma({ observations: agedObservations(now) });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true, now: () => now });
+
+    expect(summary?.controlObservationsDeleted).toBe(3);
+    expect(obs).toHaveLength(5);
+    expect(prisma.controlObservation.deleteMany).not.toHaveBeenCalled();
+  });
+
+  // FAIL-BEFORE: the floor is what stops a fat-fingered `retentionAuditDays = 1` from taking an org's
+  // whole control ledger on the next tick. It applies here for free ONLY because the sweep sits under
+  // the same per-org gate as the audit trail — a sweep hoisted out of it would lose the floor.
+  it("refuses a sub-floor audit window rather than sweeping the ledger", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, obs } = fakeWave3Prisma({
+      observations: agedObservations(now),
+      org: { retentionMaxScans: 10, retentionAuditDays: RETENTION_MIN_AUDIT_DAYS - 1 },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    delete process.env.RETENTION_FORCE;
+
+    const summary = await purgeExpiredData({ now: () => now });
+
+    expect(obs).toHaveLength(5);
+    expect(summary?.controlObservationsDeleted).toBe(0);
+    expect(summary?.errors.join(" ")).toContain("below the safety floor");
+  });
+});
+
+describe("purgeExpiredData — moonshot wave-3 scan queue (#10)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  /** Settled rows either side of the horizon, plus live work that must never be swept. */
+  function queue(now: number): JobRow[] {
+    const at = (days: number) => new Date(now - days * DAY);
+    return [
+      { id: "sj_done_old", state: "done", settledAt: at(SCAN_JOB_RETENTION_DAYS + 5) },
+      { id: "sj_failed_old", state: "failed", settledAt: at(SCAN_JOB_RETENTION_DAYS + 1) },
+      { id: "sj_skipped_old", state: "skipped", settledAt: at(400) },
+      { id: "sj_done_fresh", state: "done", settledAt: at(2) },
+      { id: "sj_queued", state: "queued", settledAt: null },
+      { id: "sj_claimed", state: "claimed", settledAt: null },
+    ];
+  }
+
+  // FAIL-BEFORE: without the sweep the queue is bounded by nothing — a job row is not a scan child,
+  // so the scan prune can never reach it. And without the state filter the sweep would take LIVE
+  // work: a queued job deleted on age is a scan that silently never happens.
+  it("retires settled rows past the 30-day horizon and never touches queued or claimed work", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, jobs } = fakeWave3Prisma({ jobs: queue(now) });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ now: () => now });
+
+    expect(summary?.scanJobsDeleted).toBe(3);
+    expect(jobs.map((r) => r.id).sort()).toEqual(["sj_claimed", "sj_done_fresh", "sj_queued"]);
+    const where = prisma.scanJob.findMany.mock.calls[0]![0].where;
+    expect(where.state).toEqual({ in: [...SCAN_JOB_SETTLED_STATES] });
+    expect(where.settledAt.lt.getTime()).toBe(now - SCAN_JOB_RETENTION_DAYS * DAY);
+    expect(recordAudit).toHaveBeenCalledWith(
+      "retention.purged",
+      expect.objectContaining({ scope: "scan-queue", scanJobsDeleted: 3 }),
+      expect.anything(),
+    );
+  });
+
+  // FAIL-BEFORE: this is why the sweep is fleet-wide instead of a per-org branch. Retention is
+  // opt-in, so an org with both windows at 0 is skipped by the org loop entirely — a policy-coupled
+  // queue sweep would therefore never run at all on the default deployment.
+  it("drains the queue for an org that has configured NO retention policy", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, jobs } = fakeWave3Prisma({
+      jobs: queue(now),
+      org: { retentionMaxScans: 0, retentionAuditDays: 0 },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ now: () => now });
+
+    // The org contributed no result row (nothing to enforce), and the queue still drained.
+    expect(summary?.orgsProcessed).toBe(0);
+    expect(summary?.scanJobsDeleted).toBe(3);
+    expect(jobs).toHaveLength(3);
+  });
+
+  it("counts the queue in a dry run and deletes nothing", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, jobs } = fakeWave3Prisma({ jobs: queue(now) });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true, now: () => now });
+
+    expect(summary?.scanJobsDeleted).toBe(3);
+    expect(jobs).toHaveLength(6);
+    expect(prisma.scanJob.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("eraseOrgData — moonshot wave-3 cascades (#10, #1)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  // FAIL-BEFORE: without the three wave-3 drains an "erasure" leaves behind queued work naming the
+  // tenant's repositories (which the worker would then go and scan), the current posture of every
+  // control on every repo it owns, and a per-day row count for every day it operated.
+  it("erases the whole queue, every observation INCLUDING each pair's newest, and the seals", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, ledgers, obs, jobs } = fakeWave3Prisma({
+      observations: agedObservations(now),
+      jobs: [
+        { id: "sj_queued", state: "queued", settledAt: null },
+        { id: "sj_done_fresh", state: "done", settledAt: new Date(now - DAY) },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", now: () => now });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.scanJobsDeleted).toBe(2);
+    expect(outcome.controlObservationsDeleted).toBe(5);
+    expect(outcome.controlSealsDeleted).toBe(2);
+    expect(jobs).toEqual([]);
+    expect(obs).toEqual([]);
+    expect(ledgers.rows.controlLedgerSeal).toEqual([]);
+    // Org-scoped, never a bare deleteMany over the whole table (this is a multi-tenant store) — and
+    // with no date predicate: an erasure keeps nothing, so the purge's keep-newest rule is absent.
+    for (const name of ["scanJob", "controlObservation", "controlLedgerSeal"] as const) {
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1" });
+    }
+    expect(recordAudit).toHaveBeenCalledWith(
+      ERASE_ACTION,
+      expect.objectContaining({ scanJobsDeleted: 2, controlObservationsDeleted: 5, controlSealsDeleted: 2 }),
+      expect.anything(),
+    );
+  });
+
+  it("a preview counts all three over the delete's own predicate and removes nothing", async () => {
+    const now = Date.UTC(2026, 7, 30);
+    const { prisma, ledgers, obs, jobs } = fakeWave3Prisma({
+      observations: agedObservations(now),
+      jobs: [{ id: "sj_queued", state: "queued", settledAt: null }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true, now: () => now });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.scanJobsDeleted).toBe(1);
+    expect(preview.controlObservationsDeleted).toBe(5);
+    expect(preview.controlSealsDeleted).toBe(2);
+    expect(jobs).toHaveLength(1);
+    expect(obs).toHaveLength(5);
+    expect(ledgers.rows.controlLedgerSeal).toEqual(["sl_1", "sl_2"]);
   });
 });
