@@ -114,7 +114,7 @@ import type { GuidanceGraph, GuidanceNode } from "@/lib/types";
 import type { ScanJobRow } from "@/lib/db/scan-jobs";
 // #10 — the frozen control-observation contract W3-M's governance ledger reads. Four DateTime
 // columns (occurredAt, observedAt, createdAt and the row's own stamps), every one a string here.
-import type { ControlObservationRow } from "@/lib/db/control-observations";
+import type { ControlObservationRow, ControlSealRow } from "@/lib/db/control-observations";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -204,6 +204,9 @@ export const WIRE_TYPES = {
   SandboxScenarioRecord: true satisfies WireSafe<SandboxScenarioRecord>,
   ScanJobRow: true satisfies WireSafe<ScanJobRow>,
   ControlObservationRow: true satisfies WireSafe<ControlObservationRow>,
+  // MOONSHOT #1: one daily ledger seal. `sealedAt` is a Prisma `DateTime` that toSealRow()
+  // .toISOString()s; `day` is already a YYYY-MM-DD string in the column, not a date.
+  ControlSealRow: true satisfies WireSafe<ControlSealRow>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
   SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
