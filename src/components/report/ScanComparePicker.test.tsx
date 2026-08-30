@@ -4,14 +4,15 @@
 // "Compared (after)". A user could invert the pair and get an all-red "What changed" panel that reads
 // as a regression while actually looking backward in time. Pins the new inline hint.
 
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ScanComparePicker } from "./ScanComparePicker";
 import type { HistoryPoint } from "@/lib/db/scans";
 
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => "/compare/acme/widget",
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
 }));
 
 function scan(id: string, scannedAt: string, overallScore = 50): HistoryPoint {
@@ -53,5 +54,73 @@ describe("ScanComparePicker — chronological-order hint", () => {
     render(<ScanComparePicker repo="acme/widget" scans={same} beforeId="a" afterId="b" />);
 
     expect(screen.queryByText(/baseline is newer than the compared scan/i)).toBeNull();
+  });
+});
+
+// ── The Against (exemplar) field — moonshot #34 ─────────────────────────────────────────────────
+
+const exemplarOptions = [
+  { value: "repo:acme/api", label: "acme/api", group: "Your repos" as const, scannedAt: null },
+  { value: "org:best", label: "best in org overall", group: "Org best" as const, scannedAt: null },
+  { value: "cohort:lang:TypeScript", label: "TypeScript · top decile", group: "Cohort" as const, scannedAt: null },
+];
+
+describe("ScanComparePicker — Against (exemplar) field", () => {
+  beforeEach(() => push.mockClear());
+
+  it("is absent when no exemplar is offerable — an empty dropdown would promise a comparison that can't be made", () => {
+    render(<ScanComparePicker repo="acme/widget" scans={scans} beforeId="older" afterId="newer" />);
+    expect(screen.queryByLabelText(/exemplar to compare against/i)).toBeNull();
+  });
+
+  it("renders one optgroup per populated group", () => {
+    render(
+      <ScanComparePicker repo="acme/widget" scans={scans} beforeId="older" afterId="newer" exemplarOptions={exemplarOptions} />,
+    );
+    const select = screen.getByLabelText(/exemplar to compare against/i);
+    expect(select).toBeInTheDocument();
+    for (const g of ["Your repos", "Org best", "Cohort"]) {
+      expect(select.querySelector(`optgroup[label="${g}"]`)).not.toBeNull();
+    }
+  });
+
+  it("pushes against= while keeping the scan pair, so the exemplar comparison is shareable", () => {
+    render(
+      <ScanComparePicker repo="acme/widget" scans={scans} beforeId="older" afterId="newer" exemplarOptions={exemplarOptions} />,
+    );
+    fireEvent.change(screen.getByLabelText(/exemplar to compare against/i), { target: { value: "org:best" } });
+    expect(push).toHaveBeenCalledWith("/compare/acme/widget?repo=acme%2Fwidget&a=newer&b=older&against=org%3Abest");
+  });
+
+  it("'None' removes against= and leaves a and b intact", () => {
+    render(
+      <ScanComparePicker
+        repo="acme/widget"
+        scans={scans}
+        beforeId="older"
+        afterId="newer"
+        exemplarOptions={exemplarOptions}
+        against="org:best"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/exemplar to compare against/i), { target: { value: "" } });
+    expect(push).toHaveBeenCalledWith("/compare/acme/widget?repo=acme%2Fwidget&a=newer&b=older");
+  });
+
+  it("carries the chosen exemplar through a baseline change rather than dropping it", () => {
+    render(
+      <ScanComparePicker
+        repo="acme/widget"
+        scans={scans}
+        beforeId="older"
+        afterId="newer"
+        exemplarOptions={exemplarOptions}
+        against="cohort:lang:TypeScript"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Baseline scan"), { target: { value: "newer" } });
+    expect(push).toHaveBeenCalledWith(
+      "/compare/acme/widget?repo=acme%2Fwidget&a=newer&b=newer&against=cohort%3Alang%3ATypeScript",
+    );
   });
 });

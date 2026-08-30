@@ -19,6 +19,7 @@ import { isIncompleteReport } from "@/lib/scoring/gate";
 import type { LiftDistribution } from "@/lib/outcomes/aggregate";
 import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
 import { recommendationMatchKey } from "@/lib/report/rec-identity";
+import type { ExemplarDiff, TransferRow } from "@/lib/report/exemplar";
 
 /** Optional context a caller can fold into the briefing. Everything here is additive and omittable. */
 export interface ReportMarkdownOptions {
@@ -27,6 +28,77 @@ export interface ReportMarkdownOptions {
    * Absent — the anonymous/public case — renders the briefing exactly as it always rendered.
    */
   lifts?: ReadonlyMap<string, LiftDistribution> | null;
+  /**
+   * The "## Against exemplar" section (moonshot #34), pre-rendered by `exemplarMarkdownSection`.
+   * Appended immediately before `## Ask`. ABSENT OR EMPTY MUST BE BYTE-IDENTICAL to the briefing
+   * this function has always produced — that byte-stability is what keeps
+   * `src/app/api/report/llm/route.test.ts` (an equality test between the endpoint and the copy chip)
+   * green without either being touched.
+   */
+  exemplarSection?: string | null;
+}
+
+/** What `exemplarMarkdownSection` needs: the diff, and optionally the practices that transfer it. */
+export interface ExemplarBrief {
+  diff: ExemplarDiff;
+  transfers?: readonly TransferRow[];
+}
+
+/**
+ * Render an exemplar comparison as markdown for a model to act on.
+ *
+ * Two honesty rules survive into the text, because a model cannot see the chips the page draws
+ * around a number:
+ *  - the basis (rubric, engine filter, cohort population + support threshold) leads the section;
+ *  - a COHORT is never attributed to a repository. `ExemplarProfile.repoFullName` is null for a
+ *    cohort by construction, and this function only ever prints `label`, which for a cohort is the
+ *    slice ("TypeScript · top decile"). A model told "acme/web has X" would reason about acme/web.
+ */
+export function exemplarMarkdownSection(brief: ExemplarBrief): string {
+  const { diff } = brief;
+  const out: string[] = [];
+  out.push("## Against exemplar");
+  out.push("");
+  out.push(`Compared against **${diff.exemplar.label}** — what it has at the evidence level that this repo does not.`);
+  out.push("");
+  const basis = [`rubric: ${diff.basis.rubric}`, "mock-engine scans excluded"];
+  if (diff.exemplar.population !== null) basis.push(`cohort population: ${diff.exemplar.population}`);
+  if (diff.basis.minSupport !== null) basis.push(`signal support: ${diff.basis.minSupport} of the top decile`);
+  if (!diff.basis.subjectEligible) basis.push("NOTE: this repo's own scan is outside that filter, so the two sides were measured differently");
+  out.push(`> Basis — ${basis.join(" · ")}.`);
+  out.push("");
+  out.push(
+    "> Signal-level, not semantic: evidence strings are model-phrased, so an equivalent capability " +
+      "worded differently reads as absent. Treat each line as a lead to verify, not a finding.",
+  );
+  out.push("");
+
+  if (diff.nothingToTransfer) {
+    out.push("Nothing this exemplar has is missing here.");
+    out.push("");
+    return out.join("\n");
+  }
+
+  const byDim = new Map((brief.transfers ?? []).map((t) => [t.dimId, t]));
+  for (const d of diff.dimensions) {
+    if (d.absentSignals.length === 0) continue;
+    const gap = d.scoreGap === null ? "" : ` (${d.scoreGap > 0 ? "+" : ""}${d.scoreGap})`;
+    out.push(`### ${d.id} · ${d.name}${gap}`);
+    out.push("");
+    out.push("They have, this repo lacks:");
+    for (const sig of d.absentSignals) out.push(`- ${sig}`);
+    const t = byDim.get(d.id);
+    if (t?.practice) out.push(`- _transfers via:_ ${t.practice.label} — ${t.practice.what}`);
+    if (d.aheadSignals.length > 0) out.push(`- _this repo has, the exemplar does not:_ ${d.aheadSignals.join("; ")}`);
+    out.push("");
+  }
+  if (diff.notComparable.length > 0) {
+    out.push(
+      `Not comparable (scored on only one side, so no gap is claimed): ${diff.notComparable.join(", ")}.`,
+    );
+    out.push("");
+  }
+  return out.join("\n");
 }
 
 /** Impact/effort/level metadata on one line, omitting whatever the roadmap item didn't carry. */
@@ -158,6 +230,14 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
       if (clause) out.push(`   - _measured:_ ${clause}`);
       for (const q of item.explore ?? []) out.push(`   - _explore:_ ${q}`);
     });
+    out.push("");
+  }
+
+  // The exemplar section (moonshot #34) sits between the roadmap and the ask: the model should have
+  // read what a stronger repo carries before it is asked what to change. Omitted entirely when the
+  // caller passed nothing — see the byte-stability note on ReportMarkdownOptions.
+  if (options.exemplarSection) {
+    out.push(options.exemplarSection);
     out.push("");
   }
 

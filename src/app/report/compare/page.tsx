@@ -10,6 +10,8 @@ import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
 import { diffScans } from "@/lib/report/compare";
 import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
+import { listExemplarOptions, loadSubjectFacets } from "@/lib/report/exemplar-load";
+import { ExemplarSection } from "./ExemplarSection";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +32,9 @@ function Notice({ title, body, repo }: { title: string; body: string; repo?: str
 export default async function ComparePage({
   searchParams,
 }: {
-  searchParams: Promise<{ repo?: string; a?: string; b?: string }>;
+  searchParams: Promise<{ repo?: string; a?: string; b?: string; against?: string }>;
 }) {
-  const { repo, a, b } = await searchParams;
+  const { repo, a, b, against } = await searchParams;
 
   // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false in
   // production, so a signed-out visitor was never prompted (and readableOrgForOwner then resolved them
@@ -113,6 +115,17 @@ export default async function ComparePage({
   const diff = diffScans(before, after);
   const repoRef = comparison.repo.fullName;
 
+  // The second comparison axis (moonshot #34): as well as "this repo, then vs now", "this repo vs a
+  // stronger one". Options are loaded unconditionally so the picker can offer the field; an org with
+  // no eligible peer and no qualifying cohort gets an empty list and the field is simply absent.
+  const facets = await loadSubjectFacets(orgSlug, repoRef);
+  const exemplarOptions = await listExemplarOptions({
+    orgSlug,
+    subjectFullName: repoRef,
+    primaryLanguage: facets.primaryLanguage,
+    archetype: facets.archetype,
+  });
+
   // Requested ids the server did NOT honor (trends-comparison 07-16 #2). getScanComparison resolves
   // ?a/?b only within the newest-`limit` window, so a bookmarked compare URL whose scan aged past the
   // 60th slot (retention keeps ~200), a stale/mistyped id, or the degenerate a===b fall back to the
@@ -166,9 +179,15 @@ export default async function ComparePage({
           scans={comparison.scans}
           beforeId={before.id}
           afterId={after.id}
+          exemplarOptions={exemplarOptions}
+          against={against ?? null}
         />
 
         <WhatChanged diff={diff} before={before} after={after} />
+
+        {against && (
+          <ExemplarSection against={against} orgSlug={orgSlug} subjectFullName={repoRef} subject={after} />
+        )}
       </div>
     </Shell>
   );

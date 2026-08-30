@@ -3,7 +3,8 @@
 // analysis, and the corpus benchmark (F6). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { DIMENSION_BY_ID, SCORING_RUBRIC_VERSION, weightsFor } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
+import { BENCHMARK_ELIGIBLE, COHORT_MIN, CORPUS_BASIS, CORPUS_MIN } from "@/lib/corpus/eligibility";
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
@@ -775,42 +776,16 @@ export interface OrgBenchmark {
   } | null;
 }
 
-/**
- * Which scans may enter a percentile comparison.
- *
- * A percentile is a claim that two numbers were produced the same way. Two things break that, and both
- * were silently in the corpus before this filter existed:
- *
- * 1. **Engine.** A `mock` scan is the deterministic rubric with NO model nuance — the keyless/demo floor
- *    (`docs/features/scanning/llm-providers.md`). Seeded demo orgs and keyless deploys both produce them
- *    in bulk, so the corpus was partly a different scoring function, ranked as if it were a peer.
- * 2. **Rubric version.** Weights and detectors change; `SCORING_RUBRIC_VERSION` is stamped on each scan
- *    precisely so a pre-bump score is identifiable. Nothing re-bases persisted scans, so an old-rubric
- *    row is a number from a retired instrument. `null` (legacy, pre-stamping) is excluded for the same
- *    reason — unknown provenance is not evidence of comparability.
- *
- * Applied to BOTH sides: filtering only the corpus would rank this org's mock-scored repos against a
- * live-scored corpus, which is the same error mirrored.
- */
-const BENCHMARK_ELIGIBLE = {
-  engineProvider: { not: "mock" },
-  rubricVersion: SCORING_RUBRIC_VERSION,
-} as const;
+// W2-#9 (moonshot #34): the eligibility filter and the population floors moved to
+// `@/lib/corpus/eligibility` — with their full rationale — so the exemplar diff reuses the SAME
+// instrument instead of a second copy that drifts on the next rubric bump. Re-exported here so
+// every existing import path keeps working.
+export { BENCHMARK_ELIGIBLE, COHORT_MIN, CORPUS_BASIS, CORPUS_MIN };
 
-/** The rendered form of BENCHMARK_ELIGIBLE, returned with every benchmark so a percentile always
- *  travels with the basis it was computed on. */
-const CORPUS_BASIS = { rubric: SCORING_RUBRIC_VERSION, excludesMockEngine: true } as const;
-
-/** Minimum same-language peer ORGS before a cohort percentile is statistically worth showing. */
-const COHORT_MIN = 5;
 /** Upper bound on the cross-tenant corpus materialized into Node for a benchmark (fleet-rollups-insights
  *  #5). The corpus is a percentile SAMPLE, not an exact population, so a bounded recent slice is enough —
  *  and it caps the cross-org read so one tenant's benchmark can't pull the entire fleet into memory. */
 const BENCHMARK_CORPUS_CAP = 5000;
-/** Minimum peer-org count before the headline percentile is worth showing — same discipline as
- *  COHORT_MIN: a 1–4 org corpus yields a confidently-wrong "you beat 100% of orgs". (Percentiles
- *  now rank org-mean vs other-org-means, so the floor counts ORGS, not repos.) */
-const CORPUS_MIN = 5;
 
 /** Share of `xs` at-or-below `v`, as 0..100 — null below `min` samples, because a 1-repo corpus
  *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests. */

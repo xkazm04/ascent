@@ -162,6 +162,35 @@ export interface ScanDiff {
  *  correctly reads as one signal disappearing and another appearing (the movement we want). */
 const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
+/** Set difference over normalized evidence/gap strings. */
+export interface StringSetDiff {
+  /** Entries of `a` whose normalized form is absent from `b`. Original casing/spacing preserved. */
+  onlyInA: string[];
+  /** Entries of `b` whose normalized form is absent from `a`. */
+  onlyInB: string[];
+  /** Entries of `a` whose normalized form IS present in `b` — same source side, same order. */
+  shared: string[];
+}
+
+/**
+ * The one set-diff over evidence/gap strings, shared by the time diff (`diffScans`) and the exemplar
+ * diff (`src/lib/report/exemplar.ts`). `norm()` stays the single normalizer and stays unexported —
+ * it is applied to the LOOKUP only, so every returned string keeps its original phrasing for display.
+ *
+ * DUPLICATES ON A SIDE ARE PRESERVED: one repeated string is one entry per occurrence. That is the
+ * exact semantics `diffScans` has always had (it filtered the source array against a Set of the other
+ * side), and deduping here would silently change the appeared/disappeared counts on the compare page.
+ */
+export function diffStringSets(a: readonly string[], b: readonly string[]): StringSetDiff {
+  const aKeys = new Set(a.map(norm));
+  const bKeys = new Set(b.map(norm));
+  return {
+    onlyInA: a.filter((s) => !bKeys.has(norm(s))),
+    onlyInB: b.filter((s) => !aKeys.has(norm(s))),
+    shared: a.filter((s) => bKeys.has(norm(s))),
+  };
+}
+
 /** A recommendation's cross-scan identity inputs: its dimension + free-form title. */
 export interface RecIdentity {
   dim: string;
@@ -378,15 +407,13 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     let disappearedSignals: string[] = [];
     if (b && a) {
       // Compare only when both scans scored the dimension — otherwise movement is noise.
-      const beforeGaps = new Set(b.gaps.map(norm));
-      const afterGaps = new Set(a.gaps.map(norm));
-      closedGaps = b.gaps.filter((g) => !afterGaps.has(norm(g)));
-      openedGaps = a.gaps.filter((g) => !beforeGaps.has(norm(g)));
+      const gapDiff = diffStringSets(b.gaps, a.gaps);
+      closedGaps = gapDiff.onlyInA;
+      openedGaps = gapDiff.onlyInB;
 
-      const beforeEvidence = new Set(b.evidence.map(norm));
-      const afterEvidence = new Set(a.evidence.map(norm));
-      appearedSignals = a.evidence.filter((e) => !beforeEvidence.has(norm(e)));
-      disappearedSignals = b.evidence.filter((e) => !afterEvidence.has(norm(e)));
+      const evidenceDiff = diffStringSets(b.evidence, a.evidence);
+      disappearedSignals = evidenceDiff.onlyInA;
+      appearedSignals = evidenceDiff.onlyInB;
     }
     closedGapCount += closedGaps.length;
     openedGapCount += openedGaps.length;

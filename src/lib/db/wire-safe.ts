@@ -41,6 +41,7 @@
 //
 // Architect ADR 2026-08-28-codify-wire-safe-dates.
 
+import type { ExemplarOption, ExemplarProfile } from "@/lib/report/exemplar";
 import type {
   ApiTokenSummary,
   AuditLogEntry,
@@ -125,6 +126,14 @@ export type WireSafe<T> = [DateBearingKeys<T>] extends [never]
 // ProgramCadence, AuditVerdict) are deliberately absent: `keyof` a string union is not a row's field
 // set, so WireSafe says nothing useful about them.
 export const WIRE_TYPES = {
+  // MOONSHOT #34. These two are the exception the scope note above anticipates: they are declared in
+  // `@/lib/report/exemplar` rather than `@/lib/db`, but both are built by a `-load.ts` mapper out of
+  // Prisma rows and both cross to a client — `ExemplarOption` is a prop of the "use client"
+  // ScanComparePicker, and `ExemplarProfile` carries the exemplar side into the compare panel. Each
+  // declares `scannedAt: string | null`, `.toISOString()`-mapped server-side, which is precisely the
+  // invariant this guard holds. Enumerate by what CROSSES, never by which directory it lives in.
+  ExemplarOption: true satisfies WireSafe<ExemplarOption>,
+  ExemplarProfile: true satisfies WireSafe<ExemplarProfile>,
   ApiTokenSummary: true satisfies WireSafe<ApiTokenSummary>,
   AuditLogEntry: true satisfies WireSafe<AuditLogEntry>,
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
