@@ -24,7 +24,12 @@ import { getPullRequest } from "@/lib/github/write";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { PRACTICES } from "@/lib/practices";
 
-const PRACTICE_BY_DIM = new Map(PRACTICES.map((p) => [p.dimId as string, p]));
+// FIRST wins, not last (#15): `new Map(...)` lets a later row with the same `dimId` silently shadow
+// an earlier one, so the day a second D1 practice joins this array, every repo weak on D1 would be
+// pointed at it instead of at `agent-guidance` — a behaviour change nothing in the diff would name.
+// Reversing before the Map makes the FIRST row for a dimension the answer, which is the catalog's
+// documented order and the one a reader assumes.
+const PRACTICE_BY_DIM = new Map([...PRACTICES].reverse().map((p) => [p.dimId as string, p]));
 
 const TRIAGE_MAX = 8;
 const LANDED_MAX = 8;

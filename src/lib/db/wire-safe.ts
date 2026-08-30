@@ -94,6 +94,11 @@ import type { ConformanceReportRow, ControlMatrixRow } from "@/lib/db/org-confor
 // `DateTime` columns between them, every one declared `string` and mapped with .toISOString().
 import type { HousePatternRow } from "@/lib/db/house-pattern-versions";
 import type { PracticeAdoptionRow } from "@/lib/db/practice-adoption";
+// #15 — the guidance graph is parsed off Repository.guidanceGraphJson in org-rollup and crosses to
+// the Repositories client via OrgRepoRow.guidanceGraph. BOTH the container and `GuidanceNode` are
+// listed: the check is shallow, and the only timestamp in this shape (`lastCommitAt`) lives inside
+// the `nodes[]` array — exactly the nesting the header's stated LIMIT says needs its own entry.
+import type { GuidanceGraph, GuidanceNode } from "@/lib/types";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -148,6 +153,8 @@ export const WIRE_TYPES = {
   CapabilityReadout: true satisfies WireSafe<CapabilityReadout>,
   ConformanceReportRow: true satisfies WireSafe<ConformanceReportRow>,
   ControlMatrixRow: true satisfies WireSafe<ControlMatrixRow>,
+  GuidanceGraph: true satisfies WireSafe<GuidanceGraph>,
+  GuidanceNode: true satisfies WireSafe<GuidanceNode>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
   // #33 — the adoption ledger.
   HousePatternRow: true satisfies WireSafe<HousePatternRow>,

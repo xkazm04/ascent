@@ -113,13 +113,51 @@ ingestion failure (see gate.md).
 
 ### Dimension detail
 
-#### D1: AI Tooling & Conventions (15%)
-*Signals (deterministic):* presence of `CLAUDE.md`, `AGENTS.md`, `.cursorrules` /
-`.cursor/rules`, `.github/copilot-instructions.md`, `.aider.conf.yml`, MCP config
-(`mcp.json`, `.mcp.json`), `.claude/` directory, prompt libraries, devcontainer with AI
-tooling, Continue/Cline/Windsurf configs.
-*LLM assessment:* are the conventions substantive and current, or token? Do they encode
-real architectural/testing guidance an agent could follow?
+#### D1: AI Tooling & Conventions (15%) — coherence, not count (r11)
+
+D1 scores whether a repo's agent guidance gives **one answer**, not how many vendors' files it
+carries. The five instruction-document formats (`CLAUDE.md`, `AGENTS.md`, `.cursorrules` /
+`.cursor/rules`, `.github/copilot-instructions.md`, `.windsurfrules`) are read as ONE contract by the
+guidance arbiter (`src/lib/analyze/guidance-graph.ts`), which parses each into commands, rules and
+pointers, nominates a canonical source, and computes a deterministic `coherence` number.
+
+*Signals (deterministic):*
+- **22 points** for having at least one guidance document, whichever format it is.
+- **`round(18 × coherence / 100)`** on top. Coherence starts at 100 and deducts, each deduction
+  itemized with the paths it was read from: a divergent command key (two files stating a different
+  build/test command) **−25 each, capped at 50**; a contradictory rule pair (one file forbids what
+  another requires) **−15 each, capped at 30**; no canonical source nominated among ≥2 documents
+  **−10**; a stale or hand-edited projection **−10**. Floor 0 — a contradiction **withholds** points
+  and never subtracts from the score (guardrails G4/G5).
+- **Facet awards** for what the parser evidenced: a canonical source declared (8), a generated-from
+  projection declared (6), two INDEPENDENT documents stating the same command (6), and a
+  contradiction (**0** — evidence, not a penalty). Points come from `src/lib/scoring/claims.ts`.
+- **Tool/config presence, unchanged:** `.aider.conf.yml`, MCP config (`mcp.json`, `.mcp.json`),
+  `.claude/`, prompt libraries, Continue/Cline, devcontainer, an AI-usage policy. These are different
+  capabilities, not competing copies of one document, so they still count separately.
+- **Guidance quality** is graded on the **canonical** document (or, when the canonical is a pointer
+  file, on what it points at) — not on whichever file matched first. Ascent's own `CLAUDE.md` is the
+  single line `@AGENTS.md`; the old detector awarded 22 for that file and then graded that one line.
+- The `.ai/manifest.yaml` awards (+2 present, +4 declares capabilities + control placement) are
+  unchanged.
+
+*Canonical nomination*, first match wins: (1) `guidance.canonical` in `.ai/manifest.yaml`; (2) the
+one document every other document points at, where the pointing documents are nothing but pointers;
+(3) the source named by a valid generated-from header; (4) nothing — `canonical: null`, an honest
+null. Rank order is used only for display and to pick which text to grade, never to invent a verdict.
+
+*LLM assessment:* D1 is **claim-scored**. Its `score` field is recorded and ignored; the model moves
+the number only by citing a verified fact the parser could not see — an authority declared in prose,
+a projection stated in words, two files agreeing — and every citation must name a guidance file the
+arbiter actually found (`allowedPaths`, rejection reason `not-guidance-file`). Facets comparing two
+files need two citations. D1 has **no guardband blend**, so it is fully reproducible.
+
+*Honest nulls:* `coherence: null` for a repo with no guidance document at all — never 0. A pre-r11
+scan persists no graph, and every surface renders it "not assessed", excluded from fleet denominators.
+
+*Where it surfaces:* Standing › Repositories › Context Health → **Guidance coherence**, and the
+repo's own `node .ai/doctor.mjs` projection-drift check
+([`ai-manifest-spec.md`](../onboarding/ai-manifest-spec.md)).
 
 #### D2: Automated Testing (15%)
 *Signals:* test directories/files (`__tests__`, `*.test.*`, `*_test.*`, `tests/`),
@@ -411,7 +449,7 @@ reproducible measure of practice presence; craft is the open-ended half. The cor
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r7`.**
+`src/lib/maturity/model.ts`. **Current: `r11`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -434,6 +472,7 @@ genuinely display-only change, but the reasoning belongs in the diff.
 
 | Version | Change |
 | --- | --- |
+| `r11` (2026-08-30) | **D1 scores coherence, not count.** The five instruction-document formats used to sum on presence alone (CLAUDE.md 22 + AGENTS.md 16 + Cursor 14 + Copilot 14 + Windsurf 10 = 76), so a repo with four *mutually contradicting* copies outscored a repo with one document that is actually true — the rubric rewarded the worse repo. They now collapse into one 22-point award plus `round(18 × coherence/100)`, where coherence is the guidance arbiter's deterministic, itemized read across every format (`src/lib/analyze/guidance-graph.ts`), and content quality is graded on the **canonical** document rather than whichever file matched first. D1 also joined `CLAIM_SCORED_DIMENSIONS`, which removes its guardband blend entirely: the model's D1 number is recorded and ignored, and its judgment reaches the score only through citations verified against guidance files the arbiter found. D1 is now fully reproducible. Scores move on every repo carrying more than one guidance format; a repo with one document is unchanged at the floor. Separately, the `+4` manifest award became **reachable** in wave 1 when the fetch list started requesting `.ai/manifest.yaml` — a second, independent reason `r10` numbers are not comparable with `r11` ones. No weight, band or blend constant moved. |
 | `r2` (2026-07-17) | `classifyArchetype` caps star-driven "org" escalation at "team" for repos with ≤2 active human authors, moving the archetype lens and its weights for viral solo repos. |
 | `r3` (2026-07-28) | The assessment system prompt gained the untrusted-repo-data boundary and a stated discrepancy budget, which the engine now enforces (a scan may widen at most `MAX_FLAGGED_DIMENSIONS` guardbands). |
 | `r4` (2026-08-05) | Two Security (D9) detector corrections in `src/lib/security/checks.ts`: pinned-dependencies no longer counts multi-stage `FROM <alias>` or `FROM scratch` in the denominator, and the broad-write cap matches `contents: write` anywhere in a permissions block. D9 is taken verbatim by the engine. |

@@ -285,6 +285,44 @@ and its `contextHealthMock` synthesis are deleted; every number now comes from t
   never a fabricated band; and a repo whose latest scan **predates W4** renders as
   *"Not assessed by this scan — re-scan to measure context health"*, never as absent context.
 
+### Guidance coherence (the second card on Context Health, #15, 2026-08-30)
+
+Half-life asks *"when did this guidance stop being true?"*. Coherence asks the orthogonal question:
+**"is it true in more than one place at once?"** A repo that adopted agents from several vendors
+usually carries several instruction documents — `CLAUDE.md`, `AGENTS.md`, `.cursorrules`,
+`.github/copilot-instructions.md`, `.windsurfrules` — addressing the same audience about the same
+codebase, with nothing reading them against each other. Once they drift, the answer an agent gets
+depends on *which file it opened*. Every vendor scorer favours its own format; only a vendor with no
+agent to upsell can credibly nominate which one is the authority.
+
+`GuidanceCoherenceCard` renders below the half-life panel, from the same `getOrgRollup` fetch.
+
+- **Data path**: the scan builds a `GuidanceGraph` (`src/lib/analyze/guidance-graph.ts`) — every
+  guidance document parsed into commands, rules and pointers, plus a nominated canonical source, the
+  contradictions between them, and a `coherence` number whose every deduction is itemized with the
+  paths it was read from. It persists as `Scan.guidanceGraphJson`, caches on
+  `Repository.guidanceGraphJson`, and `getOrgRollup` parses it back onto `OrgRepoRow.guidanceGraph`.
+  `guidanceCoherenceModel.ts` builds the rows and the fleet summary purely.
+- **Per repo**: the coherence number, the canonical file with the **basis** it was nominated on
+  (declared in the manifest · every other file points at it · named by a generated-from header · the
+  only document), a chip per vendor format (canonical / in-sync / stale / independent / unsampled),
+  every penalty with both of its paths, and each contradiction as two quoted lines.
+- **Fleet count**: *"N of M assessed repositories have contradicting agent guidance"* — the headline
+  states its own denominator, because a count of repos out of an unstated population is the shape of
+  claim that gets quoted back without its caveat.
+- **Honesty rules**: a repo whose latest scan predates rubric **r11**, or that carries no guidance
+  document at all, has `coherence: null` — it renders **"—"**, never a zero bar, and is excluded from
+  the denominator and from the mean. A guidance file the fetch budget never reached contributes
+  presence only and can never create a penalty.
+- **Not an alarm.** A contradiction is evidence. It withholds D1 points (see
+  [maturity-model.md → D1](../scanning/maturity-model.md)), and it never fires an alert, never fails
+  a gate, and never subtracts from a score.
+
+Acting on it is the `consolidate-guidance` practice
+([practices.md](practices.md)) and, in the repo itself, the manifest `guidance` block plus
+`node .ai/maintain.mjs project` / the doctor's projection-drift check
+([ai-manifest-spec.md](../onboarding/ai-manifest-spec.md)).
+
 ### Passports → Capabilities: declared vs proven vs wired (#13, 2026-08-29)
 
 The third Passports switcher view (`CapabilityMatrix.tsx` over the pure `capabilityAgg.ts`) answers a

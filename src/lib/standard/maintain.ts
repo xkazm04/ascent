@@ -13,9 +13,12 @@ const MAINTAIN = `#!/usr/bin/env node
 //   check               warn when a module changed in the PUSHED range but its CONTEXT.md wasn't (pre-push)
 //   note <kind> <text>  append a well-formed, auto-numbered memory entry
 //   touch <module-path> record that <module>/CONTEXT.md is reconciled to the current HEAD
+//   project             regenerate every vendor guidance file declared under manifest 'guidance'
+//                       from the canonical document, writing the provenance hashes back
 // Pass --strict to make 'check' fail (exit 1) instead of warning. Zero-dependency.
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const cmd = process.argv[2] || 'check';
 const MEM = '.ai/memory';
@@ -137,7 +140,65 @@ if (cmd === 'touch') {
   process.exit(0);
 }
 
-console.error('unknown command: ' + cmd + ' (use check | note | touch)');
+// 'project' - render every DECLARED vendor guidance file from the canonical document.
+//
+// The repo's .ai/manifest.yaml 'guidance' block says which document is the authority and which vendor
+// files are projections of it. This command copies the canonical body into each of them under a
+// provenance header carrying two hashes: the SOURCE's hash (so a later run can tell the projection is
+// behind) and the projection's OWN body hash (so a later run can tell someone hand-edited it instead
+// of editing the source). doctor.mjs reads exactly those two, and the parse must stay identical here.
+//
+// IDEMPOTENT: the output is a pure function of the canonical body, so a second run over an unchanged
+// canonical writes byte-identical files and produces no diff.
+if (cmd === 'project') {
+  const MPATH = '.ai/manifest.yaml';
+  if (!existsSync(MPATH)) { console.error('no ' + MPATH + ' - nothing to project from'); process.exit(2); }
+  const mtext = readFileSync(MPATH, 'utf8');
+  const gblock = mtext.split(/\\nguidance:\\n/)[1];
+  if (!gblock) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
+  const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
+  const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
+  if (!canonical || !existsSync(canonical)) { console.error('guidance.canonical is missing or does not resolve: ' + canonical); process.exit(1); }
+  const sourceBody = readFileSync(canonical, 'utf8');
+  const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
+  const rows = [];
+  for (const line of gblock.split('\\n')) {
+    const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
+    if (m) rows.push({ agent: m[1].trim().replace(/^"|"$/g, ''), path: m[2].trim().replace(/^"|"$/g, '') });
+    else if (/^[^\\s#]/.test(line)) break;
+  }
+  if (!rows.length) { console.log('[INFO] guidance.projections is empty - declare the vendor files to generate, then re-run.'); process.exit(0); }
+  // Cursor .mdc files need their own front matter FIRST; it is not part of the projected body and so
+  // is deliberately outside the body hash (it is vendor transport, not the repo's guidance).
+  const frontMatter = (p) => (/\\.mdc$/.test(p) ? '---\\nalwaysApply: true\\n---\\n' : '');
+  const body = sourceBody.replace(/^(\\r?\\n)+/, '');
+  const srcHash = sha12(sourceBody);
+  const bodyHash = sha12(body);
+  const header = '<!-- generated-from: ' + canonical + ' sha256:' + srcHash + ' \\u00b7 body: sha256:' + bodyHash + ' \\u00b7 do not edit; run: node .ai/maintain.mjs project -->';
+  let wrote = 0;
+  for (const r of rows) {
+    if (r.path === canonical) continue;
+    const out = frontMatter(r.path) + header + '\\n\\n' + body;
+    const before = existsSync(r.path) ? readFileSync(r.path, 'utf8') : null;
+    if (before === out) { console.log('[OK  ] ' + r.path + ' already in sync'); continue; }
+    const dir = r.path.lastIndexOf('/') < 0 ? '' : r.path.slice(0, r.path.lastIndexOf('/'));
+    if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(r.path, out, 'utf8');
+    wrote++;
+    console.log('[WROTE] ' + r.path + ' from ' + canonical);
+  }
+  // Write the source hash back into the manifest's projection rows, so the declared hash and the
+  // generated files agree. A row whose hash is already current is left byte-identical.
+  const updated = mtext.split('\\n').map((line) => {
+    if (!/^\\s+-\\s*\\{\\s*agent:/.test(line)) return line;
+    return line.replace(/hash:\\s*("(?:[^"\\\\]|\\\\.)*"|[^},]*)/, 'hash: "' + srcHash + '"');
+  }).join('\\n');
+  if (updated !== mtext) writeFileSync(MPATH, updated, 'utf8');
+  console.log('\\nProjected ' + rows.length + ' file(s), ' + wrote + ' changed. Re-run to confirm no diff.');
+  process.exit(0);
+}
+
+console.error('unknown command: ' + cmd + ' (use check | note | touch | project)');
 process.exit(2);
 `;
 
@@ -145,7 +206,7 @@ export function buildMaintain(): GeneratedFile {
   return {
     path: ".ai/maintain.mjs",
     body: MAINTAIN,
-    purpose: "Self-maintaining upkeep: flag stale CONTEXT (check), append memory (note), reconcile (touch).",
+    purpose: "Self-maintaining upkeep: flag stale CONTEXT (check), append memory (note), reconcile (touch), regenerate vendor guidance (project).",
     lang: "javascript",
   };
 }

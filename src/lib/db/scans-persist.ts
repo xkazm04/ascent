@@ -127,6 +127,9 @@ export async function persistScanReport(
   if (report.contextHealth) repoUpdate.contextHealthJson = JSON.stringify(report.contextHealth);
   // #13 — same rule for the manifest readout: cache the latest only when this report carries one.
   if (report.manifest) repoUpdate.manifestJson = JSON.stringify(report.manifest);
+  // #15 — same rule for the guidance graph (rubric r11). The fleet count reads this cache, so a
+  // reconstructed snapshot must leave the previous verdict standing rather than blank it.
+  if (report.guidanceGraph) repoUpdate.guidanceGraphJson = JSON.stringify(report.guidanceGraph);
   const repo = await withRetry(
     () =>
       upsertRacing(
@@ -147,6 +150,7 @@ export async function persistScanReport(
               passportJson: report.passport ? JSON.stringify(report.passport) : null,
               contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
               manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
+              guidanceGraphJson: report.guidanceGraph ? JSON.stringify(report.guidanceGraph) : null,
               stars: report.repo.stars,
               lastScanAt: scannedAtDate,
               headSha,
@@ -441,6 +445,10 @@ export async function persistScanReport(
             // Null on a reconstructed snapshot, which reads as "not assessed by this scan" — never
             // as a repo that declares no contract.
             manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
+            // #15 — the guidance arbiter's verdict for this scan. Per-scan history; the latest is
+            // cached on Repository.guidanceGraphJson above. Null on a reconstructed snapshot AND on
+            // every pre-r11 row, both of which read as "not assessed" — never as coherence 0.
+            guidanceGraphJson: report.guidanceGraph ? JSON.stringify(report.guidanceGraph) : null,
             // W6 — practice shape. Per-scan like contextHealth; the org miner reads each repo's
             // LATEST. Null on a reconstructed snapshot, which reads as "not extracted", never as
             // "this repo has no structure".

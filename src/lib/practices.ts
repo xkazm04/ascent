@@ -12,6 +12,15 @@ export interface PracticeDef {
   what: string;
   /** The reusable shape — generic structure to copy, not code. */
   starter: string[];
+  /**
+   * The ONE repo-relative path this practice's generated artifact lands at, when the practice
+   * declares it here rather than in the builder's per-practice switch.
+   *
+   * Deterministic by contract: the adoption ledger (#33) keys a repo's adoption of this practice on
+   * this path, so it must be stable across builds. A practice that leaves it undefined is built by
+   * `buildArtifact`'s own mapping, which is the older arrangement and unchanged.
+   */
+  artifactPath?: string;
 }
 
 export const PRACTICES: PracticeDef[] = [
@@ -121,3 +130,37 @@ export const PRACTICES: PracticeDef[] = [
     ],
   },
 ];
+
+/**
+ * Practices BEYOND the one-per-dimension spine (#15).
+ *
+ * `PRACTICES` is one row per scored dimension and three callers key a `Map` on `dimId` — a second
+ * `dimId: "D1"` row inside that array would silently shadow `agent-guidance` in every one of them,
+ * and "write your first guidance document" is the right advice for a repo that has none. So the
+ * additional starters live here, and the full catalog is `ALL_PRACTICES`: surfaces that OFFER
+ * practices read the full list, while the by-dimension lookups keep reading the spine and keep
+ * answering `agent-guidance` for D1.
+ *
+ * `consolidate-guidance` is the D1 practice for the repo that has the OPPOSITE problem — four vendor
+ * formats saying four different things, so the answer an agent gets depends on which file it opened.
+ * The guidance arbiter (analyze/guidance-graph.ts) is what detects that; this is what to do about it.
+ */
+export const EXTRA_PRACTICES: PracticeDef[] = [
+  {
+    id: "consolidate-guidance",
+    label: "One canonical agent guidance source",
+    dimId: "D1",
+    artifactPath: "docs/AGENT-GUIDANCE.md",
+    what: "One document agents believe, with every vendor format generated from it — so no agent reads a stale or contradicting copy.",
+    starter: [
+      "Pick ONE document as the authority (CLAUDE.md, AGENTS.md, or a docs/ file) and say so in `.ai/manifest.yaml` under `guidance.canonical`",
+      "List every other guidance file the repo carries: .cursorrules / .cursor/rules, .github/copilot-instructions.md, .windsurfrules",
+      "Reconcile the contradictions first — where two files state a different build/test command, or one forbids what another requires, decide which is true",
+      "Declare the rest as projections under `guidance.projections` and generate them: `node .ai/maintain.mjs project`",
+      "Let the doctor hold the line: a hand-edited projection fails, a stale one warns, and both name the file to fix",
+    ],
+  },
+];
+
+/** Every practice a surface may OFFER — the spine plus the extras. Order is stable: spine first. */
+export const ALL_PRACTICES: PracticeDef[] = [...PRACTICES, ...EXTRA_PRACTICES];
