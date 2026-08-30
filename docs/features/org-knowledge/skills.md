@@ -481,9 +481,11 @@ Also implemented per the revision: `server/discover` (mandatory), `resultType` o
 | Tool | Requires | Plan | Answers |
 | --- | --- | --- | --- |
 | `cite_memory` ✎ | `mcp:read` + `memory:read` + `telemetry:write` | memory | Records that a delivered memory was (or was not) used |
+| `claim_followups` ✎ | `mcp:read` + `followups:write` + `telemetry:write` | — | Leases open follow-ups in one repo so this agent works them and nobody else does |
 | `compare_against_exemplar` | `mcp:read` | — | Signal-level diff against a peer repo, the org's best, or a public cohort |
 | `find_skills` | `mcp:read` + `skills:read` | skills | Which of the org's skills apply to this task/repo, and why |
 | `get_ai_stance` | `mcp:read` | — | Permitted tools/models, no-AI zones, review tiers, approval requirement |
+| `get_fix_brief` | `mcp:read` + `followups:write` | — | The working brief + the org's perimeter, for rows this caller HOLDS |
 | `get_gate_verdict` | `mcp:read` | — | Would this repo clear the org's gate, and what fails |
 | `get_governing_subject` | `mcp:read` + `skills:read` | skills | The registry subject whose `use_when` governs this path/topic |
 | `get_practice_shape` | `mcp:read` | — | The reusable *shape* of a practice the org already does well |
@@ -492,10 +494,16 @@ Also implemented per the revision: `server/discover` (mandatory), `resultType` o
 | `get_skill_lessons` | `mcp:read` + `skills:read` | skills | Lessons recorded against a skill (its `LESSONS.md`) |
 | `list_open_recommendations` | `mcp:read` | — | Gaps the org has already decided matter |
 | `recall_org_memory` | `mcp:read` + `memory:read` | memory | Decisions, incidents and conventions already ruled on |
+| `report_attempt` ✎ | `mcp:read` + `followups:write` + `telemetry:write` | — | What this agent did with one follow-up it holds. **Cannot close it.** |
 | `report_skill_invoke` ✎ | `mcp:read` + `skills:read` + `telemetry:write` | skills | The agent's own report that it ran a skill |
 
-✎ = writes. Thirteen tools; the catalog is a compile-time constant in alphabetical order, so a client
+✎ = writes. Sixteen tools; the catalog is a compile-time constant in alphabetical order, so a client
 can cache `tools/list` and an LLM's prompt cache stays warm.
+
+`get_fix_brief` sits between the two halves and the placement is deliberate: it **mutates nothing**,
+so it carries no `mutates` marker, no `telemetry:write` and no policy row — but it is only ever
+answerable for rows the caller HOLDS, and only a token that can claim can hold one, so it is scoped
+with `followups:write` all the same.
 
 `mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
 token holding it alone sees only the org-standing tools, and `memory:read` / `skills:read` unlock
@@ -527,17 +535,22 @@ a locally minted token.
 
 ### The write door
 
-Two tools write, and both report **the agent's own behaviour** — "I ran this skill", "I used this
-memory". Nothing here closes a recommendation, adopts a practice or edits a memory: the write door is
-for evidence, not for decisions, and that boundary is what made shipping writes possible at all.
+Four tools write. Two report **the agent's own behaviour** — "I ran this skill", "I used this
+memory". Two (moonshot #3) operate the org's **work queue**: they lease follow-ups and record what
+happened to them. Neither kind changes a judgement the org made — no practice is adopted, no memory
+edited, and **no recommendation is ever closed**. The write door is for evidence and for work
+claims, not for decisions, and that boundary is what made shipping writes possible at all.
 
 A write must clear four gates, in order (`src/lib/mcp/write-gate.ts`):
 
 1. `telemetry:write` — never implied by `mcp:read`. A read token stays a read token.
 2. The tool's own resource scope. A caller may only write evidence *about* a resource it may read.
 3. The plan gate for that resource.
-4. A per-token daily ceiling (200 citations, 500 invoke reports), counted from the audit trail.
-   Self-reported evidence feeds a ranking, so volume must not be able to bury the honest signal.
+4. A per-token daily ceiling (200 citations, 500 invoke reports, 600 attempt reports, **60 claims**),
+   counted from the audit trail. For the evidence writes the ceiling is anti-inflation: self-reported
+   evidence feeds a ranking, so volume must not bury the honest signal. For `claim_followups` it is
+   anti-**hoarding**: a claim inflates nothing, but an agent looping on it could lease every open row
+   in the fleet and make the ledger read empty to everyone else until the leases lapsed.
 
 Then exactly one `AuditLog` row per accepted write, action `mcp.write.<tool>`, actor
 `token:<name>`, meta carrying the argument *key shape* and the idempotency key — never the raw
@@ -547,7 +560,52 @@ chain, and a second store would fork all three.
 
 `WRITE_TOOL_POLICY` is a **table, not an if-chain**, and that is the extension contract: adding a
 write tool is one policy row plus one handler, and a structural test fails the build if a `mutates`
-tool has no row or a row has no `mutates` tool.
+tool has no row or a row has no `mutates` tool. #3 exercised it exactly as written — two rows, three
+handlers, and not one line of the gate's own logic touched.
+
+### The work protocol: claim → brief → report
+
+The Follow-ups ledger is a **pull queue any coding agent can serve**. Claude Code, Copilot, Codex,
+Cursor, a CI job or a person: they all speak the same four calls, and Ascent runs none of the work.
+That is the competitive shape of it — a remediation vendor that only fixes things with its own agent
+cannot copy this without conceding the agent.
+
+1. **`claim_followups { repo, ids? | count?, leaseMinutes? }`** — takes rows under a time-limited
+   lease (default 45 min, max 4 h). One compare-and-set (`src/lib/db/followup-claims.ts`) arbitrates
+   between every worker, the local loop engine included: `count === 1` won, `0` lost, and a row
+   somebody else holds comes back in `refused` rather than being stolen.
+2. **`get_fix_brief { ids }`** — each gap as the scan stated it, plus the **perimeter**: the org's
+   permitted tools and models, its no-AI path zones, the repo's autonomy tier and the org's own review
+   sentence for that tier, and the lease expiry. Every line is a stored value; nothing is generated.
+3. Your agent does the work, in your harness.
+4. **`report_attempt { id, verdict, reason, branch?, prUrl? }`** — `resolved`, `skipped` or
+   `needs_human`, the same verdict vocabulary the local lane's `.ascent/lane-report.json` v1 uses
+   (one contract, extended, never forked).
+
+**Who may claim.** `claimability()` (`src/lib/org/followups.ts`) authorizes a remote agent against the
+repo's **derived autonomy tier**: **T0 refused**, **no assessed tier refused** (unknown is not green —
+a repo with no passport has not proven it can be worked unattended), **T1/T2 allowed and flagged for
+human review**, **T3 allowed**. A repo matching a declared no-AI zone is refused whatever its tier.
+`local` and `human` executors are unaffected: self-hosted consent is the operator's own box.
+
+**What a lease means.** An expired lease releases its rows back to the queue — that is the recovery
+path for a crashed agent, not a penalty. The sweep is **lazy** (it runs at the top of a claim), so no
+cron is required for the protocol to be correct. A `null` lease on an in-progress row is **not**
+expiry: it means a human took the row from the browser hand-off, and the sweep never touches it.
+
+**And this is the answer to the question this catalog used to defer** — *what stops an agent closing
+its own recommendation.* **The write path has no verb that closes one.** `status: "done"` is reachable
+only from `scans-persist`'s `decideInProgress`: a rescan of the default branch that both stops
+restating the gap and measures its dimension moving. `resolved` leaves the row in progress with its
+lease cleared; `skipped` returns it to the queue; `needs_human` flags an escalation and leaves the
+work visibly open. A commit trailer is a hint, an attempt report is a claim of exactly the same
+weight, and neither is a verdict.
+
+Every claim and every attempt writes a `RecommendationEvent` on the row and a `recordAudit` row
+(`followup.claim` / `followup.attempt`) with the org resolved, so both are visible in the audit
+viewer. `scripts/ascent-work.mjs` is the zero-dependency client (`npx ascent work claim|brief|report|run`)
+and `examples/ascent-work.action.yml` is a reference GitHub Action — deliberately outside `.github/`
+so it never runs in this repository.
 
 Both writes are idempotent under replay. A citation is unique on `(memoryId, sessionId)` — one
 session gets one vote per memory, and changing that vote *moves* it between `citedCount` and

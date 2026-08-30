@@ -6,9 +6,17 @@ implemented and tested. The Live tab (`?tab=live`) is being rebuilt around it as
 cockpit; the prior war-room wall is kept behind `?view=wall`. The UI section below is a marked
 placeholder until that lands.
 
-Everything on this page is **self-hosted only** (`selfHosted()`, `src/lib/env.ts`). On managed cloud
-the loop routes answer **404** (`selfHostGuard`) and the cockpit renders an empty state — see
-[Known gaps](#known-gaps).
+The **local** loop on this page is self-hosted only (`selfHosted()`, `src/lib/env.ts`): it reads the
+server's filesystem and spawns `claude -p`, so `POST /api/org/loop` with the default
+`executor: "local"` answers **404** on managed cloud (`selfHostGuard`).
+
+Since **moonshot #3** that is no longer the whole story. A run may also declare
+`executor: "remote-agent"` — see [Remote runs](#remote-runs-the-agent-neutral-work-protocol) — and
+such a run takes NEITHER guard, because Ascent starts no process, opens no worktree and touches no
+filesystem for it. The work happens in whatever agent the org already uses, which claims its rows
+over the [MCP work tools](../org-knowledge/skills.md#the-work-protocol-claim--brief--report). The
+status read (`GET /api/org/loop`) is therefore served on cloud too, with `enabled: false` still
+telling the truth about the local loop.
 
 ## The loop
 
@@ -40,7 +48,7 @@ fails if a model is in `schema.prisma` and not in the mirror).
 | Field | Notes |
 | --- | --- |
 | `id` / `orgId` / `createdBy` | `createdBy` is the GitHub login that armed the run (audit trail on the row). |
-| `phase` | `curating \| running \| done \| stopped \| error`. `start` writes `running` directly. |
+| `phase` | `curating \| running \| done \| stopped \| error`. A LOCAL `start` writes `running` directly. A REMOTE run is the one thing that writes `curating`: `startRemoteRun` arms the lanes and nothing is in flight until an agent claims into one, at which point the run flips to `running`. |
 | `reposJson` | The run's selected set, TEXT not `jsonb` (the schema's DSQL contract). **Two encodings, both read forever** (`parseTargets`): the original JSON `string[]` of `owner/name`, and the widened `[{repo, kind, practiceId}]` that carries each repo's armed [lane kind](#lane-kinds-foundation-and-practice-lanes-2026-08-28). A legacy row parses as all-`backlog`, which is what those runs were. Widened rather than given a column deliberately — see that section. |
 | `concurrency` | Lanes in flight at once. Clamped 1…`LOOP_CONCURRENCY_CAP` (4); default 2. |
 | `maxCycles` | Clamped 1…`LOOP_MAX_CYCLES_CAP` (5); default 3. |
@@ -1397,18 +1405,41 @@ this change's write set, so a craft lane currently renders untagged (the functio
 any kind it does not name, so nothing breaks). Adding `craft → "craft ladder"` there is a one-line
 follow-up.
 
+## Remote runs: the agent-neutral work protocol
+
+`POST /api/org/loop { action: "start", executor: "remote-agent", org, repos[], batches? }` arms a run
+Ascent does not drive. `startRemoteRun` (`src/lib/local/loop-engine.ts`) creates the `LoopRun` in
+phase **`curating`** with one `LoopRunLane` per repo (`executor: "remote-agent"`, `phase: "queued"`,
+`batchIdsJson` = the proposed batch), records a `loop.remote_run_started` audit row, and returns. No
+worktree, no process, no pairing read, no `selfHosted()` / `ASCENT_AUTOPILOT` check — those guards
+exist because a local run spawns an editing agent inside a paired working copy, and this one spawns
+nothing.
+
+What moves it: `claim_followups` over the MCP door. The first successful claim against one of the
+run's repos calls `attachRemoteClaim`, which stamps `claimedBy` + `leaseUntil` on that repo's lane,
+moves it `queued → dispatching`, and flips the run `curating → running`. `report_attempt` records the
+agent's account; the lane reaches `done` when the repo's next scan lands, exactly as a local lane
+does. **The rescan is still the only thing that closes a follow-up.**
+
+| Lane column | Meaning |
+| --- | --- |
+| `executor` | `local` (default — every row written before #3) or `remote-agent`. |
+| `claimedBy` | The claimant's opaque actor id, `agent:<token name>`. Null = nobody has claimed into this lane yet. |
+| `leaseUntil` | When that claim lapses. Null = no lease held, which is **not** "expired". |
+
+**A remote lane carries no cost envelope.** #27's figures are parsed out of a `claude -p` session
+envelope Ascent spawned, and there is no such session here, so `costMicros` stays **null** — unknown,
+never zero. The cockpit renders "cost unknown" beside an `agent` chip, the claimant and a lease
+countdown; a zero there would be averaged downstream as a free session, which is a claim nobody made.
+The run panel also hides "Stop after in-flight" for a remote run: that button is a cooperative signal
+to a process this deployment is driving, and there is none.
+
 ## Known gaps
 
 - **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
   to end by `POST /api/org/loop`, but the cockpit's run controls still offer only one model — arming
   an A/B run today means calling the route. The dials live in `CockpitRunControls`/`useRunDials`,
   outside the write set of the change that added the policy.
-- **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns
-  processes. Cloud orgs get an empty state on the cockpit and a 404 from every loop route. A hosted
-  path would need a sandboxed executor and a very different consent model.
-- **`curating` is reserved, unused.** The phase exists on the model for a run parked while a human
-  edits its batches, but curation is currently a pure read (`/propose`) and `start` writes `running`
-  directly. No row is ever written in `curating` today.
 - **Retry builds a fresh worktree and branch.** Deliberate (the original worktree is gone by then),
   but it means a retried lane's commits land on a different branch from its siblings' — two branches
   to review for one repo.
