@@ -1230,7 +1230,7 @@ reported** rather than silently skipped:
 | --- | --- |
 | `unknown-metric` | The datapoint's metric is outside the three-name allowlist (`claude_code.token.usage` / `.cost.usage` / `.session.count`). Its **value** is dropped. Widening the allowlist is a non-goal; reporting the drop is the point. |
 | `no-repo-attr` | The resource carries no `git.repository`, so the spend can't be attributed to a repository. |
-| `unsupported-host` | The remote resolves to a host whose repo identity Ascent doesn't model: GitLab, Bitbucket, self-hosted. `resolveGitRepo` **names the host** so the report is actionable. A non-GitHub remote is explicitly reported as unsupported; it never silently vanishes. |
+| `unsupported-host` | The remote resolves to a forge Ascent has no adapter for — Bitbucket, Azure DevOps, an unrecognized self-hosted host. **GitLab remotes no longer land here** (moonshot #4): `resolveGitRepo` routes through the forge registry, so `gitlab.com/group/project` resolves to `gitlab:group/project` — the same identity a GitLab scan persists — and its spend joins the repo row. What remains genuinely unreadable still **names the host** so the report is actionable, and never silently vanishes. See [`docs/features/github/forges.md`](../github/forges.md). |
 
 `parseOtlpMetrics` returns `{ records, received, skipped, unsupportedHosts }`, and the **202 body
 carries `received` / `stored` / `skipped`-by-reason** plus a plain-language `note` when anything was

@@ -77,6 +77,13 @@
       ]
     },
     {
+      "area": "github",
+      "doc": "docs/features/github/forges.md",
+      "sourceGlobs": [
+        "src/lib/forge/**"
+      ]
+    },
+    {
       "area": "onboarding",
       "doc": "docs/features/onboarding/wizard.md",
       "sourceGlobs": [
