@@ -125,6 +125,10 @@ import type { ScanJobRow } from "@/lib/db/scan-jobs";
 // #10 — the frozen control-observation contract W3-M's governance ledger reads. Four DateTime
 // columns (occurredAt, observedAt, createdAt and the row's own stamps), every one a string here.
 import type { ControlObservationRow, ControlSealRow } from "@/lib/db/control-observations";
+// #8 — one repo's recorded admission decision. It reaches the Governance client through the stance
+// perimeter's admission column, and carries three DateTime columns (`decidedAt`, `createdAt`,
+// `updatedAt`), every one declared `string` and mapped with .toISOString() in org-admission.ts.
+import type { RepoAdmissionRow } from "@/lib/db/org-admission";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -219,6 +223,7 @@ export const WIRE_TYPES = {
   // MOONSHOT #1: one daily ledger seal. `sealedAt` is a Prisma `DateTime` that toSealRow()
   // .toISOString()s; `day` is already a YYYY-MM-DD string in the column, not a date.
   ControlSealRow: true satisfies WireSafe<ControlSealRow>,
+  RepoAdmissionRow: true satisfies WireSafe<RepoAdmissionRow>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
   SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
