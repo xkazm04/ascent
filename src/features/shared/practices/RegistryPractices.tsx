@@ -2,9 +2,15 @@
 // customer owns, listed beside (and above) ascent's own catalog.
 //
 // Why its own section rather than rows folded into the catalog table: these are not ascent's practices
-// to edit or apply-with-one-click. They are files under someone else's review process, so the only
-// affordance that can be honest is the file itself. Mixing them into a table whose rows carry "Apply"
-// buttons would promise a write ascent must not make.
+// to EDIT. They are files under someone else's review process, so nothing here writes back to the
+// registry and "Open in registry" remains the affordance for changing the practice itself.
+//
+// MOONSHOT #33 revised the other half of that reasoning. The original note said they are not ascent's
+// practices "to apply-with-one-click" either — but copying the org's OWN agreed practice into a repo
+// that lacks it, as a draft PR that repo's reviewers must approve, is exactly the reuse a registry
+// exists for, and it is not a write into the registry at all. So each row now carries a Copy action
+// (RegistryPracticeApply) that runs through `applyPracticeToRepo` — the same writer, admin gate, audit
+// row and adoption row as every other apply, and a committed file that says it is a copy.
 //
 // Renders NOTHING when the org has no registry-origin shapes — before the first index pass, and for
 // every org that never mapped a registry, this section simply does not exist.
@@ -14,6 +20,7 @@
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { OpenInRegistry, OriginTag, registryBlobHref } from "@/features/shared/registry/RegistryOriginTag";
+import { RegistryPracticeApply } from "@/features/shared/practices/RegistryPracticeApply";
 import type { PracticeShapeRow } from "@/lib/db/org-practice-shapes";
 
 function dimensionLabel(id: string): string {
@@ -23,11 +30,14 @@ function dimensionLabel(id: string): string {
 export function RegistryPractices({
   rows,
   registryBase,
+  repoOptions = [],
 }: {
   /** Every live shape row; this component filters to the registry-origin ones itself. */
   rows: readonly PracticeShapeRow[];
   /** Blob-URL prefix of the mapped registry, or null when nothing is mapped. */
   registryBase: string | null;
+  /** #33 — the org's repos, for the Copy action. Empty ⇒ no action rendered (nothing to copy into). */
+  repoOptions?: string[];
 }) {
   const fromRegistry = rows.filter((r) => r.origin === "registry");
   if (fromRegistry.length === 0) return null;
@@ -51,6 +61,7 @@ export function RegistryPractices({
                 <OriginTag origin={r.origin} path={r.registryPath} />
               </div>
               {r.appliesWhen && <p className="mt-1 text-sm text-slate-400">{r.appliesWhen}</p>}
+              <RegistryPracticeApply slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
             </div>
             <OpenInRegistry href={registryBlobHref(registryBase, r.registryPath)} />
           </li>

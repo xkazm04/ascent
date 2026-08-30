@@ -18,6 +18,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org.alerts.thresholds", label: "Alert rules", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "practice.pr_opened", label: "Practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.pr_opened", label: "Playbook PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  // MOONSHOT #33 — the two customer-repo writes the adoption ledger added.
+  { value: "practice.rollout_opened", label: "Practice rollout", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "practice.registry_applied", label: "Registry practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   // G6-06: `org.gate_policy`/`playbook.updated` are genuinely recorded (see the route files below) but
   // were missing from this hand-maintained list, so they rendered as an unlabeled grey badge AND could
   // not be selected in the Action filter. See AuditLogCells.actions.test.ts, which walks every

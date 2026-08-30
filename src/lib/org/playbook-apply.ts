@@ -68,12 +68,29 @@ export async function applyPlaybookToRepo(input: {
 
   try {
     await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
-    // MOONSHOT #33 — an ADOPTION row beside the existing adoption MARK. The mark records that this
-    // repo was offered the playbook; the ledger row records whether the committed file is still there
-    // and still the shape it landed as. Playbook PRs bypass `ImprovementPr` entirely, which is why the
-    // gap this closes is merge/DRIFT detection rather than "untracked" — the mark was never missing.
-    // `playbook:<id>` namespaces the id away from the nine catalog practices, and `patternVersion` is
-    // null because an authored playbook has no mined house pattern to be a version of.
+    await recordOrgAudit(
+      "playbook.pr_opened",
+      org,
+      { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused, ...(input.batch ? { batch: true } : {}) },
+      actorLogin ?? undefined,
+    );
+  } catch (bookkeepErr) {
+    console.error(
+      "[playbooks/apply] PR opened but adoption/audit bookkeeping failed",
+      bookkeepErr instanceof Error ? bookkeepErr.message : bookkeepErr,
+    );
+  }
+
+  // MOONSHOT #33 — an ADOPTION LEDGER row beside the existing adoption MARK. The mark records that
+  // this repo was offered the playbook; the ledger row records whether the committed file is still
+  // there and still the shape it landed as. Playbook PRs bypass `ImprovementPr` entirely, which is why
+  // the gap this closes is merge/DRIFT detection rather than "untracked" — the mark was never missing.
+  // `playbook:<id>` namespaces the id away from the nine catalog practices; `patternVersion` is null
+  // because an authored playbook has no mined house pattern to be a version of.
+  //
+  // In its OWN try, and AFTER the audit row: the audit trail is the record that must survive, so a
+  // projection that cannot resolve its org must not cost the org its audit entry.
+  try {
     const orgId = await getOrgId(org);
     if (orgId) {
       await recordProposedAdoption({
@@ -87,16 +104,10 @@ export async function applyPlaybookToRepo(input: {
         prNumber: pr.number,
       });
     }
-    await recordOrgAudit(
-      "playbook.pr_opened",
-      org,
-      { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused, ...(input.batch ? { batch: true } : {}) },
-      actorLogin ?? undefined,
-    );
-  } catch (bookkeepErr) {
+  } catch (ledgerErr) {
     console.error(
-      "[playbooks/apply] PR opened but adoption/audit bookkeeping failed",
-      bookkeepErr instanceof Error ? bookkeepErr.message : bookkeepErr,
+      "[playbooks/apply] PR opened but the adoption ledger row failed",
+      ledgerErr instanceof Error ? ledgerErr.message : ledgerErr,
     );
   }
 
