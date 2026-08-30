@@ -64,9 +64,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
   // ── EVERYTHING COOKIE-SCOPED, RESOLVED HERE. See the header. ─────────────────────────────────
   const viewer = await resolveViewerLogin();
-  const { canRead, memoryAllowed } = await resolveAthenaGates(gated.org);
+  const { canRead, memoryAllowed, skillsAllowed } = await resolveAthenaGates(gated.org);
 
-  const deps = buildAthenaTurnDeps({ ...gated, threadId: thread.id, viewer, canRead, memoryAllowed });
+  const deps = buildAthenaTurnDeps({ ...gated, threadId: thread.id, viewer, canRead, memoryAllowed, skillsAllowed });
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
