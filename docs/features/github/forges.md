@@ -170,6 +170,15 @@ and forge-agnostic.
   the repo's own web url. The inference is conservative — anything not positively identified persists
   as `github`, so a GitHub repo can never be relabelled — but the durable fix is a one-line additive
   field on `RepoMeta`.
+- **`Repository.externalId` is never written.** The column exists and the adapters can carry a
+  forge-native project id, but nothing on the scan report transports one to the persist layer (same
+  root cause as the bullet above). It stays `null`, which its schema comment already defines as "the
+  adapter has not resolved it yet", never as "this repo has no id". A GitLab project renamed on the
+  forge therefore re-persists under its new path rather than following the id.
+- **No forge badge on Standing → Repositories.** The rows are built from `OrgRepoRow`
+  (`src/lib/db/org-rollup.ts`), which carries no `forge` field; adding one was outside this lane's
+  write set. A GitLab repo is still identifiable in the fleet by its `gitlab:` prefixed name, but not
+  by a badge.
 - **No Bitbucket or Azure DevOps adapter.** The contract is ready; neither is built.
 - **No cross-forge benchmark percentile.** The corpus is not keyed by forge.
 
