@@ -20,8 +20,9 @@
 // gate. And `coherence` is `null` — never 0 — for a repo with no guidance document, because 0 is a
 // verdict and "we found nothing to assess" is not one.
 //
-// Pure and dependency-free apart from `node:crypto` (via guidance-projection), so every rule below is
-// unit-testable without a model, a network or a database.
+// Pure and DEPENDENCY-FREE — no Node built-ins, deliberately (see the projection-header note below),
+// so every rule here is unit-testable without a model, a network or a database, and the module is
+// safe on the client side of the boundary that `scoring/engine.ts` sits on.
 
 import type {
   GuidanceAgent,
@@ -31,20 +32,69 @@ import type {
   GuidanceNode,
   RepoSnapshot,
 } from "@/lib/types";
-import { GUIDANCE_PATH_RE } from "@/lib/analyze/context-health";
-import { parseProjectionHeader, projectionState, sha12 } from "@/lib/analyze/guidance-projection";
+import { isGuidancePath } from "@/lib/analyze/context-health";
+
+export { isGuidancePath };
+
+// ---- the projection header (definition lives HERE, crypto-free) --------------------------------
+//
+// The header format is shared by three readers: this graph, `.ai/maintain.mjs project` (which writes
+// it) and `.ai/doctor.mjs` (which enforces it). It is DEFINED here rather than in the sibling
+// `guidance-projection.ts` for one structural reason: that module hashes, hashing means `node:crypto`,
+// and this module is reachable from `scoring/engine.ts`, which client components import. A Node
+// built-in on that path breaks `next build` while `tsc` and the whole unit suite stay green. So the
+// dependency runs projection → graph, never the other way, and the scanner stays hash-free.
+//
+// The scanner therefore answers only "is this projection still identical to its source?". Separating
+// a STALE projection (the source moved on) from a HAND-EDITED one (someone changed the copy) needs
+// the two recorded hashes, and that is the repo's own doctor's job — which is the intended division:
+// the graph is the arbiter, the manifest is where the verdict is declared, the doctor is where it is
+// enforced in-repo.
+
+/** Matches the header `renderProjection` writes, and nothing else. Anchored to its own line so a
+ *  header QUOTED inside a document's prose (this repo's spec does exactly that) is not mistaken for
+ *  that document's own provenance. */
+export const PROJECTION_HEADER_RE =
+  /^[ \t]*<!--[ \t]*generated-from:[ \t]*(\S+)[ \t]+sha256:([0-9a-f]{12})[ \t]*·[ \t]*body:[ \t]*sha256:([0-9a-f]{12})[^>]*-->[ \t]*$/m;
+
+export interface ProjectionHeader {
+  /** Repo-relative path of the canonical document this file was generated from. */
+  sourcePath: string;
+  /** sha12 of the canonical body at generation time. */
+  sourceHash: string;
+  /** sha12 of this file's own body at generation time. */
+  bodyHash: string;
+}
+
+/** Read a projection header out of a file's text, or null when the file is not a projection. */
+export function parseProjectionHeader(text: string | null | undefined): ProjectionHeader | null {
+  if (!text) return null;
+  const m = PROJECTION_HEADER_RE.exec(text);
+  if (!m) return null;
+  return { sourcePath: m[1] ?? "", sourceHash: m[2] ?? "", bodyHash: m[3] ?? "" };
+}
+
+/**
+ * The part of a file that is its BODY: everything but the header line and any vendor front matter
+ * (Cursor `.mdc` requires a `---` block first).
+ *
+ * A file with no header is all body — which is what lets one function serve both the canonical source
+ * and its projections, and makes "identical body" a single string comparison.
+ */
+export function projectionBody(text: string): string {
+  let out = text;
+  // Front matter counts only when it OPENS the file; a `---` rule mid-prose is content.
+  const fm = /^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/.exec(out);
+  if (fm && fm.index === 0) out = out.slice(fm[0].length);
+  const m = PROJECTION_HEADER_RE.exec(out);
+  if (m) out = out.slice(0, m.index) + out.slice(m.index + m[0].length);
+  // Leading blank lines are transport: the renderer puts one after the header, so keeping it would
+  // make a round-trip fail to reproduce its own body.
+  return out.replace(/^(\r?\n)+/, "");
+}
 
 /** Quote bound, mirroring CLAIM_QUOTE_MAX — no guidance body is ever mirrored wholesale into the DB. */
 export const GUIDANCE_QUOTE_MAX = 200;
-
-/** Multi-file rules directories the single-file `GUIDANCE_PATH_RE` (freshness-budgeted) excludes. */
-const EXTRA_GUIDANCE_RE = /^(\.cursor\/rules\/.+\.mdc?|\.windsurf\/rules\/.+\.mdc?|\.github\/instructions\/.+\.md)$/i;
-
-/** Every path this build treats as an instruction DOCUMENT (not a tool config — `.aider.conf.yml` is
- *  a config and stays a plain D1 presence award, because it is not a competing copy of the document). */
-export function isGuidancePath(path: string): boolean {
-  return GUIDANCE_PATH_RE.test(path) || EXTRA_GUIDANCE_RE.test(path);
-}
 
 export function guidanceAgentOf(path: string): GuidanceAgent {
   const p = path.toLowerCase();
@@ -262,10 +312,12 @@ export function buildGuidanceGraph(snap: RepoSnapshot, opts: BuildGuidanceGraphO
     const header = parseProjectionHeader(bodyOf(n));
     if (!header) continue;
     const src = byPath.get(header.sourcePath);
-    const srcBody = src && src.contentSampled ? bodyOf(src) : null;
-    const resolved = projectionState(bodyOf(n), srcBody);
-    edges.push({ from: n.path, to: header.sourcePath, kind: "projects-from", detail: resolved.state });
-    if (resolved.state === "stale" || resolved.state === "hand-edited") staleProjections.push(n.path);
+    // Unsampled source ⇒ the answer is honestly unknown, so the projection is recorded and NOT
+    // penalized. A file the fetch budget never reached must never cost a repo points.
+    const srcBody = src && src.contentSampled ? projectionBody(bodyOf(src)) : null;
+    const state = srcBody == null ? "unknown" : projectionBody(bodyOf(n)) === srcBody ? "in-sync" : "drifted";
+    edges.push({ from: n.path, to: header.sourcePath, kind: "projects-from", detail: state });
+    if (state === "drifted") staleProjections.push(n.path);
   }
 
   // duplicates — byte-identical bodies. Two in-sync copies are not a divergence; the edge records that
@@ -274,7 +326,7 @@ export function buildGuidanceGraph(snap: RepoSnapshot, opts: BuildGuidanceGraphO
     for (let j = i + 1; j < sampled.length; j++) {
       const x = sampled[i];
       const y = sampled[j];
-      if (x && y && sha12(bodyOf(x)) === sha12(bodyOf(y)))
+      if (x && y && projectionBody(bodyOf(x)) === projectionBody(bodyOf(y)))
         edges.push({ from: x.path, to: y.path, kind: "duplicates", detail: "identical body" });
     }
 
@@ -347,7 +399,7 @@ export function buildGuidanceGraph(snap: RepoSnapshot, opts: BuildGuidanceGraphO
   }
   if (!canonical) {
     // (3) the source named by ≥1 valid projects-from header, when they all name the same one.
-    const named = new Set(edges.filter((e) => e.kind === "projects-from" && e.detail !== "hand-edited").map((e) => e.to));
+    const named = new Set(edges.filter((e) => e.kind === "projects-from").map((e) => e.to));
     const only = [...named][0];
     if (named.size === 1 && only && byPath.has(only)) {
       canonical = only;

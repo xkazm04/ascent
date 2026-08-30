@@ -1,45 +1,41 @@
-// The projection header — the one format shared by the repo-side generator (`.ai/maintain.mjs
-// project`, emitted from src/lib/standard/maintain.ts), the repo-side checker (`.ai/doctor.mjs`) and
-// the scanner's guidance graph.
+// The HASHING half of the projection contract — the provenance header's two sha256 stamps, and the
+// renderer that writes them.
 //
 // A "projection" is a vendor guidance file GENERATED from the repo's canonical one: `.cursor/rules/*`
 // or `.github/copilot-instructions.md` holding the same body as `AGENTS.md`. The header records two
-// hashes, and the pair is what makes drift diagnosable rather than merely visible:
+// hashes, and the PAIR is what makes drift diagnosable rather than merely visible:
 //
-//   generated-from: <path> <sha256:12 of the SOURCE body>
-//   body:           <sha256:12 of THIS file's own body>
+//   generated-from: <path> sha256:<12 of the SOURCE body>  ·  body: sha256:<12 of THIS file's body>
 //
-// - source hash differs from the canonical file's current hash  → STALE (the canonical moved on;
-//   re-run the generator). A warning, never a failure: nothing is wrong, it is just behind.
-// - body hash differs from this file's own body                 → HAND-EDITED (someone changed the
-//   projection instead of the source). A failure: the repo now has two sources of truth, which is
-//   the exact condition this whole item exists to remove.
+// - source hash ≠ the canonical's current hash → STALE (the canonical moved on; re-run the
+//   generator). A warning, never a failure: nothing is wrong, it is just behind.
+// - body hash ≠ this file's own body hash      → HAND-EDITED (someone changed the projection instead
+//   of the source). A failure: the repo now has two sources of truth, which is the exact condition
+//   this whole item exists to remove.
 //
-// Kept in ONE module so the three readers cannot disagree about the format. `node:crypto` only —
-// zero dependencies, matching the constraint the emitted `.ai/` scripts run under.
+// WHY THIS IS A SEPARATE MODULE FROM THE HEADER ITSELF. Hashing means `node:crypto`, and the header's
+// PARSER is needed by `guidance-graph.ts`, which is reachable from `scoring/engine.ts`, which client
+// components import — a Node built-in on that path breaks `next build` while `tsc` and the whole unit
+// suite stay green. So the format is defined once in `guidance-graph.ts` (crypto-free) and this module
+// imports it: the dependency runs projection → graph, never the other way.
+//
+// The scanner therefore answers only "is this projection still identical to its source?"; the
+// stale-vs-hand-edited split is made by the repo's own `.ai/doctor.mjs`, which runs in Node. That is
+// the intended division of labour, not a limitation: the graph is the arbiter, the manifest is where
+// the verdict is declared, and the doctor is where it is enforced in-repo.
 
 import { createHash } from "node:crypto";
+import { PROJECTION_HEADER_RE, parseProjectionHeader, projectionBody, type ProjectionHeader } from "@/lib/analyze/guidance-graph";
+
+export { parseProjectionHeader, projectionBody, PROJECTION_HEADER_RE };
+export type { ProjectionHeader };
 
 /** The first 12 hex characters of the sha256 — short enough to read in a diff, long enough that an
- *  accidental collision between two versions of one document is not a practical concern. */
+ *  accidental collision between two versions of one document is not a practical concern. Mirrors the
+ *  `sha12` the generated `.ai/maintain.mjs` and `.ai/doctor.mjs` define, byte for byte. */
 export function sha12(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 12);
 }
-
-export interface ProjectionHeader {
-  /** Repo-relative path of the canonical document this file was generated from. */
-  sourcePath: string;
-  /** sha12 of the canonical body at generation time. */
-  sourceHash: string;
-  /** sha12 of this file's own body at generation time. */
-  bodyHash: string;
-}
-
-/** Matches the header this module renders, and nothing else. Anchored to the line so a header quoted
- *  inside a document's prose (a spec explaining the format — this repo does exactly that) is not
- *  mistaken for the document's own provenance. */
-const HEADER_RE =
-  /^[ \t]*<!--[ \t]*generated-from:[ \t]*(\S+)[ \t]+sha256:([0-9a-f]{12})[ \t]*·[ \t]*body:[ \t]*sha256:([0-9a-f]{12})[^>]*-->[ \t]*$/m;
 
 export const PROJECTION_COMMAND = "node .ai/maintain.mjs project";
 
@@ -48,33 +44,6 @@ export function renderProjectionHeader(h: ProjectionHeader): string {
     `<!-- generated-from: ${h.sourcePath} sha256:${h.sourceHash} · body: sha256:${h.bodyHash} · ` +
     `do not edit; run: ${PROJECTION_COMMAND} -->`
   );
-}
-
-/** Read a projection header out of a file's text, or null when the file is not a projection. */
-export function parseProjectionHeader(text: string | null | undefined): ProjectionHeader | null {
-  if (!text) return null;
-  const m = HEADER_RE.exec(text);
-  if (!m) return null;
-  return { sourcePath: m[1] ?? "", sourceHash: m[2] ?? "", bodyHash: m[3] ?? "" };
-}
-
-/**
- * The part of a projection file that is the BODY — everything after the header line, with any
- * vendor front matter (Cursor `.mdc` requires a `---` block first) removed.
- *
- * A file with no header is all body: that is what lets the same function hash the canonical source
- * and hash a projection, which is the property the two hashes are compared under.
- */
-export function projectionBody(text: string): string {
-  let out = text;
-  // Front matter only counts when it opens the file — a `---` rule in the middle of prose is content.
-  const fm = /^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/.exec(out);
-  if (fm && fm.index === 0) out = out.slice(fm[0].length);
-  const m = HEADER_RE.exec(out);
-  if (m) out = out.slice(0, m.index) + out.slice(m.index + m[0].length);
-  // Leading blank lines are transport, not content: the renderer puts one after the header, so
-  // including it would make a round-trip fail to reproduce its own body hash.
-  return out.replace(/^(\r?\n)+/, "");
 }
 
 export interface RenderProjectionInput {
@@ -90,7 +59,9 @@ export interface RenderProjectionInput {
  * Render a projection file: [front matter] + header + the canonical body verbatim.
  *
  * Idempotent by construction — the output is a pure function of the inputs, so a second run of the
- * generator over an unchanged canonical writes a byte-identical file (a done-criterion of #15).
+ * generator over an unchanged canonical writes a byte-identical file (a done-criterion of #15). This
+ * is the TypeScript mirror of what `.ai/maintain.mjs project` does in the adopting repo; the two are
+ * kept in step by `standard.test.ts` and by the round-trip test beside this file.
  */
 export function renderProjection(input: RenderProjectionInput): string {
   const body = input.sourceBody.replace(/^(\r?\n)+/, "");
@@ -106,11 +77,12 @@ export function renderProjection(input: RenderProjectionInput): string {
 export type ProjectionState = "in-sync" | "stale" | "hand-edited" | "not-a-projection";
 
 /**
- * Classify a projection file against the canonical body it claims to come from.
+ * Classify a projection file against the canonical body it claims to come from — the full four-state
+ * read the doctor makes, available here so the two implementations can be tested against each other.
  *
- * `canonicalBody` null means the canonical text was not sampled by this scan — the answer is then
- * honestly unknown rather than "stale", so the source-hash comparison is skipped and only the
- * self-contained body check (which needs no second file) runs.
+ * `canonicalBody` null means the canonical text was not sampled — the answer is then honestly unknown
+ * rather than "stale", so the source comparison is skipped and only the self-contained body check
+ * (which needs no second file) runs.
  */
 export function projectionState(
   text: string,

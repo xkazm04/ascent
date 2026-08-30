@@ -39,7 +39,11 @@ import {
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
 import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims, type VerifiedClaim } from "@/lib/scoring/claims";
-import { guidanceGraphFor } from "@/lib/analyze/guidance-graph";
+// The PATH predicate only — deliberately not the graph module, which reaches `node:crypto` and would
+// therefore break the client bundle the moment this file is imported by a client component (it is:
+// RoadmapSandbox and ScoreWaterfall both import from here). `tsc` and the unit suite stay green on
+// that mistake; only `next build` catches it, so the import is kept narrow on purpose.
+import { isGuidancePath } from "@/lib/analyze/context-health";
 
 /**
  * One evidence line for a verified claim.
@@ -236,7 +240,7 @@ export function assembleReport(
     const claimed = CLAIM_SCORED_DIMENSIONS.includes(s.id)
       ? verifyClaims(assessment.claims ?? [], snap, s.id, {
           ...(s.id === "D1"
-            ? { allowedPaths: new Set(guidanceGraphFor(snap).nodes.map((n) => n.path)) }
+            ? { allowedPaths: new Set(snap.files.filter((f) => isGuidancePath(f.path)).map((f) => f.path)) }
             : {}),
         })
       : null;

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildGuidanceGraph, declaredCanonical } from "@/lib/analyze/guidance-graph";
 import { renderProjection } from "@/lib/analyze/guidance-projection";
@@ -24,6 +26,23 @@ const CANON = `# o/r agent guidance
 ## Rules
 - Never commit generated files.
 `;
+
+// STRUCTURAL GUARD. `scoring/engine.ts` imports this module's `isGuidancePath` and `analyze/index.ts`
+// imports the graph itself — and BOTH are pulled into the client bundle by `RoadmapSandbox.tsx` /
+// `ScoreWaterfall.tsx`, which import `contributions`/`projectSandbox` from the engine. A `node:*`
+// import anywhere on that path fails `next build` and NOTHING else: `tsc --noEmit` stays green, and so
+// does this entire suite, because vitest runs in Node. That is the failure mode this file pins — the
+// hashing half lives in `guidance-projection.ts`, which the graph must never import.
+describe("the scanner path carries no Node built-ins", () => {
+  it.each(["src/lib/analyze/guidance-graph.ts", "src/lib/analyze/context-health.ts"])(
+    "%s imports nothing from node:",
+    (file) => {
+      const src = readFileSync(join(process.cwd(), file), "utf8");
+      expect(src).not.toMatch(/^import .* from ["']node:/m);
+      expect(src).not.toMatch(/guidance-projection["']/);
+    },
+  );
+});
 
 describe("coherence — the honest-null floor", () => {
   it("returns null (NOT 0) when the repo has no guidance document", () => {
