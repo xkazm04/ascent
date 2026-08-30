@@ -20,6 +20,7 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { getRepoLocalPath } from "@/lib/db";
+import { listDispatchedPractices } from "@/lib/db/loop-runs";
 import { openBatch } from "@/lib/local/loop-lane";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
@@ -77,7 +78,15 @@ export async function GET(request: Request) {
     // with no `.ai/` foundation leads with the foundation lane; a repo whose biggest open gap has a
     // Practice Library starter it is missing leads with that; everything else is the agent lane.
     const path = await getRepoLocalPath(org, repo).catch(() => null);
-    const plan = await proposeLaneKind(path, async () => items);
+    // The THIRD argument is the once-per-repo gate on practice lanes, and the curation screen passes
+    // the very same read the engine does. It has to: a panel that offered a practice lane the engine
+    // then declines to arm is precisely the disagreement this route exists not to have. Read lazily —
+    // `proposeLaneKind` only reaches for it once a practice-shaped gap survives the file test.
+    const plan = await proposeLaneKind(
+      path,
+      async () => items,
+      () => listDispatchedPractices(org, repo).catch(() => new Set<string>()),
+    );
     // A FOUNDATION lane has nothing to curate — its work is the install, not the backlog — so it
     // proposes no items rather than showing checkboxes the run would ignore. The backlog is still
     // there and cycle 2 works it, with the standard already in place.
