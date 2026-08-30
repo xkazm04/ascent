@@ -87,6 +87,11 @@ import type { CapabilityReadout, ManifestReadout } from "@/lib/standard/readout"
 // #16 — the conformance ledger's two row types. Both declare `reportedAt` / `since` as strings and
 // are mapped with .toISOString() in org-conformance.ts, and both cross to the Passports client.
 import type { ConformanceReportRow, ControlMatrixRow } from "@/lib/db/org-conformance";
+// #15 — the guidance graph is parsed off Repository.guidanceGraphJson in org-rollup and crosses to
+// the Repositories client via OrgRepoRow.guidanceGraph. BOTH the container and `GuidanceNode` are
+// listed: the check is shallow, and the only timestamp in this shape (`lastCommitAt`) lives inside
+// the `nodes[]` array — exactly the nesting the header's stated LIMIT says needs its own entry.
+import type { GuidanceGraph, GuidanceNode } from "@/lib/types";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -133,6 +138,8 @@ export const WIRE_TYPES = {
   CapabilityReadout: true satisfies WireSafe<CapabilityReadout>,
   ConformanceReportRow: true satisfies WireSafe<ConformanceReportRow>,
   ControlMatrixRow: true satisfies WireSafe<ControlMatrixRow>,
+  GuidanceGraph: true satisfies WireSafe<GuidanceGraph>,
+  GuidanceNode: true satisfies WireSafe<GuidanceNode>,
   HistoryPoint: true satisfies WireSafe<HistoryPoint>,
   ManifestReadout: true satisfies WireSafe<ManifestReadout>,
   // The five #18 row types. All reach a client through RegistryView, which RegistryPanel renders.

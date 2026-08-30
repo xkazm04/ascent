@@ -405,6 +405,34 @@ export function buildGuidanceGraph(snap: RepoSnapshot, opts: BuildGuidanceGraphO
   return { version: "1", nodes, edges, canonical, canonicalBasis, contradictions, coherence, penalties };
 }
 
+/**
+ * The graph for a snapshot, computed ONCE per scan.
+ *
+ * Two callers need it and they run in different phases: the D1 detector (signal extraction) and the
+ * report composer (persistence + display). Memoized on the immutable per-scan snapshot — the same
+ * pattern `aiStandardCached` uses in analyze/index.ts — so the parse is not paid twice and, more
+ * importantly, so the number D1 scored and the graph the UI renders can never be two different reads.
+ */
+const GRAPH_BY_SNAPSHOT = new WeakMap<RepoSnapshot, GuidanceGraph>();
+export function guidanceGraphFor(snap: RepoSnapshot): GuidanceGraph {
+  let g = GRAPH_BY_SNAPSHOT.get(snap);
+  if (!g) {
+    g = buildGuidanceGraph(snap);
+    GRAPH_BY_SNAPSHOT.set(snap, g);
+  }
+  return g;
+}
+
+/** Stamp per-file last-commit dates onto a graph's nodes, from the Context Health freshness lookups
+ *  that only resolve after scoring. Returns a new graph; the scored coherence is untouched. */
+export function withGuidanceFreshness(
+  graph: GuidanceGraph,
+  freshness: readonly { path: string; lastModifiedAt?: string }[],
+): GuidanceGraph {
+  const at = new Map(freshness.map((f) => [f.path, f.lastModifiedAt ?? null]));
+  return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, lastCommitAt: at.get(n.path) ?? n.lastCommitAt })) };
+}
+
 /** The node D1 grades for CONTENT: the canonical source, else the best-ranked SAMPLED document. Null
  *  when nothing was sampled — the caller must then award nothing rather than grade an empty string. */
 export function gradedGuidanceNode(graph: GuidanceGraph): GuidanceNode | null {

@@ -10,9 +10,10 @@ import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
+import { parseGuidanceGraphJson } from "@/lib/analyze/guidance-graph";
 import { parseManifestReadoutJson, type ManifestReadout } from "@/lib/standard/readout";
 import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
-import type { AppPassport, ContextHealth, PrStats, TechStack } from "@/lib/types";
+import type { AppPassport, ContextHealth, GuidanceGraph, PrStats, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -172,6 +173,11 @@ export interface OrgRepoRow {
    *  predates the signal or the blob is unparseable, which the UI must render as "not assessed —
    *  re-scan" and exclude from every denominator, never as a repo that declares nothing. */
   manifest: ManifestReadout | null;
+  /** The guidance arbiter's verdict cached from the latest scan (#15, rubric r11) — canonical source,
+   *  projection states and contradictions. Null when the latest scan PREDATES r11 or the blob is
+   *  unparseable: such a repo is excluded from the "repos with contradicting agent guidance"
+   *  denominator and the label says so, because 0-of-unknown is not a measurement. */
+  guidanceGraph: GuidanceGraph | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -492,6 +498,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       })(),
       contextHealth: parseContextHealthJson(r.contextHealthJson),
       manifest: parseManifestReadoutJson(r.manifestJson),
+      guidanceGraph: parseGuidanceGraphJson(r.guidanceGraphJson),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

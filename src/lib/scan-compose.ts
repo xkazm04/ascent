@@ -9,6 +9,7 @@
 import { detectAiUsage } from "@/lib/analyze";
 import { buildPassport } from "@/lib/analyze/passport";
 import { deriveContextHealth } from "@/lib/analyze/context-health";
+import { guidanceGraphFor, withGuidanceFreshness } from "@/lib/analyze/guidance-graph";
 import { buildManifestReadout } from "@/lib/standard/readout";
 import { outputBudgetWarning, type OutputBudget } from "@/lib/llm/output-budget";
 import { extractPracticeShape } from "@/lib/analyze/practice-shape";
@@ -96,12 +97,18 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
   // like passport/techStack: computed AFTER scoring, never in the LLM prompt, no rubric bump (pinned
   // by the "stays display-only" test in context-health.test.ts). Degraded inputs (keyless, unknown
   // freshness) narrow the result honestly instead of failing the scan.
+  const freshness = await input.guidanceFreshnessPromise;
   report.contextHealth = deriveContextHealth({
     snapshot,
-    freshness: await input.guidanceFreshnessPromise,
+    freshness,
     commitActivity: report.commitActivity ?? null,
     now,
   });
+  // #15 — the guidance arbiter's verdict. Read from the SAME memoized graph the D1 detector scored
+  // (guidanceGraphFor is keyed on the snapshot), so the coherence number on the card and the one
+  // inside the score can never be two different reads. The freshness dates only resolve here, so they
+  // are stamped on afterwards; they are display metadata and move no part of the score.
+  report.guidanceGraph = withGuidanceFreshness(guidanceGraphFor(snapshot), freshness);
   // #13 — the repo's OWN declared contract, read back. Display/persist-only exactly like
   // contextHealth above: never scored, never in the prompt. `absent` (not an empty readout) whenever
   // `.ai/manifest.yaml` is not among the fetched files, which is the honest state until the fetch
