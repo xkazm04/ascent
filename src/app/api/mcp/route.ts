@@ -224,7 +224,15 @@ export async function POST(req: Request) {
       }
 
       try {
-        const result = await runTool(name, token.orgSlug, args);
+        // THE PRINCIPAL (moonshot #3). `actorId` above is the AUDIT label; this is the WORK identity
+        // stored in `Recommendation.claimActor` and compared on every later call by this token. They
+        // are deliberately different strings: the audit trail records how a call authenticated, the
+        // ledger records what held the row, and collapsing the two would make the ledger's holder
+        // comparison depend on the credential type it happened to arrive under.
+        const result = await runTool(name, token.orgSlug, args, {
+          actor: `agent:${token.name}`,
+          tokenId: token.tokenId,
+        });
         // ONE AUDIT ROW PER ACCEPTED WRITE, after the handler and only when it did not report an
         // error — an audit trail of attempts that failed validation would drown the trail of actual
         // changes. `args` is recorded as its KEY SHAPE plus the idempotency key, never verbatim: a

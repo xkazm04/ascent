@@ -55,8 +55,24 @@ describe("the tool catalog", () => {
 
   it("marks exactly the tools that write, and gives each one telemetry:write", () => {
     const writes = MCP_TOOLS.filter((t) => t.mutates).map((t) => t.name);
-    expect(writes).toEqual(["cite_memory", "report_skill_invoke"]);
+    expect(writes).toEqual(["cite_memory", "claim_followups", "report_attempt", "report_skill_invoke"]);
     for (const t of MCP_TOOLS) expect(t.scopes.includes("telemetry:write")).toBe(Boolean(t.mutates));
+  });
+
+  // MOONSHOT #3. `get_fix_brief` is scoped with the write tools and marked with the reads, and the
+  // combination is deliberate rather than an oversight: it MUTATES NOTHING (so no marker, no
+  // telemetry:write, no policy row — the write gate's own structural equivalence would break) but it
+  // is only ever answerable for rows the caller HOLDS, and only a token that can claim can hold one.
+  it("keeps get_fix_brief a read, gated by the scope that lets a token hold a row", () => {
+    const brief = MCP_TOOLS.find((t) => t.name === "get_fix_brief")!;
+    expect(brief.mutates).toBeUndefined();
+    expect(brief.scopes).toEqual(["mcp:read", "followups:write"]);
+  });
+
+  it("does not plan-gate the work queue — every scanned org has a Follow-ups ledger", () => {
+    for (const name of ["claim_followups", "get_fix_brief", "report_attempt"]) {
+      expect(MCP_TOOLS.find((t) => t.name === name)!.planGate).toBeUndefined();
+    }
   });
 });
 

@@ -7,16 +7,23 @@
 // standing, its gate verdict, its open gaps, its declared AI stance and its own proven practices one
 // call away from the coding agent.
 //
-// MOSTLY READS, AND TWO WRITES THAT EARNED THEIR DOOR. This catalog shipped read-only, and the
+// MOSTLY READS, AND FOUR WRITES THAT EARNED THEIR DOOR. This catalog shipped read-only, and the
 // reason given was that a write tool is a governance surface needing an authorization model, a
 // machine audit actor, and an answer to "what stops an agent closing its own recommendation". Those
-// questions are now answered rather than deferred, and the answers are what the write tools are
-// allowed to be: they report the agent's OWN behaviour (it ran this skill; it used this memory) and
-// they change no judgement the org made. Nothing here closes a recommendation, adopts a practice or
-// edits a memory — the write door is for evidence, not for decisions. A write tool carries
-// `mutates: true`, needs `telemetry:write` on top of the resource scope it writes about, is gated by
-// `src/lib/mcp/write-gate.ts`, records one audit row per accepted call, and is refused outright to
-// Athena.
+// questions are now answered rather than deferred. Two of the writes report the agent's OWN
+// behaviour (it ran this skill; it used this memory). The other two (moonshot #3) operate the org's
+// WORK QUEUE: `claim_followups` leases rows so one agent works them at a time, `report_attempt`
+// records what happened. A write tool carries `mutates: true`, needs `telemetry:write` on top of the
+// resource scope it writes about, is gated by `src/lib/mcp/write-gate.ts`, records one audit row per
+// accepted call, and is refused outright to Athena.
+//
+// AND HERE IS THE ANSWER TO THE QUESTION THIS COMMENT USED TO DEFER. What stops an agent closing its
+// own recommendation is that the write path HAS NO VERB THAT CLOSES ONE. `status: "done"` is
+// reachable only from a rescan of the default branch that both stops restating the gap and measures
+// its dimension moving (`scans-persist`'s `decideInProgress`). A claim is a lease, an attempt is an
+// account, a commit trailer is a hint — three ways to say "I did this" and no way to say "and it
+// counted". Ascent adjudicates and never executes; that is the whole reason a vendor-neutral queue
+// is safe to open.
 //
 // SCOPES ARE PER-TOOL, and `tools/list` filters by what the caller's token actually holds. The
 // revision blesses this explicitly: the tool set "MAY vary by the authorization presented on the
@@ -94,6 +101,38 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     },
   },
   {
+    name: "claim_followups",
+    title: "Claim follow-ups to work",
+    description:
+      "Take one or more of this organization's open follow-ups off its queue so you can work them, " +
+      "with a time-limited lease nobody else can work them under. This is a pull queue any coding " +
+      "agent can serve: Ascent runs nothing itself, it adjudicates. Name `ids` from " +
+      "list_open_recommendations, or give a `count` and take the highest-value open items for a " +
+      "repository. A lease you let expire releases the rows back to the queue, so report before it does.",
+    scopes: ["mcp:read", "followups:write", "telemetry:write"],
+    mutates: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: 'The repository to claim work in, as "owner/name".' },
+        ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Recommendation ids to claim. Omit to take the top `count` open items for the repository.",
+        },
+        count: { type: "integer", minimum: 1, maximum: 10, description: "How many to take when `ids` is omitted (default 3)." },
+        leaseMinutes: {
+          type: "integer",
+          minimum: 5,
+          maximum: 240,
+          description: "How long you need the rows for (default 45). Ask for what your session will actually take.",
+        },
+      },
+      required: ["repo"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "compare_against_exemplar",
     title: "Compare against an exemplar",
     description:
@@ -147,6 +186,28 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       "human approval before merge. Read this before writing code with an agent in this org.",
     scopes: ["mcp:read"],
     inputSchema: { type: "object", additionalProperties: false },
+  },
+  {
+    name: "get_fix_brief",
+    title: "Brief for claimed follow-ups",
+    description:
+      "The working brief for follow-ups YOU currently hold: each gap as the scan stated it, plus the " +
+      "perimeter this organization declared — its permitted tools and models, its no-AI path zones, " +
+      "the repository's autonomy tier and its review requirement, and when your lease expires. Read " +
+      "this before changing anything. A row somebody else holds is refused by id rather than dropped, " +
+      "so you always know which of your ids you no longer have.",
+    // Reads only, so no `mutates` and no telemetry:write. The `followups:write` scope is still
+    // required: a brief is only ever built for rows the caller HOLDS, and only a token that can
+    // claim can hold one — so a read-only token seeing this tool would only ever be refused by it.
+    scopes: ["mcp:read", "followups:write"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" }, description: "The recommendation ids you hold." },
+      },
+      required: ["ids"],
+      additionalProperties: false,
+    },
   },
   {
     name: "get_gate_verdict",
@@ -272,6 +333,35 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         limit: { type: "integer", minimum: 1, maximum: 20, description: "Max entries (default 5)." },
       },
       required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "report_attempt",
+    title: "Report an attempt on a follow-up",
+    description:
+      "Tell this organization what you did with ONE follow-up you hold: `resolved`, `skipped` or " +
+      "`needs_human`, with one sentence of reason and the branch or pull request if you opened one. " +
+      "Your verdict is your ACCOUNT, not the ruling — nothing you can call here closes a row. A " +
+      "follow-up closes only when this organization's next scan of the default branch stops raising " +
+      "the gap and its dimension measurably moves. Report before your lease expires.",
+    scopes: ["mcp:read", "followups:write", "telemetry:write"],
+    mutates: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The recommendation id, as claim_followups returned it." },
+        verdict: {
+          type: "string",
+          enum: ["resolved", "skipped", "needs_human"],
+          description:
+            "resolved = you believe you fixed it (the rescan rules on that). skipped = you did not, and the row returns to the queue. needs_human = you stopped deliberately and a person is needed.",
+        },
+        reason: { type: "string", description: "One sentence in your own words. Required — a verdict with no reason is not an account." },
+        branch: { type: "string", description: "The branch your work is on, if any." },
+        prUrl: { type: "string", description: "The pull request you opened, if any." },
+      },
+      required: ["id", "verdict", "reason"],
       additionalProperties: false,
     },
   },
