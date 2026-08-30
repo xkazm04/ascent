@@ -23,6 +23,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 import { PRACTICES } from "@/lib/practices";
+import { contentDigest } from "@/lib/registry/parse";
 import type { RepoPracticeShape } from "@/lib/analyze/practice-shape";
 
 /** A repo's shape plus the score that decides whether it is an exemplar for a given dimension. */
@@ -158,4 +159,20 @@ export function minedStarter(m: MinedPractice): string[] | null {
   const paths = m.layout.map((l) => l.text);
   const out = [...lines, ...paths];
   return out.length ? out : null;
+}
+
+/**
+ * MOONSHOT #33 — the CHANGE KEY for a mined house pattern. Pure.
+ *
+ * `HousePatternVersion` is versioned rather than overwritten because an adoption row cites the version
+ * it was measured against: re-mining must not retroactively turn every previously-conformant repo into
+ * a drifted one. This hash decides whether a re-mine is a NEW version at all — an identical mine writes
+ * no row, so a nightly rescan of an unchanged fleet cannot manufacture v2, v3, v4…
+ *
+ * Taken over the JSON array rather than a joined string, so a line containing the separator cannot
+ * collide with two lines that do not. Order is significant on purpose: `minedStarter` emits
+ * most-agreed-first, and a reordered pattern IS a different document to put in front of an engineer.
+ */
+export function patternHash(lines: string[]): string {
+  return contentDigest(JSON.stringify(lines));
 }
