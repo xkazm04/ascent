@@ -104,8 +104,32 @@ export function parseForgeUrl(
  * coordinate can never contain a colon. Routes that take `?repo=owner/name` keep working unchanged.
  */
 export function forgeFullName(forge: ForgeId | string | undefined, owner: string, repo: string): string {
-  const base = `${owner}/${repo}`;
-  return !forge || forge === "github" ? base : `${forge}:${base}`;
+  return prefixForge(forge, `${owner}/${repo}`);
+}
+
+/** {@link forgeFullName} for callers that already hold the joined `owner/name` (the persist layer
+ *  canonicalises it to lowercase first, and that canonical form must not be re-split). */
+export function prefixForge(forge: ForgeId | string | undefined, fullName: string): string {
+  return !forge || forge === "github" ? fullName : `${forge}:${fullName}`;
+}
+
+/**
+ * Which forge a repo's WEB url belongs to. Used at the three `repository.upsert` sites, which hold a
+ * `RepoMeta` (whose `url` the source filled in from the forge's own API) but no forge id.
+ *
+ * This is an INFERENCE, and it is a stopgap. The durable fix is a `forge` field on `RepoMeta` — a
+ * one-line additive change to `src/lib/types.ts`, which is Class C and belongs to the Director; it is
+ * requested in this lane's handoff. Until then the inference is safe because it is conservative in
+ * exactly the direction that matters: anything it cannot positively identify persists as `github`,
+ * which is what every existing row already is, so a wrong guess can never re-label a GitHub repo.
+ */
+export function forgeFromWebUrl(url: string | undefined | null): ForgeId {
+  if (!url) return "github";
+  for (const forge of REGISTRY.values()) {
+    if (forge.id === "github" || forge.id === "local") continue;
+    if (forge.parseUrl(url)) return forge.id;
+  }
+  return "github";
 }
 
 /** The inverse of {@link forgeFullName}: split a persisted fullName back into forge + coordinate.
