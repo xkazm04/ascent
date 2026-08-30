@@ -29,6 +29,7 @@ import { PRACTICES } from "@/lib/practices";
 // this module is type-only, so the two do not form a runtime cycle.
 import { fail, findSkills, getGoverningSubject, getSkill, getSkillLessons, str, type Args } from "@/lib/mcp/registry-reads";
 import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
+import { compareAgainstExemplar } from "@/lib/mcp/exemplar-tool";
 
 export interface ToolResult {
   structuredContent: unknown;
@@ -294,6 +295,8 @@ export async function runTool(name: string, org: string, args: Args): Promise<To
       return getSkillLessons(org, args);
     case "get_governing_subject":
       return getGoverningSubject(org, args);
+    case "compare_against_exemplar":
+      return compareAgainstExemplar(org, args);
     case "get_repo_standing":
       return repoStanding(org, args);
     case "get_gate_verdict":

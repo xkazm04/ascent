@@ -481,6 +481,7 @@ Also implemented per the revision: `server/discover` (mandatory), `resultType` o
 | Tool | Requires | Plan | Answers |
 | --- | --- | --- | --- |
 | `cite_memory` ✎ | `mcp:read` + `memory:read` + `telemetry:write` | memory | Records that a delivered memory was (or was not) used |
+| `compare_against_exemplar` | `mcp:read` | — | Signal-level diff against a peer repo, the org's best, or a public cohort |
 | `find_skills` | `mcp:read` + `skills:read` | skills | Which of the org's skills apply to this task/repo, and why |
 | `get_ai_stance` | `mcp:read` | — | Permitted tools/models, no-AI zones, review tiers, approval requirement |
 | `get_gate_verdict` | `mcp:read` | — | Would this repo clear the org's gate, and what fails |
@@ -493,9 +494,8 @@ Also implemented per the revision: `server/discover` (mandatory), `resultType` o
 | `recall_org_memory` | `mcp:read` + `memory:read` | memory | Decisions, incidents and conventions already ruled on |
 | `report_skill_invoke` ✎ | `mcp:read` + `skills:read` + `telemetry:write` | skills | The agent's own report that it ran a skill |
 
-✎ = writes. A thirteenth tool, `compare_against_exemplar`, is a declared **seam** in
-`src/lib/mcp/tools.ts` and is not registered: it wraps an exemplar-diff engine that has not landed,
-and a wrapper over a missing engine could only fabricate a diff.
+✎ = writes. Thirteen tools; the catalog is a compile-time constant in alphabetical order, so a client
+can cache `tools/list` and an LLM's prompt cache stays warm.
 
 `mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
 token holding it alone sees only the org-standing tools, and `memory:read` / `skills:read` unlock
@@ -569,6 +569,36 @@ list a model would read as a clean bill of health.
 `get_governing_subject` resolves through the `file` column the registry index mirrored, **never** by
 building a path from a slug — the registry access contract. No registry mapped is an explicit
 refusal, not an empty list.
+
+### `compare_against_exemplar`
+
+A thin projection of the exemplar diff engine
+([`docs/features/reporting/report.md`](../reporting/report.md)): every number comes from
+`diffAcrossRepos`, every resolution from `resolveExemplar`, and this door computes no comparison of
+its own — two doors onto one diff must not be able to disagree. It answers what a score cannot: not
+*how good is this repo* but *what specifically does a better one have that this one does not*, joined
+to the practice that carries each dimension.
+
+Three rules the door adds on top of the engine's contract:
+
+- **The org comes from the token.** There is no `org` input and there must never be one: the resolver
+  gates `repo:` and `org:best` on exactly the slug it is given, so an org argument would be a
+  caller-supplied tenancy claim.
+- **A `cohort:` ref is refused when the subject repository is private.** The refusal protects the
+  *subject*, not the cohort (which is aggregate-only and floored at 5 repos across 3 orgs): the answer
+  would state a private repository's per-dimension position inside a cross-tenant public
+  distribution. The refusal names the two exemplars that *are* available to a private repo.
+- **Every non-`ok` resolution is a sentence** — `not-found`, `forbidden`, `below-floor`,
+  `unavailable` — and none substitutes another exemplar. A `below-floor` refusal states the
+  population it actually had and the floor it needed; an unparseable ref is answered with the real
+  options for that repo rather than a guess. A substituted comparison is undetectable to the caller,
+  which is why the engine returns a discriminated union rather than a best-effort profile.
+
+When the subject's own latest scan is outside the eligible set (a mock-engine or old-rubric run) the
+comparison still renders, with the basis line saying the two sides were produced by different
+instruments. House patterns are deliberately not mined here — `get_practice_shape` already serves the
+org's own reusable shape, and a second producer of the same thing is how two answers start to
+disagree.
 
 ### What it deliberately does not do
 
@@ -664,6 +694,7 @@ as Trace.
 | `src/lib/mcp/registry-reads.ts` | Skill / lesson / subject projections. |
 | `src/lib/mcp/registry-writes.ts` | The two write handlers. |
 | `src/lib/mcp/skill-match.ts` | Pure ranking + the declared `CATEGORY_DIMENSIONS` map. |
+| `src/lib/mcp/exemplar-tool.ts` | `compare_against_exemplar` — the door's projection of the #34 diff. |
 | `src/app/api/mcp/gates.ts` | Per-request plan gates + the per-token write ceiling. |
 | `src/lib/db/org-memory-citations.ts` | `OrgMemoryCitation` writes/reads + counter bumps. |
 | `src/lib/org/skill-templates.ts` | Author-form starter templates. |

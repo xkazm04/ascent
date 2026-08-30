@@ -94,6 +94,30 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     },
   },
   {
+    name: "compare_against_exemplar",
+    title: "Compare against an exemplar",
+    description:
+      "How one repository compares, signal by signal, against a named peer: another repository in " +
+      "this organization, the organization's own strongest repository, or the public top decile for a " +
+      "language or team shape. Answers the question a score cannot — not 'how good is this repo' but " +
+      "'what specifically does a better one have that this one does not', joined to the practice that " +
+      "carries each gap. A private repository cannot be compared against a public cohort.",
+    scopes: ["mcp:read"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: 'The repository to compare, as "owner/name".' },
+        against: {
+          type: "string",
+          description:
+            'The exemplar: "owner/name", "org:best", "org:best:D3", "cohort:lang:TypeScript" or "cohort:archetype:team".',
+        },
+      },
+      required: ["repo", "against"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "find_skills",
     title: "Find applicable skills",
     description:
@@ -279,21 +303,6 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     },
   },
 ] as const;
-
-// ─────────────────────────────────────────────────────────────────────────────────────────────────
-// SEAM: `compare_against_exemplar` — NOT REGISTERED, and deliberately not stubbed.
-//
-// The thirteenth tool of moonshot #17 is a thin wrapper over `exemplarDiff(org, repo, opts)` from
-// `src/lib/report/exemplar.ts` (#34, lane W2-J1), which does not exist in this tree: J1 had not
-// merged when this lane finished. A wrapper over a missing engine could only be a stub returning a
-// fabricated or empty diff, and a tool that answers "here is how you compare to your best peer" with
-// invented content is worse than a tool that is absent — the agent cannot tell the difference.
-//
-// TO LAND IT, once `exemplarDiff` is on the branch: add the definition here (alphabetically, between
-// `cite_memory` and `find_skills`; scopes `["mcp:read"]`, no plan gate, no `mutates`), a projection
-// beside the other reads in `registry-reads.ts`, and one `case` in `runTool`. Nothing else changes —
-// the door, the gates and the catalog tests already accommodate it.
-// ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The tools a caller holding `granted` may see and call. Pure. */
 export function toolsForScopes(granted: readonly SkillTokenScope[]): McpToolDef[] {
