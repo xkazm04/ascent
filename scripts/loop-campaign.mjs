@@ -242,10 +242,40 @@ async function main() {
         }),
       });
       const { timedOut } = await waitForIdle(started + CFG.runTimeoutMs);
-      if (timedOut) say(`RUN ${i}: TIMED OUT after ${Math.round(CFG.runTimeoutMs / 60000)} min — leaving it and moving on`);
+      if (timedOut) {
+        // Leaving a hung run alive is what turns ONE bad run into a dead campaign: the engine allows
+        // one run per org, so every later start 409s and the remaining budget burns in seconds.
+        // (Seen for real: a lane wedged in `rescanning/score` for 75 minutes cost six runs.) Ask the
+        // engine to stop it, then wait — a stop it cannot honour, because the lane is inside an
+        // uninterruptible await, is worth saying out loud rather than retrying into.
+        say(`RUN ${i}: TIMED OUT after ${Math.round(CFG.runTimeoutMs / 60000)} min — stopping it`);
+        await api("/api/org/loop", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "stop", org: CFG.org, id: run.id }),
+        }).catch(() => null);
+        const after = await waitForIdle(Date.now() + 5 * 60_000);
+        if (after.timedOut) {
+          say(`RUN ${i}: the run did not stop — a lane is wedged inside an uninterruptible call. Restart the dev server, then resume the campaign.`);
+          break;
+        }
+      }
       detail = await api(`/api/org/loop/${encodeURIComponent(run.id)}?org=${encodeURIComponent(CFG.org)}`);
     } catch (err) {
-      say(`RUN ${i}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      say(`RUN ${i}: FAILED — ${msg}`);
+      // "already active" is not this run's failure, it is the PREVIOUS one still going: spinning
+      // through the remaining budget on 409s (six in one campaign) throws the budget away for
+      // nothing. Wait for the engine to be free and give this slot back.
+      if (/already active/i.test(msg)) {
+        const { timedOut } = await waitForIdle(Date.now() + CFG.runTimeoutMs);
+        if (timedOut) {
+          say("STOPPING: a run has been active far too long — restart the dev server, then resume.");
+          break;
+        }
+        i--; // this slot never ran; give it back rather than counting a 409 as a run
+        continue;
+      }
       await sleep(5000);
       continue;
     }
