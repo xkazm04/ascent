@@ -192,7 +192,7 @@ function fmtCostMicros(micros: number | null): string {
  * THE ONE-SOURCE RULE lives here: `costSource` is stamped `"envelope"` and the figure is the CLI's
  * own `total_cost_usd` for THIS session. `agentSessionId` is recorded so the row can be JOINED to an
  * OTLP `AgentSession` for inspection, and that is all — an `AgentSession` is the export of sessions a
- * developer ran, a different population by a different path, and adding its `costCents` here would
+ * developer ran, a different population by a different path, and adding that row's own cost here would
  * double-count the same tokens under the guise of a better figure.
  *
  * The meter call is FIRE-AND-FORGET by construction (`meter()` returns void and swallows everything),
