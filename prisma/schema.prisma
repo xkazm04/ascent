@@ -136,6 +136,9 @@ model Organization {
   // ledger in this schema and is removed only by the org-erase sweep in src/lib/db/retention.ts.
   scanJobs            ScanJob[]
   controlObservations ControlObservation[]
+  // MOONSHOT WAVE 4 (#4). RepoAdmission is deliberately NOT here: like OrgArtifactAck it keys on
+  // (orgId, repoFullName) with no FK, so it is hand-cascaded by src/lib/db/retention.ts.
+  installations       Installation[]
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -350,6 +353,17 @@ model Repository {
   // contextHealthJson (moonshot #15). Display-only, never scored. Null = no scan has assessed this
   // repo's guidance yet, which is NOT "the repo has no guidance" and NEVER a zero.
   guidanceGraphJson     String?
+  // Which forge this repository lives on (moonshot #4). Defaulted, so every existing row is GitHub
+  // and no backfill is owed. The IDENTITY key is untouched: `@@unique([orgId, fullName])` still
+  // holds, because a non-GitHub repo is namespaced in the VALUE — `gitlab:group/sub/project`, with
+  // `owner` = the top-level group and `name` = the last segment. That is why this column is a
+  // FILTER (and an honest-capability key), never part of the constraint: making the unique
+  // (orgId, forge, fullName) would migrate a live constraint for a collision that cannot happen.
+  forge                 String    @default("github") // github | gitlab | local
+  // The forge-native stable id (a GitLab project id) — the handle that survives a rename, where the
+  // coordinate does not. NULL for GitHub, where the coordinate IS the id, and NULL for any row a
+  // forge adapter has not resolved yet: never read as "this repo has no id".
+  externalId            String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -367,6 +381,7 @@ model Repository {
   @@index([orgId])
   @@index([fullName])
   @@index([watched])
+  @@index([orgId, forge])
 }
 
 // A user-defined slice of the fleet — a named tag grouping repos (e.g. "platform", "mobile",
@@ -749,6 +764,24 @@ model Recommendation {
   // owns a gap or when it's due. null = unassigned / no deadline.
   assigneeLogin String? // GitHub login accountable for closing this gap
   targetDate    DateTime? // optional due date the backlog is paced against
+  // MOONSHOT #3 — the agent-neutral work claim. `assigneeLogin` above is the HUMAN planning layer
+  // (who is accountable) and is deliberately not reused: an agent holding a row for twenty minutes
+  // is a different fact from a person owning it for a sprint, and collapsing the two would let a
+  // lease expiry silently un-assign a human.
+  //
+  // `claimActor` is the opaque id of whoever holds the row (an API token id, an agent session, a
+  // login); `claimExecutor` is WHAT it is (`local | remote-agent | human`). Both NULL = unclaimed.
+  claimActor    String?
+  claimExecutor String? // local | remote-agent | human
+  // When the claim lapses. The claim itself is a compare-and-set over (status, leaseUntil), and the
+  // sweep returns `in_progress` rows whose lease has passed to `open`. NULL on an in-progress row is
+  // load-bearing and means A HUMAN TOOK IT from the browser — an unleased claim the sweep must not
+  // reclaim — so it is never read as "expired" and never defaulted to a time.
+  leaseUntil    DateTime?
+  // Set by `report_attempt`'s `needs_human` verdict: the agent tried and stopped, deliberately. It
+  // is an escalation flag, not a status — the row stays `in_progress` with its lease cleared, so the
+  // work is visibly still open rather than silently closed by a machine that gave up.
+  needsHuman    Boolean   @default(false)
   createdAt     DateTime  @default(now())
 
   scan   Scan                  @relation(fields: [scanId], references: [id])
@@ -757,6 +790,9 @@ model Recommendation {
   @@index([scanId])
   @@index([status])
   @@index([assigneeLogin])
+  // The sweep's own predicate (`status: "in_progress" AND leaseUntil < now`) and the claim's
+  // candidate scan (`status: "open"` + an expired-or-null lease) both key on this pair.
+  @@index([status, leaseUntil])
 }
 
 // Append-only activity timeline for a recommendation — one row per status change, (re)assignment,
@@ -2632,4 +2668,73 @@ model ControlLedgerSeal {
 
   @@unique([orgId, day])
   @@index([orgId, day])
+}
+
+// ── MOONSHOT WAVE 4 ─────────────────────────────────────────────────────────────────────────────
+
+// #8 — the compiled admission decision for ONE repo: what tier the org's AI stance derives for it,
+// what tier was actually granted, and therefore whether agents may work in it at all. One row per
+// (org, repo); keyed by `repoFullName` with no FK, mirroring OrgArtifactAck, so a decision survives
+// a Repository row being re-imported and is hand-cascaded by src/lib/db/retention.ts.
+//
+// `derivedTier` vs `grantedTier` is the split the model exists for. The derived tier is what the
+// compiler READ off the stance and the passport; the granted tier is what the org DECIDED. They are
+// separate columns rather than one value plus an "overridden" flag because an override must not
+// destroy the evidence it overrode — a reviewer has to see both to judge the gap. `derivedTier` is
+// nullable because "not assessed yet" is a fact, never a T0.
+//
+// `decidedBy`/`decidedAt` NULL means the row was SEEDED from the derived tier and no human ever
+// decided it. That is deliberately distinguishable from a decision that happened to agree: an
+// unattended default must never read back as governance.
+//
+// `rulesetId` is the reversal handle — the GitHub ruleset an apply actually landed. NULL = nothing
+// was written to the forge, so there is nothing to revert; it is never a claim that the perimeter
+// is enforced.
+model RepoAdmission {
+  id            String    @id @default(uuid())
+  orgId         String
+  repoFullName  String // "owner/name" — denormalized, no FK (mirrors OrgArtifactAck)
+  stanceVersion Int // the OrgAiStance version this decision was made against
+  derivedTier   String? // "T0".."T3" — copied from the passport resolver; NULL = not assessed
+  grantedTier   String // "T0".."T3" — the recorded, overridable decision
+  mode          String    @default("assisted-only") // agents-allowed | assisted-only | blocked
+  decidedBy     String? // GitHub login; NULL = seeded from the derived tier, never decided
+  decidedAt     DateTime?
+  rationale     String    @default("")
+  rulesetId     String? // GitHub ruleset id when an apply landed — the reversal handle
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([orgId, repoFullName])
+  @@index([orgId, mode])
+}
+
+// #4 — one org's credential + capability record for ONE forge account (a GitLab group token, a
+// self-hosted GHES app). `Organization.githubInstallId` is deliberately UNTOUCHED and remains the
+// GitHub read path: backfilling it into this table would rewrite the working forge's auth in the
+// same wave that introduces the second one, which is exactly the risk wave 4 exists to avoid.
+//
+// `credentialRef` holds encryptSecret() CIPHERTEXT, never a plaintext token and never a pointer to
+// one — so the secret dies with the row, and the org-erase in src/lib/db/retention.ts is a real
+// destruction rather than an orphaning. NULL = the forge is registered but unauthenticated (an
+// anonymous public-read adapter), which is a capability fact, not a missing credential.
+//
+// `capabilitiesJson` is TEXT (never jsonb — the schema's DSQL/PGlite safety contract) carrying the
+// ForgeCapabilities readout for this account. It records what this forge CAN be asked, so an
+// unobservable signal degrades to an honest null instead of a zero.
+model Installation {
+  id               String   @id @default(uuid())
+  orgId            String
+  forge            String // github | gitlab
+  externalId       String // the forge-native installation / group id
+  host             String? // NULL = the forge's public host; set for GHES and self-hosted GitLab
+  credentialRef    String? // encryptSecret() ciphertext
+  capabilitiesJson String? // TEXT JSON ForgeCapabilities (no jsonb — DSQL/PGlite)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, forge, externalId])
+  @@index([orgId])
 }

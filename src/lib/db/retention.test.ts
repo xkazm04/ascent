@@ -88,6 +88,12 @@ const WAVE1_LEDGERS = [
   "scanJob",
   "controlObservation",
   "controlLedgerSeal",
+  // MOONSHOT WAVE 4 — the admission decisions (#8) and the forge installations (#4), in the same
+  // array for the same reason as every wave before them: a fixture missing one delegate makes the
+  // sweep throw inside the per-org try, where it is caught and reported as an ERROR rather than a
+  // failure — which is how a whole table quietly stops being erased.
+  "repoAdmission",
+  "installation",
 ] as const;
 type Wave1Ledger = (typeof WAVE1_LEDGERS)[number];
 type LedgerDelegate = {
@@ -2501,6 +2507,11 @@ function fakeWave1ErasePrisma() {
     scanJob: ["sj_1", "sj_2"],
     controlObservation: ["co_1", "co_2", "co_3"],
     controlLedgerSeal: ["sl_1"],
+    // MOONSHOT WAVE 4 — seeded here for the reason waves 2 and 3 were: the "nothing survives an
+    // erase" and "a preview removes nothing" assertions sweep WAVE1_LEDGERS, so an unseeded table
+    // would pass both while never being erased at all.
+    repoAdmission: ["ad_1", "ad_2"],
+    installation: ["in_1"],
   });
   const tx = {
     ...ledgers.delegates,
@@ -2734,6 +2745,95 @@ describe("eraseOrgData — moonshot wave-2 ledger cascades", () => {
     expect(preview.practiceAdoptionsDeleted).toBe(2);
     expect(ledgers.rows.orgMemoryCitation).toEqual(["ct_1", "ct_2", "ct_3"]);
     expect(ledgers.rows.practiceAdoption).toEqual(["pa_1", "pa_2"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOONSHOT WAVE 4 — two more hand-cascaded tables, and one of them holds a SECRET. #8's
+// RepoAdmission keys on (orgId, repoFullName) with no FK, so it needs both halves the mirror and
+// the adoption ledger needed: the org sweep and the per-repo delete. #4's Installation is org-level
+// and needs only the org sweep — but its `credentialRef` is encryptSecret() ciphertext, so the row
+// IS the secret at rest and deleting it is the whole destruction. Each assertion names what fails
+// without its line.
+//
+// Deliberately absent: a rule for #3's four Recommendation claim columns (`claimActor`,
+// `claimExecutor`, `leaseUntil`, `needsHuman`). They are columns on a model this module already
+// purges and erases row-by-row, so they leave with their row; adding a sweep for them would be a
+// second, weaker path to the same delete.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("eraseOrgData — moonshot wave-4 ledger cascades", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  // FAIL-BEFORE: without the two wave-4 drains in eraseOrgLedgers, an "erasure" leaves behind a
+  // governance verdict naming every one of the tenant's repositories (with who decided it and the
+  // rationale they wrote) and — worse — the tenant's forge CREDENTIAL, still encrypted with a key
+  // this deployment holds. Neither has an FK to cascade on: an erase never deletes the Organization
+  // row, so the emulated cascade has nothing to fire.
+  it("#8/#4: drains the admission decisions and the forge installations, org-scoped", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.repoAdmissionsDeleted).toBe(2);
+    expect(outcome.installationsDeleted).toBe(1);
+    for (const name of ["repoAdmission", "installation"] as const) {
+      expect(ledgers.rows[name]).toEqual([]);
+      // Org-scoped, never a bare deleteMany over the whole table (this is a multi-tenant store, and
+      // the credential table is the last one that may ever be swept without a tenant predicate).
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1" });
+    }
+  });
+
+  // FAIL-BEFORE: without the per-repo RepoAdmission delete in eraseRepo, a REPO-scoped erase drops
+  // the repo's scans and keeps a live "agents-allowed" grant for that coordinate — which the
+  // admission compiler hands straight back to the next import of the same name, and whose
+  // `rulesetId` claims a perimeter nothing here can still check.
+  it("#8: a repo-scoped erase takes that repo's admission row, keyed by (orgId, repoFullName)", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(prisma.repoAdmission.deleteMany).toHaveBeenCalledWith({
+      where: { orgId: "org_1", repoFullName: "acme/api" },
+    });
+    expect(outcome.repoAdmissionsDeleted).toBe(2);
+    expect(ledgers.rows.repoAdmission).toEqual([]);
+    // An Installation is the ORG's account with a forge, not a repository's row: one repo leaving
+    // must not revoke the credential the rest of the fleet is read through.
+    expect(ledgers.rows.installation).toEqual(["in_1"]);
+    expect(outcome.installationsDeleted).toBe(0);
+  });
+
+  it("a preview counts the wave-4 tables over the delete's own predicate and removes nothing", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    // Like the mirror and the adoption ledger, the admission rows are counted ONCE: the org path
+    // passes no repo name to eraseRepo, so the per-repo count never runs beside the org one.
+    expect(preview.repoAdmissionsDeleted).toBe(2);
+    expect(preview.installationsDeleted).toBe(1);
+    expect(ledgers.rows.repoAdmission).toEqual(["ad_1", "ad_2"]);
+    expect(ledgers.rows.installation).toEqual(["in_1"]);
+    expect(prisma.repoAdmission.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.installation.deleteMany).not.toHaveBeenCalled();
   });
 });
 
