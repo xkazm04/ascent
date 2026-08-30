@@ -11,7 +11,7 @@ import type {
   RepoFile,
   RepoMeta,
   RepoSnapshot,
-  ScanProgress,
+
 } from "@/lib/types";
 import {
   encodePathSegments,
@@ -22,31 +22,16 @@ import {
   githubRawBase,
 } from "@/lib/github/host";
 
-export type ProgressFn = (p: ScanProgress) => void;
-export interface FetchOptions {
-  token?: string;
-  onProgress?: ProgressFn;
-  /** Aborts all in-flight ingestion fetches when the client disconnects. */
-  signal?: AbortSignal;
-  /**
-   * Git ref to ingest — a branch name, tag, or commit SHA. Defaults to the repo's default
-   * branch. Set this to a PR's head SHA to score what a pull request *changes* (its tree, files,
-   * and commits) rather than the default branch. `meta.defaultBranch` still reports the true
-   * default; only the tree/content/commit reads are pinned to this ref.
-   */
-  ref?: string;
-  /**
-   * Monorepo sub-tree to aim the CONTENT budget at (e.g. `packages/api`), normalized and validated
-   * upstream by `normalizeSubPath` (src/lib/scan-scope.ts). The file TREE is still read whole — repo
-   * structure is a repo-wide fact — but {@link pickFilesToFetch} spends its per-file slots on this
-   * sub-tree's manifests/source/tests instead of sampling the whole monorepo, while repo-wide
-   * governance files (root README/manifests, CODEOWNERS, SECURITY.md, CI workflows) are still read so
-   * the deterministic batteries that depend on them (notably D9's workflow battery) don't go blind.
-   *
-   * Unset ⇒ ingestion is byte-for-byte what it was before sub-path support existed.
-   */
-  subPath?: string;
-}
+// FORGE EXTRACTION (moonshot #4). `ProgressFn` / `FetchOptions` / `ParsedRepo` / `GitHubError` /
+// `RepoSource` are DECLARED in `@/lib/forge/types` now — not a character of them changed, only the
+// file they live in — and re-exported from here so every existing importer of `@/lib/github/source`
+// (all ~16 `parseRepoUrl` call sites, `src/lib/local/source.ts`, `scan-ingest.ts`) compiles
+// untouched. The declarations had to leave this module because the GitLab adapter needs them and
+// `src/lib/github/**` must not become a dependency of another forge.
+export type { FetchOptions, ParsedRepo, ProgressFn, RepoSource } from "@/lib/forge/types";
+export { GitHubError } from "@/lib/forge/types";
+import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/forge/types";
+import { GitHubError } from "@/lib/forge/types";
 
 const API = githubApiBase();
 const RAW = githubRawBase();
@@ -89,43 +74,6 @@ const TIMEOUT_API_MS = 30_000; // GitHub REST (metadata/tree/commits) — tree r
 const TIMEOUT_FILE_MS = 15_000; // per-file content fetch (capped at MAX_FILE_BYTES, so far smaller)
 const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate limits)
 
-export interface ParsedRepo {
-  owner: string;
-  repo: string;
-  /** Deep-link ref extracted from a pasted `/tree/<ref>` or `/commit/<sha>` URL (github-repo-data-access
-   *  07-16 #4). parseRepoUrl historically DISCARDED everything past owner/repo, so a pasted branch/commit
-   *  link silently scanned the default branch. The intent is now surfaced here so callers can pin
-   *  `FetchOptions.ref`; callers that ignore it keep the lenient owner/repo-only behavior. Unset when the
-   *  URL carried no ref or the ref is ambiguous (multi-segment `/tree/a/b` — a branch containing `/` is
-   *  indistinguishable from a subdirectory — and `/blob/<ref>/<path>` for the same reason). */
-  ref?: string;
-  /** PR number from a pasted `/pull/<n>` URL — same rationale as `ref`: a user pasting a PR link is NOT
-   *  asking for a default-branch scan, so the intent is preserved for callers to honor or surface. */
-  prNumber?: number;
-}
-
-export class GitHubError extends Error {
-  constructor(
-    public readonly code:
-      | "INVALID_URL"
-      | "NOT_FOUND"
-      | "RATE_LIMITED"
-      | "UPSTREAM"
-      | "EMPTY",
-    message: string,
-    public readonly status?: number,
-    /** Seconds to wait before retrying — set from a GitHub Retry-After on a (secondary) rate limit so
-     *  callers can back off instead of hammering. Undefined when the response carried no Retry-After. */
-    public readonly retryAfterSec?: number,
-  ) {
-    super(message);
-    this.name = "GitHubError";
-  }
-}
-
-export interface RepoSource {
-  fetchSnapshot(repo: ParsedRepo, opts?: FetchOptions): Promise<RepoSnapshot>;
-}
 
 /**
  * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`.

@@ -644,6 +644,14 @@ the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-
 - **Coverage is a heuristic.** `estimateCoverage` caps confidence on truncated/large
   repos; it isn't ground truth, and reports below 50% coverage carry an "indicative only"
   warning.
+- **A forge is scored on what it can be asked, and the gaps are NULLS.** The pipeline reads GitHub,
+  GitLab and a local working copy through one `Forge` registry (`src/lib/forge/**`). A signal a forge
+  cannot answer — GitLab has no platform security posture, no dependency-exposure read and no
+  check-suite inventory — reaches the report through the same paths a token-less scan uses, so it is
+  *unknown*, never zero, and no score is adjusted to compensate. That makes a lower-observability
+  forge a **floor**, not a penalty — but it also means a cross-forge score comparison is partly an
+  artifact of observability. The per-forge capability table and that disclosure live in
+  [`docs/features/github/forges.md`](../github/forges.md).
 - **PR + governance + platform signals require a token.** Anonymous scans skip PR stats,
   governance, security posture/exposure, deployments, the installed-App inventory and CI
   health, and warn. Every token-gated fold is additive, so an anonymous scan is a floor, not a

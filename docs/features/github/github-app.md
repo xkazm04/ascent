@@ -284,6 +284,11 @@ for, and failing would strand the id forever). See
 - **Sign-in is optional**: when OAuth env is unset, `/onboarding` is open; when set, the App path is
   scoped to the signed-in user's own installations (see [auth.md](./auth.md)).
 - **Token cache is in-memory**: re-minted per serverless instance.
+- **The App is GitHub-only, and so is every WRITE path.** Since moonshot #4 the scanner also reads
+  GitLab (see [forges.md](./forges.md)), but PR gate comments, check runs and ruleset writes have no
+  adapter on another forge and degrade to *absent* there rather than failing. A GitLab account is
+  connected through `Installation` + `/api/org/forge/installation`, a separate table that sits beside
+  `Organization.githubInstallId` — the GitHub install path in this document is untouched.
 - (Closed 2026-08-30, moonshot #1.) ~~The event-subscription table omits `installation_repositories`
   and `check_run`~~: both are listed above, alongside the control-probe and AI-change event kinds.
 - **No `code_scanning_alert` / `secret_scanning_alert` subscription:** both need new App permissions,

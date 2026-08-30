@@ -129,6 +129,11 @@ import type { ControlObservationRow, ControlSealRow } from "@/lib/db/control-obs
 // perimeter's admission column, and carries three DateTime columns (`decidedAt`, `createdAt`,
 // `updatedAt`), every one declared `string` and mapped with .toISOString() in org-admission.ts.
 import type { RepoAdmissionRow } from "@/lib/db/org-admission";
+// #4 — one org's forge account, rendered by the Integrations card. Two DateTime columns
+// (`createdAt`, `updatedAt`), both declared `string` and mapped with .toISOString() in
+// forge-installations.ts. Note what the row does NOT carry: `credentialRef`. The wire type has no
+// field for the secret at all, which is a stronger guarantee than redacting one.
+import type { ForgeInstallationRow } from "@/lib/db/forge-installations";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -224,6 +229,7 @@ export const WIRE_TYPES = {
   // .toISOString()s; `day` is already a YYYY-MM-DD string in the column, not a date.
   ControlSealRow: true satisfies WireSafe<ControlSealRow>,
   RepoAdmissionRow: true satisfies WireSafe<RepoAdmissionRow>,
+  ForgeInstallationRow: true satisfies WireSafe<ForgeInstallationRow>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
   SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,

@@ -6,7 +6,9 @@
 // are persisted under that owner's org (private => billable in usage metering).
 
 import { NextResponse } from "next/server";
-import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
+import { GitHubError, type ParsedRepo } from "@/lib/github/source";
+import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
+import type { ForgeId } from "@/lib/forge/types";
 import { githubErrorHeaders, githubErrorStatus } from "@/lib/api/github-status";
 import { respondError } from "@/lib/api/respond";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
@@ -74,7 +76,27 @@ async function runScan(
     subPath?: string;
   },
 ) {
-  const parsed = parseRepoUrl(url);
+  // FORGE COORDINATE (moonshot #4). `parseForgeUrl` tries GitHub FIRST and `githubForge.parseUrl` IS
+  // `parseRepoUrl`, so for every input that parsed before, `parsed` here is the same object it always
+  // was — byte-identical behaviour on the whole GitHub funnel.
+  const routed = parseForgeUrl(url);
+  const forgeId: ForgeId = routed?.forge ?? "github";
+  const parsed: ParsedRepo | null = routed
+    ? {
+        owner: routed.owner,
+        repo: routed.repo,
+        ...(routed.ref !== undefined ? { ref: routed.ref } : {}),
+        ...(routed.prNumber !== undefined ? { prNumber: routed.prNumber } : {}),
+      }
+    : null;
+  // Every GitHub-native side path below — installation-token auth, the conditional head lookup, the
+  // scan cache, ref/sub-path resolution — is keyed on a GitHub coordinate and only makes sense for one.
+  // Gating them on this (rather than teaching each one about forges) is what keeps this route's change
+  // to COORDINATE PARSING, per ruling W4-#2: a non-GitHub scan simply takes the token-less path it
+  // would take for an unauthenticated GitHub repo, and gets the same honest degrade.
+  const ghParsed = forgeId === "github" ? parsed : null;
+  /** The persisted identity — `owner/name` for GitHub, `gitlab:group/project` elsewhere. */
+  const repoIdentity = parsed ? forgeFullName(forgeId, parsed.owner, parsed.repo) : url;
 
   // GitHub App installation token takes precedence over any explicit body token.
   let token = opts.token;
@@ -83,10 +105,13 @@ async function runScan(
   // operator PAT would leak the private repo the mint gate just denied. Token-less ⇒ private repos 404.
   let noAmbientToken = false;
   if (!token) {
-    const resolved = await resolveScanAuth(parsed, opts.installationId);
+    const resolved = await resolveScanAuth(ghParsed, opts.installationId);
     token = resolved.token;
     orgSlug = resolved.orgSlug;
-    noAmbientToken = resolved.noAmbientToken ?? false;
+    // A non-GitHub coordinate must NEVER reach the ambient GITHUB_TOKEN: it would be a GitHub
+    // credential sent to another forge's host. `resolveScanAuth` already answers null for a null
+    // coordinate; this makes the no-ambient decision explicit rather than incidental.
+    noAmbientToken = (resolved.noAmbientToken ?? false) || forgeId !== "github";
   }
 
   // Supabase login wall — private/org scans only. A non-public orgSlug means an installation token
@@ -133,8 +158,8 @@ async function runScan(
   // slot). `noAmbientToken` is honored so a ref resolve can't confirm a private repo's branches through
   // the operator PAT. See scan-scope-server.ts for the collision/trust reasoning.
   const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
-  const scoping: ResolvedScanScope = parsed
-    ? await resolveScanScope(parsed, { ref: opts.ref, subPath: opts.subPath }, { token: scopeToken })
+  const scoping: ResolvedScanScope = ghParsed
+    ? await resolveScanScope(ghParsed, { ref: opts.ref, subPath: opts.subPath }, { token: scopeToken })
     : UNSCOPED;
   if (scoping.error) {
     return NextResponse.json({ error: scoping.error.message, code: scoping.error.code }, { status: scoping.error.status });
@@ -145,20 +170,20 @@ async function runScan(
   // against, so `?ref=main` stays an ordinary, fully-cached, persisted scan.
   let defaultHeadSha: string | null = null;
   const subPathScope = Boolean(scoping.scope.subPath);
-  if (parsed && !token && subPathScope) {
+  if (ghParsed && !token && subPathScope) {
     // Always scoped — skip the whole-repo lookup (its cached report answers a different question) and
     // resolve the head with the cheap conditional hint purely to pin the scoped key to a commit.
-    defaultHeadSha = await resolveHeadWithHint(parsed, scopeToken);
-  } else if (parsed && !token) {
-    lookup = await lookupCachedScan({ parsed, useLLM: !opts.mock, orgSlug: "public", fresh: opts.fresh });
+    defaultHeadSha = await resolveHeadWithHint(ghParsed, scopeToken);
+  } else if (ghParsed && !token) {
+    lookup = await lookupCachedScan({ parsed: ghParsed, useLLM: !opts.mock, orgSlug: "public", fresh: opts.fresh });
     defaultHeadSha = lookup.headSha;
   }
   const scoped = scoping.requested && isScopedScan(scoping.scope, token ? null : defaultHeadSha);
   if (scoped) {
     lookup =
-      parsed && !token
+      ghParsed && !token
         ? lookupScopedScan({
-            parsed,
+            parsed: ghParsed,
             useLLM: !opts.mock,
             refSha: scoping.pinSha ?? defaultHeadSha,
             subPath: scoping.scope.subPath,
@@ -203,7 +228,7 @@ async function runScan(
     // (defense-in-depth on the shared store, same gate as the CI gate). x-ascent-stale flags that the
     // served report isn't head-fresh, so the report UI's "Re-test" still forces a re-score.
     if (opts.recent || opts.latest) {
-      const last = await latestPublicReport(parsed, token);
+      const last = await latestPublicReport(ghParsed, token);
       if (last) {
         const recentHit = opts.recent && isPersistedScanFresh(last.scannedAt);
         if (recentHit || opts.latest) {
@@ -224,7 +249,7 @@ async function runScan(
   // cheap 204 contract. (G3-18)
   if (!parsed) {
     return NextResponse.json(
-      { error: "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.", code: "INVALID_URL" },
+      { error: "Enter a valid repository URL, e.g. https://github.com/owner/repo or https://gitlab.com/group/project.", code: "INVALID_URL" },
       { status: 400 },
     );
   }
@@ -301,7 +326,7 @@ async function runScan(
       // — a paid scan served free (the `unbilled` branch). consumeScanCredit's atomic conditional
       // decrement makes the reservation the real gate; refunded below on degrade-to-mock / dedup / throw.
       const res = await consumeScanCredit(orgSlug, {
-        repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
+        repoFullName: parsed ? repoIdentity : undefined,
       }).catch(() => null);
       if (!res || (!res.unlimited && !res.ok)) return paymentRequired(res?.balance ?? ent.balance);
       // `charged` is true ONLY on an overflow credit debit — within-allowance scans are free and must
@@ -377,7 +402,7 @@ async function runScan(
     // reading, which is not what this request asked for — silently answering with it would present a
     // main-branch score as the branch/package the user typed.
     if (!(err instanceof Error && err.name === "AbortError") && !scoped) {
-      const last = await latestPublicReport(parsed, token);
+      const last = await latestPublicReport(ghParsed, token);
       if (last) {
         return NextResponse.json(last, {
           headers: { "x-ascent-cache": "miss", "x-ascent-stale": "true", "x-ascent-fallback": "error" },
@@ -421,7 +446,7 @@ async function runScan(
   // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped here.
   const { deduped, persistedOk } = await cacheAndPersistScan(report, resultClass, {
     tag: "scan",
-    repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
+    repo: repoIdentity,
     orgSlug,
     lookup,
     // A scoped (ref / sub-path) report is about a different subject than "this repository" — keep it

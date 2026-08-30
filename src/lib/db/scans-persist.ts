@@ -29,6 +29,7 @@ import { syncTechStackGroups } from "@/lib/db/tech-groups";
 // `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
 // implementation of it.
 import { latestObservations, recordObservations } from "@/lib/db/control-observations";
+import { forgeFromWebUrl, prefixForge } from "@/lib/forge/registry";
 import { HEARTBEAT_AFTER_MS, diffSamples, governanceToSamples } from "@/lib/scan-probe-controls";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
@@ -87,8 +88,14 @@ export async function persistScanReport(
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = report.repo.headSha ?? null;
+  // Which forge this report came from (moonshot #4), inferred from the repo's own web url — see
+  // `forgeFromWebUrl` for why that inference is safe and what replaces it.
+  const forge = forgeFromWebUrl(report.repo.url);
   // Canonical (lowercased) key so reads and writes agree regardless of the casing a caller typed.
-  const fullName = canonicalRepoFullName(report.repo.owner, report.repo.name);
+  // For GitHub this is BYTE-IDENTICAL to what it always was, so not one existing row moves and the
+  // live `@@unique([orgId, fullName])` needs no migration; a non-GitHub repo is namespaced in the
+  // VALUE (`gitlab:group/sub/project`), which no GitHub coordinate can collide with.
+  const fullName = prefixForge(forge, canonicalRepoFullName(report.repo.owner, report.repo.name));
 
   // Defense-in-depth against the cross-tenant disclosure: a PRIVATE repo's report must never be
   // persisted under the shared public org — the report page + history read the public org for ANY
@@ -145,6 +152,10 @@ export async function persistScanReport(
             // First-ever scan: seed the head pointer on create (nothing newer can exist yet).
             create: {
               orgId,
+              // #4 — which forge this row lives on. Defaulted to "github" in the schema, so every
+              // pre-existing row is already correct; writing it here is what makes a NEW GitLab row
+              // identifiable without re-parsing its url on every read.
+              forge,
               owner: report.repo.owner,
               name: report.repo.name,
               fullName,

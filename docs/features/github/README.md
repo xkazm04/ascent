@@ -10,6 +10,12 @@ Context-map group: **Identity & GitHub Connectivity** (`integration`).
 | [auth.md](auth.md) | Both sign-in stacks: the active Supabase wall and the dormant custom OAuth | CURRENT |
 | [github-app.md](github-app.md) | App install, webhooks, install entry (via /onboarding), governance signals | STALE (see gaps) |
 | [setup.md](setup.md) | Operator setup guide: creating the App, env vars | STALE (see gaps) |
+| [forges.md](forges.md) | Reading a repo that isn't on GitHub: the Forge registry, the GitLab adapter, per-forge observability and credentials | CURRENT (2026-08-30) |
+
+**GitHub is no longer the only forge.** As of moonshot #4 the scanner reads GitLab through the same
+pipeline, the same rubric and the same report, with a capability manifest driving honest "not
+observable here" nulls for what a forge cannot answer. This group's other docs describe GitHub
+specifically; [forges.md](forges.md) describes what is shared and what is GitHub-only.
 
 ## Implementation roots
 
@@ -17,6 +23,8 @@ Context-map group: **Identity & GitHub Connectivity** (`integration`).
 - `src/lib/supabase/{client,server}.ts`, `src/proxy.ts`, `src/app/auth/callback`: Supabase OAuth
 - `src/lib/auth.ts`: legacy custom GitHub OAuth (dormant, kept as fallback)
 - `src/lib/github/**`: App JWT + installation tokens, repo source, checks, write, governance
+- `src/lib/forge/**`: the forge registry (GitHub wired **by reference** to the above, plus GitLab and
+  the local working copy) — see [forges.md](forges.md)
 - `src/app/api/app/{setup,repos,webhook}`, `src/app/api/auth/**` (the `/connect` page was retired 2026-08-29; see github-app.md)
 
 ## Known gaps

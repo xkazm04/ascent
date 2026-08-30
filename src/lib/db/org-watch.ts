@@ -7,6 +7,7 @@ import { withAuditSignature } from "@/lib/db/audit-integrity";
 import { writeConformanceReport } from "@/lib/db/org-conformance";
 import type { CheckLevel } from "@/lib/standard/check-ids";
 import type { Schedule } from "@/lib/org/repo-schedule";
+import { forgeFromWebUrl } from "@/lib/forge/registry";
 
 // Keyed on the canonical Schedule vocabulary (installationRepoTypes) so the cadence set can't drift
 // from the route validators / UI options — a missing or extra key is a compile error here.
@@ -130,6 +131,10 @@ export async function setRepoWatch(orgSlug: string, repo: RepoRef, watched: bool
     update: { watched, url: repo.url ?? undefined, isPrivate: repo.isPrivate ?? undefined },
     create: {
       orgId: org.id,
+      // #4 — the forge this row lives on, inferred from the url the lister gave us. Anything not
+      // positively identified persists as `github`, which is what the schema defaults to and what
+      // every pre-#4 row already is.
+      forge: forgeFromWebUrl(repo.url),
       owner: repo.owner,
       name: repo.name,
       fullName: repo.fullName,
@@ -209,6 +214,7 @@ export async function seedWatchlist(orgSlug: string, repos: RepoRef[]): Promise<
       update: {}, // respect any later user choice — only seed repos we've never recorded
       create: {
         orgId: org.id,
+        forge: forgeFromWebUrl(r.url), // #4 — see the note on the upsert above.
         owner: r.owner,
         name: r.name,
         fullName: r.fullName,
