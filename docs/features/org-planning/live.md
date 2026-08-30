@@ -305,7 +305,14 @@ line telling same-dimension closes apart); a foundation/practice lane's install;
 **attributable** dimension movements not already covered by a close (`hardened` up / `regressed`
 down, the humanised movement line as evidence). **No cap, one row per gap** (wave 2b): every
 RESOLVED claim keeps its own deliverable, and only a TRUE duplicate merges — the same covered id
-claimed twice, or a repeated movement/install headline. The verdict gate is `attributeDelivered`
+claimed twice, a repeated movement/install headline, or (wave 3) **the same sentence the agent itself
+wrote for two different ids**. That last one is the fix for a run that printed *"Added gating evidence
+to agent review"* twice: the agent described one piece of work and attributed it to two covered ids,
+so it is one deliverable — merged into a single row that **carries both ids in `covers`**, because the
+sheet keys rows by the first cover and a dropped id would take its gap off the review surface. Merging
+by headline applies **only** to a clause the agent wrote. Two gaps that merely fall back to the same
+per-dimension *template* stay two rows: the template is Ascent's sentence, not the session's, and a
+shared one is a coincidence of how the scan filed them. The verdict gate is `attributeDelivered`
 over the same pair the ledger renders — an undelivered, mock, within-noise or unmeasured lane gets
 its closes and its install as headlines and **no** movement line.
 
@@ -1203,6 +1210,63 @@ the engine runs. `GET/POST /api/org/loop/lessons` is the inbox — `selfHostGuar
 for the read; `requireSameOrigin` → `selfHostGuard` → `requireOrgRole(org, "member")` for the write,
 with the authorized org passed *into* the update beside the candidate id so another org's candidate is
 simply not found (404). No `[id]` segment, so `id-routes-gated.test.ts` is unaffected by design.
+
+## The capability rule, and the substitution check (2026-08-30, wave 3)
+
+The lane agent runs `claude -p --permission-mode acceptEdits`: it can read and write files in one
+worktree and **nothing else** — no shell, no network. Some gaps simply cannot be closed under that
+grant, and the loop's measured failure mode was not that the agent gave up. It was that the agent did
+something *adjacent* and called the item RESOLVED. From a real `lane-outcomes` row, verdict
+`resolved`:
+
+> The nine floating refs are still tags: resolving a tag to a commit SHA requires asking GitHub what
+> it points at right now, this session has neither network nor shell, and inventing a SHA breaks the
+> workflow rather than pinning it — so instead the burn-down stopped being a maintainer chore with no
+> owner (`.github/workflows/pin-actions.yml` runs `security:actions --resolve` weekly…)
+
+The workflow is genuinely useful; the nine actions are still unpinned. So the rescan re-raised the
+gap, the next cycle armed the same item again, and the dimension churned — across three campaign runs
+both repos churned D4 (agentic review, action pinning) with 40+ "closed" follow-ups and no sustained
+score movement. This is the single biggest reason the gap backlog did not drain. Two changes:
+
+**1. The capability rule, in the brief** (`buildFixPrompt`, `src/lib/org/followups.ts`, appended for
+`commitPolicy: "lane"` only — the human's paste-into-my-own-terminal agent *has* a shell and a
+network, and telling it otherwise would suppress work it can do). It states the grant plainly, names
+the shapes of work that need more than it (resolving a tag to a SHA, querying an API, fetching a
+digest, generating a lockfile or a baseline, reading CI history), and gives the exact line to emit
+instead: `SKIPPED: <id> - needs <capability>: <one line>`. Automating the chore is valuable work and
+the agent may still do it — but the ITEM is skipped, because the gap it names is still open and the
+next scan will prove that. **RESOLVED means the gap this item names is closed by this change**: not a
+plan to do it later, not a scheduled job that will do it, not documentation saying it should be done.
+The rule ends with the pin-to-SHA case above as a worked example, verbatim, because a rule carrying
+the actual failure is the one that gets applied. It is stated in exactly one place; `loop-lane.ts`
+builds its AUTOPILOT CONTEXT around this prompt and deliberately does not repeat it.
+
+**2. The substitution check** (`admitsIncapacity` / `INCAPACITY_PHRASES`, `lane-outcomes.ts`). The
+rule above is an instruction, and the previous one ("if you cannot write that sentence honestly, the
+item is SKIPPED") did not land — so the claim is no longer simply trusted. When the agent claims
+`resolved` and **its own reason text admits it lacked a capability the item needed**, the verdict is
+recorded as `needs_human`, which parks the item through the ordinary `DEFERRING` path so the next
+cycle works something else instead of re-arming an impossible one.
+
+`INCAPACITY_PHRASES` is an exported constant and is **a heuristic over the agent's own words** — not a
+re-read of the diff, not a judgement about the change. It is deliberately narrow: each phrase names a
+capability the session provably lacks (*"no shell"*, *"neither network"*, *"cannot run"*, *"would need
+to fetch"*, *"requires asking GitHub"*) or the one forbidden act (*"inventing a"*). A vaguer list
+would downgrade honest resolves. False negatives are cheap — the rescan re-raises the gap next cycle
+anyway; a false positive parks work that was genuinely done, for three cycles.
+
+Two boundaries hold it in place, both unit-tested (`src/lib/db/lane-outcomes.test.ts`, pinned on the
+real sentence quoted above and on a set of genuine resolves that must stay untouched):
+
+- **It never overrides the rescan.** An id in `closedIds` is `resolved` whatever its reason says. The
+  verifier outranks the claim in both directions, and that invariant is older and stronger than this
+  heuristic — an agent can write a muddled reason about work that demonstrably landed.
+- **It is advisory to `openBatch` alone**, exactly like every other deferral. Nothing on the
+  `Recommendation` row changes; the item is still open on every other surface, a curated batch that
+  names it dispatches it anyway, and the downgrade is explained on the item's own timeline
+  (`RecommendationEvent`) rather than silently. The outcome row's `reason` stays the agent's own
+  words — only the timeline note says a downgrade happened.
 
 ## Remediation economics — cents per verified maturity point (2026-08-30, moonshot #27)
 

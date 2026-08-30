@@ -87,6 +87,43 @@ describe("deriveLaneDeliverables", () => {
     expect(dup).toHaveLength(1);
   });
 
+  it("merges two ids the agent gave the SAME written headline, keeping BOTH in covers", () => {
+    // A real run printed "Added gating evidence to agent review" twice: one piece of work the agent
+    // attributed to two covered ids. One deliverable — but the sheet keys rows by the first cover,
+    // so the second id must survive the merge or its gap drops off the review surface entirely.
+    const out = deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [
+        { id: "rec-1", what: "Added gating evidence to agent review" },
+        { id: "rec-2", what: "added gating evidence to agent review." },
+        { id: "rec-3", what: "Wired CodeQL on pull_request" },
+      ],
+      diff: null,
+      before: null,
+      after: null,
+      verdict: { kind: "unmeasured" },
+    });
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ headline: "Added gating evidence to agent review", covers: ["rec-1", "rec-2"] });
+    expect(out[1]!.covers).toEqual(["rec-3"]);
+  });
+
+  it("does NOT merge two gaps that only share a TEMPLATE headline — that stays one row per gap", () => {
+    // The template is OUR sentence, not the agent's, so a shared one is a coincidence of filing.
+    const b = withD9("b", 30, [], [rec("rec-1", "Tokens run with write scope"), rec("rec-2", "No SAST configured")]);
+    const a = withD9("a", 62, [], [rec("rec-1", "Tokens run with write scope", "D9", "done"), rec("rec-2", "No SAST configured", "D9", "done")]);
+    // Both via the 1b backfill (no clause on file)…
+    const backfilled = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(b, a), before: b, after: a, verdict: attributable, closedFollowUpIds: ["rec-1", "rec-2"] });
+    expect(backfilled.map((d) => d.covers)).toEqual([["rec-1"], ["rec-2"]]);
+    // …and both via a claim whose clause tidied to nothing, falling back to the same template.
+    const fellBack = deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [{ id: "rec-1", what: "  " }, { id: "rec-2", what: "" }],
+      diff: diffScans(b, a), before: b, after: a, verdict: attributable,
+    });
+    expect(fellBack.filter((d) => d.kind === "closed").map((d) => d.covers)).toEqual([["rec-1"], ["rec-2"]]);
+  });
+
   it("uses the per-dimension templates", () => {
     expect(movementHeadline("D9", true)).toBe("Hardened CI/CD security");
     expect(movementHeadline("D8", true)).toBe("Added agent-readable docs");

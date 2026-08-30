@@ -2,7 +2,9 @@
 // would otherwise have to take on trust:
 //   • the RESCAN outranks the agent's claim — always, in both directions;
 //   • only `skipped` / `needs_human` park an item, and the park is bounded;
-//   • the deferral read is org- AND repo-scoped, so one tenant's skip cannot suppress another's item.
+//   • the deferral read is org- AND repo-scoped, so one tenant's skip cannot suppress another's item;
+//   • an UNVERIFIED `resolved` whose own reason admits the session could not do the thing is
+//     downgraded to `needs_human` and parked — both directions pinned, on the real sentence.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -63,7 +65,7 @@ vi.mock("@/lib/db/client", () => ({
   }),
 }));
 
-import { deferUntilFor, getActiveDeferrals, LANE_DEFER_MAX_DAYS, listRunOutcomes, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
+import { admitsIncapacity, deferUntilFor, getActiveDeferrals, LANE_DEFER_MAX_DAYS, listRunOutcomes, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
 
 const NOW = new Date("2026-08-30T00:00:00Z");
 const base = {
@@ -145,6 +147,86 @@ describe("recordLaneOutcomes — parking", () => {
   it("explains itself on the item's own timeline", async () => {
     await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "skipped", reason: "blocked" }]) });
     expect(events[0]).toMatchObject({ recommendationId: "r1", kind: "lane_verdict", toValue: "skipped", note: "blocked" });
+  });
+});
+
+describe("admitsIncapacity — the heuristic over the agent's own words", () => {
+  // The sentence a real lane wrote under verdict `resolved`, verbatim. It is the reason this exists.
+  const REAL =
+    "The nine floating refs are still tags: resolving a tag to a commit SHA requires asking GitHub " +
+    "what it points at right now, this session has neither network nor shell, and inventing a SHA " +
+    "breaks the workflow rather than pinning it — so instead the burn-down stopped being a " +
+    "maintainer chore with no owner (.github/workflows/pin-actions.yml runs security:actions --resolve weekly…)";
+
+  it("catches the real sentence, and the ordinary phrasings of the same admission", () => {
+    expect(admitsIncapacity(REAL)).toBe(true);
+    for (const s of [
+      "This session has no shell, so I could not run the generator.",
+      "Pinning needs a digest and there is no network here.",
+      "I cannot run the test suite to produce the baseline.",
+      "Would need to fetch the advisory database first.",
+      "Resolving these requires asking GitHub for the current SHAs.",
+    ]) {
+      expect(admitsIncapacity(s), s).toBe(true);
+    }
+  });
+
+  it("leaves a genuine resolve alone — the list is narrow on purpose", () => {
+    for (const s of [
+      "Added an explicit `permissions: contents: read` block to all three workflows.",
+      "",
+      "Wired CodeQL on pull_request and push to main; it fails the check on a new high finding.",
+      "Documented the review rubric in CLAUDE.md and added the missing AGENTS.md pointer.",
+      // Mentions a shell and a network without admitting it lacked either.
+      "The new pre-commit hook runs in the developer's shell before every commit.",
+      "Added a network timeout to the fetch wrapper so a hung call cannot stall the build.",
+    ]) {
+      expect(admitsIncapacity(s), JSON.stringify(s)).toBe(false);
+    }
+  });
+
+  it("matches across a line-wrapped reason", () => {
+    expect(admitsIncapacity("resolving the tag requires asking\n  GitHub what it points at")).toBe(true);
+  });
+});
+
+describe("recordLaneOutcomes — a substituted resolve is downgraded, not trusted", () => {
+  const REAL =
+    "The nine floating refs are still tags: resolving a tag to a commit SHA requires asking GitHub " +
+    "what it points at right now, this session has neither network nor shell, and inventing a SHA " +
+    "breaks the workflow rather than pinning it — so instead a weekly workflow now does the burn-down.";
+
+  it("downgrades an unverified `resolved` whose own reason admits the incapacity, and PARKS it", async () => {
+    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "resolved", reason: REAL }]) });
+    expect(rows[0]!.verdict).toBe("needs_human");
+    // It defers through the ordinary path, so the next cycle works something else.
+    expect(rows[0]!.deferUntil).not.toBeNull();
+    // The row still carries the agent's OWN words; only the timeline says a downgrade happened.
+    expect(rows[0]!.reason).toBe(REAL);
+    expect(events[0]).toMatchObject({ toValue: "needs_human" });
+    expect(events[0]!.note as string).toContain("lacked a capability");
+  });
+
+  it("leaves a genuine resolve untouched — same shape, honest reason", async () => {
+    await recordLaneOutcomes({
+      ...base,
+      batchIds: ["r1"],
+      closedIds: [],
+      report: report([{ recommendationId: "r1", verdict: "resolved", reason: "Added an explicit `permissions: contents: read` block to all three workflows; the CI lint fails without one." }]),
+    });
+    expect(rows[0]!.verdict).toBe("resolved");
+    expect(rows[0]!.deferUntil).toBeNull();
+  });
+
+  it("never downgrades an id the RESCAN closed — the verifier outranks the heuristic", async () => {
+    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: ["r1"], report: report([{ recommendationId: "r1", verdict: "resolved", reason: REAL }]) });
+    expect(rows[0]!.verdict).toBe("resolved");
+    expect(rows[0]!.deferUntil).toBeNull();
+  });
+
+  it("does not touch a non-`resolved` claim, whatever its reason says", async () => {
+    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "attempted", reason: REAL }]) });
+    expect(rows[0]!.verdict).toBe("attempted");
   });
 });
 

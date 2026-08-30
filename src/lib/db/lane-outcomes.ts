@@ -32,6 +32,64 @@ const DEFER_DAYS_PER_CYCLE = 1;
  *  nothing was learned that should stop the loop trying again. */
 const DEFERRING: readonly LaneVerdict[] = ["skipped", "needs_human"];
 
+/**
+ * A HEURISTIC over the AGENT'S OWN WORDS. Not a judgement about the change, not a re-read of the
+ * diff — purely: did the sentence the agent wrote to justify `resolved` also admit that it could not
+ * do the thing the item asked for?
+ *
+ * WHY. The lane agent has no shell and no network, and its measured failure mode is not giving up —
+ * it is doing something *adjacent* and claiming the item. A real run wrote, under verdict `resolved`:
+ * "resolving a tag to a commit SHA requires asking GitHub what it points at right now, this session
+ * has neither network nor shell, and inventing a SHA breaks the workflow…". That claim then bought
+ * no deferral, so the next cycle armed the same impossible item again — 40+ "closed" follow-ups
+ * across three campaign runs with no sustained score movement. `buildFixPrompt`'s capability rule
+ * asks the agent to say SKIPPED itself; this is the check for when it does not.
+ *
+ * KEPT NARROW ON PURPOSE. Every phrase names a capability this session provably lacks, or the one
+ * act (fabricating a value it could not look up) that the rule exists to forbid. A vaguer list — a
+ * bare "cannot", "unable", "blocked" — would downgrade honest resolves whose reason merely mentions
+ * something the change now prevents. False negatives are cheap here (the rescan re-raises the gap
+ * next cycle anyway); a false positive parks work that was genuinely done, for three cycles.
+ *
+ * Matched case-insensitively against the reason with whitespace collapsed, so a line-wrapped
+ * sentence matches the same as a single-line one.
+ */
+export const INCAPACITY_PHRASES: readonly string[] = [
+  // No shell / no network, in the phrasings agents actually write.
+  "no shell",
+  "nor shell",
+  "without a shell",
+  "no network",
+  "nor network",
+  "neither network",
+  "without network",
+  "no internet",
+  "no network access",
+  // Naming the missing act.
+  "cannot run",
+  "can't run",
+  "cannot fetch",
+  "unable to fetch",
+  "would need to fetch",
+  "requires asking github",
+  "requires asking the",
+  "cannot resolve the tag",
+  // The forbidden substitute: making up a value it could not look up.
+  "inventing a",
+  "invented a",
+  "would be inventing",
+];
+
+/**
+ * True when the agent's own reason admits it lacked a capability the item needed. See
+ * `INCAPACITY_PHRASES` — this is a heuristic over prose, never a verdict on the code.
+ */
+export function admitsIncapacity(reason: string): boolean {
+  if (!reason) return false;
+  const s = reason.toLowerCase().replace(/\s+/g, " ");
+  return INCAPACITY_PHRASES.some((p) => s.includes(p));
+}
+
 /** One item's outcome, as a client reads it. Timestamps are STRINGS — see wire-safe.ts. */
 export interface LaneOutcomeRow {
   id: string;
@@ -115,6 +173,9 @@ export interface RecordOutcomesInput {
  *   2. the AGENT said something about it → that verdict, with its own words as the reason.
  *   3. neither → `absent`. Nobody accounted for this id, which is a fact worth recording rather than
  *      a gap to fill with a guess.
+ * and then one correction on top of (2) alone: an unverified `resolved` whose own reason admits the
+ * session lacked a needed capability becomes `needs_human` (`admitsIncapacity`), so it defers instead
+ * of being re-armed next cycle.
  */
 export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<LaneOutcomeRow[]> {
   if (!isDbConfigured()) return [];
@@ -128,7 +189,18 @@ export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<La
 
   for (const id of new Set(input.batchIds)) {
     const claim = byId.get(id);
-    const verdict: LaneVerdict = closed.has(id) ? "resolved" : (claim?.verdict ?? "absent");
+    const rescanClosed = closed.has(id);
+    const claimed: LaneVerdict = rescanClosed ? "resolved" : (claim?.verdict ?? "absent");
+    // THE SUBSTITUTION CHECK. A `resolved` the agent claimed on its own — the rescan did NOT close it
+    // — whose reason admits the session could not do the thing (no shell, no network, "inventing a
+    // SHA") is downgraded to `needs_human`, which defers through the ordinary DEFERRING path so the
+    // next cycle works something else instead of re-arming an item this grant cannot close.
+    //
+    // ONLY the unverified claim. A rescan-closed id is never touched: the verifier outranks the
+    // claim in both directions, and that invariant is older and stronger than this heuristic — an
+    // agent can write a muddled reason about work that demonstrably landed.
+    const downgraded = !rescanClosed && claimed === "resolved" && admitsIncapacity(claim?.reason ?? "");
+    const verdict: LaneVerdict = downgraded ? "needs_human" : claimed;
     // A resolved item is never deferred: it is done, and the next cycle will not see it anyway.
     const deferUntil = DEFERRING.includes(verdict) ? deferUntilFor(now) : null;
     const data = {
@@ -161,7 +233,14 @@ export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<La
           actor: "autopilot",
           kind: "lane_verdict",
           toValue: verdict,
-          note: claim?.reason ? claim.reason.slice(0, 500) : `Loop cycle ${input.cycle}: ${verdict}`,
+          // The row's `reason` stays the agent's own words, always. Only the TIMELINE note says a
+          // downgrade happened — otherwise a reader sees a claim of `resolved` become `needs_human`
+          // with nothing accounting for it.
+          note: downgraded
+            ? `Claimed resolved, but the session's own reason says it lacked a capability the item needs — recorded as needs_human. ${claim?.reason ?? ""}`.slice(0, 500)
+            : claim?.reason
+              ? claim.reason.slice(0, 500)
+              : `Loop cycle ${input.cycle}: ${verdict}`,
         },
       })
       .catch(() => null);

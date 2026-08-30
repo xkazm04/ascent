@@ -107,14 +107,28 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
   }
   const out: LaneDeliverable[] = [];
   // ONE ROW = ONE GAP (owner's wave-2 correction). A `closed` deliverable is keyed by the follow-up
-  // id it covers, so two gaps that happen to share a templated headline stay two rows — the user
-  // needs control over each individual gap. Only a TRUE duplicate merges: the same id claimed twice,
-  // or a movement/install headline repeated in one dimension.
-  const keyOf = (d: LaneDeliverable) =>
-    d.kind === "closed" && d.covers.length > 0 ? `id|${d.covers[0]}` : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
-  const push = (d: LaneDeliverable) => {
-    const key = keyOf(d);
-    const dup = out.find((x) => keyOf(x) === key);
+  // id it covers, so two gaps that happen to share a TEMPLATED headline stay two rows — the template
+  // is our word, not the agent's, and the user needs control over each individual gap.
+  //
+  // ONE EXCEPTION, and it is the reason `byHeadline` exists: a headline the AGENT ITSELF wrote for
+  // two different ids. A real run rendered "Added gating evidence to agent review" TWICE, because two
+  // covered ids produced the same clause. That is not two deliverables — the agent described one
+  // piece of work and attributed it to both items — and printing it twice reads as a padded ledger.
+  // Those merge into one row that CARRIES BOTH IDS in `covers`: the sheet keys rows by the first
+  // cover, so dropping the second id would drop a gap off the review surface entirely.
+  // The headline key deliberately ignores `dimId`: the same sentence written by the same session IS
+  // the same deliverable, and two ids that resolved together are frequently only in the same
+  // dimension by accident of how the scan filed them. The merged row keeps the first row's dimension
+  // and evidence line, and every id in `covers`.
+  const keyOf = (d: LaneDeliverable, byHeadline: boolean) =>
+    d.kind === "closed" && d.covers.length > 0 && !byHeadline
+      ? `id|${d.covers[0]}`
+      : byHeadline
+        ? `said|${d.kind}|${d.headline.toLowerCase()}`
+        : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
+  const push = (d: LaneDeliverable, byHeadline = false) => {
+    const key = keyOf(d, byHeadline);
+    const dup = out.find((x) => keyOf(x, byHeadline) === key);
     if (dup) {
       dup.covers = [...new Set([...dup.covers, ...d.covers])];
       dup.evidence = dup.evidence ?? d.evidence;
@@ -127,10 +141,16 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
   const claimed = new Set<string>();
   for (const c of input.agentClaims) {
     const rec = recs.get(c.id);
-    const headline = tidyHeadline(c.what) ?? (rec?.dimId ? movementHeadline(rec.dimId, true) : null);
+    // `written` = the agent's own clause survived tidying. Only those merge by headline; the template
+    // fallback below is OUR sentence, so two ids falling back to it stay two rows.
+    const written = tidyHeadline(c.what);
+    const headline = written ?? (rec?.dimId ? movementHeadline(rec.dimId, true) : null);
     if (!headline) continue;
     claimed.add(c.id);
-    push({ headline, dimId: rec?.dimId ?? null, kind: "closed", covers: [c.id], evidence: rec?.title ?? null });
+    push(
+      { headline, dimId: rec?.dimId ?? null, kind: "closed", covers: [c.id], evidence: rec?.title ?? null },
+      written != null,
+    );
   }
   // 1b. Closes the rescan confirmed without a clause on file (a backfill, or a trailer-only session):
   // the dimension's template stands in. Each id keeps its own row — the evidence line (the follow-up

@@ -150,8 +150,11 @@ kept case writes its own `keepNote`, so the timeline says which bar the claim fa
 - **Only the trailer and title-disappearance close a row.** A fix that lands without a trailer and
   leaves the dimension's *wording* similar enough to restate keeps the row handed off until the
   user resolves it by hand. The prompt asks for the trailer for exactly this reason.
-- **The `openBatch` path a loop lane takes now carries more than the prompt.** `buildFixPrompt` itself
-  is unchanged and still Ascent's words, but a local-mode lane appends the organization's own standard
+- **The `openBatch` path a loop lane takes now carries more than the prompt.** `buildFixPrompt` is
+  still Ascent's words, and the human paste prompt is byte-identical to what it always was — but it
+  now branches on `commitPolicy: "lane"`, adding the **capability rule** (no shell, no network: an
+  item needing either is `SKIPPED`, never an adjacent artefact called `RESOLVED`), and a local-mode
+  lane appends the organization's own standard
   to it — active playbooks with their versions, the pattern mined from its own repositories,
   procedural Org Memory, matching registry skills, and the last scan's stored evidence and gaps for
   the batch's dimensions. See `docs/features/org-planning/live.md` → *The lane brief*. A cloud

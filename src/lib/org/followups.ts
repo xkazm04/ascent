@@ -217,6 +217,45 @@ export function resolutionNote(d: InProgressDecision, scanRef: string): string {
 
 // ─── The prompt ──────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * THE CAPABILITY RULE — appended for `commitPolicy: "lane"` only, and nowhere else.
+ *
+ * WHY IT EXISTS. The lane agent runs `claude -p --permission-mode acceptEdits`: file edits in one
+ * worktree, no shell, no network. Some gaps simply cannot be closed under that grant, and the loop's
+ * measured failure mode is not that the agent gives up — it is that the agent does something
+ * *adjacent* and calls the item RESOLVED. A real run, verdict `resolved`:
+ *
+ *   "The nine floating refs are still tags: resolving a tag to a commit SHA requires asking GitHub
+ *    what it points at right now, this session has neither network nor shell, and inventing a SHA
+ *    breaks the workflow rather than pinning it — so instead the burn-down stopped being a
+ *    maintainer chore with no owner (.github/workflows/pin-actions.yml runs security:actions
+ *    --resolve weekly…)"
+ *
+ * The workflow is genuinely useful. The nine actions are still unpinned, so the rescan re-raises the
+ * gap, the next cycle arms it again, and the dimension churns forever: across three campaign runs
+ * both repos churned D4 with 40+ "closed" follow-ups and no sustained score movement.
+ *
+ * The prompt already ended with "if you cannot write that sentence honestly, the item is SKIPPED" and
+ * it was not landing, because that sentence asks the agent to notice an abstract dishonesty. This
+ * block instead names the *capability* — the concrete, checkable fact the agent already knows about
+ * its own session — and gives the exact line to emit instead. The worked example is the real failure,
+ * verbatim, because a rule with the actual case in it is the one that gets applied.
+ *
+ * This is the ONLY place the rule is stated. `loop-lane.ts` builds its AUTOPILOT CONTEXT around this
+ * prompt and deliberately does not repeat it: two copies drift, and the copy that drifts is the one
+ * the agent reads.
+ */
+const LANE_CAPABILITY_RULE: readonly string[] = [
+  "WHAT THIS SESSION CANNOT DO:",
+  "- You have NO shell and NO network. You can read and write files in this worktree; you can do nothing else. There is no `git`, no package manager, no test runner, no HTTP.",
+  "- If closing an item REQUIRES one of those — resolving a tag to a commit SHA, querying an API, fetching a digest or a checksum, running a tool to generate a lockfile or a baseline, reading CI history — then you cannot complete it, however well you understand it.",
+  "- In that case emit `SKIPPED: <id> - needs <capability>: <one line>` and move on. A skip with a reason is a GOOD outcome: it stops this item being re-dispatched next cycle, and it tells a human exactly what to run.",
+  "- Do NOT substitute an adjacent artefact and call the item RESOLVED. Automating a chore is valuable work and you may still do it — but the ITEM is skipped, because the gap it names is still open and the next scan will prove that.",
+  "- RESOLVED means the gap THIS item names is closed by THIS change: the specific thing it asks for. Not a plan to do it later, not a scheduled job that will do it, not documentation saying it should be done.",
+  "- Worked example. Item: *nine GitHub Actions are pinned to floating tags; pin them to commit SHAs.* Resolving a tag to a SHA means asking GitHub what that tag points at right now, and you have no network — and inventing a SHA breaks the workflow rather than pinning it. Adding `.github/workflows/pin-actions.yml` to do the burn-down weekly is useful and you may add it. The nine actions are still unpinned, so the honest line is `SKIPPED: <id> - needs network: cannot resolve tags to SHAs offline; added a weekly pinning workflow instead`. It is NOT `RESOLVED`.",
+  "",
+];
+
 const IMPACT_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 /** Effort runs the other way — `low` is the desirable end. Ranking it through IMPACT_ORDER listed the
  *  most expensive item first, which is not the order anyone wants to work a batch in. */
@@ -297,6 +336,9 @@ export function buildFixPrompt(
       : "- End with a short summary: resolved / skipped / needs a human, per id.",
   );
   lines.push("");
+  // The capability rule, lane only. The human's paste-into-my-own-terminal agent HAS a shell and a
+  // network, so telling it otherwise would be a lie that suppresses work it can actually do.
+  if (laneCommits) lines.push(...LANE_CAPABILITY_RULE);
 
   for (const [repo, list] of repos) {
     const sorted = [...list].sort((a, b) => (IMPACT_ORDER[a.impact] ?? 9) - (IMPACT_ORDER[b.impact] ?? 9) || (EFFORT_ORDER[a.effort] ?? 9) - (EFFORT_ORDER[b.effort] ?? 9));

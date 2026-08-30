@@ -214,3 +214,41 @@ describe("buildFixPrompt", () => {
     expect(buildFixPrompt(items, ctx)).toBe(buildFixPrompt(items, ctx));
   });
 });
+
+describe("buildFixPrompt — the capability rule (lane only)", () => {
+  const ctx = { org: "acme", generatedAt: "2026-08-17" };
+  const lane = { ...ctx, commitPolicy: "lane" as const };
+
+  it("tells the lane agent it has no shell and no network, and what to emit instead", () => {
+    const p = buildFixPrompt([item()], lane);
+    expect(p).toContain("WHAT THIS SESSION CANNOT DO:");
+    expect(p).toContain("NO shell and NO network");
+    expect(p).toContain("SKIPPED: <id> - needs <capability>:");
+    // The substitution the loop actually measured, forbidden in as many words.
+    expect(p).toContain("Do NOT substitute an adjacent artefact and call the item RESOLVED");
+    expect(p).toContain("Automating a chore is valuable work");
+    expect(p).toContain("not a scheduled job that will do it");
+  });
+
+  it("carries the pin-to-SHA worked example — the real failure, not a hypothetical", () => {
+    const p = buildFixPrompt([item()], lane);
+    expect(p).toContain("pinned to floating tags");
+    expect(p).toContain("you have no network");
+    expect(p).toContain("inventing a SHA");
+    expect(p).toContain("needs network: cannot resolve tags to SHAs offline");
+    expect(p).toContain("It is NOT `RESOLVED`");
+  });
+
+  it("is stated ONCE, not twice", () => {
+    const p = buildFixPrompt([item(), item({ id: "rec-2", repo: "acme/web" })], lane);
+    expect(p.split("WHAT THIS SESSION CANNOT DO:")).toHaveLength(2);
+  });
+
+  it("is ABSENT from the human paste prompt, whose agent has a shell and a network", () => {
+    const p = buildFixPrompt([item()], ctx);
+    expect(p).not.toContain("WHAT THIS SESSION CANNOT DO:");
+    expect(p).not.toContain("NO shell and NO network");
+    // …and that prompt still asks for the trailers it can actually write.
+    expect(p).toContain(`\`${FOLLOWUP_TRAILER}: <id>\``);
+  });
+});
