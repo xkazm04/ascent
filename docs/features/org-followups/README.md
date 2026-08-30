@@ -150,9 +150,12 @@ kept case writes its own `keepNote`, so the timeline says which bar the claim fa
 - **Only the trailer and title-disappearance close a row.** A fix that lands without a trailer and
   leaves the dimension's *wording* similar enough to restate keeps the row handed off until the
   user resolves it by hand. The prompt asks for the trailer for exactly this reason.
-- **The prompt is Ascent's words, not the repo's.** It carries the scan's rationale and explore
-  questions, not file paths or evidence excerpts; the agent is told to read the repo's own guidance
-  first. Grounding it in the dimension's stored evidence is the obvious next step.
+- **The `openBatch` path a loop lane takes now carries more than the prompt.** `buildFixPrompt` itself
+  is unchanged and still Ascent's words, but a local-mode lane appends the organization's own standard
+  to it — active playbooks with their versions, the pattern mined from its own repositories,
+  procedural Org Memory, matching registry skills, and the last scan's stored evidence and gaps for
+  the batch's dimensions. See `docs/features/org-planning/live.md` → *The lane brief*. A cloud
+  draft-PR dispatch still sends the prompt alone.
 - **Nothing WRITES `assigneeLogin` / `targetDate` any more.** Both columns remain on
   `Recommendation` and the retired Backlog tab wrote them; no surface here sets either. `targetDate`
   is fully unread. `assigneeLogin` is not: the backlog read still carries it onto every row, the

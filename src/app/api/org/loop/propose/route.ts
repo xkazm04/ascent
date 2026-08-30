@@ -22,6 +22,8 @@ import { selfHostGuard } from "@/lib/api/self-host";
 import { getRepoLocalPath } from "@/lib/db";
 import { openBatch } from "@/lib/local/loop-lane";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
+import { buildLaneBrief, type LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
 import type { FollowUpItem } from "@/lib/org/followups";
 
@@ -40,6 +42,13 @@ export interface LoopProposal {
   practiceId: string | null;
   /** One line explaining the kind — rendered under the repo name in the curation panel. */
   reason: string;
+  /**
+   * The brief this lane WOULD be given, built by the same `loadLaneBriefInput` → `buildLaneBrief`
+   * pair the engine calls. Same identity argument as `openBatch` and `proposeLaneKind` above: a
+   * preview built on a second, "equivalent" assembly would eventually show the operator a standard
+   * the lane then does not use. `null` on a `foundation` lane, which has no batch to brief about.
+   */
+  brief: { text: string; provenance: LaneBriefProvenance } | null;
 }
 
 export async function GET(request: Request) {
@@ -73,9 +82,16 @@ export async function GET(request: Request) {
     // proposes no items rather than showing checkboxes the run would ignore. The backlog is still
     // there and cycle 2 works it, with the standard already in place.
     const laneItems = plan.kind === "foundation" ? [] : items;
+    // Built from the batch's own dimensions, exactly as the lane will. A failed read degrades to no
+    // preview rather than failing the curation panel — the operator can still arm the run.
+    const briefInput =
+      laneItems.length > 0
+        ? await loadLaneBriefInput(org, repo, [...new Set(laneItems.map((i) => i.dimId).filter(Boolean))]).catch(() => null)
+        : null;
     proposals.push({
       repo,
       items: laneItems,
+      brief: briefInput ? buildLaneBrief(briefInput) : null,
       projectedPoints: laneItems.reduce((n, it) => n + (it.projectedPoints ?? 0), 0),
       kind: plan.kind,
       practiceId: plan.practiceId,

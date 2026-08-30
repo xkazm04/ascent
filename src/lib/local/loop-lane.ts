@@ -31,6 +31,7 @@ import { proposeLaneKind } from "@/lib/local/lane-kind";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
 import { stampPlaybookApplications } from "@/lib/db/playbooks";
+import { recordLoopLessons } from "@/lib/db/loop-lessons";
 import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
 import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
 // The cost write-back and the report exclusion live in a sibling so this module stays the cycle
@@ -510,6 +511,17 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // brief carried a playbook for is the one case where "this repo now follows that playbook" is
       // supported by something other than hope — the agent read the steps and the verifier saw the
       // dimension move. A close under a playbook the brief never quoted stamps nothing.
+      // LESSONS, as CANDIDATES. The loop never writes Org Memory: a lesson is an unattended agent's
+      // claim about what this organization should believe, and the brief above reads memory as truth.
+      // A human keeps or discards it through the lessons inbox, which promotes through the same
+      // memory door the consolidation check lives behind.
+      if (report && report.lessons.length > 0) {
+        const kept = await recordLoopLessons(org, repo, laneId, report.lessons).catch(() => []);
+        if (kept.length > 0) {
+          await appendLaneLog(laneId, `${kept.length} lesson candidate(s) recorded for review — nothing was written into memory.`);
+        }
+      }
+
       const closedDims = new Set(batch.filter((b) => closedIds.includes(b.id)).map((b) => b.dimId));
       const earned = briefedPlaybooks.filter((p) => closedDims.has(p.dimId)).map((p) => p.id);
       if (earned.length > 0) {

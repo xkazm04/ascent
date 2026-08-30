@@ -891,6 +891,75 @@ Two causes, both now fixed:
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
   the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
 
+## The lane brief — the org's own standard in, structured verdicts out (2026-08-30, moonshot #25)
+
+A lane's prompt used to be `buildFixPrompt(batch, …)` plus one fixed paragraph: Ascent's words about
+the org's backlog, and nothing of the organization's own standard. Every remediation vendor applies
+generic best practice; the differentiator is that Ascent holds the org's *versioned* standard and can
+hand the relevant slice of it to the agent — then learn only from what a rescan verified.
+
+**What goes in** (`src/lib/org/lane-brief.ts`, pure; `src/lib/db/lane-brief-read.ts`, the reads):
+active playbooks for the batch's dimensions **named with their version**; the house pattern
+`minePracticeShapes` mined from the org's own repositories, **with its exemplar count** (a pattern
+from one repo is a habit, from six a house style); procedural Org Memory recalled through the same
+`candidateOrgMemories` → `recallMemories` pair Athena's gate uses; registry skills whose category maps
+into the batch's dimensions; and the last scan's own evidence and gaps for those dimensions.
+
+**A section the org does not have is stated in words**, never left as an empty heading: "No playbook
+in this organization covers D3", "No house pattern has been mined for D6 — you are setting the
+precedent, not matching one." An agent handed a bare heading reads it as "there is no standard";
+one told so explicitly can say so back. Truncation is per section, marked in the text
+(`… (n more, trimmed)`) and recorded in provenance, so a trimmed brief never reads as a complete one.
+Two calls on the same input are byte-identical — a brief that reshuffles would make an A/B comparison
+of two lanes a comparison of two prompts. Memory text passes through the shared untrusted-content
+neutralizer first.
+
+`LoopRunLane.briefJson` stores the **provenance, not the prose**: which playbook and version, which
+practice, which memory and skill ids, what was omitted and why, and the byte sizes. The prose is
+rebuilt deterministically from the same inputs. The curation panel shows the same summary line before
+you spend a session — which is mostly valuable for what it says is *missing*.
+
+**What comes back**: `.ascent/lane-report.json`, versioned `"v": 1` (the same shape a remote agent
+will POST when #3 lands, so that lane extends this contract rather than forking one). The parser
+(`src/lib/local/lane-report.ts`) never throws: a missing file, `"{"`, a megabyte blob and an array
+where an object belongs all return `parsed: false` or drop the entry. **The batch is the report's
+authorization boundary** — an id the lane never dispatched is dropped, because an agent cannot
+adjudicate rows it was not given. The file is added to the worktree's `.git/info/exclude` so it never
+lands on the deliverable branch.
+
+**Per-item verdicts** (`LaneItemOutcome`, `src/lib/db/lane-outcomes.ts`). One row per dispatched id,
+in this precedence: the rescan closed it → `resolved` (**the verifier outranks the claim, always**);
+else the agent's own verdict with its own words as the reason; else `absent`, because "nobody
+accounted for this id" is a fact worth recording. `skipped` and `needs_human` park the item for a
+bounded window (3 cycles, capped at 14 days) so the next cycle asks a different question instead of
+spending another session being told the same thing.
+
+**A deferral is not a decision on the row.** `Recommendation.status` has four values and none of them
+means "declined by an agent for now", so nothing on the backlog row changes: the deferral is advisory
+to `openBatch` alone, every other surface still shows the item open, and a **curated** batch that
+names a deferred id dispatches it anyway (a human's pick outranks a machine's deferral, and the lane
+log says so). Each verdict also writes a `RecommendationEvent { kind: "lane_verdict" }`, so the item's
+own timeline explains itself.
+
+**Adoption is earned.** When the rescan closes a row on a dimension the lane's brief carried a
+playbook for, that playbook is stamped `PlaybookApplication{ appliedBy: "loop" }`. Both halves are
+required: a close under a playbook the agent never saw is a coincidence, and a claim without a
+verified close is not evidence.
+
+**Lessons are candidates, never memory.** `report.lessons` become `OrgMemoryCandidate` rows with
+`status: "pending"`, `source: "loop-lesson"`. **The loop never writes `OrgMemory`** — the companion,
+the brief above and every consolidation pass read memory as truth, so an unattended process editing
+it would let one bad session teach the whole organization something nobody agreed to. The cockpit's
+lesson inbox says so in as many words, and `keep` promotes through the same `createOrgMemory` door a
+person's own write uses (which is where the duplicate check lives). `discard` is **soft**: a proposal
+that was rejected is worth as much on the record as one that was kept.
+
+**Routes.** `GET /api/org/loop/propose` now carries `brief` per proposal, built by the same assembly
+the engine runs. `GET/POST /api/org/loop/lessons` is the inbox — `selfHostGuard` → `requireOrgAccess`
+for the read; `requireSameOrigin` → `selfHostGuard` → `requireOrgRole(org, "member")` for the write,
+with the authorized org passed *into* the update beside the candidate id so another org's candidate is
+simply not found (404). No `[id]` segment, so `id-routes-gated.test.ts` is unaffected by design.
+
 ## Remediation economics — cents per verified maturity point (2026-08-30, moonshot #27)
 
 Every lane already had an independent verifier (the worktree rescan plus the movement-gated close

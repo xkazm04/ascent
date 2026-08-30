@@ -1,0 +1,183 @@
+// LESSONS FROM A LANE — what an agent says a repository taught it, held as a CANDIDATE until a human
+// decides.
+//
+// THE ONE RULE THIS MODULE EXISTS TO ENFORCE: the loop never writes `OrgMemory`. Org Memory is what an
+// organization believes about itself; a remediation agent that can write into it directly is an
+// unattended process editing the corpus every other surface — the companion, the brief above, the
+// consolidation gate — reads as truth. One bad session would then teach the whole organization
+// something nobody agreed to. So a lesson lands as an `OrgMemoryCandidate` with `status: "pending"`,
+// and promotion is a human action through the existing `POST /api/org/memory` door, which runs the
+// duplicate/consolidation check that direct writes here would bypass.
+//
+// `discard` is SOFT. A discarded candidate keeps its row with `status: "discarded"` — knowing that a
+// lesson was proposed and rejected is worth as much as knowing it was kept, and a delete would make
+// the same proposal look novel the next time an agent had it.
+
+import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgBySlug } from "@/lib/db/org-shared";
+
+/** Where a candidate came from. One value today; the column is `String` so #36's skill-lessons
+ *  channel can reuse this table without a migration. */
+export const LOOP_LESSON_SOURCE = "loop-lesson";
+
+export type LessonStatus = "pending" | "kept" | "discarded";
+
+const STATUSES: readonly LessonStatus[] = ["pending", "kept", "discarded"];
+
+export const isLessonStatus = (v: unknown): v is LessonStatus =>
+  typeof v === "string" && (STATUSES as readonly string[]).includes(v);
+
+/** A lesson candidate as a client reads it. Timestamps are STRINGS — see wire-safe.ts. */
+export interface LoopLessonRow {
+  id: string;
+  namespace: string | null;
+  content: string;
+  kind: string;
+  source: string;
+  laneId: string | null;
+  status: string;
+  /** The OrgMemory row a kept candidate became; null until a human keeps it. */
+  promotedMemoryId: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+type CandidateRow = {
+  id: string;
+  namespace: string | null;
+  content: string;
+  kind: string;
+  source: string;
+  laneId: string | null;
+  status: string;
+  promotedMemoryId: string | null;
+  reviewedBy: string | null;
+  reviewedAt: Date | null;
+  createdAt: Date;
+};
+
+function toRow(row: CandidateRow): LoopLessonRow {
+  return {
+    id: row.id,
+    namespace: row.namespace,
+    content: row.content,
+    kind: row.kind,
+    source: row.source,
+    laneId: row.laneId,
+    status: row.status,
+    promotedMemoryId: row.promotedMemoryId,
+    reviewedBy: row.reviewedBy,
+    reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** Ceiling per lane, matching the report parser's own cap — a session that produced fifty "lessons"
+ *  produced none, and a review queue nobody can finish is a review queue nobody reads. */
+const MAX_PER_LANE = 5;
+const LESSON_MAX_CHARS = 600;
+
+/**
+ * Record a lane's lessons as pending candidates. Returns what was written.
+ *
+ * Deliberately NOT deduplicated against existing memory here: that check belongs to the promotion
+ * door, which runs the real consolidation analysis. Skipping a candidate because it looked similar
+ * would silently drop the one a human might have wanted to supersede with.
+ */
+export async function recordLoopLessons(
+  orgSlug: string,
+  repoFullName: string,
+  laneId: string,
+  lessons: readonly string[],
+): Promise<LoopLessonRow[]> {
+  if (!isDbConfigured()) return [];
+  const clean = lessons.map((l) => l.trim()).filter(Boolean).slice(0, MAX_PER_LANE);
+  if (clean.length === 0) return [];
+  const org = await getOrgBySlug(orgSlug).catch(() => null);
+  if (!org) return [];
+  const prisma = getPrisma();
+  const written: LoopLessonRow[] = [];
+  for (const content of clean) {
+    const row = await prisma.orgMemoryCandidate
+      .create({
+        data: {
+          orgId: org.id,
+          namespace: repoFullName,
+          content: content.slice(0, LESSON_MAX_CHARS),
+          kind: "procedural",
+          source: LOOP_LESSON_SOURCE,
+          laneId,
+          status: "pending",
+        },
+      })
+      .catch(() => null);
+    if (row) written.push(toRow(row as CandidateRow));
+  }
+  return written;
+}
+
+/** An org's lesson candidates, newest first. `status` filters; omit it for every state. */
+export async function listLoopLessons(orgSlug: string, status?: LessonStatus, limit = 50): Promise<LoopLessonRow[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe<LoopLessonRow[]>(async () => {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return [];
+    const rows = await getPrisma().orgMemoryCandidate.findMany({
+      where: { orgId: org.id, ...(status ? { status } : {}) },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: Math.max(1, Math.min(200, Math.trunc(limit) || 50)),
+    });
+    return (rows as CandidateRow[]).map(toRow);
+  }, []);
+}
+
+/**
+ * Settle one candidate — GATE-THEN-CONSTRAIN.
+ *
+ * The org is authorized by the caller and then passed INTO the update beside the id, so a candidate
+ * belonging to another organization is simply not found and the caller gets a 404. Never a read of
+ * the row followed by a comparison: that shape leaks existence, and it is one careless early-return
+ * away from trusting a caller-supplied id on its own.
+ *
+ * @returns the settled row, or null when no candidate with that id exists IN THIS ORG.
+ */
+export async function settleLoopLesson(
+  orgSlug: string,
+  id: string,
+  action: "keep" | "discard",
+  reviewer: string | null,
+  promotedMemoryId: string | null = null,
+): Promise<LoopLessonRow | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getOrgBySlug(orgSlug).catch(() => null);
+  if (!org) return null;
+  const prisma = getPrisma();
+  const updated = await prisma.orgMemoryCandidate
+    .updateMany({
+      where: { id, orgId: org.id },
+      data: {
+        // Soft on both paths: a discarded candidate is a record that the lesson was proposed and
+        // rejected, which is as useful as the kept ones.
+        status: action === "keep" ? "kept" : "discarded",
+        reviewedBy: reviewer,
+        reviewedAt: new Date(),
+        ...(promotedMemoryId ? { promotedMemoryId } : {}),
+      },
+    })
+    .catch(() => ({ count: 0 }));
+  if (updated.count === 0) return null;
+  const row = await prisma.orgMemoryCandidate.findUnique({ where: { id } }).catch(() => null);
+  return row ? toRow(row as CandidateRow) : null;
+}
+
+/** One candidate, org-constrained — the read the promotion path needs before it writes memory. */
+export async function getLoopLesson(orgSlug: string, id: string): Promise<LoopLessonRow | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadSafe<LoopLessonRow | null>(async () => {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return null;
+    const row = await getPrisma().orgMemoryCandidate.findFirst({ where: { id, orgId: org.id } });
+    return row ? toRow(row as CandidateRow) : null;
+  }, null);
+}

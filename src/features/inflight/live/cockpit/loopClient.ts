@@ -2,7 +2,7 @@
 // server's own message. Kept apart from useLoopRun so the hook is state machine and nothing else,
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
-import type { LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
+import type { LoopLessonRow, LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
 
 async function json<T>(res: Response, fallback: string): Promise<T> {
   const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
@@ -39,6 +39,24 @@ export async function fetchLoopProposals(slug: string, repos: readonly string[])
   const res = await fetch(`/api/org/loop/propose?${q}`, { cache: "no-store" });
   const body = await json<{ proposals?: LoopProposal[] }>(res, "Could not propose a batch");
   return body.proposals ?? [];
+}
+
+/** Pending lesson CANDIDATES — nothing here is in Org Memory until a human keeps it. */
+export async function fetchLoopLessons(slug: string): Promise<LoopLessonRow[]> {
+  const res = await fetch(`/api/org/loop/lessons?org=${encodeURIComponent(slug)}&status=pending`, { cache: "no-store" });
+  const body = await json<{ lessons?: LoopLessonRow[] }>(res, "Could not read the lesson candidates");
+  return body.lessons ?? [];
+}
+
+/** Keep (promote into memory, through the shared memory door) or discard (soft) one candidate. */
+export async function settleLoopLesson(slug: string, id: string, action: "keep" | "discard"): Promise<LoopLessonRow> {
+  const res = await fetch("/api/org/loop/lessons", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ org: slug, id, action }),
+  });
+  const body = await json<{ lesson: LoopLessonRow }>(res, "Could not settle that lesson");
+  return body.lesson;
 }
 
 async function post<T>(slug: string, body: Record<string, unknown>, fallback: string): Promise<T> {

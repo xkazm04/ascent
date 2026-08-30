@@ -8,6 +8,7 @@ import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
 import { attributeDelivered } from "@/lib/maturity/attribution";
+import { listRunOutcomes } from "@/lib/db/lane-outcomes";
 import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
 import {
   laneKindOf,
@@ -216,7 +217,7 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   // The economics ride ALONGSIDE the outcomes, folded from the very same pair — so the ledger's
   // ¢/point and its before → after can never come from two different readings of one lane.
-  return { run, lanes, outcomes, economics: outcomes.map(laneEconomics) };
+  return { run, lanes, outcomes, economics: outcomes.map(laneEconomics), itemOutcomes: await listRunOutcomes(id) };
 }
 
 /**

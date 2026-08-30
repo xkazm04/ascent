@@ -16,6 +16,7 @@ import type { LaneEconomics } from "@/lib/local/lane-economics";
 // "equivalent" declaration here is how a field silently stops arriving.
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneReport } from "@/lib/local/lane-report";
+import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
 export const LOOP_CONCURRENCY_CAP = 4;
@@ -198,6 +199,9 @@ export interface LoopRunDetail {
   /** One entry per outcome, SAME ORDER — what each lane cost against what it verifiably moved. The
    *  fold is pure (`src/lib/local/lane-economics.ts`); this is only where it is carried to a client. */
   economics: LaneEconomics[];
+  /** One row per item the run's lanes dispatched — the agent's account beside the rescan's ruling.
+   *  Empty on a run that predates the contract, which is not the same as "nothing was skipped". */
+  itemOutcomes: LaneOutcomeRow[];
 }
 
 // ── row → record ─────────────────────────────────────────────────────────────────────────────────

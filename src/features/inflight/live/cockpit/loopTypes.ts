@@ -14,6 +14,9 @@ import type { FollowUpItem } from "@/lib/org/followups";
 // The economics shapes come from the PURE fold (no Prisma, no node built-ins), for the same reason
 // the records do: a second client-side copy is how a field silently stops arriving.
 import type { LaneEconomics, PriceRow, RemediationPriceList } from "@/lib/local/lane-economics";
+import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
+import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
+import type { LoopLessonRow } from "@/lib/db/loop-lessons";
 import type {
   LoopLaneKind,
   LoopLaneOutcome,
@@ -27,7 +30,10 @@ import type {
 
 export type {
   FollowUpItem,
+  LaneBriefProvenance,
   LaneEconomics,
+  LaneOutcomeRow,
+  LoopLessonRow,
   PriceRow,
   RemediationPriceList,
   LoopLaneKind,
@@ -48,6 +54,9 @@ export interface LoopProposal {
   kind: LoopLaneKind;
   practiceId: string | null;
   reason: string;
+  /** The brief this lane WOULD get — same assembly the engine runs, so the preview and the dispatch
+   *  cannot diverge. `null` on a foundation lane, which has no batch to brief about. */
+  brief?: { text: string; provenance: LaneBriefProvenance } | null;
 }
 
 /** The one-word tag a lane's kind renders as, everywhere. `null` for the default agent lane, which

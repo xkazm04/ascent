@@ -26,6 +26,7 @@ import { CockpitHeader } from "./CockpitHeader";
 import { CockpitHistory } from "./CockpitHistory";
 import { CockpitRail } from "./CockpitRail";
 import { PriceListPanel } from "./PriceListPanel";
+import { CockpitLessons } from "./CockpitLessons";
 import { useCockpit } from "./useCockpit";
 import type { LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
@@ -114,6 +115,9 @@ export function LiveCockpit(props: LiveCockpitProps) {
       {/* What a verified maturity point has cost, per model, per dimension. Below the history strip
           because it is the standing summary the strip's individual runs add up to. */}
       <PriceListPanel slug={slug} />
+      {/* What the loop's agents say this org's repositories taught them — candidates only, waiting
+          on a human. Below the price list because it is a review queue, not a reading. */}
+      <CockpitLessons slug={slug} />
     </section>
   );
 }

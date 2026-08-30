@@ -210,6 +210,29 @@ and cycles are pinned to 1), and because its engine is the mock it asserts the l
 call the movement a lift. The Character-level journey is `uat/journeys/loop-to-l5.md`; its L2 half —
 a real agent lane, an attributable lift, a killed-and-resumed drive — has **not** been run.
 
+## The `.ascent/lane-report.json` contract (2026-08-30)
+
+Every backlog lane's prompt now ends with a report contract, and the agent is asked to write one file
+into its worktree before it exits:
+
+```json
+{ "v": 1,
+  "items": [{ "recommendationId": "<id>", "verdict": "resolved|skipped|needs_human", "reason": "<one sentence>", "files": ["<path>"] }],
+  "lessons": ["<one durable thing this repository taught you>"] }
+```
+
+- **`"v": 1` is deliberate.** This is the same shape a remote agent will POST when the agent-neutral
+  work protocol lands, so that lane extends the contract rather than forking a second one.
+- **Skips are asked for as first-class answers.** A skip with a reason stops the item being
+  re-dispatched next cycle; an unexplained attempt does not. The verdict is the agent's *account*, not
+  the ruling — a row still closes only when the rescan stops raising the gap and the dimension moved.
+- **The file is never committed.** It is added to the worktree's `.git/info/exclude`, not to a
+  `.gitignore` (which would itself be a change to the repository, landing in every branch the lane
+  produces). The contract also tells the session not to commit it; the exclude is the second belt.
+- **The parser never throws.** No file, `"{"`, a megabyte blob, an id outside the dispatched batch —
+  each degrades to `parsed: false` or a dropped entry. A missing report is recorded as *unknown*, which
+  is not the same fact as "nothing was skipped".
+
 ## What a session costs (2026-08-30)
 
 The whole `claude -p --output-format json` envelope is now parsed, not just its `.result`: cost,

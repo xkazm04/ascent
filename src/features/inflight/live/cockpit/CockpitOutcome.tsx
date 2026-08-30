@@ -9,6 +9,7 @@ import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
 import { agentConfigLabel } from "@/lib/local/agent-options";
 import { OutcomeRow, OutcomeTotals } from "./CockpitOutcomeLedger";
+import { CockpitVerdicts } from "./CockpitVerdicts";
 import { laneAttribution, runAttribution } from "./cockpitDrift";
 import type { LoopRunDetail } from "./loopTypes";
 
@@ -67,6 +68,10 @@ export function CockpitOutcome({ detail, onReplay, onBack, canReplay }: CockpitO
           ))}
         </ul>
       )}
+
+      {/* The agent's per-item account, beside the rescan's ruling. A run that recorded none says so
+          rather than leaving the reader to assume nothing was skipped. */}
+      <CockpitVerdicts outcomes={detail.itemOutcomes} />
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
