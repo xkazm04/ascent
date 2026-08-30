@@ -36,6 +36,8 @@ import {
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { requireCronAuth } from "@/lib/cron-auth";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { controlLabel } from "@/lib/controls/catalog";
+import { listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
 import { mapPool } from "@/lib/pool";
 import { PUBLIC_ORG } from "@/lib/auth";
@@ -152,13 +154,24 @@ export async function GET(request: Request) {
         skippedNoData += 1;
         return;
       }
-      const [movers, recs, benchmark, credit] = await Promise.all([
+      const [movers, recs, benchmark, credit, controlTransitions] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
         // Credit runway for the digest's "top up" line — public org is free/unmetered, skip it.
         org === PUBLIC_ORG ? Promise.resolve(null) : getCreditState(org).catch(() => null),
+        // MOONSHOT #1: control transitions in the window feed the digest's Controls block. Failures
+        // only — a restored control is good news the weekly summary need not push. Best-effort.
+        listObservationsSince(org, windowStart.toISOString(), { transitionsOnly: true }).catch(() => []),
       ]);
+      const controlsFailedRows = controlTransitions
+        .filter((o) => o.state === "fail")
+        .slice(0, 10)
+        .map((o) => ({
+          repo: o.repoFullName,
+          control: controlLabel(o.controlId),
+          detail: o.prevState && o.prevState !== o.state ? `was ${o.prevState}` : (o.value ?? ""),
+        }));
       // Movement-gate: a leader relies on this push instead of opening the app, so a flat week stays
       // silent rather than training the inbox filter. Skip unless something material moved (or credits
       // are running low — always worth the heads-up).
@@ -175,6 +188,7 @@ export async function GET(request: Request) {
         regressions: regressersBeyondNoise.length,
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
         creditLow,
+        controlsFailed: controlsFailedRows.length,
       });
       if (!hasSignal) {
         skippedFlat += 1;
@@ -198,6 +212,7 @@ export async function GET(request: Request) {
         // filter the gate exists to avoid).
         regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
+        controlsFailed: controlsFailedRows.length > 0 ? controlsFailedRows : undefined,
         percentile: benchmark?.overallPercentile ?? null,
         trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
         // Carry the balance only when the org is metered and running low (the same condition the

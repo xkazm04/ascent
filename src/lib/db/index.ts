@@ -423,3 +423,6 @@ export * from "@/lib/db/lane-brief-read";
 export * from "@/lib/db/lane-outcomes";
 export * from "@/lib/db/loop-lessons";
 export { foldImprovementEvents, getImprovementEvents, recordLoopPr } from "@/lib/db/improvement-events";
+// ── MOONSHOT wave 3 — barrel lines landed by the Director at integration ─────────────────────────
+export * from "@/lib/db/scan-jobs";
+export * from "@/lib/db/control-observations";

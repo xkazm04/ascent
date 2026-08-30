@@ -779,7 +779,13 @@
             "src/lib/pool.test.ts",
             "src/features/standing/repositories/MissingReposPanel.tsx",
             "src/app/api/org/repos/route.test.ts",
-            "src/app/api/org/scan/route.stages.test.ts"
+            "src/app/api/org/scan/route.stages.test.ts",
+            "src/lib/db/scan-jobs.ts",
+            "src/lib/scan-probe.ts",
+            "src/lib/scan-probe-controls.ts",
+            "src/lib/scan-queue-worker.ts",
+            "src/app/api/cron/probe/route.ts",
+            "src/app/api/org/scan/queue/route.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -877,7 +883,14 @@
             "src/lib/conformance/pack.test.ts",
             "src/lib/conformance/pack.ts",
             "src/lib/conformance/sample.test.ts",
-            "src/lib/conformance/sample.ts"
+            "src/lib/conformance/sample.ts",
+            "src/lib/controls/catalog.ts",
+            "src/lib/controls/transitions.ts",
+            "src/lib/controls/seal.ts",
+            "src/lib/github/governance-events.ts",
+            "src/lib/db/control-observations.ts",
+            "src/app/api/org/controls/route.ts",
+            "src/app/api/audit/verify/route.ts"
           ],
           "target": null,
           "apiRoutes": [

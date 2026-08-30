@@ -107,7 +107,8 @@
         "src/app/api/org/alerts/**",
         "src/app/api/cron/digest/**",
         "src/lib/email/**",
-        "src/app/api/email/**"
+        "src/app/api/email/**",
+        "src/lib/db/alert-events.ts"
       ]
     },
     {
@@ -121,7 +122,11 @@
         "src/lib/db/org-watch.ts",
         "src/app/api/org/import/**",
         "src/app/api/org/repos/**",
-        "src/app/api/org/scan/**"
+        "src/app/api/org/scan/**",
+        "src/lib/scan-probe*.ts",
+        "src/lib/scan-queue-worker.ts",
+        "src/lib/db/scan-jobs.ts",
+        "src/app/api/cron/probe/**"
       ]
     },
     {
@@ -171,7 +176,12 @@
         "src/app/api/org/invites/**",
         "src/app/api/org/ai-stance/**",
         "src/features/standing/governance/stance/**",
-        "src/features/standing/governance/GovernancePanel.tsx"
+        "src/features/standing/governance/GovernancePanel.tsx",
+        "src/lib/controls/**",
+        "src/lib/conformance/**",
+        "src/app/api/org/conformance-pack/**",
+        "src/app/api/org/controls/**",
+        "src/features/standing/governance/**"
       ]
     },
     {
