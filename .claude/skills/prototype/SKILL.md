@@ -4,9 +4,11 @@ description: Iteratively prototype an ascent UI surface through directional vari
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 ---
 
-# Prototype — Directional Variant Workflow (ascent)
+# Prototype — Directional Variant Workflow (ascent) · v3
 
 A disciplined A/B prototyping loop for refining an ascent UI surface. Start from a named file, produce radically different directional variants behind a tab switcher, let the user prune/fuse across rounds until one direction wins, then consolidate + refactor into the brand system. The workflow is distilled from a real 5-round session; the guardrails cut the rounds needed next time.
+
+**v3 — the excellence gate.** v2 produced *different* layouts of a mediocre baseline and called it a round: layout diversity is not quality, and a user who cannot articulate a direction is asking for a **quality boost**, not more options. v3 makes the bar explicit and self-checked: every round writes a design brief BEFORE variant code (Phase 3a½), and every variant is scored against a 10-row critique BEFORE it is shown (Phase 3c) — a variant under 16/20, or with any row at 0, is reworked or dropped, never presented. The bar lives in [`references/design-excellence.md`](references/design-excellence.md); read it in full at the start of every round.
 
 **This skill is tuned to ascent.** It knows the brand kit (`@/components/ui`, `BRAND.md`), the org-dashboard primitives (`@/components/org/ui`), the color/level helpers (`@/lib/ui`), the App-Router server/client split, and the hard **300-LOC-per-`.tsx`** rule. Use those, not raw slate hexes and hand-rolled chrome.
 
@@ -106,6 +108,12 @@ Before writing *any* variant code, spend a few tool calls to calibrate. This is 
 
 Skip this and round 1 gets thrown away wholesale. Spend the tool calls.
 
+### 3a½. The excellence brief — written BEFORE any variant code
+
+Read [`references/design-excellence.md`](references/design-excellence.md) §1–§2 and answer its **brief** in writing for the surface: the ≤ 8-word takeaway sentence, the primary reader and their 5-second question, the hierarchy ladder (1 focal / 2–3 secondary / the explicit tertiary list), the density tier and why, ≥ 3 things a mediocre version would include that this one deletes (each with the decision it would have enabled), the one place motion is allowed, and the zero / loading / error lines. Then one *directional twist* line per variant.
+
+This is the step that turns "make it better" into a specification. The baseline is usually mediocre for reasons the brief exposes on contact: no takeaway, four things competing for focus, small type doing the work of hierarchy, detail at headline weight. **Variants that share the brief and differ in metaphor are the goal** — variants that differ in layout while all inheriting the baseline's unanswered brief are the failure v3 exists to stop. The brief is pasted into the round summary so the user can correct the *premise* rather than the pixels.
+
 ### 3b. Directional variants
 
 The critical word is *directional*. A variant is not "baseline with spacing tweaked"; it's a completely different **mental model** for the same data. Each variant earns its name by carrying a **single central metaphor** through layout, typography, motion, iconography, and copy voice.
@@ -128,6 +136,12 @@ Deliverables per variant:
 
 **Do not propose 3+ variants in round 1.** Two is right. More = analysis paralysis; the user picks a direction by round 2 anyway.
 
+### 3c. The pre-show critique — scored BEFORE the variant is presented
+
+Score every variant against the 10-row rubric in [`references/design-excellence.md`](references/design-excellence.md) §3 (takeaway present, focal dominance / squint, 5-second verdict, token discipline, density match, deletion honesty, accent discipline, state completeness, alignment & grid, motion justification — each 0/1/2). **Minimum to show: 16/20 with no row at 0.** A 0 is disqualifying on its own. Rework and re-score; a variant that cannot clear the bar in two passes is dropped and the round says so — padding a round with a variant you already know is weak is the v2 behaviour.
+
+Put the score in the round summary as `excellence 17/20 (weakest row 5 = 1: …)` per variant. The number plus the weakest row is what lets a user who "can't say where to go" give a precise next instruction. Apply §4's numeric rules (12px floor, the one-hue text ladder, right-aligned tabular numbers, row-height scale, accent budget ≤ 3 roles) while scoring rows 4/5/7/9 — they are the concrete form of those rows.
+
 ---
 
 ## Phase 4: Iterate by subtraction and fusion
@@ -140,7 +154,7 @@ After round 1 the user will usually reject one variant outright, pull a strong e
 - **Add a new variant only when explicitly asked** ("create a new variant with X direction").
 - **Hoist shared pieces mid-prototype.** The moment two variants render the same structure (even styled differently), extract the shared sub-component into a co-located file and let both import it — waiting until refactor time doubles every tweak. When variant B is built *on top of* A's card/sigil/strip, export the shared primitive from A the same turn you create B. Keep `"use client"` on any extracted file with hooks/handlers.
 
-Each round: end with an **explicit menu** of what changed, then ask for the next move. Don't auto-advance.
+Each round: end with an **explicit menu** of what changed — the brief (3a½), each variant's excellence score and weakest row (3c), and the tab names — then ask for the next move. Don't auto-advance.
 
 ---
 
@@ -191,7 +205,7 @@ Linters, formatters, or the user can revert your writes mid-session (this repo's
 The branch usually carries 20-30 unrelated `M` files. A sharp correction from the source session: "did you stash or throw changes elsewhere? I lost progress." If a file shows `M` in `git status`, **do not write to it** unless the user named it. This is exactly why Phase 0 recommends a worktree. Tight single-line diffs only.
 
 ### Typography is a recurring quality axis
-Per `BRAND.md`: numbers are `font-mono … tabular-nums`; labels are mono, uppercase, wide-tracked (or a `Kicker`). Lean `text-base` for body copy; reserve `text-xs`/`text-sm` for those mono labels. Never use arbitrary pixel sizes (`text-[10px]`) — that's a prototype-grade shortcut. **Brighter, not muted:** to promote copy, bump size *and* drop the opacity mute (`text-slate-400 → text-slate-200`/`text-white`, `font-normal → font-medium`). "Promote" means "make more present".
+Sizes come from the semantic type scale in `globals.css` — `type-label` (mono uppercase eyebrow; tracking stays a separate utility), `type-caption` / `type-note` (13px metadata), `type-body-sm` / `type-body` (15/17px copy), `type-figure` / `type-figure-lg` (the typeset stat), `type-title` / `type-heading` / `type-display`. `type-micro` (12px) is the floor and is for dense metadata only. Never a raw `text-xs`/`text-sm` in new code, never an arbitrary pixel size (`text-[10px]`) — both are prototype-grade shortcuts. **Brighter, not muted:** to promote copy, bump size *and* drop the opacity mute (`text-slate-400 → text-slate-200`/`text-white`, `font-normal → font-medium`). "Promote" means "make more present".
 
 ### Animation austerity — but keep the brand signatures
 `BRAND.md` principle #5: "Motion is a beat, gated." Entrances and draw-ons only; everything degrades under `prefers-reduced-motion`. Prefer the existing utilities: `.animate-fade-up`, `.animate-fade-in`, `.animate-phase-in`, `.animate-meter`, or framer-motion entrance-once. **Reject new always-on motion** you invent (looping scans, drifting particles, ambient rotations, `hover:-translate-y-*` on cards). The *deliberate* signature loops already in the app — the `/launch` star twinkle (`.launch-star`), the live-dot pulse (`.live-dot`), the war-room flash — are intentional and are already gated in `globals.css`; don't add new ones outside those established motifs. **Every animation you add must be gated under `@media (prefers-reduced-motion: reduce)`** (the `ascent-*` keyframe utilities already are — new inline framer-motion is not, so guard it). Rule of thumb: if the user would see the motion after leaving the screen idle, cut it.
@@ -233,6 +247,7 @@ Red flags → reset direction: wholesale rejection round after round; the user r
 - [ ] Brand compliance: primitives from `@/components/ui` / `@/components/org/ui`, colors from `@/lib/ui`/`deltaHex` — no hand-picked hexes or raw hand-rolled `<select>`/cards.
 - [ ] Consumer import paths still resolve (grep the old filename → zero stale references).
 - [ ] New animations gated under `prefers-reduced-motion`.
+- [ ] The winner's final excellence score (§3) is ≥ 16/20 with no row at 0, and the round summary carried the brief.
 - [ ] Worktree removed and branch deleted after the winner lands (if one was used).
 - [ ] If refactored: co-located sub-components mirror a sibling folder; `context-map.json` updated if ownership changed.
 
