@@ -221,7 +221,8 @@ describe("the one-source rule, structurally", () => {
   });
 
   it("keeps the lane's own session id a JOIN KEY — it is written, never read into a cost", () => {
-    const src = readFileSync(join(root, "local", "loop-lane.ts"), "utf8");
+    // lane-cost.ts is where the lane's cost write-back lives (extracted from loop-lane.ts).
+    const src = readFileSync(join(root, "local", "lane-cost.ts"), "utf8");
     expect(src).toContain("agentSessionId");
     expect(/agentSessionId[^\n]*\+/.test(src)).toBe(false);
   });

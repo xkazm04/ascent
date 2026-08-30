@@ -79,6 +79,12 @@ import type { SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
 import type { TransitionProgramRow } from "@/lib/db/org-program";
 import type { UsageEventRow } from "@/lib/db/usage-events";
 import type { InterventionOutcomeRow } from "@/lib/db/outcomes";
+// MOONSHOT #25 — the per-item lane ledger and the lesson inbox both render in the cockpit, and both
+// carry `DateTime` columns (`deferUntil`, `reviewedAt`, `createdAt`). `LaneBriefProvenance` is not a
+// db module's type but it IS a row's parsed payload (`LoopRunLane.briefJson`) and reaches the same
+// client, so it belongs here on the same reasoning the ManifestReadout entry gives.
+import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
+import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 // Not a db module, but a db ROW TYPE all the same: ManifestReadout is parsed off
 // Repository.manifestJson in org-rollup and crosses to the Passports client via OrgRepoRow.manifest.
@@ -141,6 +147,8 @@ export const WIRE_TYPES = {
   KnowledgeSubjectRow: true satisfies WireSafe<KnowledgeSubjectRow>,
   MemoryProposalRow: true satisfies WireSafe<MemoryProposalRow>,
   InterventionOutcomeRow: true satisfies WireSafe<InterventionOutcomeRow>,
+  LaneBriefProvenance: true satisfies WireSafe<LaneBriefProvenance>,
+  LaneOutcomeRow: true satisfies WireSafe<LaneOutcomeRow>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
