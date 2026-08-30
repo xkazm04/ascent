@@ -23,7 +23,7 @@ import { BedrockProvider } from "@/lib/llm/bedrock";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { matrixCaptureEnabled, captureMatrixInput } from "@/lib/llm/matrix-capture";
 import { evalLogEnabled } from "@/lib/llm/eval-log";
-import type { ScanReport } from "@/lib/types";
+import type { PlatformSignalRecord, ScanReport } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { canMintInstallationToken } from "@/lib/authz";
@@ -107,6 +107,20 @@ export interface ScanOptions {
    * stops burning the function's duration budget, GitHub rate limit, and LLM spend.
    */
   signal?: AbortSignal;
+  /**
+   * This scan reads a WORKTREE and structurally cannot observe the GitHub-side platform signals
+   * (installed review/CI/coverage Apps, default-branch Actions health — src/lib/analyze/platform-signals.ts).
+   * Declared by the caller, not inferred: a null enrichment is equally what a failed read looks like
+   * on a scan that could have succeeded, and only this flag makes the resulting report say D2/D3/D4
+   * were NOT MEASURABLE rather than silently scoring them at their file-scan floor.
+   */
+  platformSignalsUnobservable?: boolean;
+  /**
+   * The last observed platform fold for this repo (see `getLatestPlatformSignals`), replayed into the
+   * dimension scores when this scan cannot observe one — with its provenance and age on every line it
+   * adds. Ignored when the live enrichments are present.
+   */
+  carriedPlatformSignals?: { record: PlatformSignalRecord; scanId: string } | null;
 }
 
 /**
@@ -236,7 +250,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   }
 
   // ── Phase 2: deterministic signals → the model's input ────────────────────────────────────────
-  const { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings } = await buildScanScoreInput({
+  const { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings, platformSignals } = await buildScanScoreInput({
     snapshot,
     prStats,
     governance,
@@ -248,6 +262,11 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     // decisionOrgSlug (individual tier) points the standing-decision read at the TRIGGERING viewer's
     // personal org on the public funnel; org scans keep reading their own org via the orgSlug fallback.
     decisionSlug: opts.decisionOrgSlug ?? opts.orgSlug,
+    // A worktree scan cannot observe the GitHub-side folds. Both of these are the CALLER's claim —
+    // see ScanOptions — and together they decide whether the report says "carried from scan X" or
+    // "D2/D3/D4 not measurable here" instead of quietly reporting a floor as a measurement.
+    platformSignalsUnobservable: opts.platformSignalsUnobservable,
+    carriedPlatformSignals: opts.carriedPlatformSignals,
   });
 
   // Model-matrix capture (dev/bench only, gated on ASCENT_MATRIX_CAPTURE_DIR): dump the fully-built
@@ -280,7 +299,19 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // The mock floor is a SILENT failure: a report still renders, so it counts as a success everywhere
   // else even though the model never ran. Tallied separately from the error rate, which is defined
   // over scans that terminated.
-  if (llmFailed) void recordScanDegraded(intendedProvider);
+  //
+  // It is also the failure mode that makes a run-over-run "lift" meaningless: a mock score and a real
+  // score are two different rulers, so a delta across that boundary measures the engine swap, not the
+  // repository. The counter above is aggregate and unattributed; this line names the repo and the
+  // engine that was supposed to answer, at `warn`, so the degrade is visible in the server log of the
+  // very run whose numbers it invalidates rather than only in a metric nobody is watching.
+  if (llmFailed) {
+    void recordScanDegraded(intendedProvider);
+    console.warn(
+      `[scan] ${repoFullName}: LLM assessment degraded to the deterministic mock floor (intended provider: ${intendedProvider}). ` +
+        `This scan's scores are NOT model-assessed — any lift measured against a real-engine scan is engine noise, not repository change.`,
+    );
+  }
 
   // ── Phase 4: compose ─────────────────────────────────────────────────────────────────────────
   // The mock fallback (and any provider that ignores the signal) can resolve even after a
@@ -326,6 +357,16 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // refuse caching or persisting this report as authoritative (the matching prose caveat comes from
   // buildScanWarnings below).
   if (prPartial) report.prPartial = true;
+  // Stamp the mock-floor degrade onto the report's own engine record. composeScanReport only knows
+  // WHICH provider answered; `llmFailed` — the fact that one was asked for and did not — lives only
+  // here, and without it a degraded scan is indistinguishable from a deliberate keyless one once the
+  // row is persisted. Written unconditionally (false, not omitted, on a live scan) so a consumer can
+  // tell "proven not degraded" from "predates the flag".
+  report.engine.degraded = llmFailed;
+  // What this scan could see of GitHub, and from when. Stamped here rather than inside composeScanReport
+  // for the same reason `degraded` is: the compose phase knows the SIGNALS, not the provenance of the
+  // enrichment that produced them.
+  if (platformSignals) report.platformSignals = platformSignals;
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings = buildScanWarnings({
     detectorWarnings,

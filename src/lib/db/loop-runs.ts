@@ -20,9 +20,13 @@ export {
   LOOP_CONCURRENCY_CAP,
   LOOP_DEFAULT_CONCURRENCY,
   LOOP_MAX_CYCLES_CAP,
+  LANE_KINDS,
   boundLog,
+  laneKindOf,
+  parseTargets,
   toLaneRecord,
   toRunRecord,
+  type LoopLaneKind,
   type LoopLaneOutcome,
   type LoopLanePhase,
   type LoopLaneRecord,
@@ -30,6 +34,7 @@ export {
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopRunSummary,
+  type LoopTarget,
 } from "@/lib/db/loop-runs-types";
 
 export {
@@ -50,6 +55,8 @@ export {
   getLatestScanIdForRepo,
   getLoopRun,
   getLoopRunDetail,
+  listInFlightLanes,
   listLanes,
   listLoopRuns,
+  type InFlightLane,
 } from "@/lib/db/loop-runs-read";

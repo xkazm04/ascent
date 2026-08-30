@@ -172,6 +172,28 @@ zero score plus a warning, never the whole scan.
 | D8 | AI Process & Harness | Evals/golden tests, prompt/agent library, runbooks, AI contribution process |
 | D9 | Supply Chain & Security | SAST, SCA, secret/container scanning, SBOM, signing, SECURITY.md, threat models |
 
+#### Evidence has to be checkable
+
+A signal is `{ label, detail? }` and renders as `label (detail)`. UAT `SAM-L1-01` (2026-08-10)
+recorded the evidence lines as **unsourced labels** — an instant-trust-failure — because a presence
+check (`RepoIndex.has`) computed which path matched and then discarded it, leaving the reader to
+re-derive the regex by hand.
+
+`RepoIndex.first(...res)` returns that path, and the presence signals cite it: *"Found CLAUDE.md
+(Claude Code guidance) (docs/claude.md)"*. The **quality** claims about a guidance file cite the file
+they were read from, since the claim is about that file's contents.
+
+**A signal fired by TEXT stays unsourced, deliberately.** Several detectors match either a path *or*
+the combined manifest/workflow text blob. When the blob fired one there is no file to point at, so
+`first()` returns `undefined` and no detail is attached — naming a plausible file would be a
+fabrication in the one place the product is asking to be trusted. `evidence-source.test.ts` pins both
+directions.
+
+Covered so far: D1 (all presence + quality signals), D2's framework/e2e/coverage config, D5's
+document set, D6's type-check / pre-commit / CODEOWNERS, D9's SAST / SCA / SECURITY.md /
+threat-model. Not yet: the purely text-blob signals in D3/D8/D9, which have no path to cite at all,
+and the count/ratio signals, whose detail is already a number. Backlog `B4` tracks the sweep.
+
 The same pass also computes `classifyArchetype()` (**solo / team / org**, selects the
 weighting lens later), `detectAiUsage()` (AI-commit fraction, tracked separately from the
 score), and `computeContributors()`.
@@ -334,6 +356,35 @@ These are running all-time totals, not a time series, so the rate is a lifetime 
   *Ungoverned*, *Solid but Manual*, *Getting Started* (`postureFor`).
 - **Warnings**: appended for no token (PR signals skipped), LLM fallback, truncated
   tree, low coverage (< 50%), or a detector error.
+
+#### Provenance: which engine produced the score, and what moved it
+
+Three facts travel with every persisted scan so a run-over-run delta can be *attributed* rather than
+assumed (see [the loop's attribution rule](../org-planning/live.md#is-this-lift-real-the-attribution-rule)):
+
+| Field | Column | Says |
+| --- | --- | --- |
+| `engine.provider` / `engine.model` | `engineProvider`, `engineModel` | which engine answered |
+| `engine.degraded` | `engineDegraded` | an LLM **was requested and never answered**, so the provider above is the deterministic *floor*, not a choice |
+| `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `effectiveBlend` |
+| `report.platformSignals` | `platformSignalsJson` | what this scan could see of **GitHub** — `observed`, `carried` (from which scan, how old, `stale`), or `unavailable` |
+
+The fourth row is the one a *worktree* scan needs. D2/D3/D4 are credited partly for tooling that is
+**installed rather than committed** — review/CI/coverage Apps posting check suites, default-branch
+Actions health (`src/lib/analyze/platform-signals.ts`) — and a scan reading a local filesystem cannot
+observe any of it. `applyPlatformSignals` therefore records what the fold was worth (points +
+evidence, per dimension); a later local scan **replays** that record with its provenance and age on
+every line (`src/lib/analyze/platform-carry.ts`, stale past `PLATFORM_FOLD_STALE_DAYS` = 14), and when
+there is nothing to replay the record says `unavailable` — which excludes those three dimensions from
+the green verdict instead of scoring them at a floor the repository cannot raise. See
+[the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
+
+`engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
+explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
+written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
+/ "nothing widened" / "unavailable", and the readers keep it `undefined` rather than defaulting it.
+That asymmetry is load-bearing for the last row: `unavailable` *removes dimensions from a verdict*,
+and no historical row is entitled to make that claim.
 
 ### App Readiness Passport & autonomy tier (`src/lib/analyze/passport*.ts`)
 
@@ -537,8 +588,10 @@ the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-
 - **LLM fallback is automatic but lossy.** A failed LLM swaps to the deterministic mock;
   the report still renders but with `engine.provider: "mock"` and a warning. It is no longer
   *silent*: each fallback bumps a `scan_degraded` tally (see [Outcome
-  counters](#outcome-counters-srclibscan-outcomets)), but the rate is all-time, so there is
-  still no way to ask "did degradations spike this week" without a real event table.
+  counters](#outcome-counters-srclibscan-outcomets)), writes a `warn`-level line naming the repo and
+  the provider that was supposed to answer, and is recorded **per row** as `Scan.engineDegraded` — but
+  the tally rate is still all-time, so there is no way to ask "did degradations spike this week"
+  without a real event table.
 - **No raw source is persisted** in the MVP; only the derived report (see
   [data-model.md](../data/data-model.md)).
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes

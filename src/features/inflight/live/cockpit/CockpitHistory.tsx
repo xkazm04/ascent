@@ -5,6 +5,7 @@
 // field exactly as if you had watched it happen.
 
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
+import { agentConfigLabel } from "@/lib/local/agent-options";
 import { timeAgo } from "@/lib/ui";
 import type { LoopRunSummary } from "./loopTypes";
 
@@ -30,6 +31,10 @@ export function CockpitHistory({ runs, selectedId, onOpen }: CockpitHistoryProps
       <ul className="mt-2 flex gap-px overflow-x-auto rounded-xl border border-divider bg-divider">
         {runs.map((r) => {
           const on = r.id === selectedId;
+          // The strip is where lifts are actually compared side by side, so it is where the setup has
+          // to appear: three numbers in a row mean nothing if one of them was produced by a different
+          // model. Null (a run older than the columns) prints nothing rather than "default".
+          const agentConfig = agentConfigLabel(r);
           return (
             <li key={r.id} className="shrink-0">
               <button
@@ -50,6 +55,7 @@ export function CockpitHistory({ runs, selectedId, onOpen }: CockpitHistoryProps
                 <span className={`mt-0.5 block font-mono text-xs uppercase tracking-[0.18em] ${PHASE_TONE[r.phase] ?? "text-slate-500"}`}>
                   {r.phase}
                 </span>
+                {agentConfig && <span className="mt-0.5 block font-mono text-xs text-slate-600">{agentConfig}</span>}
               </button>
             </li>
           );

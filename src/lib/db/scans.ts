@@ -22,6 +22,8 @@ export {
   getRepoPassport,
   getPublicScanGallery,
   getLatestRecommendations,
+  getLatestPlatformSignals,
+  PLATFORM_FOLD_LOOKBACK,
   reportPermalink,
   type HistoryPoint,
   type RepositoryHistory,

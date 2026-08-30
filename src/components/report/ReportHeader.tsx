@@ -8,6 +8,7 @@ import { DownloadButton } from "@/components/report/DownloadButton";
 import { pillClass } from "@/components/report/pill";
 import { SkillDownload } from "@/components/report/SkillDownload";
 import { FoundationPrButton } from "@/components/report/FoundationPrButton";
+import { ScoreIntegrityChip } from "@/components/report/ScoreIntegrityChip";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
 
@@ -128,6 +129,11 @@ export function ReportHeader({
               <span className="sr-only">. {AI_ESTIMATE_HINT}</span>
             </span>
           )}
+          {/* What fired while SCORING that could move this headline on an unchanged commit. Sits
+              beside the "may vary between runs" chip on purpose: that one discloses that variation
+              exists, this one names the specific levers that produced it here. Renders nothing on a
+              clean run (UAT SAM-L1-02 — the record existed and nothing showed it). */}
+          <ScoreIntegrityChip report={report} />
           {/* The report's own credibility signal must explain itself — it's the number most likely
               to be challenged in a shared report (repo-report-shell-tabs #3). */}
           <span

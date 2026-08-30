@@ -74,3 +74,52 @@ M14 candidates by severity under continuous cadence:
 - CP2 (2026-07-27): pending — M12 pick (A/B/C/D above).
 - CP3 (2026-07-27): pending — M13 pick (B/C/D/E above).
 - CP4 (2026-07-27): pending — M14 pick (C/D/E/F above).
+
+## Gate re-certified 2026-08-28 on the LOOP-ERA tree (branch `ship/ascent-stabilize`)
+
+The last certification was M13 (2026-07-27, 4240 tests) and it predates the entire loop /
+cockpit / observatory era — design-record gap #13. Re-run here in the overlay's declared
+order, sequentially (never lint concurrently with vitest, per the M11 addendum), on
+`ship/ascent-stabilize` @ 459bd8b1 — 19 commits stacked on the loop + marketing work, tree
+otherwise clean.
+
+| # | step | command | result |
+|---|------|---------|--------|
+| 1 | lint | `npm run lint` | ✓ **0 errors**, 36 warnings |
+| 2 | unit | `npx vitest run` | ✓ **8037 / 8037** across 599 files (36.8s) |
+| 3 | build | `npx next build --webpack` | ✓ exit 0 |
+| 4 | typecheck | `npx tsc --noEmit` (after the build) | ✓ **0 errors** |
+| 5 | loc 300 | AGENTS.md `.tsx` > 300 check | ✓ zero rows |
+| 5b | loc 200 | AGENTS.md `src/features/**` > 200 check | ✓ zero rows |
+| 6 | e2e (loop) | `npm run test:e2e:loop` | ✓ **5 / 5** (3.7m) |
+| 6b | e2e (funnel) | `npx playwright test --grep-invert @livescan e2e/scan.spec.ts e2e/connect` | ✓ 3 passed, 1 skipped (21.4s) |
+
+**Unit tests 4240 → 8037** (+3797 since M13).
+
+**Deviation, webpack not turbopack — this certification does not cover the shipped build
+path.** `npm run build` is `next build`, which is turbopack on Next 16, and turbopack refuses
+this checkout (`node_modules` is a junction in the worktree). Step 3 therefore ran as
+`npx next build --webpack`. CI runs the plain `npm run build` on a real checkout and remains
+the only authority on the turbopack path. For the same reason the funnel e2e ran against a
+hand-started `next dev --webpack -p 3100` with `E2E_BASE_URL` pointed at it, reproducing the
+env `playwright.config.ts` declares (PORT, `LLM_PROVIDER=mock`, a configured-but-unreachable
+`DATABASE_URL`) rather than letting its `webServer` run `npm run dev`. The loop suite needs no
+such workaround — `playwright.loop.config.ts` already commands `next dev --webpack`.
+
+**Ordering caveat, stated rather than papered over.** Steps 1-4 ran on the tree as it stood at
+f02f84aa. Three files changed after that (`.github/workflows/ci.yml`, `e2e/scan.spec.ts`,
+`context-map.json`) and lint + tsc + both e2e suites were re-run on the final tree; vitest and
+the build were not. Neither reads any of the three — vitest's include is `src/**/*.test.{ts,tsx}`,
+`next build` does not compile `e2e/`, and `context-map.json` is imported by nothing (passport.ts
+only tests for its existence).
+
+**Flakes 43 and 45: both green.** Item 43 (`auth.test.ts` contention) held with lint and vitest
+run sequentially. Item 45 (`report-document.test.ts` 5s timeout under full-suite load) passed —
+note the premise has moved: `vitest.config.js` now sets `testTimeout: 15_000` suite-wide, which
+is one of the two fixes that item proposed, so it is closer to closed than the backlog says.
+
+**One real red, found and fixed by wiring e2e into CI (item 11).** The `@smoke` assertion at
+`e2e/scan.spec.ts:22` had been failing since 7deeaa84 (2026-08-14) moved "Plans & credits" from
+the pricing h1 to the metadata title. It ran only in smoke.yml's post-deploy job, so no PR had
+ever seen it. Fixed in 557b06ce. This is the argument for the job in one line: the suite was
+green everywhere it was allowed to run and red the moment it ran.

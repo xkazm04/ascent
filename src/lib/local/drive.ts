@@ -17,71 +17,46 @@
 // followups.ts (a trailer is a hint; a row closes only when the rescan stops raising it AND the
 // dimension moved) this is what makes the loop safe to leave alone.
 //
-// Process-local by design, like the loop engine's `live` registry: each run it starts is a durable
-// LoopRun row, so what actually HAPPENED survives a restart; only the drive's intent to continue is
-// in memory, and a restart ends the drive rather than resuming into a state it cannot verify.
+// DURABLE SINCE 2026-08-28. The registry below is still process-local — a live task and a stop flag
+// cannot be serialized — but every transition is mirrored onto a LoopDrive row (src/lib/db/drives.ts),
+// so a restart no longer erases the drive itself. What a restart still does NOT do is resume: the
+// boot sweep reconciles the orphaned row to `interrupted`, and re-arming an agent that spends money
+// is a human decision. `resumeDrive` is that decision, and it continues the chain's run count.
 
 import { selfHosted } from "@/lib/env";
-import { autopilotEnabled } from "@/lib/local/agent";
+import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { getLoopRun } from "@/lib/db/loop-runs-read";
+import { createDriveRow, getDriveRow, listDriveRows, markStaleDrivesInterrupted, saveDriveRow } from "@/lib/db/drives";
 import { getOrgRollup, listLocalPairings } from "@/lib/db";
 import { fleetGreenness, repoGreenness } from "@/lib/maturity/green";
+import {
+  DRIVE_DEFAULT_MAX_RUNS,
+  DRIVE_MAX_RUNS_CAP,
+  DRIVE_POLL_MS,
+  driveRunsDone,
+  resumeParams,
+  type DriveInput,
+  type DriveMeasurement,
+  type DriveRunRecord,
+  type DriveStatus,
+} from "@/lib/local/drive-types";
 
-export type DrivePhase = "running" | "green" | "dry" | "ceiling" | "stopped" | "error";
-
-export interface DriveMeasurement {
-  debt: number;
-  green: boolean;
-  greenCount: number;
-  inScope: number;
-  /** Repos still short of green, worst debt first — the next run's targets. */
-  remaining: string[];
-  /** Repos with no scan at all: they are not green, and a run cannot start from nothing. */
-  unscanned: string[];
-}
-
-export interface DriveRunRecord {
-  runId: string;
-  repos: string[];
-  debtBefore: number;
-  debtAfter: number | null;
-  startedAt: string;
-  endedAt: string | null;
-}
-
-export interface DriveStatus {
-  id: string;
-  org: string;
-  phase: DrivePhase;
-  repos: string[];
-  maxRuns: number;
-  maxCycles: number;
-  concurrency: number;
-  runs: DriveRunRecord[];
-  /** The latest measurement, so a status read never has to re-score the fleet. */
-  measurement: DriveMeasurement | null;
-  startedAt: string;
-  endedAt: string | null;
-  error: string | null;
-  stopRequested: boolean;
-}
-
-export interface DriveInput {
-  org: string;
-  /** Explicit scope; defaults to every watched AND paired repo in the org. */
-  repos?: string[];
-  maxRuns?: number;
-  maxCycles?: number;
-  concurrency?: number;
-  actor?: string | null;
-}
-
-/** The rope. A drive is bounded by construction — this is the most it may pull. */
-export const DRIVE_MAX_RUNS_CAP = 8;
-export const DRIVE_DEFAULT_MAX_RUNS = 3;
-/** How often the driver looks at a run it is waiting on. Runs take minutes; this is not a hot loop. */
-export const DRIVE_POLL_MS = 5_000;
+export type {
+  DriveInput,
+  DriveMeasurement,
+  DrivePhase,
+  DriveRunRecord,
+  DriveStatus,
+} from "@/lib/local/drive-types";
+export {
+  DRIVE_DEFAULT_MAX_RUNS,
+  DRIVE_MAX_RUNS_CAP,
+  DRIVE_POLL_MS,
+  driveRunsDone,
+  isDriveLive,
+  resumeParams,
+} from "@/lib/local/drive-types";
 
 export type DriveStep = { action: "stop"; phase: "green" | "dry" | "ceiling" } | { action: "run"; repos: string[] };
 
@@ -102,8 +77,16 @@ export function nextDriveStep(m: DriveMeasurement, prev: DriveMeasurement | null
 export async function measureDrive(orgSlug: string, repos: readonly string[]): Promise<DriveMeasurement> {
   const rollup = await getOrgRollup(orgSlug);
   const dimsByRepo = new Map<string, { dimId: string; score: number; signalScore?: number; llmScore?: number }[]>();
-  for (const r of rollup?.repos ?? []) if (r.latest) dimsByRepo.set(r.fullName, r.latest.dims);
-  const perRepo = repos.map((name) => repoGreenness(name, dimsByRepo.get(name) ?? []));
+  // Dimensions the repo's LATEST reading could not measure — D2/D3/D4 when that reading was a local
+  // scan with no GitHub-side fold to carry. Demanding L5 on them would set the drive an impossible
+  // target and spend its whole rope proving it, which is the failure `dry`/`ceiling` exist to avoid.
+  const unmeasurableByRepo = new Map<string, string[]>();
+  for (const r of rollup?.repos ?? []) {
+    if (!r.latest) continue;
+    dimsByRepo.set(r.fullName, r.latest.dims);
+    if (r.latest.unmeasurableDims?.length) unmeasurableByRepo.set(r.fullName, r.latest.unmeasurableDims);
+  }
+  const perRepo = repos.map((name) => repoGreenness(name, dimsByRepo.get(name) ?? [], unmeasurableByRepo.get(name) ?? []));
   const fleet = fleetGreenness(perRepo);
   return {
     debt: fleet.totalDebt,
@@ -112,6 +95,12 @@ export async function measureDrive(orgSlug: string, repos: readonly string[]): P
     inScope: perRepo.length,
     remaining: fleet.remaining.filter((r) => !r.unscanned).map((r) => r.fullName),
     unscanned: perRepo.filter((r) => r.unscanned).map((r) => r.fullName),
+    // Carried so the cockpit can SAY which dimensions the verdict was reached without. A green light
+    // standing on six dimensions is a different claim from one standing on nine, and a drive that
+    // stops without disclosing the difference is the same silence this whole change removes.
+    notMeasurable: perRepo
+      .filter((r) => r.unmeasurable.length > 0)
+      .map((r) => ({ repo: r.fullName, dims: r.unmeasurable })),
   };
 }
 
@@ -126,19 +115,42 @@ const drives: Map<string, DriveStatus> = ((globalThis as unknown as Record<strin
 const nowIso = () => new Date().toISOString();
 const driveId = () => `drive_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+/** Is THIS process pulling that drive? The predicate the stale-drive sweep needs, and the reason a
+ *  reconcile from a request path cannot end the drive that request is rendering. */
+export function isDriveLiveHere(id: string): boolean {
+  const d = drives.get(id);
+  return d != null && d.endedAt == null && d.phase === "running";
+}
+
+/** The in-memory drive, when this process owns it. Synchronous, for the stop path. */
 export function getDrive(id: string): DriveStatus | null {
   return drives.get(id) ?? null;
 }
 
-export function listDrives(org: string): DriveStatus[] {
+/** The drive, wherever it lives: this process first (it is the fresher copy while pulling), else the
+ *  row a previous process left behind. */
+export async function readDrive(id: string): Promise<DriveStatus | null> {
+  return drives.get(id) ?? (await getDriveRow(id));
+}
+
+/**
+ * An org's drives, newest first. The DB is the list; a drive this process is pulling overrides its own
+ * row, because the row is only as fresh as the last mirror write and the registry is live. Falls back
+ * to memory alone when there is no database, so a keyless deployment still sees its own drive.
+ */
+export async function listDrives(org: string): Promise<DriveStatus[]> {
   const slug = org.trim().toLowerCase();
-  return [...drives.values()].filter((d) => d.org === slug).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const mine = [...drives.values()].filter((d) => d.org === slug);
+  const byId = new Map((await listDriveRows(slug)).map((d) => [d.id, d]));
+  for (const d of mine) byId.set(d.id, d);
+  return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
 export function stopDrive(id: string): boolean {
   const d = drives.get(id);
   if (!d || d.endedAt) return false;
   d.stopRequested = true;
+  void saveDriveRow(d);
   return true;
 }
 
@@ -151,7 +163,12 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
   const org = input.org.trim().toLowerCase();
   if (!selfHosted()) throw new Error("A drive only runs on a self-hosted deployment.");
   if (!autopilotEnabled()) throw new Error("The loop is not enabled on this deployment — set ASCENT_AUTOPILOT=1.");
-  if (listDrives(org).some((d) => !d.endedAt)) throw new Error("A drive is already running for this organization.");
+  // Reconcile BEFORE the single-flight check, exactly as startLoopRun does: a row left `running` by a
+  // dead process would otherwise bar the org from ever starting another drive.
+  await markStaleDrivesInterrupted(org, isDriveLiveHere);
+  if ([...drives.values()].some((d) => d.org === org && !d.endedAt)) {
+    throw new Error("A drive is already running for this organization.");
+  }
 
   const scope =
     input.repos && input.repos.length > 0
@@ -159,7 +176,13 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
       : (await listLocalPairings(org)).filter((p) => p.watched && p.localPath != null).map((p) => p.fullName);
   if (scope.length === 0) throw new Error("Nothing to drive: no watched, paired repositories in scope.");
 
+  // One configuration for the whole drive, resolved here and inherited by every run it dispatches —
+  // a drive that changed model between runs would make its own debt-before/after ledger a comparison
+  // of two setups rather than of two states of the fleet.
+  const agent = resolveAgentConfig({ model: input.model, effort: input.effort });
   const maxRuns = Math.min(DRIVE_MAX_RUNS_CAP, Math.max(1, input.maxRuns ?? DRIVE_DEFAULT_MAX_RUNS));
+  const runsBefore = Math.max(0, Math.trunc(input.runsBefore ?? 0));
+  if (runsBefore >= maxRuns) throw new Error("This drive's run budget is already spent — raise it to drive again.");
   const status: DriveStatus = {
     id: driveId(),
     org,
@@ -170,18 +193,45 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
     concurrency: input.concurrency ?? 2,
     runs: [],
     measurement: null,
+    runsBefore,
+    resumedFrom: input.resumedFrom ?? null,
+    model: agent.model,
+    effort: agent.effort,
     startedAt: nowIso(),
     endedAt: null,
     error: null,
     stopRequested: false,
   };
   drives.set(status.id, status);
-  void drive(status, input.actor ?? null).catch((err) => {
+  await createDriveRow(status, input.actor ?? null);
+  void drive(status, input.actor ?? null).catch(async (err) => {
     status.phase = "error";
     status.error = err instanceof Error ? err.message : String(err);
     status.endedAt = nowIso();
+    await saveDriveRow(status);
   });
   return status;
+}
+
+/**
+ * Re-arm an interrupted drive as a NEW drive continuing the same chain.
+ *
+ * Deliberately not automatic. The interrupted drive stays interrupted (its row is the record of what
+ * that segment did); the new one inherits the scope, the bounds and — the point of the exercise — the
+ * runs already spent, so the operator's rope is not silently re-granted by a server restart.
+ */
+export async function resumeDrive(id: string, actor: string | null): Promise<DriveStatus> {
+  const prior = await readDrive(id);
+  if (!prior) throw new Error("Unknown drive.");
+  const params = resumeParams(prior);
+  if (!params) {
+    throw new Error(
+      prior.phase === "interrupted"
+        ? "This drive already spent its whole run budget — start a new drive with more rope."
+        : `Only an interrupted drive can be resumed; this one is ${prior.phase}.`,
+    );
+  }
+  return startDrive({ ...params, actor });
 }
 
 async function waitForRun(runId: string, shouldStop: () => boolean): Promise<void> {
@@ -202,19 +252,31 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
   let prev: DriveMeasurement | null = null;
   let m = await measureDrive(st.org, st.repos);
   st.measurement = m;
+  await saveDriveRow(st);
   for (;;) {
     if (st.stopRequested) {
       st.phase = "stopped";
       break;
     }
-    const step = nextDriveStep(m, prev, st.runs.length, st.maxRuns);
+    // The CHAIN's run count, not this segment's: a resumed drive must not be handed the whole rope
+    // again just because a restart split its history in two.
+    const step = nextDriveStep(m, prev, driveRunsDone(st), st.maxRuns);
     if (step.action === "stop") {
       st.phase = step.phase;
       break;
     }
-    const run = await startLoopRun({ org: st.org, repos: step.repos, maxCycles: st.maxCycles, concurrency: st.concurrency, actor });
+    const run = await startLoopRun({
+      org: st.org,
+      repos: step.repos,
+      maxCycles: st.maxCycles,
+      concurrency: st.concurrency,
+      model: st.model,
+      effort: st.effort,
+      actor,
+    });
     const rec: DriveRunRecord = { runId: run.id, repos: step.repos, debtBefore: m.debt, debtAfter: null, startedAt: nowIso(), endedAt: null };
     st.runs.push(rec);
+    await saveDriveRow(st);
     await waitForRun(run.id, () => st.stopRequested);
     // Re-score from what the lanes persisted. This — not the run's own progress flag — decides whether
     // there is another run.
@@ -223,6 +285,8 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
     st.measurement = m;
     rec.debtAfter = m.debt;
     rec.endedAt = nowIso();
+    await saveDriveRow(st);
   }
   st.endedAt = nowIso();
+  await saveDriveRow(st);
 }

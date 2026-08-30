@@ -10,6 +10,7 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { HairlineGrid, Kicker } from "@/components/ui";
 import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, planScanLine, type PlanId } from "@/lib/plans";
+import { ctaFor } from "./pricingCta";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 import { PlanEnquiryCta } from "@/components/pricing/PlanEnquiryCta";
 import { SelfHostBand } from "@/components/pricing/SelfHostBand";
@@ -21,46 +22,11 @@ import { getViewer } from "@/lib/access";
 import { selfHosted } from "@/lib/env";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 
-// Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
-// `href={id === "free" ? "/" : "/connect"}` ternary sent the paid tiers AND the bespoke one to /connect (the
-// repo-watch page): "Contact us" dead-ended with no way to reach anyone, and "Get started" landed on a
-// screen that is neither a checkout nor a plan upgrade. Free → run a scan.
-//
-// Starter/Team (G1-01): when Polar is configured with a POLAR_PLAN_PRODUCTS mapping for the tier AND we can
-// resolve the signed-in viewer's org (the checkout route requires ?org=, see /api/billing/checkout), the
-// CTA becomes a REAL "Subscribe" checkout link. Anonymous visitors, viewers without an org yet, or a
-// deployment with Polar unconfigured/no plan-product mapping all degrade to the previous "Get started" →
-// /onboarding funnel (a real, working destination, never a dead button) — /onboarding is where an org
-// gets created in the first place, and the org dashboard's own CreditsControl offers the same checkout
-// once the org exists.
-//
-// The CUSTOM tier (billing: "custom") has no href at all: `ctaFor` returns null and the card renders
-// PlanEnquiryCta, a dialog that captures the requirement and mails it to the operator. It used to be a
-// `mailto:` when ASCENT_CONTACT_EMAIL was set and "Learn more" → /about when it wasn't — so on a deploy
-// without that env, the page's highest-intent click landed on a marketing page.
+// The per-tier CTA decision lives in `./pricingCta` — a page module may export only the App Router's
+// route contract, so a named export here made `.next/types` reject the route and `tsc --noEmit` red on
+// a clean tree. See that file for the destinations and the degrade rules.
 const CTA_CLASS =
   "focus-ring mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
-
-/** Pure — testable without rendering the page. `org`/`planProductId` are already resolved by the
- *  caller (null/undefined when unavailable), so this only decides the CTA shape from that outcome.
- *  `null` means "this tier has no destination" — the card renders the enquiry dialog instead. */
-export function ctaFor(
-  id: PlanId,
-  org: string | null,
-  planProductId: string | undefined,
-): { href: string; label: string } | null {
-  if (id === "free") return { href: "/", label: "Scan a repo free" };
-  // Keyed off the BILLING MODEL, not the literal id: a bespoke tier is one that can't be bought from a
-  // page, whatever it ends up being called.
-  if (PLAN_FEATURES[id].billing === "custom") return null;
-  if (org && planProductId) {
-    return {
-      href: `/api/billing/checkout?org=${encodeURIComponent(org)}&pack=${encodeURIComponent(planProductId)}`,
-      label: "Subscribe",
-    };
-  }
-  return { href: "/onboarding", label: "Get started" };
-}
 
 /** The signed-in viewer's primary (most privileged, then most recent) org slug, or null when there is
  *  no DB, no signed-in viewer, or the viewer belongs to no real org yet — mirrors the header's

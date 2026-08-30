@@ -130,6 +130,7 @@ model Organization {
   // singular `repoMemoryMirror`. A Prisma model cannot carry two fields of the same name, and the
   // FLAG is the one the product surface reads by name — so the relation is the one that pluralizes.
   repoMemoryMirrors RepoMemoryMirror[]
+  loopDrives        LoopDrive[]
 }
 
 // A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
@@ -539,9 +540,9 @@ model RepoTeam {
 }
 
 model Scan {
-  id                String   @id @default(uuid())
-  repoId            String
-  headSha           String? // the commit the scan pinned to — powers /report/{owner}/{repo}@{sha} permalinks
+  id                  String   @id @default(uuid())
+  repoId              String
+  headSha             String? // the commit the scan pinned to — powers /report/{owner}/{repo}@{sha} permalinks
   // CROSS-INSTANCE idempotency key for SHA-LESS scans (G3-01). `@@unique([repoId, headSha])` is the
   // cross-instance dedup backstop for a scan pinned to a commit, but Postgres treats NULLs as distinct,
   // so it never engages when headSha is NULL — two concurrent instances persisting the same sha-less
@@ -554,71 +555,94 @@ model Scan {
   // SET ONLY ON SHA-LESS ROWS. A scan with a headSha leaves this NULL and stays governed by the
   // (repoId, headSha) constraint — one dedup identity per row, never two competing ones. NULLs being
   // distinct is what makes that (and the un-backfilled legacy rows) safe under the unique index.
-  dedupKey          String?
-  overallScore      Int
-  level             String // "L1".."L5"
-  levelName         String
-  archetype         String   @default("org")
-  adoptionScore     Int      @default(0)
-  rigorScore        Int      @default(0)
-  posture           String   @default("")
-  confidence        Float    @default(0)
-  engineProvider    String
-  engineModel       String
-  headline          String
-  strengths         String   @default("[]") // JSON string[]
-  risks             String   @default("[]") // JSON string[]
+  dedupKey            String?
+  overallScore        Int
+  level               String // "L1".."L5"
+  levelName           String
+  archetype           String   @default("org")
+  adoptionScore       Int      @default(0)
+  rigorScore          Int      @default(0)
+  posture             String   @default("")
+  confidence          Float    @default(0)
+  engineProvider      String
+  engineModel         String
+  headline            String
+  strengths           String   @default("[]") // JSON string[]
+  risks               String   @default("[]") // JSON string[]
   // LLM-as-auditor output: suspected deterministic-detector misses, persisted so the
   // detector backlog (getOrgDiscrepancies) can aggregate them across the fleet. JSON Discrepancy[].
-  discrepancies     String   @default("[]")
-  prStats           String? // JSON PrStats (pull-request process signals); null if no token
+  discrepancies       String   @default("[]")
+  prStats             String? // JSON PrStats (pull-request process signals); null if no token
   // W6 — the repo's PRACTICE SHAPE: the heading outlines and path layouts of its guidance, PR
   // template, ADRs and harness. STRUCTURE ONLY, never a body (see analyze/practice-shape.ts). It is
   // what lets the org mine its OWN house pattern instead of shipping the same nine generic starters
   // to every customer. Display/reuse-only — never scored, never on a public surface.
-  practiceShape     String?
-  governance        String? // JSON Governance (branch protection / rulesets); null if no token
-  commitActivity    String? // JSON number[] — last ~12 weekly commit totals; null if no token
+  practiceShape       String?
+  governance          String? // JSON Governance (branch protection / rulesets); null if no token
+  commitActivity      String? // JSON number[] — last ~12 weekly commit totals; null if no token
   // Per-scan detected tech stack (Feature 3a) — JSON TechStack. Keeps history honest when a repo
   // re-stacks; the latest is also cached on Repository.techStackJson. Display-only (never scored).
-  techStackJson     String?
+  techStackJson       String?
   // Per-scan App Readiness Passport — JSON AppPassport. Per-scan history; latest cached on
   // Repository.passportJson. Display-only (never scored). See src/lib/analyze/passport.ts.
-  passportJson      String?
+  passportJson        String?
   // Per-scan Context Health (W4) — JSON ContextHealth: per-guidance-file last-modified + size +
   // quality, approximate commits-since-edit staleness, and dead @file-reference drift. Latest cached
   // on Repository.contextHealthJson. Display-only (never scored). See src/lib/analyze/context-health.ts.
-  contextHealthJson String?
+  contextHealthJson   String?
   // Non-fatal scan caveats (JSON string[]): degrade-to-mock, low-coverage, truncated, no-token, and
   // stack-fit warnings. Persisted so a reloaded/permalinked scan keeps its reliability disclosure
   // instead of silently reading as a confident full scan (reference-scan P1-5). null = none.
-  warningsJson      String?
+  warningsJson        String?
   // Per-scan AI-usage indicator (JSON AiUsage: detected + PR-level signals + tool attribution). Persisted
   // so a reloaded report reproduces the fresh scan's detection instead of a lossy re-derivation from
   // contributors (the tree/commits that back guidance-file detection aren't stored). reference-scan P2/aiUsage.
-  aiUsageJson       String?
+  aiUsageJson         String?
   // Scoring rubric version (SCORING_RUBRIC_VERSION, src/lib/maturity/model.ts) active when this scan was
   // scored. Persisted per-row so the cross-instance DB cache tier can self-invalidate on a rubric bump
   // (persistedMatchesActiveIdentity) instead of serving a stale-rubric score until the 7-day age gate.
   // Nullable: rows scored before this column keep today's behavior (served, age-gated) — never force-rescanned.
-  rubricVersion     String?
+  rubricVersion       String?
   // WHOSE account this scan's inference ran in: true = the org's OWN connected provider (BYOM),
   // false = Ascent's platform account. Read back onto engine.byom so the report header can say
   // "in YOUR AWS account" only when that is literally true. Nullable: rows scored before this column
   // are UNKNOWN, and unknown must render as the platform wording — never as the customer's account.
-  engineByom        Boolean?
+  engineByom          Boolean?
+  // An LLM WAS requested for this scan and every real attempt failed, so `engineProvider` is the
+  // deterministic mock FLOOR rather than a chosen engine (src/lib/scan.ts, `llmFailed`). Distinct from
+  // engineProvider = "mock" on its own, which also covers a keyless deploy and an explicit demo — two
+  // situations that are not failures. The loop's attribution rule reads it: a delta between a mock scan
+  // and a real one measures the engine swap, not the repository, and must never be reported as a lift.
+  // Nullable: rows written before this column are UNKNOWN, and unknown is not "not degraded".
+  engineDegraded      Boolean?
+  // The scoring-integrity record for this scan (JSON ScoreIntegrity — d9Unmeasurable, widenedDims,
+  // widenCapped, effectiveBlend). It was computed, typed and rendered by nothing (UAT SAM-L1-02,
+  // 2026-08-10) and, worse, not persisted at all — so a reconstructed report and every run-over-run
+  // comparison lost the record of the three levers that move a headline on an UNCHANGED commit. Any
+  // consumer comparing two scans has to be able to read it to attribute a delta. Null on legacy rows.
+  scoreIntegrityJson  String?
+  // WHAT THIS SCAN COULD SEE OF GITHUB (JSON PlatformSignalRecord — source, observedAt, fromScanId,
+  // stale, per-dimension folds). The platform folds (analyze/platform-signals.ts) credit D2/D3/D4 for
+  // tooling that is installed rather than committed, and a worktree scan cannot observe any of it. Left
+  // unrecorded, the loop's own rescans scored those three dimensions at a floor the repository could
+  // not raise, while `green` demanded L5 on every one of them — a ceiling with no visible cause. This
+  // column is what lets a local rescan REPLAY the last observed fold (with its age) and, when there is
+  // none, say the dimensions were not measurable instead of scoring them as failed.
+  // Null on legacy rows and on any scan that never asked the question: UNKNOWN, which is deliberately
+  // not the same value as "unavailable" — that one removes dimensions from a verdict.
+  platformSignalsJson String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
-  inputTokens       Int?
-  outputTokens      Int?
-  llmLatencyMs      Int?
+  inputTokens         Int?
+  outputTokens        Int?
+  llmLatencyMs        Int?
   // Per-scan `.ai/manifest.yaml` readout — JSON ManifestReadout (moonshot #13). Per-scan history of
   // what the repo DECLARED, so a later scan can show a capability that was claimed and then dropped;
   // the latest is cached on Repository.manifestJson. Display-only — never scored (G5). Null = this
   // scan fetched no manifest (no file, or a pre-#13 scan), which is NOT "declared nothing".
-  manifestJson      String?
-  scannedAt         DateTime
-  createdAt         DateTime @default(now())
+  manifestJson        String?
+  scannedAt           DateTime
+  createdAt           DateTime @default(now())
 
   repo            Repository       @relation(fields: [repoId], references: [id])
   dimensions      ScanDimension[]
@@ -1641,6 +1665,14 @@ model LoopRun {
   maxCycles   Int       @default(3)
   cycle       Int       @default(0) // the cycle currently being worked (0 = none started yet)
   curated     Boolean   @default(false) // true when the operator approved the batches by hand
+  // What this run's agent sessions were armed with, RESOLVED at arm time (the operator's pick, else
+  // the deployment's CLAUDE_MODEL / ASCENT_AGENT_EFFORT). Persisted because the ledger compares lifts across
+  // runs, and a lift from `sonnet` at default effort and one from `opus` at high effort are results
+  // from two different setups. Resolved rather than raw: a null would mean "whatever the env said that
+  // day", which is exactly the fact that cannot be recovered afterwards.
+  // `effort` stays NULL when no level was chosen — the CLI flag is then not passed at all.
+  model       String?
+  effort      String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1676,6 +1708,47 @@ model LoopRunLane {
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])
+}
+
+// A DRIVE: the sequence of loop runs that pulls a fleet toward green (src/lib/local/drive.ts).
+//
+// The runs it dispatches were always durable; the drive's own INTENT was not — it lived in a Map on
+// globalThis, so a restart mid-drive ended it silently and a status read afterwards reported nothing
+// at all. A row that reads `running` while no process is driving is the same lie a stale LoopRun row
+// is, so it gets the same treatment: the boot sweep reconciles it to `interrupted`, which is a phase
+// a human can act on rather than a job that looks alive forever.
+//
+// Deliberately NOT auto-resumed. A drive spends agent sessions and money; re-arming one is a
+// decision, so `interrupted` is terminal and `resumedFrom` records the chain the operator restarted.
+model LoopDrive {
+  id              String    @id @default(uuid())
+  orgId           String
+  createdBy       String? // GitHub login that armed the drive
+  // running | green | dry | ceiling | stopped | interrupted | error
+  phase           String    @default("running")
+  reposJson       String    @default("[]") // JSON string[] of "owner/name" — the drive's scope
+  maxRuns         Int       @default(3) // the rope, spanning the whole resume chain
+  maxCycles       Int       @default(3)
+  concurrency     Int       @default(2)
+  // Runs already spent by the drives this one resumed. The cap counts the CHAIN, not the segment,
+  // so resuming can never hand an agent more rope than the operator originally allowed.
+  runsBefore      Int       @default(0)
+  resumedFrom     String? // the interrupted drive this one continues
+  runsJson        String    @default("[]") // JSON DriveRunRecord[]
+  measurementJson String? // JSON DriveMeasurement — the latest fleet score, or null before the first
+  stopRequested   Boolean   @default(false)
+  // The agent configuration the drive arms EVERY run it dispatches with, so a multi-run drive is one
+  // experiment rather than several. Same resolved-at-arm-time contract as LoopRun.
+  model           String?
+  effort          String?
+  startedAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  endedAt         DateTime?
+  error           String?
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, startedAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

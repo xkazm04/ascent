@@ -58,6 +58,20 @@ export interface MatrixRow {
   detail: string;
   tag: CreditTag;
   cells: Record<PlanId, Cell>;
+  /**
+   * The row states a tier boundary that NOTHING IN THE CODE ENFORCES — a commercial intent, not a
+   * gate. `docs/features/billing/billing.md:424-438` audited every `planAllows*` predicate and every
+   * plan comparison in the tree and found these six: the fleet dashboard, autoscans + alerts,
+   * segments, playbooks, buying credits, and seats. A Free org gets all of them today.
+   *
+   * Leaving them ticked-and-unmarked was the page asserting a restriction it does not apply, which is
+   * the same defect as promising a capability that doesn't exist, only pointed the other way. The
+   * rows stay (they are the roadmap a buyer is buying into) and say so in the open.
+   *
+   * A row derived from `PLAN_CAPABILITIES` must NEVER carry this flag — those cells ARE the gate,
+   * ticked from the array `planAllows()` indexes. `creditMatrixData.test.ts` pins both directions.
+   */
+  planned?: true;
 }
 
 export interface MatrixGroup {
@@ -103,11 +117,21 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
   {
     key: "scanning",
     title: "Scanning",
-    intro: "Every scan, public or private, draws on one monthly allowance; only scans past it cost a credit.",
+    // CORRECTED. This read "Every scan, public or private, draws on one monthly allowance" — which the
+    // file's own header (line 4-6), `plans.ts:144-146` and `db/credits.ts:3` all contradict: an
+    // anonymous PUBLIC scan is never metered and never touches the allowance. The intro was
+    // contradicting the table three lines below it.
+    intro: "Private scans draw on your monthly allowance; only private scans past it cost a credit. Public scans are always free and never metered.",
     rows: [
       {
-        label: "Repository scan",
-        detail: "Any public or private repo: the full report, radar and roadmap. Free within your monthly allowance, then 1 credit each.",
+        label: "Public repository scan",
+        detail: "Any public repo, by anyone: the full report, radar and roadmap. Never metered on any plan — rate-limited and monthly-capped instead.",
+        tag: "free",
+        cells: all("Unlimited"),
+      },
+      {
+        label: "Private repository scan",
+        detail: "Your own private repos, through the GitHub App: free within your monthly allowance, then 1 credit each.",
         tag: "credit",
         // Same derivation as MATRIX_PLANS — the one row in this table that restates a plan number.
         cells: allowanceCells(),
@@ -120,15 +144,17 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       },
       {
         label: "Scheduled autoscans",
-        detail: "Watched repos rescanned on a schedule, each counts as one scan.",
+        detail: "Watched repos rescanned on a schedule; each rescan of a private repo counts as one scan.",
         tag: "credit",
         cells: from("pro"),
+        planned: true,
       },
       {
         label: "Buy extra scan credits",
         detail: "Top up prepaid credits for scans beyond your plan; they roll over and never expire.",
         tag: "plan",
         cells: from("pro"),
+        planned: true,
       },
     ],
   },
@@ -139,11 +165,13 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
     rows: [
       { label: "Maturity report + roadmap", detail: "The full level, radar and prioritized next steps.", tag: "plan", cells: all(true) },
       { label: "README maturity badge", detail: "A live, shareable score badge for your repo.", tag: "plan", cells: all(true) },
-      { label: "Org fleet dashboard", detail: "Rollups, leaderboard and the dimension heatmap.", tag: "plan", cells: from("pro") },
-      { label: "Regression + credit alerts", detail: "Slack-compatible pushes when a repo slips or credits run low.", tag: "plan", cells: from("pro") },
+      { label: "Org fleet dashboard", detail: "Rollups, leaderboard and the dimension heatmap.", tag: "plan", cells: from("pro"), planned: true },
+      { label: "Regression + credit alerts", detail: "Slack-compatible pushes when a repo slips or credits run low.", tag: "plan", cells: from("pro"), planned: true },
+      // Retention IS enforced (src/lib/db/retention.ts reads PlanFeature.retentionDays), so this row
+      // is a real per-tier difference and carries no `planned` flag.
       { label: "Scan history", detail: "Progress trends over your retention window.", tag: "plan", cells: { free: "30 days", pro: "180 days", team: "1 year", enterprise: "Custom" } },
-      { label: "Segments + comparisons", detail: "Slice the fleet by business unit and compare side by side.", tag: "plan", cells: from("team") },
-      { label: "Playbooks + planning", detail: "Turn gaps into tracked initiatives and goals.", tag: "plan", cells: from("team") },
+      { label: "Segments + comparisons", detail: "Slice the fleet by business unit and compare side by side.", tag: "plan", cells: from("team"), planned: true },
+      { label: "Playbooks + planning", detail: "Turn gaps into tracked initiatives and goals.", tag: "plan", cells: from("team"), planned: true },
       // The GATED capabilities, ticked from the very array the entitlement gate indexes. These rows
       // used to be hand-typed with hand-typed `from(tier)` cells, so the matrix could promise a tier a
       // capability the gate refused (and it silently omitted Shared org memory and PDF export, both
@@ -157,11 +185,18 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       { label: "SSO · SAML/OIDC", detail: "Directory sign-in and provisioning, scoped as part of a Custom plan.", tag: "plan", cells: { free: false, pro: false, team: false, enterprise: "Scoped" } },
       { label: "Hosting", detail: "Where Ascent and its inference run.", tag: "plan", cells: { free: "Shared cloud", pro: "Shared cloud", team: "Shared cloud", enterprise: "Your VPC / on-prem" } },
       { label: "Support", detail: "How fast you can expect an answer.", tag: "plan", cells: { free: "Community", pro: "Email", team: "Email", enterprise: "SLA you pick" } },
-      { label: "Members / seats", detail: "How many teammates can share the org.", tag: "plan", cells: { free: "1", pro: "3", team: "10", enterprise: "Yours to set" } },
+      { label: "Members / seats", detail: "How many teammates can share the org.", tag: "plan", cells: { free: "1", pro: "3", team: "10", enterprise: "Yours to set" }, planned: true },
     ],
   },
 ];
 
 /** The one-sentence rule the whole matrix proves — reused across variants so copy can't drift. */
 export const CREDIT_RULE =
-  "Credits buy exactly one thing: a scan beyond your monthly allowance. Cached re-scans and every capability are free or included in your plan.";
+  "Credits buy exactly one thing: a PRIVATE scan beyond your monthly allowance. Public scans, cached re-scans and every capability are free or included in your plan.";
+
+/** The footnote the `planned` flag obliges. Rendered wherever a matrix variant renders the marker. */
+export const PLANNED_NOTE =
+  "Rows marked Planned are tier boundaries we intend to enforce and do not enforce yet: today every plan can use them. They are listed so the comparison is a roadmap you can hold us to, not a restriction you would discover later.";
+
+/** Every row the matrix marks as an unenforced tier boundary. Exported for the drift test. */
+export const PLANNED_ROW_LABELS: string[] = MATRIX_GROUPS.flatMap((g) => g.rows.filter((r) => r.planned).map((r) => r.label));

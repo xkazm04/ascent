@@ -12,8 +12,13 @@ import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
 
 // Minimal cast — the header reads repo/archetype/aiUsage/engine/confidence/scannedAt, plus (since
 // G5-17) the score/level/dimension fields the "Copy for LLM" payload is rendered from.
-function report(owner: string, engine?: Partial<ScanReport["engine"]>): ScanReport {
+function report(
+  owner: string,
+  engine?: Partial<ScanReport["engine"]>,
+  scoreIntegrity?: ScanReport["scoreIntegrity"],
+): ScanReport {
   return {
+    ...(scoreIntegrity ? { scoreIntegrity } : {}),
     repo: {
       owner,
       name: "web",
@@ -172,6 +177,67 @@ describe("ReportHeader", () => {
     const link = screen.getByRole("link", { name: /share card/i });
     expect(link).toHaveAttribute("href", expect.stringContaining("/api/report/share-card?repo="));
     expect(link.getAttribute("href")).toContain(encodeURIComponent("acme/web@abc123"));
+  });
+
+  // SAM-L1-02 (UAT 2026-08-10): scoreIntegrity was "computed, typed, persisted and rendered by
+  // nothing". These pin the affordance that closes it — and, as importantly, pin that it stays absent
+  // when there is nothing to disclose, since a chip on every report is how a real disclosure gets
+  // tuned out.
+  describe("score-integrity chip", () => {
+    const chip = () => screen.queryByTestId("score-integrity-chip");
+
+    it("does not render on a clean run", () => {
+      render(
+        <ReportHeader
+          report={report("acme", undefined, { d9Unmeasurable: false, widenedDims: [], effectiveBlend: 0.6 })}
+          isMock={false}
+        />,
+      );
+      expect(chip()).toBeNull();
+    });
+
+    it("does not render when the field is absent — unknown is not a finding", () => {
+      render(<ReportHeader report={report("acme")} isMock={false} />);
+      expect(chip()).toBeNull();
+    });
+
+    it("names the D9 hatch and the widened dimensions when they fired", () => {
+      render(
+        <ReportHeader
+          report={report("acme", undefined, { d9Unmeasurable: true, widenedDims: ["D1", "D2"], effectiveBlend: 0.6 })}
+          isMock={false}
+        />,
+      );
+      expect(chip()).toHaveTextContent("D9 renormalized out");
+      expect(chip()).toHaveTextContent("widened D1, D2");
+      // The explanation is reachable without a pointer, matching every other hinted chip here.
+      expect(chip()).toHaveTextContent(/what moved this score independently of the repository/i);
+    });
+
+    it("reports a coverage-reduced blend as the share of the model's usual weight that was applied", () => {
+      render(
+        <ReportHeader
+          report={report("acme", undefined, { d9Unmeasurable: false, widenedDims: [], effectiveBlend: 0.3 })}
+          isMock={false}
+        />,
+      );
+      expect(chip()).toHaveTextContent("blend 50%");
+    });
+
+    it("says the audit was CAPPED instead of listing widened dims, because none were", () => {
+      render(
+        <ReportHeader
+          report={report("acme", undefined, {
+            d9Unmeasurable: false,
+            widenedDims: [],
+            widenCapped: true,
+            effectiveBlend: 0.6,
+          })}
+          isMock={false}
+        />,
+      );
+      expect(chip()).toHaveTextContent("audit capped");
+    });
   });
 
   it("pdf-llm-export #1: the export button shows a busy state while the render is in flight and ignores re-clicks", async () => {

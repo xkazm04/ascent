@@ -5,7 +5,7 @@
 // a11y). Built on the brand kit (SectionHeading / Surface / HairlineGrid).
 
 import dynamic from "next/dynamic";
-import { LEVELS } from "@/lib/maturity/model";
+import { LEVELS, LEVEL_BY_ID } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 import { HairlineGrid, SectionHeading, Surface } from "@/components/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
@@ -28,8 +28,12 @@ export function IndexLevels() {
       <SectionHeading
         size="page"
         kicker="The ladder"
-        title="Five levels, plotted as a climb"
-        intro="Each level is a higher altitude band on the 0–100 index. Cross the dashed line and the org reads AI-Native: adopting AI with the rigor to ship it safely."
+        title={`${LEVELS.length} levels, plotted as a climb`}
+        // The dashed line's meaning is derived alongside the line itself (TrajectoryChart's
+        // AGENT_BAND). This intro said "cross the dashed line and the org reads AI-Native" while the
+        // line was drawn at the POSTURE threshold — a cut on the adoption and rigor axes, not on the
+        // index this chart plots, and one that lands inside L3 besides. Crossing it changed nothing.
+        intro={`Each level is a higher altitude band on the 0–100 index. The dashed line is ${LEVEL_BY_ID.L4.id} — ${LEVEL_BY_ID.L4.name} — where agents move from the keyboard into the process itself: ${LEVEL_BY_ID.L4.tagline}.`}
       />
 
       {/* tick-corners frames the chart plate as an instrument read-out — the same registration marks

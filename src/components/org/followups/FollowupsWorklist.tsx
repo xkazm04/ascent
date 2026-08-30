@@ -26,6 +26,7 @@ import {
   applyFilters,
   dimensionSpread,
   emptyFilters,
+  isSelectable,
   patchStatuses,
   summarizeSelection,
   type DimensionSpread,
@@ -44,7 +45,11 @@ export function FollowupsWorklist({ org, rows, initialDim }: { org: string; rows
   const spread = useMemo(() => dimensionSpread(rows), [rows]);
   const shown = applyFilters(rows, filters, spread);
   const sel = summarizeSelection(rows, selected);
-  const allShownSelected = shown.length > 0 && shown.every((r) => selected.has(r.id));
+  // Select-all covers the shown rows a batch can actually act on — the same rule the row checkbox
+  // enforces (isSelectable). In the resolved archive that set is empty, so the header box stays
+  // unchecked and inert rather than loading the bulk bar with rows nothing can be done to.
+  const selectable = shown.filter(isSelectable);
+  const allShownSelected = selectable.length > 0 && selectable.every((r) => selected.has(r.id));
   const orgWideDims = [...spread.values()].filter((s) => s.orgWide).length;
 
   const toggle = (id: string) =>
@@ -57,8 +62,8 @@ export function FollowupsWorklist({ org, rows, initialDim }: { org: string; rows
   const toggleAllShown = () =>
     setSelected((s) => {
       const n = new Set(s);
-      if (allShownSelected) shown.forEach((r) => n.delete(r.id));
-      else shown.forEach((r) => n.add(r.id));
+      if (allShownSelected) selectable.forEach((r) => n.delete(r.id));
+      else selectable.forEach((r) => n.add(r.id));
       return n;
     });
   const bulkStatus = async (status: "done" | "dismissed") => {
@@ -161,7 +166,7 @@ function RowPair({
   onExpand: () => void;
   org: string;
 }) {
-  const closed = r.status === "done" || r.status === "dismissed";
+  const closed = !isSelectable(r);
   return (
     <>
       <tr className={`${on ? "bg-accent/5" : ""} ${closed ? "opacity-70" : ""}`}>

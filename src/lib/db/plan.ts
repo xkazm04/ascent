@@ -1,14 +1,19 @@
-// The "Plan" layer — the management surface over the fleet: maturity goals (targets the org is
-// steering toward, progress derived live from the latest scans), initiatives (tracked, scoped
-// programs of work — usually born from a fleet recommendation), and the org what-if simulator
-// (project the fleet impact of landing a fix on a chosen repo set, via the pure simulateFleet).
+// MATURITY GOALS — a target on a fleet metric, with progress, pace and ETA derived live from the
+// latest scans. Read-only in the product since 2026-08-17: the briefing, the live wall's goal banner,
+// the overview's fix-first band and the digest alerts all read these; the management UI that wrote
+// them (the Plan tab's GoalsPanel) retired that day, so /api/org/goals has no in-app caller.
+//
+// This file is still named for the retired "Plan" layer. Initiatives and the org what-if simulator
+// went with the tab — see the note at the foot of the file for exactly what left and where the work
+// it carried lives now. Do not re-derive their behaviour from this header; it described them until
+// 2026-08-28 and was the only thing in the file that still claimed they existed.
 //
 // Every function is a no-op / null when DATABASE_URL is unset, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
-import { DEFAULT_INITIATIVE_TARGET, DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 

@@ -7,9 +7,12 @@ import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
+import { attributeDelivered } from "@/lib/maturity/attribution";
 import {
+  laneKindOf,
   toLaneRecord,
   toRunRecord,
+  type LoopLaneKind,
   type LoopLaneOutcome,
   type LoopLaneRecord,
   type LoopRunDetail,
@@ -43,6 +46,39 @@ export async function listLanes(runId: string): Promise<LoopLaneRecord[]> {
       orderBy: [{ cycle: "asc" }, { repoFullName: "asc" }],
     });
     return rows.map(toLaneRecord);
+  }, []);
+}
+
+/** A lane of a run that is still marked `running` — enough to find its worktree on disk. */
+export interface InFlightLane {
+  runId: string;
+  orgSlug: string;
+  repoFullName: string;
+  /** The branch the lane's worktree has checked out. Its identity, on disk and in git. */
+  branch: string;
+}
+
+/**
+ * Every lane of every run still marked `running` — read by the BOOT SWEEP, immediately before it
+ * marks those runs stopped, so the temp worktrees they stranded can be removed by name.
+ *
+ * Read BEFORE the sweep, deliberately: after it, a lane interrupted by a restart is indistinguishable
+ * from one that errored a week ago, and the sweep would be removing worktrees it never stopped.
+ * Lanes with no branch are dropped — they died before `git worktree add` ran, so there is nothing on
+ * disk with their name on it.
+ */
+export async function listInFlightLanes(): Promise<InFlightLane[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe<InFlightLane[]>(async () => {
+    const rows = await getPrisma().loopRunLane.findMany({
+      where: { branch: { not: null }, run: { is: { phase: "running" } } },
+      select: { runId: true, repoFullName: true, branch: true, run: { select: { org: { select: { slug: true } } } } },
+    });
+    return rows.flatMap((r) =>
+      r.branch && r.run.org.slug
+        ? [{ runId: r.runId, orgSlug: r.run.org.slug, repoFullName: r.repoFullName, branch: r.branch }]
+        : [],
+    );
   }, []);
 }
 
@@ -104,21 +140,32 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
     // page's lanes name, score them in a single read, then fold each run's lift out of that map.
     const lanes = await prisma.loopRunLane.findMany({
       where: { runId: { in: rows.map((r) => r.id) } },
-      select: { runId: true, beforeScanId: true, afterScanId: true },
+      // `commits` rides along because the strip's lift answers to the DURABILITY rule too: a lane
+      // that committed nothing measured a worktree the run then deleted, and folding that into a
+      // green number here would have the history strip claim a lift the ledger refuses (L2-B-01).
+      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true },
     });
     const ids = [
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
     ];
     const scans = ids.length
-      ? await prisma.scan.findMany({ where: { id: { in: ids } }, select: { id: true, overallScore: true } })
+      ? await prisma.scan.findMany({
+          where: { id: { in: ids } },
+          // The engine columns ride along with the score: the history strip's lift is the same claim
+          // the outcome ledger makes, so it answers to the same attribution rule. Without them this
+          // read would fold a mock/real pair — or a run of pure model wobble — into a green number
+          // the ledger beside it refuses to print.
+          select: { id: true, overallScore: true, engineProvider: true, engineDegraded: true },
+        })
       : [];
-    const score = new Map(scans.map((s) => [s.id, s.overallScore]));
+    const score = new Map(scans.map((s) => [s.id, s]));
     const liftByRun = new Map<string, number>();
     for (const l of lanes) {
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
-      if (b == null || a == null) continue;
-      liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + (a - b));
+      const verdict = attributeDelivered(b, a, l.commits);
+      if (verdict.kind !== "attributable") continue;
+      liftByRun.set(l.runId, (liftByRun.get(l.runId) ?? 0) + verdict.delta);
     }
     return rows.map((row) => {
       const r = toRunRecord(row);
@@ -131,6 +178,10 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
         startedAt: r.startedAt,
         endedAt: r.endedAt,
         lift: liftByRun.has(r.id) ? (liftByRun.get(r.id) as number) : null,
+        // The configuration the lift was produced under travels with it: a strip of numbers whose
+        // setups differ is a comparison nobody can make.
+        model: r.model,
+        effort: r.effort,
       };
     });
   }, []);
@@ -152,13 +203,18 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
     .catch(() => null);
   const lanes = await listLanes(id);
   const outcomes: LoopLaneOutcome[] = [];
-  for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug));
+  for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   return { run, lanes, outcomes };
 }
 
-async function laneOutcome(lane: LoopLaneRecord, orgSlug: string | undefined): Promise<LoopLaneOutcome> {
+async function laneOutcome(
+  lane: LoopLaneRecord,
+  orgSlug: string | undefined,
+  kind: LoopLaneKind,
+): Promise<LoopLaneOutcome> {
   const base: LoopLaneOutcome = {
     lane,
+    kind,
     before: null,
     after: null,
     diff: null,

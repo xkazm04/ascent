@@ -160,6 +160,10 @@ function makeReport(over: {
   scannedAt?: string;
   roadmap?: Array<{ dimension: string; title: string }>;
   engineProvider?: string;
+  /** The mock floor FIRED (a model was requested and never answered) — the provenance flag. */
+  engineDegraded?: boolean;
+  /** The ScoreIntegrity record the engine computed for this scan. */
+  scoreIntegrity?: ScanReport["scoreIntegrity"];
   /** Follow-up ids the commit sample declared resolved (Ascent-Resolves trailers). */
   resolvedFollowUpIds?: string[];
   /** Dimension scores on THIS scan — the after-side of the movement witness (2026-08-26). */
@@ -191,7 +195,12 @@ function makeReport(over: {
     rigorScore: 80,
     posture: { id: "balanced" },
     confidence: 0.9,
-    engine: { provider: over.engineProvider ?? "anthropic", model: "claude" },
+    engine: {
+      provider: over.engineProvider ?? "anthropic",
+      model: "claude",
+      ...(over.engineDegraded === undefined ? {} : { degraded: over.engineDegraded }),
+    },
+    ...(over.scoreIntegrity ? { scoreIntegrity: over.scoreIntegrity } : {}),
     headline: "ok",
     strengths: [],
     risks: [],
@@ -1139,5 +1148,74 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
     expect(recs[0]).toMatchObject({ status: "open", assigneeLogin: "hubot" }); // lone-in-dimension pairing kept
     expect(createdResolved).toHaveLength(0);
+  });
+});
+
+// ── PROVENANCE: which engine produced the score, and what moved it ───────────────────────────────
+//
+// Both columns exist for ONE consumer — the loop's attribution rule, which refuses to call a delta a
+// lift when it cannot prove both ends came from a real engine. A flag that is computed and then
+// dropped at the persist boundary is exactly the failure `scoreIntegrity` already had (UAT SAM-L1-02:
+// "computed, typed, persisted and rendered by nothing" — it was not even persisted), so the round
+// trip is asserted here rather than assumed.
+
+describe("persistScanReport — engine provenance is written, not dropped", () => {
+  it("a DEGRADED scan (mock floor fired) persists engineDegraded:true alongside the mock provider", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_deg", engineProvider: "mock", engineDegraded: true }));
+
+    expect(createdScans[0]).toMatchObject({ engineProvider: "mock", engineDegraded: true });
+  });
+
+  it("a KEYLESS mock scan is mock but NOT degraded — the two are different facts", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_keyless", engineProvider: "mock", engineDegraded: false }));
+
+    expect(createdScans[0]).toMatchObject({ engineProvider: "mock", engineDegraded: false });
+  });
+
+  it("a report that never set the flag persists NULL — unknown, which is not 'not degraded'", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_legacy" }));
+
+    expect(createdScans[0]!.engineDegraded).toBeNull();
+  });
+
+  it("scoreIntegrity round-trips as JSON on the row (it reached no column at all before)", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_int",
+        scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D1", "D2"], effectiveBlend: 0.54 },
+      }),
+    );
+
+    expect(JSON.parse(String(createdScans[0]!.scoreIntegrityJson))).toEqual({
+      d9Unmeasurable: true,
+      widenedDims: ["D1", "D2"],
+      effectiveBlend: 0.54,
+    });
+  });
+
+  it("a report with no scoreIntegrity persists NULL rather than an invented empty record", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_noint" }));
+
+    expect(createdScans[0]!.scoreIntegrityJson).toBeNull();
   });
 });

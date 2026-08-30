@@ -76,7 +76,13 @@ vi.mock("@/lib/db/loop-runs", () => ({
 }));
 
 vi.mock("@/lib/env", () => ({ selfHosted: () => true, envBool: () => true }));
-vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => true, runClaudeAgent: vi.fn() }));
+vi.mock("@/lib/local/agent", () => ({
+  autopilotEnabled: () => true,
+  runClaudeAgent: vi.fn(),
+  DEFAULT_AGENT_MODEL: "sonnet",
+  // The shim arms a run like any other, so the engine resolves its agent configuration too.
+  resolveAgentConfig: () => ({ model: "sonnet", effort: null }),
+}));
 vi.mock("@/lib/local/pairing", () => ({ verifyLocalPath: vi.fn(async () => ({ ok: true })) }));
 vi.mock("@/lib/db", () => ({ getRepoLocalPath: vi.fn(async () => "/paired/acme/web"), persistScanReport: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ getPrisma: () => ({ organization: { findUnique: async () => ({ slug: "acme" }) } }), isDbConfigured: () => true }));
@@ -99,6 +105,7 @@ vi.mock("@/lib/local/source", () => ({ LocalFsSource: class {} }));
 
 import { MAX_CYCLES_CAP, getAutopilotJob, requestAutopilotStop, startAutopilot, toAutopilotJob } from "@/lib/local/autopilot";
 import { isLoopRunLive } from "@/lib/local/loop-engine";
+import { BACKLOG_LANE } from "@/lib/local/lane-kind";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
 const REPO = "acme/web";
@@ -108,6 +115,9 @@ let closeSeq = 0;
 function deps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
   return {
     openBatch: (async () => [item(`rec${++closeSeq}`)]) as unknown as LaneDeps["openBatch"],
+    // The shim's contract is the AGENT lane; the kind resolver reads a real filesystem, and this
+    // test's paths are fictional. Pinned so the equivalence claim keeps testing what it names.
+    laneKind: (async () => BACKLOG_LANE) as unknown as LaneDeps["laneKind"],
     runAgent: (async () => ({ ok: true, summary: "fixed it\nsecond line" })) as unknown as LaneDeps["runAgent"],
     rescan: (async () => ({ scanId: `scan${closeSeq}`, closedIds: [`rec${closeSeq}`] })) as unknown as LaneDeps["rescan"],
     ...over,

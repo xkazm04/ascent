@@ -22,6 +22,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:org": "playwright test --config playwright.org.config.ts",
+    "test:e2e:loop": "playwright test --config playwright.loop.config.ts",
     "bench": "node scripts/benchmark.mjs",
     "doctor": "node scripts/doctor.mjs",
     "gate": "node scripts/maturity-gate.mjs",

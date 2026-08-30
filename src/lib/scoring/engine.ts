@@ -638,7 +638,13 @@ function reportToComparable(report: ScanReport): ComparableScan {
     rigorScore: report.rigorScore,
     posture: report.posture.id,
     confidence: report.confidence,
+    // The full provenance, so a comparison built from a LIVE report reaches the same attribution
+    // verdict as one built from two persisted rows. Dropping it here would make an in-memory diff
+    // silently more permissive than the loop's — the same rule reading different evidence.
     engineProvider: report.engine.provider,
+    engineModel: report.engine.model,
+    ...(report.engine.degraded === undefined ? {} : { engineDegraded: report.engine.degraded }),
+    ...(report.scoreIntegrity ? { scoreIntegrity: report.scoreIntegrity } : {}),
     headSha: report.repo.headSha ?? null,
     dimensions: report.dimensions.map((d) => ({
       dimId: d.id,

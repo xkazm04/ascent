@@ -35,12 +35,12 @@ const FAQ_LD = {
       name: "How does Ascent score a repository?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "It reads structure, configs, CI, tests, docs, and recent commits via the GitHub API (no clone, nothing stored). Deterministic detectors extract evidence and an LLM adds nuance (guardbanded to that evidence so scores stay honest), producing a level, a radar across the dimensions, and prioritized next steps.",
+        text: "It reads structure, configs, CI, tests, docs, and recent commits through the GitHub API — no clone, and the source it reads is never uploaded anywhere as a whole. Deterministic detectors extract evidence and an LLM adds nuance (guardbanded to that evidence so scores stay honest), producing a level, a radar across the dimensions, and prioritized next steps.",
       },
     },
     {
       "@type": "Question",
-      name: "What are the five maturity levels?",
+      name: `What are the ${LEVELS.length} maturity levels?`,
       acceptedAnswer: {
         "@type": "Answer",
         text: LEVELS.map((l) => `${l.id} ${l.name} (${l.band[0]}–${l.band[1]}): ${l.tagline}`).join(" "),
@@ -50,8 +50,14 @@ const FAQ_LD = {
       "@type": "Question",
       name: "Does Ascent store or clone my code?",
       acceptedAnswer: {
+        // CORRECTED. The previous answer was a flat "No … doesn't store its source", and two shipped
+        // behaviours contradict it: rubric r9 records short VERBATIM quotes with their file paths as
+        // the evidence a score rests on (src/lib/scoring/claims.ts), and a public scan's report is
+        // persisted — that is how its permalink resolves for the next visitor
+        // (src/components/report/ColdScanGate.tsx). Saying "nothing is stored" while storing quoted
+        // lines is the kind of claim a reader discovers is false at the worst possible moment.
         "@type": "Answer",
-        text: "No. Ascent reads the repository through the GitHub API at scan time. It never clones the repo and doesn't store its source.",
+        text: "Ascent never clones your repository — it reads it through the GitHub API at scan time, and the source is never uploaded or kept as a copy. What the report does keep is the evidence: short verbatim quotes, with the file path each came from, so every score can be checked rather than trusted. Public scan reports are persisted so their permalinks stay shareable; private scans follow your plan's retention window.",
       },
     },
     {

@@ -17,8 +17,10 @@ select ──▶ curate ──▶ run ──▶ rescan ──▶ outcome
   │          │         │        │           │
   │          │         │        │           └─ per-lane before/after diff + closed follow-ups
   │          │         │        └─ scan the WORKTREE from disk; `Ascent-Resolves:` trailers close rows
-  │          │         └─ N lanes, bounded parallelism: worktree → local `claude -p` → rescan
-  │          └─ GET /api/org/loop/propose: the exact batch each lane would get, editable
+  │          │         └─ N lanes, bounded parallelism. Each lane is one of three KINDS:
+  │          │            backlog → worktree → local `claude -p` → LANE commits → rescan
+  │          │            foundation / practice → worktree → generated files + commit → rescan
+  │          └─ GET /api/org/loop/propose: the batch AND the kind each lane would get, editable
   └─ repos picked in the cockpit (the Observatory's adoption × rigor field)
 ```
 
@@ -39,7 +41,7 @@ fails if a model is in `schema.prisma` and not in the mirror).
 | --- | --- |
 | `id` / `orgId` / `createdBy` | `createdBy` is the GitHub login that armed the run (audit trail on the row). |
 | `phase` | `curating \| running \| done \| stopped \| error`. `start` writes `running` directly. |
-| `reposJson` | JSON `string[]` of `owner/name` — the run's selected set. TEXT, not `jsonb` (the schema's DSQL contract). |
+| `reposJson` | The run's selected set, TEXT not `jsonb` (the schema's DSQL contract). **Two encodings, both read forever** (`parseTargets`): the original JSON `string[]` of `owner/name`, and the widened `[{repo, kind, practiceId}]` that carries each repo's armed [lane kind](#lane-kinds-foundation-and-practice-lanes-2026-08-28). A legacy row parses as all-`backlog`, which is what those runs were. Widened rather than given a column deliberately — see that section. |
 | `concurrency` | Lanes in flight at once. Clamped 1…`LOOP_CONCURRENCY_CAP` (4); default 2. |
 | `maxCycles` | Clamped 1…`LOOP_MAX_CYCLES_CAP` (5); default 3. |
 | `cycle` | The cycle being worked (`0` = none started). |
@@ -136,12 +138,19 @@ would either authorize nothing, or have to trust the row it is about to disclose
 Member-gated. The curation step's data: the batch each repo's lane *would* get if a run started now.
 
 ```jsonc
-{ "proposals": [ { "repo": "acme/api", "items": [ /* FollowUpItem × ≤5 */ ], "projectedPoints": 14 } ] }
+{ "proposals": [ {
+  "repo": "acme/api",
+  "items": [ /* FollowUpItem × ≤5 — always [] on a foundation lane */ ],
+  "projectedPoints": 14,
+  "kind": "backlog",          // backlog | foundation | practice
+  "practiceId": null,          // set only on a practice lane
+  "reason": "Works this repo's open follow-ups with a local agent."
+} ] }
 ```
 
-It calls the **same `openBatch`** the engine calls. That identity is the point: a curation screen
-built on a second, "equivalent" query would eventually propose a batch the engine then declines to
-work. It is a `GET` because it writes nothing — no `LoopRun` row exists until `start`, so the panel
+It calls the **same `openBatch`** the engine calls, and the **same `proposeLaneKind`**. That identity
+is the point: a curation screen built on a second, "equivalent" query would eventually propose a
+batch (or a lane kind) the engine then declines to work. It is a `GET` because it writes nothing — no `LoopRun` row exists until `start`, so the panel
 can be opened and closed freely. `400` on a missing `org` or empty `repos`. The static `propose`
 segment resolves ahead of the sibling `[id]` route, so the two never collide.
 
@@ -153,9 +162,10 @@ detached and the cockpit polls `GET /api/org/loop`.
 - **A lane** (`loop-lane.ts`) is one repo for one cycle: pick the batch → claim the rows
   (`status: in_progress`, so the rescan's trailer/restatement feedback applies to them —
   `scans-persist` only resolves *claimed* rows) → `git rev-parse HEAD` → one headless `claude -p`
-  session in the worktree with `buildFixPrompt` + an autopilot context block → count commits →
-  rescan the worktree from disk → record what the trailers closed. `runLane` **never throws**: every
-  outcome, including a failed agent or a failed rescan, is lane data.
+  session in the worktree with `buildFixPrompt` + an autopilot context block → **the lane commits
+  what the session left** (below) → count commits → rescan the worktree from disk → record what the
+  trailers closed. `runLane` **never throws**: every outcome, including a failed agent or a failed
+  rescan, is lane data.
 - **Bounded parallelism**: `mapPool(activeTargets, run.concurrency, …)` — default 2, hard cap 4.
   Four local `claude -p` sessions already saturate a developer box.
 - **A worktree per repo per RUN** (not per cycle): `git worktree add -b <branch> <tmp> HEAD` off the
@@ -171,6 +181,46 @@ detached and the cockpit polls `GET /api/org/loop`.
 - **Per-lane early stop.** A cycle that produced neither a commit nor a closed row drops that repo
   out of the next cycle. This is the autopilot's no-progress rule applied *per lane* instead of per
   run, so one stalled repo no longer ends the whole fleet's pass.
+- **A lane with zero commits does not rescan.** See [Durability](#durability-the-lane-commits-and-a-lane-that-did-not-contributes-nothing).
+
+### Durability: the lane commits, and a lane that did not contributes nothing
+
+Both halves of this come from the 2026-08-29 L2 certification
+([`uat/runs/2026-08-29-loop-l2`](../../../uat/runs/2026-08-29-loop-l2/loop-to-l5-l2.md)), where a real
+`claude -p` session worked for 5m46s and the loop kept none of it.
+
+**The lane commits the agent's work** (`lane-commit.ts`). `runClaudeAgent` spawns with
+`--permission-mode acceptEdits`, which auto-accepts *edits* and **not Bash** — and headless `-p` has
+nobody to answer the permission prompt `git commit` raises instead. So the brief's old instruction
+("commit directly to it, one commit per resolved item") asked for the one action the flags make
+impossible, and `removeLoopWorktree --force` then deleted the only copy. The fix keeps the narrow
+permission and moves the commit to the lane, which is what `lane-install.ts` has always done for the
+deterministic kinds. Widening `--allowedTools` was the alternative and was **declined**: worktree
+isolation is the blast-radius bound and an unattended agent that may execute git is a materially
+wider grant.
+
+- The brief (`buildFixPrompt`, `commitPolicy: "lane"`) now tells the session **not** to run git, and
+  asks it to end with `RESOLVED: <id>` / `SKIPPED: <id>` lines — the one fact only the session knows.
+  The human paste-into-my-terminal prompt is unchanged (`commitPolicy: "agent"`, the default), where
+  writing your own trailers is the whole contract.
+- The lane stages the worktree diff **by path** (never `add -A`; `-z` porcelain, so a quoted path
+  cannot be mis-staged) and writes one `Ascent-Resolves:` trailer per claimed id. Named RESOLVED ids
+  win; naming only SKIPPED ones trails the rest; naming nothing trails the whole armed batch. An id
+  the lane never armed is ignored, and a trailer line inside the agent's own prose is stripped — a
+  session cannot enlarge its own batch. The trailer is still a **claim**: a row closes only when the
+  next scan says its dimension moved.
+- If the agent *did* commit (a future mode with a wider grant), the lane commits only the residue.
+- If the lane's own commit fails, the lane names the uncommitted change count and the branch the work
+  is **not** on before the worktree is deleted.
+
+**A lane that committed nothing rescans nothing.** The loop scans a *worktree* that is about to be
+deleted, so that scan describes the repository only for what the lane committed. In the L2 run it did
+not: the cockpit printed `▲+24 · ATTRIBUTABLE LIFT` three lines above `0 commits`, and the after-scan
+became the repo's **latest** reading, so the fleet's greenness and debt credited it with a standard
+that existed nowhere on disk. `runLane` now skips the rescan entirely at zero commits (nothing is
+persisted, so nothing is adopted; the claims are released, since a rescan was the only thing that
+would ever adjudicate them) — and it also stops paying for an assessment of a directory about to be
+removed. The read side refuses the same pair independently; see the `undelivered` verdict below.
 - **Stop semantics.** `stopLoopRun` sets a cooperative flag on the in-memory `LiveRun`; lanes check
   it *between* phases, never mid-agent-session. An in-flight lane finishes its agent session, skips
   its rescan, and the run winds down to `stopped`. Stopping a run this process does not own (already
@@ -189,10 +239,30 @@ construction, a restart casualty — a lie, not a resumable job. `markStaleRunsS
 runs `stopped` with `"Interrupted — the server restarted while this run was in flight."` and flips
 their non-terminal lanes to `error`.
 
-It runs at **two** moments: on `GET /api/org/loop` (so the cockpit never renders a job nobody is
-driving) and inside `startLoopRun`, *before* the one-run-per-org check — otherwise a single crash
-would bar the org from ever starting another run. There is deliberately **no boot hook**; see
-[Known gaps](#known-gaps).
+It runs at **three** moments: at **boot**, from `register()` in `src/instrumentation.ts` via
+`sweepInterruptedWork()` (so a crashed run stops reading as `running`, and its lanes' backlog claims
+are released, whether or not anybody opens the tab); on `GET /api/org/loop` (so the cockpit never
+renders a job nobody is driving); and inside `startLoopRun`, *before* the one-run-per-org check —
+otherwise a single crash would bar the org from ever starting another run.
+
+The `isLive(id)` predicate is what separates the three. The two request-path callers pass
+`isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
+The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
+
+**The boot sweep also reconciles the filesystem** (L2-C-02). `removeLoopWorktree` runs in the lane's
+`finally`, which a `taskkill /F` never reaches, so every hard kill stranded a ~15 MB temp checkout in
+`%TEMP%` forever — the L2 run left 3, and the operator's machine was already carrying 4 more from
+three days earlier. `sweepInterruptedWork` now reads the in-flight lanes **before**
+`markStaleRunsStopped` (afterwards a lane this process interrupted is indistinguishable from one that
+errored last week), then removes their worktrees from the paired working copy.
+
+It is driven **from the branch**, not from a directory listing: a branch name is unique to one lane
+of one run, so `git worktree list --porcelain` can be *asked* which checkout belongs to a run the
+sweep just stopped. A live run's worktree can never match, because a live run is not in the set. The
+`%TEMP%` + `ascent-loop-*` shape is a **second** condition checked before anything is deleted, so an
+operator whose own checkout happens to sit on a matching branch is untouched. `git worktree prune`
+afterwards clears the administrative files for directories somebody already removed by hand. The
+branch itself is left behind, exactly as `removeLoopWorktree` leaves it — it is the deliverable.
 
 ### Outcome: what the lane moved
 
@@ -203,6 +273,62 @@ is captured at dispatch time using the *exact* ordering `scans-read` uses (`scan
 `createdAt`, then `id`): `scannedAt` is not unique, and a bare desc sort would bracket the lane
 against a different "latest" scan than the comparison view later reads. A lane with no recorded
 `before` has nothing to diff against and reports `diff: null` rather than inventing a baseline.
+
+### Is this lift real? The attribution rule
+
+**A subtraction is not an attribution.** Two of the three ways an Ascent score moves have nothing to
+do with the repository, and until 2026-08-28 the loop reported all three as lift:
+
+1. **The engine changed.** `scanRepository` falls to a deterministic mock floor when every real LLM
+   attempt fails, and that report persists like any other (it was a *silent success* —
+   `src/lib/scan.ts`). A mock score and a model-blended score are two different rulers.
+2. **The model wobbled.** Measured live 2026-08-10 (UAT `L2-NEW-01`): a 193-second model call moved
+   the overall score by roughly ±2 points, using ≤24% of its guardband. So a 2-point "lift" on an
+   unchanged repository is an ordinary outcome of scanning twice.
+3. The repository actually changed — the only one worth reporting.
+
+[`src/lib/maturity/attribution.ts`](../../../src/lib/maturity/attribution.ts) is the single rule that
+decides between them, and everything that claims a lift consults it: the outcome ledger, the run
+totals, the history strip's per-run lift (`listLoopRuns`), and the follow-up resolve rule
+(`decideInProgress`). One rule, so those four can never tell four stories about the same pair.
+
+| Verdict | When | What the surface shows |
+| --- | --- | --- |
+| `attributable` | both ends from a real engine **and** `abs(delta) > SCORE_NOISE_BAND` | the signed delta |
+| `mock-scan` | either end has `engineProvider = "mock"` | *not attributable: mock scan* — or *the model failed and this scan fell to the deterministic floor* when `engineDegraded` |
+| `within-noise` | real pair, movement inside the band (including zero) | *within noise (±2)* |
+| `unmeasured` | one end missing (first-ever scan, lane never rescanned) | *not measured* |
+| `undelivered` | a real pair, and the lane that produced it committed **nothing** | *not attributable: nothing was committed, so what this measured no longer exists* |
+
+`undelivered` is the one verdict that is not a fact about the *measurement* — the measurement was
+fine. It is a fact about the lane: the loop scans a worktree it then deletes, so a pair with no
+commits behind it describes a state that no longer exists. `attributeDelivered` takes the lane's
+commit count for exactly this and is what `laneAttribution` and `listLoopRuns` call. `runLane`
+already refuses to produce such a pair (above), but the rows written before that gate existed are
+still in the database and this ledger renders them, so the refusal lives on both sides.
+
+`SCORE_NOISE_BAND` is **2**, from that UAT measurement, and the band is **exclusive** — a movement of
+exactly 2 is noise. The rule is **symmetric**: a small regression is refused on the same grounds,
+because reporting one would be the same error with the sign flipped and would have the loop chasing
+noise it created. It is also applied per *dimension* in `decideInProgress`, where the band is
+conservative (the per-dimension `LLM_GUARDBAND` is 6, doubled on a widened dim); tightening that
+needs a per-dimension measurement, not a guessed constant.
+
+Two consequences worth stating plainly:
+
+- **The run's headline lift sums only the attributable lanes.** A run that moved four repos by one
+  point each reads `—`, not `+4`. `runAttribution` returns the excluded counts beside the number, so
+  "no lift, three noise lanes", "no lift, three mock lanes" and "no lift, one uncommitted" stay
+  distinguishable — they call for opposite next moves. The lane is still **rendered**, labeled: a
+  lost deliverable that the ledger says nothing about is the failure this rule exists to end.
+- **A follow-up never closes on an unattributable movement.** The 2026-08-26 rule already refused to
+  let a trailer close a row the rescan still restated; this refuses the other half — a claimed row
+  whose dimension "moved" only within the band, or across a mock rescan, stays in progress with a
+  note saying which.
+
+Callers that genuinely have no provenance (a legacy row, a fixture) may omit the engines and get the
+pre-attribution strict-movement rule. The rule tightens where evidence exists and nowhere else; it
+never invents a verdict from absent data.
 
 ## Gates
 
@@ -275,8 +401,14 @@ rebuilds the current query string with `view=wall` so scope params survive the t
 Layout: header (`Kicker` "Observatory", LIVE dot while a run is live, `N lanes · cycle c/m`, **Wall**
 link, **Stop**) · the Observatory field (dominant) with the fleet list as a collapsible section below
 it · a right rail whose mode is **derived from the run lifecycle**, not a tab bar: `inspect` (no run)
-⇄ `run` (active run) ⇄ `outcome` (a finished run or a history pick) · the run-history strip. One
-primary CTA at a time: **Run (N repos)** / **Stop after in-flight** / **Replay run**.
+⇄ `run` (active run) ⇄ `drive` (a drive pulling) ⇄ `outcome` (a finished run, a finished drive, or a
+history pick) · the run-history strip. One primary CTA at a time: **Run (N repos)** / **Drive to
+green** / **Stop after in-flight** / **Stop drive** / **Replay run**.
+
+The rail's choice is one ordered list in `CockpitRail.tsx`, and the order is the doctrine: a **live
+drive outranks everything**, because while it pulls, "is debt falling and how much rope is left" is
+the only question and its own runs come and go underneath it. `LiveCockpit.tsx` is layout only; the
+state machine is `useCockpit.ts`, which composes `useLoopRun` + `useDrive` and owns the mode.
 
 ### The Observatory (sky chart)
 
@@ -322,20 +454,189 @@ the agent log is a collapsible detail; `error` lanes offer **Retry**; `done` lan
 
 ### The outcome ledger (per-dimension delta + attribution)
 
-When the run settles, the rail switches to `CockpitOutcome`: totals (lift, repos improved / flat /
-regressed) and a hairline ledger per repo — before → after overall (`fmtDelta`), dimensions moved
-(`DIMENSION_SHORT` + delta in `deltaHex`), closed gaps, the `diffScans` attribution one-liners,
-follow-ups closed by the `Ascent-Resolves` trailer, commits and branch. **Replay run** re-runs the
+When the run settles, the rail switches to `CockpitOutcome`: totals (**attributable** lift, repos
+improved / flat / regressed, and what was excluded) and a hairline ledger per repo — before → after
+overall (`fmtDelta`), dimensions moved (`DIMENSION_SHORT` + delta in `deltaHex`), closed gaps, the
+`diffScans` attribution one-liners, follow-ups closed by the `Ascent-Resolves` trailer, commits and
+branch, plus the row's **engine and score-integrity** line.
+
+A row prints a coloured delta only when [the attribution rule](#is-this-lift-real-the-attribution-rule)
+allows it; otherwise the two numbers stay muted and the verdict sits where the delta would ("not
+attributable: mock scan", "within noise (±2)"). Per-dimension deltas inherit the row's verdict — if
+the pair cannot be attributed, colouring one dimension green would restate the claim the line above
+just declined to make. The improved/flat/regressed tally counts attributable movements only, so it
+can never contradict the headline it sits beside. The provenance line names the engine (and marks it
+`(degraded)` when the model failed), then chips whatever `scoreIntegrity` recorded — `D9 renormalized
+out`, `widened D1, D2`, `audit capped`, `blend 50%` — each carrying its explanation as a tooltip and
+as sr-only text. **Replay run** re-runs the
 field drift. Drift ends come from the run's own detail, not a client snapshot: `driftFor` overlays
 each lane's `outcome.before` / `outcome.after` scan onto the seed set and lays out both sides, so a
 history pick drifts a run you never watched and the picture cannot disagree with the ledger; a run
 with no measured pair disables Replay. `router.refresh()` fires on settle to re-seed the server
 render.
 
+### Drive to green, from the cockpit (`CockpitDrivePanel`, `useDrive`)
+
+The inspector's second CTA. It starts a drive over the **same selection** the Run button would work
+(paired repos only) with the same `Lanes at once` / `Cycles` dials plus a **Drive runs** dial capped
+at `DRIVE_MAX_RUNS_CAP`. The gate is not widened for it: `cockpitGate.ts` is ONE predicate
+(`selfHosted → repos → owner → autopilot → paired`) serving both, because a drive is a sequence of
+runs with exactly the loop's blast radius.
+
+Pruning and dimension focus deliberately do **not** travel with a drive: it re-scores the fleet and
+picks a fresh batch before every run, so a batch curated against the first measurement would be a
+lie by the second.
+
+While it pulls, the panel shows run counter vs cap, debt now against the debt the drive started
+with, `greenCount/inScope`, the in-flight run's own `cycle c/m · n/m lanes done` (from `useLoopRun`'s
+poll, not a second one), and each finished run's debt before → after. **Progress is `null`, not 0,
+until a run has been measured** — a fresh drive has burned nothing *and* achieved nothing, and 0%
+claims the second when only the first is known. Debt inverts the house delta convention (falling is
+the win), so the colour takes the size of the drop while the text prints the signed change with
+`signedDelta` — no ▲/▼ glyph contradicting the colour beside it.
+
+**Stop** is cooperative and belongs to the drive while one is live: stopping only the in-flight run
+would let the drive dispatch the next one, so the header's Stop is re-pointed at `stopDrive` for the
+duration.
+
+On termination a `DriveVerdict` banner sits **above** the ordinary outcome ledger — the two answer
+different questions ("why did the drive stop" vs "what did the last run do"), and `dry` and
+`ceiling` are worded apart on purpose because they call for opposite next moves. A drive that never
+dispatched a run (already green) renders the banner alone, with its own way back.
+
+`useDrive` polls `GET /api/org/local/drive?org=` every 12 s, and **only** while a drive is live, the
+tab is foregrounded, and the gate is clear — on managed cloud, where the route 404s by design, it
+makes no request at all. It adopts a drive started elsewhere (curl, another tab) on its mount tick,
+and hands the terminal status up exactly once.
+
+### Per-run model and effort (2026-08-28)
+
+The agent was pinned to the deployment's `CLAUDE_MODEL` (default `sonnet`) with no per-run choice —
+so the most expensive variable in the system was the one an operator could not vary without a
+redeploy, and the outcome ledger compared lifts across runs whose configuration it did not record.
+
+Two selects sit with the other dials in the inspector (`CockpitRunControls`, state in `useRunDials`):
+**Agent model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort** (`AGENT_EFFORTS` — low ·
+medium · high), both defaulting to *Deployment default*. They ride `POST {action:"start"}` on the
+loop route and on the drive route, and a drive hands the same pair to **every** run it dispatches, so
+a multi-run drive stays one experiment. A resume inherits it for the same reason.
+
+| Concern | Where |
+| --- | --- |
+| The closed lists + normalizers + the ledger label | `src/lib/local/agent-options.ts` (dependency-free, so the picker and the route validator cannot drift) |
+| Env resolution + the `--effort` argv | `src/lib/local/agent.ts` (`resolveAgentConfig`, `runClaudeAgent`) |
+| Persistence | `LoopRun.model/effort`, `LoopDrive.model/effort` (migration `20260828170000_add_run_agent_config`) |
+
+Three decisions worth stating:
+
+- **The values are RESOLVED at arm time and the resolved values are persisted.** A row storing the
+  raw pick would read `null` for every default run — "whatever `CLAUDE_MODEL` was that day", which is
+  exactly the fact the ledger needs and the only one an env var cannot recover afterwards. Later
+  cycles and a lane retry read the configuration off the **row**, so a changed env cannot split one
+  run across two setups.
+- **The model list is closed, and not because the CLI cares.** `--model` and `--effort` reach a
+  re-parsing shell on Windows (`shell: true`), so both are normalized against the same list the picker
+  offers; an unrecognised value falls back to the deployment default rather than 400-ing, because a
+  run must not die because a stale tab sent a retired name. An operator who needs a pinned model id
+  sets `CLAUDE_MODEL` and picks *Deployment default* — a pinned id is a deployment decision.
+- **The effort env var is `ASCENT_AGENT_EFFORT`, not `CLAUDE_EFFORT`.** The Claude Code harness sets
+  `CLAUDE_EFFORT` itself in the environment it gives child processes (found the hard way: a test
+  asserting "no effort chosen" failed against the ambient env of the session writing it). A
+  self-hosted Ascent started from inside a Claude Code session would have inherited an effort level
+  nobody chose, on every run, invisibly. `CLAUDE_MODEL` carries no such collision and keeps its name.
+- **`null` effort is not a level.** The flag is then not appended at all, so the argv is byte-for-byte
+  what it always was.
+
+The configuration is rendered where lifts are compared: beside the timestamp on the outcome header,
+and under every row of the run-history strip. A run recorded before the columns existed prints
+**nothing** — "default" would be a claim about a run nobody can check.
+
+Tests: `agent-options.test.ts` (the closed lists, including the shell-injection shapes, and the
+unknown-renders-nothing label), `agent.test.ts` (`resolveAgentConfig` precedence),
+`loop-engine.test.ts` (the parameter threading start → row → agent invocation, and that a mid-run env
+change cannot reach a later cycle), `CockpitOutcome.dom.test.tsx` (the ledger shows it).
+
+### Lane kinds: foundation and practice lanes (2026-08-28)
+
+Until this, the loop's batch source was the **scan backlog only**, and its only tool was an agent
+session. Installing the generated `.ai/` standard, or a Practice Library starter, lived behind a
+*different* door: a GitHub-App draft PR (`POST /api/report/foundation/pr`, `POST /api/practices/apply`),
+which the local loop never opened and which — for the foundation — was reachable only from the
+per-repo report header. Priya's L2 walk measured that as a **7-hop detour**. UC1's loop is
+"scan → gaps → apply practice / `.ai/` foundation → rescan", so a loop that could only do the middle
+step was not the journey.
+
+A lane now has a **kind**:
+
+| kind | what the lane does | agent session? |
+| --- | --- | --- |
+| `backlog` | the original lane: dispatch the repo's open follow-ups to a local `claude -p` | yes |
+| `foundation` | write the generated `.ai/` tree into the worktree and commit it | **no** |
+| `practice` | write one Practice Library starter into the worktree and commit it | **no** |
+
+**The rule** (`src/lib/local/lane-kind.ts`, `proposeLaneKind`), in order:
+
+1. the repo has no `.ai/manifest.{yaml,yml}` → `foundation`;
+2. else the **highest-impact** open follow-up sits on a dimension the library has a starter for AND
+   that starter's file is missing → `practice` for it;
+3. else `backlog`, which stays the default and does everything else.
+
+Only the *top* item is considered in (2). Letting any item in the batch pull the lane would make a
+template drop the default answer rather than the shortest path to the biggest gap. The cap and the
+impact-first ordering of `openBatch` are untouched.
+
+**One rule, two callers.** `/propose` renders it and the engine re-runs it at arm time — the same
+identity argument as `openBatch`. It is re-read rather than trusted from the wire, because the
+operator may have installed the standard by hand between opening the panel and pressing Run.
+
+**Execution** (`lane-install.ts`, `install-files.ts`). Both kinds go through the *same generators* the
+cloud doors use — `buildFoundation` and `buildPracticeArtifact` — and differ only in **delivery**: a
+write into the worktree instead of a contents-API commit. The generation step was factored out of the
+PR plumbing for exactly this (`src/lib/practices/artifact.ts` now owns the house-pattern lookup that
+`applyPracticeToRepo` kept private), and `lane-install.test.ts` drives *both* doors off one report and
+asserts the bytes are identical.
+
+The **collision policy is copied from `openDraftPr`, not relaxed**: the spine (`.ai/manifest.yaml`)
+already present means *already installed* — nothing is written at all; any later file already present
+is the repo's own and is skipped and reported. A worktree install that quietly rewrote a repo's real
+`AGENTS.md` would be strictly worse than the PR path's refusal — changing files that already exist is
+what the agent lane is for.
+
+After the commit, a foundation/practice lane runs the **identical rescan + attribution** an agent lane
+runs. The install is a claim, not a verdict: a practice lane carries its follow-up's
+`Ascent-Resolves:` trailer, and that row closes only if the next scan says the dimension moved.
+
+**Cycle 1 only.** Once the standard (or the starter) is in, the repo's next cycle is ordinary backlog
+work with the new floor in place — so one run reads "install → rescan → work the gaps". Same shape the
+curated batch already has. A **curated batch wins over a practice lane**: the operator naming rows is
+an explicit instruction, and installing a starter for a gap they just pruned would override it. A
+foundation lane has no rows to curate, so `/propose` returns `items: []` for it.
+
+**Recording it.** The armed kinds ride on `LoopRun.reposJson`, whose JSON-in-TEXT encoding was widened
+to accept `[{repo, kind, practiceId}]` alongside the legacy `string[]`. A column would have meant
+regenerating the Prisma client into a `node_modules` this worktree *shares with the operator's own
+checkout*; the widening is durable, reversible, backward-compatible in both directions, and is the
+technique `runsJson` / `measurementJson` already use. `laneKindOf` reads it back for the ledger.
+
+**Cloud parity: unchanged, and local-only for now.** Every branch of the rule reads a filesystem path,
+and the routes are behind `selfHostGuard()`. On the managed cloud path practices and the foundation
+keep going out as GitHub-App draft PRs exactly as before — a hosted equivalent needs the sandboxed
+executor the "no hosted dispatch" gap below already names.
+
+**UI: one tag per lane, no new panel.** `laneKindTag` renders `.ai/ foundation` / `practice starter`
+beside the repo name in the curation panel (with the reason under it) and on the outcome-ledger row.
+The agent lane is deliberately untagged — a badge on every row would say nothing.
+
+Tests: `lane-kind.test.ts` (the rule, against real directories), `lane-install.test.ts` (real git
+fixture: files written, one commit, the trailer, the skip policy, and the byte-identity case),
+`loop-engine.test.ts` (install instead of agent, the kind on the row, cycle 2 back to backlog, a dry
+install ending cleanly, a curated batch winning), `propose/route.test.ts` (the wiring),
+`loop-runs.test.ts` (both `reposJson` encodings), `CockpitLaneKind.dom.test.tsx` (both tags).
+
 ### Run history
 
-`CockpitHistory` lists the last 20 runs (age, repo count, lift, phase); selecting one fetches its
-detail and shows the outcome rail for it.
+`CockpitHistory` lists the last 20 runs (age, repo count, lift, phase, and the agent configuration the
+lift was produced under); selecting one fetches its detail and shows the outcome rail for it.
 
 ### Setup states (`CockpitSetup`)
 
@@ -345,8 +646,58 @@ via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ reposit
 `?tab=pairing` → pick repos → run).
 
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
-`useLoopRun.dom.test.tsx`, `CockpitOutcome.dom.test.tsx`, `LiveTabView.dom.test.tsx` (wall mode and
-the kiosk render no cockpit), `observatory/*.test.ts(x)`.
+`cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and
+the three verdicts), `useLoopRun.dom.test.tsx`, `useDrive.dom.test.tsx` (gating + poll discipline +
+settle-once), `CockpitOutcome.dom.test.tsx`, `CockpitDrivePanel.dom.test.tsx` (the control's
+states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
+`observatory/*.test.ts(x)`.
+
+### End-to-end proof (2026-08-28)
+
+Everything above was unit- and DOM-tested and **nothing drove it end to end**: no e2e spec and no UAT
+journey mentioned the cockpit, the loop, the drive, the lane kinds or the attribution rendering. Two
+artifacts close that, and they close different halves of it.
+
+**`e2e/loop/cockpit-loop.spec.ts`** (config `playwright.loop.config.ts`, `npm run test:e2e:loop`) —
+five tests, ~50 s, no model spend. It boots its own `next dev` on its own port against a **throwaway
+PGlite dir** and its own declared `ASCENT_LOCAL_ORG`, creates a **real git repository** in the OS temp
+dir, maps and pairs it through `/api/org/local/projects`, scans it from disk, then drives the cockpit
+in a browser: select on the observatory → read the proposal → set cycles/model/effort → **Run** → read
+the outcome ledger → back to the inspector with the selection intact. What runs for real is the whole
+loop *except the agent*: a real `git worktree`, a real foundation lane that writes the generated `.ai/`
+tree and commits it, a real rescan of that worktree, the real attribution rule, and the real branch
+left behind (asserted from the repository, not from the screen — including that `main` is untouched).
+
+Two scoping decisions make it fast and repeatable, and both are deliberate:
+
+- **The fixture repo has no `.ai/manifest.yaml`**, so rule 1 gives it a `foundation` lane — a
+  deterministic install with no `claude -p` session — and `Cycles` is pinned to **1** so cycle 2 never
+  falls back to the agent lane. A separate test then **merges the lane's branch** and asserts the same
+  rule stops proposing a foundation, which is the operator's half of the loop and proves the rule
+  reads the paired working copy rather than the branch.
+- **The engine is the deterministic mock**, so both ends of every pair are mock scans and the spec
+  asserts the *refusal*: `not attributable: mock scan`, `excluded: 1 mock scan`, a muted delta, and the
+  provenance line `engine mock` + `D2/D3/D4 not measurable locally`. A coloured delta there would be
+  the bug.
+
+Not covered by it, and named rather than implied: an agent lane, an **attributable** lift (needs a real
+engine on both ends), and a live drive killed and resumed. It also is **not in CI** —
+`.github/workflows/ci.yml` runs no Playwright at all and `smoke.yml` runs only `--grep @smoke`; wiring
+e2e into PR CI is backlog item 11 and owns that decision.
+
+**`uat/journeys/loop-to-l5.md`** — the same journey as a Character walk (Priya, platform lead), with
+the L1 seam table this branch is graded against, the L2 confirmations only a live run can settle
+(a real agent lane, an attributable lift, a killed-and-resumed drive, the observed→carried platform
+fold, two full iterations, the blocked states), and an honest **L2 not yet run** status.
+
+> One thing the e2e work found and fixed: `src/instrumentation.ts` is compiled for the **edge** runtime
+> too, and webpack does no dead-code elimination in dev — so the boot sweep's `await import(…)` dragged
+> `db/client → @prisma/adapter-pg → pg → require('fs')` into a compilation with no `fs`, failing the
+> whole `/instrumentation` compile and answering **500 on every route** under `next dev --webpack`
+> (the only dev mode a junctioned worktree can run; Turbopack refuses the symlink). Both node-only
+> dynamic imports now sit behind a `process.env.NEXT_RUNTIME === "nodejs"` **condition** rather than
+> only behind the early return — webpack folds a statically-false condition at parse time and never
+> walks the branch.
 
 ## Key files
 
@@ -359,6 +710,17 @@ the kiosk render no cockpit), `observatory/*.test.ts(x)`.
 | Worktree isolation | `src/lib/local/loop-worktree.ts` |
 | Single-repo shim | `src/lib/local/autopilot.ts` |
 | Routes | `src/app/api/org/loop/{route,propose/route,[id]/route}.ts` |
+| Drive engine + wire shapes | `src/lib/local/drive.ts`, `src/lib/local/drive-types.ts` |
+| Drive persistence | `src/lib/db/drives.ts` (`LoopDrive` rows, the stale-drive sweep) |
+| Boot sweep | `src/lib/local/boot-sweep.ts`, called from `src/instrumentation.ts` |
+| Drive route | `src/app/api/org/local/drive/route.ts` |
+| Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
+| Agent model/effort | `src/lib/local/agent-options.ts`, `agent.ts`, `cockpit/{CockpitRunControls,useRunDials}.ts(x)` |
+| Lane kinds — the rule | `src/lib/local/lane-kind.ts` |
+| Lane kinds — the install | `src/lib/local/lane-install.ts`, `src/lib/local/install-files.ts` |
+| Shared practice generation | `src/lib/practices/artifact.ts` (used by `practices/apply.ts` and the lane) |
+| Shared foundation generation | `src/lib/standard/index.ts` `buildFoundation` (used by `standard/pr.ts` and the lane) |
+| Platform fold carry | `src/lib/analyze/platform-carry.ts` (+ `platform-signals.ts`) |
 | SSE sub-stage fold | `src/lib/scan-stage.ts` |
 | Tab + wall | `src/features/inflight/live/**` |
 | Cockpit | `src/features/inflight/live/cockpit/**` |
@@ -411,9 +773,95 @@ three honest ways to stop and no fourth:
 The measurement is the verifier: a run's own `progressed` flag never earns another run. The policy
 is the pure `nextDriveStep` (tested in isolation); `startDrive` is single-flight per org and defaults
 its scope to every watched, paired repo. `GET ?org=` lists drives with their latest measurement and
-per-run debt before/after. Process-local like the engine's `live` registry: every run it starts is a
-durable `LoopRun`, so what happened survives a restart; a restart ends the drive rather than resuming
-into a state it cannot verify.
+per-run debt before/after. Both the runs it starts and the drive itself are durable rows — see
+*Surviving a restart* below for what a restart does and, deliberately, does not do.
+
+The wire shapes and the caps live in `src/lib/local/drive-types.ts` (re-exported by `drive.ts`, the
+same split as `loop-runs-types.ts` ⇄ `loop-engine.ts`) so the cockpit can import them in the browser
+without dragging the engine's db/`selfHosted()` imports into the bundle. Since 2026-08-28 the route
+is no longer curl-only: the cockpit reaches it — see *Drive to green, from the cockpit* above.
+
+### Surviving a restart (2026-08-28)
+
+A drive used to live only in a `Map` on `globalThis`. Its RUNS were durable, so what happened
+survived; the drive itself did not, and neither did the fact that one had ever existed — a `GET`
+after a restart reported **nothing at all**, which is the one answer that is never true. Three
+changes close that:
+
+**1. The drive is a row.** `LoopDrive` (`prisma/schema.prisma`, migration
+`20260828120000_add_loop_drive`, store `src/lib/db/drives.ts`) holds the scope, the rope, the
+per-run debt ledger, the latest measurement and the resume chain. The registry in `drive.ts` still
+exists — a live task and a cooperative stop flag cannot be serialized — but every transition is
+mirrored onto the row, whole-row rather than by patch (a drive changes state a handful of times per
+hour, so there is nothing to gain from patch granularity and a half-written status to lose).
+`listDrives` reads the DB and overlays the live registry, which is the fresher copy while pulling.
+
+**2. A boot-time sweep, in `register()`.** `src/instrumentation.ts` — Next's startup hook, the same
+door the embedded PGlite boots from — calls `sweepInterruptedWork()` (`src/lib/local/boot-sweep.ts`)
+after the PGlite boot and before the first request. A fresh process is driving nothing, so it is the
+one caller entitled to omit the `isLive` predicate that every request path must pass. It marks stale
+`running` loop runs `stopped` (which is what **releases their lanes' backlog claims**, the zombie-claim
+bug of 2026-08-26) and stale `running` drives `interrupted` — runs first, so a drive is never marked
+interrupted while its last run still looks alive. Self-hosted only, and that guard is load-bearing:
+on a managed deployment "this process started nothing" is a claim about one instance among many.
+It is idempotent per process and silent unless it actually reconciled something.
+
+**3. Interrupted is offered back, never auto-resumed.** `interrupted` is a terminal phase nobody
+chose. A drive spends agent sessions inside real working copies, so a server that re-armed one by
+itself on boot would be spending the operator's money on the strength of a process having crashed.
+The cockpit shows `CockpitDriveResume` as a banner **above** the inspector (a standing offer, not a
+mode — the operator is equally entitled to ignore it and select a different scope) with one
+**Resume drive** button. Resuming starts a NEW drive that inherits the scope, the bounds and
+`runsBefore` — **the run budget belongs to the chain, not to a segment of it**, so a crash can never
+re-grant rope the operator did not give. The interrupted drive stays interrupted as the record of
+what that segment did, and `resumedFrom` links the two. `resumeParams` (`drive-types.ts`) is the one
+pure predicate both the route and the button consult, so the affordance appears exactly when
+`POST {action:"resume"}` would accept it.
+
+### Platform signals, carried into a worktree rescan (2026-08-28)
+
+D2/D3/D4 are credited partly for tooling that is **installed rather than committed** — the review, CI
+and coverage Apps posting check suites on the scored commit, and default-branch Actions health
+(`src/lib/analyze/platform-signals.ts`). A loop rescan reads a worktree with `noAmbientToken`, so it
+could observe none of it and scored those three dimensions at their file-scan floor.
+
+That was not a rounding difference. `green` demands L5 on **every** dimension, so three dimensions
+that could only ever read low were three dimensions the loop could drive at forever — and a
+drive-to-green would run to `ceiling` for a reason the operator could not see anywhere on screen.
+
+| Reading | When | What the loop does |
+| --- | --- | --- |
+| `observed` | the scan held a token and read GitHub | records the fold: points **and** evidence, per dimension (`applyPlatformSignals`) |
+| `carried` | a worktree rescan, and an earlier observed scan exists | replays that record verbatim, stamping every line with `platform signals from scan <id>, <age>`; past `PLATFORM_FOLD_STALE_DAYS` (14) it also says `stale` |
+| `unavailable` | a worktree rescan with nothing to replay | the three dimensions are **excluded** from the green verdict, and the cockpit says `D2/D3/D4 not measurable locally` |
+
+The record rides the scan row (`Scan.platformSignalsJson`, migration
+`20260828160000_add_scan_platform_signals`) and is read back onto `ComparableScan`, so both halves of
+a bracketed pair carry it. Three consequences worth stating plainly:
+
+- **A stale fold still applies.** A three-week-old App inventory is the best evidence anyone has about
+  a repo's installed tooling; dropping it would swap a stated uncertainty for a silent understatement.
+  The threshold is a disclosure, not a gate.
+- **Excluded is not passed.** `repoGreenness` reports `unmeasurable` alongside `gaps`, a repo whose
+  *every* dimension was excluded is **not** green (the unscanned rule again), and `DriveMeasurement`
+  carries `notMeasurable` so the drive panel and the terminal verdict both name what the light stands
+  on. A green light over six dimensions is a different claim from one over nine.
+- **Unknown is not `unavailable`.** A legacy row has no record; reading that as "unavailable" would
+  quietly drop three dimensions out of every historical verdict, so it excludes nothing.
+
+**Folding is not a lift** (`attributeDimension`, `src/lib/maturity/attribution.ts`). A dimension whose
+fold credit *differs* between the two ends of a pair moved because one scan could see GitHub and the
+other could not, so it reports `unmeasured` and the ledger renders it muted. Carrying the fold forward
+is what makes the ordinary pair comparable again — the same points land on both ends, and the residue
+is real work, still reported as a lift. The refusal is per **dimension**, not per pair: the fold moves
+three of nine, and refusing the whole pair would throw away six dimensions of honest measurement to
+protect three.
+
+The same carry runs on `POST /api/org/local/rescan`, so a manual local rescan cannot silently retire
+the fold from a repo's latest reading either.
+
+Tests: `platform-carry.test.ts` (fresh / stale / absent, and the round-trip), `green.test.ts`
+(exclusion, and that it is not a blanket pass), `attribution.test.ts` (folding is not a lift).
 
 ### Claims are released when nothing adjudicated them (2026-08-26)
 
@@ -448,14 +896,29 @@ Two causes, both now fixed:
 - **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns
   processes. Cloud orgs get an empty state on the cockpit and a 404 from every loop route. A hosted
   path would need a sandboxed executor and a very different consent model.
-- **No boot-time stale-run sweep.** `markStaleRunsStopped` runs on the first `GET /api/org/loop` and
-  inside `startLoopRun`, not from an instrumentation hook. A crashed run therefore reads as `running`
-  in the database until someone opens the tab. Nothing acts on that row in the meantime, but a direct
-  DB reader (or a future digest) would see a lie.
 - **`curating` is reserved, unused.** The phase exists on the model for a run parked while a human
   edits its batches, but curation is currently a pure read (`/propose`) and `start` writes `running`
   directly. No row is ever written in `curating` today.
 - **Retry builds a fresh worktree and branch.** Deliberate (the original worktree is gone by then),
   but it means a retried lane's commits land on a different branch from its siblings' — two branches
   to review for one repo.
-- **The agent model rides `CLAUDE_MODEL`** (default `sonnet`); no per-run model picker.
+- **The agent's `--effort` flag is passed only when a level is chosen.** A `claude` build that does
+  not know the flag is therefore unaffected, but there is also no probe: if a build rejects it, the
+  session fails with the CLI's own message rather than falling back to no-effort.
+- **One commit per lane cycle, not per resolved item.** The lane commits the session's whole residue
+  in a single commit carrying every claimed trailer. Per-item commits would need the agent to
+  delimit its own work item by item, which nothing currently asks it to do.
+- **The lane's commit runs the repo's hooks and needs a git identity.** It is an ordinary
+  `git commit` in the worktree, so a `commit-msg`/`pre-commit` hook or a missing `user.email` fails
+  it — and that falls back to the lost-work log rather than to a retry.
+- **A `backlog` lane can still be proposed with an empty batch** (L2-E-01). The curation panel offers
+  an agent lane with nothing to dispatch instead of saying there is nothing left to work; the run
+  then early-stops. Seen only under the deterministic mock, whose recommendation set is a corpus
+  property, but the proposal has no guard either way.
+- **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
+  enabled, so a click landing before React attaches its handler is swallowed with no request and no
+  error. Generic Next.js behaviour, unusually expensive on this particular control.
+- **`agent.ts` does not strip `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the spawn env** (L2-F-02).
+  It strips `ANTHROPIC_API_KEY`; a self-hosted Ascent started from inside a Claude Code session hands
+  the harness's own markers to every agent it spawns, and a nested `claude` that inherits them
+  produces nothing, silently.

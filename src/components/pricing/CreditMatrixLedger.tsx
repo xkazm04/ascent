@@ -7,8 +7,8 @@
 import { motion } from "framer-motion";
 import { SectionHeading, Surface } from "@/components/ui";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
-import { CreditTagChip, CellMark, PlanHead } from "./creditMatrixAtoms";
-import { MATRIX_PLANS, MATRIX_GROUPS, CREDIT_RULE, CREDIT_TAG_META } from "./creditMatrixData";
+import { CreditTagChip, CellMark, PlanHead, PlannedMark } from "./creditMatrixAtoms";
+import { MATRIX_PLANS, MATRIX_GROUPS, CREDIT_RULE, CREDIT_TAG_META, PLANNED_NOTE, PLANNED_ROW_LABELS } from "./creditMatrixData";
 
 const FEATURED = "bg-accent/[0.04]"; // subtle down-column tint for the Team (featured) plan
 
@@ -52,6 +52,16 @@ export function CreditMatrixLedger() {
           </tbody>
         </table>
       </Surface>
+
+      {/* The footnote the Planned marker obliges. Under the table, not in a tooltip: a caveat a
+          reader has to hover to find is a caveat written to be missed. Rendered only when a row
+          actually carries the flag, so retiring the last one retires the note with it. */}
+      {PLANNED_ROW_LABELS.length > 0 && (
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-500">
+          <span className="font-mono text-xs uppercase tracking-widest text-slate-400">Planned ·</span>{" "}
+          {PLANNED_NOTE}
+        </p>
+      )}
     </section>
   );
 }
@@ -75,7 +85,10 @@ function GroupBlock({ group, reduced }: { group: (typeof MATRIX_GROUPS)[number];
           transition={reduced ? { duration: 0 } : { duration: 0.4, delay: Math.min(i * 0.04, 0.2) }}
         >
           <th scope="row" className="px-5 py-4 align-top font-normal">
-            <div className="text-sm font-semibold text-white">{r.label}</div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-sm font-semibold text-white">{r.label}</span>
+              {r.planned ? <PlannedMark /> : null}
+            </div>
             <div className="mt-0.5 max-w-sm text-sm leading-snug text-slate-500">{r.detail}</div>
           </th>
           <td className="px-3 py-4 align-top">

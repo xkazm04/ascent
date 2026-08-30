@@ -13,6 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ScanForm } from "@/components/ScanForm";
 import { QuotaMeter } from "@/components/QuotaMeter";
 import { Kicker } from "@/components/ui";
+import { scanDurationClaim } from "@/components/report/scanEstimate";
 import { AuthCta, SignInButton, type AuthMode } from "./ScanModal.AuthCta";
 import { OutputsCard } from "./ScanModal.OutputsCard";
 import { ScanTriggerFallback } from "./ScanModal.TriggerFallback";
@@ -20,6 +21,9 @@ import { ScanTriggerFallback } from "./ScanModal.TriggerFallback";
 /** Which GitHub sign-in backend the deployment runs — decided server-side and passed down so the
  *  modal renders the matching CTA (or a get-started link when auth isn't configured at all). */
 export type { AuthMode };
+
+/** Module-scope: the estimate is a constant expression over constants, not a per-render decision. */
+const SCAN_DURATION = scanDurationClaim();
 
 interface ScanModalProps {
   examples?: string[];
@@ -195,10 +199,15 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                 </button>
               </div>
 
+              {/* The duration is DERIVED from scanEstimate.ts — the same constants the live-scan
+                  progress bar and its abort backstop run on. This sentence used to promise "about a
+                  minute", which was true of no provider the scanner has ever run on: ~100s hosted,
+                  a measured ~6 min median on a local CLI. ColdScanGate had already retired the same
+                  claim in its own copy while the hero went on printing it. */}
               <p className="mt-4 text-base leading-relaxed text-slate-300">
                 {locked || pending
-                  ? "Paste any GitHub repo and Ascent reads it in about a minute. Here's what comes back:"
-                  : "Paste any public GitHub repo. In about a minute, Ascent reads it and returns:"}
+                  ? `Paste any GitHub repo and a live model reads it — ${SCAN_DURATION}. Here's what comes back:`
+                  : `Paste any public GitHub repo. A live model reads it — ${SCAN_DURATION} — and returns:`}
               </p>
 
               <div className="mt-4">
@@ -245,9 +254,15 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                       onChange={(e) => setConsent(e.target.checked)}
                       className="mt-1 h-4 w-4 shrink-0 accent-accent"
                     />
+                    {/* "Public scans never need an account" was a claim about EVERY deployment made
+                        by a component that only renders on deployments where it happens to hold —
+                        a gated deploy shows the sign-in panel above instead, so the sentence was
+                        both unfalsifiable here and false next door. What is true everywhere is the
+                        scope of THIS authorization, which is all a consent checkbox should assert. */}
                     <span className="text-sm leading-relaxed text-slate-400">
-                      Authorize Ascent to read your repositories through the GitHub App (needed only for
-                      private repos and saved scan history). Public scans never need an account.
+                      Authorize Ascent to read your repositories through the GitHub App. This is needed
+                      only for private repos and saved scan history — scanning a public repo never uses
+                      it, and public scans are free (rate-limited, with a monthly cap).
                     </span>
                   </label>
 

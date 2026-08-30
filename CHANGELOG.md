@@ -83,6 +83,28 @@ versioned for release.
   briefing, deterministic CI gate, fleet intelligence); GOLDEN-TRIO T1/T2 marked roadmap.
 
 ### Fixed (since 2026-07-28)
+- **A loop lane could not tell "the agent found nothing" from "the agent did everything and lost it"
+  (2026-08-29).** Both produced the line `0 commit(s) landed this cycle.`, and `removeLoopWorktree`'s
+  `--force` then deleted the evidence on its way out. The L2 certification's one live agent run hit
+  exactly this: a real `claude -p` session edited files for 5m46s, could not run `git commit` under
+  `--permission-mode acceptEdits` (headless `-p` has nobody to grant a Bash call), and the branch
+  that is supposed to BE the deliverable ended up carrying none of it. A backlog lane that ends with
+  no commits now checks the worktree and, when it is dirty, says how many changes are being
+  discarded and which branch they are not on; and the agent's own first line — the only place a
+  session's reason for producing nothing is ever written down — gets 400 characters instead of 160,
+  which had cut that run's explanation off mid-word at "…blocked by the approv". **This makes the
+  failure legible; it does not fix it** — the permission mode that caused it is recorded as an open
+  finding in `uat/runs/2026-08-29-loop-l2/`.
+- **The loop's run branch could collide with itself, and a drive read the wreck as a plateau
+  (2026-08-29).** The branch stamp was minute-resolution (`ascent/loop-YYYYMMDDHHmm-<repo>`), so any
+  two runs of one repo inside a clock minute asked for one branch name — which a **drive** produces
+  by construction, dispatching its runs back to back. The second lane died on `fatal: a branch named
+  '…' already exists` before it had a worktree, committed nothing, and the drive then read the
+  resulting zero debt movement as `dry` — "a whole run moved nothing" — telling the operator her
+  repository had plateaued when the run had never started. Measured in the L2 certification: a
+  2-run drive on one repo finished in 12 seconds and its second run produced nothing. The stamp now
+  carries seconds, and `createLoopWorktree` takes the next suffixed name on a collision instead of
+  failing the lane.
 - **Security** — closed high-severity access-control and money-path (billing) gaps; untrusted-content
   boundary + canonical time zone + producer-level privacy floors in scoring/org; follow-up migrations
   authored for the deferred schema fixes.

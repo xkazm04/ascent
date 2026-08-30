@@ -45,6 +45,20 @@ export function CellMark({ value, className = "" }: { value: Cell; className?: s
   );
 }
 
+/**
+ * The marker for a tier boundary the code does not enforce yet (MatrixRow.planned). Deliberately
+ * quiet — slate, not the accent, which this page reserves for the paid mechanic — but it sits beside
+ * the row label rather than in a tooltip, because a caveat you have to hover for is one written to be
+ * missed. The full sentence is the table's footnote (PLANNED_NOTE).
+ */
+export function PlannedMark() {
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-700 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+      Planned
+    </span>
+  );
+}
+
 /** A plan column head: label + its monthly-scan allowance sub-line. Featured tier reads in accent. */
 export function PlanHead({ plan, align = "center" }: { plan: MatrixPlan; align?: "center" | "left" }) {
   return (
