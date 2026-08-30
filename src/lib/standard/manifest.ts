@@ -42,6 +42,56 @@ const TYPECHECK: Record<LangCommands["ci"], string | null> = {
   generic: null,
 };
 
+/** How a guidance format is described in the vendor-neutral agent registry. */
+const AGENT_KIND: Record<string, string> = {
+  claude: "cli",
+  agents: "generic",
+  cursor: "editor",
+  copilot: "editor",
+  windsurf: "editor",
+  aider: "cli",
+  other: "generic",
+};
+
+/** One `{ id, kind, entrypoint }` per vendor guidance format the arbiter found. */
+function agentsFromGuidance(report: ScanReport): ManifestData["agents"] {
+  const nodes = report.guidanceGraph?.nodes ?? [];
+  const seen = new Set<string>();
+  const out: ManifestData["agents"] = [];
+  for (const n of nodes) {
+    if (seen.has(n.agent)) continue;
+    seen.add(n.agent);
+    out.push({ id: n.agent, kind: AGENT_KIND[n.agent] ?? "generic", entrypoint: n.path });
+  }
+  return out;
+}
+
+/**
+ * The `guidance` block, from the arbiter's verdict (#15). Omitted entirely when the scan nominated no
+ * canonical source — declaring one the graph could not establish would be the generator inventing the
+ * answer the block exists to record.
+ *
+ * REGENERATION IS NOT A DOWNGRADE here by construction rather than by a merge rule: the graph's own
+ * first nomination rule is the repo's declared `guidance.canonical`, so a maintainer who chose a
+ * canonical sees that choice come back out of a regeneration unchanged.
+ */
+function guidanceBlock(report: ScanReport): Pick<ManifestData, "guidance"> {
+  const g = report.guidanceGraph;
+  if (!g?.canonical) return {};
+  const byPath = new Map(g.nodes.map((n) => [n.path, n]));
+  const projections = g.edges
+    .filter((e) => e.kind === "projects-from" && e.to === g.canonical)
+    .map((e) => ({
+      agent: byPath.get(e.from)?.agent ?? "other",
+      path: e.from,
+      generatedFrom: e.to,
+      // The hash is written by `.ai/maintain.mjs project`, which is what actually renders the file.
+      // The generator declares the projection; it does not claim to have hashed a body it never wrote.
+      hash: "",
+    }));
+  return { guidance: { canonical: g.canonical, projections } };
+}
+
 /**
  * Build the manifest for a repo — optionally REGENERATING over what the repo already declares.
  *
@@ -121,9 +171,12 @@ export function buildManifestData(report: ScanReport, opts?: { observed?: Manife
         nonPlaceholder(observed?.boundaries.secretsFrom) ??
         "TODO: where secrets legitimately come from (a vault/keyring name)",
     },
-    // TODO: register any coding agents (id/kind/entrypoint), vendor-neutral. A repo that registered
-    // its agents keeps them: re-emitting `[]` here would delete a human's registry on every re-scan.
-    agents: observed?.agents ?? [],
+    // A repo that registered its agents by hand keeps them: re-emitting over a human's registry
+    // would delete it on every re-scan. Where the repo has NOT registered any, the guidance graph
+    // fills the block from the vendor formats actually present (#15) — which retires the standing
+    // `agents: []` TODO this generator has emitted since 0.1.0 with no writer to close it.
+    agents: observed?.agents?.length ? observed.agents : agentsFromGuidance(report),
+    ...guidanceBlock(report),
     // Recommended shift-left placement — fast checks pre-push, slow/clean-room ones in CI. The agent
     // still runs tests in its verify step regardless of where the GATE lives; this is about gates.
     // TUNE per repo: a small test suite can move to prePush; a huge one stays in CI. The doctor
@@ -171,6 +224,33 @@ const scalar = yamlScalar;
 
 function flowList(items: string[]): string {
   return `[${items.map(scalar).join(", ")}]`;
+}
+
+/**
+ * The `guidance` block as YAML, or the empty string when the repo declares none.
+ *
+ * Emitted in the same flat, one-key-per-line dialect the rest of this serializer uses, because the
+ * doctor reads it with regexes and no YAML dependency — the block has to be readable by `sub()` and a
+ * per-line list walk, not by a parser.
+ */
+function guidanceYaml(d: ManifestData): string {
+  if (!d.guidance) return "";
+  const rows = d.guidance.projections
+    .map(
+      (p) =>
+        `    - { agent: ${scalar(p.agent)}, path: ${scalar(p.path)}, generatedFrom: ${scalar(p.generatedFrom)}, hash: ${JSON.stringify(p.hash)} }`,
+    )
+    .join("\n");
+  return `
+# Which instruction document is the AUTHORITY for agents, and which vendor files are generated
+# projections of it. \`node .ai/maintain.mjs project\` renders the projections and writes each hash
+# back; \`node .ai/doctor.mjs\` then reports a STALE projection (source moved on) as a warning and a
+# HAND-EDITED one (two sources of truth) as a failure.
+guidance:
+  canonical: ${scalar(d.guidance.canonical)}
+  projections:
+${rows || "    [] # none declared yet: run `node .ai/maintain.mjs project` to generate them"}
+`;
 }
 
 export function serializeManifestYaml(d: ManifestData): string {
@@ -224,7 +304,7 @@ boundaries:
 
 agents:
 ${agents}
-
+${guidanceYaml(d)}
 # The control model (shift-left): where each capability is PRIMARILY enforced. CI is the thin
 # backstop for hard passes only. TUNE this split for your repo: fast checks pre-push; slow suites
 # (full tests, full-tree SAST) in CI. The agent runs tests in its verify step regardless of placement.

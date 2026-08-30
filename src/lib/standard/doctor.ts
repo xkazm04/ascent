@@ -33,6 +33,7 @@ const DOCTOR = `#!/usr/bin/env node
 // Contract: .ai/SPEC.md. Reimplement freely; the checks are what matter, not this runner.
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const ROOT = process.cwd();
 const RUN = process.argv.includes('--run');
@@ -260,6 +261,70 @@ if (!existsSync(path)) {
       }
     } catch { add('context.index', 'warn', 'context-index.json is not valid JSON'); }
   }
+  // 6. guidance projections - is every vendor guidance file still a projection of the canonical one?
+  //
+  // The manifest's 'guidance' block names one AUTHORITY and the files generated from it. Each
+  // generated file carries a header with two hashes, and the pair separates two very different
+  // situations: the canonical moved on and the projection is BEHIND (stale - a warning, nothing is
+  // wrong, it is just out of date), versus somebody edited the projection INSTEAD of the source
+  // (hand-edited - a failure, because the repo now has two sources of truth and an agent's answer
+  // depends on which file it opened, which is the whole thing this block exists to prevent).
+  //
+  // A repo with no 'guidance' block is NOT failing this check - it has not adopted it. That is
+  // reported as 'unchecked', which is a result rather than a silence.
+  const gblock = text.split(/\\nguidance:\\n/)[1];
+  if (!gblock) {
+    add('guidance.unchecked', 'unchecked', 'no guidance block in the manifest - projection drift NOT checked (declare guidance.canonical + projections to enable it)');
+  } else {
+    const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
+    const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
+    const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
+    const canonicalOk = canonical && existsSync(canonical);
+    if (!canonicalOk) {
+      add('guidance.canonical', 'fail', 'guidance.canonical does not resolve: ' + (canonical || '(not declared)'));
+    } else {
+      add('guidance.canonical', 'pass', 'canonical guidance is ' + canonical);
+    }
+    const srcHash = canonicalOk ? sha12(readFileSync(canonical, 'utf8')) : null;
+    const declared = [];
+    for (const line of gblock.split('\\n')) {
+      const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
+      if (m) declared.push(m[2].trim().replace(/^"|"$/g, ''));
+      else if (/^[^\\s#]/.test(line)) break;
+    }
+    // The header this reads is the one .ai/maintain.mjs project writes. Keep the two in step.
+    const HEADER = /<!--\\s*generated-from:\\s*(\\S+)\\s+sha256:([0-9a-f]{12})\\s*\\u00b7\\s*body:\\s*sha256:([0-9a-f]{12})[^>]*-->/;
+    const bodyOf = (t) => {
+      let out = t;
+      const fm = out.match(/^---\\r?\\n[\\s\\S]*?\\r?\\n---[ \\t]*\\r?\\n/);
+      if (fm && fm.index === 0) out = out.slice(fm[0].length);
+      const h = out.match(HEADER);
+      if (h) out = out.slice(0, h.index) + out.slice(h.index + h[0].length);
+      return out.replace(/^(\\r?\\n)+/, '');
+    };
+    for (const p of declared) {
+      if (!existsSync(p)) { add('guidance.' + slug(p), 'fail', 'declared projection is missing: ' + p + ' - run: node .ai/maintain.mjs project'); continue; }
+      const t = readFileSync(p, 'utf8');
+      const h = t.match(HEADER);
+      if (!h) { add('guidance.' + slug(p), 'warn', p + ' is declared a projection but carries no generated-from header - run: node .ai/maintain.mjs project'); continue; }
+      if (sha12(bodyOf(t)) !== h[3]) {
+        add('guidance.' + slug(p), 'fail', p + ' was HAND-EDITED (its body no longer matches its own hash) - edit ' + canonical + ' and re-run: node .ai/maintain.mjs project');
+      } else if (srcHash && h[2] !== srcHash) {
+        add('guidance.' + slug(p), 'warn', 'stale projection: ' + p + ' was generated from an older ' + canonical + ' - run: node .ai/maintain.mjs project');
+      } else {
+        add('guidance.' + slug(p), 'pass', p + ' is in sync with ' + canonical);
+      }
+    }
+    // A guidance file present in the repo but neither the canonical nor a declared projection is an
+    // UNGOVERNED second opinion: nothing keeps it in step, so an agent that reads it may get an
+    // answer the canonical document contradicts.
+    const KNOWN = ['CLAUDE.md', 'AGENTS.md', 'AGENT.md', '.cursorrules', '.windsurfrules', '.github/copilot-instructions.md'];
+    for (const p of KNOWN) {
+      if (!existsSync(p) || p === canonical || declared.indexOf(p) >= 0) continue;
+      add('guidance.' + slug(p), 'warn', p + ' is agent guidance but is neither the canonical source nor a declared projection - declare it under guidance.projections or delete it');
+    }
+  }
+
   if (/TODO/.test(text)) add('manifest.todo', 'warn', 'manifest still has TODO placeholders (purpose / secretsFrom / boundaries / agents)');
 }
 

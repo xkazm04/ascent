@@ -20,6 +20,8 @@ export const CHECK_FAMILIES = [
   "control",
   "freshness",
   "context",
+  /** #15 — the guidance contract: is each declared projection still a projection of its source? */
+  "guidance",
 ] as const;
 export type CheckFamily = (typeof CHECK_FAMILIES)[number];
 
@@ -37,15 +39,27 @@ export const STATIC_CHECK_IDS = [
   "control.ci",
   "context.index",
   "freshness.unchecked",
+  /** The manifest declares no `guidance` block at all — a repo that has not adopted it is not
+   *  failing it, so this is `unchecked`, which is a RESULT and not a silence. */
+  "guidance.unchecked",
+  /** `guidance.canonical` names a file that does not resolve. */
+  "guidance.canonical",
 ] as const;
 
 /**
  * Templated ids, with `<…>` standing for a slugged repo-specific subject:
  * `pointer.<key>` · `capability.<name>` (placeholder) · `capability.<name>.run` ·
  * `control.prepush.<name>` · `control.prepush.<name>.backing` · `freshness.<path>` ·
- * `context.<path>`.
+ * `context.<path>` · `guidance.<path>` (one per declared projection).
  */
-export const TEMPLATED_CHECK_PREFIXES = ["pointer.", "capability.", "control.prepush.", "freshness.", "context."] as const;
+export const TEMPLATED_CHECK_PREFIXES = [
+  "pointer.",
+  "capability.",
+  "control.prepush.",
+  "freshness.",
+  "context.",
+  "guidance.",
+] as const;
 
 /** The wire shape of one check id. Ingest rejects anything that does not match. */
 export const CHECK_ID_RE = /^[a-z][a-z0-9]*(\.[a-z0-9._/-]+)*$/;
