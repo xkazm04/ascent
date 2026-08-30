@@ -15,7 +15,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 | --- | --- | --- | --- |
 | `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. |
 | `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else falls back to a live stream. Shareable permalink. |
-| `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). Picks two scans via `?a=`/`?b=`, renders the diff. |
+| `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
 
 ## The public register + org scorecards (G7-05 / G7-06)
@@ -154,7 +154,21 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
   scans all carry empty `dimensions` arrays as a load *failure* (retry UI), not as nine
   successfully-loaded "—" cards.
 
-## Comparison (`src/lib/report/compare.ts` + `WhatChanged`)
+## Comparison — two axes
+
+The compare page answers two different questions, and they are deliberately separate
+controls on one page:
+
+| Axis | URL | Question |
+| --- | --- | --- |
+| **Time** | `?a=<after>&b=<before>` | What changed in *this* repo between two scans? |
+| **Exemplar** | `?against=<ref>` | What does a *stronger repo* have that this one lacks? |
+
+Both selections live entirely in the URL, so any combination is shareable and
+back-button-safe. The exemplar axis is additive: with no `?against=` the page renders
+exactly as it always has.
+
+### Time axis (`src/lib/report/compare.ts` + `WhatChanged`)
 
 `diffScans(before, after)` is a pure diff engine returning a `ScanDiff`: overall/adoption/
 rigor `AxisDelta`s, a `LevelTransition`, posture change, per-dimension `DimensionDiff[]`,
@@ -173,11 +187,75 @@ score-coloured bar was indistinguishable from a dimension that held steady.
 `WhatChanged` (`src/components/report/WhatChanged.tsx`, server) renders the diff as a
 story: signal-count badges, "why it moved" attribution, level/posture transitions, axis
 diff bars, per-dimension `DimensionDiffCard`s, and completed recommendations.
-`ScanComparePicker` (client) holds the two-scan selection entirely in the URL
-(`?a=&b=`) so the comparison is shareable and back-button-safe. It shows an inline
-warning (no hard block) when the chosen baseline is chronologically *newer* than the
-compared scan. An inverted pair renders an all-red diff that reads as a regression
-while actually looking backward in time.
+`ScanComparePicker` (client) holds the scan pair **and** the exemplar selection entirely
+in the URL (`?a=&b=&against=`) so the comparison is shareable and back-button-safe. It
+shows an inline warning (no hard block) when the chosen baseline is chronologically
+*newer* than the compared scan. An inverted pair renders an all-red diff that reads as a
+regression while actually looking backward in time. The **Against** field is rendered only
+when `listExemplarOptions` returns something: an org with no eligible peer and no qualifying
+cohort has nothing to offer, and an empty dropdown would advertise a comparison that cannot
+be made.
+
+### Exemplar axis (`src/lib/report/exemplar.ts` + `ExemplarPanel`)
+
+`?against=<ref>` compares the *compared* scan against another repo at the **evidence**
+level — which detector signals the exemplar carries that this repo does not, and which
+practice transfers them. Three refs, one `ExemplarProfile` shape:
+
+| Ref | Meaning |
+| --- | --- |
+| `repo:<owner>/<name>` (bare `owner/name` accepted) | a named peer, resolved **inside the viewer's org only** |
+| `org:best` / `org:best:<D1..D9>` | the org's highest `signalScore` on that dimension (overall for the bare form), subject repo excluded |
+| `cohort:lang:<language>` / `cohort:archetype:<solo/team/org>` | the **public** corpus's top decile for that slice |
+
+An unparseable ref renders a notice saying so; nothing is ever silently substituted.
+
+**Framing is has / lacks, never better / worse.** `diffAcrossRepos` returns
+`absentSignals` (theirs, not yours — the transfer list) *and* `aheadSignals` (yours, not
+theirs), and the panel renders both. A signal a library does not need and a service does is
+a difference, not a defect, and the panel says so once at the top.
+
+**Eligibility and honest nulls.** Both sides are filtered by `BENCHMARK_ELIGIBLE`
+(`src/lib/corpus/eligibility.ts` — the same filter the org benchmark uses, extracted so the
+two cannot drift): no mock-engine scans, current rubric only. A dimension only one side
+scored is `notComparable` — null gaps, excluded from every count, never coerced to 0. An
+*ineligible subject* still renders, with the basis line saying the two sides were measured
+with different instruments.
+
+**Cohort floors and tenancy.** `cohort:` reads only `isPrivate: false` repos and returns
+aggregate-only output: no member repo is named, listed, linked or counted per-repo. It needs
+**5 repos AND 3 distinct owning orgs** (`COHORT_EXEMPLAR_MIN` / `COHORT_MIN_ORGS`) — the org
+floor is what stops five public repos from one tenant becoming a de-facto view of that
+tenant. Top decile is `max(3, ceil(n × 0.1))`; a signal enters the profile only at
+`COHORT_SUPPORT` (2/3) of the decile, and that threshold travels in `basis.minSupport`.
+Below either floor the page states the population and the floor; it never falls back to a
+broader slice. On a self-hosted install the "public corpus" is that install's own repos, so
+the cohort never clears `COHORT_MIN_ORGS` and the option is not offered — the floor, not a
+flag, is the mechanism, and no new env flag is introduced.
+
+`repo:` and `org:best` carry `orgId` beside the caller-supplied name (gate-then-constrain),
+so a crafted ref naming another tenant's repo resolves `not-found` — never `forbidden`,
+which would confirm the repo exists. Nothing here writes, so there is no audit row: the same
+choice `getOrgBenchmark` makes over the same corpus.
+
+**Transfer to practice.** `transferJoin` joins each transferable dimension to `PRACTICES`
+by dimension — the *same* map the report card's `ExemplarPointer` uses, not a second join
+that could disagree with it — plus the org's own mined house pattern (`minePracticeShapes`)
+when the miner judged it offerable, and links into the Practices and Skills tabs (null for a
+public-org viewer, so nothing dangles).
+
+**LLM briefing.** `exemplarMarkdownSection()` renders the comparison as a `## Against
+exemplar` section carrying the basis, the signal-level caveat and the per-dimension absent
+signals; it never names a repo for a cohort. `reportLlmMarkdown(report, { exemplarSection })`
+appends it immediately before `## Ask` and is **byte-identical** to today when the option is
+omitted. The compare page renders the section and hands the string to the copy chip.
+
+`?against=` is **not** wired into `GET /api/report/llm` yet — the seam exists
+(`ReportMarkdownOptions.exemplarSection`), the endpoint does not read it. The section is
+reachable today from the compare page's copy button.
+
+`CohortSource` (`exemplar-load.ts`) is the seam the open benchmark corpus will swap into:
+same signature, a rubric-versioned snapshot instead of the live corpus, no caller changes.
 
 ## Trends / history
 
@@ -591,7 +669,12 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/RoadmapSandboxScenarioBar.tsx` | The saved-plan bar: save/update/discard controls plus projected-vs-actual once a newer scan lands. |
 | `src/lib/db/sandbox-scenario.ts` | `SandboxScenario` read/write + the reconciliation against the next scan. |
 | `src/lib/report/rec-identity.ts` | `recommendationDecisionKey`: the one cross-scan recommendation identity, pure so both the browser and the decision store use it. |
-| `src/lib/report/compare.ts` | `diffScans()` pure diff engine. |
+| `src/lib/report/compare.ts` | `diffScans()` pure diff engine + `diffStringSets()`, the one evidence set-difference both axes use. |
+| `src/lib/report/exemplar.ts` | Pure exemplar diff: ref grammar, `ExemplarProfile`, `diffAcrossRepos`, `selectOrgBest`, `buildCohortProfile`, `transferJoin`, the cohort floors. |
+| `src/lib/report/exemplar-load.ts` | The server-only sibling: `resolveExemplar` / `listExemplarOptions` / `livePublicCorpus` behind `CohortSource`, with the tenancy and public-only guards. |
+| `src/lib/corpus/eligibility.ts` | `BENCHMARK_ELIGIBLE` / `CORPUS_BASIS` / `COHORT_MIN` / `CORPUS_MIN` — one comparability filter, shared with `db/org-insights.ts` (which re-exports it). |
+| `src/app/report/compare/ExemplarPanel.tsx` | The exemplar panel plus every failure notice. |
+| `src/app/report/compare/ExemplarSection.tsx` | Resolves `?against=` into a panel or a notice. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
 | `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked. |
@@ -605,7 +688,12 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 ## Known gaps
 
 - **Textual, not semantic, diffing.** `norm()` collapses whitespace/case but won't equate
-  reworded evidence ("uses GitHub Actions" vs "GitHub Actions detected").
+  reworded evidence ("uses GitHub Actions" vs "GitHub Actions detected"). This is more
+  load-bearing on the **exemplar** axis than on the time axis: two repos are scanned in
+  separate model runs, so an equivalent capability phrased differently reads as *absent* on
+  one side and *ahead* on the other. Both the panel and the LLM section state it on screen
+  ("Signal-level, not semantic…") — the under-match is labelled, not engineered away.
+  Embedding-based matching stays out of scope; it would change the guardband (G5).
 - **No LLM-reasoning drill-down.** `ProvenanceTrack` shows *that* the LLM adjusted a
   score, not the full rationale beyond the dimension summary.
 - **The lift map is not yet mounted on the report page.** `RoadmapSteps`, `RecommendationTracker` and
