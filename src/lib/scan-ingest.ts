@@ -7,21 +7,28 @@
 // canonical commit identity (fetchSnapshot otherwise records the TREE object's sha). An explicit
 // PR `ref` always wins over it.
 
-import { fetchGuidanceFreshness, type ParsedRepo, type ProgressFn, type RepoSource } from "@/lib/github/source";
-import { fetchPrStats, type AiChangeRecord } from "@/lib/analyze/pulls";
+import type { ParsedRepo, ProgressFn, RepoSource } from "@/lib/github/source";
+import type { AiChangeRecord } from "@/lib/analyze/pulls";
 import { pickGuidanceFiles } from "@/lib/analyze/context-health";
-import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
-import { fetchDeployments, type DeploymentRecord } from "@/lib/github/deployments";
-import { fetchSecurityPosture } from "@/lib/github/security-posture";
-import { fetchAppInventory, type AppInventory } from "@/lib/github/check-suites";
-import { fetchCiHealth, type CiHealth } from "@/lib/github/actions-health";
-import { fetchSecurityExposure } from "@/lib/security/exposure";
+import type { DeploymentRecord } from "@/lib/github/deployments";
+import type { AppInventory } from "@/lib/github/check-suites";
+import type { CiHealth } from "@/lib/github/actions-health";
+import { resolveForge } from "@/lib/forge/registry";
+import type { EnrichmentSource, Forge } from "@/lib/forge/types";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { Governance, GuidanceFreshness, PrStats, RepoSnapshot, SecurityExposure, SecurityPosture } from "@/lib/types";
 
 export interface IngestPhaseInput {
   parsed: ParsedRepo;
   source: RepoSource;
+  /**
+   * The forge whose enrichment set answers the platform reads below (moonshot #4). Omitted ⇒ GitHub,
+   * which is what every caller meant before the seam existed — `resolveForge()` with no argument
+   * returns the GitHub adapter, whose members are REFERENCE-EQUAL to the functions this file used to
+   * import directly (asserted by `src/lib/forge/github-parity.test.ts`). So an omitted `forge` is not
+   * a fallback path; it is the same code, reached through one indirection.
+   */
+  forge?: Forge;
   /** Resolved GitHub token (already ambient-guarded upstream). Absent ⇒ every enrichment is skipped. */
   token?: string;
   /** Explicit git ref (PR gating). Wins over `headSha`. */
@@ -76,13 +83,19 @@ export interface IngestPhaseResult {
  */
 export async function ingestRepository(input: IngestPhaseInput): Promise<IngestPhaseResult> {
   const { parsed, source, token, signal, emit } = input;
+  // THE ROUTING (moonshot #4). Every enrichment below reads its function off this record instead of
+  // importing it, and an ABSENT member means "this forge cannot be asked" — which falls through to
+  // exactly the value the token-less branch already produced (`null` / `[]`), never to a zero. That
+  // equivalence is the whole honest-nulls argument: a forge with fewer observables FLOORS a score
+  // through paths the rubric already had, instead of being scored against a different rubric.
+  const enrich: EnrichmentSource = (input.forge ?? resolveForge()).enrich?.() ?? {};
 
   // Pull-request ingestion (GraphQL) runs in parallel with the REST snapshot fetch, then is
   // awaited before analysis so PR signals fold into the dimension scores (F4). GraphQL needs a
   // token — skip gracefully (null) when scanning anonymously.
   let prFetchFailed = false;
-  const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] } | null> = token
-    ? fetchPrStats(parsed.owner, parsed.repo, token, signal).catch((err) => {
+  const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] } | null> = token && enrich.pullRequests
+    ? enrich.pullRequests(parsed.owner, parsed.repo, token, signal).catch((err) => {
         // The sensor failed — record the fact so it persists with the scan (a caveat via
         // buildScanWarnings), instead of degrading to a null indistinguishable from "no PRs".
         console.error("[scan] PR ingestion failed:", err);
@@ -110,21 +123,26 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // Governance (branch protection / rulesets) + commit activity need the default branch from
   // the snapshot, so they start now and run alongside the LLM call. Governance folds into the
   // score (awaited before analysis); activity is display-only (awaited at compose time).
-  const govPromise: Promise<Governance | null> = token
-    ? fetchBranchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
+  const govPromise: Promise<Governance | null> = token && enrich.branchGovernance
+    ? enrich.branchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
     : Promise.resolve(null);
   // GitHub-native security posture (published advisories + org-level security policy) — fed to the
   // Security (D9) check battery below (the Security-Policy check). Public reads, token-gated.
-  const secPromise: Promise<SecurityPosture | null> = token
-    ? fetchSecurityPosture(parsed.owner, parsed.repo, token, signal).catch(() => null)
+  const secPromise: Promise<SecurityPosture | null> = token && enrich.securityPosture
+    ? enrich.securityPosture(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
   // Current EXPOSURE — open known vulns from OSV (parsed from the committed npm lockfile). The
   // "open vulns are the real negative" axis, kept separate from posture; degrades to UNKNOWN.
-  const expPromise: Promise<SecurityExposure | null> = token
-    ? fetchSecurityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(() => null)
+  // #4 — routed like the rest. The OSV read is GitHub-CONTENT-bound (it reads the committed lockfile
+  // over GitHub's API), so it is a capability, not a universal: a GitLab scan gets `null` here, which
+  // `SecurityExposure`'s own contract already defines as "we could not inspect dependencies", never
+  // "clean". Firing GitHub's reader with a GitLab token — what an unrouted call would have done — is
+  // the bug this line closes.
+  const expPromise: Promise<SecurityExposure | null> = token && enrich.securityExposure
+    ? enrich.securityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(() => null)
     : Promise.resolve(null);
-  const activityPromise: Promise<number[] | null> = token
-    ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
+  const activityPromise: Promise<number[] | null> = token && enrich.commitActivity
+    ? enrich.commitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
   // Deepening pass — the two platform-observed enrichments. Both are one bounded REST call, token-gated
   // like governance (rate-limit hygiene; the App's existing Checks:read covers suites on private repos,
@@ -132,26 +150,26 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // deterministic scores (analyze/platform-signals.ts, security/checks.ts). Score-bearing, so awaited
   // with the others before analysis.
   const scoredSha = snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch;
-  const appInventoryPromise: Promise<AppInventory | null> = token
-    ? fetchAppInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(() => null)
+  const appInventoryPromise: Promise<AppInventory | null> = token && enrich.appInventory
+    ? enrich.appInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(() => null)
     : Promise.resolve(null);
-  const ciHealthPromise: Promise<CiHealth | null> = token
-    ? fetchCiHealth(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
+  const ciHealthPromise: Promise<CiHealth | null> = token && enrich.ciHealth
+    ? enrich.ciHealth(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
     : Promise.resolve(null);
   // W4 — deployments, the outcome anchor. Token-gated and BEST-EFFORT: a repo that doesn't use
   // GitHub Deployments returns an empty list, and no read scope returns null → no rows, which the
   // outcome views render as "not measured" rather than as a zero failure rate. It never blocks or
   // fails a scan; deployments are an enrichment, not a score input.
-  const deploymentsPromise: Promise<DeploymentRecord[]> = token
-    ? fetchDeployments(parsed.owner, parsed.repo, token).catch(() => [])
+  const deploymentsPromise: Promise<DeploymentRecord[]> = token && enrich.deployments
+    ? enrich.deployments(parsed.owner, parsed.repo, token).catch(() => [])
     : Promise.resolve([]);
   // Context Health (W4): last-modified per detected guidance file. Deliberately NOT token-gated —
   // the /commits?path= endpoint answers anonymously within rate limits — and pinned to the commit
   // actually scored (else the read ref) so the freshness matches the snapshot. Bounded to ≤3 calls;
   // any failure degrades per-file to "freshness unknown" instead of failing the scan.
   const guidancePaths = pickGuidanceFiles(snapshot.tree).map((f) => f.path);
-  const guidanceFreshnessPromise: Promise<GuidanceFreshness[]> = guidancePaths.length
-    ? fetchGuidanceFreshness(
+  const guidanceFreshnessPromise: Promise<GuidanceFreshness[]> = guidancePaths.length && enrich.guidanceFreshness
+    ? enrich.guidanceFreshness(
         parsed,
         snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch,
         guidancePaths,

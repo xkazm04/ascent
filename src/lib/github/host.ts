@@ -17,19 +17,34 @@ function envHost(v: string | undefined): string | null {
   return t ? t.replace(/\/+$/, "") : null;
 }
 
+// FORGE-NEUTRAL INGESTION (moonshot #4). The base-URL resolvers take an OPTIONAL `{ host?: ForgeHost }`
+// so a caller that already holds a resolved host record (a self-hosted `Installation` row) can pass it
+// instead of reaching for the env. Unset — which is every call site in the tree today — is
+// byte-identical to the env resolution these functions have always done, and the GitHub adapter
+// deliberately passes nothing: GHES is configured by these env vars and that stays the single source
+// for GitHub. The parameter exists so the SIGNATURE is forge-shaped, not so GitHub's behaviour
+// changes. `ForgeHost` is imported type-only, so this module gains no runtime dependency.
+import type { ForgeHost } from "@/lib/forge/types";
+
 /** REST API base. GitHub.com default; `GITHUB_API_URL` for GHES (e.g. https://ghe.acme.com/api/v3). */
-export function githubApiBase(): string {
-  return envHost(process.env.GITHUB_API_URL) ?? "https://api.github.com";
+export function githubApiBase(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.apiBase ?? envHost(process.env.GITHUB_API_URL) ?? "https://api.github.com";
 }
 
 /** GraphQL endpoint. GitHub.com default; `GITHUB_GRAPHQL_URL` for GHES (e.g. https://ghe.acme.com/api/graphql). */
-export function githubGraphqlUrl(): string {
-  return envHost(process.env.GITHUB_GRAPHQL_URL) ?? "https://api.github.com/graphql";
+export function githubGraphqlUrl(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.graphqlUrl ?? envHost(process.env.GITHUB_GRAPHQL_URL) ?? "https://api.github.com/graphql";
 }
 
 /** Raw file-content host. GitHub.com default; `GITHUB_RAW_URL` for GHES (include the /raw path segment). */
-export function githubRawBase(): string {
-  return envHost(process.env.GITHUB_RAW_URL) ?? "https://raw.githubusercontent.com";
+export function githubRawBase(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.rawBase ?? envHost(process.env.GITHUB_RAW_URL) ?? "https://raw.githubusercontent.com";
+}
+
+/** The WEB host (permalinks, not API calls). `GITHUB_SERVER_URL` is the name GitHub's own Actions
+ *  runners set, so a GHES admin reuses a value they already have; GitHub.com is the default. */
+export function githubWebBase(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.webBase ?? envHost(process.env.GITHUB_SERVER_URL) ?? "https://github.com";
 }
 
 /** The default User-Agent the REST scanner sends (most callers). */

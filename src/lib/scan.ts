@@ -12,12 +12,11 @@
 
 import {
   GitHubError,
-  GitHubPublicSource,
-  parseRepoUrl,
   type ParsedRepo,
   type ProgressFn,
   type RepoSource,
 } from "@/lib/github/source";
+import { parseForgeUrl, resolveForge } from "@/lib/forge/registry";
 import { getProviderForOrg } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import type { LLMProvider } from "@/lib/llm/provider";
@@ -180,13 +179,19 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
 }
 
 async function runScanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
-  const parsed = parseRepoUrl(input);
-  if (!parsed) {
+  // FORGE ROUTING (moonshot #4). `parseForgeUrl` tries an explicit `<forge>:` prefix, then each
+  // registered forge GITHUB FIRST — so every input that parsed before parses to the same
+  // `{owner, repo}` through the same GitHub parser, and only inputs GitHub REJECTED (an explicit
+  // gitlab.com URL, a `gitlab:` coordinate) can reach another adapter.
+  const routed = parseForgeUrl(input);
+  if (!routed) {
     throw new GitHubError(
       "INVALID_URL",
-      "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.",
+      "Enter a valid repository URL, e.g. https://github.com/owner/repo or https://gitlab.com/group/project.",
     );
   }
+  const { forge: forgeId, ...parsed } = routed;
+  const forge = resolveForge(forgeId);
   // Resolve the provider up front so every progress event can carry provider-aware copy —
   // the loading UI renders "Asking Gemini…" / "Querying Bedrock in us-east-1…" from these
   // fields, starting with the very first frame. Construction is side-effect-free: no network
@@ -207,7 +212,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   const emit: ProgressFn = (p) =>
     baseEmit({ provider: intendedProvider, region: providerRegion, ...p });
 
-  const source = opts.source ?? new GitHubPublicSource();
+  // An explicitly injected source still wins (local mode, the loop lane, tests). Otherwise the forge
+  // builds it — and for GitHub that is `new GitHubPublicSource()`, the same construction as before.
+  const source = opts.source ?? forge.source();
   const token = opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
   // Honor client disconnect: every downstream fetch is wired to this signal, and we re-check it
   // at each stage boundary so an abandoned scan stops before the next expensive leg.
@@ -219,6 +226,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     await ingestRepository({
       parsed,
       source,
+      forge,
       token,
       ref: opts.ref,
       headSha: opts.headSha,
