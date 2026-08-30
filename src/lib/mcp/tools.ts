@@ -183,9 +183,24 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     description:
       "The organization's declared position on AI-assisted development: permitted tools and models, " +
       "no-AI path zones, per-tier review requirements, and whether an AI-attributed change requires a " +
-      "human approval before merge. Read this before writing code with an agent in this org.",
+      "human approval before merge. Read this before writing code with an agent in this org. " +
+      "Pass `repo` to get THAT repository's compiled control set: its admission mode (whether agents " +
+      "may work here at all), its autonomy tier, the controls that are actually enforced, and — " +
+      "explicitly — the clauses that are declared but unenforceable, so you know which rules only you " +
+      "can honor.",
+    // Still read-only, so no `mutates` and no write scope: `repo` narrows what is returned, it does
+    // not decide anything. The admission decision itself is made by an owner on the Governance tab.
     scopes: ["mcp:read"],
-    inputSchema: { type: "object", additionalProperties: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: {
+          type: "string",
+          description: 'Optional "owner/name" — returns this repository\'s compiled controls and admission mode.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_fix_brief",
