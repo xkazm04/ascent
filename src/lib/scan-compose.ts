@@ -117,7 +117,8 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
   // W6 — the repo's practice SHAPE, from the same snapshot. Display/reuse-only like contextHealth
   // above: never scored, never in the prompt. Structure only (heading outlines, path layouts); no
   // artifact body is read, which is what makes an org's own pattern safe to move between its repos.
-  report.practiceShape = extractPracticeShape(snapshot.tree, snapshot.files);
+  // #33 (W2-J2 seam): GitHub's own truncation flag is the input to the census's honest-null rule.
+  report.practiceShape = extractPracticeShape(snapshot.tree, snapshot.files, { truncated: snapshot.truncated });
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...input.usage, latencyMs: input.llmLatencyMs };

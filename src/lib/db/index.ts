@@ -415,3 +415,11 @@ export { listOrgSkillUsageSamples, recordUsageSamples, purgeUsageSamples, type S
 export { listSkillLessons, replaceSkillLessons, purgeSkillLessons, type SkillLessonRow } from "@/lib/db/org-skill-lessons";
 export { getSkillTrace, putSkillTrace, type SkillTraceRow } from "@/lib/db/org-skill-trace";
 export { createMemoryProposal, setMemoryProposalPr, type MemoryProposalRow } from "@/lib/db/org-registry-proposals";
+// ── MOONSHOT wave 2 — barrel lines landed by the Director at integration ─────────────────────────
+export * from "@/lib/db/practice-adoption";
+export * from "@/lib/db/house-pattern-versions";
+export { recordMemoryCitation, citationCountsFor, listMemoryCitations, type MemoryCitationRow } from "@/lib/db/org-memory-citations";
+export * from "@/lib/db/lane-brief-read";
+export * from "@/lib/db/lane-outcomes";
+export * from "@/lib/db/loop-lessons";
+export { foldImprovementEvents, getImprovementEvents, recordLoopPr } from "@/lib/db/improvement-events";

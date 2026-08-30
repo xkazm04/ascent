@@ -144,7 +144,9 @@
         "src/features/shared/practices/**",
         "src/lib/org/governance.ts",
         "src/lib/org/adoption.ts",
-        "src/lib/org/playbook-apply.ts"
+        "src/lib/org/playbook-apply.ts",
+        "src/lib/db/practice-adoption.ts",
+        "src/lib/db/house-pattern-versions.ts"
       ]
     },
     {
@@ -221,7 +223,10 @@
         "src/app/api/org/playbooks/**",
         "src/app/api/org/briefing/**",
         "src/app/api/org/ops/**",
-        "src/app/api/org/live-share/**"
+        "src/app/api/org/live-share/**",
+        "src/lib/db/improvement-events.ts",
+        "src/lib/db/org-impact.ts",
+        "src/lib/db/org-program.ts"
       ]
     },
     {
@@ -235,7 +240,17 @@
         "src/lib/local/loop-worktree.ts",
         "src/lib/db/loop-runs*.ts",
         "src/lib/db/loop-tenancy.ts",
-        "src/lib/scan-stage.ts"
+        "src/lib/scan-stage.ts",
+        "src/lib/local/agent.ts",
+        "src/lib/local/agent-envelope.ts",
+        "src/lib/local/lane-economics.ts",
+        "src/lib/local/lane-cost.ts",
+        "src/lib/local/lane-report.ts",
+        "src/lib/local/loop-pr.ts",
+        "src/lib/local/drive.ts",
+        "src/lib/org/lane-brief.ts",
+        "src/lib/db/lane-*.ts",
+        "src/lib/db/loop-lessons.ts"
       ]
     },
     {
@@ -266,7 +281,8 @@
         "src/app/api/org/tokens/**",
         "src/lib/mcp/**",
         "src/app/api/mcp/**",
-        "src/lib/db/org-skill-usage-samples.ts"
+        "src/lib/db/org-skill-usage-samples.ts",
+        "src/lib/db/org-memory-citations.ts"
       ]
     },
     {
@@ -299,7 +315,8 @@
         "src/lib/register/**",
         "src/app/scorecard/**",
         "src/lib/outcomes/**",
-        "src/lib/db/outcomes.ts"
+        "src/lib/db/outcomes.ts",
+        "src/lib/corpus/**"
       ]
     },
     {

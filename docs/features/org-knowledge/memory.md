@@ -707,3 +707,11 @@ only news once the other world exists.
 | `src/lib/memory/repo-memory-mirror.ts` | The mirror: gates, parse, upsert, ingest, supersede. |
 | `src/lib/db/repo-memory.ts` | `RepoMemoryMirror` reads/writes + the dead-ends read. |
 | `src/features/shared/memory/RepoMemoryDeadEnds.tsx` | "Dead ends other repos already hit". |
+
+## Lesson candidates from the local loop (moonshot #25)
+
+The loop never writes `OrgMemory`. When a lane's agent reports `lessons` in `.ascent/lane-report.json`,
+they land as `OrgMemoryCandidate` rows (`source: "loop-lesson"`, `status: pending`) and surface in the
+cockpit's lessons inbox (`GET /api/org/loop/lessons`). A human keeps or discards each one; a kept lesson
+is promoted through `createOrgMemory` — the same door as an authored memory — never by the loop itself.
+`OrgMemoryCandidate` is deliberately generic; the skills lessons channel (#36) reuses it.

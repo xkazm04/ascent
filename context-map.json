@@ -177,7 +177,9 @@
             "src/lib/scoring/gate-numeric.ts",
             "src/lib/scoring/recommendations.test.ts",
             "src/lib/maturity/green.test.ts",
-            "src/lib/maturity/green.ts"
+            "src/lib/maturity/green.ts",
+            "src/lib/analyze/guidance-graph.ts",
+            "src/lib/analyze/guidance-projection.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -741,7 +743,9 @@
             "src/lib/db/org-decisions-roadmap.test.ts",
             "src/lib/db/org-insights-backlog-queries.test.ts",
             "src/lib/db/org-passport-blockers.test.ts",
-            "src/lib/db/scans-orphans.test.ts"
+            "src/lib/db/scans-orphans.test.ts",
+            "src/features/standing/repositories/context-health/GuidanceCoherenceCard.tsx",
+            "src/features/standing/repositories/context-health/guidanceCoherenceModel.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -1039,7 +1043,15 @@
             "src/features/standing/governance/stance/stanceShared.tsx",
             "src/features/standing/governance/stance/useStanceEditor.test.ts",
             "src/features/standing/governance/stance/useStanceEditor.ts",
-            "src/lib/practices/artifact.ts"
+            "src/lib/practices/artifact.ts",
+            "src/lib/practices/reconcile.ts",
+            "src/lib/practices/registry-artifact.ts",
+            "src/lib/db/practice-adoption.ts",
+            "src/lib/db/house-pattern-versions.ts",
+            "src/app/api/practices/rollout/route.ts",
+            "src/features/shared/practices/PracticeDriftStrip.tsx",
+            "src/features/shared/practices/RegistryPracticeApply.tsx",
+            "src/features/shared/practices/practiceAdoptionRows.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1313,7 +1325,8 @@
             "src/app/api/org/briefing/share/revoke/route.test.ts",
             "src/app/api/org/briefing/share/revoke/route.ts",
             "src/app/api/org/briefing/share/route.test.ts",
-            "src/app/api/org/program/route.ts"
+            "src/app/api/org/program/route.ts",
+            "src/lib/db/improvement-events.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1537,7 +1550,8 @@
             "src/lib/db/playbooks.test.ts",
             "src/lib/org/playbook-gate.ts",
             "src/app/api/org/playbooks/[id]/apply-batch/route.test.ts",
-            "src/app/api/org/playbooks/[id]/apply-batch/route.ts"
+            "src/app/api/org/playbooks/[id]/apply-batch/route.ts",
+            "src/lib/org/lane-brief.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1647,7 +1661,23 @@
             "src/lib/local/pairing.test.ts",
             "src/lib/local/pairing.ts",
             "src/lib/local/source.test.ts",
-            "src/lib/local/source.ts"
+            "src/lib/local/source.ts",
+            "src/lib/local/agent-envelope.ts",
+            "src/lib/local/lane-cost.ts",
+            "src/lib/local/lane-economics.ts",
+            "src/lib/local/lane-report.ts",
+            "src/lib/local/loop-pr.ts",
+            "src/app/api/org/loop/[id]/pr/route.ts",
+            "src/app/api/org/loop/lessons/route.ts",
+            "src/lib/db/lane-brief-read.ts",
+            "src/lib/db/lane-outcomes.ts",
+            "src/lib/db/loop-lessons.ts",
+            "src/features/inflight/live/cockpit/BriefStrip.tsx",
+            "src/features/inflight/live/cockpit/CockpitLessons.tsx",
+            "src/features/inflight/live/cockpit/CockpitOutcomeTotals.tsx",
+            "src/features/inflight/live/cockpit/CockpitVerdicts.tsx",
+            "src/features/inflight/live/cockpit/LanePrAction.tsx",
+            "src/features/inflight/live/cockpit/PriceListPanel.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -1991,7 +2021,14 @@
             "src/lib/mcp/protocol.test.ts",
             "src/lib/mcp/protocol.ts",
             "src/lib/mcp/tools.test.ts",
-            "src/lib/mcp/tools.ts"
+            "src/lib/mcp/tools.ts",
+            "src/lib/mcp/exemplar-tool.ts",
+            "src/lib/mcp/registry-reads.ts",
+            "src/lib/mcp/registry-writes.ts",
+            "src/lib/mcp/skill-match.ts",
+            "src/lib/mcp/write-gate.ts",
+            "src/app/api/mcp/gates.ts",
+            "src/lib/db/org-memory-citations.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2141,7 +2178,13 @@
             "src/app/trends/ExportCsvButton.tsx",
             "src/app/trends/ExportCsvButton.dom.test.tsx",
             "src/lib/history/limits.ts",
-            "src/lib/history/limits.test.ts"
+            "src/lib/history/limits.test.ts",
+            "src/lib/report/exemplar.ts",
+            "src/lib/report/exemplar-load.ts",
+            "src/lib/corpus/eligibility.ts",
+            "src/app/report/compare/ExemplarPanel.tsx",
+            "src/app/report/compare/ExemplarPanelParts.tsx",
+            "src/app/report/compare/ExemplarSection.tsx"
           ],
           "target": null,
           "apiRoutes": [
