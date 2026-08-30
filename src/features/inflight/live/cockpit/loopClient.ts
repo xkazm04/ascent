@@ -2,7 +2,7 @@
 // server's own message. Kept apart from useLoopRun so the hook is state machine and nothing else,
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
-import type { LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload } from "./loopTypes";
+import type { LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
 
 async function json<T>(res: Response, fallback: string): Promise<T> {
   const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
@@ -14,6 +14,16 @@ async function json<T>(res: Response, fallback: string): Promise<T> {
 export async function fetchLoopStatus(slug: string): Promise<LoopStatusPayload> {
   const res = await fetch(`/api/org/loop?org=${encodeURIComponent(slug)}`, { cache: "no-store" });
   return json<LoopStatusPayload>(res, "Could not read the loop status");
+}
+
+/**
+ * The org's remediation price list, off the SAME status route (it has no route of its own: it is
+ * derived at read time and stores nothing, so there is no id to gate). `null` when the deployment
+ * cannot produce one — which the panel renders as silence, not as zeros.
+ */
+export async function fetchLoopPrices(slug: string): Promise<RemediationPriceList | null> {
+  const status = await fetchLoopStatus(slug);
+  return status.prices ?? null;
 }
 
 export async function fetchLoopDetail(slug: string, id: string): Promise<LoopRunDetail> {

@@ -59,6 +59,7 @@ export {
   getLatestScanIdForRepo,
   getLoopRun,
   getLoopRunDetail,
+  getOrgPriceList,
   listInFlightLanes,
   listLanes,
   listLoopRuns,

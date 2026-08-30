@@ -12,6 +12,8 @@ export type { CockpitRailProps } from "./CockpitRail";
 export { CockpitField } from "./CockpitField";
 export { CockpitDrivePanel, DriveVerdict } from "./CockpitDrivePanel";
 export { CockpitDriveResume } from "./CockpitDriveResume";
+export { PriceListPanel } from "./PriceListPanel";
+export type { PriceListPanelProps } from "./PriceListPanel";
 export type { CockpitDriveResumeProps } from "./CockpitDriveResume";
 export { canDispatch, cockpitSetupState } from "./cockpitGate";
 export type { CockpitGateInput } from "./cockpitGate";
@@ -25,4 +27,4 @@ export { isOrgWide, proposalDimensions, shareLine, sharedDimensions } from "./co
 export type { DimensionShare, SharedDimensions } from "./cockpitDimensions";
 export { driftFor, laneAttribution, runAttribution, runLift, scanningRepos } from "./cockpitDrift";
 export type { CockpitDrift } from "./cockpitDrift";
-export type { CockpitMode, LoopProposal, LoopStatusPayload } from "./loopTypes";
+export type { CockpitMode, LaneEconomics, LoopProposal, LoopStatusPayload, PriceRow, RemediationPriceList } from "./loopTypes";

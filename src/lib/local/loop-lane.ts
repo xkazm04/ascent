@@ -279,7 +279,16 @@ function meterLane(
 export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   const deps: LaneDeps = { ...defaultLaneDeps, ...input.deps };
   const { runId, org, repo, cycle, worktree } = input;
-  const lane = await upsertLane({ runId, repoFullName: repo, cycle });
+  // Under an `ab` policy the arm's model is part of the lane's IDENTITY: two arms of one repo in one
+  // cycle are two rows, and without the discriminator the second would resolve to the first's row and
+  // overwrite its branch, its cost and its result. A `single` run passes neither and behaves exactly
+  // as it always did.
+  const lane = await upsertLane({
+    runId,
+    repoFullName: repo,
+    cycle,
+    ...(input.abPairKey ? { model: input.agent?.model ?? null, abPairKey: input.abPairKey } : {}),
+  });
   const laneId = lane?.id ?? null;
   // CLAIM → RUN → ADJUDICATE, with RELEASE on every path where the adjudication never happened.
   // The claim (open → in_progress below) is what lets the rescan's feedback attach to these rows —

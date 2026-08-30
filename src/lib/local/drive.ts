@@ -26,7 +26,8 @@
 import { selfHosted } from "@/lib/env";
 import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
-import { getLoopRun } from "@/lib/db/loop-runs-read";
+import { getLoopRun, getOrgPriceList } from "@/lib/db/loop-runs-read";
+import { pickDriveModel } from "@/lib/local/lane-economics";
 import { createDriveRow, getDriveRow, listDriveRows, markStaleDrivesInterrupted, saveDriveRow } from "@/lib/db/drives";
 import { getOrgRollup, listLocalPairings } from "@/lib/db";
 import { fleetGreenness, repoGreenness } from "@/lib/maturity/green";
@@ -234,6 +235,44 @@ export async function resumeDrive(id: string, actor: string | null): Promise<Dri
   return startDrive({ ...params, actor });
 }
 
+/**
+ * The dimensions the drive still owes debt on, across the repos it is about to work.
+ *
+ * The price list is per-dimension, so "which model is cheaper" is only answerable against the
+ * dimensions this step is actually aiming at — a model that is cheap on D9 is no argument for a step
+ * that is all D2. Read from the same rollup `measureDrive` uses, so the two cannot disagree about
+ * what is still open.
+ */
+async function debtDimensions(orgSlug: string, repos: readonly string[]): Promise<string[]> {
+  const rollup = await getOrgRollup(orgSlug).catch(() => null);
+  const scope = new Set(repos);
+  const dims = new Set<string>();
+  for (const r of rollup?.repos ?? []) {
+    if (!r.latest || !scope.has(r.fullName)) continue;
+    for (const gap of repoGreenness(r.fullName, r.latest.dims, r.latest.unmeasurableDims ?? []).gaps) {
+      dims.add(gap.dimId);
+    }
+  }
+  return [...dims];
+}
+
+/**
+ * The model the next run should use, or `null` to keep the drive's configured one.
+ *
+ * Best-effort by construction: a failure to read the price list must never end a drive, so every
+ * error degrades to `null` — which is the drive continuing exactly as it did before #27.
+ */
+async function chooseDriveModel(st: DriveStatus, m: DriveMeasurement): Promise<string | null> {
+  try {
+    const dims = await debtDimensions(st.org, m.remaining);
+    if (dims.length === 0) return null;
+    const prices = await getOrgPriceList(st.org);
+    return pickDriveModel(prices, dims);
+  } catch {
+    return null;
+  }
+}
+
 async function waitForRun(runId: string, shouldStop: () => boolean): Promise<void> {
   let stopSent = false;
   for (;;) {
@@ -265,12 +304,18 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
       st.phase = step.phase;
       break;
     }
+    // THE MODEL CHOICE BECOMES EVIDENCE-LED, and only where there is evidence. `pickDriveModel`
+    // returns null unless two models are measured at n >= 3 on every dimension this step is aiming
+    // at, and null means "keep what the operator configured" — never a guess. Deliberately a
+    // separate call beside `nextDriveStep` rather than a widening of it: that function is a pure,
+    // heavily-tested three-branch termination policy and a model choice is not a termination reason.
+    const picked = await chooseDriveModel(st, m);
     const run = await startLoopRun({
       org: st.org,
       repos: step.repos,
       maxCycles: st.maxCycles,
       concurrency: st.concurrency,
-      model: st.model,
+      model: picked ?? st.model,
       effort: st.effort,
       actor,
     });

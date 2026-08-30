@@ -891,8 +891,85 @@ Two causes, both now fixed:
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
   the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
 
+## Remediation economics — cents per verified maturity point (2026-08-30, moonshot #27)
+
+Every lane already had an independent verifier (the worktree rescan plus the movement-gated close
+rule) and a before/after scan pair. What it did not have was the other half of the arithmetic: the
+agent's cost, tokens, turns and model were read past and dropped at the process boundary, so the loop
+could say what moved and never what it cost.
+
+**The envelope is parsed whole.** `src/lib/local/agent-envelope.ts` is a pure parser over
+`claude -p --output-format json`: `total_cost_usd`, `usage`, `num_turns`, `duration_ms`, `session_id`
+and the model. `agent.ts` stays a spawn wrapper and calls it; `{ok, summary}` keep their exact
+meanings, so every existing caller is unchanged. Honest nulls throughout — a field the envelope omits
+is `null`, never 0, and a **reported** `total_cost_usd: 0` stays a real 0, because "the CLI said zero"
+and "the CLI said nothing" are different facts. A **failed** session still records its cost: a failure
+that burned two dollars is the most important row in the ledger.
+
+**One declared cost source per lane.** `LoopRunLane.costSource` is stamped `"envelope"` and nothing
+else. `AgentSession` rows are the OTLP export of Claude Code sessions a *developer* ran — a different
+population reaching the box by a different path — so they are never added to a lane's cost, never
+averaged with it and never used to fill a null. `agentSessionId` is stored so the two can be **joined
+for inspection**, never summed. A structural guard
+(`src/lib/local/lane-economics.test.ts` → "the one-source rule, structurally") asserts no read path
+under `src/lib/local/**` or in `loop-runs-read.ts` reaches for an `AgentSession` cost field.
+
+**Micro-cents, not cents.** `costMicros` is `round(total_cost_usd * 100 * 1e6)`, so a 0.4¢ session is
+not rounded to zero. Every display divides.
+
+**The fold** (`src/lib/local/lane-economics.ts`, pure — no DB, no React):
+
+- a **verified point** is a positive `DimensionDiff.delta` on a lane whose `before` *and* `after`
+  scans both exist. `diffScans` already refuses to invent a delta when either end is missing, and the
+  fold never widens that: no pair means `verifiedPoints: null`, which is not the same as `0`;
+- a lane's cost is attributed to the dimensions it moved **in proportion to their positive deltas**.
+  Negative deltas are not netted off — a model that broke D5 while fixing D3 gets no discount;
+- a lane that **spent and moved nothing measurable** does not disappear into the working lanes'
+  denominator. It lands in `unproductiveMicros` and is shown on its own line;
+- a `(model, dimension)` cell is `totalMicros / totalPoints`, and **`n` ships with every price**.
+  There are deliberately no intervals, variance figures or confidence marks — per-model noise bands
+  are deck item #30 and are deferred.
+
+**Reads.** `getLoopRunDetail` returns `economics: LaneEconomics[]` (one per outcome, same order);
+`listLoopRuns` sums `costMicros` per run, `null` when no lane recorded one; `getOrgPriceList(orgSlug)`
+folds the org's most recent 200 priced lanes through the *same* `getScanComparison` → `diffScans`
+path the ledger uses, and rides on `GET /api/org/loop` as `prices` (no new route, so no new `[id]`
+gate surface). The list is org-scoped and derived at read time — it stores nothing, and there is no
+cross-tenant "what does a D3 point cost" figure.
+
+**A/B model policy.** `POST /api/org/loop { action: "start", modelPolicy: "ab", models: [a, b] }` fans
+the same curated batch out to **two lanes per repo per cycle** — two worktrees, two branches, two
+models, one `abPairKey`. Each arm rescans its own worktree, so the same guardbanded scorer adjudicates
+both and neither arm grades the other. Exactly two distinct models, each matching the same
+`/^[A-Za-z0-9][A-Za-z0-9._:-]*$/` token rule `agent.ts` enforces before a spawn (`shell: true`
+re-parses argv on Windows) — anything else is a 400 and never a spawn. Because both arms run in one
+cycle, an `ab` run has twice the lanes in flight, and a request past `LOOP_CONCURRENCY_CAP` is refused
+with that reason rather than quietly exceeding the budget. A retried lane re-runs **its own** arm.
+
+**The drive spends on evidence.** `pickDriveModel(prices, dimIds)` is consulted beside
+`nextDriveStep` (never inside it — that function is a pure three-branch *termination* policy and a
+model choice is not a termination reason). It returns `null` — meaning "keep the configured model" —
+unless two models are measured at `n >= 3` on **every** dimension the step is aiming at.
+
+**UI** (`?tab=live`): a cost chip on each `LaneRail` (`sonnet · 4 turns · 48.00¢`, or the literal
+`cost unknown`, in the counters' own muted type — a cost is not a verdict, so it gets no colour); a
+`spent · ¢/point` line on each outcome row, reading `cost not measured` or `no measured movement`
+rather than a zero; and `PriceListPanel` under the run-history strip, which prints `n=` beside every
+cell and an explicit "a price needs a lane with both scan ends and a recorded cost" where a zeroed
+table would otherwise be.
+
+**Meter.** Each lane also posts to the unified LLM meter (`meter()`, lane `local`) with the
+caller-owned idempotency key `loop-lane:<laneId>` and the envelope's own cost (converted from
+micro-cents to the meter's USD micros), rather than letting the meter re-price it from tokens: for a
+subscription-auth CLI session the envelope is authoritative. A meter that throws is logged to the lane
+and never fails it.
+
 ## Known gaps
 
+- **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
+  to end by `POST /api/org/loop`, but the cockpit's run controls still offer only one model — arming
+  an A/B run today means calling the route. The dials live in `CockpitRunControls`/`useRunDials`,
+  outside the write set of the change that added the policy.
 - **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns
   processes. Cloud orgs get an empty state on the cockpit and a 404 from every loop route. A hosted
   path would need a sandboxed executor and a very different consent model.

@@ -210,6 +210,23 @@ and cycles are pinned to 1), and because its engine is the mock it asserts the l
 call the movement a lift. The Character-level journey is `uat/journeys/loop-to-l5.md`; its L2 half —
 a real agent lane, an attributable lift, a killed-and-resumed drive — has **not** been run.
 
+## What a session costs (2026-08-30)
+
+The whole `claude -p --output-format json` envelope is now parsed, not just its `.result`: cost,
+input/output/cache-read tokens, turns, wall time, session id and model land on the lane row the moment
+the session returns — before the commit, before the rescan, so a lane that dies later still carries
+what it spent, and a *failed* session keeps its cost.
+
+**One declared source per lane, always.** `costSource` is stamped `"envelope"` — the CLI's own
+`total_cost_usd` for that session — and nothing is ever added to it. The `AgentSession` rows an OTLP
+exporter writes are Claude Code sessions a **developer** ran: a different population by a different
+path, and summing the two would double-count the same tokens behind a better-looking figure. The
+lane's `agentSessionId` exists so the two can be joined for inspection, never added.
+
+Costs are stored in **micro-cents** so a sub-cent session is not rounded away, and every field is
+`null` when the CLI reported nothing — never `0`, which would be averaged downstream as a free
+session. The lane log says `cost unknown` in that case, and the cockpit does the same.
+
 ## Known gaps
 
 - The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local

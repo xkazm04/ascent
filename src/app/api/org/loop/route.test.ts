@@ -39,6 +39,7 @@ vi.mock("@/lib/db/loop-runs", () => ({
   getActiveLoopRun: vi.fn(async () => null),
   listLoopRuns: vi.fn(async () => []),
   markStaleRunsStopped: vi.fn(async () => 0),
+  getOrgPriceList: vi.fn(async () => ({ rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" })),
   getLoopRun: vi.fn(async (id: string) => (id === "run-acme" ? { id, orgId: "org-acme", endedAt: null } : id === "run-other" ? { id, orgId: "org-other" } : null)),
   getLane: vi.fn(async (id: string) => (id === "lane-acme" ? { id, runId: "run-acme" } : id === "lane-other" ? { id, runId: "run-other" } : null)),
   getLoopRunDetail: vi.fn(async (id: string) => (id === "run-acme" ? { run: { id, orgId: "org-acme" }, lanes: [], outcomes: [] } : null)),
@@ -87,9 +88,16 @@ describe("GET /api/org/loop", () => {
     expect((await get("org=acme")).status).toBe(403);
   });
 
-  it("answers { enabled, active, runs }", async () => {
+  it("answers { enabled, active, runs, prices }", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
-    expect(body).toEqual({ enabled: true, active: null, runs: [] });
+    // The price list rides on the STATUS read rather than a route of its own: it is derived at read
+    // time from the org's own lanes and stores nothing, so it has no id to gate.
+    expect(body).toEqual({
+      enabled: true,
+      active: null,
+      runs: [],
+      prices: { rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" },
+    });
   });
 
   it("reconciles stale runs WITH the engine's liveness — a run this process drives is not stale", async () => {
@@ -159,6 +167,36 @@ describe("POST { action: 'start' }", () => {
       concurrency: 3,
       actor: "kazimi66",
     });
+  });
+
+  it("threads a valid A/B policy through as two arms", async () => {
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], modelPolicy: "ab", models: ["sonnet", "opus"] });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({ modelPolicy: "ab", models: ["sonnet", "opus"] });
+  });
+
+  it("400s an A/B run that does not name exactly two distinct models", async () => {
+    // A malformed A/B request must not degrade to a single-model run: the operator would believe they
+    // ran a comparison they did not.
+    for (const models of [["sonnet"], ["sonnet", "sonnet"], ["a", "b", "c"], undefined]) {
+      const res = await post({ action: "start", org: "acme", repos: ["acme/web"], modelPolicy: "ab", models });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/two distinct models/);
+    }
+  });
+
+  it("400s an arm that is not a plain token, and never reaches the spawn seam", async () => {
+    // `shell: true` re-parses argv on Windows, so an unvalidated model name is argument injection.
+    const before = vi.mocked(startLoopRun).mock.calls.length;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], modelPolicy: "ab", models: ["sonnet", "opus; rm -rf /"] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Invalid model/);
+    expect(vi.mocked(startLoopRun).mock.calls.length).toBe(before);
+  });
+
+  it("leaves a single-model run with no policy fields at all", async () => {
+    await post({ action: "start", org: "acme", repos: ["acme/web"] });
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).not.toHaveProperty("modelPolicy");
   });
 
   it("turns an engine refusal into a 409 carrying its reason", async () => {

@@ -8,6 +8,7 @@ import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
 import { attributeDelivered } from "@/lib/maturity/attribution";
+import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
 import {
   laneKindOf,
   toLaneRecord,
@@ -143,7 +144,9 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       // `commits` rides along because the strip's lift answers to the DURABILITY rule too: a lane
       // that committed nothing measured a worktree the run then deleted, and folding that into a
       // green number here would have the history strip claim a lift the ledger refuses (L2-B-01).
-      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true },
+      // `costMicros` rides along in the SAME batched read that folds the lift — the strip prints
+      // both, and two queries for one row would be two chances for them to disagree.
+      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true, costMicros: true },
     });
     const ids = [
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
@@ -160,7 +163,13 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       : [];
     const score = new Map(scans.map((s) => [s.id, s]));
     const liftByRun = new Map<string, number>();
+    // Cost is summed over the lanes that RECORDED one. A run where no lane did stays absent from the
+    // map and reads `null` — "not measured", which is a different fact from a run that cost nothing.
+    // Note this fold does NOT answer to the attribution rule the lift does: money was spent whether
+    // or not the movement it bought can be claimed, and hiding unattributable spend would flatter it.
+    const costByRun = new Map<string, number>();
     for (const l of lanes) {
+      if (l.costMicros != null) costByRun.set(l.runId, (costByRun.get(l.runId) ?? 0) + l.costMicros);
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
       const verdict = attributeDelivered(b, a, l.commits);
@@ -182,6 +191,7 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
         // setups differ is a comparison nobody can make.
         model: r.model,
         effort: r.effort,
+        costMicros: costByRun.has(r.id) ? (costByRun.get(r.id) as number) : null,
       };
     });
   }, []);
@@ -204,7 +214,50 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   const lanes = await listLanes(id);
   const outcomes: LoopLaneOutcome[] = [];
   for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
-  return { run, lanes, outcomes };
+  // The economics ride ALONGSIDE the outcomes, folded from the very same pair — so the ledger's
+  // ¢/point and its before → after can never come from two different readings of one lane.
+  return { run, lanes, outcomes, economics: outcomes.map(laneEconomics) };
+}
+
+/**
+ * The org's remediation price list: what a verified maturity point has cost, per model, per dimension.
+ *
+ * Reads the org's most recent lanes that carry BOTH a model and an after-scan, resolves each pair
+ * through the SAME `getScanComparison` → `diffScans` path the ledger uses (never a second diff
+ * implementation), and folds them with the pure `priceList`. Returns `null` when there is no database
+ * or no org — an empty list is a real answer ("nothing priced yet") and a missing one is not.
+ *
+ * BOUNDED to the most recent `limit` lanes (200 by default) because each priced lane costs one
+ * comparison read; a price list is a standing summary, not an archive scan.
+ */
+export async function getOrgPriceList(
+  orgSlug: string,
+  opts: { since?: Date; limit?: number } = {},
+): Promise<RemediationPriceList | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadSafe<RemediationPriceList | null>(async () => {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return null;
+    const take = Math.max(1, Math.min(200, Math.trunc(opts.limit ?? 200) || 200));
+    const rows = await getPrisma().loopRunLane.findMany({
+      where: {
+        run: { is: { orgId: org.id } },
+        model: { not: null },
+        afterScanId: { not: null },
+        ...(opts.since ? { startedAt: { gte: opts.since } } : {}),
+      },
+      orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+      take,
+    });
+    const lanes: LaneEconomics[] = [];
+    for (const row of rows) {
+      const lane = toLaneRecord(row);
+      // `kind` is irrelevant to economics (a deterministic install lane costs nothing and moves what
+      // it moves), so it is not resolved here — `backlog` is the shape the fold reads.
+      lanes.push(laneEconomics(await laneOutcome(lane, orgSlug, "backlog")));
+    }
+    return priceList(lanes);
+  }, null);
 }
 
 async function laneOutcome(

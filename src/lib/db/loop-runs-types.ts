@@ -7,6 +7,10 @@
 
 import type { ScanDiff } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
+// TYPE-ONLY, and the import runs the other way at runtime: `lane-economics.ts` is the pure fold and
+// depends on these shapes, while this module only needs its result type to declare what the detail
+// view carries. Erased at compile time, so there is no module cycle in the emitted graph.
+import type { LaneEconomics } from "@/lib/local/lane-economics";
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
 export const LOOP_CONCURRENCY_CAP = 4;
@@ -176,6 +180,9 @@ export interface LoopRunDetail {
   run: LoopRunRecord;
   lanes: LoopLaneRecord[];
   outcomes: LoopLaneOutcome[];
+  /** One entry per outcome, SAME ORDER — what each lane cost against what it verifiably moved. The
+   *  fold is pure (`src/lib/local/lane-economics.ts`); this is only where it is carried to a client. */
+  economics: LaneEconomics[];
 }
 
 // ── row → record ─────────────────────────────────────────────────────────────────────────────────

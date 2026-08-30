@@ -12,11 +12,12 @@
 // happened". The engine that produced the pair, and anything `scoreIntegrity` recorded, ride under
 // the row: the whole point is that a reader can see WHY a number is or is not being claimed.
 
-import { deltaHex, fmtDelta, Kicker } from "@/components/ui";
+import { deltaHex, fmtDelta } from "@/components/ui";
 import { dimShort } from "@/lib/ui";
 import { attributeDimension, attributionLabel, integrityNotes } from "@/lib/maturity/attribution";
 import { platformFoldNote } from "@/lib/analyze/platform-carry";
-import { laneAttribution, type RunAttribution } from "./cockpitDrift";
+import { fmtMicrosPerPoint, laneEconomics } from "@/lib/local/lane-economics";
+import { laneAttribution } from "./cockpitDrift";
 import { laneKindTag, type LoopLaneOutcome } from "./loopTypes";
 
 /** The engine + integrity provenance line. Renders nothing when there is nothing to disclose. */
@@ -62,6 +63,9 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
   // What this lane DID, so a row with no agent session in it does not read as one that failed to
   // produce commits. Resolved server-side off the run's targets, never guessed from the lane's shape.
   const tag = laneKindTag(outcome.kind);
+  // Folded HERE rather than taken as a prop: `laneEconomics` is pure and takes exactly the outcome
+  // this row already holds, so passing it down would only create a way for the two to disagree.
+  const econ = laneEconomics(outcome);
 
   return (
     <li className="bg-ink px-4 py-3">
@@ -127,6 +131,25 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
         {lane.branch && <span className="ml-2 text-slate-600">{lane.branch}</span>}
       </p>
 
+      {/* WHAT THE MOVEMENT COST. Folded from this row's OWN pair by the same pure function the price
+          list uses, so the ratio and the arrow above it can never come from two readings. Null is
+          printed as "not measured" in the row's existing absent-value idiom — never as a zero, and
+          never coloured: a ratio is not signed movement, so `deltaHex` stays out of it. */}
+      <p className="mt-1 font-mono text-xs tabular-nums text-slate-600">
+        {econ.costMicros == null ? (
+          <span data-testid="lane-ratio">cost not measured</span>
+        ) : (
+          <span data-testid="lane-ratio">
+            {fmtMicrosPerPoint(econ.costMicros)} spent ·{" "}
+            {econ.microsPerVerifiedPoint == null
+              ? econ.unproductive
+                ? "no measured movement"
+                : "¢/point not measured"
+              : `${fmtMicrosPerPoint(econ.microsPerVerifiedPoint)}/point`}
+          </span>
+        )}
+      </p>
+
       <ProvenanceLine outcome={outcome} />
 
       {(diff?.movements ?? []).slice(0, 2).map((line) => (
@@ -140,49 +163,7 @@ export function OutcomeRow({ outcome }: { outcome: LoopLaneOutcome }) {
   );
 }
 
-/**
- * The three-way tally the outcome header leads with, plus what the headline number EXCLUDED. A run of
- * four one-point movements is not "+4" — the lift holds only the attributable lanes — so the counts
- * beside it are what stops that reading as "nothing happened": "no lift, 3 within noise" and "no
- * lift, 3 mock scans" are different situations calling for opposite next moves.
- */
-export function OutcomeTotals({
-  lift,
-  improved,
-  flat,
-  regressed,
-  excluded,
-}: {
-  lift: number | null;
-  improved: number;
-  flat: number;
-  regressed: number;
-  excluded: Pick<RunAttribution, "withinNoise" | "mock" | "unmeasured" | "undelivered">;
-}) {
-  const parts = [
-    excluded.withinNoise > 0 ? `${excluded.withinNoise} within noise` : null,
-    excluded.mock > 0 ? `${excluded.mock} mock ${excluded.mock === 1 ? "scan" : "scans"}` : null,
-    excluded.unmeasured > 0 ? `${excluded.unmeasured} not measured` : null,
-    excluded.undelivered > 0 ? `${excluded.undelivered} uncommitted` : null,
-  ].filter((x): x is string => x !== null);
 
-  return (
-    <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <span className="font-mono text-2xl tabular-nums" style={{ color: deltaHex(lift ?? 0) }}>
-        {lift == null ? "—" : fmtDelta(lift)}
-      </span>
-      <Kicker tone="muted">attributable lift</Kicker>
-      <span className="font-mono text-xs tabular-nums text-slate-500">
-        {improved} improved · {flat} flat · {regressed} regressed
-      </span>
-      {parts.length > 0 && (
-        <span
-          className="font-mono text-xs tabular-nums text-slate-600"
-          title="Held out of the lift: a movement smaller than the measured run-to-run noise band, or one measured across a scan that fell to the deterministic mock floor, is not evidence the repository changed. Neither is a movement a lane never committed — the loop scans a worktree it then deletes, so an uncommitted lane measured a state that no longer exists."
-        >
-          excluded: {parts.join(" · ")}
-        </span>
-      )}
-    </div>
-  );
-}
+// The header tally lives in a sibling file (200-LOC cap) and is re-exported here so every existing
+// import of `OutcomeTotals` from this module is unchanged.
+export { OutcomeTotals } from "./CockpitOutcomeTotals";

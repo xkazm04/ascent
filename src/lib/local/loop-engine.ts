@@ -44,7 +44,7 @@ import {
   upsertLane,
   type LoopRunRecord,
 } from "@/lib/db/loop-runs";
-import type { LoopTarget } from "@/lib/db/loop-runs-types";
+import type { LoopModelPolicy, LoopTarget } from "@/lib/db/loop-runs-types";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import { defaultLaneDeps, runLane, type LaneDeps } from "@/lib/local/loop-lane";
@@ -88,6 +88,10 @@ export interface StartLoopRunInput {
    *  deployment's env HERE, once, and the resolved values are what land on the row. */
   model?: string | null;
   effort?: string | null;
+  /** `single` (the default, and what every run before #27 was) or `ab`. */
+  modelPolicy?: LoopModelPolicy;
+  /** The two arms of an `ab` run, in order. Ignored under `single`. */
+  models?: string[];
   /** Test seam + the autopilot shim's legacy branch naming. */
   deps?: Partial<LaneDeps>;
   branchFor?: (repo: string, stamp: string) => string;
@@ -136,6 +140,22 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
   // read `null` for every default run, i.e. "whatever CLAUDE_MODEL was that day" — the one fact the
   // ledger needs and the only one an env var cannot recover afterwards.
   const agent = resolveAgentConfig({ model: input.model, effort: input.effort });
+  // THE ARMS OF THE EXPERIMENT. `single` has one; `ab` has exactly two distinct models, checked here
+  // as well as at the route because the engine is also called from the drive and from tests.
+  const policy: LoopModelPolicy = input.modelPolicy === "ab" ? "ab" : "single";
+  const arms = policy === "ab" ? [...new Set((input.models ?? []).map((m) => m.trim()).filter(Boolean))] : [agent.model];
+  if (policy === "ab") {
+    if (arms.length !== 2) throw new Error("An A/B run needs exactly two distinct models.");
+    // Both arms of a repo run in the SAME cycle, so an `ab` run has twice as many lanes in flight as
+    // its concurrency dial says. Refuse with the reason rather than quietly exceeding the budget that
+    // exists because four local `claude -p` sessions already saturate a developer box.
+    const inFlight = (input.concurrency ?? LOOP_DEFAULT_CONCURRENCY) * 2;
+    if (inFlight > LOOP_CONCURRENCY_CAP) {
+      throw new Error(
+        `An A/B run doubles the lanes in flight (${inFlight}), past the cap of ${LOOP_CONCURRENCY_CAP} — lower the lane count to ${Math.floor(LOOP_CONCURRENCY_CAP / 2)} or run one model at a time.`,
+      );
+    }
+  }
   const run = await createLoopRun({
     orgSlug: org,
     repos,
@@ -146,8 +166,12 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     maxCycles: input.maxCycles ?? 3,
     curated: input.curated,
     createdBy: input.actor ?? null,
-    model: agent.model,
+    // The run-level `model` stays the FIRST arm, so every pre-#27 reader (the history strip's setup
+    // line, a retry's inherited configuration) keeps working and reads something true.
+    model: arms[0] ?? agent.model,
     effort: agent.effort,
+    modelPolicy: policy,
+    models: arms,
     phase: "running",
   });
   if (!run) throw new Error("The loop requires a database.");
@@ -221,8 +245,11 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         practiceId: target?.practiceId ?? null,
         reason: `retry of a ${kind} lane`,
         deps: opts.deps,
-        // A retry re-runs the SAME experiment: the run's recorded configuration, not today's env.
-        agent: { model: run.model, effort: run.effort },
+        // A retry re-runs the SAME experiment: the run's recorded configuration, not today's env —
+        // and under `ab` that means the LANE's own arm, not the run's first one. Re-running arm B
+        // under arm A's model would silently turn a comparison into two samples of one model.
+        agent: { model: lane.model ?? run.model, effort: run.effort },
+        abPairKey: lane.abPairKey,
       });
     } catch (err) {
       await updateLane(laneId, {
@@ -261,13 +288,24 @@ async function drive(
       if (state.stopRequested || activeTargets.length === 0) break;
       await updateLoopRun(run.id, { cycle });
       const batches = cycle === 1 ? (input.batches ?? {}) : {};
-      const results = await mapPool(activeTargets, run.concurrency, async (t) => {
+      // ONE ARM PER LANE. A `single` run has one arm and this is exactly the fan-out it always had.
+      // An `ab` run fans the SAME curated batch out to two lanes per repo — two worktrees, two
+      // branches, two models, one `abPairKey` — so each arm rescans its OWN worktree and the same
+      // guardbanded scorer adjudicates both. Neither arm ever grades the other.
+      const arms: (string | null)[] = run.modelPolicy === "ab" && run.models.length === 2 ? run.models : [null];
+      const legs = activeTargets.flatMap((t) => arms.map((arm) => ({ t, arm })));
+      const results = await mapPool(legs, run.concurrency * arms.length, async ({ t, arm }) => {
         if (state.stopRequested) return { repo: t.repo, progressed: false };
-        let wt = state.worktrees.get(t.repo);
+        // Keyed by arm as well as repo: two arms of one repo are two working copies, and sharing one
+        // would have them commit over each other.
+        const wtKey = arm ? `${t.repo}#${arm}` : t.repo;
+        let wt = state.worktrees.get(wtKey);
         if (!wt) {
           try {
+            // Same stamp for both arms: `createLoopWorktree` suffixes a name collision, so the two
+            // branches are visibly siblings of one run rather than unrelated timestamps.
             wt = await createLoopWorktree(t.path, t.repo, stamp, branchFor);
-            state.worktrees.set(t.repo, wt);
+            state.worktrees.set(wtKey, wt);
           } catch (err) {
             await recordLaneSetupFailure(run.id, t.repo, cycle, err);
             return { repo: t.repo, progressed: false };
@@ -299,12 +337,17 @@ async function drive(
           reason: plan.reason,
           deps: input.deps,
           // Every cycle of a run uses the run's configuration — read off the ROW rather than the
-          // input, so a retry dispatched hours later cannot silently pick up a changed env.
-          agent: { model: run.model, effort: run.effort },
+          // input, so a retry dispatched hours later cannot silently pick up a changed env. Under
+          // `ab` the ARM's model overrides it; the effort is shared, because the arms are a model
+          // comparison and a second varying factor would make the difference uninterpretable.
+          agent: { model: arm ?? run.model, effort: run.effort },
+          abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
           shouldStop: () => state.stopRequested,
         });
         return { repo: t.repo, progressed: res.progressed };
       });
+      // A repo survives to the next cycle when ANY of its arms progressed: dropping a repo because
+      // one arm stalled would end the comparison on the strength of the weaker model.
       const kept = new Set(results.filter((r) => r.progressed).map((r) => r.repo));
       activeTargets = activeTargets.filter((t) => kept.has(t.repo));
     }
@@ -313,6 +356,17 @@ async function drive(
     for (const wt of state.worktrees.values()) await removeLoopWorktree(wt);
     live.delete(run.id);
   }
+}
+
+/**
+ * The key joining the two arms of one A/B comparison.
+ *
+ * Derived, not random: `(run, repo, cycle)` is exactly what makes two lanes the same experiment, so
+ * the key can be recomputed from the row rather than having to be carried through every path that
+ * might retry or resume a lane.
+ */
+export function abPairKeyFor(runId: string, repo: string, cycle: number): string {
+  return `${runId}:${repo}:${cycle}`;
 }
 
 /** A worktree that could not be created is a lane error, not a run error. */

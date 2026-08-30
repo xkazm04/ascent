@@ -84,17 +84,30 @@ export async function updateLoopRun(id: string, patch: LoopRunPatch): Promise<Lo
   return row ? toRunRecord(row) : null;
 }
 
-/** Get-or-create the (run, repo, cycle) lane. Idempotent so a retry re-enters the same row. */
+/**
+ * Get-or-create the (run, repo, cycle) lane. Idempotent so a retry re-enters the same row.
+ *
+ * `model` WIDENS THE KEY, and it has to: an `ab` run works one repo with two lanes in one cycle, and
+ * on the three-part key both arms would resolve to the same row — the second arm silently
+ * overwriting the first's cost, branch and result. It is part of the CREATE data too, so the row
+ * knows which arm it is from the moment it exists rather than only after its session returns.
+ * Omitted (a `single` run) the behaviour is exactly what it always was.
+ */
 export async function upsertLane(key: {
   runId: string;
   repoFullName: string;
   cycle: number;
+  model?: string | null;
+  abPairKey?: string | null;
 }): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const existing = await prisma.loopRunLane.findFirst({ where: key });
+  const { model, abPairKey, ...base } = key;
+  const existing = await prisma.loopRunLane.findFirst({ where: model ? { ...base, model } : base });
   if (existing) return toLaneRecord(existing);
-  const row = await prisma.loopRunLane.create({ data: { ...key, phase: "queued" } });
+  const row = await prisma.loopRunLane.create({
+    data: { ...base, phase: "queued", ...(model ? { model } : {}), ...(abPairKey ? { abPairKey } : {}) },
+  });
   return toLaneRecord(row);
 }
 

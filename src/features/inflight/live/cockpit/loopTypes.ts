@@ -11,6 +11,9 @@
 // no business importing from.
 
 import type { FollowUpItem } from "@/lib/org/followups";
+// The economics shapes come from the PURE fold (no Prisma, no node built-ins), for the same reason
+// the records do: a second client-side copy is how a field silently stops arriving.
+import type { LaneEconomics, PriceRow, RemediationPriceList } from "@/lib/local/lane-economics";
 import type {
   LoopLaneKind,
   LoopLaneOutcome,
@@ -24,6 +27,9 @@ import type {
 
 export type {
   FollowUpItem,
+  LaneEconomics,
+  PriceRow,
+  RemediationPriceList,
   LoopLaneKind,
   LoopLaneOutcome,
   LoopLaneRecord,
@@ -54,6 +60,9 @@ export interface LoopStatusPayload {
   enabled: boolean;
   active: LoopRunRecord | null;
   runs: LoopRunSummary[];
+  /** The org's remediation price list, derived at read time. `null` when there is no database or the
+   *  read failed — which is "unknown", not "nothing has been priced". */
+  prices?: RemediationPriceList | null;
 }
 
 /** A run is DRIVING something (the poll runs) versus at rest (no timer at all). */
