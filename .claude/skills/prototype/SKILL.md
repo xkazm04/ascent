@@ -29,21 +29,12 @@ The user says things like "help me master this component", "prototype ideas on t
 
 ## Coordination & safety
 
-ascent has **no** active-runs ledger — coordination here is lighter than the source workflow, but the branch is often mid-flight (`git status` at session start frequently shows **20-30 modified files** from other work). That makes isolation the whole game.
+ascent has **no** active-runs ledger — coordination here is lighter than the source workflow, and the branch is often mid-flight (`git status` at session start frequently shows **20-30 modified files** from other work).
 
-1. **Work in a git worktree.** Prototyping always creates multiple variant files = multi-file by definition, and you must not entangle it with the modified files already in the tree. Default to:
-   ```bash
-   git worktree add .claude/worktrees/prototype-<name> -b prototype-<name>
-   cd .claude/worktrees/prototype-<name>
-   ```
-   The worktree also lets the user run `npm run dev` in both the main checkout (untouched) and the worktree (with variants) and compare side-by-side.
-2. **Never `git stash`** other sessions' work — not even `--keep-index`. If a commit step needs a clean stage, `git add <path>` **per file** (never `git add -A` / `git add .` / `git add -u`); leave everything else alone.
-3. **Don't write to files that already show as `M`** in `git status` unless the user explicitly named them. Apply tight, single-line diffs so unstaged work is preserved.
-4. **Commits are user-gated** (repo norm: commit only when asked). If the user does want per-round history, one atomic commit per round of variants / per pruning decision / per consolidation — inside the worktree, so the main checkout stays clean. End commit messages with the co-author trailer:
-   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
-5. **Clean up the worktree after the winner lands.** From the main checkout: `git worktree remove .claude/worktrees/prototype-<name>` and `git branch -D prototype-<name>`.
-
-If the target is small and the tree happens to be clean, a worktree is optional — but say so and confirm before prototyping in place.
+1. **Prototype in place, on the currently active local branch. No worktrees.** (Owner's rule, 2026-08-30: prototypes are small, self-contained variant files plus one switcher, and they do no damage — a worktree only adds a merge step and a second dev server. v2 defaulted to a worktree; v3 does not.) The variant files are new; the only existing file touched is the target's orchestrator, which gains the switcher.
+2. **Never `git stash`** other sessions' work — not even `--keep-index`. Commit with **pathspecs** (`git commit -- <files>`, or `git add <path>` per file — never `git add -A` / `git add .` / `git add -u`); leave everything else alone.
+3. **Don't write to files that already show as `M`** in `git status` unless the user explicitly named them or they ARE the target. Apply tight diffs so unstaged work is preserved.
+4. **Commit each round on the active branch** — one atomic pathspec commit per round of variants / per pruning decision / per consolidation, so the user can `git log` the rounds. End commit messages with the co-author trailer the session's harness prescribes.
 
 ---
 
