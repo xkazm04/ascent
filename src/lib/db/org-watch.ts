@@ -272,6 +272,44 @@ export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
   return out;
 }
 
+/**
+ * The SEEDER's read (moonshot #10): every repo whose autoscan is due, with no 100-per-pass cap.
+ *
+ * {@link listDueRescans} caps because it feeds a loop that must finish inside one 300s invocation —
+ * past `limit`, the back of a big fleet never got scanned in that pass. The queue changes what the
+ * cap is FOR: the seeder writes durable `ScanJob` rows and the drain takes what fits, so a 900-repo
+ * org can seed in one pass and drain across as many as it needs. `limit` stays available (a caller
+ * that wants a bounded seed can still pass one) but is OPTIONAL, and omitting it means "everything
+ * due" rather than "the first hundred".
+ *
+ * Same due predicate and the same round-robin interleave, so seeding order still spreads across orgs.
+ */
+export async function listDueRescanCandidates(limit?: number): Promise<DueRescan[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const due = await prisma.repository.findMany({
+    where: { watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() }, org: { kind: { not: "personal" } } },
+    select: { id: true, fullName: true, scanSchedule: true, org: { select: { slug: true } } },
+    orderBy: { nextScanAt: "asc" },
+    ...(limit ? { take: limit * 4 } : {}),
+  });
+  const byOrg = new Map<string, DueRescan[]>();
+  for (const r of due) {
+    const item: DueRescan = { orgSlug: r.org.slug, fullName: r.fullName, repoId: r.id, scanSchedule: r.scanSchedule };
+    const q = byOrg.get(item.orgSlug);
+    if (q) q.push(item);
+    else byOrg.set(item.orgSlug, [item]);
+  }
+  const queues = [...byOrg.values()];
+  const cap = limit ?? due.length;
+  const out: DueRescan[] = [];
+  for (let i = 0; out.length < cap && queues.some((q) => q.length > 0); i++) {
+    const next = queues[i % queues.length]!.shift(); // safe: i % queues.length is always a valid index
+    if (next) out.push(next);
+  }
+  return out;
+}
+
 // How far a claim leases a repo. Long enough to block an overlapping pass from re-claiming the same
 // repo mid-run, short enough that a repo whose run DIED/timed out between claim and scan re-qualifies on
 // the next cron pass rather than waiting a whole cadence (a month, for `monthly`).
@@ -678,6 +716,26 @@ export async function reconcileListedRepos(
     await prisma.repository.updateMany({ where: { id: { in: markIds } }, data: { missingSince: new Date() } });
   }
   return { marked: markIds.length, cleared: clearIds.length };
+}
+
+/**
+ * Set or clear one repo's `missingSince` from a DIRECT observation (moonshot #10's probe lane).
+ *
+ * `reconcileListedRepos` above can only run for an org whose repos we can LIST, which the App-install
+ * funnel never does — so a renamed/archived private repo kept burning a rescan slot forever with
+ * nothing to notice it. The probe reads `GET /repos/{o}/{r}` per repo, and a 404 there is exactly the
+ * observation this column exists to record. First-sight semantics are preserved: an existing stamp is
+ * never overwritten (the flag records when it FIRST went missing), and a repo that reappears is
+ * cleared. Never unwatches — cleanup stays an explicit user action, same as the reconcile path.
+ */
+export async function setRepoMissing(repoId: string, missing: boolean): Promise<void> {
+  if (!isDbConfigured()) return;
+  const prisma = getPrisma();
+  if (!missing) {
+    await prisma.repository.updateMany({ where: { id: repoId, missingSince: { not: null } }, data: { missingSince: null } });
+    return;
+  }
+  await prisma.repository.updateMany({ where: { id: repoId, missingSince: null }, data: { missingSince: new Date() } });
 }
 
 /** Watched repos flagged as missing from GitHub's listing — the repositories tab's cleanup surface. */
