@@ -81,6 +81,8 @@ describe("nav-count finding derivation", () => {
       teams: 0,
       passports: 0,
       contributors: 0,
+      // MOONSHOT #33 — the fifth derived module; unbadged here because the ledger is empty.
+      practices: 0,
     });
   });
 });

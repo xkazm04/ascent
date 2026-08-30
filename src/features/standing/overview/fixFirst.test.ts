@@ -68,6 +68,28 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     expect(items[0]!.href).toBe("/org/acme?tab=security");
   });
 
+  // MOONSHOT #33 — the tie-break list gained a fifth member; `practices` sorts LAST, so adding it
+  // cannot have quietly demoted a security finding out of the slot.
+  it("keeps practices last in the FINDING_MODULES tie-break", () => {
+    const items = deriveFixFirst("acme", {
+      ...EMPTY,
+      findings: [
+        { module: "practices", repo: "acme/a", title: "p" },
+        { module: "contributors", repo: "acme/b", title: "c" },
+      ],
+    });
+    expect(items[0]!.href).toBe("/org/acme?tab=contributors");
+  });
+
+  it("routes a practice-adoption finding to the practices tab", () => {
+    const items = deriveFixFirst("acme", {
+      ...EMPTY,
+      findings: [{ module: "practices", repo: "acme/a", title: "p" }],
+    });
+    expect(items[0]!.title).toBe("Decide 1 practice-adoption finding");
+    expect(items[0]!.href).toBe("/org/acme?tab=practices");
+  });
+
   it("ignores non-active or on-pace goals", () => {
     const items = deriveFixFirst("acme", {
       ...EMPTY,
