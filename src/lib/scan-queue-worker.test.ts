@@ -123,8 +123,8 @@ describe("double-billing across instances", () => {
     // matches zero rows. Simulated here as the two answers claimJobById actually gives.
     h.claimJobById.mockResolvedValueOnce(job()).mockResolvedValueOnce(null);
 
-    const a = await drainLane("rescore", opts({ jobIds: ["job_1"] }));
-    const b = await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    const a = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
+    const b = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(a.done).toBe(1);
     expect(b.claimed).toBe(0);
@@ -139,7 +139,7 @@ describe("the refund boundary is carried over unedited", () => {
     h.claimJobById.mockResolvedValue(job());
     h.scanRepository.mockRejectedValue(new Error("github exploded"));
 
-    const s = await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    const s = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(s.failed).toBe(1);
     expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true);
@@ -152,7 +152,7 @@ describe("the refund boundary is carried over unedited", () => {
     h.claimJobById.mockResolvedValue(job());
     h.persistScanReport.mockRejectedValue(new Error("serialization conflict"));
 
-    const s = await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    const s = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(h.refundScanCredit).not.toHaveBeenCalled();
     expect(s.errors[0]).toContain("credit kept, inference already ran");
@@ -163,7 +163,7 @@ describe("the refund boundary is carried over unedited", () => {
     h.claimJobById.mockResolvedValue(job());
     h.scanRepository.mockResolvedValue(report("mock"));
 
-    await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true);
     expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "done", creditRefunded: true });
@@ -171,7 +171,7 @@ describe("the refund boundary is carried over unedited", () => {
 
   it("the credit is recorded ON THE JOB ROW before any inference runs", async () => {
     h.claimJobById.mockResolvedValue(job());
-    await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
     expect(h.markJobCredit).toHaveBeenCalledWith("job_1", true);
     expect(h.markJobCredit.mock.invocationCallOrder[0]!).toBeLessThan(h.scanRepository.mock.invocationCallOrder[0]!);
   });
@@ -180,7 +180,7 @@ describe("the refund boundary is carried over unedited", () => {
     h.claimJobById.mockResolvedValue(job());
     h.reserveScanCredit.mockResolvedValue({ skip: true, reserved: false });
 
-    const s = await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    const s = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(s.skippedForCredits).toBe(1);
     expect(h.scanRepository).not.toHaveBeenCalled();
@@ -191,7 +191,7 @@ describe("the refund boundary is carried over unedited", () => {
     h.claimJobById.mockResolvedValue(job());
     h.getInstallationToken.mockResolvedValue(undefined);
 
-    const s = await drainLane("rescore", opts({ jobIds: ["job_1"] }));
+    const s = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(s.skippedNoToken).toBe(1);
     expect(h.reserveScanCredit).not.toHaveBeenCalled();

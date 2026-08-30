@@ -333,6 +333,37 @@ export async function claimJobById(id: string, workerId: string): Promise<ScanJo
   return toRow(won);
 }
 
+/**
+ * Enqueue-and-claim one repo's scan in a single call — the DB-serialized replacement for the deleted
+ * process-local `claimRepoScan`.
+ *
+ * The import funnel scans repos that have no `Repository` row yet (they are created mid-scan), which
+ * is precisely why the queue keys on the full NAME: there is nothing else to conditionally-update.
+ * Returns null when another in-flight run holds a live claim on the same repo — the caller must SKIP
+ * it, exactly as it did before, but now the answer is correct ACROSS instances rather than within one.
+ *
+ * `bucket` should be the caller's run id, so a second run of the same repo is a new row (and a new
+ * claim) rather than colliding with a settled one.
+ */
+export async function claimRepoWork(
+  orgSlug: string,
+  repoFullName: string,
+  reason: string,
+  opts: { bucket: string; workerId?: string; runId?: string | null },
+): Promise<ScanJobRow | null> {
+  const enq = await enqueueScanJob({
+    orgSlug,
+    repoFullName,
+    lane: "rescore",
+    reason,
+    bucket: opts.bucket,
+    runId: opts.runId ?? null,
+    priority: JOB_PRIORITY.manual,
+  });
+  if (!enq) return null;
+  return claimJobById(enq.id, opts.workerId ?? "inline");
+}
+
 /** Record that this job now HOLDS an overflow credit. Written BEFORE any inference, so a crash leaves
  *  the reservation attributable to a row rather than to a lost variable. */
 export async function markJobCredit(id: string, charged: boolean): Promise<void> {

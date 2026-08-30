@@ -32,8 +32,10 @@ export interface DrainOptions {
   deadlineAt: number;
   /** Diagnostics only — never an authorization input. */
   workerId?: string;
-  /** Restrict the drain to these job ids (the interactive route's own run). Omitted = the whole lane. */
-  jobIds?: string[];
+  /** Restrict the drain to these jobs (the interactive route's own run). Omitted = the whole lane.
+   *  The repo name rides along so a LOST claim can still be named on the wire — the skip is what the
+   *  user sees, and "some repo is already being scanned" is not an answer. */
+  jobs?: { id: string; repo: string }[];
   /** The org slug when the caller already knows it, so a scoped drain skips the per-job lookup. */
   orgSlug?: string;
   /** Per-repo lifecycle, for the SSE surfaces. Never throws into the drain. */
@@ -132,17 +134,17 @@ export async function drainLane(lane: ScanLane, opts: DrainOptions): Promise<Dra
   await reapExpiredLeases().catch(() => 0);
 
   const ctx = new OrgContext();
-  const pending = opts.jobIds ? [...opts.jobIds] : null;
+  const pending = opts.jobs ? [...opts.jobs] : null;
   const supply = async (): Promise<ScanJobRow | null> => {
     if (pending) {
       for (;;) {
-        const id = pending.shift();
-        if (id === undefined) return null;
-        const won = await claimJobById(id, workerId).catch(() => null);
+        const next = pending.shift();
+        if (next === undefined) return null;
+        const won = await claimJobById(next.id, workerId).catch(() => null);
         // A job another worker holds is not ours to run; move on rather than blocking this lane.
         if (won) return won;
         summary.skipped += 1;
-        opts.onRepo?.({ repo: "", stage: "skipped", reason: "in_progress" });
+        opts.onRepo?.({ repo: next.repo, stage: "skipped", reason: "in_progress" });
       }
     }
     return claimJob(lane, workerId).catch(() => null);

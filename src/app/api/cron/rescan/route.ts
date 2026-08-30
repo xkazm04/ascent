@@ -1,38 +1,45 @@
 // GET /api/cron/rescan — scheduled autoscans. Invoked by Vercel Cron (see vercel.json).
-// Scans every repo whose autoscan is due (per-repo nextScanAt), persists, and advances
-// the schedule. Guarded by CRON_SECRET when set.
+//
+// SINCE moonshot #10 this route is a SEEDER plus a WORKER over the durable `ScanJob` queue, not a
+// self-contained scan loop:
+//
+//   reapExpiredLeases() → enqueueDueRescans() → drainLane("rescore") until the deadline.
+//
+// What that buys, and why it was worth changing a working route:
+//   • The 100-repo-per-pass cap is GONE. The seeder enqueues everything due; the drain takes what
+//     fits in 300s. A 900-repo org seeds in one pass and drains across several, instead of having
+//     800 repos silently wait for tomorrow.
+//   • Truncation stops being a data-loss event. The remainder is a queued ROW, so the next pass (or
+//     another instance running concurrently) finishes exactly it.
+//   • The claim moved from `nextScanAt` (which is also the schedule, so the lock corrupted the thing
+//     it locked) to a job row. `claimRescan` still exists and still means what it did; this lane's
+//     dedup is now the queue's conditional claim.
+//
+// Every money rule is unchanged and now lives in one place (`src/lib/scan-queue-worker.ts`): reserve
+// before inference, refund a PRE-inference failure only, keep the credit on a post-inference one and
+// say so. See docs/features/fleet/rescan.md.
 //
 // Note: runs on the deployment, so it uses the configured LLM_PROVIDER (gemini/bedrock —
-// claude-cli is local-only). Requires the GitHub App + DATABASE_URL.
+// claude-cli is local-only). Requires the GitHub App + DATABASE_URL. The free control-probe lane is
+// a separate route (/api/cron/probe) with its own budget and cadence.
 
 import { NextResponse } from "next/server";
-import { scanRepository } from "@/lib/scan";
-import {
-  advanceScheduleAfterFailure,
-  advanceToFullCadence,
-  claimRescan,
-  getInstallationIdForOwner,
-  getOrgId,
-  getScanReportByCommit,
-  isByomActive,
-  isDbConfigured,
-  listDueRescans,
-  persistScanReport,
-  recordScanOutcome,
-} from "@/lib/db";
+import { isDbConfigured } from "@/lib/db";
+// Deep path, not the barrel: `db/index.ts` is Director-owned and its two queue re-export lines land
+// at merge. Nothing else about these imports changes when they do.
+import { enqueueDueRescans, queueDepth, reapExpiredLeases } from "@/lib/db/scan-jobs";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { checkAndAlertRegression } from "@/lib/scan-alerts";
-import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
-import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { fleetDeadlineAt, mapPoolUntilDeadline, SCAN_CONCURRENCY } from "@/lib/pool";
+import { isAppConfigured } from "@/lib/github/app";
+import { drainLane } from "@/lib/scan-queue-worker";
+import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
-  // Same ceiling, same honesty as /api/org/scan: anchor the budget at invocation start so the loop can
-  // stop issuing new work and RETURN a result, instead of being process-killed with no response body.
+  // Anchor the budget at invocation start so the drain can stop issuing new work and RETURN a result,
+  // instead of being process-killed with no response body.
   const invokedAt = Date.now();
   // Fail-closed CRON_SECRET gate (503 when unset, 401 on a bad credential), single-sourced so this
   // route that mints every org's token and spends LLM budget can't drift from the other cron handlers.
@@ -42,161 +49,38 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: "GitHub App + database required." });
   }
 
-  const due = await listDueRescans();
+  // Reap first: a pass killed at the 300s ceiling leaves claimed rows behind, and a worker that never
+  // came back must not strand its repo. Past MAX_JOB_ATTEMPTS the row fails rather than looping.
+  const reaped = await reapExpiredLeases().catch(() => 0);
+  // Seed everything due. Idempotent per (org, repo, lane, ISO date), so a second pass on the same day
+  // — or an overlapping invocation — adds nothing.
+  const seeded = await enqueueDueRescans().catch(() => 0);
 
-  // Pre-resolve one installation token per distinct org up front: concurrent lanes would otherwise
-  // race to mint the same org's token. One mint per org, reused by every lane scanning it. Track orgs
-  // that HAVE an install id but whose token mint FAILED separately from orgs with no install at all: the
-  // former is a likely-revoked/suspended install (every private repo would 404), the latter is a public
-  // org whose repos legitimately scan via the tokenless path.
-  const orgSlugs = [...new Set(due.map((r) => r.orgSlug))];
-  const tokenByOrg = new Map<string, string | undefined>();
-  const byomByOrg = new Map<string, boolean>();
-  const brokenInstallOrgs = new Set<string>();
-  await Promise.all(
-    orgSlugs.map(async (slug) => {
-      // Resolve BYOM once per org (like the manual scan route does for the batch): an org scanning on
-      // its OWN Bedrock bills inference to its AWS account, so the platform must NOT charge scan credits.
-      byomByOrg.set(slug, await isByomActive(slug).catch(() => false));
-      const id = await getInstallationIdForOwner(slug).catch(() => null);
-      if (!id) {
-        tokenByOrg.set(slug, undefined); // no install — a public org; scans use the tokenless path
-        return;
-      }
-      const tok = await getInstallationToken(id).catch(() => undefined);
-      tokenByOrg.set(slug, tok);
-      if (!tok) brokenInstallOrgs.add(slug); // had an install but the mint failed → likely revoked
-    }),
-  );
-
-  let scanned = 0;
-  let skippedForCredits = 0;
-  let skippedAlreadyClaimed = 0;
-  let skippedNoToken = 0;
-  const errors: string[] = [];
-
-  // Scan with bounded concurrency so a real fleet drains within the 300s budget (counters mutate in
-  // single-threaded lanes — race-free).
-  const { remaining, truncated } = await mapPoolUntilDeadline(due, SCAN_CONCURRENCY, fleetDeadlineAt(invokedAt, maxDuration), async (r) => {
-    // CLAIM-BEFORE-WORK: atomically take ownership of this due repo before any expensive or billable
-    // step. `claimRescan` advances nextScanAt to the next cadence only while the repo is still due, so
-    // if an overlapping cron run (long batch near the 300s ceiling, a manual `?key=` retry, or a
-    // re-fired schedule) already claimed it, this returns false and we skip — the run-level guard that
-    // stops two invocations double-scanning + double-billing the same repo. Cross-instance safe.
-    const claimed = await claimRescan(r.repoId, r.scanSchedule).catch(() => false);
-    if (!claimed) {
-      skippedAlreadyClaimed += 1;
-      return;
-    }
-
-    // Short-circuit a whole org whose installation token couldn't be minted: don't reserve a credit,
-    // re-mint, or scan with no token (every private repo would 404 and refund). But a failed mint is
-    // NOT proof of a revoked install — a GitHub App API blip, 5xx, or rate limit during this one
-    // pass fails it too, and the old advanceToFullCadence settle turned that one bad minute into a
-    // silent full-cadence skip (a MONTH of stale scores for a monthly fleet, visible only as
-    // `skippedNoToken` in a JSON body nobody reads). Settle with the 6h failure backoff instead:
-    // a transient outage self-heals on the next pass, while a genuinely-revoked org still sits off
-    // the front of the oldest-first queue and just cycles this cheap, scan-free skip.
-    // (ambiguity-ui 2026-07-16 #2)
-    if (brokenInstallOrgs.has(r.orgSlug)) {
-      skippedNoToken += 1;
-      await advanceScheduleAfterFailure(r.repoId).catch(() => {});
-      await recordScanOutcome(r.orgSlug, r.fullName, { ok: false, error: "installation token unavailable" }).catch(() => {});
-      return;
-    }
-
-    // Reserve one prepaid credit per autoscan (a private scan = paid). Unlimited plans are a no-op.
-    // An org out of credits has this repo skipped; its schedule was already advanced by the claim
-    // above, so a credit-less org doesn't jam the front of the queue. Refunded below if the scan fails,
-    // degrades to mock, or dedupes to an unchanged commit (no new scored row billed). The reservation
-    // also fires the proactive low-credit alert when the debit lands on the low-water mark — the cron
-    // drains credits with nobody watching, which is exactly when depletion must reach a human.
-    //
-    // Gate the reservation on the SAME predicate the manual scan route uses (org/scan/route.ts): the
-    // shared "public" org and any BYOM org (own Bedrock, inference billed to its AWS) are NOT metered,
-    // so they must not be charged platform credits on autoscan. Without this, the cron reserved
-    // unconditionally — wrongly billing BYOM orgs and, once their platform balance hit 0, silently
-    // dropping every scheduled scan (skippedForCredits++); public scheduled repos never autoscanned.
-    const metered = r.orgSlug.toLowerCase() !== "public" && !byomByOrg.get(r.orgSlug);
-    let charged = false; // true only on an overflow credit debit (within-allowance / unmetered is free)
-    if (metered) {
-      const reservation = await reserveScanCredit(r.orgSlug, r.fullName);
-      if (reservation.skip) {
-        skippedForCredits += 1;
-        // Settle the lease to the full cadence (the claim only leased the repo): a credit-less org
-        // waits its cadence instead of re-qualifying and jamming the front of the queue every run.
-        await advanceToFullCadence(r.repoId, r.scanSchedule).catch(() => {});
-        return;
-      }
-      charged = reservation.reserved;
-    }
-    const refundCredit = () => refundScanCredit(r.orgSlug, charged);
-    // Set the moment `scanRepository` returns a REAL (non-mock) report: from there on the inference is
-    // spent and billed to the platform, so a later throw (persist, regression alert, schedule settle)
-    // must NOT be refunded — that would return a credit for inference that genuinely ran and let the
-    // next pass re-run and re-bill it for free. A mock report leaves this false and still refunds;
-    // unmetered/BYOM repos never charged, so their refund is a no-op on both paths.
-    let inferenceBilled = false;
-    try {
-      const token = tokenByOrg.get(r.orgSlug);
-      // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
-      // regression alert once the fresh scan is stored.
-      const [owner = "", name = ""] = r.fullName.split("/");
-      const prev = await getScanReportByCommit(owner, name, { orgSlug: r.orgSlug }).catch(() => null);
-
-      const report = await scanRepository(r.fullName, { token });
-      inferenceBilled = report.engine.provider !== "mock";
-      const persisted = await persistScanReport(report, { orgSlug: r.orgSlug });
-      // Refund the reserved credit when the autoscan produced nothing billable: either it degraded to
-      // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no new
-      // scored row). An org shouldn't be charged for a system-initiated rescan that yielded no new result.
-      if (shouldRefundScan(report, persisted)) await refundCredit();
-      // Live intelligence: alert on a regression vs the prior scan (skipped on an unchanged commit).
-      if (persisted && !persisted.deduped) {
-        const orgId = (await getOrgId(r.orgSlug).catch(() => null)) ?? undefined;
-        await checkAndAlertRegression(prev, report, { orgId, orgSlug: r.orgSlug });
-      }
-      // The claim only LEASED the repo (short window). Now that the scan completed, settle it to the
-      // full next cadence — so a run that died/timed out before reaching here re-qualifies after the
-      // lease instead of silently skipping a whole cadence.
-      await advanceToFullCadence(r.repoId, r.scanSchedule).catch(() => {});
-      await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});
-      scanned += 1;
-    } catch (err) {
-      // Refund a PRE-inference failure only (see `inferenceBilled` above). Nobody watches the cron, so
-      // a post-inference persist failure that also refunded would be a silent, self-repeating giveaway:
-      // credit back, retry next pass, bill the same inference again. The kept charge is named in the
-      // error string instead — the JSON body is the only place this run can say it.
-      if (!inferenceBilled) await refundCredit();
-      // Override the claim's full-cadence nextScanAt with a shorter retry backoff, so a transient
-      // failure is retried sooner than a full cadence (but still off the front of the oldest-first
-      // queue, so a persistently-broken repo can't starve the rest of the fleet).
-      await advanceScheduleAfterFailure(r.repoId).catch(() => {});
-      // Persist the failure so the dashboard can flag this repo as broken (not "never scanned").
-      await recordScanOutcome(r.orgSlug, r.fullName, {
-        ok: false,
-        error: err instanceof Error ? err.message : "scan failed",
-      }).catch(() => {});
-      const kept = inferenceBilled && charged ? " (credit kept, inference already ran)" : "";
-      errors.push(`${r.fullName}: ${err instanceof Error ? err.message : "failed"}${kept}`);
-    }
+  const summary = await drainLane("rescore", {
+    concurrency: SCAN_CONCURRENCY,
+    deadlineAt: fleetDeadlineAt(invokedAt, maxDuration),
   });
 
-  // Honest accounting when the 300s budget ended the pass: the unreached repos were never CLAIMED, so
-  // their `nextScanAt` is untouched, they are still due, and the NEXT cron pass picks them up — they
-  // are neither failed nor backed off. Reporting them (rather than letting `due - scanned` read as a
-  // pile of silent skips) is what makes a chronically-oversubscribed schedule visible.
-  if (truncated) {
-    console.warn(`[cron/rescan] time budget reached — ${scanned}/${due.length} scanned, ${remaining.length} left due for the next pass`);
+  // The honest remainder is the queue's own depth, read AFTER the drain — not a count this invocation
+  // guesses at. A lane that stays deep across passes is an oversubscribed schedule, and this JSON body
+  // is the only place a cron run can say so.
+  const depth = await queueDepth().catch(() => null);
+  if (summary.truncated) {
+    console.warn(
+      `[cron/rescan] time budget reached — ${summary.done} scanned this pass, ${depth?.rescore.queued ?? "?"} still queued for the next`,
+    );
   }
   return NextResponse.json({
-    due: due.length,
-    scanned,
-    skippedForCredits,
-    skippedAlreadyClaimed,
-    skippedNoToken,
-    truncated,
-    remaining: remaining.length,
-    errors,
+    reaped,
+    seeded,
+    claimed: summary.claimed,
+    scanned: summary.done,
+    failed: summary.failed,
+    skippedForCredits: summary.skippedForCredits,
+    skippedNoToken: summary.skippedNoToken,
+    skippedAlreadyClaimed: summary.skipped,
+    truncated: summary.truncated,
+    queueDepth: depth?.rescore ?? null,
+    errors: summary.errors,
   });
 }
