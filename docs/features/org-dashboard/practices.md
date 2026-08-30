@@ -108,6 +108,11 @@ AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply
   [live.md § Lane kinds](../org-planning/live.md#lane-kinds-foundation-and-practice-lanes-2026-08-28)).
   Only delivery differs; the bytes come from one generator, so the loop can never install
   a body different from the one the PR would have opened. The cloud path is unchanged.
+  **The loop proposes each practice at most once per repo** (2026-08-30): its starter-detection
+  rule is no longer the artifact's file path alone — a starter an agent later removed or
+  consolidated away is a standing decision, so the loop reads its own dispatch history and
+  falls through to a backlog lane instead of reinstalling. The PR doors are unaffected; a
+  human may still apply the same practice as often as they like.
 - **Content-drift guard.** The caller may pass the `expectedFingerprint` it previewed.
   If `artifactFingerprint(artifact.body)` no longer matches, apply returns
   `{ kind: "content-drift" }` and **opens no PR**, so a template or repo-context

@@ -123,6 +123,7 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
   const targets: LaneTargetPlan[] = [];
   const laneKind = input.deps?.laneKind ?? defaultLaneDeps.laneKind;
   const openBatch = input.deps?.openBatch ?? defaultLaneDeps.openBatch;
+  const dispatchedPractices = input.deps?.dispatchedPractices ?? defaultLaneDeps.dispatchedPractices;
   for (const repo of repos) {
     const path = await getRepoLocalPath(org, repo);
     if (!path) throw new Error(`${repo} is not paired with a local path — pair it on Admin → Pairing.`);
@@ -132,7 +133,17 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     // a proposal that led with "install the .ai/ foundation" cannot turn into an agent session on the
     // way to the engine. Re-read here rather than trusted from the wire: the operator may have
     // installed the standard by hand between opening the panel and pressing Run.
-    const plan = await laneKind(path, () => openBatch(org, repo).catch(() => []));
+    const plan = await laneKind(
+      path,
+      () => openBatch(org, repo).catch(() => []),
+      // The ONCE-PER-REPO gate on practice lanes. A failed read degrades to "nothing dispatched",
+      // which is the same honest default every other unreadable-evidence path here takes.
+      () => dispatchedPractices(org, repo).catch(() => new Set<string>()),
+    );
+    // A practice the rule DECLINED to re-raise becomes a lesson, so an operator looking at a backlog
+    // lane on a repo with an obvious starter-shaped gap can see why. Written once per armed run and
+    // deduplicated in the store — the skip is a standing fact, not an event.
+    if (plan.skippedPracticeId) await noteSkippedPractice(org, repo, plan.skippedPracticeId);
     targets.push({ repo, path, plan });
   }
 
@@ -370,6 +381,21 @@ export function abPairKeyFor(runId: string, repo: string, cycle: number): string
 }
 
 /** A worktree that could not be created is a lane error, not a run error. */
+/**
+ * Record the "already dispatched, not re-raising" lesson. Dynamically imported and swallowed whole:
+ * a lesson is an explanation for a human, and failing to write one must never stop a run from arming.
+ */
+async function noteSkippedPractice(org: string, repo: string, practiceId: string): Promise<void> {
+  try {
+    const { ALL_PRACTICES } = await import("@/lib/practices");
+    const label = ALL_PRACTICES.find((p) => p.id === practiceId)?.label ?? practiceId;
+    const { recordPracticeSkipLesson } = await import("@/lib/db/loop-lessons");
+    await recordPracticeSkipLesson(org, repo, practiceId, label);
+  } catch {
+    /* a missing explanation is never a reason to refuse the run */
+  }
+}
+
 async function recordLaneSetupFailure(runId: string, repo: string, cycle: number, err: unknown): Promise<void> {
   const lane = await upsertLane({ runId, repoFullName: repo, cycle });
   if (!lane) return;

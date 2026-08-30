@@ -16,6 +16,7 @@ import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList
 import {
   isReviewMarker,
   laneKindOf,
+  parseTargets,
   toLaneRecord,
   toRunRecord,
   type LoopLaneKind,
@@ -200,6 +201,55 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       };
     });
   }, []);
+}
+
+/**
+ * The Practice Library ids this loop has ALREADY DISPATCHED into one repo — the once-per-repo memory
+ * behind `proposeLaneKind`'s practice rule.
+ *
+ * WHY THE LOOP'S OWN HISTORY IS THE SOURCE OF TRUTH, and not the file on disk: the presence test
+ * `proposeLaneKind` used to make ("is the starter's literal path in the tree?") reads a REMOVAL as an
+ * omission. On `systedo-case` the loop installed the 18-line `ai-review.yml` starter, a later agent
+ * consolidated it into a 122-line `agent-review.yml` and deleted the thin one, and the next run
+ * reinstalled the starter — forever, never reaching a backlog or craft lane. A practice a human or an
+ * agent removed is a STANDING DECISION, which the scoring prompt already describes as "context you
+ * were missing, not a reason to re-raise".
+ *
+ * "ALREADY DISPATCHED" is: the repo has a CYCLE-1 lane with a non-null `startedAt`, in a run whose
+ * targets name that practice for that repo. Both halves are deliberate:
+ *
+ *   • cycle 1, because a lane kind is a cycle-1 fact (`laneKindOf`) — cycles 2+ are always backlog;
+ *   • `startedAt`, because `runLane` stamps it in the SAME write that leaves `queued` for
+ *     `dispatching`, immediately before the install runs. A lane that never got a worktree is written
+ *     by `recordLaneSetupFailure` with `phase: "error"` and NO `startedAt`, so a broken pairing does
+ *     not burn the practice's one shot — while a lane that ran and then errored DOES, because by then
+ *     the starter has either landed or failed for a reason a retry would hit again.
+ *
+ * Reading `phase: "done"` instead would be strictly worse: a lane that installed the starter and then
+ * failed its rescan would re-propose the same install on every subsequent run, which is the very
+ * pathology this read exists to end.
+ */
+export async function listDispatchedPractices(orgSlug: string, repoFullName: string): Promise<Set<string>> {
+  if (!isDbConfigured()) return new Set<string>();
+  return dbReadSafe<Set<string>>(async () => {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return new Set<string>();
+    const runs = await getPrisma().loopRun.findMany({
+      where: {
+        orgId: org.id,
+        lanes: { some: { repoFullName: { equals: repoFullName, mode: "insensitive" }, cycle: 1, startedAt: { not: null } } },
+      },
+      select: { reposJson: true },
+    });
+    const key = repoFullName.toLowerCase();
+    const out = new Set<string>();
+    for (const run of runs) {
+      for (const t of parseTargets(run.reposJson)) {
+        if (t.kind === "practice" && t.practiceId && t.repo.toLowerCase() === key) out.add(t.practiceId);
+      }
+    }
+    return out;
+  }, new Set<string>());
 }
 
 /**

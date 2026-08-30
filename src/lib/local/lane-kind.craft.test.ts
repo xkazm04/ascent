@@ -35,9 +35,12 @@ const craft = (axis: CraftAxis | null): FollowUpItem => ({
   craftAxis: axis,
 });
 
+/** The once-per-repo practice gate. Nothing here is about it, so every case says "none dispatched". */
+const none = async (): Promise<ReadonlySet<string>> => new Set<string>();
+
 describe("proposeLaneKind — the craft rung", () => {
   it("proposes a CRAFT lane when the batch is all craft (i.e. no open gaps left)", async () => {
-    const plan = await proposeLaneKind("C:/repo", async () => [craft("performance"), craft("robustness")]);
+    const plan = await proposeLaneKind("C:/repo", async () => [craft("performance"), craft("robustness")], none);
     expect(plan.kind).toBe("craft");
     expect(plan.practiceId).toBeNull();
     expect(plan.reason).toContain("No open gaps left");
@@ -47,17 +50,17 @@ describe("proposeLaneKind — the craft rung", () => {
 
   it("still proposes a backlog/practice lane when a single GAP is present", async () => {
     // A craft item alongside a gap must never flip the lane — gaps outrank craft everywhere.
-    const plan = await proposeLaneKind("C:/repo", async () => [gap("D9"), craft("performance")]);
+    const plan = await proposeLaneKind("C:/repo", async () => [gap("D9"), craft("performance")], none);
     expect(plan.kind).not.toBe("craft");
   });
 
   it("falls back to BACKLOG when there is nothing at all to work", async () => {
-    const plan = await proposeLaneKind("C:/repo", async () => []);
+    const plan = await proposeLaneKind("C:/repo", async () => [], none);
     expect(plan.kind).toBe("backlog");
   });
 
   it("names no axis when the rungs predate the axis column, rather than inventing one", async () => {
-    const plan = await proposeLaneKind("C:/repo", async () => [craft(null)]);
+    const plan = await proposeLaneKind("C:/repo", async () => [craft(null)], none);
     expect(plan.kind).toBe("craft");
     expect(plan.reason).toBe(
       "No open gaps left — this lane works the craft ladder, raising the ceiling rather than closing a gap.",

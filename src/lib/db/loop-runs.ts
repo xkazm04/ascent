@@ -67,6 +67,7 @@ export {
   getLoopRun,
   getLoopRunDetail,
   getOrgPriceList,
+  listDispatchedPractices,
   listInFlightLanes,
   listLanes,
   listLoopRuns,

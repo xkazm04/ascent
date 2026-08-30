@@ -56,6 +56,8 @@ export interface LaneDeps {
   commitWork: typeof commitAgentWork;
   /** Which kind of lane a repo's next cycle should be — read from the paired working copy. */
   laneKind: typeof proposeLaneKind;
+  /** Practice ids the loop has already dispatched into this repo — `laneKind`'s once-per-repo gate. */
+  dispatchedPractices: (org: string, repo: string) => Promise<ReadonlySet<string>>;
   /** Scan a worktree from disk and persist it. Returns the new scan id + the ids its trailers closed. */
   rescan: (args: {
     org: string;
@@ -89,6 +91,9 @@ export const defaultLaneDeps: LaneDeps = {
   // Lazy on purpose: the read module reaches for the db client, and the lane's unit tests mock the
   // loop-runs barrel without it. A missing default here is a skipped headline, never a failed lane.
   loadPair: async (args) => (await import("@/lib/db/loop-runs-read")).getLanePair(args),
+  // Lazy for the same reason as `loadPair` above, and lazier still in practice: `proposeLaneKind`
+  // only calls it once a practice-shaped gap has already survived the file test.
+  dispatchedPractices: async (org, repo) => (await import("@/lib/db/loop-runs-read")).listDispatchedPractices(org, repo),
   summarize: async (list, orgSlug) => {
     const { polishLaneDeliverables, resolveLaneSummaryRunner } = await import("@/lib/local/lane-summary");
     return polishLaneDeliverables(list, await resolveLaneSummaryRunner(orgSlug));

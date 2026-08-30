@@ -117,6 +117,59 @@ export async function recordLoopLessons(
   return written;
 }
 
+/**
+ * The one lesson the loop writes about ITSELF: a Practice Library starter it declined to reinstall
+ * because an earlier lane already dispatched it into this repo (`proposeLaneKind`, rule 2).
+ *
+ * Same table, same vocabulary, same `pending` gate as every agent lesson — a candidate a human keeps
+ * or discards, never a direct `OrgMemory` write. It exists so the operator is not left staring at a
+ * backlog lane on a repo whose biggest gap has an obvious starter, wondering why the loop skipped it.
+ *
+ * IDEMPOTENT, which the agent-lesson path deliberately is not. A skip is a STANDING FACT, not an
+ * event: it will be true again on every subsequent run of the same repo, so an event-shaped write
+ * would refill the review queue with the same sentence forever. Keyed on (org, namespace, source,
+ * content) — the exact row this function would have written — and returns the existing one untouched,
+ * including a discarded one: re-proposing a lesson a human already rejected is the same noise.
+ */
+export async function recordPracticeSkipLesson(
+  orgSlug: string,
+  repoFullName: string,
+  practiceId: string,
+  practiceLabel: string,
+): Promise<LoopLessonRow | null> {
+  if (!isDbConfigured()) return null;
+  try {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return null;
+    const content = (
+      `The loop already installed the "${practiceLabel}" starter (${practiceId}) in ${repoFullName}, so it will not propose that practice for this repo again — ` +
+      `even though the starter's file is no longer in the tree. A practice a human or an agent removed or replaced is a standing decision, not a gap to re-raise.`
+    ).slice(0, LESSON_MAX_CHARS);
+    const prisma = getPrisma();
+    const existing = await prisma.orgMemoryCandidate
+      .findFirst({ where: { orgId: org.id, namespace: repoFullName, source: LOOP_LESSON_SOURCE, content } })
+      .catch(() => null);
+    if (existing) return toRow(existing as CandidateRow);
+    const row = await prisma.orgMemoryCandidate
+      .create({
+        data: {
+          orgId: org.id,
+          namespace: repoFullName,
+          content,
+          kind: "procedural",
+          source: LOOP_LESSON_SOURCE,
+          // No lane exists yet: the skip is decided at ARM time, before any lane row is written.
+          laneId: null,
+          status: "pending",
+        },
+      })
+      .catch(() => null);
+    return row ? toRow(row as CandidateRow) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** An org's lesson candidates, newest first. `status` filters; omit it for every state. */
 export async function listLoopLessons(orgSlug: string, status?: LessonStatus, limit = 50): Promise<LoopLessonRow[]> {
   if (!isDbConfigured()) return [];

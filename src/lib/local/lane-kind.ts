@@ -12,11 +12,21 @@
 //      Priya's L2 walk), so a local loop could iterate forever on a repo that had never been given
 //      the contract an agent is supposed to read.
 //   2. Otherwise, if the HIGHEST-IMPACT open follow-up sits on a dimension the Practice Library has a
-//      starter for AND that starter's file is not in the repo yet → a PRACTICE lane. Dropping a
-//      starter is strictly cheaper than an agent session, and the rescan adjudicates it the same way.
-//      Only the top item is considered: the loop's ordering is impact-first, and letting any item in
-//      the batch pull the lane away from the agent would make the template drop the default answer
-//      rather than the shortest path to the biggest gap.
+//      starter for, that starter's file is not in the repo yet, AND the loop has never dispatched that
+//      practice into this repo before → a PRACTICE lane. Dropping a starter is strictly cheaper than
+//      an agent session, and the rescan adjudicates it the same way. Only the top item is considered:
+//      the loop's ordering is impact-first, and letting any item in the batch pull the lane away from
+//      the agent would make the template drop the default answer rather than the shortest path to the
+//      biggest gap.
+//
+//      ONCE PER REPO, and the file test alone was not enough. The presence check reads a REMOVAL as an
+//      omission: on `systedo-case` the loop installed the 18-line `ai-review.yml` starter, a later
+//      lane's agent consolidated it into a 122-line `agent-review.yml` (plus a rubric, required-checks
+//      and CODEOWNERS) and deleted the thin one, and the next run reinstalled the starter — forever,
+//      never reaching a backlog or a craft lane. So the loop's OWN HISTORY is the second gate: a
+//      practice a human or an agent removed is a standing decision, which the scoring prompt already
+//      calls "context you were missing, not a reason to re-raise". Once every practice mapped to the
+//      top item's dimension has been dispatched, this rule falls through to the ordinary ordering.
 //   3. Otherwise, if there is NO open gap follow-up at all but the repo has unbuilt CRAFT rungs → a
 //      CRAFT lane (r12). This is where the loop used to die: `openBatch` returned nothing at green,
 //      no lane could arm, and a repository that had done everything the rubric asks got silence. A
@@ -53,6 +63,15 @@ export interface LaneKindProposal {
   itemId: string | null;
   /** One line for the curation panel and the lane log. Always set. */
   reason: string;
+  /**
+   * The practice this proposal DECLINED to raise a second time — set only on the backlog fall-through
+   * that rule 2's once-per-repo gate produces, `null` on every other outcome.
+   *
+   * It is carried out of the rule rather than logged inside it because this module is pure and is
+   * called from a GET the operator may poll: the ENGINE turns it into a lesson, once per armed run,
+   * so the operator can see WHY a lane that "should" install a starter did not.
+   */
+  skippedPracticeId: string | null;
 }
 
 export const BACKLOG_LANE: LaneKindProposal = {
@@ -60,6 +79,7 @@ export const BACKLOG_LANE: LaneKindProposal = {
   practiceId: null,
   itemId: null,
   reason: "Works this repo's open follow-ups with a local agent.",
+  skippedPracticeId: null,
 };
 
 const exists = (abs: string): Promise<boolean> =>
@@ -102,10 +122,18 @@ export function practiceArtifactPath(practiceId: string): string | null {
  * whatever its backlog says, and making the engine read the backlog to discover that would put a
  * database round-trip per repo behind a filesystem question. Callers that already hold the items
  * (the curation route) pass `async () => items`.
+ *
+ * `loadDispatchedPractices` is lazy for exactly the same reason and is read even later — only once a
+ * practice-shaped gap has survived BOTH the dimension lookup and the file test. A foundation lane, an
+ * all-craft batch, a dimension with no starter, and a repo that already carries the starter all answer
+ * without it. It is REQUIRED rather than optional so the curation screen and the engine cannot
+ * disagree: a caller that could omit it would be a second, more permissive rule, and the identity this
+ * module's header states would hold only by convention.
  */
 export async function proposeLaneKind(
   dir: string | null,
   loadItems: () => Promise<readonly FollowUpItem[]>,
+  loadDispatchedPractices: () => Promise<ReadonlySet<string>>,
 ): Promise<LaneKindProposal> {
   if (!dir) return BACKLOG_LANE;
   try {
@@ -115,6 +143,7 @@ export async function proposeLaneKind(
         practiceId: null,
         itemId: null,
         reason: "No .ai/ foundation in this repo — this lane installs the generated standard, then rescans.",
+        skippedPracticeId: null,
       };
     }
     const items = await loadItems();
@@ -131,18 +160,33 @@ export async function proposeLaneKind(
         practiceId: null,
         itemId: null,
         reason: `No open gaps left — this lane works the craft ladder${axes.length ? ` (${axes.slice(0, 3).join(", ")})` : ""}, raising the ceiling rather than closing a gap.`,
+        skippedPracticeId: null,
       };
     }
     if (!top) return BACKLOG_LANE;
+    // `practiceForDimension` reads the SPINE (`PRACTICES`), which is 1:1 with the scored dimensions —
+    // so "every practice for this dimension" is this one, and the dispatched-set test below is the
+    // whole of the once-per-repo rule. If the spine ever stops being 1:1, this becomes a loop over the
+    // dimension's practices that picks the first undispatched one.
     const practice = practiceForDimension(top.dimId);
     if (!practice) return BACKLOG_LANE;
     const path = practiceArtifactPath(practice.id);
     if (!path || (await exists(resolve(dir, path)))) return BACKLOG_LANE;
+    // THE FILE IS ABSENT — which is not the same fact as "it was never installed". Read the loop's own
+    // history last, and only here, so nothing above pays for it.
+    if ((await loadDispatchedPractices()).has(practice.id)) {
+      return {
+        ...BACKLOG_LANE,
+        skippedPracticeId: practice.id,
+        reason: `${practice.label} was already installed here by an earlier lane and \`${path}\` is gone — a removal is a decision, not an omission, so this lane works the backlog instead.`,
+      };
+    }
     return {
       kind: "practice",
       practiceId: practice.id,
       itemId: top.id,
       reason: `${practice.label} — this lane installs \`${path}\`, the starter for the biggest open gap (${top.dimId}).`,
+      skippedPracticeId: null,
     };
   } catch {
     return BACKLOG_LANE;

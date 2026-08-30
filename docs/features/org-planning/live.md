@@ -705,17 +705,55 @@ A lane now has a **kind**:
 **The rule** (`src/lib/local/lane-kind.ts`, `proposeLaneKind`), in order:
 
 1. the repo has no `.ai/manifest.{yaml,yml}` → `foundation`;
-2. else the **highest-impact** open follow-up sits on a dimension the library has a starter for AND
-   that starter's file is missing → `practice` for it;
+2. else the **highest-impact** open follow-up sits on a dimension the library has a starter for, that
+   starter's file is missing, AND the loop has **never dispatched that practice into this repo
+   before** → `practice` for it;
 3. else `backlog`, which stays the default and does everything else.
 
 Only the *top* item is considered in (2). Letting any item in the batch pull the lane would make a
 template drop the default answer rather than the shortest path to the biggest gap. The cap and the
 impact-first ordering of `openBatch` are untouched.
 
+**A practice is proposed AT MOST ONCE per repo — a removed starter is a decision, not an omission.**
+The file test alone reads a *removal* as an absence. Measured on `systedo-case`: run 1 installed the
+18-line "agent in the loop" starter (`.github/workflows/ai-review.yml`); a later lane's agent
+consolidated it into a 122-line `.github/workflows/agent-review.yml` — plus a rubric,
+`required-checks.json` and `CODEOWNERS` — and deleted the thin starter; the next run saw the starter
+missing and reinstalled it; the next agent deleted it again. In git: `95347818` → `f419243b` →
+`bd7590e1`, the same starter installed twice with the deletion between. Every run burned on that loop
+and never reached a backlog or a craft lane.
+
+So the loop's **own history** is the second gate, which is this codebase's standing-decision doctrine
+applied to lanes: the scoring prompt already calls a standing decision *"context you were missing, not
+a reason to re-raise"*, and a practice a human or an agent removed is exactly that.
+`listDispatchedPractices(org, repo)` (`src/lib/db/loop-runs-read.ts`) returns the practice ids already
+dispatched into a repo, and **"dispatched" is: a cycle-1 lane with a non-null `startedAt`, in a run
+whose `targets` name that practice for that repo.** Cycle 1 because a lane kind is a cycle-1 fact
+(`laneKindOf`); `startedAt` because `runLane` stamps it in the same write that leaves `queued` for
+`dispatching`, immediately before the install — so a lane that never got a worktree
+(`recordLaneSetupFailure` writes `phase: "error"` with no `startedAt`) does *not* burn the practice's
+one shot, while a lane that ran and then errored does. Reading `phase: "done"` would be worse: a lane
+that installed the starter and then failed its rescan would re-propose the install forever.
+
+When the practice for the top item's dimension has already been dispatched, the rule **falls through
+to the ordinary ordering** — backlog, or craft when the batch is all craft. `PRACTICES` is 1:1 with
+the scored dimensions, so "every practice for that dimension" is that one starter.
+
+**The skip is explained, not silent.** `proposeLaneKind` returns `skippedPracticeId`, and the engine
+turns it into a `loop-lesson` candidate (`recordPracticeSkipLesson`, `src/lib/db/loop-lessons.ts`) so
+an operator looking at a backlog lane on a repo with an obvious starter-shaped gap can see why. It
+lands `pending` in the same review queue every agent lesson does — the loop still never writes
+`OrgMemory` directly — and it is **idempotent**: a skip is a standing fact, not an event, so an
+event-shaped write would refill the queue with the same sentence on every run.
+
 **One rule, two callers.** `/propose` renders it and the engine re-runs it at arm time — the same
-identity argument as `openBatch`. It is re-read rather than trusted from the wire, because the
-operator may have installed the standard by hand between opening the panel and pressing Run.
+identity argument as `openBatch`. Both pass the history read, which is why it is a **required** third
+parameter rather than an optional one: a caller that could omit it would be a second, more permissive
+rule. It is lazy for the same reason `loadItems` is, and read even later — only once a practice-shaped
+gap has survived both the dimension lookup and the file test, so a foundation lane, an all-craft
+batch, and a repo that already carries the starter all answer with no database round trip. The rule is
+re-read rather than trusted from the wire, because the operator may have installed the standard by
+hand between opening the panel and pressing Run.
 
 **Execution** (`lane-install.ts`, `install-files.ts`). Both kinds go through the *same generators* the
 cloud doors use — `buildFoundation` and `buildPracticeArtifact` — and differ only in **delivery**: a
@@ -755,7 +793,10 @@ executor the "no hosted dispatch" gap below already names.
 beside the repo name in the curation panel (with the reason under it) and on the outcome-ledger row.
 The agent lane is deliberately untagged — a badge on every row would say nothing.
 
-Tests: `lane-kind.test.ts` (the rule, against real directories), `lane-install.test.ts` (real git
+Tests: `lane-kind.test.ts` (the rule, against real directories), `lane-kind.dispatched.test.ts` (the
+once-per-repo gate: a missing starter with no prior lane still leads, the same repo after a prior
+practice lane does not, an all-craft batch still yields craft, a present starter still yields backlog,
+and neither the foundation nor the file-present path reaches the history read), `lane-install.test.ts` (real git
 fixture: files written, one commit, the trailer, the skip policy, and the byte-identity case),
 `loop-engine.test.ts` (install instead of agent, the kind on the row, cycle 2 back to backlog, a dry
 install ending cleanly, a curated batch winning), `propose/route.test.ts` (the wiring),
