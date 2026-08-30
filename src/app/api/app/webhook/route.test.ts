@@ -39,6 +39,7 @@ vi.mock("@/lib/db", () => ({
   getScanReportByCommit: vi.fn(),
   isDbConfigured: () => true,
   isRepoWatched: vi.fn(),
+  listWatchedRepos: vi.fn(async () => []),
   persistScanReport: vi.fn(),
   reconcileWatchedRepos: vi.fn(async () => 0),
   removeInstallation: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@/lib/db", () => ({
   reportPermalink: vi.fn(() => "/report/x"),
   upsertInstallation: vi.fn(),
 }));
+vi.mock("@/lib/db/scan-jobs", () => ({ enqueueProbeJob: vi.fn(async () => ({ id: "job_1", created: true })) }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 vi.mock("@/lib/scoring/gate", () => ({ evaluateGate: vi.fn() }));
 vi.mock("@/lib/scoring/gate-comment", () => ({ buildGateComment: vi.fn(), GATE_COMMENT_MARKER: "<!-- gate -->" }));
@@ -64,6 +66,7 @@ import {
   getOrgId,
   getScanReportByCommit,
   isRepoWatched,
+  listWatchedRepos,
   persistScanReport,
   reconcileWatchedRepos,
   releaseWebhookDelivery,
@@ -72,6 +75,7 @@ import {
   suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
+import { enqueueProbeJob } from "@/lib/db/scan-jobs";
 import { scanRepository } from "@/lib/scan";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
@@ -111,6 +115,8 @@ const mockGetOrgId = vi.mocked(getOrgId);
 const mockDiffReports = vi.mocked(diffReports);
 const mockRelease = vi.mocked(releaseWebhookDelivery);
 const mockClaim = vi.mocked(claimWebhookDelivery);
+const mockEnqueueProbe = vi.mocked(enqueueProbeJob);
+const mockListWatched = vi.mocked(listWatchedRepos);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -1171,5 +1177,77 @@ describe("POST /api/app/webhook — a degraded push rescan is not persisted or a
     await runDeferred();
 
     expect(mockPersist).toHaveBeenCalled();
+  });
+});
+
+// ── Control-probe fan-in (moonshot #10) ──────────────────────────────────────────────────────────
+// Five events that move a repo's GOVERNANCE without moving its code. The guard that matters most:
+// THE PAYLOAD IS NOT TRUSTED FOR CONTROL STATE. A `branch_protection_rule.deleted` delivery must
+// enqueue a re-read and write NO observation of its own — otherwise a replayed or misrouted (but
+// validly-signed) delivery could write a false governance record that outlives it.
+describe("POST /api/app/webhook — control-probe fan-in", () => {
+  let d = 0;
+  const delivery = () => `d-probe-${d++}`;
+  const repoPayload = (over: Record<string, unknown> = {}) => ({
+    installation: { id: 42 },
+    repository: { full_name: "acme/api", name: "api", owner: { login: "acme" } },
+    ...over,
+  });
+
+  beforeEach(() => {
+    mockIdForOwner.mockResolvedValue("42");
+    mockEnqueueProbe.mockResolvedValue({ id: "job_1", created: true });
+  });
+
+  for (const event of ["branch_protection_rule", "repository_ruleset", "repository"]) {
+    it(`${event} enqueues ONE free probe of that repo, and nothing else`, async () => {
+      await post(event, delivery(), repoPayload({ action: "deleted" }));
+      await runDeferred();
+
+      expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+      expect(mockEnqueueProbe.mock.calls[0]!.slice(0, 3)).toEqual(["acme", "acme/api", `webhook:${event}`]);
+      // Enqueue-only: no scan, no credit, no persisted report.
+      expect(mockScan).not.toHaveBeenCalled();
+      expect(mockPersist).not.toHaveBeenCalled();
+    });
+  }
+
+  it("passes the DELIVERY ID as the idempotency bucket, so a redelivery enqueues nothing new", async () => {
+    await post("branch_protection_rule", "d-probe-fixed", repoPayload({ action: "created" }));
+    await runDeferred();
+    expect(mockEnqueueProbe.mock.calls[0]![3]).toBe("d-probe-fixed");
+  });
+
+  it("writes NO control observation itself — only the probe's own re-read may do that", async () => {
+    await post("branch_protection_rule", delivery(), repoPayload({ action: "deleted" }));
+    await runDeferred();
+    // The route never imports the ledger; the assertion here is behavioural — the only durable effect
+    // of this delivery is one queued job.
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an installation that does not own the payload's org, and releases the delivery", async () => {
+    mockIdForOwner.mockResolvedValue("999"); // stored mapping disagrees with the payload
+    await post("repository", delivery(), repoPayload({ action: "archived" }));
+    await runDeferred();
+    expect(mockEnqueueProbe).not.toHaveBeenCalled();
+  });
+
+  it("member/team fan out over the org's WATCHED repos, capped, and write no membership row", async () => {
+    mockListWatched.mockResolvedValue([{ fullName: "acme/api" }, { fullName: "acme/web" }] as Awaited<
+      ReturnType<typeof listWatchedRepos>
+    >);
+    await post("member", delivery(), { installation: { id: 42 }, organization: { login: "acme" }, action: "added" });
+    await runDeferred();
+
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(2);
+    expect(mockEnqueueProbe.mock.calls.map((c) => c[1])).toEqual(["acme/api", "acme/web"]);
+  });
+
+  it("a repo-scoped member event probes just that repo rather than the whole fleet", async () => {
+    await post("member", delivery(), { ...repoPayload({ action: "added" }), organization: { login: "acme" } });
+    await runDeferred();
+    expect(mockListWatched).not.toHaveBeenCalled();
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
   });
 });
