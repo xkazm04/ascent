@@ -36,6 +36,13 @@ export async function mapPool<T, R>(
 /** Default fleet-scan concurrency — bounded so a big watchlist doesn't hammer GitHub / the LLM. */
 export const SCAN_CONCURRENCY = 4;
 
+/**
+ * Concurrency for the CONTROL PROBE lane (moonshot #10). Higher than SCAN_CONCURRENCY because a
+ * probe is a different animal: ~3 REST calls and under two seconds, with no LLM provider behind it
+ * and no credit at stake. The bound that matters here is GitHub's rate limit, not model throughput.
+ */
+export const PROBE_CONCURRENCY = 8;
+
 // ── Deadline-aware fan-out ────────────────────────────────────────────────────────────────────────
 // A fleet run does ALL of its work inside one invocation bounded by `maxDuration`. When the platform
 // hits that ceiling it PROCESS-kills the function: no throw, no `finally`, no final SSE/JSON frame —
@@ -116,4 +123,73 @@ export async function mapPoolUntilDeadline<T>(
   // `cursor` on was never issued — the exact remainder a continuation run should pick up.
   const remaining = items.slice(cursor);
   return { remaining, attempted, truncated: remaining.length > 0 };
+}
+
+// ── Deadline-aware DRAIN (supplier-driven) ────────────────────────────────────────────────────────
+// mapPoolUntilDeadline walks an ARRAY the caller already has. A durable queue has no such array: the
+// work is claimed one row at a time, and a claim can lose to another instance's worker, so the lane
+// count is only knowable by asking. drainUntilDeadline is the same lane/deadline mechanics over a
+// SUPPLIER — `supply()` returns the next claimed item or null when the queue is empty — which is why
+// the two coexist rather than one wrapping the other.
+
+export interface DrainPoolResult {
+  /** Items `fn` was invoked for. */
+  attempted: number;
+  /**
+   * True iff a lane stopped on the wall-clock BUDGET rather than on an empty supplier.
+   *
+   * Read it as "we stopped early", NOT as "N items were left behind": a supplier-driven drain cannot
+   * know what is still queued without claiming it, and claiming a row it will not run would be worse
+   * than not knowing. The honest remainder is a `queueDepth()` read by the caller after the drain —
+   * which is also the only number that stays true when another instance is draining the same lane.
+   */
+  truncated: boolean;
+}
+
+/**
+ * Claim-and-run until the queue is empty or the wall-clock budget is gone.
+ *
+ * Same measured projection as {@link mapPoolUntilDeadline}: the WORST per-item wall time observed so
+ * far is the estimate for the next one, nothing can be truncated before at least one item completed
+ * (with no observation there is no estimate), and in-flight items always run to completion — a probe
+ * mid-write or a scan mid-inference is never abandoned.
+ *
+ * `supply` must be safe to call concurrently from every lane; the DB claim is what serializes it.
+ * `fn` OWNS its errors, exactly as in {@link mapPool}.
+ */
+export async function drainUntilDeadline<T>(
+  supply: () => Promise<T | null>,
+  concurrency: number,
+  deadlineAt: number,
+  fn: (item: T) => Promise<void>,
+  now: () => number = Date.now,
+): Promise<DrainPoolResult> {
+  const lanes = Math.max(1, concurrency);
+  let attempted = 0;
+  let worstMs = 0;
+  let observed = false;
+  let truncated = false;
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (observed && now() + worstMs > deadlineAt) {
+        // Deliberately set BEFORE returning and never cleared: one lane running out of budget means
+        // the drain stopped for time, which is exactly what the caller must report.
+        truncated = true;
+        return;
+      }
+      const item = await supply();
+      if (item === null) return; // the queue is empty — not a truncation
+      attempted += 1;
+      const startedAt = now();
+      try {
+        await fn(item);
+      } finally {
+        const elapsed = now() - startedAt;
+        if (elapsed > worstMs) worstMs = elapsed;
+        observed = true;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: lanes }, () => worker()));
+  return { attempted, truncated };
 }

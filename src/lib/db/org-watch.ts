@@ -718,6 +718,15 @@ export async function reconcileListedRepos(
   return { marked: markIds.length, cleared: clearIds.length };
 }
 
+/** One repo's autoscan cadence, or null when the row is gone / persistence is off. The queue worker's
+ *  settle path needs it: a `ScanJob` carries the repo IDENTITY, and the cadence stays on the
+ *  Repository row where the scheduling APIs own it, so it is read rather than copied into the job. */
+export async function getRepoSchedule(repoId: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const row = await getPrisma().repository.findUnique({ where: { id: repoId }, select: { scanSchedule: true } });
+  return row?.scanSchedule ?? null;
+}
+
 /**
  * Set or clear one repo's `missingSince` from a DIRECT observation (moonshot #10's probe lane).
  *
