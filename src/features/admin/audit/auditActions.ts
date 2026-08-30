@@ -51,6 +51,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org.admission_propose", label: "Admission proposal", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.admission_ruleset", label: "Ruleset applied", cls: "border-rose-500/40 bg-rose-500/10 text-rose-300" },
   { value: "org.admission_ruleset_revert", label: "Ruleset reverted", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  // moonshot #4 — connecting or disconnecting a forge account. The row records the forge, the
+  // external id and the host; it never records the credential or its ciphertext, which is why these
+  // two are safe to render in a viewer any org admin can read.
+  { value: "forge.installation.set", label: "Forge connected", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "forge.installation.cleared", label: "Forge disconnected", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },

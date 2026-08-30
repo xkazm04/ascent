@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import type { ScanReport } from "@/lib/types";
 import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
+import { forgeFullName, resolveForge } from "@/lib/forge/registry";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
@@ -35,6 +36,19 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
+  // FORGE (moonshot #4). The PATH stays two segments — CI callers, the check-run path and every doc
+  // use `/api/gate/:owner/:repo`, and adding a segment would churn a public contract for no gain — so
+  // the forge arrives as a query param. This is the ONLY thing this lane touches in this route
+  // (ruling W4-#2: the gate EVALUATOR is W4-O's, and `gate.ts` is untouched here).
+  //
+  // Unset or unrecognized ⇒ `github`, so every existing caller's request is byte-identical: `forgeId`
+  // is "github", `coordinate` is `owner/repo`, and nothing below can tell this parameter exists.
+  const forgeId = resolveForge(searchParams.get("forge")).id;
+  /** What the scanner is asked to read, and what the persisted row is keyed by. */
+  const coordinate = forgeFullName(forgeId, ownerN, repoN);
+  // Cache/persistence keys take the forge-prefixed OWNER so one scheme covers both forges without a
+  // second key format: `makeCacheKey("gitlab:group", "project", …)`.
+  const ownerKey = forgeId === "github" ? ownerN : `${forgeId}:${ownerN}`;
   // SECURITY (ci-gate-status-checks #1): this endpoint is unauthenticated by design — CI calls it with
   // plain curl. Every ingest below therefore passes noAmbientToken, so a scan can never run against the
   // ambient GITHUB_TOKEN (an operator PAT that commonly has broad read access). Without it, any
@@ -88,7 +102,7 @@ export async function GET(
       // cost the GitHub round-trip this fast path exists to avoid.
       const refSha = /^[0-9a-f]{40}$/i.test(ref) ? ref.toLowerCase() : null;
       const persisted = refSha
-        ? await lookupPersistedScanByCommit({ owner: ownerN, repo: repoN, headSha: refSha, useLLM: !mock })
+        ? await lookupPersistedScanByCommit({ owner: ownerKey, repo: repoN, headSha: refSha, useLLM: !mock })
         : null;
       if (persisted) {
         // Warm hit — no ingest, no LLM spend, so no rate-limit charge (see the strategy note above).
@@ -102,7 +116,7 @@ export async function GET(
           // "your pipeline is too chatty" when it isn't.
           if (!rl.ok) return tooManyRequests(rl);
         }
-        report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
+        report = await scanRepository(coordinate, { mock, ref, noAmbientToken: true });
       }
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
@@ -112,13 +126,16 @@ export async function GET(
       // SHA-less key (best-effort).
       // Token-less by construction (see the noAmbientToken note above): resolving a head sha with the
       // operator PAT would confirm a private repo's existence and current commit to an anonymous caller.
-      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, undefined);
+      // GitHub-only: this is a GitHub REST head lookup. On another forge it resolves to null, which
+      // this branch already handles — a SHA-less key, no persisted probe, a fresh scan. The honest
+      // degrade, not a special case.
+      const sha = forgeId === "github" ? await resolveHeadWithHint({ owner: ownerN, repo: repoN }, undefined) : null;
       // Probe ONLY the mode that was requested. The old `cacheGet(llmKey) ?? cacheGet(mockKey)` read the
       // LLM entry first regardless of mode, so a default (mock=true) CI gate could return a STOCHASTIC
       // LLM verdict — a PR flipping pass↔fail between runs with identical code, purely from which scan
       // populated the cache first. Read and write the same key (useLLM = !mock) so the default gate is
       // deterministic and reproducible, matching the verdict's stated provider.
-      const key = makeCacheKey(ownerN, repoN, !mock, sha);
+      const key = makeCacheKey(ownerKey, repoN, !mock, sha);
       // Tier 1: this instance's warm memory — always in front, it is the fastest possible answer.
       report = cacheGet(key);
       if (!report && sha) {
@@ -130,7 +147,7 @@ export async function GET(
         // tier 1 for the next reader on this instance. Skipped when the head resolve failed (a
         // SHA-less key has no commit to pin a persisted row to).
         const persisted = await lookupPersistedScanByCommit({
-          owner: ownerN,
+          owner: ownerKey,
           repo: repoN,
           headSha: sha,
           useLLM: !mock,
@@ -148,7 +165,7 @@ export async function GET(
           // Whole result — same reasoning as the ref-scoped ingest gate above.
           if (!rl.ok) return tooManyRequests(rl);
         }
-        report = await scanRepository(`${ownerN}/${repoN}`, { mock, noAmbientToken: true });
+        report = await scanRepository(coordinate, { mock, noAmbientToken: true });
         // CACHE-POISONING GUARD: every OTHER cache writer in the codebase (scan-finalize.ts's
         // `authoritative` check) refuses to store a report that degraded to mock; this route was the
         // one writer without it. The key here is the ::llm key on the ?mock=0 path, so a single
@@ -187,7 +204,7 @@ export async function GET(
       console.error("[gate] org policy read failed — refusing to gate on the archetype default", err);
       return NextResponse.json(
         {
-          repo: `${ownerN}/${repoN}`,
+          repo: coordinate,
           ref: ref ?? null,
           error:
             "The organization's gate policy could not be read, so this gate would have fallen back to a weaker default bar. No verdict was produced. Retry the gate.",
@@ -211,12 +228,12 @@ export async function GET(
     // only that the bar could not be determined. Say that; never enforce a weaker one.
     let admissionLayer;
     try {
-      admissionLayer = await resolveAdmissionLayer(ownerN, `${ownerN}/${repoN}`);
+      admissionLayer = await resolveAdmissionLayer(ownerN, coordinate);
     } catch (err) {
       console.error("[gate] admission read failed — refusing to gate on a bar we could not read", err);
       return NextResponse.json(
         {
-          repo: `${ownerN}/${repoN}`,
+          repo: coordinate,
           ref: ref ?? null,
           error:
             "This repository's admission decision could not be read, so this gate would have fallen back to a weaker bar. No verdict was produced. Retry the gate.",
@@ -236,11 +253,11 @@ export async function GET(
     // when the effective policy actually names a check, so the common gate call pays no extra query;
     // null (no ledger, no report, a summary-only report) SKIPS every named check rather than failing
     // a repo for a measurement that was never due.
-    const checkStates = policy.requireChecks?.length ? await loadCheckStates(ownerN, `${ownerN}/${repoN}`) : null;
+    const checkStates = policy.requireChecks?.length ? await loadCheckStates(ownerN, coordinate) : null;
     const gate = evaluateGate(report, policy, { checkStates });
     logGateVerdict(report, gate, {
       surface: "api",
-      repo: `${ownerN}/${repoN}`,
+      repo: coordinate,
       ref,
       policySource: orgPolicy ? "org" : searchParams.size > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
@@ -271,7 +288,7 @@ export async function GET(
     const status = degraded ? 503 : gate.pass ? 200 : 422;
     return NextResponse.json(
       {
-        repo: `${ownerN}/${repoN}`,
+        repo: coordinate,
         ref: ref ?? null,
         pass: gate.pass,
         degraded,

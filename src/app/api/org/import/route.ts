@@ -38,6 +38,8 @@ import {
 import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
+import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
+import { gitlabForge } from "@/lib/forge/gitlab/source";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
@@ -232,18 +234,35 @@ export async function POST(request: Request) {
       const send = makeSseSend(controller);
       try {
         // 1. Resolve the repo list.
-        let fullNames: { owner: string; name: string; fullName: string; url: string }[];
+        let fullNames: { owner: string; name: string; fullName: string; url: string; forge?: "github" | "gitlab" }[];
         if (body.repos?.length) {
+          // FORGE COORDINATES (moonshot #4). An entry may carry an explicit `<forge>:` prefix
+          // (`gitlab:group/sub/project`) or a gitlab.com URL; anything else is a GitHub `owner/name`,
+          // parsed exactly as before. The forge-prefixed `fullName` here is the SAME identity the
+          // persist layer writes, so an imported GitLab project lands on one row, not two.
           fullNames = body.repos.map((fn) => {
+            const routed = parseForgeUrl(fn);
+            if (routed && routed.forge === "gitlab") {
+              return {
+                owner: routed.owner,
+                name: routed.repo,
+                fullName: forgeFullName("gitlab", routed.owner, routed.repo),
+                url: gitlabForge.permalink({ owner: routed.owner, repo: routed.repo }),
+                forge: "gitlab" as const,
+              };
+            }
             const [owner = "", name = ""] = fn.includes("/") ? fn.split("/") : [org, fn];
-            return { owner, name, fullName: `${owner}/${name}`, url: `https://github.com/${owner}/${name}` };
+            return { owner, name, fullName: `${owner}/${name}`, url: `https://github.com/${owner}/${name}`, forge: "github" as const };
           });
           // Validate the UNTRUSTED repos[] coordinates before any value is interpolated into a
           // github.com / raw.githubusercontent.com URL. listOrgRepos validates the `org` handle, but
           // this client-supplied path bypassed it — a crafted "../../enterprises/x" or control-char
           // entry reached the GitHub helpers raw (a path-injection / SSRF-shaped surface on the
           // anonymous-capable mock funnel). Reject the whole batch on the first bad coordinate.
-          const bad = fullNames.find((r) => !isValidHandle(r.owner) || !isValidRepoName(r.name));
+          // GitLab coordinates were already validated by the forge parser (per-segment charset +
+          // traversal guard); the GitHub validators are GitHub name rules and would reject a legal
+          // subgroup path, so they apply to the GitHub entries only.
+          const bad = fullNames.find((r) => r.forge === "github" && (!isValidHandle(r.owner) || !isValidRepoName(r.name)));
           if (bad) {
             send("error", { error: `Invalid repository "${bad.fullName}". Use owner/name with valid GitHub names.` });
             return;
