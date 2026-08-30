@@ -45,3 +45,43 @@ export function closedTitles(o: LoopLaneOutcome): string[] {
   }
   return out;
 }
+
+/** How each kind reads on a row: the section label when a cell mixes kinds, the glyph when it does not. */
+export const KIND_META: Record<LaneDeliverableKind, { label: string; glyph: string }> = {
+  closed: { label: "Closed", glyph: "✓" },
+  installed: { label: "Installed", glyph: "+" },
+  hardened: { label: "Hardened", glyph: "▲" },
+  regressed: { label: "Regressed", glyph: "▼" },
+  noted: { label: "Noted", glyph: "·" },
+};
+
+export interface DeliverableSection {
+  kind: LaneDeliverableKind;
+  label: string;
+  rows: LaneDeliverable[];
+}
+
+/** Rows bucketed by kind, in DELIVERABLE_KIND_ORDER, empty kinds dropped. */
+export function sectionDeliverables(rows: readonly LaneDeliverable[]): DeliverableSection[] {
+  return DELIVERABLE_KIND_ORDER.flatMap((kind) => {
+    const inKind = rows.filter((r) => r.kind === kind);
+    return inKind.length ? [{ kind, label: KIND_META[kind].label, rows: inKind }] : [];
+  });
+}
+
+/** Rows a cell shows before it asks to be widened. Four is a glance; the rest is "+n more". */
+export const VISIBLE_ROWS = 4;
+
+/** The first `cap` rows across the sections (section order kept), and how many were held back. */
+export function foldSections(sections: readonly DeliverableSection[], cap = VISIBLE_ROWS): { shown: DeliverableSection[]; hidden: number } {
+  let left = cap;
+  let hidden = 0;
+  const shown: DeliverableSection[] = [];
+  for (const s of sections) {
+    const take = Math.max(0, Math.min(left, s.rows.length));
+    hidden += s.rows.length - take;
+    if (take > 0) shown.push({ ...s, rows: s.rows.slice(0, take) });
+    left -= take;
+  }
+  return { shown, hidden };
+}

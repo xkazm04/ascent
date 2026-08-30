@@ -1,16 +1,11 @@
-// ONE cell of the matrix — what a run delivered to a repo. Shared by both variants: the Register and
-// the Storyboard differ in chrome and rhythm, not in which facts a cell may print. No hooks, so a
-// server tree could render it; the variants that hold state carry "use client" themselves.
-//
-// Compact: up to three one-line clipped titles + the verdict + a mono footnote. Expanded: full titles,
-// the per-dimension deltas (coloured only when claimable) and up to two movement lines.
+// ONE cell of the matrix — the hook-free parts: the verdict (a delta, or the refusal word in its
+// place), the live caption, the per-dimension deltas (coloured only when claimable) and the mono
+// footnote. The deliverable rows live in OutcomeCellRows.tsx, which holds the widen state.
 
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { laneCaption } from "../cockpit/laneStages";
 import type { OutcomeCell as Cell } from "./outcomeMatrix";
-import { cellFootnote, shortTitle, verdictWord } from "./outcomeText";
-
-const COMPACT_TITLES = 3;
+import { cellFootnote, verdictWord } from "./outcomeText";
 
 export function CellVerdict({ cell, size = "sm" }: { cell: Cell; size?: "sm" | "figure" }) {
   const v = cell.verdict;
@@ -34,55 +29,24 @@ export function CellLive({ cell }: { cell: Cell }) {
   );
 }
 
-export function CellTitles({ cell, expanded }: { cell: Cell; expanded: boolean }) {
-  const shown = expanded ? cell.titles : cell.titles.slice(0, COMPACT_TITLES);
-  const more = cell.titles.length - shown.length;
-  if (!cell.installed && shown.length === 0) {
-    return <p className="type-caption text-slate-600">no deliverables</p>;
-  }
+/** The per-dimension deltas — evidence for the widened cell only. */
+export function CellDims({ cell }: { cell: Cell }) {
+  if (cell.dims.length === 0) return null;
   return (
-    <ul className="space-y-0.5">
-      {cell.installed && (
-        <li className="type-body-sm text-slate-200">
-          <span className="mr-1.5 rounded-sm border border-divider px-1 type-micro uppercase tracking-wide text-slate-400">{cell.kind}</span>
-          {cell.installed}
-        </li>
-      )}
-      {shown.map((t) => (
-        <li key={t} className={`type-body-sm text-slate-200 ${expanded ? "" : "truncate"}`} title={expanded ? undefined : t}>
-          {expanded ? t : shortTitle(t)}
+    <ul className="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5">
+      {cell.dims.map((d) => (
+        <li key={d.id} className="type-caption tabular-nums">
+          <span className="text-slate-500">{d.short}</span>{" "}
+          <span
+            style={{ color: d.claimable ? deltaHex(d.delta) : undefined }}
+            className={d.claimable ? undefined : "text-slate-600"}
+            title={d.claimable ? undefined : "Not attributable to this run"}
+          >
+            {fmtDelta(d.delta)}
+          </span>
         </li>
       ))}
-      {more > 0 && <li className="type-micro text-slate-500">+{more} more</li>}
     </ul>
-  );
-}
-
-export function CellDetail({ cell }: { cell: Cell }) {
-  return (
-    <>
-      {cell.dims.length > 0 && (
-        <ul className="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5">
-          {cell.dims.map((d) => (
-            <li key={d.id} className="type-caption tabular-nums">
-              <span className="text-slate-500">{d.short}</span>{" "}
-              <span
-                style={{ color: d.claimable ? deltaHex(d.delta) : undefined }}
-                className={d.claimable ? undefined : "text-slate-600"}
-                title={d.claimable ? undefined : "Not attributable to this run"}
-              >
-                {fmtDelta(d.delta)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {cell.movements.map((line) => (
-        <p key={line} className="type-note mt-1 text-slate-400">
-          {line}
-        </p>
-      ))}
-    </>
   );
 }
 

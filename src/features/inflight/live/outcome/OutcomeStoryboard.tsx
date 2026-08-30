@@ -1,15 +1,16 @@
 "use client";
 
 // VARIANT B — "Storyboard". The outcome as a FILM STRIP: each run is a vertical frame in a horizontal
-// strip, the latest frame wide by default with a typeset lift headline and the deliverables as short
-// bulleted lists per repo; older frames are thumbnails — repo + verdict only — until clicked. The
+// strip, the latest frame wide by default with a typeset lift headline and one short row per
+// deliverable under each repo (kind sections when a cell mixes kinds, four rows then "+n more"); older frames are thumbnails — repo + verdict only — until clicked. The
 // repos are the strip's rows and stay aligned across frames (one CSS grid, not one grid per frame),
 // so the eye can follow a single repo left→right through its runs. Differs from the Register by
 // reading as a sequence of scenes rather than as a ledger you look things up in.
 
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
-import { CellDetail, CellFootnote, CellLive, CellTitles, CellVerdict, cellInFlight } from "./OutcomeCell";
+import { CellFootnote, CellLive, CellVerdict, cellInFlight } from "./OutcomeCell";
+import { CellDeliverables } from "./OutcomeCellRows";
 import type { OutcomeColumn } from "./outcomeMatrix";
 import type { OutcomeMatrix } from "./outcomeMatrix";
 
@@ -98,8 +99,7 @@ export function OutcomeStoryboard({ matrix, selectedId, onOpen }: OutcomeVariant
                     </div>
                     {expanded && !cellInFlight(cell) && (
                       <div className="mt-1 border-l border-divider pl-3">
-                        <CellTitles cell={cell} expanded />
-                        <CellDetail cell={cell} />
+                        <CellDeliverables cell={cell} />
                         <CellFootnote cell={cell} />
                       </div>
                     )}

@@ -10,6 +10,8 @@ export type CockpitVariant = "baseline" | OutcomeVariant;
 const TABS: readonly { id: CockpitVariant; label: string }[] = [
   { id: "baseline", label: "Baseline" },
   { id: "storyboard", label: "Storyboard" },
+  { id: "release-notes", label: "Release notes" },
+  { id: "earned", label: "Earned another run" },
 ];
 
 export function CockpitVariantTabs({ value, onChange }: { value: CockpitVariant; onChange: (v: CockpitVariant) => void }) {
