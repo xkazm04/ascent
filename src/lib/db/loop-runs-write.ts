@@ -20,6 +20,9 @@ import {
   type LoopTarget,
 } from "@/lib/db/loop-runs-types";
 
+import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
+import type { LaneReport } from "@/lib/local/lane-report";
+
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
 // ── writes ───────────────────────────────────────────────────────────────────────────────────────
@@ -138,14 +141,22 @@ export interface LoopLanePatch {
   agentDurationMs?: number | null;
   agentSessionId?: string | null;
   abPairKey?: string | null;
+
+  // ── MOONSHOT #25. Objects rather than pre-serialized strings: the JSON-in-TEXT encoding is the
+  // store's business, and a caller that had to remember to stringify is a caller that will one day
+  // write a `[object Object]` column.
+  brief?: LaneBriefProvenance;
+  report?: LaneReport;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
-  const { batchIds, closedIds, ...rest } = patch;
+  const { batchIds, closedIds, brief, report, ...rest } = patch;
   const data: Record<string, unknown> = { ...rest };
   if (batchIds) data.batchIdsJson = JSON.stringify(batchIds);
   if (closedIds) data.closedIdsJson = JSON.stringify(closedIds);
+  if (brief) data.briefJson = JSON.stringify(brief);
+  if (report) data.reportJson = JSON.stringify(report);
   const row = await getPrisma()
     .loopRunLane.update({ where: { id }, data })
     .catch(() => null);

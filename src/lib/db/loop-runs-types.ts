@@ -11,6 +11,11 @@ import type { ComparableScan } from "@/lib/db/scans";
 // depends on these shapes, while this module only needs its result type to declare what the detail
 // view carries. Erased at compile time, so there is no module cycle in the emitted graph.
 import type { LaneEconomics } from "@/lib/local/lane-economics";
+// Both TYPE-ONLY and both pure modules (no Prisma, no node built-ins reached at type level), for the
+// same reason as the line above: the record has to describe what the columns hold, and a second
+// "equivalent" declaration here is how a field silently stops arriving.
+import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
+import type { LaneReport } from "@/lib/local/lane-report";
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
 export const LOOP_CONCURRENCY_CAP = 4;
@@ -142,6 +147,16 @@ export interface LoopLaneRecord {
   agentSessionId: string | null;
   /** Joins the two arms of one `ab` pair; null on a `single` run. */
   abPairKey: string | null;
+
+  // ── MOONSHOT #25 — the org's own standard in, the agent's structured result out.
+  /** PROVENANCE of the brief this lane was given — which playbook and version, which mined practice,
+   *  which memory and skill ids, what was omitted and why. Not the prose: the prose is rebuilt
+   *  deterministically from the same inputs. `null` on a lane written before briefs existed. */
+  brief: LaneBriefProvenance | null;
+  /** The agent's own `.ascent/lane-report.json`, parsed and validated. `null` when the lane predates
+   *  the contract; a lane that ran and wrote nothing carries `{ parsed: false }`, which is a
+   *  different fact and is not the same as "it skipped nothing". */
+  report: LaneReport | null;
 }
 
 export interface LoopRunSummary {
@@ -301,7 +316,50 @@ type LaneRow = {
   agentDurationMs?: number | null;
   agentSessionId?: string | null;
   abPairKey?: string | null;
+  briefJson?: string | null;
+  reportJson?: string | null;
 };
+
+/** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
+ *  layers up in a React tree — the same posture `parseTargets` takes. */
+export function parseBriefProvenance(raw: string | null | undefined): LaneBriefProvenance | null {
+  if (!raw || raw === "{}") return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    const p = v as Partial<LaneBriefProvenance>;
+    if (p.v !== 1 || !Array.isArray(p.sections) || !Array.isArray(p.omitted)) return null;
+    return {
+      v: 1,
+      bytes: typeof p.bytes === "number" ? p.bytes : 0,
+      sections: p.sections,
+      omitted: p.omitted,
+      housePatternVersion: typeof p.housePatternVersion === "string" ? p.housePatternVersion : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** `reportJson` → the parsed lane report, or null when the lane predates the contract. */
+export function parseReportColumn(raw: string | null | undefined): LaneReport | null {
+  if (!raw || raw === "{}") return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    const r = v as Partial<LaneReport>;
+    if (r.v !== 1) return null;
+    return {
+      v: 1,
+      parsed: r.parsed === true,
+      ...(typeof r.raw === "string" ? { raw: r.raw } : {}),
+      items: Array.isArray(r.items) ? r.items : [],
+      lessons: Array.isArray(r.lessons) ? r.lessons.filter((l): l is string => typeof l === "string") : [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function toRunRecord(row: RunRow): LoopRunRecord {
   const targets = parseTargets(row.reposJson);
@@ -357,6 +415,8 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     agentDurationMs: row.agentDurationMs ?? null,
     agentSessionId: row.agentSessionId ?? null,
     abPairKey: row.abPairKey ?? null,
+    brief: parseBriefProvenance(row.briefJson),
+    report: parseReportColumn(row.reportJson),
   };
 }
 

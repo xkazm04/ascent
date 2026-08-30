@@ -15,6 +15,8 @@
 // run the identical rescan + adjudication. That is deliberate: the install is only the claim, and a
 // row still closes only when the next scan says the dimension moved.
 
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join as pathJoin } from "node:path";
 import { runGit } from "@/lib/local/git";
 import { LocalFsSource } from "@/lib/local/source";
 import { runClaudeAgent, type AgentRunResult } from "@/lib/local/agent";
@@ -32,6 +34,9 @@ import { LANE_COST_SOURCE, type LoopLaneKind } from "@/lib/db/loop-runs-types";
 import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
+import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
+import { LANE_REPORT_PATH, laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
 export const BATCH_SIZE = 5;
@@ -55,6 +60,10 @@ export interface LaneDeps {
   }) => Promise<{ scanId: string | null; closedIds: string[] }>;
   /** The repo's open follow-ups, biggest projected gain first, capped at `limit`. */
   openBatch: (org: string, repo: string, limit?: number) => Promise<FollowUpItem[]>;
+  /** The org's own standard for this batch's dimensions — see src/lib/db/lane-brief-read.ts. */
+  loadBrief: typeof loadLaneBriefInput;
+  /** The agent's `.ascent/lane-report.json`, parsed. Never throws; a missing file is `parsed:false`. */
+  readReport: typeof readLaneReport;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -64,6 +73,8 @@ export const defaultLaneDeps: LaneDeps = {
   laneKind: proposeLaneKind,
   rescan: rescanWorktree,
   openBatch,
+  loadBrief: loadLaneBriefInput,
+  readReport: readLaneReport,
 };
 
 export interface LaneRunInput {
@@ -177,6 +188,39 @@ export async function rescanWorktree(args: {
   });
   const persisted = await persistScanReport(report, { orgSlug: args.org });
   return { scanId: persisted?.scanId ?? null, closedIds: report.resolvedFollowUpIds ?? [] };
+}
+
+/**
+ * Keep `.ascent/lane-report.json` out of the deliverable.
+ *
+ * The report is a channel between the session and Ascent, not an artifact of the work, and the branch
+ * IS the deliverable a human reviews. `.git/info/exclude` rather than `.gitignore`: a `.gitignore`
+ * edit is itself a change to the repository, and the lane would then be committing a file the
+ * operator never asked for into every branch it produces. `info/exclude` is local to the checkout and
+ * dies with the worktree.
+ *
+ * Best-effort: a failure here means the file might be committed if the agent runs `git add -A`, which
+ * `--permission-mode acceptEdits` does not let it do anyway. It is the belt, not the braces.
+ */
+async function excludeLaneReport(dir: string): Promise<void> {
+  try {
+    const res = await runGit(dir, ["rev-parse", "--absolute-git-dir"]);
+    const gitDir = res.stdout.trim();
+    if (!res.ok || !gitDir) return;
+    const info = pathJoin(gitDir, "info");
+    await mkdir(info, { recursive: true });
+    const file = pathJoin(info, "exclude");
+    let existing = "";
+    try {
+      existing = await readFile(file, "utf8");
+    } catch {
+      existing = "";
+    }
+    if (existing.includes(LANE_REPORT_PATH)) return;
+    await writeFile(file, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${LANE_REPORT_PATH}\n`, "utf8");
+  } catch {
+    /* the report contract also tells the agent not to commit it; this is the second belt */
+  }
 }
 
 /** A cost for the lane log. `null` prints "cost unknown" — never `$0.00`, which is a claim. */
@@ -324,6 +368,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     });
 
     const kind: LoopLaneKind = input.kind ?? "backlog";
+    // The agent's structured account of this cycle, if it wrote one. Declared here because the
+    // adjudication below (after the rescan) needs it and the agent branch produces it.
+    let report: LaneReport | null = null;
     const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
 
     // A FOUNDATION lane has no batch: the repo's backlog is not what it is answering. Every other
@@ -379,13 +426,32 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }
     } else {
       await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
+      // THE ORGANIZATION'S OWN STANDARD, assembled for exactly this batch's dimensions and recorded
+      // on the row as provenance before the session starts. Every remediation vendor applies generic
+      // best practice; the differentiator is that this one applies the org's versioned playbooks, the
+      // pattern mined from its own repositories, its procedural memory and its registry skills — and
+      // says so in words where it has none of those, rather than leaving an empty heading the agent
+      // would read as "there is no standard here".
+      const briefInput = await deps
+        .loadBrief(org, repo, [...new Set(batch.map((b) => b.dimId).filter(Boolean))])
+        .catch(() => null);
+      const brief = briefInput ? buildLaneBrief(briefInput) : null;
+      if (brief) {
+        await updateLane(laneId, { brief: brief.provenance });
+        await appendLaneLog(laneId, `Brief: ${briefSummaryLine(brief.provenance)}`);
+      }
+      await excludeLaneReport(worktree.dir);
       // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
       // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
       // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
       // the session knows — which ids it resolved — and the lane commits below. See lane-commit.ts.
       const prompt =
         buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle", commitPolicy: "lane" }) +
-        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n`;
+        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
+        // The org's standard, then the report contract. In that order deliberately: the standard is
+        // what the work should look like, and the contract is how the session reports on it.
+        (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
+        laneReportContract(batch.map((b) => b.id));
       const result = await deps.runAgent({
         cwd: worktree.dir,
         prompt,
@@ -401,6 +467,19 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
       // recorded too: a failure that burned two dollars is the most important row in the price list.
       await recordAgentCost(laneId, org, repo, result, input);
+      // THE AGENT'S OWN ACCOUNT, read before the commit and the rescan so a lane that dies later
+      // still carries it. A missing or malformed report is `parsed: false` — which is not the same
+      // fact as "it skipped nothing", and the ledger renders the difference.
+      report = await deps.readReport(worktree.dir, batch.map((b) => b.id)).catch(() => null);
+      if (report) {
+        await updateLane(laneId, { report });
+        await appendLaneLog(
+          laneId,
+          report.parsed
+            ? `Report: ${report.items.length} item verdict(s), ${report.lessons.length} lesson(s).`
+            : "No lane report was written — the agent's per-item verdicts are unknown for this cycle.",
+        );
+      }
       // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
