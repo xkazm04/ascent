@@ -100,17 +100,17 @@ Convergence worth noting: four scouts independently proposed the open benchmark 
 | 6 | Signed maturity attestation (in-toto/DSSE) + verify CLI | PDF & LLM Export (08#2) | L | policy | deferred |
 | 7 | AI Trust Center: opt-in tenant-published governance scorecard with signed digest | Marketing About Page (11#2) | XL | policy | concept-doc first |
 | 8 | Agent-admission compiler: stance + autonomy tier become enforced per-repo controls | Practices, Governance & Adoption (05#1) | XL | policy | **accepted** |
-| 9 | Intervention Outcome Ledger: measured lift per recommendation, fleet- and corpus-wide | Roadmap & Recommendation Tracking (08#1) | XL | policy | **accepted** |
+| 9 | Intervention Outcome Ledger: measured lift per recommendation, fleet- and corpus-wide | Roadmap & Recommendation Tracking (08#1) | XL | policy | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
 | 10 | Two-speed fleet: durable scan queue + credit-free control probes | Org Import, Scan & Watchlist (04#2) | XL | contract | **accepted** |
-| 11 | Unified LLM meter: every inference lane priced, team/segment showback | Usage Metering (09#1) | XL | policy | **accepted** |
+| 11 | Unified LLM meter: every inference lane priced, team/segment showback | Usage Metering (09#1) | XL | policy | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
 | 12 | Purchasable artifacts: one-time Polar products that fulfil an entitlement | Checkout & Plans (Polar) (09#2) | L | contract | deferred |
-| 13 | Manifest-as-scan-input: declared-vs-proven capability conformance | AI-Native Standard & Onboarding Skill (03#1) | L | contract | **accepted** |
-| 14 | `.ai/memory` comes home: per-repo agent memory indexed into Org Memory | AI-Native Standard & Onboarding Skill (03#2) | XL | policy | **accepted** |
+| 13 | Manifest-as-scan-input: declared-vs-proven capability conformance | AI-Native Standard & Onboarding Skill (03#1) | L | contract | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
+| 14 | `.ai/memory` comes home: per-repo agent memory indexed into Org Memory | AI-Native Standard & Onboarding Skill (03#2) | XL | policy | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
 | 15 | Guidance arbiter / guidance graph: canonical source, projections, verified contradictions, D1 coherence | Maturity Model & Scoring Engine (01#5); AI-Native Standard & Onboarding Skill (03#3) | L | contract | **accepted** |
-| 16 | Doctor findings as fleet control telemetry: per-check ledger, control matrix | AI-Native Standard & Onboarding Skill (03#4) | L | contract | **accepted** |
+| 16 | Doctor findings as fleet control telemetry: per-check ledger, control matrix | AI-Native Standard & Onboarding Skill (03#4) | L | contract | **shipped-unverified** (wave 1, `5627bf43`) (steps 1–7; `requireChecks` folded into W4-O) — awaits its UAT journey |
 | 17 | Work-time registry over MCP: skills, governing subjects, invoke/citation write-back | MCP Server (07#3) | XL | policy | **accepted** |
-| 18 | Standards conformance ledger: registry signals + registry-map as a fleet dimension | AI Registry Repo (Onboarding & Index) (07#1) | XL | contract | **accepted** |
-| 19 | Live invoke channel: per-skill/per-repo usage feeding dormancy and outcomes | Skills Registry & API Tokens (07#2) | L | contract | **accepted** |
+| 18 | Standards conformance ledger: registry signals + registry-map as a fleet dimension | AI Registry Repo (Onboarding & Index) (07#1) | XL | contract | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
+| 19 | Live invoke channel: per-skill/per-repo usage feeding dormancy and outcomes | Skills Registry & API Tokens (07#2) | L | contract | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
 | 20 | Athena as registry curator: PR-proposing actions | Athena Companion (07#4) | XL | policy | deferred |
 | 21 | GitHub identity graph sync + scoped membership (teams, auto-RBAC, self scope) | GitHub App Installation & Webhooks (02#2); Members & Access Control (04#3) | L | policy | deferred |
 | 22 | Developer-held credential lane: user-to-server GitHub tokens for UC3 | GitHub OAuth & Session (02#4) | L | policy | concept-doc first |
@@ -123,11 +123,11 @@ Convergence worth noting: four scouts independently proposed the open benchmark 
 | 29 | Score-input ledger: persisted scan inputs for offline re-score and rubric migration | Scan Pipeline & Ingestion (01#1) | L | policy | deferred |
 | 30 | Reproducibility certificate: measured per-model noise bands on anchored scores | LLM Provider Abstraction (01#4) | L | policy | deferred |
 | 31 | Signed tenant history bundle: export + import of a scan time series | Scan Persistence & History (10#1) | XL | policy | deferred |
-| 32 | Retention compaction: pruned scans age into rubric-tagged digests | Data Retention & Purge (10#2) | L | contract | **accepted** |
+| 32 | Retention compaction: pruned scans age into rubric-tagged digests | Data Retention & Purge (10#2) | L | contract | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
 | 33 | Practice adoption ledger: post-merge drift, versioned house patterns, fleet rollout | Practices, Governance & Adoption (05#4) | L | contract | **accepted** |
 | 34 | Exemplar Diff: signal-level comparison against a peer repo or cohort | Trends & Comparison (08#3) | L | contract | **accepted** |
-| 35 | Fleet foundation rollout with self-provisioned report-back | First-Run Onboarding Wizard (03#5) | L | policy | **accepted** |
-| 36 | Git-native improvement channel: lessons mirror, skill Trace, reflect-as-PR | Org Memory (07#5) | L | contract | **accepted** |
+| 35 | Fleet foundation rollout with self-provisioned report-back | First-Run Onboarding Wizard (03#5) | L | policy | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
+| 36 | Git-native improvement channel: lessons mirror, skill Trace, reflect-as-PR | Org Memory (07#5) | L | contract | **shipped-unverified** (wave 1, `5627bf43`) — awaits its UAT journey |
 | 37 | Data-bound deck diagrams: every marketing figure is a live public read model | Design System: UI Primitives & Deck (11#3) | L | contract | deferred |
 
 Deferred and concept-doc items stay on this list so they cannot be re-proposed as new; an accepted item is a build direction, not a shipped feature — each still needs its own design/ship-loop milestone and (most carry a `contract` or `policy` gate) a reviewer who is not the author.
