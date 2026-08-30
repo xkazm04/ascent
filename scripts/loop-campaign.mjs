@@ -18,6 +18,7 @@
 //   node scripts/loop-campaign.mjs --org kiro --repos xkazm04/kp,xkazm04/systedo-case --runs 20
 //   node scripts/loop-campaign.mjs --org kiro --repos xkazm04/kp --runs 1 --plan   # print, don't run
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -45,6 +46,22 @@ const CFG = {
   stopAfterDry: Number(flag("stop-after-dry", "0")),
   outDir: flag("out", path.join("docs", "harness", "campaign")),
   plan: has("plan"),
+  // `owner/name=C:/path,…` — LAND each lane's branch into that checkout's current branch after the
+  // run. Without this a campaign is Sisyphean: the loop commits to a throwaway `ascent/loop-*`
+  // branch and never merges it, so every run starts from the same HEAD, rediscovers the same gap and
+  // writes the same file again (observed: three runs, three branches, one identical
+  // `.github/workflows/ai-review.yml`). Landing is what makes run N+1 start where run N finished.
+  // Campaign-only on purpose — the product's own landing decision belongs to the sheet's review gate.
+  paths: Object.fromEntries(
+    (flag("land", "") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((pair) => {
+        const at = pair.indexOf("=");
+        return [pair.slice(0, at), pair.slice(at + 1)];
+      }),
+  ),
 };
 
 if (CFG.repos.length === 0) {
@@ -111,6 +128,34 @@ function runBlock(index, detail) {
   return [head, ...outcomes.map(laneBlock), econ].filter(Boolean).join("\n");
 }
 
+const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+/**
+ * Merge each lane's branch into its checkout's current branch.
+ *
+ * `--ff-only` by choice: a lane branch is cut from the checkout's own HEAD moments earlier, so a
+ * clean run IS a fast-forward. If it is not — the branch diverged, or the merge would overwrite a
+ * file the owner is editing — git refuses and we say so rather than resolving someone's tree for
+ * them. That refusal is also the honest signal that two runs collided.
+ */
+function landRun(detail, say) {
+  for (const o of detail.outcomes ?? []) {
+    const repo = o.lane.repoFullName;
+    const dir = CFG.paths[repo];
+    const branch = o.lane.branch;
+    if (!dir || !branch || (o.commits ?? 0) === 0) continue;
+    try {
+      const before = git(dir, "rev-parse", "--short", "HEAD");
+      git(dir, "merge", "--ff-only", branch);
+      const after = git(dir, "rev-parse", "--short", "HEAD");
+      say(`  landed ${shortRepo(repo)} ${branch} → ${git(dir, "rev-parse", "--abbrev-ref", "HEAD")} (${before}..${after})`);
+    } catch (err) {
+      const msg = String(err?.stderr ?? err?.message ?? err).split("\n")[0];
+      say(`  LAND FAILED ${shortRepo(repo)} ${branch}: ${msg}`);
+    }
+  }
+}
+
 async function waitForIdle(deadline) {
   for (;;) {
     if (Date.now() > deadline) return { timedOut: true, active: null };
@@ -169,6 +214,7 @@ async function main() {
     fs.writeFileSync(path.join(CFG.outDir, `run-${String(i).padStart(2, "0")}-${detail.run.id}.json`), JSON.stringify(detail, null, 2));
     say("");
     say(runBlock(i, detail));
+    if (Object.keys(CFG.paths).length > 0) landRun(detail, say);
     say(`  (${Math.round((Date.now() - started) / 60000)} min)`);
 
     const moved = (detail.outcomes ?? []).some((o) => (o.commits ?? 0) > 0 || (o.closedFollowUpIds?.length ?? 0) > 0);
