@@ -115,6 +115,7 @@ editing agents inside paired working copies — the same blast radius as pairing
 | `start` | `{ action, org, repos[], batches?, concurrency?, maxCycles?, curated? }` | `{ run }` |
 | `stop` | `{ action, org, id }` | `{ ok, run }` — `200` when stopped, `409` when not |
 | `retry` | `{ action, org, laneId }` | `{ ok }` — `200`/`409` |
+| `review` | `{ action, org, laneId, cover, verdict }` | `{ ok, deliverables }` — the quick-approval gate; `verdict` is `approved \| dismissed`, `cover` is the row's first `covers` id (else its headline). Sits with `stop`/`retry` **before** the `ASCENT_AUTOPILOT` check: ruling on a past run must work after the loop is switched off. Same owner gate + tenancy re-check as the other writes. |
 
 - `400`: missing `org`/`action`, empty `repos`, `maxCycles` outside 1–5, `concurrency` outside 1–4,
   missing `id`/`laneId`.
@@ -299,18 +300,58 @@ interface LaneDeliverable {
 sources, in order: the agent's own `RESOLVED: <id> - <what changed>` lines (the clause **is** the
 headline, tidied to ≤ 8 words — the lane brief now demands that shape and shows an example); the
 rescan-confirmed closes with no clause (a per-dimension template, e.g. D9 → *Hardened CI/CD
-security*, D8 → *Added agent-readable docs*, two closes in one dimension fold into one row); a
-foundation/practice lane's install; and the **attributable** dimension movements not already covered
-by a close (`hardened` up / `regressed` down, the humanised movement line as evidence). Cap 6,
-deduped by `(dimId, headline)` with `covers` merged. The verdict gate is `attributeDelivered` over
-the same pair the ledger renders — an undelivered, mock, within-noise or unmeasured lane gets its
-closes and its install as headlines and **no** movement line.
+security*, D8 → *Added agent-readable docs*; each confirmed id keeps **its own row**, the evidence
+line telling same-dimension closes apart); a foundation/practice lane's install; and the
+**attributable** dimension movements not already covered by a close (`hardened` up / `regressed`
+down, the humanised movement line as evidence). **No cap, one row per gap** (wave 2b): every
+RESOLVED claim keeps its own deliverable, and only a TRUE duplicate merges — the same covered id
+claimed twice, or a repeated movement/install headline. The verdict gate is `attributeDelivered`
+over the same pair the ledger renders — an undelivered, mock, within-noise or unmeasured lane gets
+its closes and its install as headlines and **no** movement line.
 
 Optional polish: `src/lib/local/lane-summary.ts` resolves a text runner tagged `legKind:
 "lane_summary"` (temperature 0, `LANE_SUMMARY_TEMPERATURE` overrides, spends in the `local` usage
-lane) and asks it to condense the derived list into ≤ 4 headlines by **merging indexes** — the answer
-is validated against the list it was given (no invented index, no reused index, ≤ 8 words) and any
-failure, timeout (≤ 20 s) or null runner keeps the deterministic list. It never blocks the lane.
+lane) and asks it to **rewrite each headline in place** — same count in, same count out, merged by
+index; it never condenses, because the owner reviews each gap individually. The answer is validated
+against the list it was given (every index exactly once, a different count rejected whole, ≤ 8
+words) and any failure, timeout (≤ 20 s) or null runner keeps the deterministic list. It never
+blocks the lane.
+
+### Gap states and the review gate (wave 2b, 2026-08-30)
+
+The Storyboard is the surviving outcome direction (the variant tabs stay Baseline / Storyboard for
+now). Inside an expanded run frame the **repo name is a section label rendered once** — with the
+lane's `PR #n` link beside it when an owner opened one — and beneath it sits **one row per
+individual gap/deliverable**; a lane with many gaps scrolls inside the frame (`max-h` +
+`overflow-y-auto`) rather than collapsing into "+n more".
+
+Each row carries a **state**, derived in the pure fold `buildGapRows`
+(`src/features/inflight/live/outcome/outcomeGapRows.ts`) and rendered as a subtle tinted block
+(`bg-success/10` / `bg-warn/10` / `bg-accent/5`, never a loud chip):
+
+| state | when | tint |
+| --- | --- | --- |
+| `committed` | lane `commits > 0` AND (verdict attributable, the claim id in `closedIds`, or the lane's own deterministic install) | success |
+| `uncommitted` | the agent claimed RESOLVED but the lane recorded no commits — the lost-deliverable case | warn |
+| `proposed` | a batch item the run armed but did not resolve (`batchIds` minus closed claims — synthesized as a row titled from the follow-up itself, so **all** gaps get rows), or a `noted` deliverable | accent |
+
+**Quick approval** (`OutcomeGapRow.tsx`): an owner rules on each row with one click — ✓ / ✕,
+keyboard-operable, `aria-label`ed. An approved row keeps its tint and gains a ✓; a dismissed row
+drops to a strikethrough-free `text-slate-600` mute. The ruling persists as a widened
+`review?: "approved" | "dismissed"` field on the `deliverablesJson` entries (the `parseTargets`
+JSON-in-TEXT technique; old rows parse as no-review). A ruling on a row that was never persisted —
+a backfilled derivation, or a synthesized `proposed` row — is stored as a **review marker**
+(`isReviewMarker`, loop-runs-types.ts): a `noted` entry keyed by its own single cover, which the
+read side carries alongside the backfill and the client fold attaches to the row it keys; no
+surface renders a marker as a row. The write is `reviewDeliverable` (loop-runs-write.ts); the
+client is `reviewLoopDeliverable` (`cockpit/loopClient.ts`), and `OutcomeSection` refetches the
+run's detail on success so the ruling renders from the store. This is the human gate the loop
+needs: **the loop proposes, the human disposes.**
+
+Tests: `outcomeGapRows.test.ts` (a unit test per state, the synthesis, the marker attach),
+`lane-deliverables.test.ts` (no cap, per-gap dedupe), `lane-summary.test.ts` (rewrite-in-place,
+count mismatch rejected), `loop-runs.test.ts` (the widened review parse + the marker shape),
+`route.test.ts` (the `review` action's gates).
 
 Persistence: `LoopRunLane.deliverablesJson` (nullable TEXT, `prisma/schema.prisma` + `prisma/init.sql`;
 PGlite self-repairs the column on boot). `runLane` writes it at lane end; `laneOutcome` **backfills on

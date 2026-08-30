@@ -1,8 +1,10 @@
 "use client";
 
-// VARIANT B — "Storyboard". The outcome as a FILM STRIP: each run is a vertical frame in a horizontal
-// strip, the latest frame wide by default with a typeset lift headline and one short row per
-// deliverable under each repo (kind sections when a cell mixes kinds, four rows then "+n more"); older frames are thumbnails — repo + verdict only — until clicked. The
+// VARIANT B — "Storyboard", the surviving direction. The outcome as a FILM STRIP: each run is a
+// vertical frame in a horizontal strip, the latest frame wide by default with a typeset lift
+// headline. Inside an expanded frame each repo is a SECTION LABEL (rendered once, with its PR link
+// when one exists) and beneath it ONE ROW PER GAP — every gap, state-tinted and reviewable, the
+// body scrolling rather than folding; older frames are thumbnails — repo + verdict only — until clicked. The
 // repos are the strip's rows and stay aligned across frames (one CSS grid, not one grid per frame),
 // so the eye can follow a single repo left→right through its runs. Differs from the Register by
 // reading as a sequence of scenes rather than as a ledger you look things up in.
@@ -14,10 +16,16 @@ import { CellDeliverables } from "./OutcomeCellRows";
 import type { OutcomeColumn } from "./outcomeMatrix";
 import type { OutcomeMatrix } from "./outcomeMatrix";
 
+/** A review click, addressed run → lane → row key (the row's first covered id, else its headline). */
+export type CellReviewHandler = (runId: string, laneId: string, cover: string, verdict: "approved" | "dismissed") => void;
+
 export interface OutcomeVariantProps {
   matrix: OutcomeMatrix;
   selectedId: string | null;
   onOpen: (id: string) => void;
+  /** The owner's quick-approval gate — absent for a viewer who cannot rule. */
+  canReview?: boolean;
+  onReview?: CellReviewHandler;
 }
 import { useOutcomeColumns } from "./useOutcomeColumns";
 
@@ -54,7 +62,7 @@ function FrameHead({ col, index, latest, selected, expanded, onToggle }: { col: 
   );
 }
 
-export function OutcomeStoryboard({ matrix, selectedId, onOpen }: OutcomeVariantProps) {
+export function OutcomeStoryboard({ matrix, selectedId, onOpen, canReview, onReview }: OutcomeVariantProps) {
   const { isExpanded, toggle, latestRef } = useOutcomeColumns(matrix.latestId);
   const template = matrix.columns.map((c) => (isExpanded(c.id) ? FRAME : THUMB)).join(" ");
   return (
@@ -91,15 +99,30 @@ export function OutcomeStoryboard({ matrix, selectedId, onOpen }: OutcomeVariant
               <div key={`${g.repo}:${col.id}`} className="min-h-12 bg-ink px-4 py-2.5" style={{ gridColumn: i + 1, gridRow: r + 2 }}>
                 {!cell ? null : (
                   <>
+                    {/* The repo is a SECTION LABEL — rendered once, never repeated per gap row. */}
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="type-mono-sm min-w-0 truncate text-slate-300" title={g.repo}>
                         {g.repo.split("/")[1] ?? g.repo}
+                        {expanded && cell.prUrl && (
+                          <a
+                            href={cell.prUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="focus-ring type-caption ml-2 rounded text-accent hover:text-accent-soft"
+                          >
+                            PR #{cell.prNumber ?? ""} →
+                          </a>
+                        )}
                       </span>
                       {cellInFlight(cell) ? <CellLive cell={cell} /> : <CellVerdict cell={cell} />}
                     </div>
                     {expanded && !cellInFlight(cell) && (
                       <div className="mt-1 border-l border-divider pl-3">
-                        <CellDeliverables cell={cell} />
+                        <CellDeliverables
+                          cell={cell}
+                          canReview={canReview}
+                          onReview={onReview ? (laneId, cover, verdict) => onReview(cell.runId, laneId, cover, verdict) : undefined}
+                        />
                         <CellFootnote cell={cell} />
                       </div>
                     )}

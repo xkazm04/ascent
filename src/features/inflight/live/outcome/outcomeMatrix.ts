@@ -11,6 +11,7 @@ import { attributeDimension, type Attribution } from "@/lib/maturity/attribution
 import { agentConfigLabel } from "@/lib/local/agent-options";
 import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
 import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
+import { buildGapRows, type GapRow } from "./outcomeGapRows";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution, runAttribution } from "../cockpit/cockpitDrift";
 import { isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
@@ -30,8 +31,14 @@ export interface OutcomeCell {
   /** "…installed" line for a deterministic lane; null for an agent lane (no tag says more than one). */
   installed: string | null;
   /** WHAT THE LANE DID, one headline each — grouped by kind (closed · installed · hardened ·
-   *  regressed) then by dimension. The cell's rows. */
+   *  regressed) then by dimension. */
   deliverables: LaneDeliverable[];
+  /** ONE ROW PER GAP, with its state (committed · uncommitted · proposed), its lane and any
+   *  standing review — what the Storyboard's expanded frame renders (outcomeGapRows.ts). */
+  rows: GapRow[];
+  /** The lane's PR, when an owner opened one — surfaced on the repo section header. */
+  prNumber: number | null;
+  prUrl: string | null;
   /** The full follow-up titles behind the `closed` headlines — evidence for the expanded view only. */
   titles: string[];
   verdict: Attribution;
@@ -109,12 +116,16 @@ function foldCell(runId: string, repo: string, lanes: readonly LoopLaneOutcome[]
   const tag = laneKindTag(first.kind);
   const titles = lanes.flatMap(closedTitles).filter((t, i, all) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
   const tail = lanes[lanes.length - 1]!.lane;
+  const withPr = [...lanes].reverse().find((o) => o.lane.prUrl != null)?.lane;
   return {
     runId,
     repo,
     kind: first.kind,
     installed: tag ? `${tag} installed` : null,
     deliverables: groupDeliverables(lanes),
+    rows: buildGapRows(lanes),
+    prNumber: withPr?.prNumber ?? null,
+    prUrl: withPr?.prUrl ?? null,
     titles,
     verdict,
     commits: lanes.reduce((n, o) => n + o.commits, 0),

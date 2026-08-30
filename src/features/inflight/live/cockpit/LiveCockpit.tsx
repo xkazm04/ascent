@@ -127,6 +127,8 @@ export function LiveCockpit(props: LiveCockpitProps) {
       {matrix ? (
         <OutcomeSection
           variant={variant}
+          slug={slug}
+          canReview={isOwner}
           runDetails={runDetails}
           liveDetail={loop.detail}
           openedDetail={c.outcome}

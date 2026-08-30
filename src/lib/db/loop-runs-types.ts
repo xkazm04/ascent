@@ -16,10 +16,15 @@ import type { DimensionId } from "@/lib/types";
  *   • `installed` — a foundation/practice lane's deterministic install.
  *   • `hardened`  — an attributable upward dimension movement not already covered by a close.
  *   • `regressed` — the same, downward. Reported: a regression the loop caused is a deliverable too.
- *   • `noted`     — something worth a line that is none of the above (reserved; the deriver does
- *                   not emit it today).
+ *   • `noted`     — none of the above: the client fold synthesizes `noted` rows for armed-but-
+ *                   unresolved batch items (proposed gaps), and `reviewDeliverable` appends `noted`
+ *                   REVIEW MARKERS (see `isReviewMarker`). The server-side deriver still emits none.
  */
 export type LaneDeliverableKind = "closed" | "installed" | "hardened" | "regressed" | "noted";
+
+/** An owner's one-click ruling on a deliverable row — the human gate: the loop proposes, the human
+ *  disposes. Absent on every row written before reviews existed, which parses as "not reviewed". */
+export type DeliverableReview = "approved" | "dismissed";
 
 export interface LaneDeliverable {
   /** ≤ 8 words, verb-first past tense: "Hardened GitHub CI/CD". */
@@ -30,9 +35,20 @@ export interface LaneDeliverable {
   covers: string[];
   /** One line of evidence for the expanded view. */
   evidence: string | null;
+  /** JSON-in-TEXT widening (same technique as `parseTargets`): old rows parse with no review. */
+  review?: DeliverableReview;
 }
 
 const DELIVERABLE_KINDS: readonly LaneDeliverableKind[] = ["closed", "installed", "hardened", "regressed", "noted"];
+
+/**
+ * A REVIEW MARKER: the entry `reviewDeliverable` appends when an owner rules on a row that is not in
+ * the persisted list (a backfilled derivation, or a proposed batch item the client synthesized). It
+ * carries only the key and the ruling; the read side re-derives the row and attaches the review by
+ * key, and no surface renders a marker as a row of its own.
+ */
+export const isReviewMarker = (d: LaneDeliverable): boolean =>
+  d.kind === "noted" && d.covers.length === 1 && d.headline === d.covers[0];
 
 /** `deliverablesJson` → the list; anything malformed is an empty list, never a crash in a React tree. */
 export function parseDeliverables(raw: string | null | undefined): LaneDeliverable[] {
@@ -52,6 +68,8 @@ export function parseDeliverables(raw: string | null | undefined): LaneDeliverab
           kind,
           covers: Array.isArray(e.covers) ? e.covers.filter((x): x is string => typeof x === "string") : [],
           evidence: typeof e.evidence === "string" ? e.evidence : null,
+          // The widened review field: anything but the two rulings parses as "not reviewed".
+          ...(e.review === "approved" || e.review === "dismissed" ? { review: e.review } : {}),
         },
       ];
     });

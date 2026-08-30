@@ -4,16 +4,30 @@
 // `attributable +1` once put a `≈+1` on the page, a number the rule would have refused.
 
 import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
+import type { GapRow } from "./outcomeGapRows";
 import type { OutcomeCell, OutcomeColumn, OutcomeMatrix } from "./outcomeMatrix";
 
 const d = (headline: string, kind: LaneDeliverable["kind"], dimId: LaneDeliverable["dimId"] = null, evidence: string | null = null): LaneDeliverable => ({
   headline, kind, dimId, covers: [], evidence,
 });
 
-export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }): OutcomeCell => ({
-  kind: "backlog", installed: null, deliverables: [], titles: [], verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], movements: [],
-  phase: "done", stage: null, error: null, ...o,
-});
+/** Gap rows derived from a cell's deliverables the way the fold would: committed on an attributable
+ *  cell with commits, uncommitted at 0 commits, proposed for `noted`. Fixture-local shorthand. */
+const rowsFor = (cell: OutcomeCell): GapRow[] =>
+  cell.deliverables.map((del) => ({
+    ...del,
+    laneId: `lane-${cell.repo}`,
+    state: del.kind === "noted" ? "proposed" : cell.commits === 0 ? "uncommitted" : "committed",
+  }));
+
+export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }): OutcomeCell => {
+  const base: OutcomeCell = {
+    kind: "backlog", installed: null, deliverables: [], rows: [], prNumber: null, prUrl: null, titles: [],
+    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], movements: [],
+    phase: "done", stage: null, error: null, ...o,
+  };
+  return o.rows ? base : { ...base, rows: rowsFor(base) };
+};
 
 const col = (o: Partial<OutcomeColumn> & { id: string; startedAt: string }): OutcomeColumn => ({
   endedAt: null, phase: "done", live: false, lift: null, agentConfig: "sonnet · high", cycle: 2, maxCycles: 3, repoCount: 0, gaps: 0, ...o,
@@ -39,7 +53,7 @@ export const fixture: OutcomeMatrix = {
     col({ id: "run-3", startedAt: "2026-08-30T08:00:00Z", lift: 3, repoCount: 4, gaps: 2 }),
   ],
   groups: [
-    { repo: "acme/payments-api", lift: 9, cells: { "run-2": { ...payments("run-2"), verdict: { kind: "attributable", delta: 3 }, deliverables: payments("run-2").deliverables.slice(0, 2) }, "run-3": payments("run-3") } },
+    { repo: "acme/payments-api", lift: 9, cells: { "run-2": cell({ ...payments("run-2"), verdict: { kind: "attributable", delta: 3 }, deliverables: payments("run-2").deliverables.slice(0, 2), rows: undefined }), "run-3": cell({ ...payments("run-3"), prNumber: 41, prUrl: "https://github.com/acme/payments-api/pull/41", rows: undefined }) } },
     {
       repo: "acme/docs-site", lift: -3,
       cells: {

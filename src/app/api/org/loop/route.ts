@@ -4,6 +4,7 @@
 //   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort? } → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
 //   POST { action:"retry",  org, laneId }                    → { ok }
+//   POST { action:"review", org, laneId, cover, verdict }    → { ok, deliverables }
 //
 // The gates mirror /api/org/local/autopilot exactly, and for the same reasons: selfHostGuard first
 // (on managed cloud this surface does not exist, so 404 rather than 403 — a 403 would advertise it),
@@ -30,6 +31,7 @@ import {
   getOrgPriceList,
   listLoopRuns,
   markStaleRunsStopped,
+  reviewDeliverable,
 } from "@/lib/db/loop-runs";
 import { isLoopRunLive, retryLane, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
@@ -65,6 +67,8 @@ type Body = {
   org?: unknown;
   id?: unknown;
   laneId?: unknown;
+  cover?: unknown;
+  verdict?: unknown;
   repos?: unknown;
   batches?: unknown;
   concurrency?: unknown;
@@ -104,7 +108,9 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Body;
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   const action =
-    body.action === "start" || body.action === "stop" || body.action === "retry" ? body.action : null;
+    body.action === "start" || body.action === "stop" || body.action === "retry" || body.action === "review"
+      ? body.action
+      : null;
   if (!org || !action) return NextResponse.json({ error: "Missing 'org' or 'action'." }, { status: 400 });
   if (org === PUBLIC_ORG) return NextResponse.json({ error: "The public funnel org has no improvement loop." }, { status: 403 });
 
@@ -113,6 +119,9 @@ export async function POST(request: Request) {
 
   if (action === "stop") return stop(org, body);
   if (action === "retry") return retry(org, body);
+  // `review` sits with stop/retry, BEFORE the autopilot gate: ruling on what a past run delivered
+  // must work on a deployment where the loop itself has since been switched off.
+  if (action === "review") return review(org, body);
 
   if (!autopilotEnabled()) {
     return NextResponse.json(
@@ -184,6 +193,26 @@ async function retry(org: string, body: Body): Promise<NextResponse> {
   }
   const ok = await retryLane(laneId);
   return NextResponse.json({ ok }, { status: ok ? 200 : 409 });
+}
+
+/** The quick-approval gate: record an owner's ruling on one deliverable row (the loop proposes, the
+ *  human disposes). Same tenancy re-check as `retry` — the laneId names a row, authorization named
+ *  a slug, so the lane's run must belong to the org the caller was authorized for. */
+async function review(org: string, body: Body): Promise<NextResponse> {
+  const laneId = typeof body.laneId === "string" ? body.laneId : "";
+  const cover = typeof body.cover === "string" ? body.cover.trim() : "";
+  const verdict = body.verdict === "approved" || body.verdict === "dismissed" ? body.verdict : null;
+  if (!laneId || !cover || !verdict) {
+    return NextResponse.json({ error: "Missing 'laneId', 'cover' or 'verdict' (approved | dismissed)." }, { status: 400 });
+  }
+  const lane = await getLane(laneId);
+  const run = lane ? await getLoopRun(lane.runId) : null;
+  if (!lane || !run || run.orgId !== (await orgIdForSlug(org))) {
+    return NextResponse.json({ error: "No such lane." }, { status: 404 });
+  }
+  const deliverables = await reviewDeliverable(laneId, cover, verdict);
+  if (!deliverables) return NextResponse.json({ error: "Could not record the review." }, { status: 409 });
+  return NextResponse.json({ ok: true, deliverables });
 }
 
 const intOr = (v: unknown, fallback: number): number =>

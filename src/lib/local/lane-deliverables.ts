@@ -19,8 +19,6 @@ import { attributeDimension, type Attribution } from "@/lib/maturity/attribution
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 
-/** Headlines per lane, after dedupe. Six is a cell, not a report. */
-export const LANE_DELIVERABLE_CAP = 6;
 export const HEADLINE_WORDS = 8;
 
 /** One `RESOLVED: <id> - <what changed>` line, with the clause the agent wrote. */
@@ -108,9 +106,15 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
     if (!recs.has(r.id)) recs.set(r.id, { title: r.title, dimId: (r.dimId as DimensionId) || null });
   }
   const out: LaneDeliverable[] = [];
+  // ONE ROW = ONE GAP (owner's wave-2 correction). A `closed` deliverable is keyed by the follow-up
+  // id it covers, so two gaps that happen to share a templated headline stay two rows — the user
+  // needs control over each individual gap. Only a TRUE duplicate merges: the same id claimed twice,
+  // or a movement/install headline repeated in one dimension.
+  const keyOf = (d: LaneDeliverable) =>
+    d.kind === "closed" && d.covers.length > 0 ? `id|${d.covers[0]}` : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
   const push = (d: LaneDeliverable) => {
-    const key = `${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
-    const dup = out.find((x) => `${x.dimId ?? ""}|${x.headline.toLowerCase()}` === key);
+    const key = keyOf(d);
+    const dup = out.find((x) => keyOf(x) === key);
     if (dup) {
       dup.covers = [...new Set([...dup.covers, ...d.covers])];
       dup.evidence = dup.evidence ?? d.evidence;
@@ -129,7 +133,8 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
     push({ headline, dimId: rec?.dimId ?? null, kind: "closed", covers: [c.id], evidence: rec?.title ?? null });
   }
   // 1b. Closes the rescan confirmed without a clause on file (a backfill, or a trailer-only session):
-  // the dimension's template stands in, and two closes in one dimension fold into one line.
+  // the dimension's template stands in. Each id keeps its own row — the evidence line (the follow-up
+  // title) is what tells two same-dimension closes apart.
   const confirmed = [...(input.closedFollowUpIds ?? []), ...(diff?.recsMovedToDone.map((r) => r.id) ?? [])];
   for (const id of confirmed) {
     if (claimed.has(id)) continue;
@@ -166,5 +171,7 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
     }
   }
 
-  return out.slice(0, LANE_DELIVERABLE_CAP);
+  // NO CAP: every resolved gap keeps its own deliverable. The cell scrolls; it does not condense —
+  // condensing many gaps into one high-level note removes the per-gap control the review gate needs.
+  return out;
 }

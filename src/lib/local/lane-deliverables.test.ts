@@ -49,9 +49,14 @@ describe("deriveLaneDeliverables", () => {
     expect(out.filter((d) => d.dimId === "D9")).toHaveLength(1);
   });
 
-  it("backfills a close with no clause from the dimension template, folding two closes in one dimension", () => {
+  it("backfills a close with no clause from the dimension template — one row per gap, never folded", () => {
     const out = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(before, after), before, after, verdict: attributable, closedFollowUpIds: ["rec-1"] });
     expect(out).toEqual([{ headline: "Hardened CI/CD security", dimId: "D9", kind: "closed", covers: ["rec-1"], evidence: "The workflow tokens run with default write scope" }]);
+    // Two closes in one dimension stay TWO rows (the evidence tells them apart) — gap-level control.
+    const b2 = withD9("b", 30, [], [rec("rec-1", "Tokens run with write scope"), rec("rec-2", "No SAST configured")]);
+    const a2 = withD9("a", 62, [], [rec("rec-1", "Tokens run with write scope", "D9", "done"), rec("rec-2", "No SAST configured", "D9", "done")]);
+    const two = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(b2, a2), before: b2, after: a2, verdict: attributable, closedFollowUpIds: ["rec-1", "rec-2"] });
+    expect(two.filter((d) => d.kind === "closed").map((d) => d.covers)).toEqual([["rec-1"], ["rec-2"]]);
   });
 
   it("names an attributable movement not covered by a close, with the humanised line as evidence", () => {
@@ -72,11 +77,14 @@ describe("deriveLaneDeliverables", () => {
     }
   });
 
-  it("names a deterministic lane's install, and caps the list at six", () => {
+  it("names a deterministic lane's install, and keeps EVERY resolved claim as its own row (no cap)", () => {
     expect(deriveLaneDeliverables({ kind: "foundation", agentClaims: [], diff: null, before: null, after: null, verdict: { kind: "unmeasured" } })[0]!.headline).toBe("Installed the .ai/ foundation");
     expect(deriveLaneDeliverables({ kind: "practice", agentClaims: [], diff: null, before: null, after: null, verdict: { kind: "unmeasured" }, practiceName: "pr review rigor" })[0]!.headline).toBe("Installed pr review rigor starter");
     const claims = Array.from({ length: 9 }, (_, i) => ({ id: `r${i}`, what: `Did thing number ${i}` }));
-    expect(deriveLaneDeliverables({ kind: "backlog", agentClaims: claims, diff: null, before: null, after: null, verdict: { kind: "unmeasured" } })).toHaveLength(6);
+    expect(deriveLaneDeliverables({ kind: "backlog", agentClaims: claims, diff: null, before: null, after: null, verdict: { kind: "unmeasured" } })).toHaveLength(9);
+    // ...deduping only a TRUE duplicate: the same id claimed twice.
+    const dup = deriveLaneDeliverables({ kind: "backlog", agentClaims: [{ id: "r1", what: "Did the thing" }, { id: "r1", what: "Did the thing" }], diff: null, before: null, after: null, verdict: { kind: "unmeasured" } });
+    expect(dup).toHaveLength(1);
   });
 
   it("uses the per-dimension templates", () => {

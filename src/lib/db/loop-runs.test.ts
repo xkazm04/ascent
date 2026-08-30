@@ -5,7 +5,7 @@
 // so each one is pinned against the shapes a hand-edited or half-migrated row can actually hold.
 
 import { describe, expect, it } from "vitest";
-import { LANE_LOG_LINES, boundLog, laneKindOf, parseDeliverables, parseTargets, toLaneRecord, toRunRecord } from "@/lib/db/loop-runs";
+import { LANE_LOG_LINES, boundLog, isReviewMarker, laneKindOf, parseDeliverables, parseTargets, toLaneRecord, toRunRecord } from "@/lib/db/loop-runs";
 
 const runRow = (over: Partial<Parameters<typeof toRunRecord>[0]> = {}) => ({
   id: "r1",
@@ -163,5 +163,19 @@ describe("parseDeliverables", () => {
     expect(parseDeliverables(null)).toEqual([]);
     expect(parseDeliverables("{not json")).toEqual([]);
     expect(toLaneRecord(laneRow()).deliverables).toEqual([]);
+  });
+
+  it("keeps the widened review field on the two rulings and drops anything else — old rows parse as no-review", () => {
+    const reviewed = [{ headline: "Kept", dimId: null, kind: "closed", covers: ["rec-1"], evidence: null, review: "approved" }];
+    expect(parseDeliverables(JSON.stringify(reviewed))).toEqual(reviewed);
+    expect(parseDeliverables('[{"headline":"Kept","kind":"closed","covers":["rec-1"],"review":"maybe"}]')[0]!.review).toBeUndefined();
+  });
+});
+
+describe("isReviewMarker", () => {
+  it("recognises only the appended marker shape — a noted entry keyed by its own single cover", () => {
+    expect(isReviewMarker({ headline: "rec-1", dimId: null, kind: "noted", covers: ["rec-1"], evidence: null, review: "dismissed" })).toBe(true);
+    expect(isReviewMarker({ headline: "Noted a thing", dimId: null, kind: "noted", covers: ["rec-1"], evidence: null })).toBe(false);
+    expect(isReviewMarker({ headline: "rec-1", dimId: null, kind: "closed", covers: ["rec-1"], evidence: null })).toBe(false);
   });
 });

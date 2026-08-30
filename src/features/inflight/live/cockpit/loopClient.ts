@@ -108,3 +108,15 @@ export const stopLoop = (slug: string, id: string): Promise<{ ok: boolean; run: 
 
 export const retryLoopLane = (slug: string, laneId: string): Promise<{ ok: boolean }> =>
   post<{ ok: boolean }>(slug, { action: "retry", laneId }, "Could not retry that lane");
+
+/**
+ * The quick-approval gate: record the owner's ruling on one deliverable row. `cover` is the row's
+ * first `covers` id, or its headline when it covers nothing — the same key the store matches on.
+ */
+export const reviewLoopDeliverable = (
+  slug: string,
+  laneId: string,
+  cover: string,
+  verdict: "approved" | "dismissed",
+): Promise<{ ok: boolean }> =>
+  post<{ ok: boolean }>(slug, { action: "review", laneId, cover, verdict }, "Could not record the review");

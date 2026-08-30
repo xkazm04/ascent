@@ -10,8 +10,10 @@ import {
   LOOP_DEFAULT_CONCURRENCY,
   LOOP_MAX_CYCLES_CAP,
   boundLog,
+  parseDeliverables,
   toLaneRecord,
   toRunRecord,
+  type DeliverableReview,
   type LaneDeliverable,
   type LoopLanePhase,
   type LoopLaneRecord,
@@ -171,6 +173,39 @@ export async function updateLane(id: string, patch: LoopLanePatch): Promise<Loop
     .loopRunLane.update({ where: { id }, data })
     .catch(() => null);
   return row ? toLaneRecord(row) : null;
+}
+
+/**
+ * Record an owner's ruling on ONE deliverable row of a lane — the persistence half of the review
+ * gate (the loop proposes, the human disposes).
+ *
+ * `cover` is the row's key: its first `covers` id, or its headline when it covers nothing. When the
+ * key matches a persisted entry (by covered id, then by headline), the entry's widened `review`
+ * field is set in place. When it matches nothing — a backfilled derivation the row was never
+ * persisted for, or a `proposed` batch item the client synthesized — a REVIEW MARKER is appended
+ * (`{headline: cover, covers: [cover], kind: "noted", review}`; see `isReviewMarker`): the read
+ * side re-derives the row and attaches the ruling by key, and no surface renders the marker itself.
+ *
+ * Read-modify-write on the same single-writer-per-lane grounds as `appendLaneLog` — and reviews
+ * arrive from one owner's clicks, not from the engine.
+ */
+export async function reviewDeliverable(
+  laneId: string,
+  cover: string,
+  review: DeliverableReview,
+): Promise<LaneDeliverable[] | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const row = await prisma.loopRunLane.findUnique({ where: { id: laneId }, select: { deliverablesJson: true } }).catch(() => null);
+  if (!row) return null;
+  const list = parseDeliverables(row.deliverablesJson);
+  const hit = list.find((d) => d.covers.includes(cover)) ?? list.find((d) => d.headline === cover);
+  if (hit) hit.review = review;
+  else list.push({ headline: cover, dimId: null, kind: "noted", covers: [cover], evidence: null, review });
+  const ok = await prisma.loopRunLane
+    .update({ where: { id: laneId }, data: { deliverablesJson: JSON.stringify(list) } })
+    .catch(() => null);
+  return ok ? list : null;
 }
 
 /**

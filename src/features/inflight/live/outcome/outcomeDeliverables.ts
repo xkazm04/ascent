@@ -2,7 +2,7 @@
 // src/lib/local/lane-deliverables.ts and backfilled on read) folded across a repo's lanes, plus the
 // full follow-up titles kept as evidence. Pure; split out of outcomeMatrix.ts for the 200-line cap.
 
-import type { LaneDeliverable, LaneDeliverableKind } from "@/lib/db/loop-runs-types";
+import { isReviewMarker, type LaneDeliverable, type LaneDeliverableKind } from "@/lib/db/loop-runs-types";
 import type { LoopLaneOutcome } from "../cockpit/loopTypes";
 
 /** The order a cell lists its deliverables in: what was closed, then installed, then what moved. */
@@ -14,6 +14,7 @@ export function groupDeliverables(lanes: readonly LoopLaneOutcome[]): LaneDelive
   const byKey = new Map<string, LaneDeliverable>();
   for (const o of lanes) {
     for (const d of o.deliverables ?? []) {
+      if (isReviewMarker(d)) continue; // a marker carries a ruling, not a deliverable — never a row
       const key = `${d.dimId ?? ""}|${d.headline.trim().toLowerCase()}`;
       const dup = byKey.get(key);
       if (dup) byKey.set(key, { ...dup, covers: [...new Set([...dup.covers, ...d.covers])], evidence: dup.evidence ?? d.evidence });
@@ -52,36 +53,21 @@ export const KIND_META: Record<LaneDeliverableKind, { label: string; glyph: stri
   installed: { label: "Installed", glyph: "+" },
   hardened: { label: "Hardened", glyph: "▲" },
   regressed: { label: "Regressed", glyph: "▼" },
-  noted: { label: "Noted", glyph: "·" },
+  // `noted` rows are the armed-but-unresolved batch items (outcomeGapRows.ts) — proposals.
+  noted: { label: "Proposed", glyph: "·" },
 };
 
-export interface DeliverableSection {
+export interface DeliverableSection<T extends LaneDeliverable = LaneDeliverable> {
   kind: LaneDeliverableKind;
   label: string;
-  rows: LaneDeliverable[];
+  rows: T[];
 }
 
-/** Rows bucketed by kind, in DELIVERABLE_KIND_ORDER, empty kinds dropped. */
-export function sectionDeliverables(rows: readonly LaneDeliverable[]): DeliverableSection[] {
+/** Rows bucketed by kind, in DELIVERABLE_KIND_ORDER, empty kinds dropped. NO fold: every gap keeps
+ *  its row (the cell's body scrolls instead — the owner reviews each gap individually). */
+export function sectionDeliverables<T extends LaneDeliverable>(rows: readonly T[]): DeliverableSection<T>[] {
   return DELIVERABLE_KIND_ORDER.flatMap((kind) => {
     const inKind = rows.filter((r) => r.kind === kind);
     return inKind.length ? [{ kind, label: KIND_META[kind].label, rows: inKind }] : [];
   });
-}
-
-/** Rows a cell shows before it asks to be widened. Four is a glance; the rest is "+n more". */
-export const VISIBLE_ROWS = 4;
-
-/** The first `cap` rows across the sections (section order kept), and how many were held back. */
-export function foldSections(sections: readonly DeliverableSection[], cap = VISIBLE_ROWS): { shown: DeliverableSection[]; hidden: number } {
-  let left = cap;
-  let hidden = 0;
-  const shown: DeliverableSection[] = [];
-  for (const s of sections) {
-    const take = Math.max(0, Math.min(left, s.rows.length));
-    hidden += s.rows.length - take;
-    if (take > 0) shown.push({ ...s, rows: s.rows.slice(0, take) });
-    left -= take;
-  }
-  return { shown, hidden };
 }

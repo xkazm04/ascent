@@ -42,6 +42,9 @@ vi.mock("@/lib/db/loop-runs", () => ({
   getOrgPriceList: vi.fn(async () => ({ rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" })),
   getLoopRun: vi.fn(async (id: string) => (id === "run-acme" ? { id, orgId: "org-acme", endedAt: null } : id === "run-other" ? { id, orgId: "org-other" } : null)),
   getLane: vi.fn(async (id: string) => (id === "lane-acme" ? { id, runId: "run-acme" } : id === "lane-other" ? { id, runId: "run-other" } : null)),
+  reviewDeliverable: vi.fn(async (_laneId: string, cover: string, verdict: string) => [
+    { headline: "Added a coverage gate to CI", dimId: "D2", kind: "closed", covers: [cover], evidence: null, review: verdict },
+  ]),
   getLoopRunDetail: vi.fn(async (id: string) => (id === "run-acme" ? { run: { id, orgId: "org-acme" }, lanes: [], outcomes: [] } : null)),
 }));
 vi.mock("@/lib/local/loop-engine", () => ({
@@ -213,6 +216,22 @@ describe("tenancy — an id from another org is a 404, not an action", () => {
     expect((await post({ action: "stop", org: "acme", id: "nope" })).status).toBe(404);
     expect((await post({ action: "stop", org: "acme" })).status).toBe(400);
     expect((await post({ action: "stop", org: "acme", id: "run-acme" })).status).toBe(200);
+  });
+
+  it("review refuses a lane whose run belongs to another org, validates its verdict, and skips the autopilot gate", async () => {
+    expect((await post({ action: "review", org: "acme", laneId: "lane-other", cover: "rec-1", verdict: "approved" })).status).toBe(404);
+    expect((await post({ action: "review", org: "acme", laneId: "lane-acme", cover: "rec-1", verdict: "detonated" })).status).toBe(400);
+    expect((await post({ action: "review", org: "acme", laneId: "lane-acme", verdict: "approved" })).status).toBe(400);
+    // Ruling on a past run's rows must work even when the loop itself is switched off.
+    gates.autopilot = false;
+    const res = await post({ action: "review", org: "acme", laneId: "lane-acme", cover: "rec-1", verdict: "dismissed" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; deliverables: { review?: string }[] };
+    expect(body.ok).toBe(true);
+    expect(body.deliverables[0]!.review).toBe("dismissed");
+    // ...and it is owner-gated like every other write.
+    gates.role = new Response(JSON.stringify({ error: "Owner only." }), { status: 403 });
+    expect((await post({ action: "review", org: "acme", laneId: "lane-acme", cover: "rec-1", verdict: "approved" })).status).toBe(403);
   });
 
   it("retry refuses a lane whose run belongs to another org", async () => {

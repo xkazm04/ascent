@@ -14,6 +14,7 @@ import { listRunOutcomes } from "@/lib/db/lane-outcomes";
 import type { LaneImpactInput } from "@/lib/db/improvement-events";
 import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
 import {
+  isReviewMarker,
   laneKindOf,
   toLaneRecord,
   toRunRecord,
@@ -385,11 +386,15 @@ async function laneOutcome(
   if (diff && verdict.kind !== "attributable") diff = { ...diff, movements: [] };
   // BACKFILL ON READ: a row written before `deliverablesJson` (or a lane that never reached its
   // derivation) still renders headlines — the deterministic derivation from what IS persisted: the
-  // closed ids, the recs that moved to done, and the attributable part of the diff.
+  // closed ids, the recs that moved to done, and the attributable part of the diff. REVIEW MARKERS
+  // (a ruling recorded against a row that was never persisted — see `reviewDeliverable`) do not
+  // count as content: a marker-only column still backfills, and the markers ride along so the
+  // client can attach each ruling to the row it re-derives.
+  const markers = lane.deliverables.filter(isReviewMarker);
   const deliverables =
-    lane.deliverables.length > 0
+    lane.deliverables.length > markers.length
       ? lane.deliverables
-      : deriveLaneDeliverables({ kind, agentClaims: [], diff, before, after, verdict, closedFollowUpIds: lane.closedIds });
+      : [...deriveLaneDeliverables({ kind, agentClaims: [], diff, before, after, verdict, closedFollowUpIds: lane.closedIds }), ...markers];
   return { ...base, before, after, diff, deliverables };
 }
 
