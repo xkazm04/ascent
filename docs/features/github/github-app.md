@@ -231,11 +231,42 @@ Requires the App's **`Secrets: write`** permission (see [setup.md](./setup.md)).
 returns a 403 that surfaces as "The installation lacks Secrets write access. Update the GitHub App's
 permissions." and the two secrets can still be set by hand.
 
+## Two write shapes: seed a starter, or merge a managed block
+
+`src/lib/github/write.ts`'s `openDraftPr` **refuses to write a path that already exists on the base
+branch**, and that refusal is load-bearing rather than a limitation: it seeds STARTER artifacts, so a
+PR replacing a real `CODEOWNERS` / `SECURITY.md` / `ci.yml` with a scaffold would delete the
+customer's content the moment it merged — fanned across a whole fleet from one click.
+
+Moonshot #8 needs the opposite shape — write INTO a file the customer already owns — so it got a
+**sibling module**, `src/lib/github/admission-write.ts`, rather than a relaxation of that rule:
+
+- `proposeManagedBlock` reads the file from the **base** branch, splices a managed block delimited by
+  `# BEGIN ascent:ai-stance vN` / `# END ascent:ai-stance vN`, and touches **nothing outside the
+  markers**. A stray `BEGIN` with no matching `END` is treated as no managed region at all — a
+  half-written marker in a customer's file must never authorize deleting the rest of it.
+- It is a **dry run by default**: without `confirm` it returns the unified diff and sends nothing.
+  "Trust me, it only touches the markers" is not something a reviewer can verify from a button; the
+  diff is.
+- The splice is **idempotent**, so a recompile that changes nothing produces an empty diff and opens
+  no PR — the property that keeps the product from training a team to ignore its pull requests.
+- On a re-run the CONTENT is spliced from base while the blob sha comes from our own branch, so an
+  edit the customer made outside the markers is carried forward rather than reverted.
+
+The same module owns the branch-ruleset apply/revert — the one call in that lane that mutates
+repository *configuration* rather than proposing a change. It requires an owner, a same-origin
+request and a typed confirm, and the created id is stored so the same surface can reverse it (a 404
+on revert counts as success: someone deleting it on GitHub directly is the end state that was asked
+for, and failing would strand the id forever). See
+[org-intelligence.md](../org-dashboard/org-intelligence.md).
+
 ## Key files
 
 | File | Role |
 | --- | --- |
 | `src/lib/github/app.ts` | JWT + installation-token minting, `githubAppFetch`, `listInstallationRepos`, `verifyWebhook`. |
+| `src/lib/github/write.ts` | `openDraftPr`: seed a starter artifact; refuses an existing base file by design. |
+| `src/lib/github/admission-write.ts` | `proposeManagedBlock` (merge-append, dry-run first) + ruleset apply/revert. |
 | `src/app/api/app/webhook/route.ts` | `installation` / `pull_request` / `push` handling. |
 | `src/app/api/app/setup/route.ts` | Post-install redirect + upsert. |
 | `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). |
@@ -257,5 +288,9 @@ permissions." and the two secrets can still be set by hand.
   and `check_run`~~: both are listed above, alongside the control-probe and AI-change event kinds.
 - **No `code_scanning_alert` / `secret_scanning_alert` subscription:** both need new App permissions,
   so `known-vulnerabilities` stays a scan/probe-sourced control until they are requested.
+- **Branch rulesets need the App's repository-administration write permission.** Without it the apply
+  returns a 403 that surfaces as "The installation lacks contents/PR write access", which is the
+  shared PR-write copy and is imprecise for this one route. The proposal path (a committed ruleset
+  JSON + the `gh api` one-liner in the PR body) works with the permissions the App already has.
 - **`member` / `team` deliveries write no identity graph:** they only trigger a re-observation of the
   org's controls. Modelling org membership and scoped roles is a separate, unstarted item.

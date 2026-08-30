@@ -44,6 +44,13 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // AI_POLICY.md draft PR (recorded via openArtifactDraftPr with this action).
   { value: "org.ai_stance", label: "AI stance", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org.ai_stance_ack", label: "Stance ack", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  // moonshot #8 — the four admission actions. The DECISION and the two customer-repo WRITES are
+  // deliberately different colours: an examiner scanning this log should be able to see at a glance
+  // which rows changed a record and which changed someone's repository.
+  { value: "org.admission", label: "Admission decision", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org.admission_propose", label: "Admission proposal", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "org.admission_ruleset", label: "Ruleset applied", cls: "border-rose-500/40 bg-rose-500/10 text-rose-300" },
+  { value: "org.admission_ruleset_revert", label: "Ruleset reverted", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },

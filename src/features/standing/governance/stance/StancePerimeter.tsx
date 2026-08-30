@@ -11,6 +11,7 @@ import type { AutonomyTierId } from "@/lib/types";
 import { reposByTier, type StanceOverview } from "@/lib/org/stance-overview";
 import { CheckpointStrip, PerimeterBand, SealedZones, UnassessedRepos } from "./perimeterParts";
 import { StanceApplyControl } from "./StanceApplyControl";
+import { AdmissionColumn } from "./admission/AdmissionColumn";
 
 const TIER_ORDER: AutonomyTierId[] = ["T0", "T1", "T2", "T3"];
 
@@ -78,6 +79,10 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
         ))}
         <UnassessedRepos repos={unassessed} org={o.org} version={o.stanceVersion} canAck={canEdit} />
       </section>
+
+      {/* moonshot #8 — the decision layer, directly under the bands that show the measurement it
+          departs from. Its own client island: it owns its read so it can refresh after its own write. */}
+      <AdmissionColumn org={o.org} canEdit={canEdit} />
 
       <SealedZones zones={o.zones} />
     </div>
