@@ -26,6 +26,7 @@ import type {
   Governance,
   GuidanceFreshness,
   LlmAssessment,
+  PlatformSignalRecord,
   PrStats,
   RepoArchetype,
   RepoSnapshot,
@@ -54,6 +55,10 @@ export interface ComposePhaseInput {
   /** Still-in-flight per-guidance-file freshness lookups (W4 Context Health), awaited here. */
   guidanceFreshnessPromise: Promise<GuidanceFreshness[]>;
   techStack: TechStack;
+  /** What this scan could SEE of the GitHub-side folds — observed, carried, or nothing at all. The
+   *  report's own `platformSignals` is stamped by scanRepository; assembleReport reads this one to
+   *  decide which dimensions are owed no follow-up because nothing was measured on them. */
+  platformSignals?: PlatformSignalRecord | null;
   /** Token usage of the winning attempt + the LLM stage latency — the metering basis. */
   usage: TokenUsage;
   llmLatencyMs: number;
@@ -63,7 +68,7 @@ export interface ComposePhaseInput {
 export async function composeScanReport(input: ComposePhaseInput): Promise<ScanReport> {
   const { snapshot, signals, assessment, provider, now, archetype, byomScan, prStats, governance, techStack } = input;
 
-  const report = assembleReport(snapshot, signals, assessment, provider, now, archetype);
+  const report = assembleReport(snapshot, signals, assessment, provider, now, archetype, undefined, input.platformSignals);
   // WHOSE account the inference ran in. The report header claims "in-account … never leaves the AWS
   // boundary" for every Bedrock scan, but that read as "YOUR account" on Ascent's PLATFORM Bedrock
   // too. byomScan is already computed for the no-platform-failover rule; carrying it onto the report

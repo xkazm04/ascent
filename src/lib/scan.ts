@@ -333,6 +333,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     activityPromise,
     guidanceFreshnessPromise,
     techStack,
+    // The fold's PROVENANCE, handed to the report assembly so a dimension this scan could not observe
+    // is owed no manufactured follow-up. The record itself is stamped onto the report below.
+    platformSignals,
     usage,
     llmLatencyMs,
   });

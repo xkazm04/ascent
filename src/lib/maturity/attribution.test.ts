@@ -15,11 +15,13 @@ import {
   attributionLabel,
   foldIsComparable,
   foldPointsFor,
+  integrityNotes,
   isAttributableGain,
   isRealEngine,
   MOCK_ENGINE,
   SCORE_NOISE_BAND,
 } from "./attribution";
+import { SCORE_BLEND } from "@/lib/maturity/model";
 
 const real = (overallScore: number) => ({ overallScore, engineProvider: "anthropic", engineDegraded: false });
 const mock = (overallScore: number) => ({ overallScore, engineProvider: MOCK_ENGINE, engineDegraded: false });
@@ -209,5 +211,20 @@ describe("foldIsComparable — D9 answers to the security INPUTS, not to fold po
   it("two blind ends, or two legacy ends, are as comparable as they ever were", () => {
     expect(foldIsComparable(blind, blind, "D9")).toBe(true);
     expect(foldIsComparable(legacy, legacy, "D9")).toBe(true);
+  });
+});
+
+// The "not measured" disclosure. It rides the SAME record the D9 hatch and the widened dims ride, so
+// the report header's integrity chip renders it with no new UI: one record, one wording.
+describe("integrityNotes — an unmeasured dimension is disclosed, never silently dropped", () => {
+  it("names the dimensions and says a low number there is missing evidence, not a finding", () => {
+    const notes = integrityNotes({ d9Unmeasurable: false, widenedDims: [], unmeasuredDims: ["D2", "D3", "D4"], effectiveBlend: SCORE_BLEND });
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.label).toBe("D2, D3, D4 not measured");
+    expect(notes[0]!.hint).toMatch(/MISSING EVIDENCE, not a finding/);
+  });
+
+  it("says nothing at all on a scan that observed everything", () => {
+    expect(integrityNotes({ d9Unmeasurable: false, widenedDims: [], effectiveBlend: SCORE_BLEND })).toEqual([]);
   });
 });

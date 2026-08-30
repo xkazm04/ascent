@@ -277,6 +277,13 @@ export function integrityNotes(si: ScoreIntegrity | undefined | null): Integrity
       hint: "The model asserted this repo's security runs where a file scan cannot see it, so D9 was treated as unmeasurable and removed from the overall and the rigor axis. At D9's weight that alone is a multi-point step on an identical commit.",
     });
   }
+  if (si.unmeasuredDims?.length) {
+    const list = si.unmeasuredDims.join(", ");
+    out.push({
+      label: `${list} not measured`,
+      hint: `This scan could not observe ${list} at all — it read no GitHub-side platform signals and had no earlier observed scan to carry from. Their numbers reflect only what a file scan can see, so a low one there is MISSING EVIDENCE, not a finding: no follow-up was manufactured for them and the loop will not arm them.`,
+    });
+  }
   if (si.widenCapped) {
     out.push({
       label: "audit capped",

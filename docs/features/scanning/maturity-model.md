@@ -422,6 +422,17 @@ Each shortfall is reported as a `DimGap` carrying the distance in points to the 
 repos are both ordered widest-first — a loop with a bounded number of cycles should spend them where
 the distance is.
 
+**The guarantee stops at the edge of what was measured.** A dimension the scan could not *observe* is
+owed no entry at all: `buildDimensionFollowUps` takes the unobservable set from
+`dimensionObservability` (`src/lib/analyze/platform-carry.ts`) and synthesises nothing for it. On a
+worktree scan with no GitHub-side fold to carry, D2/D3/D4 read at their file-scan floor whatever the
+repository has, so the guarantee was minting a permanent gap out of a blind spot — four loop campaign
+runs over two repos spent every one of eight lanes on D4 and moved neither overall. A gap the *model*
+raised from file evidence it could actually see still passes through, and the suppressed set is
+disclosed on `scoreIntegrity.unmeasuredDims` rather than dropped in silence. No score changes:
+unmeasured is not the same as bad, and only what becomes *work* is affected. See
+[scan.md § Unobservable is not failing](./scan.md#unobservable-is-not-failing).
+
 ## 4c. Craft entries — the roadmap above the band (r10, 2026-08-26)
 
 A strong score used to be the end of the conversation: below `FOLLOW_UP_BELOW` (65) every

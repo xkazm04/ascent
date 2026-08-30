@@ -412,7 +412,7 @@ assumed (see [the loop's attribution rule](../org-planning/live.md#is-this-lift-
 | --- | --- | --- |
 | `engine.provider` / `engine.model` | `engineProvider`, `engineModel` | which engine answered |
 | `engine.degraded` | `engineDegraded` | an LLM **was requested and never answered**, so the provider above is the deterministic *floor*, not a choice |
-| `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `effectiveBlend` |
+| `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `unmeasuredDims`, `effectiveBlend` |
 | `report.platformSignals` | `platformSignalsJson` | what this scan could see of **GitHub** — `observed`, `carried` (from which scan, how old, `stale`), or `unavailable` |
 
 The fourth row is the one a *worktree* scan needs. D2/D3/D4 are credited partly for tooling that is
@@ -426,6 +426,30 @@ the green verdict instead of scoring them at a floor the repository cannot raise
 carries D9's GitHub-side battery inputs (`securityInputs`) so the security score is on one ruler on
 both ends of a loop pair. See
 [the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
+
+### Unobservable is not failing
+
+A blind worktree rescan can measure everything a file scan can see — guidance, tests, configs, docs,
+conventions, history, the D9 checks whose evidence is committed. What it cannot measure is the half of
+D2/D3/D4 that is *installed rather than committed*, and with nothing to carry it has no reading of
+those dimensions at all.
+
+`dimensionObservability(record, dimId)` (`src/lib/analyze/platform-carry.ts`) is the single rule for
+which of the two a dimension is in: `observed`, `carried` (replayed from an earlier observed scan —
+still a measurement, and disclosed as a borrowed one), or `unobservable` (the fold was unavailable
+*and* nothing was carried). Every dimension outside the folds is `observed`, because the file scan
+reads it as well locally as it does through GitHub, and an *unknown* record is `observed` too: a
+legacy row is not evidence of blindness.
+
+The consequence is stated once and applied everywhere: **unmeasured is not the same as bad, so it must
+not be turned into work.** An unobservable dimension is excluded from the green verdict
+(`repoGreenness`), is owed **no** manufactured roadmap coverage entry (`buildDimensionFollowUps` — a
+gap the *model* raised from evidence it could see still stands), and is not armed by the loop
+(`openBatch`). It is never silent about it: the list is recorded on `scoreIntegrity.unmeasuredDims`
+and the report header's integrity chip prints `D2, D3, D4 not measured`, so a low number there reads
+as missing evidence rather than as a finding. **No score moves** — D4 keeps whatever it computes; what
+changes is what becomes work. See
+[the loop does not arm what it cannot verify](../org-planning/live.md#the-loop-does-not-arm-what-it-cannot-verify-2026-08-30).
 
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
 explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row

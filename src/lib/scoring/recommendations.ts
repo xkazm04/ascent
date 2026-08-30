@@ -218,22 +218,40 @@ export function buildFallbackRoadmap(
  * catalog's invitational voice), falling back to the catalog template only when it did not.
  * Pure in its RESULT (the caller supplies the blended scores); its one side effect is the
  * invitational-framing lint, which reports what it finds and changes nothing. Exported for the tests.
+ *
+ * UNOBSERVABLE DIMENSIONS ARE OWED NOTHING. `unobservableDims` names the dimensions this scan could
+ * not see at all (dimensionObservability, src/lib/analyze/platform-carry.ts — typically D2/D3/D4 on a
+ * worktree scan with no GitHub fold to carry). The guarantee above is a statement about a dimension
+ * that was MEASURED and came out below the band; applied to one that was never read it manufactures a
+ * gap out of a blind spot. Observed live: a repo whose D4 sat at its floor for want of platform
+ * evidence got a fresh D4 follow-up on every scan, the loop armed it every cycle, the next scan was
+ * just as blind, and four runs of eight lanes produced no movement at all. Unmeasured is not bad, and
+ * it must not become work.
+ *
+ * What is suppressed is the GUARANTEED COVERAGE entry only. A gap the MODEL raised from file evidence
+ * it could actually see arrives in `roadmap` and passes through untouched — real judgment about a
+ * dimension outranks our uncertainty about its platform half. Default empty, so every existing caller
+ * and every observed scan is byte-identical.
  */
 export function buildDimensionFollowUps(
   roadmap: LlmRoadmapItem[],
   dimensions: { id: DimensionId; score: number; gaps?: string[] }[],
   overallScore: number,
+  unobservableDims: readonly string[] = [],
 ): LlmRoadmapItem[] {
   // GAP entries only. A craft entry is what would make an ALREADY-STRONG dimension exemplary, so a
   // craft entry on a dimension that is BELOW the follow-up floor is the model contradicting itself —
   // and counting it as coverage would let it suppress the deterministic follow-up that dimension is
   // guaranteed (r6). Gaps always outrank craft; here that means craft never stands in for one.
   const covered = new Set(roadmap.filter((r) => r.kind !== "craft").map((r) => r.dimension));
+  const unobservable = new Set<string>(unobservableDims);
   const current = levelForScore(overallScore);
   const next = nextLevel(current.id);
   const unlock = next ? `${current.id}->${next.id}` : undefined;
   const missing = dimensions
-    .filter((d) => d.score < FOLLOW_UP_BELOW && !covered.has(d.id) && CATALOG[d.id] && DIMENSION_BY_ID[d.id])
+    .filter(
+      (d) => d.score < FOLLOW_UP_BELOW && !covered.has(d.id) && !unobservable.has(d.id) && CATALOG[d.id] && DIMENSION_BY_ID[d.id],
+    )
     .sort((a, b) => a.score - b.score);
   // Framing lint runs HERE because this is the one funnel every roadmap passes through — the model's
   // entries and the synthesised ones alike (engine.ts calls it on both branches). Violations are

@@ -5,6 +5,7 @@ import { MAX_FLAGGED_DIMENSIONS } from "./discrepancy-policy";
 import { MockProvider } from "@/lib/llm/mock";
 import { classifyArchetype } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
+import { platformSignalsUnavailable } from "@/lib/analyze/platform-carry";
 import type { DimensionSignals, Governance, PrStats, RepoFile, RepoSnapshot, ScanReport } from "@/lib/types";
 import type { DimensionResult, LlmAssessment } from "@/lib/types";
 
@@ -1254,6 +1255,30 @@ describe("assembleReport — D9 visibility escape hatch (Direction 1)", () => {
     // third way an unchanged commit moves. Pin that the field reports the REALIZED value.
     const half = assembleReport(snapWithCoverage(0.5), d9Signals(40), llmAll(), eng, AT, "org");
     expect(half.scoreIntegrity).toEqual({ d9Unmeasurable: false, widenedDims: [], effectiveBlend: SCORE_BLEND * 0.5 });
+  });
+
+  // UNMEASURED IS NOT A GAP. A worktree scan with no GitHub fold to carry cannot observe D2/D3/D4 at
+  // all, and the coverage guarantee used to mint a follow-up for each of them on every such scan —
+  // an infinite false backlog the loop then ground on forever. The suppression changes NO score; it
+  // changes what becomes work, and it says so out loud on scoreIntegrity.
+  it("names the dimensions a BLIND scan could not observe, and owes them no follow-up", () => {
+    const model = { ...llmAll(), roadmap: [{ title: "m", dimension: "D1" as const, impact: "high" as const, effort: "low" as const, rationale: "r", explore: [] }] };
+    const blind = assembleReport(snapWithCoverage(1), d9Signals(40), model, eng, AT, "org", undefined, platformSignalsUnavailable());
+    const observed = assembleReport(snapWithCoverage(1), d9Signals(40), model, eng, AT, "org");
+
+    // The disclosure: a reader (and the integrity chip) can tell "not measured" from "measured, fine".
+    expect(blind.scoreIntegrity!.unmeasuredDims).toEqual(["D2", "D3", "D4"]);
+    // No manufactured coverage entry for any of them...
+    expect(blind.roadmap.map((r) => r.dimension)).not.toContain("D4");
+    expect(blind.roadmap.map((r) => r.dimension)).not.toContain("D2");
+    // ...while every dimension the scan COULD read still carries its guaranteed one.
+    expect(blind.roadmap.map((r) => r.dimension)).toContain("D5");
+    // The score itself is untouched — this is about work, not about the number.
+    expect(blind.dimensions).toEqual(observed.dimensions);
+    expect(blind.overallScore).toBe(observed.overallScore);
+    // An OBSERVED scan is byte-identical to today: the field is absent, not an empty array.
+    expect(observed.scoreIntegrity!.unmeasuredDims).toBeUndefined();
+    expect(observed.roadmap.map((r) => r.dimension)).toContain("D4");
   });
 
   it("leaves the D9 deterministic path byte-identical when no visibility discrepancy is present", () => {

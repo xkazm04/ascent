@@ -13,6 +13,7 @@ import {
   carryPlatformFold,
   isPlatformFoldStale,
   parsePlatformSignals,
+  dimensionObservability,
   platformFoldNote,
   platformSignalsUnavailable,
   unmeasurablePlatformDims,
@@ -179,6 +180,40 @@ describe("no snapshot at all", () => {
 
   it("an OBSERVED reading discloses nothing on screen — reading GitHub is the ordinary case", () => {
     expect(platformFoldNote(observed().record)).toBeNull();
+  });
+});
+
+// THE OBSERVABILITY RULE — the one definition the green verdict, the roadmap-coverage guarantee and
+// the loop's batch picker all read. Its three states are what separates "not measured" from "bad":
+// a dimension nothing was read about must not be turned into a gap, a follow-up, or work.
+describe("dimensionObservability", () => {
+  it("is `unobservable` for a fold dimension only when the fold was unavailable AND nothing carried", () => {
+    for (const d of PLATFORM_FOLD_DIMS) {
+      expect(dimensionObservability(platformSignalsUnavailable(), d)).toBe("unobservable");
+    }
+  });
+
+  it("is `carried` when an earlier observed scan was replayed — a borrowed measurement is still one", () => {
+    const carried = carryPlatformFold(baseSignals(), { record: observed().record!, scanId: "s" }, NOW).record;
+    for (const d of PLATFORM_FOLD_DIMS) expect(dimensionObservability(carried, d)).toBe("carried");
+  });
+
+  it("is `observed` for a live fold, for a non-fold dimension, and for an UNKNOWN record", () => {
+    expect(dimensionObservability(observed().record, "D4")).toBe("observed");
+    // D1/D9 are not platform-folded: their evidence is the file scan, which a worktree reads as well
+    // as GitHub does — so a blind reading says nothing about them either way.
+    expect(dimensionObservability(platformSignalsUnavailable(), "D1")).toBe("observed");
+    expect(dimensionObservability(platformSignalsUnavailable(), "D9")).toBe("observed");
+    // A legacy row is not evidence of blindness.
+    expect(dimensionObservability(undefined, "D4")).toBe("observed");
+    expect(dimensionObservability(null, "D2")).toBe("observed");
+  });
+
+  it("is the SOLE rule behind unmeasurablePlatformDims — one definition, not two", () => {
+    const record = platformSignalsUnavailable();
+    expect(unmeasurablePlatformDims(record)).toEqual(
+      PLATFORM_FOLD_DIMS.filter((d) => dimensionObservability(record, d) === "unobservable"),
+    );
   });
 });
 

@@ -23,6 +23,7 @@ export {
   getPublicScanGallery,
   getLatestRecommendations,
   getLatestPlatformSignals,
+  getLatestUnmeasurableDims,
   PLATFORM_FOLD_LOOKBACK,
   reportPermalink,
   type HistoryPoint,

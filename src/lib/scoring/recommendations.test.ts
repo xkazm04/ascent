@@ -119,6 +119,49 @@ describe("buildDimensionFollowUps — the follow-up guarantee", () => {
   });
 });
 
+// UNMEASURED IS NOT A GAP. The failure this pins was measured, not imagined: on a worktree scan with
+// no GitHub fold to carry, D4's deterministic signal sits at its floor whatever the repo actually
+// has — so the guarantee above minted a fresh D4 follow-up on every scan, the loop armed it every
+// cycle, the next scan was just as blind, and four campaign runs over two repos moved nothing. The
+// suppression is of the GUARANTEED COVERAGE entry only; the model's own judgment still stands.
+describe("buildDimensionFollowUps — a dimension the scan could not observe owes no follow-up", () => {
+  it("manufactures no coverage entry for an unobservable dimension", () => {
+    const dims = [
+      { id: "D4" as const, score: 10 },
+      { id: "D5" as const, score: 30 },
+    ];
+    const out = buildDimensionFollowUps([], dims, 30, ["D2", "D3", "D4"]);
+    expect(out.map((r) => r.dimension)).toEqual(["D5"]);
+  });
+
+  it("still lets a gap the MODEL raised through — real judgment outranks our uncertainty", () => {
+    const raised = item("D4", "The review workflow never runs on a pull request");
+    const out = buildDimensionFollowUps([raised], [{ id: "D4" as const, score: 10 }], 30, ["D4"]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(raised);
+  });
+
+  it("is byte-identical to today on an OBSERVED scan — an empty list changes nothing", () => {
+    const dims = [
+      { id: "D4" as const, score: 10 },
+      { id: "D5" as const, score: 30 },
+    ];
+    expect(buildDimensionFollowUps([], dims, 30, [])).toEqual(buildDimensionFollowUps([], dims, 30));
+    expect(buildDimensionFollowUps([], dims, 30).map((r) => r.dimension)).toEqual(["D4", "D5"]);
+  });
+
+  it("suppresses ONLY the named dimensions — the rest of the guarantee is untouched", () => {
+    const dims = [
+      { id: "D4" as const, score: 10 },
+      { id: "D2" as const, score: 20 },
+      { id: "D9" as const, score: 15 },
+    ];
+    // D9 is not platform-folded, so a blind scan still measured it and still owes it an entry.
+    const out = buildDimensionFollowUps([], dims, 30, ["D2", "D3", "D4"]);
+    expect(out.map((r) => r.dimension)).toEqual(["D9"]);
+  });
+});
+
 // Item 25 (`effort-not-in-sort-key`): priority is weight x headroom x EFFORT. Effort used to be
 // carried to display only, so the roadmap could open with the most expensive item on the board.
 describe("buildFallbackRoadmap - effort is part of the ranking, gently", () => {

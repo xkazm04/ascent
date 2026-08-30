@@ -181,6 +181,22 @@ const firstLine = (s: string, max = 160): string => s.split("\n").find((l) => l.
  *  certification's one live agent run off mid-word at "…blocked by the approv". */
 const AGENT_SUMMARY_CHARS = 400;
 
+/**
+ * The dimensions the repo's LATEST scan could not observe at all, as a set.
+ *
+ * Lazy import for the same reason `loadPair` and `dispatchedPractices` are: the read module reaches
+ * for the db client and the lane's unit tests mock the `@/lib/db` barrel without it. A failed read is
+ * an EMPTY set, never "assume blind" — refusing to arm work on a guess would be the opposite mistake.
+ */
+async function latestUnmeasurableDims(org: string, repo: string): Promise<ReadonlySet<string>> {
+  try {
+    const { getLatestUnmeasurableDims } = await import("@/lib/db/scans-read");
+    return new Set(await getLatestUnmeasurableDims(org, repo));
+  } catch {
+    return new Set<string>();
+  }
+}
+
 /** The repo's open follow-ups, biggest projected gain first — the batch the next cycle works. */
 export async function openBatch(
   org: string,
@@ -198,6 +214,14 @@ export async function openBatch(
   const deferred = opts.includeDeferred
     ? new Set<string>()
     : await getActiveDeferrals(org, repo).catch(() => new Set<string>());
+  // DIMENSIONS THE LAST SCAN COULD NOT SEE. Same reason the deferral read above exists: an item the
+  // loop cannot verify is an item it will grind forever. A worktree rescan observes no GitHub-side
+  // platform fold, so on a repo with nothing to carry, D2/D3/D4 read at their file-scan floor no
+  // matter what the agent builds — and the coverage guarantee used to mint a fresh follow-up for them
+  // on every scan. Four campaign runs, eight lanes, every one on D4, and both repos' overalls flat.
+  // Skipping them here is also what lets the CRAFT ladder be reachable at all: `openBatch` otherwise
+  // always found a gap, and craft engages only when a repo has none left.
+  const unmeasurable = await latestUnmeasurableDims(org, repo);
   // Ordered by the PRACTICE gap the assessment rated highest, then by projected points as the
   // tiebreak — not by points first. A loop that chases the biggest number chases whatever the
   // detector prices highest, which is the shortest path to the score rather than to the practice
@@ -205,7 +229,13 @@ export async function openBatch(
   const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
   const gaps = backlog.byOwner
     .flatMap((g) => g.items)
-    .filter((it) => it.repo === repo && it.status === "open" && !deferred.has(it.id))
+    .filter(
+      (it) =>
+        it.repo === repo &&
+        it.status === "open" &&
+        !deferred.has(it.id) &&
+        !(it.dimId && unmeasurable.has(it.dimId)),
+    )
     .sort((a, b) => (rank[a.impact] ?? 1) - (rank[b.impact] ?? 1) || (b.projectedPoints ?? 0) - (a.projectedPoints ?? 0))
     .slice(0, Math.max(1, limit))
     .map((it) => ({

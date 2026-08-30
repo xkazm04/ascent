@@ -857,6 +857,13 @@ export interface ScoreIntegrity {
    *  visibility hatch was suppressed — the run is pinned to the deterministic signals. Absent on a
    *  normal run; `widenedDims` is empty whenever this is true. */
   widenCapped?: true;
+  /** Dimensions this scan could not OBSERVE at all — the platform fold was unavailable and there was
+   *  nothing to carry from an earlier GitHub scan (dimensionObservability, analyze/platform-carry.ts).
+   *  Their scores are whatever the file evidence produced and are NOT adjusted here; what changes is
+   *  that they are owed no manufactured follow-up, and that a reader can tell "not measured" from
+   *  "measured and fine". Absent — never an empty array — on a fully-observed scan and on any row
+   *  written before the field. */
+  unmeasuredDims?: DimensionId[];
   /** The REALIZED blend weight actually applied (SCORE_BLEND × coverage), not the configured constant.
    *  A truncated or rate-limited ingest lowers this and shifts the score toward the deterministic
    *  signal with zero repo change — the third way an unchanged commit can score differently. */

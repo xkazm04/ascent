@@ -30,7 +30,7 @@ import { getDbMode, type DbMode } from "@/lib/db/mode";
 import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
-import { parsePlatformSignals } from "@/lib/analyze/platform-carry";
+import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
 import { projectedGain } from "@/lib/scoring/engine";
 import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
@@ -921,6 +921,35 @@ export async function getLatestPlatformSignals(
  *  drive's whole run budget (DRIVE_MAX_RUNS_CAP = 8), so a full drive cannot bury the snapshot it
  *  started from under its own rescans. */
 export const PLATFORM_FOLD_LOOKBACK = 10;
+
+/**
+ * The dimensions the repo's LATEST scan could not observe at all — the read behind the loop's refusal
+ * to arm work it cannot verify (src/lib/local/loop-lane.ts).
+ *
+ * The LATEST scan, deliberately, not the latest OBSERVED one: the question is what the next cycle
+ * will be able to measure, and the last reading is the best evidence of that. Empty — never "assume
+ * blind" — when there is no scan, no DB, or a row written before the column: unknown provenance is
+ * not evidence that a dimension was unmeasurable, the same rule parsePlatformSignals holds.
+ */
+export async function getLatestUnmeasurableDims(orgSlug: string, fullName: string): Promise<string[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return [];
+    const prisma = getPrisma();
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: fullName.toLowerCase() } },
+      select: { id: true },
+    });
+    if (!repo) return [];
+    const row = await prisma.scan.findFirst({
+      where: { repoId: repo.id },
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      select: { platformSignalsJson: true },
+    });
+    return unmeasurablePlatformDims(parsePlatformSignals(row?.platformSignalsJson)) as string[];
+  }, [] as string[]);
+}
 
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */
 export async function getLatestRecommendations(

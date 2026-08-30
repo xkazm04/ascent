@@ -27,6 +27,7 @@ export {
   getRepoPassport,
   getLatestRecommendations,
   getLatestPlatformSignals,
+  getLatestUnmeasurableDims,
   updateRecommendation,
   getRecommendationEvents,
   getRecommendationOrgSlug,

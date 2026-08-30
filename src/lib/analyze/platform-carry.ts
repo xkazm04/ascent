@@ -76,15 +76,47 @@ export function platformSignalsUnavailable(): PlatformSignalRecord {
 }
 
 /**
+ * What one dimension's PLATFORM inputs were on this reading. The single definition of "could this
+ * scan see this dimension at all", read by the green verdict, the roadmap-coverage guarantee, and the
+ * loop's batch picker alike — because three answers to that question is three ways to drift.
+ *
+ *   - `observed`     — measured here. Also the answer for every dimension OUTSIDE the folds (their
+ *                      evidence is the file scan, which a worktree reads as well as GitHub does) and
+ *                      for an UNKNOWN record: a legacy row is not evidence of blindness.
+ *   - `carried`      — replayed from an earlier scan that did observe it (carryPlatformFold). A
+ *                      measurement, borrowed and disclosed — so it is judgeable, not held out.
+ *   - `unobservable` — the fold was unavailable AND nothing was carried. Nothing is known about this
+ *                      dimension on this reading in EITHER direction.
+ *
+ * The consequence of the last state is the whole point: unmeasured is not the same as bad, so an
+ * unobservable dimension must not be turned into a gap, a follow-up, or work. See green.ts (which
+ * excludes it from the verdict), recommendations.ts (which owes it no coverage entry) and
+ * loop-lane.ts (which will not arm it).
+ */
+export type DimensionObservability = "observed" | "carried" | "unobservable";
+
+export function dimensionObservability(
+  record: PlatformSignalRecord | null | undefined,
+  dimId: string,
+): DimensionObservability {
+  if (!(PLATFORM_FOLD_DIMS as readonly string[]).includes(dimId)) return "observed";
+  if (record?.source === "unavailable") return "unobservable";
+  if (record?.source === "carried") return "carried";
+  return "observed";
+}
+
+/**
  * The dimensions a consumer must NOT hold against the repo on this reading.
  *
  * Only `unavailable` produces any: an observed fold measured them, and a carried one reproduced a
  * measurement. `undefined` (a legacy row, a reconstructed snapshot) yields none — unknown provenance
  * is not evidence that a dimension was unmeasurable, and treating it as such would silently drop
  * three dimensions out of every historical green verdict.
+ *
+ * Derived from `dimensionObservability` rather than re-testing `source` so there is exactly one rule.
  */
 export function unmeasurablePlatformDims(record: PlatformSignalRecord | null | undefined): DimensionId[] {
-  return record?.source === "unavailable" ? [...PLATFORM_FOLD_DIMS] : [];
+  return PLATFORM_FOLD_DIMS.filter((d) => dimensionObservability(record, d) === "unobservable");
 }
 
 /**

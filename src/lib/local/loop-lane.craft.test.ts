@@ -18,6 +18,7 @@ const backlogItems: Record<string, unknown>[] = [];
 const craftItems: FollowUpItem[] = [];
 let ledger = { total: 0, byAxis: {} as Record<CraftAxis, number>, unaxised: 0 };
 const deferred = new Set<string>();
+let unmeasurableDims: string[] = [];
 const logs: string[] = [];
 const lanePatches: Record<string, unknown>[] = [];
 
@@ -31,6 +32,9 @@ vi.mock("@/lib/db/org-insights-craft", () => ({
 vi.mock("@/lib/db/lane-outcomes", () => ({
   getActiveDeferrals: vi.fn(async () => deferred),
   recordLaneOutcomes: vi.fn(async () => []),
+}));
+vi.mock("@/lib/db/scans-read", () => ({
+  getLatestUnmeasurableDims: vi.fn(async () => unmeasurableDims),
 }));
 vi.mock("@/lib/db/scans-recommendations", () => ({ updateRecommendation: vi.fn(async (id: string) => ({ id })) }));
 vi.mock("@/lib/db/loop-runs", () => ({
@@ -91,6 +95,7 @@ beforeEach(() => {
   backlogItems.length = 0;
   craftItems.length = 0;
   deferred.clear();
+  unmeasurableDims = [];
   logs.length = 0;
   lanePatches.length = 0;
   ledger = { total: 0, byAxis: emptyAxisTally(), unaxised: 0 };
@@ -142,6 +147,34 @@ describe("the craft fallback — where the loop used to die", () => {
     craftItems.push(craft("none", null, "high"), craft("dx", "dx", "low"));
     const batch = await openBatch("kiro", "o/r");
     expect(batch.map((b) => b.id)).toEqual(["dx", "none"]);
+  });
+
+  it("a gap on a dimension the last scan could NOT OBSERVE is not armed, and craft takes over", async () => {
+    // The measured failure: a worktree rescan observes no GitHub-side fold, so D2/D3/D4 read at their
+    // file-scan floor whatever the agent builds. Arming a gap there spends a session to be told the
+    // same thing next cycle — four campaign runs, eight lanes, every one on D4, both overalls flat.
+    backlogItems.push(gap("g1")); // dimId D3 — a platform-fold dimension
+    craftItems.push(craft("c1", "performance"));
+    unmeasurableDims = ["D2", "D3", "D4"];
+
+    const batch = await openBatch("kiro", "o/r");
+    // Emptying the gap batch is the POINT: the craft ladder engages only when no open gap remains,
+    // so before this it was unreachable behind a measurement artifact.
+    expect(batch.map((b) => b.id)).toEqual(["c1"]);
+    expect(batch.every((b) => b.kind === "craft")).toBe(true);
+  });
+
+  it("leaves a repo whose dimensions WERE observed completely unaffected", async () => {
+    backlogItems.push(gap("g1"));
+    craftItems.push(craft("c1", "performance"));
+    unmeasurableDims = [];
+    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1"]);
+  });
+
+  it("skips only the unobservable dimensions — a gap elsewhere is still armed", async () => {
+    backlogItems.push(gap("g1"), { ...gap("g2"), dimId: "D9" });
+    unmeasurableDims = ["D2", "D3", "D4"];
+    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g2"]);
   });
 
   it("honours a deferral on a craft rung exactly as it does on a gap", async () => {

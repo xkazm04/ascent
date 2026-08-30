@@ -1036,6 +1036,37 @@ a bracketed pair carry it. Three consequences worth stating plainly:
 - **Unknown is not `unavailable`.** A legacy row has no record; reading that as "unavailable" would
   quietly drop three dimensions out of every historical verdict, so it excludes nothing.
 
+### The loop does not arm what it cannot verify (2026-08-30)
+
+The exclusion above kept an unobservable dimension out of the green *verdict*. It did not keep it out
+of the *backlog*, and that gap manufactured an infinite one.
+
+The assessment guarantees a roadmap entry for every dimension below `FOLLOW_UP_BELOW` (65). On a
+worktree scan with nothing to carry, D4's deterministic signal sits at its floor **whatever the repo
+actually has** — so every scan minted a fresh D4 follow-up, `openBatch` armed it, the agent added
+another review workflow, the next scan was just as blind, and the row re-opened. Measured over four
+campaign runs on two real repos: eight lanes, every one on D4, both overalls flat. It also meant
+`openBatch` *always* found a gap, so the craft ladder — which engages only once a repo has no open gap
+left — was unreachable behind a measurement artifact.
+
+The rule now: **a dimension the scan could not observe does not owe a follow-up.** One helper decides
+it, `dimensionObservability(record, dimId)` (`src/lib/analyze/platform-carry.ts`), with the same three
+readings as the table above — `observed`, `carried`, `unobservable` — and `unobservable` only when the
+fold was unavailable *and* nothing was carried. Three consumers read it and no one re-derives it:
+
+| Where | What it does |
+| --- | --- |
+| `buildDimensionFollowUps` (`src/lib/scoring/recommendations.ts`) | synthesises no **coverage** entry for an unobservable dimension. A gap the *model* raised from file evidence it could actually see still passes through — real judgment outranks our uncertainty. |
+| `assembleReport` (`src/lib/scoring/engine.ts`) | records the list on `scoreIntegrity.unmeasuredDims`, so the report header's integrity chip says `D2, D3, D4 not measured` instead of the reader guessing. Absent, never empty, on an observed scan. |
+| `openBatch` (`src/lib/local/loop-lane.ts`) | drops items on those dimensions from the batch, reading the **latest** scan's record (`getLatestUnmeasurableDims`) — the best evidence of what the next cycle will be able to measure. A failed read is an empty set: refusing to arm work on a guess would be the opposite mistake. |
+
+When that empties the gap batch the **craft fallback takes over**, which is the intended behaviour and
+half the point of the fix. Craft rungs themselves are not filtered: they close on evidence of the rung
+being built, not on a dimension score moving.
+
+**No score changes.** D4 keeps whatever number it computes; what changed is what becomes *work*.
+Unmeasured is not the same as bad, and it must not be turned into a task.
+
 **Folding is not a lift** (`attributeDimension`, `src/lib/maturity/attribution.ts`). A dimension whose
 fold credit *differs* between the two ends of a pair moved because one scan could see GitHub and the
 other could not, so it reports `unmeasured` and the ledger renders it muted. Carrying the fold forward
