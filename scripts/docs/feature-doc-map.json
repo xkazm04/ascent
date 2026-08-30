@@ -72,7 +72,8 @@
         "src/lib/github/**",
         "src/lib/viewer-installations.ts",
         "src/app/api/app/**",
-        "src/lib/db/installations.ts"
+        "src/lib/db/installations.ts",
+        "src/lib/github/admission-write.ts"
       ]
     },
     {
@@ -181,7 +182,9 @@
         "src/lib/conformance/**",
         "src/app/api/org/conformance-pack/**",
         "src/app/api/org/controls/**",
-        "src/features/standing/governance/**"
+        "src/features/standing/governance/**",
+        "src/lib/org/admission*.ts",
+        "src/app/api/org/admission/**"
       ]
     },
     {

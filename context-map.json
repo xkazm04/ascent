@@ -1064,7 +1064,15 @@
             "src/app/api/practices/rollout/route.ts",
             "src/features/shared/practices/PracticeDriftStrip.tsx",
             "src/features/shared/practices/RegistryPracticeApply.tsx",
-            "src/features/shared/practices/practiceAdoptionRows.ts"
+            "src/features/shared/practices/practiceAdoptionRows.ts",
+            "src/lib/org/admission.ts",
+            "src/lib/org/admission-artifacts.ts",
+            "src/lib/db/org-admission.ts",
+            "src/lib/scoring/gate-admission.ts",
+            "src/lib/github/admission-write.ts",
+            "src/lib/standard/conformance-alerts.ts",
+            "src/app/api/org/admission/route.ts",
+            "src/features/standing/governance/stance/admission"
           ],
           "target": null,
           "apiRoutes": [
