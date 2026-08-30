@@ -243,4 +243,3 @@ unassessed repositories in a separate band below the table.
 
 _This spec is intentionally small. The discipline is to keep the spine (`manifest.yaml`) thin and let
 everything else be a pointer, so the standard grows by reference, not by accretion._
-

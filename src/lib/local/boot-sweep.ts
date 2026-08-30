@@ -20,7 +20,7 @@
 
 import { tmpdir } from "node:os";
 import { selfHosted } from "@/lib/env";
-import { isDbConfigured } from "@/lib/db/client";
+import { isDbConfigured } from "@/lib/db";
 import { listInFlightLanes, markStaleRunsStopped } from "@/lib/db/loop-runs";
 import { markStaleDrivesInterrupted } from "@/lib/db/drives";
 import { getRepoLocalPath } from "@/lib/db/org-local";
