@@ -25,6 +25,11 @@ import {
   scanDedupKey,
 } from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
+// MOONSHOT #1 — the control ledger. `governanceToSamples`/`diffSamples` are W3-L's PURE mappers and
+// `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
+// implementation of it.
+import { latestObservations, recordObservations } from "@/lib/db/control-observations";
+import { HEARTBEAT_AFTER_MS, diffSamples, governanceToSamples } from "@/lib/scan-probe-controls";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
 export interface PersistResult {
@@ -747,6 +752,22 @@ export async function persistScanReport(
     // Reconcile this repo's auto-derived tech-stack group memberships (Feature 3b) from the detected
     // stack. Best-effort — grouping is display metadata and must never break a scan persist; a
     // transient failure self-corrects on the next scan (sync is idempotent).
+    // MOONSHOT #1 — feed the control ledger from the scan's own governance read.
+    //
+    // A scan already fetches branch governance and persists the blob on the Scan row, but that blob
+    // is only ever read POINT-IN-TIME (the latest scan's). Appending it as observations is what turns
+    // "the settings at the newest scan" into "the settings AT THE MOMENT a change merged" — the
+    // as-of-merge read the conformance pack needs.
+    //
+    // Deliberately outside the transaction and best-effort: an unwritable observation must never roll
+    // back a persisted scan, and the probe writes the same controls anyway. `diffSamples` against the
+    // repo's current posture keeps this from appending thirteen identical rows on every rescan;
+    // `occurredAt` is the SCAN's time, not now, so a re-persist of an older scan lands in the right
+    // place on the timeline rather than at the head of it.
+    await appendScanObservations(orgSlug, repo.id, fullName, scanId, report).catch((err) => {
+      console.warn(`[scans-persist] control observations failed for ${fullName}:`, err);
+    });
+
     await syncTechStackGroups(orgId, repo.id, report.techStack).catch((err) => {
       // Best-effort — grouping is display metadata and must never break a scan persist. But swallowing
       // it SILENTLY hid a persistent misconfiguration (a broken group rule, a systematically failing
@@ -758,4 +779,39 @@ export async function persistScanReport(
     return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha };
   }, { label: "persistScanReport:scan" }));
   });
+}
+
+/**
+ * MOONSHOT #1 — append this scan's governance read to the control ledger.
+ *
+ * ONLY the governance-derived controls. A scan has no `SecurityPosture` on its report and does not
+ * read repository metadata, so it says nothing about `advisories`, `repo-present` or `repo-visibility`
+ * — and writes nothing about them. Emitting `unmeasurable` rows for controls this source never looks
+ * at would put "we tried and failed" in the ledger for a read that was never attempted, and the
+ * coverage report would then understate the probe's real coverage on those controls.
+ *
+ * A scan whose governance blob is null or unreadable DOES write the governance set as `unmeasurable`
+ * (that is `governanceToSamples`'s contract) — that read WAS attempted and came back denied, which is
+ * a genuine observation and the thing that lets a later successful read register as a transition.
+ */
+async function appendScanObservations(
+  orgSlug: string,
+  repoId: string,
+  fullName: string,
+  scanId: string,
+  report: ScanReport,
+): Promise<void> {
+  const samples = governanceToSamples(report.governance ?? null);
+  const prev = await latestObservations(repoId);
+  // The SCAN's own time, not the wall clock: a re-persisted or replayed older scan must land where
+  // it belongs on the timeline, not at the head of it. The heartbeat arithmetic uses the same instant
+  // so a backfilled scan does not look "due" against today's clock.
+  const scannedAt = new Date(report.scannedAt);
+  const at = Number.isNaN(scannedAt.getTime()) ? Date.now() : scannedAt.getTime();
+  const due = diffSamples(prev, samples, HEARTBEAT_AFTER_MS, at).map((s) => ({
+    ...s,
+    occurredAt: new Date(at).toISOString(),
+  }));
+  if (due.length === 0) return;
+  await recordObservations(orgSlug, repoId, due, { repoFullName: fullName, source: "scan", scanId });
 }
