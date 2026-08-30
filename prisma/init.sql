@@ -227,6 +227,10 @@ CREATE TABLE "AiChange" (
     "revertedByPr" INTEGER,
     "revertedAt" TIMESTAMP(3),
     "mergeCommitSha" TEXT,
+    -- moonshot wave 3 (#1): how this row reached us, and when the approval was OBSERVED (webhook
+    -- delivery time) as distinct from `approvedAt` (the review's own submission time).
+    "source" TEXT NOT NULL DEFAULT 'scan',
+    "approvalObservedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL,
     "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -2170,6 +2174,139 @@ CREATE INDEX "OrgMemoryCitation_orgId_createdAt_idx" ON "OrgMemoryCitation"("org
 
 -- CreateIndex
 CREATE INDEX "OrgMemoryCitation_memoryId_used_idx" ON "OrgMemoryCitation"("memoryId", "used");
+
+-- CreateTable: #10 one unit of queued scan work. The queue exists because the cron worker used to
+-- hold the whole fleet in one invocation — a rescan either finished inside the function's cap or was
+-- lost with no record that it had been attempted. A row survives the invocation, so "queued",
+-- "claimed by an invocation that died" and "settled" stop being the same silence.
+CREATE TABLE "ScanJob" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    -- NULL while the import funnel has not created the Repository row yet. `repoFullName` is the
+    -- identity the claim keys on and is always present.
+    "repoId" TEXT,
+    "repoFullName" TEXT NOT NULL,
+    "lane" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "state" TEXT NOT NULL DEFAULT 'queued',
+    "priority" INTEGER NOT NULL DEFAULT 0,
+    "runId" TEXT,
+    "idempotencyKey" TEXT NOT NULL,
+    "notBefore" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "claimedAt" TIMESTAMP(3),
+    -- Diagnostics only, never an authorization input: the claim is held by "leaseUntil".
+    "claimedBy" TEXT,
+    "leaseUntil" TIMESTAMP(3),
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "creditCharged" BOOLEAN NOT NULL DEFAULT false,
+    "resultJson" TEXT,
+    "error" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    -- When the row reached done | failed | skipped — the anchor the 30-day purge horizon measures.
+    "settledAt" TIMESTAMP(3),
+
+    CONSTRAINT "ScanJob_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: the enqueue contract. Two producers racing on the same repo in the same bucket (a
+-- cadence tick and a webhook) collide here, so the second enqueue is a no-op, not a second charged scan.
+CREATE UNIQUE INDEX "ScanJob_idempotencyKey_key" ON "ScanJob"("idempotencyKey");
+
+-- CreateIndex
+CREATE INDEX "ScanJob_lane_state_notBefore_priority_idx" ON "ScanJob"("lane", "state", "notBefore", "priority");
+
+-- CreateIndex
+CREATE INDEX "ScanJob_orgId_lane_state_idx" ON "ScanJob"("orgId", "lane", "state");
+
+-- CreateIndex
+CREATE INDEX "ScanJob_runId_idx" ON "ScanJob"("runId");
+
+-- CreateIndex
+CREATE INDEX "ScanJob_state_leaseUntil_idx" ON "ScanJob"("state", "leaseUntil");
+
+-- CreateTable: #1 + #10 (reconciled) append-only governance evidence — "control X on repo Y was in
+-- state S at time T, and here is how we know". One row is one OBSERVATION, never a current-state
+-- cache: the posture surfaces read the newest row per (repoFullName, controlId). `state` is
+-- pass | fail | unmeasurable and `unmeasurable` is NEVER coerced to `fail` — "we could not see it"
+-- and "it is off" are different claims. `occurredAt` is when the state HELD; `observedAt` is when
+-- this deployment learned it, and reporting either as the other misdates an auditor's evidence.
+CREATE TABLE "ControlObservation" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    -- NULL = an org-scoped control (an org SECURITY.md is not a repo's fact). `repoFullName` is
+    -- denormalized so the pack and timeline reads never join.
+    "repoId" TEXT,
+    "repoFullName" TEXT NOT NULL,
+    "controlId" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "value" TEXT,
+    -- NULL on a pair's first observation — a fact about the history, never a zero.
+    "prevValue" TEXT,
+    "prevState" TEXT,
+    "evidenceJson" TEXT NOT NULL DEFAULT '{}',
+    "source" TEXT NOT NULL,
+    -- Webhook rows only; NEVER fabricated for a scan or probe row (nobody "did" a measurement).
+    "actorLogin" TEXT,
+    "transition" BOOLEAN NOT NULL DEFAULT false,
+    "occurredAt" TIMESTAMP(3) NOT NULL,
+    "observedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "scanId" TEXT,
+    "jobId" TEXT,
+    "deliveryId" TEXT,
+    -- signAudit() over the canonical fields; NULL = signing is off, never "the signature failed".
+    "sig" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ControlObservation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: a webhook REDELIVERY is a no-op rather than a duplicated observation.
+CREATE UNIQUE INDEX "ControlObservation_deliveryId_controlId_repoFullName_key" ON "ControlObservation"("deliveryId", "controlId", "repoFullName");
+
+-- CreateIndex
+CREATE INDEX "ControlObservation_orgId_repoFullName_controlId_occurredAt_idx" ON "ControlObservation"("orgId", "repoFullName", "controlId", "occurredAt");
+
+-- CreateIndex
+CREATE INDEX "ControlObservation_orgId_occurredAt_idx" ON "ControlObservation"("orgId", "occurredAt");
+
+-- CreateIndex
+CREATE INDEX "ControlObservation_repoId_controlId_observedAt_idx" ON "ControlObservation"("repoId", "controlId", "observedAt");
+
+-- CreateIndex
+CREATE INDEX "ControlObservation_orgId_transition_observedAt_idx" ON "ControlObservation"("orgId", "transition", "observedAt");
+
+-- CreateTable: #1 one seal per (org, UTC day) — a hash chain over DAYS, not rows (chaining rows would
+-- make every append a read-modify-write). `rowCount` and `root` are what make a DELETION detectable:
+-- retention purges aged observations but NEVER their seal, so a sealed day whose surviving rows no
+-- longer reproduce its root is visibly incomplete instead of silently short.
+CREATE TABLE "ControlLedgerSeal" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "day" TEXT NOT NULL,
+    "rowCount" INTEGER NOT NULL,
+    "root" TEXT NOT NULL,
+    -- The previous sealed day's root; NULL = the chain's first day.
+    "prevRoot" TEXT,
+    "sealedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sig" TEXT,
+
+    CONSTRAINT "ControlLedgerSeal_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ControlLedgerSeal_orgId_day_key" ON "ControlLedgerSeal"("orgId", "day");
+
+-- CreateIndex
+CREATE INDEX "ControlLedgerSeal_orgId_day_idx" ON "ControlLedgerSeal"("orgId", "day");
+
+-- Idempotent add-column (moonshot wave 3, #1): the live-stream reducer's two AiChange columns. Both
+-- are additive on an EXISTING local .pglite DB, and both are safe to add without a backfill —
+-- `source` defaults to 'scan', which is the true provenance of every row written before the webhook
+-- path existed, and `approvalObservedAt` is nullable because a scan-sourced row has no live
+-- observation time (null is "not observed live", never "not approved").
+ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "source" TEXT NOT NULL DEFAULT 'scan';
+ALTER TABLE "AiChange" ADD COLUMN IF NOT EXISTS "approvalObservedAt" TIMESTAMP(3);
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
