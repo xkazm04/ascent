@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { diffScans, findOrphanedTracked, isTrackedRec, matchRecommendations, reconcileDoneRec } from "./compare";
+import { diffScans, diffStringSets, findOrphanedTracked, isTrackedRec, matchRecommendations, reconcileDoneRec } from "./compare";
 import type { TrackedRecIdentity } from "./compare";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import { DIMENSIONS } from "@/lib/maturity/model";
@@ -496,5 +496,39 @@ describe("findOrphanedTracked", () => {
       rec({ dim: "D3", title: "reworded B" }),
     ];
     expect(findOrphanedTracked(prev, next)).toHaveLength(1);
+  });
+});
+
+// ── diffStringSets ──────────────────────────────────────────────────────────────────────────────
+//
+// The set-diff `diffScans` has always run inline, extracted so the exemplar diff (moonshot #34)
+// compares evidence the SAME way rather than growing a second normalizer that drifts from norm().
+// Fail-before for the extraction: making the helper dedupe within a side turns the existing
+// "computes deltas, transitions, gap movement…" case red, because appeared/disappeared counts move.
+
+describe("diffStringSets", () => {
+  it("splits by normalized identity while returning the ORIGINAL strings", () => {
+    const d = diffStringSets(["  Found 6   test files ", "Coverage tracking configured"], ["found 6 test files", "SAST in CI"]);
+    expect(d.onlyInA).toEqual(["Coverage tracking configured"]);
+    expect(d.onlyInB).toEqual(["SAST in CI"]);
+    // Original casing/spacing survives — normalization is applied to the LOOKUP only.
+    expect(d.shared).toEqual(["  Found 6   test files "]);
+  });
+
+  it("preserves duplicates on a side — one repeated string is one entry per occurrence", () => {
+    const d = diffStringSets(["dup", "dup", "solo"], []);
+    expect(d.onlyInA).toEqual(["dup", "dup", "solo"]);
+    expect(d.onlyInB).toEqual([]);
+    expect(d.shared).toEqual([]);
+  });
+
+  it("treats a repeated shared string as shared on every occurrence", () => {
+    const d = diffStringSets(["dup", "DUP"], ["dup"]);
+    expect(d.shared).toEqual(["dup", "DUP"]);
+    expect(d.onlyInA).toEqual([]);
+  });
+
+  it("is empty-safe on both sides", () => {
+    expect(diffStringSets([], [])).toEqual({ onlyInA: [], onlyInB: [], shared: [] });
   });
 });
