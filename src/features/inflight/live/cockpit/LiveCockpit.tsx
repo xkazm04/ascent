@@ -29,6 +29,8 @@ import { CockpitHeader } from "./CockpitHeader";
 import { CockpitHistory } from "./CockpitHistory";
 import { CockpitRail } from "./CockpitRail";
 import { CockpitVariantTabs, type CockpitVariant } from "./CockpitVariantTabs";
+import { PriceListPanel } from "./PriceListPanel";
+import { CockpitLessons } from "./CockpitLessons";
 import { useCockpit } from "./useCockpit";
 import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
@@ -136,6 +138,11 @@ export function LiveCockpit(props: LiveCockpitProps) {
       ) : (
         <CockpitHistory runs={loop.runs} selectedId={c.outcome?.run.id ?? loop.activeId} onOpen={(id) => void c.openRun(id)} />
       )}
+      {/* What a verified maturity point has cost, per model, per dimension — the standing summary
+          the strip's individual runs add up to. */}
+      <PriceListPanel slug={slug} />
+      {/* Lesson candidates from the loop's agents — a review queue, not a reading. */}
+      <CockpitLessons slug={slug} />
     </section>
   );
 }

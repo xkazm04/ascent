@@ -32,6 +32,15 @@ import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
+import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
+import { stampPlaybookApplications } from "@/lib/db/playbooks";
+import { recordLoopLessons } from "@/lib/db/loop-lessons";
+import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
+import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
+// The cost write-back and the report exclusion live in a sibling so this module stays the cycle
+// orchestrator it reads as.
+import { excludeLaneReport, recordAgentCost } from "@/lib/local/lane-cost";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
 export const BATCH_SIZE = 5;
@@ -54,7 +63,6 @@ export interface LaneDeps {
     onStage: (stage: string) => void;
   }) => Promise<{ scanId: string | null; closedIds: string[] }>;
   /** The repo's open follow-ups, biggest projected gain first, capped at `limit`. */
-  openBatch: (org: string, repo: string, limit?: number) => Promise<FollowUpItem[]>;
   /** The lane's before/after pair, as the ledger will read it — for the deliverable headlines. */
   loadPair: (args: { orgSlug: string; repoFullName: string; beforeScanId: string | null; afterScanId: string | null }) => Promise<{
     before: ComparableScan | null;
@@ -62,6 +70,11 @@ export interface LaneDeps {
   } | null>;
   /** Optional LLM polish of the derived headlines; returns the input unchanged when no model answers. */
   summarize: (list: LaneDeliverable[], orgSlug: string) => Promise<LaneDeliverable[]>;
+  openBatch: (org: string, repo: string, limit?: number, opts?: { includeDeferred?: boolean }) => Promise<FollowUpItem[]>;
+  /** The org's own standard for this batch's dimensions — see src/lib/db/lane-brief-read.ts. */
+  loadBrief: typeof loadLaneBriefInput;
+  /** The agent's `.ascent/lane-report.json`, parsed. Never throws; a missing file is `parsed:false`. */
+  readReport: typeof readLaneReport;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -78,6 +91,8 @@ export const defaultLaneDeps: LaneDeps = {
     const { polishLaneDeliverables, resolveLaneSummaryRunner } = await import("@/lib/local/lane-summary");
     return polishLaneDeliverables(list, await resolveLaneSummaryRunner(orgSlug));
   },
+  loadBrief: loadLaneBriefInput,
+  readReport: readLaneReport,
 };
 
 export interface LaneRunInput {
@@ -101,6 +116,9 @@ export interface LaneRunInput {
   /** What to arm this lane's agent session with, already resolved by the engine. Omitted keeps the
    *  runner's own env fallback, which is what the single-repo autopilot shim has always relied on. */
   agent?: { model?: string | null; effort?: string | null };
+  /** Joins the two arms of one `ab` pair (MOONSHOT #27); null/absent on a `single` run. Stamped on
+   *  the row so the price list can tell two arms of one experiment from two unrelated lanes. */
+  abPairKey?: string | null;
 }
 
 export interface LaneRunResult {
@@ -112,6 +130,34 @@ export interface LaneRunResult {
   error: string | null;
 }
 
+/**
+ * The dimension a batch is mostly about, or null when it is about none.
+ *
+ * Counted first, then broken by the higher projected-point total, then by dimension id so the answer
+ * is deterministic. `null` for an empty batch or one whose items carry no dimension — and null means
+ * the lane cannot open a PR (`ImprovementPr.dimId` is non-nullable), which is the correct refusal
+ * rather than a fabricated dimension in the improvement ledger.
+ */
+export function dominantDimId(batch: readonly FollowUpItem[]): string | null {
+  const tally = new Map<string, { n: number; points: number }>();
+  for (const it of batch) {
+    if (!it.dimId) continue;
+    const cur = tally.get(it.dimId) ?? { n: 0, points: 0 };
+    cur.n += 1;
+    cur.points += it.projectedPoints ?? 0;
+    tally.set(it.dimId, cur);
+  }
+  let best: string | null = null;
+  let bestScore = { n: 0, points: 0 };
+  for (const [dimId, score] of [...tally.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (score.n > bestScore.n || (score.n === bestScore.n && score.points > bestScore.points)) {
+      best = dimId;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 const firstLine = (s: string, max = 160): string => s.split("\n").find((l) => l.trim())?.slice(0, max) ?? "";
 
 /** The agent's own first line gets more room than the rest of the log. It is the only place a
@@ -120,9 +166,22 @@ const firstLine = (s: string, max = 160): string => s.split("\n").find((l) => l.
 const AGENT_SUMMARY_CHARS = 400;
 
 /** The repo's open follow-ups, biggest projected gain first — the batch the next cycle works. */
-export async function openBatch(org: string, repo: string, limit: number = BATCH_SIZE): Promise<FollowUpItem[]> {
+export async function openBatch(
+  org: string,
+  repo: string,
+  limit: number = BATCH_SIZE,
+  /** `includeDeferred` is for a CURATED batch: a human naming an id outranks a machine's deferral. */
+  opts: { includeDeferred?: boolean } = {},
+): Promise<FollowUpItem[]> {
   const backlog = await getOrgBacklog(org, null, new Date(), null);
   if (!backlog) return [];
+  // ITEMS A PREVIOUS LANE PARKED. An agent that skipped an item and said why has told us something a
+  // rescan cannot: re-offering it next cycle spends a session to be told the same thing again. The
+  // read is org- AND repo-scoped, and it changes nothing on the Recommendation row — every other
+  // surface still shows the item as open, because it is.
+  const deferred = opts.includeDeferred
+    ? new Set<string>()
+    : await getActiveDeferrals(org, repo).catch(() => new Set<string>());
   // Ordered by the PRACTICE gap the assessment rated highest, then by projected points as the
   // tiebreak — not by points first. A loop that chases the biggest number chases whatever the
   // detector prices highest, which is the shortest path to the score rather than to the practice
@@ -130,7 +189,7 @@ export async function openBatch(org: string, repo: string, limit: number = BATCH
   const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
   return backlog.byOwner
     .flatMap((g) => g.items)
-    .filter((it) => it.repo === repo && it.status === "open")
+    .filter((it) => it.repo === repo && it.status === "open" && !deferred.has(it.id))
     .sort((a, b) => (rank[a.impact] ?? 1) - (rank[b.impact] ?? 1) || (b.projectedPoints ?? 0) - (a.projectedPoints ?? 0))
     .slice(0, Math.max(1, limit))
     .map((it) => ({
@@ -238,7 +297,16 @@ async function laneDeliverables(
 export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   const deps: LaneDeps = { ...defaultLaneDeps, ...input.deps };
   const { runId, org, repo, cycle, worktree } = input;
-  const lane = await upsertLane({ runId, repoFullName: repo, cycle });
+  // Under an `ab` policy the arm's model is part of the lane's IDENTITY: two arms of one repo in one
+  // cycle are two rows, and without the discriminator the second would resolve to the first's row and
+  // overwrite its branch, its cost and its result. A `single` run passes neither and behaves exactly
+  // as it always did.
+  const lane = await upsertLane({
+    runId,
+    repoFullName: repo,
+    cycle,
+    ...(input.abPairKey ? { model: input.agent?.model ?? null, abPairKey: input.abPairKey } : {}),
+  });
   const laneId = lane?.id ?? null;
   // CLAIM → RUN → ADJUDICATE, with RELEASE on every path where the adjudication never happened.
   // The claim (open → in_progress below) is what lets the rescan's feedback attach to these rows —
@@ -274,6 +342,12 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     });
 
     const kind: LoopLaneKind = input.kind ?? "backlog";
+    // The agent's structured account of this cycle, if it wrote one. Declared here because the
+    // adjudication below (after the rescan) needs it and the agent branch produces it.
+    let report: LaneReport | null = null;
+    /** The playbooks the brief actually quoted, with the dimension each covers — the only ones a
+     *  verified close may stamp as adopted. */
+    let briefedPlaybooks: { id: string; dimId: string }[] = [];
     const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
     // The agent's own `RESOLVED: <id> - <what changed>` lines, kept for the deliverable headlines.
     let agentClaims: AgentClaim[] = [];
@@ -286,14 +360,33 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     let batch: FollowUpItem[] = [];
     if (kind !== "foundation") {
       const curated = input.batch;
-      const picked = await deps.openBatch(org, repo, curated ? 500 : BATCH_SIZE);
+      // A CURATED batch overrides deferrals: naming an id by hand is an explicit human instruction,
+      // and a machine's "I skipped this three cycles ago" must not silently drop it from the run the
+      // operator just armed. An uncurated cycle honours the deferral.
+      const picked = await deps.openBatch(org, repo, curated ? 500 : BATCH_SIZE, { includeDeferred: curated != null });
       batch = curated ? picked.filter((it) => curated.includes(it.id)) : picked;
+      if (curated) {
+        const parked = await getActiveDeferrals(org, repo).catch(() => new Set<string>());
+        const overridden = batch.filter((it) => parked.has(it.id));
+        if (overridden.length > 0) {
+          await appendLaneLog(
+            laneId,
+            `${overridden.length} curated item(s) were deferred by an earlier lane and are being dispatched anyway — a named pick outranks a deferral.`,
+          );
+        }
+      }
       if (batch.length === 0) {
         await appendLaneLog(laneId, "No open follow-ups left for this repo — nothing to dispatch.");
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
-      await updateLane(laneId, { batchIds: batch.map((b) => b.id) });
+      // The batch's DOMINANT dimension, stamped at dispatch (moonshot #26). `ImprovementPr.dimId` is
+      // non-nullable, so a lane that later becomes a PR needs one — and it has to be decided here,
+      // from the batch that was actually dispatched, rather than inferred afterwards from whatever
+      // the rescan happened to move. Honest null when the batch spans no dimension: a lane with no
+      // dominant dimension simply cannot open a PR, and inventing one would put a real row in the
+      // ledger under a dimension nobody chose.
+      await updateLane(laneId, { batchIds: batch.map((b) => b.id), dimId: dominantDimId(batch) });
 
       // The hand-off claim, so the rescan's trailer/restatement feedback applies to these rows
       // (scans-persist only resolves IN-PROGRESS rows — an unclaimed row is nobody's promise).
@@ -331,13 +424,38 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }
     } else {
       await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
+      // THE ORGANIZATION'S OWN STANDARD, assembled for exactly this batch's dimensions and recorded
+      // on the row as provenance before the session starts. Every remediation vendor applies generic
+      // best practice; the differentiator is that this one applies the org's versioned playbooks, the
+      // pattern mined from its own repositories, its procedural memory and its registry skills — and
+      // says so in words where it has none of those, rather than leaving an empty heading the agent
+      // would read as "there is no standard here".
+      const briefInput = await deps
+        .loadBrief(org, repo, [...new Set(batch.map((b) => b.dimId).filter(Boolean))])
+        .catch(() => null);
+      const brief = briefInput ? buildLaneBrief(briefInput) : null;
+      if (brief && briefInput) {
+        await updateLane(laneId, { brief: brief.provenance });
+        await appendLaneLog(laneId, `Brief: ${briefSummaryLine(brief.provenance)}`);
+        // Only the playbooks that were RENDERED (a trimmed-away one was never seen), keyed by the
+        // dimension each covers so a close can be matched to the playbook that could have caused it.
+        const rendered = new Set(brief.provenance.sections.find((s) => s.kind === "playbook")?.refs ?? []);
+        briefedPlaybooks = briefInput.playbooks
+          .filter((p) => rendered.has(`${p.id}@${p.version}`))
+          .map((p) => ({ id: p.id, dimId: p.dimId }));
+      }
+      await excludeLaneReport(worktree.dir);
       // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
       // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
       // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
       // the session knows — which ids it resolved — and the lane commits below. See lane-commit.ts.
       const prompt =
         buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle", commitPolicy: "lane" }) +
-        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n`;
+        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
+        // The org's standard, then the report contract. In that order deliberately: the standard is
+        // what the work should look like, and the contract is how the session reports on it.
+        (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
+        laneReportContract(batch.map((b) => b.id));
       const result = await deps.runAgent({
         cwd: worktree.dir,
         prompt,
@@ -350,6 +468,24 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       );
       const armed = new Set(batch.map((b) => b.id));
       agentClaims = parseClaimLines(result.summary).filter((c) => armed.has(c.id));
+      // WHAT THE SESSION COST, recorded IMMEDIATELY — before the commit, the rescan or anything else
+      // that can fail. A lane that dies three steps from here still carries its cost, which is the
+      // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
+      // recorded too: a failure that burned two dollars is the most important row in the price list.
+      await recordAgentCost(laneId, org, repo, result, input);
+      // THE AGENT'S OWN ACCOUNT, read before the commit and the rescan so a lane that dies later
+      // still carries it. A missing or malformed report is `parsed: false` — which is not the same
+      // fact as "it skipped nothing", and the ledger renders the difference.
+      report = await deps.readReport(worktree.dir, batch.map((b) => b.id)).catch(() => null);
+      if (report) {
+        await updateLane(laneId, { report });
+        await appendLaneLog(
+          laneId,
+          report.parsed
+            ? `Report: ${report.items.length} item verdict(s), ${report.lessons.length} lesson(s).`
+            : "No lane report was written — the agent's per-item verdicts are unknown for this cycle.",
+        );
+      }
       // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
@@ -470,6 +606,46 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     });
     if (deliverables && deliverables.length > 0) {
       await appendLaneLog(laneId, `Delivered: ${deliverables.map((d) => d.headline).join(" · ")}`);
+    }
+    // PER-ITEM OUTCOMES, after the rescan has ruled. The rescan's close wins over any claim; an id
+    // the agent said it SKIPPED is parked so the next cycle asks a different question instead of
+    // spending another session on the same refusal. Nothing on the Recommendation row changes — a
+    // deferral is advisory to `openBatch` alone.
+    if (kind === "backlog" && batch.length > 0) {
+      await recordLaneOutcomes({
+        orgSlug: org,
+        runId,
+        laneId,
+        repoFullName: repo,
+        cycle,
+        batchIds: batch.map((b) => b.id),
+        closedIds,
+        report,
+      }).catch(() => []);
+
+      // ADOPTION EVIDENCE, on a verified close only. A row the rescan closed on a dimension the
+      // brief carried a playbook for is the one case where "this repo now follows that playbook" is
+      // supported by something other than hope — the agent read the steps and the verifier saw the
+      // dimension move. A close under a playbook the brief never quoted stamps nothing.
+      // LESSONS, as CANDIDATES. The loop never writes Org Memory: a lesson is an unattended agent's
+      // claim about what this organization should believe, and the brief above reads memory as truth.
+      // A human keeps or discards it through the lessons inbox, which promotes through the same
+      // memory door the consolidation check lives behind.
+      if (report && report.lessons.length > 0) {
+        const kept = await recordLoopLessons(org, repo, laneId, report.lessons).catch(() => []);
+        if (kept.length > 0) {
+          await appendLaneLog(laneId, `${kept.length} lesson candidate(s) recorded for review — nothing was written into memory.`);
+        }
+      }
+
+      const closedDims = new Set(batch.filter((b) => closedIds.includes(b.id)).map((b) => b.dimId));
+      const earned = briefedPlaybooks.filter((p) => closedDims.has(p.dimId)).map((p) => p.id);
+      if (earned.length > 0) {
+        const stamped = await stampPlaybookApplications(org, repo, earned).catch(() => 0);
+        if (stamped > 0) {
+          await appendLaneLog(laneId, `${stamped} playbook(s) from this lane's brief recorded as applied — the rescan verified the close.`);
+        }
+      }
     }
     return { laneId, progressed: commits > 0 || closedIds.length > 0, commits, closed: closedIds.length, error: null };
   } catch (err) {

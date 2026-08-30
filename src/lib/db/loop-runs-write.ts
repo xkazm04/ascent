@@ -15,10 +15,14 @@ import {
   type LaneDeliverable,
   type LoopLanePhase,
   type LoopLaneRecord,
+  type LoopModelPolicy,
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopTarget,
 } from "@/lib/db/loop-runs-types";
+
+import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
+import type { LaneReport } from "@/lib/local/lane-report";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
@@ -38,6 +42,11 @@ export interface CreateLoopRunInput {
   /** RESOLVED agent configuration (see resolveAgentConfig) — what the sessions will actually run as. */
   model?: string | null;
   effort?: string | null;
+  /** How the run spends models. Defaults to `single`, which is what every run before #27 was. */
+  modelPolicy?: LoopModelPolicy;
+  /** The models the run is armed with, IN ORDER — one for `single`, the two arms for `ab`. Recorded
+   *  so the price list can attribute a lane to an arm long after the run ended. */
+  models?: string[];
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
 }
@@ -57,6 +66,8 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       curated: input.curated === true,
       model: input.model ?? null,
       effort: input.effort ?? null,
+      modelPolicy: input.modelPolicy ?? "single",
+      modelsJson: JSON.stringify(input.models ?? (input.model ? [input.model] : [])),
     },
   });
   return toRunRecord(row);
@@ -77,17 +88,30 @@ export async function updateLoopRun(id: string, patch: LoopRunPatch): Promise<Lo
   return row ? toRunRecord(row) : null;
 }
 
-/** Get-or-create the (run, repo, cycle) lane. Idempotent so a retry re-enters the same row. */
+/**
+ * Get-or-create the (run, repo, cycle) lane. Idempotent so a retry re-enters the same row.
+ *
+ * `model` WIDENS THE KEY, and it has to: an `ab` run works one repo with two lanes in one cycle, and
+ * on the three-part key both arms would resolve to the same row — the second arm silently
+ * overwriting the first's cost, branch and result. It is part of the CREATE data too, so the row
+ * knows which arm it is from the moment it exists rather than only after its session returns.
+ * Omitted (a `single` run) the behaviour is exactly what it always was.
+ */
 export async function upsertLane(key: {
   runId: string;
   repoFullName: string;
   cycle: number;
+  model?: string | null;
+  abPairKey?: string | null;
 }): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const existing = await prisma.loopRunLane.findFirst({ where: key });
+  const { model, abPairKey, ...base } = key;
+  const existing = await prisma.loopRunLane.findFirst({ where: model ? { ...base, model } : base });
   if (existing) return toLaneRecord(existing);
-  const row = await prisma.loopRunLane.create({ data: { ...key, phase: "queued" } });
+  const row = await prisma.loopRunLane.create({
+    data: { ...base, phase: "queued", ...(model ? { model } : {}), ...(abPairKey ? { abPairKey } : {}) },
+  });
   return toLaneRecord(row);
 }
 
@@ -105,15 +129,44 @@ export interface LoopLanePatch {
   endedAt?: Date | null;
   /** The lane's headlines (lane-deliverables.ts). Serialized into the nullable `deliverablesJson`. */
   deliverables?: LaneDeliverable[];
+
+  // ── MOONSHOT #27. Written in the SAME patch that records `commits`, so a lane that dies later
+  // still carries what its session cost. `null` is a legitimate value on every one of them and means
+  // "the CLI reported nothing" — the patch writes it rather than skipping the field, because a lane
+  // whose second attempt reported nothing must not keep the first attempt's figure.
+  model?: string | null;
+  costSource?: string | null;
+  costMicros?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  turns?: number | null;
+  agentDurationMs?: number | null;
+  agentSessionId?: string | null;
+  abPairKey?: string | null;
+
+  // ── MOONSHOT #25. Objects rather than pre-serialized strings: the JSON-in-TEXT encoding is the
+  // store's business, and a caller that had to remember to stringify is a caller that will one day
+  // write a `[object Object]` column.
+  brief?: LaneBriefProvenance;
+  report?: LaneReport;
+
+  // ── MOONSHOT #26 — the batch's dominant dimension, stamped at dispatch, and the lane's PR,
+  // denormalized so the cockpit renders the link without a join.
+  dimId?: string | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
-  const { batchIds, closedIds, deliverables, ...rest } = patch;
+  const { batchIds, closedIds, deliverables, brief, report, ...rest } = patch;
   const data: Record<string, unknown> = { ...rest };
   if (batchIds) data.batchIdsJson = JSON.stringify(batchIds);
   if (closedIds) data.closedIdsJson = JSON.stringify(closedIds);
   if (deliverables) data.deliverablesJson = JSON.stringify(deliverables);
+  if (brief) data.briefJson = JSON.stringify(brief);
+  if (report) data.reportJson = JSON.stringify(report);
   const row = await getPrisma()
     .loopRunLane.update({ where: { id }, data })
     .catch(() => null);

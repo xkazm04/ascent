@@ -2,7 +2,7 @@
 // server's own message. Kept apart from useLoopRun so the hook is state machine and nothing else,
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
-import type { LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload } from "./loopTypes";
+import type { LoopLessonRow, LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
 
 async function json<T>(res: Response, fallback: string): Promise<T> {
   const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
@@ -14,6 +14,16 @@ async function json<T>(res: Response, fallback: string): Promise<T> {
 export async function fetchLoopStatus(slug: string): Promise<LoopStatusPayload> {
   const res = await fetch(`/api/org/loop?org=${encodeURIComponent(slug)}`, { cache: "no-store" });
   return json<LoopStatusPayload>(res, "Could not read the loop status");
+}
+
+/**
+ * The org's remediation price list, off the SAME status route (it has no route of its own: it is
+ * derived at read time and stores nothing, so there is no id to gate). `null` when the deployment
+ * cannot produce one — which the panel renders as silence, not as zeros.
+ */
+export async function fetchLoopPrices(slug: string): Promise<RemediationPriceList | null> {
+  const status = await fetchLoopStatus(slug);
+  return status.prices ?? null;
 }
 
 export async function fetchLoopDetail(slug: string, id: string): Promise<LoopRunDetail> {
@@ -29,6 +39,45 @@ export async function fetchLoopProposals(slug: string, repos: readonly string[])
   const res = await fetch(`/api/org/loop/propose?${q}`, { cache: "no-store" });
   const body = await json<{ proposals?: LoopProposal[] }>(res, "Could not propose a batch");
   return body.proposals ?? [];
+}
+
+/** Pending lesson CANDIDATES — nothing here is in Org Memory until a human keeps it. */
+export async function fetchLoopLessons(slug: string): Promise<LoopLessonRow[]> {
+  const res = await fetch(`/api/org/loop/lessons?org=${encodeURIComponent(slug)}&status=pending`, { cache: "no-store" });
+  const body = await json<{ lessons?: LoopLessonRow[] }>(res, "Could not read the lesson candidates");
+  return body.lessons ?? [];
+}
+
+/** Keep (promote into memory, through the shared memory door) or discard (soft) one candidate. */
+export async function settleLoopLesson(slug: string, id: string, action: "keep" | "discard"): Promise<LoopLessonRow> {
+  const res = await fetch("/api/org/loop/lessons", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ org: slug, id, action }),
+  });
+  const body = await json<{ lesson: LoopLessonRow }>(res, "Could not settle that lesson");
+  return body.lesson;
+}
+
+export interface LanePrResult {
+  prNumber: number;
+  prUrl: string;
+  /** True when an open PR for this branch already existed and was returned instead of a new one. */
+  reused: boolean;
+}
+
+/**
+ * Push a finished lane's branch and open a reviewed PR (moonshot #26). `confirm` must be the lane's
+ * own `repoFullName` — the route checks it, and the typed confirmation is the friction that belongs
+ * on the one loop action whose effect leaves the operator's machine.
+ */
+export async function openLanePr(slug: string, runId: string, laneId: string, confirm: string): Promise<LanePrResult> {
+  const res = await fetch(`/api/org/loop/${encodeURIComponent(runId)}/pr`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ org: slug, laneId, confirm }),
+  });
+  return json<LanePrResult>(res, "Could not open a PR for that lane");
 }
 
 async function post<T>(slug: string, body: Record<string, unknown>, fallback: string): Promise<T> {

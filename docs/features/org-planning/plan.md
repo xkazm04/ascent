@@ -72,6 +72,36 @@ Unchanged by the retirement and documented where they live: the briefing and its
 [practices.md](../org-dashboard/practices.md); the live wall — and the loop cockpit that now fronts
 it at `?tab=live` — in [live.md](live.md).
 
+## The improvement ledger counts both populations (2026-08-30, moonshot #26)
+
+Until now the Impact Ledger, the programme strip and the briefing's proof block counted exactly one
+population — practice PRs that merged into a default branch. A local loop lane that dispatched an
+agent, committed, rescanned its own worktree and measurably moved a dimension counted **nowhere**, so
+the surfaces that answer "what did this buy" were blind to the half of the product that does the work.
+`src/lib/db/improvement-events.ts` is now the one fold behind all three.
+
+**Two bases, stated on every row:**
+
+| Basis | Measured | Counts as |
+| --- | --- | --- |
+| `merged` | on the default branch, after a merge | **bought** — `ImpactLedger.dimPoints`, `ProgramNow.pointsBought` |
+| `branch` | on a loop lane's own branch, from the worktree it scanned | **in review** — `ImpactLedger.inReviewPoints`, `ProgramStatusView.pointsInReview` |
+
+Branch movement is real, independently rescanned movement. It is also **not bought**, because nothing
+has landed on a trunk anyone else has. Folding it into the bought number would tell a buyer they own
+something sitting on an unreviewed branch, so the two are reported side by side and the in-review tile
+says "on branches, not merged" in words. When a lane's PR merges (see
+[live.md](live.md) → *From lane branch to reviewed PR*), the points move across with **no
+re-measurement**: the merged row is verified against the lane's own baseline scan.
+
+**Honest nulls, unchanged:** `inReviewPoints` is `null` — never 0 — when no lane is measurable, and
+the tile prints an em dash. A one-ended lane, or one that committed nothing, contributes nothing and
+is not counted as a zero. The dedupe lives in the fold, so the ledger and the briefing can never
+disagree about how much the org improved.
+
+**The ledger table** gains a `Source` column (`Practice` / `Loop`) — a provenance tag, not a verdict,
+so it carries no colour.
+
 ## Retired on 2026-08-17 (for the record)
 
 | Was | Where it went |

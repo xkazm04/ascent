@@ -173,7 +173,10 @@ detached and the cockpit polls `GET /api/org/loop`.
   one reviewable deliverable. Branch names are folded to a safe single ref segment:
   `ascent/loop-<stamp>-<repo>`; the [autopilot shim](../local-mode/README.md) overrides `branchFor`
   to keep its historical `ascent/autopilot-<stamp>`. Teardown removes only the temp dir (`--force`);
-  **the branch is left behind on purpose**. Never a push.
+  **the branch is left behind on purpose**. Never a push *unless an owner asks* — since 2026-08-30 a
+  finished lane can be published as a reviewed PR by one owner click with a typed confirmation
+  (§*From lane branch to reviewed PR*). Nothing automatic pushes: not the drive, not a schedule, not
+  the lane itself.
 - **Curated cycle 1, auto afterwards.** Cycle 1 uses `input.batches[repo]` when given; every later
   cycle auto-picks the **top 5 open follow-ups by projected points** (`BATCH_SIZE`). A curated batch
   *names* its rows, so the pick spans the repo's whole open list (`limit: 500`) and then filters —
@@ -952,8 +955,213 @@ Two causes, both now fixed:
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
   the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
 
+## From lane branch to reviewed PR (2026-08-30, moonshot #26)
+
+A lane's branch was the deliverable and also the end of the road: agent-authored work never reached a
+reviewer, an `AiChange` row, or the conformance population, because it never left the operator's
+machine. `POST /api/org/loop/[id]/pr` is the one door out, and it is **one owner click** — no
+scheduler calls it, the drive does not call it, and a lane never calls it for itself.
+
+- **Gates, in order:** `selfHostGuard()` → `requireSameOrigin()` → `dbGuard()` →
+  `requireOrgRole(org, "owner")`. `[id]` is the RUN id; the lane is named in the body and looked up as
+  `{ id: laneId, runId: id }`, so a lane from another org's run is simply not found (404).
+- **A typed confirmation.** The body's `confirm` must equal the lane's `repoFullName`. Every other
+  loop control is reversible on the operator's own disk; this one writes to a remote everyone sees.
+- **Refusals:** the lane must be `done`, have a branch, have landed at least one commit, and the repo
+  must still be paired — otherwise 409 with the reason. A lane with **no dominant dimension** is also
+  refused: `ImprovementPr.dimId` is not nullable and there is no honest value to invent, so the
+  operator is told to open the PR by hand rather than have real work filed under a fabricated one.
+- **Never `--force`.** `src/lib/local/loop-pr.ts` pushes the branch from the paired clone with
+  `git push --set-upstream`; a rejected non-fast-forward surfaces as a 409 carrying **git's own
+  message**, because a non-fast-forward, a missing remote and a bad credential need three different
+  human responses and only git knows which happened.
+- **Idempotent.** A 422 on create means a PR for that head already exists; the open one is returned
+  with `reused: true` — the same handling `openDraftPr` uses. (`openDraftPr` itself cannot be reused
+  here: it creates a branch off base and PUTs one file through the Contents API, so it has no way to
+  open a PR for a branch that already carries local commits.)
+- **Audited both ways.** `loop.pr.opened` on success and `loop.pr.refused` on failure — by the time
+  most refusals fire the branch is already on the remote, and "we pushed and then could not open the
+  PR" is a state an operator must find in the audit log rather than discover on GitHub.
+
+The PR is recorded as an `ImprovementPr` with `source: "loop"`, `loopLaneId`, the synthetic
+`practiceId = "loop:<laneId>"` (unique by construction, so a retry is idempotent and the uniqueness
+rule protecting practice PRs is not widened) and `baselineScanId = lane.beforeScanId`. That baseline
+is the mechanism: `refreshOps` / `verifyMergedPrs` are practice-agnostic and poll every open row, so a
+loop PR gets merge detection and post-merge verification with **no edit to `improvement.ts`**, and the
+post-merge scan is compared against the very baseline the branch measurement used.
+
+## One improvement ledger — two bases (2026-08-30, moonshot #26)
+
+`src/lib/db/improvement-events.ts` folds practice PRs and loop lanes into one read model behind the
+Impact Ledger, the programme strip and the briefing's proof block.
+
+- **`merged`** — measured on the default branch after a merge. This is what a buyer means by bought.
+- **`branch`** — measured on a lane's own branch, from the worktree it scanned. Real, independently
+  verified movement, and **not bought**, because nothing has landed.
+
+`ImpactLedger.dimPoints` and `ProgramNow.pointsBought` stay **merged-basis only**. Branch movement is
+reported beside them as `inReviewPoints` / `pointsInReview`, labelled "on branches, not merged".
+Folding it in would tell a buyer they own something sitting on a branch nobody has reviewed. The
+undercount that creates is fixed by the *route* above, not by the arithmetic: when the lane's PR
+merges, the points move from in-review to bought with no re-measurement.
+
+**The dedupe lives in the fold**, not in each consumer: a lane that became a PR that merged produces
+both a branch row and a merged row for the same work, and the merged one wins. A one-ended lane, or
+one that committed nothing (it scanned a worktree the run then deleted — L2-B-01), is `null`, never 0.
+
+**The briefing** gains `loopProof` and `briefingLoopProofLine()`, printed by the exec banner, the PDF,
+the share page and the markdown from ONE function — as a second line, never merged into the practice
+one, and carrying the words "on branches, not merged". Null unless a lane has both ends, so the line
+is absent rather than "0 · 0".
+
+## The lane brief — the org's own standard in, structured verdicts out (2026-08-30, moonshot #25)
+
+A lane's prompt used to be `buildFixPrompt(batch, …)` plus one fixed paragraph: Ascent's words about
+the org's backlog, and nothing of the organization's own standard. Every remediation vendor applies
+generic best practice; the differentiator is that Ascent holds the org's *versioned* standard and can
+hand the relevant slice of it to the agent — then learn only from what a rescan verified.
+
+**What goes in** (`src/lib/org/lane-brief.ts`, pure; `src/lib/db/lane-brief-read.ts`, the reads):
+active playbooks for the batch's dimensions **named with their version**; the house pattern
+`minePracticeShapes` mined from the org's own repositories, **with its exemplar count** (a pattern
+from one repo is a habit, from six a house style); procedural Org Memory recalled through the same
+`candidateOrgMemories` → `recallMemories` pair Athena's gate uses; registry skills whose category maps
+into the batch's dimensions; and the last scan's own evidence and gaps for those dimensions.
+
+**A section the org does not have is stated in words**, never left as an empty heading: "No playbook
+in this organization covers D3", "No house pattern has been mined for D6 — you are setting the
+precedent, not matching one." An agent handed a bare heading reads it as "there is no standard";
+one told so explicitly can say so back. Truncation is per section, marked in the text
+(`… (n more, trimmed)`) and recorded in provenance, so a trimmed brief never reads as a complete one.
+Two calls on the same input are byte-identical — a brief that reshuffles would make an A/B comparison
+of two lanes a comparison of two prompts. Memory text passes through the shared untrusted-content
+neutralizer first.
+
+`LoopRunLane.briefJson` stores the **provenance, not the prose**: which playbook and version, which
+practice, which memory and skill ids, what was omitted and why, and the byte sizes. The prose is
+rebuilt deterministically from the same inputs. The curation panel shows the same summary line before
+you spend a session — which is mostly valuable for what it says is *missing*.
+
+**What comes back**: `.ascent/lane-report.json`, versioned `"v": 1` (the same shape a remote agent
+will POST when #3 lands, so that lane extends this contract rather than forking one). The parser
+(`src/lib/local/lane-report.ts`) never throws: a missing file, `"{"`, a megabyte blob and an array
+where an object belongs all return `parsed: false` or drop the entry. **The batch is the report's
+authorization boundary** — an id the lane never dispatched is dropped, because an agent cannot
+adjudicate rows it was not given. The file is added to the worktree's `.git/info/exclude` so it never
+lands on the deliverable branch.
+
+**Per-item verdicts** (`LaneItemOutcome`, `src/lib/db/lane-outcomes.ts`). One row per dispatched id,
+in this precedence: the rescan closed it → `resolved` (**the verifier outranks the claim, always**);
+else the agent's own verdict with its own words as the reason; else `absent`, because "nobody
+accounted for this id" is a fact worth recording. `skipped` and `needs_human` park the item for a
+bounded window (3 cycles, capped at 14 days) so the next cycle asks a different question instead of
+spending another session being told the same thing.
+
+**A deferral is not a decision on the row.** `Recommendation.status` has four values and none of them
+means "declined by an agent for now", so nothing on the backlog row changes: the deferral is advisory
+to `openBatch` alone, every other surface still shows the item open, and a **curated** batch that
+names a deferred id dispatches it anyway (a human's pick outranks a machine's deferral, and the lane
+log says so). Each verdict also writes a `RecommendationEvent { kind: "lane_verdict" }`, so the item's
+own timeline explains itself.
+
+**Adoption is earned.** When the rescan closes a row on a dimension the lane's brief carried a
+playbook for, that playbook is stamped `PlaybookApplication{ appliedBy: "loop" }`. Both halves are
+required: a close under a playbook the agent never saw is a coincidence, and a claim without a
+verified close is not evidence.
+
+**Lessons are candidates, never memory.** `report.lessons` become `OrgMemoryCandidate` rows with
+`status: "pending"`, `source: "loop-lesson"`. **The loop never writes `OrgMemory`** — the companion,
+the brief above and every consolidation pass read memory as truth, so an unattended process editing
+it would let one bad session teach the whole organization something nobody agreed to. The cockpit's
+lesson inbox says so in as many words, and `keep` promotes through the same `createOrgMemory` door a
+person's own write uses (which is where the duplicate check lives). `discard` is **soft**: a proposal
+that was rejected is worth as much on the record as one that was kept.
+
+**Routes.** `GET /api/org/loop/propose` now carries `brief` per proposal, built by the same assembly
+the engine runs. `GET/POST /api/org/loop/lessons` is the inbox — `selfHostGuard` → `requireOrgAccess`
+for the read; `requireSameOrigin` → `selfHostGuard` → `requireOrgRole(org, "member")` for the write,
+with the authorized org passed *into* the update beside the candidate id so another org's candidate is
+simply not found (404). No `[id]` segment, so `id-routes-gated.test.ts` is unaffected by design.
+
+## Remediation economics — cents per verified maturity point (2026-08-30, moonshot #27)
+
+Every lane already had an independent verifier (the worktree rescan plus the movement-gated close
+rule) and a before/after scan pair. What it did not have was the other half of the arithmetic: the
+agent's cost, tokens, turns and model were read past and dropped at the process boundary, so the loop
+could say what moved and never what it cost.
+
+**The envelope is parsed whole.** `src/lib/local/agent-envelope.ts` is a pure parser over
+`claude -p --output-format json`: `total_cost_usd`, `usage`, `num_turns`, `duration_ms`, `session_id`
+and the model. `agent.ts` stays a spawn wrapper and calls it; `{ok, summary}` keep their exact
+meanings, so every existing caller is unchanged. Honest nulls throughout — a field the envelope omits
+is `null`, never 0, and a **reported** `total_cost_usd: 0` stays a real 0, because "the CLI said zero"
+and "the CLI said nothing" are different facts. A **failed** session still records its cost: a failure
+that burned two dollars is the most important row in the ledger.
+
+**One declared cost source per lane.** `LoopRunLane.costSource` is stamped `"envelope"` and nothing
+else. `AgentSession` rows are the OTLP export of Claude Code sessions a *developer* ran — a different
+population reaching the box by a different path — so they are never added to a lane's cost, never
+averaged with it and never used to fill a null. `agentSessionId` is stored so the two can be **joined
+for inspection**, never summed. A structural guard
+(`src/lib/local/lane-economics.test.ts` → "the one-source rule, structurally") asserts no read path
+under `src/lib/local/**` or in `loop-runs-read.ts` reaches for an `AgentSession` cost field.
+
+**Micro-cents, not cents.** `costMicros` is `round(total_cost_usd * 100 * 1e6)`, so a 0.4¢ session is
+not rounded to zero. Every display divides.
+
+**The fold** (`src/lib/local/lane-economics.ts`, pure — no DB, no React):
+
+- a **verified point** is a positive `DimensionDiff.delta` on a lane whose `before` *and* `after`
+  scans both exist. `diffScans` already refuses to invent a delta when either end is missing, and the
+  fold never widens that: no pair means `verifiedPoints: null`, which is not the same as `0`;
+- a lane's cost is attributed to the dimensions it moved **in proportion to their positive deltas**.
+  Negative deltas are not netted off — a model that broke D5 while fixing D3 gets no discount;
+- a lane that **spent and moved nothing measurable** does not disappear into the working lanes'
+  denominator. It lands in `unproductiveMicros` and is shown on its own line;
+- a `(model, dimension)` cell is `totalMicros / totalPoints`, and **`n` ships with every price**.
+  There are deliberately no intervals, variance figures or confidence marks — per-model noise bands
+  are deck item #30 and are deferred.
+
+**Reads.** `getLoopRunDetail` returns `economics: LaneEconomics[]` (one per outcome, same order);
+`listLoopRuns` sums `costMicros` per run, `null` when no lane recorded one; `getOrgPriceList(orgSlug)`
+folds the org's most recent 200 priced lanes through the *same* `getScanComparison` → `diffScans`
+path the ledger uses, and rides on `GET /api/org/loop` as `prices` (no new route, so no new `[id]`
+gate surface). The list is org-scoped and derived at read time — it stores nothing, and there is no
+cross-tenant "what does a D3 point cost" figure.
+
+**A/B model policy.** `POST /api/org/loop { action: "start", modelPolicy: "ab", models: [a, b] }` fans
+the same curated batch out to **two lanes per repo per cycle** — two worktrees, two branches, two
+models, one `abPairKey`. Each arm rescans its own worktree, so the same guardbanded scorer adjudicates
+both and neither arm grades the other. Exactly two distinct models, each matching the same
+`/^[A-Za-z0-9][A-Za-z0-9._:-]*$/` token rule `agent.ts` enforces before a spawn (`shell: true`
+re-parses argv on Windows) — anything else is a 400 and never a spawn. Because both arms run in one
+cycle, an `ab` run has twice the lanes in flight, and a request past `LOOP_CONCURRENCY_CAP` is refused
+with that reason rather than quietly exceeding the budget. A retried lane re-runs **its own** arm.
+
+**The drive spends on evidence.** `pickDriveModel(prices, dimIds)` is consulted beside
+`nextDriveStep` (never inside it — that function is a pure three-branch *termination* policy and a
+model choice is not a termination reason). It returns `null` — meaning "keep the configured model" —
+unless two models are measured at `n >= 3` on **every** dimension the step is aiming at.
+
+**UI** (`?tab=live`): a cost chip on each `LaneRail` (`sonnet · 4 turns · 48.00¢`, or the literal
+`cost unknown`, in the counters' own muted type — a cost is not a verdict, so it gets no colour); a
+`spent · ¢/point` line on each outcome row, reading `cost not measured` or `no measured movement`
+rather than a zero; and `PriceListPanel` under the run-history strip, which prints `n=` beside every
+cell and an explicit "a price needs a lane with both scan ends and a recorded cost" where a zeroed
+table would otherwise be.
+
+**Meter.** Each lane also posts to the unified LLM meter (`meter()`, lane `local`) with the
+caller-owned idempotency key `loop-lane:<laneId>` and the envelope's own cost (converted from
+micro-cents to the meter's USD micros), rather than letting the meter re-price it from tokens: for a
+subscription-auth CLI session the envelope is authoritative. A meter that throws is logged to the lane
+and never fails it.
+
 ## Known gaps
 
+- **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
+  to end by `POST /api/org/loop`, but the cockpit's run controls still offer only one model — arming
+  an A/B run today means calling the route. The dials live in `CockpitRunControls`/`useRunDials`,
+  outside the write set of the change that added the policy.
 - **No hosted dispatch.** The loop is self-hosted only: it reads the server's filesystem and spawns
   processes. Cloud orgs get an empty state on the cockpit and a 404 from every loop route. A hosted
   path would need a sandboxed executor and a very different consent model.

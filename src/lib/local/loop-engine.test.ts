@@ -13,8 +13,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── in-memory stand-in for the persistence layer ─────────────────────────────────────────────────
 type Target = { repo: string; kind: string; practiceId: string | null };
-type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
-type Lane = { id: string; runId: string; repoFullName: string; cycle: number; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null };
+type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; modelPolicy: string; models: string[]; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
+type Lane = { id: string; runId: string; repoFullName: string; cycle: number; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null; model: string | null; abPairKey: string | null };
 
 const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0 };
 
@@ -23,7 +23,7 @@ vi.mock("@/lib/db/loop-runs", () => ({
   LOOP_DEFAULT_CONCURRENCY: 2,
   LOOP_MAX_CYCLES_CAP: 5,
   LANE_LOG_LINES: 200,
-  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null }) => {
+  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null; modelPolicy?: string; models?: string[] }) => {
     const run: Run = {
       id: `run${++db.seq}`,
       orgId: "org1",
@@ -37,6 +37,8 @@ vi.mock("@/lib/db/loop-runs", () => ({
       curated: input.curated === true,
       model: input.model ?? null,
       effort: input.effort ?? null,
+      modelPolicy: input.modelPolicy ?? "single",
+      models: input.models ?? [],
       startedAt: new Date().toISOString(),
       endedAt: null,
       error: null,
@@ -58,10 +60,15 @@ vi.mock("@/lib/db/loop-runs", () => ({
     if (patch.endedAt !== undefined) run.endedAt = patch.endedAt ? new Date(patch.endedAt as Date).toISOString() : null;
     return run;
   }),
-  upsertLane: vi.fn(async (key: { runId: string; repoFullName: string; cycle: number }) => {
-    const found = db.lanes.find((l) => l.runId === key.runId && l.repoFullName === key.repoFullName && l.cycle === key.cycle);
+  // The MODEL is part of the key when it is given: two arms of one `ab` repo are two rows in one
+  // cycle, and on the three-part key the second would resolve to the first's row.
+  upsertLane: vi.fn(async (key: { runId: string; repoFullName: string; cycle: number; model?: string | null; abPairKey?: string | null }) => {
+    const { model = null, abPairKey = null, ...base } = key;
+    const found = db.lanes.find(
+      (l) => l.runId === base.runId && l.repoFullName === base.repoFullName && l.cycle === base.cycle && (!model || l.model === model),
+    );
     if (found) return found;
-    const lane: Lane = { id: `lane${++db.seq}`, ...key, phase: "queued", branch: null, batchIds: [], closedIds: [], commits: 0, beforeScanId: null, afterScanId: null, stage: null, log: [], error: null, startedAt: null, endedAt: null };
+    const lane: Lane = { id: `lane${++db.seq}`, ...base, model, abPairKey, phase: "queued", branch: null, batchIds: [], closedIds: [], commits: 0, beforeScanId: null, afterScanId: null, stage: null, log: [], error: null, startedAt: null, endedAt: null };
     db.lanes.push(lane);
     return lane;
   }),
@@ -501,5 +508,79 @@ describe("lane kinds — a practice lane", () => {
     await settle(run.id);
     expect(deps.install).not.toHaveBeenCalled();
     expect(deps.runAgent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("modelPolicy: 'ab' — two arms of ONE experiment", () => {
+  // The point of an A/B run is that the two arms differ in the model and in nothing else: same
+  // curated batch, same cycle, same scorer. So the fan-out is per repo per cycle, both arms carry one
+  // abPairKey, and each arm gets its OWN worktree — sharing one would have them commit over each other.
+  it("runs two lanes per repo per cycle, one per model, under a single pair key", async () => {
+    const deps = workingDeps();
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      concurrency: 2,
+      modelPolicy: "ab",
+      models: ["sonnet", "opus"],
+      deps,
+    });
+    await settle(run.id);
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(2);
+    expect(lanes.map((l) => l.model).sort()).toEqual(["opus", "sonnet"]);
+    expect(new Set(lanes.map((l) => l.abPairKey)).size).toBe(1);
+    expect(lanes[0]!.abPairKey).toContain("acme/web");
+    // Each arm asked the CLI for its own model.
+    const asked = vi.mocked(deps.runAgent!).mock.calls.map((c) => (c[0] as { model?: string }).model);
+    expect(asked.sort()).toEqual(["opus", "sonnet"]);
+  });
+
+  it("records the policy and both arms on the run, keeping `model` as the first arm", async () => {
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      modelPolicy: "ab",
+      models: ["sonnet", "opus"],
+      deps: workingDeps(),
+    });
+    await settle(run.id);
+    // `model` stays populated so every pre-#27 reader — the history strip's setup line, a retry's
+    // inherited configuration — keeps working and reads something true.
+    expect(db.runs[0]).toMatchObject({ modelPolicy: "ab", models: ["sonnet", "opus"], model: "sonnet" });
+  });
+
+  it("refuses an A/B run that does not name exactly two distinct models", async () => {
+    await expect(
+      startLoopRun({ org: "acme", repos: ["acme/web"], modelPolicy: "ab", models: ["sonnet"], deps: workingDeps() }),
+    ).rejects.toThrow(/exactly two distinct models/);
+    await expect(
+      startLoopRun({ org: "acme", repos: ["acme/web"], modelPolicy: "ab", models: ["sonnet", "sonnet"], deps: workingDeps() }),
+    ).rejects.toThrow(/exactly two distinct models/);
+  });
+
+  it("refuses when doubling the lanes would blow the concurrency budget, and says so", async () => {
+    // Four local `claude -p` sessions already saturate a developer box; an `ab` run at concurrency 3
+    // would put six in flight. Refused with the reason, never quietly exceeded.
+    await expect(
+      startLoopRun({
+        org: "acme",
+        repos: ["acme/web"],
+        concurrency: 3,
+        modelPolicy: "ab",
+        models: ["sonnet", "opus"],
+        deps: workingDeps(),
+      }),
+    ).rejects.toThrow(/doubles the lanes in flight/);
+  });
+
+  it("leaves a `single` run exactly as it was — one lane per repo, no pair key", async () => {
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web", "acme/api"], maxCycles: 1, deps: workingDeps() });
+    await settle(run.id);
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(2);
+    expect(lanes.every((l) => l.abPairKey === null)).toBe(true);
   });
 });

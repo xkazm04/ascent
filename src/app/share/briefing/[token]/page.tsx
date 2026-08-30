@@ -229,7 +229,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
 
         {/* The rollout proof travels with the shared board link too — plain numbers, no links into
             the app (the banner component carries none), same line the exec tab and PDF render. */}
-        <BriefingProofBanner proof={briefing.proof} className="mt-4" />
+        <BriefingProofBanner proof={briefing.proof} loopProof={briefing.loopProof} className="mt-4" />
 
         {/* Engine-mix provenance — the shared board link must show the same mock-degraded caveat the
             owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were

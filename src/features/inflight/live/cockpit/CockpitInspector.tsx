@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Kicker } from "@/components/ui";
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { BriefStrip, InspectorEmpty } from "./BriefStrip";
 import { ProposalList, SharedDimensionBars } from "./CockpitBatch";
 import { CockpitRunControls } from "./CockpitRunControls";
 import { proposalDimensions, sharedDimensions } from "./cockpitDimensions";
@@ -120,14 +120,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       effort: dials.effort,
     });
 
-  if (repos.length === 0) {
-    return (
-      <div>
-        <Kicker tone="accent">Inspector</Kicker>
-        <InlineEmpty>Lasso or click bodies to select the repos this run should work.</InlineEmpty>
-      </div>
-    );
-  }
+  if (repos.length === 0) return <InspectorEmpty />;
 
   return (
     <div>
@@ -151,6 +144,8 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       </ul>
 
       <SharedDimensionBars shares={shares} />
+
+      <BriefStrip proposals={proposals} />
 
       <CockpitRunControls dims={dims} dials={dials} onChange={set} />
 

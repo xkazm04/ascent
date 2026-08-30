@@ -210,6 +210,46 @@ and cycles are pinned to 1), and because its engine is the mock it asserts the l
 call the movement a lift. The Character-level journey is `uat/journeys/loop-to-l5.md`; its L2 half —
 a real agent lane, an attributable lift, a killed-and-resumed drive — has **not** been run.
 
+## The `.ascent/lane-report.json` contract (2026-08-30)
+
+Every backlog lane's prompt now ends with a report contract, and the agent is asked to write one file
+into its worktree before it exits:
+
+```json
+{ "v": 1,
+  "items": [{ "recommendationId": "<id>", "verdict": "resolved|skipped|needs_human", "reason": "<one sentence>", "files": ["<path>"] }],
+  "lessons": ["<one durable thing this repository taught you>"] }
+```
+
+- **`"v": 1` is deliberate.** This is the same shape a remote agent will POST when the agent-neutral
+  work protocol lands, so that lane extends the contract rather than forking a second one.
+- **Skips are asked for as first-class answers.** A skip with a reason stops the item being
+  re-dispatched next cycle; an unexplained attempt does not. The verdict is the agent's *account*, not
+  the ruling — a row still closes only when the rescan stops raising the gap and the dimension moved.
+- **The file is never committed.** It is added to the worktree's `.git/info/exclude`, not to a
+  `.gitignore` (which would itself be a change to the repository, landing in every branch the lane
+  produces). The contract also tells the session not to commit it; the exclude is the second belt.
+- **The parser never throws.** No file, `"{"`, a megabyte blob, an id outside the dispatched batch —
+  each degrades to `parsed: false` or a dropped entry. A missing report is recorded as *unknown*, which
+  is not the same fact as "nothing was skipped".
+
+## What a session costs (2026-08-30)
+
+The whole `claude -p --output-format json` envelope is now parsed, not just its `.result`: cost,
+input/output/cache-read tokens, turns, wall time, session id and model land on the lane row the moment
+the session returns — before the commit, before the rescan, so a lane that dies later still carries
+what it spent, and a *failed* session keeps its cost.
+
+**One declared source per lane, always.** `costSource` is stamped `"envelope"` — the CLI's own
+`total_cost_usd` for that session — and nothing is ever added to it. The `AgentSession` rows an OTLP
+exporter writes are Claude Code sessions a **developer** ran: a different population by a different
+path, and summing the two would double-count the same tokens behind a better-looking figure. The
+lane's `agentSessionId` exists so the two can be joined for inspection, never added.
+
+Costs are stored in **micro-cents** so a sub-cent session is not rounded away, and every field is
+`null` when the CLI reported nothing — never `0`, which would be averaged downstream as a free
+session. The lane log says `cost unknown` in that case, and the cockpit does the same.
+
 ## Known gaps
 
 - The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local

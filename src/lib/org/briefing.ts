@@ -17,6 +17,7 @@ import {
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
+import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import { providerLabel as engineLabel } from "@/lib/llm/config";
@@ -229,6 +230,14 @@ export interface ExecBriefing {
    *  tried" must not render as "tried and nothing landed". OPTIONAL for the same
    *  fixture-compatibility reason as `recommendations`; `buildExecBriefing` always sets it. */
   proof?: { open: number; merged: number; lift: number | null; liftPractices: number } | null;
+  /**
+   * MOONSHOT #26 — the LOOP's half of the proof block. Null on managed cloud (no lanes exist there)
+   * and null when no lane has both scan ends, so the line is ABSENT rather than printed as "0 · 0".
+   * `points` is branch-basis: verified movement on lane branches that have not merged. It is
+   * deliberately reported separately from the practice proof, because "we merged it" and "it is
+   * sitting on a branch waiting for review" are different claims to make to a board.
+   */
+  loopProof?: { lanes: number; points: number | null; merged: number } | null;
   /** Optional LLM-written executive narrative (G5-03). NEVER produced by `buildExecBriefing` — a
    *  deliverable path opts in explicitly via `attachBriefingNarrative` (see ./briefing-narrative),
    *  which is grounded strictly in the figures above and degrades to deterministic copy. Null/absent
@@ -276,7 +285,7 @@ export async function buildExecBriefing(
       }
     : undefined;
 
-  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption] = await Promise.all([
+  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption, loopEvents] = await Promise.all([
     getOrgRollup(orgSlug, window, segmentId, techGroupId),
     getOrgBenchmark(orgSlug),
     getOrgMovers(orgSlug, window, segmentId, techGroupId),
@@ -296,6 +305,12 @@ export async function buildExecBriefing(
     getOrgPractices(orgSlug, null, techGroupId).catch(() => null),
     listPlaybooks(orgSlug).catch(() => null),
     getPlaybookAdoption(orgSlug).catch(() => ({})),
+    // The union read (moonshot #26). Degrades to [] independently, exactly like the practice reads
+    // above: a loop failure costs the loop line, never the briefing or the PDF.
+    getImprovementEvents(orgSlug, {
+      start: window?.start ?? null,
+      end: window?.endExclusive ?? window?.end ?? null,
+    }).catch(() => [] as ImprovementEvent[]),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
@@ -415,6 +430,7 @@ export async function buildExecBriefing(
     regressionCount: movers?.regressers.length ?? 0,
     recommendations: orgRecs ?? [],
     proof: practices ? buildPracticeLibrarySummary(orgSlug, practices, playbooks ?? [], playbookAdoption).rollout : null,
+    loopProof: buildLoopProof(loopEvents),
     narrative: null,
   };
 }
@@ -423,6 +439,43 @@ export async function buildExecBriefing(
  *  page and the markdown so the four can't drift (the valueRealizedLine pattern). Null when no
  *  practice was ever applied OR nothing is in flight: the proof section only appears when there is
  *  proof, never as "0 · 0". */
+/**
+ * The loop's proof, folded from the union. Null when no lane has both scan ends — so the LINE is
+ * absent rather than printed as "0 lanes · 0 points", the same contract `briefingProofLine` has.
+ */
+export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefing["loopProof"] {
+  const branch = events.filter((e) => e.basis === "branch" && e.verified);
+  const merged = events.filter((e) => e.source === "loop" && e.basis === "merged").length;
+  if (branch.length === 0 && merged === 0) return null;
+  return {
+    lanes: branch.length,
+    points: branch.length > 0 ? branch.reduce((n, e) => n + (e.dimPoints ?? 0), 0) : null,
+    merged,
+  };
+}
+
+/**
+ * One prose line for the loop's proof — printed by the exec banner, the PDF, the share page and the
+ * markdown from THIS function, so the four cannot drift.
+ *
+ * It says "on branches, not merged" in words. That phrase is the whole point of the line: the number
+ * beside it is real, verified, independently rescanned movement, and it is also not yet bought. A
+ * board reading "12 points" without that clause would reasonably believe the change had landed.
+ */
+export function briefingLoopProofLine(p: ExecBriefing["loopProof"]): string | null {
+  if (!p || (p.lanes === 0 && p.merged === 0)) return null;
+  const parts: string[] = [];
+  if (p.lanes > 0 && p.points != null) {
+    parts.push(
+      `${p.points >= 0 ? "+" : ""}${p.points} verified dimension point${Math.abs(p.points) === 1 ? "" : "s"} from ${p.lanes} local loop lane${p.lanes === 1 ? "" : "s"} — on branches, not merged`,
+    );
+  } else if (p.lanes > 0) {
+    parts.push(`${p.lanes} local loop lane${p.lanes === 1 ? "" : "s"} awaiting measurement`);
+  }
+  if (p.merged > 0) parts.push(`${p.merged} loop PR${p.merged === 1 ? "" : "s"} merged and verified`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function briefingProofLine(p: ExecBriefing["proof"]): string | null {
   if (!p || (p.open === 0 && p.merged === 0)) return null;
   const parts: string[] = [];
@@ -539,10 +592,14 @@ export function briefingMarkdown(b: ExecBriefing): string {
   // Proof before the ask: the rollout numbers are the briefing's evidence that acting on the last
   // ask worked. Fleet-wide by construction (practices aren't segment-scoped) — say so.
   const proofLine = briefingProofLine(b.proof ?? null);
-  if (proofLine) {
+  const loopLine = briefingLoopProofLine(b.loopProof ?? null);
+  if (proofLine || loopLine) {
     out.push("");
     out.push("## Proof: improvement shipped and measured");
-    out.push(`- Fleet-wide: ${proofLine}`);
+    if (proofLine) out.push(`- Fleet-wide: ${proofLine}`);
+    // SEPARATE from the practice line, never merged into it: "we merged it" and "it is on a branch
+    // waiting for review" are different claims, and a board is entitled to both, distinctly.
+    if (loopLine) out.push(`- Local loop: ${loopLine}`);
   }
   // Name the recommended next move from the SAME ranked list the on-screen page renders (G5-02).
   // This used to be `risks[0] ?? security`, computed only here: on a small, high-scoring fleet with

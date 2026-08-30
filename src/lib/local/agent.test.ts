@@ -4,6 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_AGENT_MODEL, autopilotEnabled, resolveAgentConfig, runClaudeAgent } from "@/lib/local/agent";
+import { parseAgentEnvelope } from "@/lib/local/agent-envelope";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -75,5 +76,89 @@ describe("resolveAgentConfig — what a run is ACTUALLY armed with", () => {
       model: "sonnet",
       effort: null,
     });
+  });
+});
+
+describe("parseAgentEnvelope — the measurements the process boundary used to drop", () => {
+  // The whole `claude -p --output-format json` envelope, as a table. Pure: no subprocess, and no mock
+  // of one. Before this existed the close handler read `.result`/`.is_error`/`.subtype` and threw the
+  // rest away, so every numeric expectation below was `undefined` on the previous commit.
+  const opts = { fallbackModel: "sonnet", exitCode: 0, stderr: "" };
+
+  it("reads cost, tokens, turns, duration, session and model off a full envelope", () => {
+    const env = parseAgentEnvelope(
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "Resolved two follow-ups.",
+        session_id: "sess_abc",
+        model: "claude-opus-4-6",
+        num_turns: 4,
+        duration_ms: 183_402,
+        total_cost_usd: 0.6231,
+        usage: { input_tokens: 1200, output_tokens: 800, cache_read_input_tokens: 40_000 },
+      }),
+      opts,
+    );
+    expect(env.ok).toBe(true);
+    expect(env.summary).toBe("Resolved two follow-ups.");
+    expect(env.model).toBe("claude-opus-4-6");
+    // MICRO-CENTS: $0.6231 = 62.31¢ = 62_310_000 micro-cents. An integer, so a 0.4¢ session is not
+    // rounded to zero; every display divides.
+    expect(env.costMicros).toBe(62_310_000);
+    expect(env.inputTokens).toBe(1200);
+    expect(env.outputTokens).toBe(800);
+    expect(env.cacheReadTokens).toBe(40_000);
+    expect(env.turns).toBe(4);
+    expect(env.durationMs).toBe(183_402);
+    expect(env.sessionId).toBe("sess_abc");
+  });
+
+  it("distinguishes a REPORTED zero cost from an absent one — 0 is a measurement, absent is not", () => {
+    expect(parseAgentEnvelope(JSON.stringify({ result: "ok", total_cost_usd: 0 }), opts).costMicros).toBe(0);
+    expect(parseAgentEnvelope(JSON.stringify({ result: "ok" }), opts).costMicros).toBeNull();
+  });
+
+  it("nulls every token count when `usage` is absent, rather than zeroing them", () => {
+    const env = parseAgentEnvelope(JSON.stringify({ result: "ok", total_cost_usd: 0.01 }), opts);
+    expect(env.inputTokens).toBeNull();
+    expect(env.outputTokens).toBeNull();
+    expect(env.cacheReadTokens).toBeNull();
+    expect(env.turns).toBeNull();
+  });
+
+  it("keeps the cost of a FAILED session — a failure that burned $2 is the ledger's key row", () => {
+    const env = parseAgentEnvelope(
+      JSON.stringify({ is_error: true, subtype: "error_max_turns", result: "hit the turn cap", total_cost_usd: 2, num_turns: 30 }),
+      opts,
+    );
+    expect(env.ok).toBe(false);
+    expect(env.summary).toContain("error_max_turns");
+    expect(env.costMicros).toBe(200_000_000);
+    expect(env.turns).toBe(30);
+  });
+
+  it("falls back to the model we ASKED for when the envelope does not name one", () => {
+    expect(parseAgentEnvelope(JSON.stringify({ result: "ok" }), opts).model).toBe("sonnet");
+    // …and takes a single-key `modelUsage` map, the CLI's other encoding. Two keys is two models and
+    // has no single honest answer, so it falls back rather than picking one.
+    expect(parseAgentEnvelope(JSON.stringify({ result: "ok", modelUsage: { "claude-haiku-4-6": {} } }), opts).model).toBe(
+      "claude-haiku-4-6",
+    );
+    expect(parseAgentEnvelope(JSON.stringify({ result: "ok", modelUsage: { a: {}, b: {} } }), opts).model).toBe("sonnet");
+  });
+
+  it("turns non-JSON stdout into a failed session with every measurement null, never a throw", () => {
+    const env = parseAgentEnvelope("command not found", { fallbackModel: "sonnet", exitCode: 127, stderr: "" });
+    expect(env.ok).toBe(false);
+    expect(env.summary).toContain("without a JSON envelope");
+    expect(env.costMicros).toBeNull();
+    expect(env.model).toBeNull();
+    expect(env.sessionId).toBeNull();
+  });
+
+  it("refuses a non-finite cost rather than storing NaN as a number", () => {
+    expect(parseAgentEnvelope(JSON.stringify({ result: "ok", total_cost_usd: "not-a-number" }), opts).costMicros).toBeNull();
   });
 });

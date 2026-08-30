@@ -59,6 +59,16 @@ export function parseDeliverables(raw: string | null | undefined): LaneDeliverab
     return [];
   }
 }
+// TYPE-ONLY, and the import runs the other way at runtime: `lane-economics.ts` is the pure fold and
+// depends on these shapes, while this module only needs its result type to declare what the detail
+// view carries. Erased at compile time, so there is no module cycle in the emitted graph.
+import type { LaneEconomics } from "@/lib/local/lane-economics";
+// Both TYPE-ONLY and both pure modules (no Prisma, no node built-ins reached at type level), for the
+// same reason as the line above: the record has to describe what the columns hold, and a second
+// "equivalent" declaration here is how a field silently stops arriving.
+import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
+import type { LaneReport } from "@/lib/local/lane-report";
+import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
 export const LOOP_CONCURRENCY_CAP = 4;
@@ -69,6 +79,28 @@ export const LOOP_MAX_CYCLES_CAP = 5;
 export const LANE_LOG_LINES = 200;
 
 export type LoopRunPhase = "curating" | "running" | "done" | "stopped" | "error";
+
+/**
+ * How a run spends models (MOONSHOT #27).
+ *
+ *   • `single` — every lane runs the one resolved model. What every run before #27 was.
+ *   • `ab`     — the same curated batch is worked by TWO lanes per repo per cycle, one per model,
+ *                each in its own worktree and each rescanned by the same guardbanded scorer. Two
+ *                arms of one experiment, so a cost/lift difference is a MEASUREMENT rather than a
+ *                comparison of two runs that differed in a dozen other ways.
+ */
+export type LoopModelPolicy = "single" | "ab";
+
+export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
+
+/** A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`. */
+export const asModelPolicy = (v: unknown): LoopModelPolicy =>
+  v === "ab" ? "ab" : "single";
+
+/** The ONE declared cost source for a lane. A second value would be a second source, which is the
+ *  thing the one-source rule exists to forbid — an envelope figure added to an OTLP figure
+ *  double-counts the same tokens. See `src/lib/local/lane-economics.ts`. */
+export const LANE_COST_SOURCE = "envelope" as const;
 export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "error";
 
 /**
@@ -116,6 +148,12 @@ export interface LoopRunRecord {
   /** The reasoning effort passed to the CLI, or null when none was chosen (the flag is then not
    *  passed at all — see src/lib/local/agent.ts). */
   effort: string | null;
+  /** How this run spends models. `single` = every lane runs the one resolved model; `ab` = each repo
+   *  is worked by TWO lanes, one per arm, sharing an `abPairKey`. */
+  modelPolicy: LoopModelPolicy;
+  /** The models this run is armed with, in order: one for `single`, two for `ab`. Empty on a row
+   *  written before the column — "not recorded", which `model` above still answers for. */
+  models: string[];
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -144,6 +182,44 @@ export interface LoopLaneRecord {
   /** What the lane delivered, as headlines — written at lane end (src/lib/local/lane-deliverables.ts).
    *  Empty on a row written before the column; the read side then derives them from the diff. */
   deliverables: LaneDeliverable[];
+
+  // ── MOONSHOT #27 — what this lane's agent session cost, from ONE declared source.
+  // Every field is null on a lane that reported nothing, and null is NOT zero: a 0 here would be
+  // averaged downstream as a free session, which is a claim nobody made.
+  /** The model this lane actually ran. Null on a pre-#27 row — unknown, not "the default". */
+  model: string | null;
+  /** `"envelope"` and nothing else today. Stamped so a reader never has to guess which population a
+   *  figure came from, and so a second source can never be quietly added to the first. */
+  costSource: string | null;
+  /** MICRO-CENTS (`round(total_cost_usd * 100 * 1e6)`). Displays divide; the store never rounds. */
+  costMicros: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  turns: number | null;
+  agentDurationMs: number | null;
+  /** The CLI's own session id — A JOIN KEY ONLY. Never a licence to add an `AgentSession` row's cost
+   *  to this lane's: that is OTLP export of sessions a DEVELOPER ran, a different population. */
+  agentSessionId: string | null;
+  /** Joins the two arms of one `ab` pair; null on a `single` run. */
+  abPairKey: string | null;
+
+  // ── MOONSHOT #25 — the org's own standard in, the agent's structured result out.
+  /** PROVENANCE of the brief this lane was given — which playbook and version, which mined practice,
+   *  which memory and skill ids, what was omitted and why. Not the prose: the prose is rebuilt
+   *  deterministically from the same inputs. `null` on a lane written before briefs existed. */
+  /** Dominant dimension of the lane's dispatched batch (MOONSHOT #26). Null when the batch spanned
+   *  none — and a lane with no dimension cannot open a PR, because ImprovementPr.dimId is not
+   *  nullable and inventing one would file real work under a dimension nobody chose. */
+  dimId: string | null;
+  /** The PR this lane became, denormalized. Null until an owner opens one; the loop never pushes. */
+  prNumber: number | null;
+  prUrl: string | null;
+  brief: LaneBriefProvenance | null;
+  /** The agent's own `.ascent/lane-report.json`, parsed and validated. `null` when the lane predates
+   *  the contract; a lane that ran and wrote nothing carries `{ parsed: false }`, which is a
+   *  different fact and is not the same as "it skipped nothing". */
+  report: LaneReport | null;
 }
 
 export interface LoopRunSummary {
@@ -161,6 +237,9 @@ export interface LoopRunSummary {
    *  the number, because comparing two lifts means comparing two setups. Null = unknown. */
   model?: string | null;
   effort?: string | null;
+  /** MICRO-CENTS summed over the lanes that recorded a cost. `null` when NONE did — "not measured",
+   *  which is a different fact from a run that cost nothing. */
+  costMicros?: number | null;
 }
 
 /** One lane's before/after, as the detail view needs it. */
@@ -182,6 +261,12 @@ export interface LoopRunDetail {
   run: LoopRunRecord;
   lanes: LoopLaneRecord[];
   outcomes: LoopLaneOutcome[];
+  /** One entry per outcome, SAME ORDER — what each lane cost against what it verifiably moved. The
+   *  fold is pure (`src/lib/local/lane-economics.ts`); this is only where it is carried to a client. */
+  economics: LaneEconomics[];
+  /** One row per item the run's lanes dispatched — the agent's account beside the rescan's ruling.
+   *  Empty on a run that predates the contract, which is not the same as "nothing was skipped". */
+  itemOutcomes: LaneOutcomeRow[];
 }
 
 // ── row → record ─────────────────────────────────────────────────────────────────────────────────
@@ -263,6 +348,8 @@ type RunRow = {
   curated: boolean;
   model?: string | null;
   effort?: string | null;
+  modelPolicy?: string | null;
+  modelsJson?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -287,7 +374,65 @@ type LaneRow = {
   startedAt: Date | null;
   endedAt: Date | null;
   deliverablesJson?: string | null;
+  // Optional so a read that predates the columns (or a fixture that does not select them) degrades
+  // to `null` per field rather than failing to type — the same posture `model`/`effort` take above.
+  model?: string | null;
+  costSource?: string | null;
+  costMicros?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  turns?: number | null;
+  agentDurationMs?: number | null;
+  agentSessionId?: string | null;
+  abPairKey?: string | null;
+  dimId?: string | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
+  briefJson?: string | null;
+  reportJson?: string | null;
 };
+
+/** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
+ *  layers up in a React tree — the same posture `parseTargets` takes. */
+export function parseBriefProvenance(raw: string | null | undefined): LaneBriefProvenance | null {
+  if (!raw || raw === "{}") return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    const p = v as Partial<LaneBriefProvenance>;
+    if (p.v !== 1 || !Array.isArray(p.sections) || !Array.isArray(p.omitted)) return null;
+    return {
+      v: 1,
+      bytes: typeof p.bytes === "number" ? p.bytes : 0,
+      sections: p.sections,
+      omitted: p.omitted,
+      housePatternVersion: typeof p.housePatternVersion === "string" ? p.housePatternVersion : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** `reportJson` → the parsed lane report, or null when the lane predates the contract. */
+export function parseReportColumn(raw: string | null | undefined): LaneReport | null {
+  if (!raw || raw === "{}") return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    const r = v as Partial<LaneReport>;
+    if (r.v !== 1) return null;
+    return {
+      v: 1,
+      parsed: r.parsed === true,
+      ...(typeof r.raw === "string" ? { raw: r.raw } : {}),
+      items: Array.isArray(r.items) ? r.items : [],
+      lessons: Array.isArray(r.lessons) ? r.lessons.filter((l): l is string => typeof l === "string") : [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function toRunRecord(row: RunRow): LoopRunRecord {
   const targets = parseTargets(row.reposJson);
@@ -304,6 +449,8 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     curated: row.curated,
     model: row.model ?? null,
     effort: row.effort ?? null,
+    modelPolicy: asModelPolicy(row.modelPolicy),
+    models: parseList(row.modelsJson),
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -330,6 +477,23 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     startedAt: row.startedAt ? row.startedAt.toISOString() : null,
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     deliverables: parseDeliverables(row.deliverablesJson),
+    // `?? null` per field, never `?? 0`: a column the row does not carry is UNKNOWN, and the fold
+    // that prices a verified point has to be able to tell that apart from a free session.
+    model: row.model ?? null,
+    costSource: row.costSource ?? null,
+    costMicros: row.costMicros ?? null,
+    inputTokens: row.inputTokens ?? null,
+    outputTokens: row.outputTokens ?? null,
+    cacheReadTokens: row.cacheReadTokens ?? null,
+    turns: row.turns ?? null,
+    agentDurationMs: row.agentDurationMs ?? null,
+    agentSessionId: row.agentSessionId ?? null,
+    abPairKey: row.abPairKey ?? null,
+    dimId: row.dimId ?? null,
+    prNumber: row.prNumber ?? null,
+    prUrl: row.prUrl ?? null,
+    brief: parseBriefProvenance(row.briefJson),
+    report: parseReportColumn(row.reportJson),
   };
 }
 

@@ -20,6 +20,13 @@ export interface LaneRailProps {
   busy?: boolean;
 }
 
+/** Micro-cents → a figure a reader can price work with. `null` is stated, never rendered as zero. */
+const fmtLaneCost = (micros: number | null): string => {
+  if (micros == null) return "cost unknown";
+  const cents = micros / 1_000_000;
+  return cents < 100 ? `${cents.toFixed(2)}¢` : `$${(cents / 100).toFixed(2)}`;
+};
+
 export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailProps) {
   const [open, setOpen] = useState(false);
   const at = laneStopIndex(lane);
@@ -38,6 +45,28 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
           cycle {lane.cycle} · {lane.commits} commits · {lane.closedIds.length} closed
           {lift != null && lift !== 0 && <span className="ml-2 text-slate-300">{fmtDelta(lift)}</span>}
         </span>
+      </div>
+
+      {/* WHAT THIS LANE'S SESSION COST. In the counters' own muted type and with no colour of its
+          own: a cost is not a verdict, and a red or green number here would read as one. A lane that
+          reported nothing says `cost unknown` rather than $0.00 — the CLI not telling us is not the
+          same fact as a free session. */}
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+        {(lane.model || lane.costMicros != null || lane.turns != null) && (
+          <span
+            data-testid="lane-cost"
+            className="font-mono text-xs tabular-nums text-slate-500"
+            title={
+              lane.costSource
+                ? `Cost as the agent's own session envelope reported it (source: ${lane.costSource}). Never summed with any other measurement of the same session.`
+                : undefined
+            }
+          >
+            {[lane.model, lane.turns != null ? `${lane.turns} turns` : null, fmtLaneCost(lane.costMicros)]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        )}
       </div>
 
       <div className="relative mt-2 h-6" aria-hidden>

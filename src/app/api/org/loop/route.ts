@@ -27,6 +27,7 @@ import {
   getActiveLoopRun,
   getLane,
   getLoopRun,
+  getOrgPriceList,
   listLoopRuns,
   markStaleRunsStopped,
 } from "@/lib/db/loop-runs";
@@ -48,8 +49,15 @@ export async function GET(request: Request) {
   // process is driving is not stale — without the predicate this GET stopped the run it was
   // rendering (2026-08-26).
   await markStaleRunsStopped(org, isLoopRunLive).catch(() => 0);
-  const [active, runs] = await Promise.all([getActiveLoopRun(org), listLoopRuns(org, 20)]);
-  return NextResponse.json({ enabled: autopilotEnabled(), active, runs });
+  // The price list is derived at read time from the org's own lanes — it stores nothing, and it is
+  // org-scoped: there is no cross-tenant "what does a D3 point cost" figure here, which would be a
+  // separate product decision rather than a free extension of this one.
+  const [active, runs, prices] = await Promise.all([
+    getActiveLoopRun(org),
+    listLoopRuns(org, 20),
+    getOrgPriceList(org).catch(() => null),
+  ]);
+  return NextResponse.json({ enabled: autopilotEnabled(), active, runs, prices });
 }
 
 type Body = {
@@ -64,7 +72,30 @@ type Body = {
   curated?: unknown;
   model?: unknown;
   effort?: unknown;
+  modelPolicy?: unknown;
+  models?: unknown;
 };
+
+/**
+ * The two arms of an `ab` run, validated. `null` = "this body did not ask for an A/B run".
+ *
+ * Throws with a human reason for anything that asked and got it wrong, because an A/B run that
+ * silently degrades to a single-model run produces a comparison the operator thinks they ran and did
+ * not. Each name is checked against the SAME token rule `agent.ts` enforces before a spawn — `shell:
+ * true` re-parses argv on Windows, so an unvalidated model name is an argument-injection surface and
+ * the answer is a 400, never a spawn.
+ */
+const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+function parseArms(body: Body): string[] | null {
+  if (body.modelPolicy !== "ab") return null;
+  const raw = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === "string") : [];
+  const arms = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
+  if (arms.length !== 2) throw new Error("An A/B run needs exactly two distinct models in 'models'.");
+  const bad = arms.find((m) => !MODEL_TOKEN.test(m));
+  if (bad) throw new Error(`Invalid model "${bad}".`);
+  return arms;
+}
 
 export async function POST(request: Request) {
   const guard = selfHostGuard() ?? dbGuard("The improvement loop", "The improvement loop requires a database.");
@@ -100,6 +131,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `concurrency must be 1–${LOOP_CONCURRENCY_CAP}.` }, { status: 400 });
   }
 
+  let arms: string[] | null;
+  try {
+    arms = parseArms(body);
+  } catch (err) {
+    // A malformed A/B request is a 400 (the caller sent something invalid), not a 409 (the server
+    // cannot do it right now) — and it never reaches the spawn seam.
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid model policy." }, { status: 400 });
+  }
+
   const viewer = await getViewer().catch(() => null);
   try {
     const run = await startLoopRun({
@@ -114,6 +154,7 @@ export async function POST(request: Request) {
       // default rather than 400-ing — a run must not fail because a stale tab sent a retired name.
       model: normalizeAgentModel(body.model),
       effort: normalizeAgentEffort(body.effort),
+      ...(arms ? { modelPolicy: "ab" as const, models: arms } : {}),
       actor: viewer?.login ?? null,
     });
     return NextResponse.json({ run });
