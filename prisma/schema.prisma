@@ -340,6 +340,11 @@ model Repository {
   // scored — the Passports capability matrix reads it beside the observed signals. Null until a scan
   // fetches a manifest; null must render as "no manifest declared", never as "declares nothing".
   manifestJson          String?
+  // Latest guidance graph (JSON GuidanceGraph — which agent-guidance files exist, which one governs
+  // a path, and where two of them contradict each other) cached from the most recent scan, mirroring
+  // contextHealthJson (moonshot #15). Display-only, never scored. Null = no scan has assessed this
+  // repo's guidance yet, which is NOT "the repo has no guidance" and NEVER a zero.
+  guidanceGraphJson     String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -641,6 +646,12 @@ model Scan {
   // the latest is cached on Repository.manifestJson. Display-only — never scored (G5). Null = this
   // scan fetched no manifest (no file, or a pre-#13 scan), which is NOT "declared nothing".
   manifestJson        String?
+  // Per-scan guidance graph — JSON GuidanceGraph (moonshot #15): the arbitrated view of a repo's
+  // agent-guidance files (CLAUDE.md, AGENTS.md, .cursor/rules, …) — which file governs which path,
+  // which are stale, and where two contradict. Per-scan history so a later scan can show a
+  // contradiction that was introduced and then resolved; the latest is cached on
+  // Repository.guidanceGraphJson. Display-only — never scored. Null = a pre-#15 scan.
+  guidanceGraphJson   String?
   scannedAt           DateTime
   createdAt           DateTime @default(now())
 
@@ -1046,12 +1057,22 @@ model ImprovementPr {
   impactDim        Int?
   impactOverall    Int?
   openedBy         String? // GitHub login who accepted the direction (null = anonymous/dev)
+  // MOONSHOT #26 — which surface opened this PR. Defaulted to "practice" so every existing row keeps
+  // its meaning; a loop lane's PR writes "loop". The union read folds both into ONE ledger, so the
+  // org stops having two incompatible answers to "what did we improve".
+  source           String    @default("practice") // practice | loop
+  // The LoopRunLane this PR came from, when source = "loop". Null on a practice PR — honest, not 0.
+  loopLaneId       String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  // UNCHANGED on purpose (moonshot #26): a loop row takes the synthetic practiceId "loop:<laneId>",
+  // which is unique by construction and therefore idempotent under retry — so the ledger needs no
+  // second uniqueness rule, and a widened key cannot silently admit duplicate practice PRs.
   @@unique([orgId, repoFullName, practiceId])
   @@index([orgId, state])
   @@index([orgId, createdAt])
+  @@index([orgId, loopLaneId])
 }
 
 // Team-standings snapshot (Teams tab): the "why the top team leads and the bottom lags" decomposition,
@@ -1228,28 +1249,34 @@ model OrgApiToken {
 // agent-private scratch, filtered to its author. `tags` is TEXT JSON (no jsonb — the DSQL-safety
 // contract this schema keeps). See src/lib/db/org-memory.ts + src/lib/memory/consolidation.ts.
 model OrgMemory {
-  id           String    @id @default(uuid())
-  orgId        String
-  namespace    String? // optional in-org grouping tag (the doc's "project" stand-in); null = org-wide
-  content      String // the memory body (the searchable payload); <= 20KB
-  kind         String    @default("semantic") // episodic | semantic | procedural | summary
-  visibility   String    @default("shared") // shared (whole org) | private (author-only)
-  source       String? // provenance: the agent/tool/human that produced it
-  confidence   Float     @default(1.0) // 0..1 trust score — ranking + pruning
-  tags         String    @default("[]") // JSON string[] — secondary, open-ended refinement
-  supersededBy String? // id of the memory that replaced this one (versioning); null = current
-  version      Int       @default(1)
-  archived     Boolean   @default(false) // soft archive, never a hard delete
-  accessCount  Int       @default(0) // denormalized recall/copy tally
-  expiresAt    DateTime? // TTL for ephemeral/scratch memory; null = permanent
+  id             String    @id @default(uuid())
+  orgId          String
+  namespace      String? // optional in-org grouping tag (the doc's "project" stand-in); null = org-wide
+  content        String // the memory body (the searchable payload); <= 20KB
+  kind           String    @default("semantic") // episodic | semantic | procedural | summary
+  visibility     String    @default("shared") // shared (whole org) | private (author-only)
+  source         String? // provenance: the agent/tool/human that produced it
+  confidence     Float     @default(1.0) // 0..1 trust score — ranking + pruning
+  tags           String    @default("[]") // JSON string[] — secondary, open-ended refinement
+  supersededBy   String? // id of the memory that replaced this one (versioning); null = current
+  version        Int       @default(1)
+  archived       Boolean   @default(false) // soft archive, never a hard delete
+  accessCount    Int       @default(0) // denormalized recall/copy tally
+  // MOONSHOT #17 — use-evidence from the MCP door, denormalized off OrgMemoryCitation so the Memory
+  // tab can rank without a per-row aggregate. `citedCount` is "an agent said it USED this";
+  // `notUsefulCount` is "an agent read it and said it did not help" — two facts, never netted into
+  // one score, because a memory nobody uses and a memory everybody rejects need different actions.
+  citedCount     Int       @default(0)
+  notUsefulCount Int       @default(0)
+  expiresAt      DateTime? // TTL for ephemeral/scratch memory; null = permanent
   // Registry mirror (UC2) — see OrgSkill.origin for the contract.
-  origin       String    @default("hosted") // hosted | registry
-  registryId   String?
-  registryPath String? // repo-relative path, e.g. "memory/decision/postgres-over-dynamo.md"
-  registryHash String?
-  createdBy    String? // GitHub login of the author
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  origin         String    @default("hosted") // hosted | registry
+  registryId     String?
+  registryPath   String? // repo-relative path, e.g. "memory/decision/postgres-over-dynamo.md"
+  registryHash   String?
+  createdBy      String? // GitHub login of the author
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -1673,6 +1700,14 @@ model LoopRun {
   // `effort` stays NULL when no level was chosen — the CLI flag is then not passed at all.
   model       String?
   effort      String?
+  // MOONSHOT #27 — how this run spends models. `single` = every lane runs the one resolved model;
+  // `ab` = the run pairs its lanes across two models so a cost/lift comparison is a MEASUREMENT
+  // rather than a comparison across two runs that differed in a dozen other ways.
+  modelPolicy String    @default("single") // single | ab
+  // JSON string[] (TEXT, never jsonb) of the models this run is armed with, IN ORDER: ["sonnet"] for
+  // a `single` run, the two arms for an `ab` run. Defaulted to "[]" so a pre-#27 row reads as "not
+  // recorded" without a nullable column the readers would each have to interpret.
+  modelsJson  String    @default("[]")
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1704,6 +1739,46 @@ model LoopRunLane {
   error         String?
   startedAt     DateTime?
   endedAt       DateTime?
+
+  // ── MOONSHOT #27 — remediation economics. ONE declared cost source per lane (`costSource`), never
+  // a sum of two: an envelope figure added to an OTLP figure double-counts the same tokens. Every
+  // measurement here is NULLABLE because a lane whose agent reported nothing is UNKNOWN, and a 0
+  // written in its place would be averaged as a free session.
+  model           String? // the model this lane actually ran ("sonnet", …). Null = a pre-#27 row.
+  costSource      String? // "envelope" — the ONE declared source. Never summed with another.
+  // MICRO-CENTS (round(total_cost_usd * 100 * 1e6)), so a 0.4¢ session is not rounded to zero.
+  // Every display divides. Null = unknown, which is NOT zero cost.
+  costMicros      Int?
+  inputTokens     Int?
+  outputTokens    Int?
+  cacheReadTokens Int?
+  turns           Int?
+  agentDurationMs Int?
+  // The CLI's own session id when it reported one — A JOIN KEY ONLY. It is never used to add an
+  // AgentSession row's costCents to this lane's cost (that is the one-source rule above).
+  agentSessionId  String?
+  abPairKey       String? // joins the two arms of one `ab` pair; null on a `single` run
+
+  // ── MOONSHOT #25 — the lane's org brief and the report the agent wrote back.
+  // PROVENANCE of the brief (which playbook + version, which mined practice, which memory ids,
+  // which skills, byte sizes) — not its prose, which is rebuilt deterministically from these.
+  briefJson  String @default("{}")
+  // The parsed `.ascent/lane-report.json`, verbatim after validation, so a verdict is auditable
+  // against what the agent actually claimed rather than against a re-derivation of it.
+  reportJson String @default("{}")
+
+  // ── MOONSHOT #26 — the lane's PR, denormalized so the cockpit renders it without a join.
+  dimId    String? // dominant dimension of the batch; HONEST NULL when it was empty or spanned none
+  prNumber Int?
+  prUrl    String?
+
+  // ── MOONSHOT #3 — the work lease. LANDED HERE, DELIBERATELY UNUSED until W4-N builds the
+  // agent-neutral work protocol (00-INDEX §5 Wave 2, overriding #3's own "wave-4 pass"): a lease
+  // column added a wave after the rows it must protect is a wave of unleased rows. `executor`
+  // defaults to "local" so every existing lane keeps its current meaning exactly.
+  executor   String    @default("local") // local | remote-agent | human
+  claimedBy  String? // opaque actor id of the claimant; null = unclaimed
+  leaseUntil DateTime? // null = no lease held. An expired lease is releasable, never a zombie claim.
 
   run LoopRun @relation(fields: [runId], references: [id])
 
@@ -2057,23 +2132,28 @@ model OrgKnowledgeSubject {
 // #18 — the HEADER of one repo's `.ai/registry-map.json`: the counts and provenance of the map, so a
 // reader can tell "judged 3 of 40 pairs" apart from "conformant". One row per repo.
 model RepoConformanceMap {
-  id                String   @id @default(uuid())
-  orgId             String
-  repositoryId      String
-  mapSha            String
-  schema            String
-  generatedAt       DateTime
-  contexts          Int
-  pairs             Int
-  judged            Int
-  deviations        Int
-  weaklyGoverned    Int
-  unmatched         Int
-  domainsJson       String   @default("[]") // TEXT JSON
-  bundleDigestsJson String   @default("{}") // TEXT JSON
-  consults30d       Int? // NULL = the map carried no consult lane, which is NOT "zero consults"
-  warningsJson      String   @default("[]") // TEXT JSON string[]
-  ingestedAt        DateTime
+  id                 String   @id @default(uuid())
+  orgId              String
+  repositoryId       String
+  mapSha             String
+  schema             String
+  generatedAt        DateTime
+  contexts           Int
+  pairs              Int
+  judged             Int
+  deviations         Int
+  weaklyGoverned     Int
+  // The weakly-governed contexts BY NAME (TEXT JSON string[]), not merely how many. Director
+  // addendum deferred from wave 1: the registry map states governance per context and the list is
+  // NOT derivable from the counts or from RepoConformance (a context with no judged pair leaves no
+  // row at all), so without this column "3 weakly governed" names nothing a reader can act on.
+  weaklyGovernedJson String   @default("[]")
+  unmatched          Int
+  domainsJson        String   @default("[]") // TEXT JSON
+  bundleDigestsJson  String   @default("{}") // TEXT JSON
+  consults30d        Int? // NULL = the map carried no consult lane, which is NOT "zero consults"
+  warningsJson       String   @default("[]") // TEXT JSON string[]
+  ingestedAt         DateTime
 
   // One map header per repo. Block-level for the same reason as UsageEvent.idemKey — the emitted
   // constraint (RepoConformanceMap_repositoryId_key) is identical to the inline form's.
@@ -2254,4 +2334,139 @@ model ScanDigest {
 
   @@unique([repoId, period, rubricVersion, engineProvider])
   @@index([repoId, lastScannedAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOONSHOT WAVE 2 — the loop's outcome ledger, the practice-adoption ledger and the memory
+// citation channel (docs/specs/moonshot/00-INDEX.md §5 "Wave 2"). Same three rules as wave 1: every
+// JSON payload is TEXT (never jsonb — DSQL/PGlite), every MEASUREMENT column is nullable so an
+// unreported figure stays UNKNOWN rather than becoming a summed zero, and the erase/purge cascades
+// for these tables are hand-written in src/lib/db/retention.ts (relationMode = "prisma" emits no
+// FKs, so nothing here cascades by itself).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// #25 — what the lane's agent did with ONE recommendation it was handed, as the agent itself
+// reported it in `.ascent/lane-report.json`. This is the row that stops the loop re-picking an item
+// the agent already declined: `absent` (the report never mentioned the id) is a distinct verdict
+// from `skipped` (it mentioned it and declined), because "we do not know" and "it said no" are
+// different facts and only one of them is a reason to stop offering the item.
+// STANDALONE under relationMode = "prisma": denormalized `orgId`, no DB FK — the PlaybookApplication
+// / ImprovementPr posture. See src/lib/db/lane-outcomes.ts.
+model LaneItemOutcome {
+  id               String    @id @default(uuid())
+  orgId            String
+  runId            String
+  laneId           String
+  repoFullName     String
+  recommendationId String
+  cycle            Int
+  // resolved | skipped | needs_human | attempted | absent
+  verdict          String
+  reason           String    @default("") // the agent's own words; "" = it gave none, never a guess
+  filesJson        String    @default("[]") // TEXT JSON string[] of paths the agent claimed to touch
+  deferUntil       DateTime? // null = not deferred. A deferral is per-ITEM, never a schedule.
+  createdAt        DateTime  @default(now())
+
+  // One verdict per (lane, item) — the idempotency key, so re-parsing the same report is a no-op.
+  @@unique([laneId, recommendationId])
+  @@index([orgId, recommendationId])
+  @@index([runId])
+}
+
+// #25 — a lesson a lane proposed for the org's memory, held in REVIEW rather than written straight
+// into OrgMemory: an agent's summary of its own work is a claim, and promoting it unreviewed would
+// let a loop teach the organization something no human ever agreed to. `promotedMemoryId` records
+// the OrgMemory row a kept candidate became, so the provenance survives the promotion.
+// Deliberately generic (`source` is an open string): #36's skill-lessons channel can reuse this
+// table rather than fork a second one.
+model OrgMemoryCandidate {
+  id               String    @id @default(uuid())
+  orgId            String
+  namespace        String? // optional in-org grouping tag; null = org-wide (OrgMemory's rule)
+  content          String
+  kind             String    @default("procedural") // episodic | semantic | procedural | summary
+  source           String // provenance: "loop-lesson", "skill-lessons", …
+  laneId           String? // the LoopRunLane that proposed it; null = another channel did
+  status           String    @default("pending") // pending | kept | discarded
+  promotedMemoryId String? // the OrgMemory row a `kept` candidate became; null until promoted
+  reviewedBy       String? // GitHub login that decided; null while pending
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([orgId, status])
+}
+
+// #33 — one practice artifact ascent PROPOSED to a repo, and what happened to it afterwards. The
+// hashes are the whole point: `proposedHash` is what ascent committed to the PR branch and
+// `adoptedHash` is what the file actually looks like now, so `drifted` is a MEASURED divergence
+// rather than an assumption that a merged PR stayed merged. `adoptedHash` stays NULL until the
+// first post-merge scan reads the file — null is "not yet observed", never "unchanged".
+model PracticeAdoption {
+  id              String    @id @default(uuid())
+  orgId           String
+  repoFullName    String
+  practiceId      String // catalog id | "registry:<slug>" | "playbook:<uuid>"
+  source          String // generic | house | registry | playbook
+  patternVersion  Int? // HousePatternVersion.version when source = house; NULL otherwise
+  artifactPath    String
+  proposedHash    String // sha256-n1 of the body ascent committed to the PR branch
+  adoptedHash     String? // sha256-n1 of the file as it LANDED; NULL until the first post-merge scan
+  adoptedOutline  String? // sha256-n1 over the landed file's normalized heading outline
+  state           String    @default("proposed") // proposed | adopted | drifted | removed | superseded
+  improvementPrId String? // read-only join to the ImprovementPr this came from
+  prNumber        Int?
+  adoptedAt       DateTime?
+  driftedAt       DateTime?
+  lastCheckedAt   DateTime?
+  lastScanId      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([orgId, repoFullName, practiceId, artifactPath])
+  @@index([orgId, state])
+  @@index([orgId, practiceId, patternVersion])
+}
+
+// #33 — an immutable version of an org's own mined "house pattern" for a practice. Versioned rather
+// than overwritten because an adoption row cites the version it was measured against: re-mining the
+// pattern must not retroactively turn every previously-conformant repo into a drifted one.
+// `patternHash` (over linesJson) is the change key — a re-mine that produces the same lines writes
+// no new version at all.
+model HousePatternVersion {
+  id            String   @id @default(uuid())
+  orgId         String
+  practiceId    String
+  version       Int // 1-based, per (orgId, practiceId)
+  linesJson     String   @default("[]") // TEXT JSON string[] — minedStarter() output
+  exemplarsJson String   @default("[]") // TEXT JSON string[] — repo fullNames that agreed
+  agreementMin  Int      @default(2) // MIN_AGREEMENT in force when this version was mined
+  patternHash   String // sha256-n1 over linesJson — the change key
+  minedAt       DateTime @default(now())
+
+  @@unique([orgId, practiceId, version])
+  @@unique([orgId, practiceId, patternHash])
+  @@index([orgId, practiceId])
+}
+
+// #17 — an agent telling ascent what it actually USED. One row per (memory, session): the unique key
+// makes a chatty agent's repeated reads ONE citation, so `OrgMemory.citedCount` counts sessions that
+// used a memory rather than calls that mentioned it. `used = false` is a first-class fact (the agent
+// read it and it did not help) and is counted separately in `notUsefulCount` — never netted against
+// the positive count. Written only through the plan-gated, scope-gated MCP write door, which also
+// writes the AuditLog row beside it; see src/lib/db/org-memory-citations.ts.
+model OrgMemoryCitation {
+  id        String   @id @default(uuid())
+  orgId     String
+  memoryId  String
+  tokenId   String? // the OrgApiToken that carried the write; null = a non-token actor
+  actor     String // the caller's declared identity (agent name / login)
+  sessionId String // the agent's own session id — the dedupe dimension, not a join to AgentSession
+  used      Boolean
+  note      String? // the agent's one-line reason; null = it gave none
+  source    String   @default("mcp") // mcp | web | cli — where the citation entered
+  createdAt DateTime @default(now())
+
+  @@unique([memoryId, sessionId])
+  @@index([orgId, createdAt])
+  @@index([memoryId, used])
 }

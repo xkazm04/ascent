@@ -475,6 +475,12 @@ export interface OrgPurgeResult {
   /** ConformanceFinding rows removed with those reports — deleted BEFORE their parent by hand: the
    *  schema's onDelete: Cascade is client-side emulation that a bulk deleteMany does not run. */
   conformanceFindingsDeleted: number;
+  /** MOONSHOT #17 — `OrgMemoryCitation` rows aged out on the same audit horizon. A citation is an
+   *  EVENT ("this agent used this memory in this session"), so it ages like the meter and the
+   *  control ledger; the denormalized `OrgMemory.citedCount` is the surviving standing figure and is
+   *  deliberately NOT decremented — the count records that the memory was used, and rewriting it
+   *  when the evidence ages out would make a memory look progressively less used over time. */
+  memoryCitationsDeleted: number;
   /** MOONSHOT #32 — `ScanDigest` rows created or updated by the fold. The compliance trace has to
    *  say what SURVIVED, not only what died: these are the summaries the deleted scans became. */
   digestsWritten: number;
@@ -499,6 +505,7 @@ export interface PurgeSummary {
   usageEventsDeleted: number;
   conformanceReportsDeleted: number;
   conformanceFindingsDeleted: number;
+  memoryCitationsDeleted: number;
   digestsWritten: number;
   scansCompacted: number;
   digestsDeleted: number;
@@ -701,6 +708,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     let usageEventsDeleted = 0;
     let conformanceReportsDeleted = 0;
     let conformanceFindingsDeleted = 0;
+    let memoryCitationsDeleted = 0;
     let digestsWritten = 0;
     let scansCompacted = 0;
     let digestsDeleted = 0;
@@ -748,6 +756,12 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           conformanceReportsDeleted = await prisma.conformanceReport.count({
             where: { orgId: org.id, reportedAt: { lt: cutoff } },
           });
+          // MOONSHOT #17 — counted, not skipped as a dependent row would be: a citation is a
+          // standalone event with its own predicate, and spec 17 asks for it in the COUNTED preview
+          // precisely so an operator can see the use-evidence a purge is about to remove.
+          memoryCitationsDeleted = await prisma.orgMemoryCitation.count({
+            where: { orgId: org.id, createdAt: { lt: cutoff } },
+          });
         }
         results.push({
           orgSlug: org.slug,
@@ -761,6 +775,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           usageEventsDeleted,
           conformanceReportsDeleted,
           conformanceFindingsDeleted,
+          memoryCitationsDeleted,
           digestsWritten,
           scansCompacted,
           digestsDeleted,
@@ -903,6 +918,33 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           );
           if (overBudget()) budgetStopped = true;
         }
+
+        // MOONSHOT #17 — the memory citation channel. Like the meter, this table grows with AGENT
+        // TRAFFIC rather than with the fleet, so an org whose scans all sit inside the keep-window
+        // can still accumulate citations the scan prune never reaches. Aged on the audit horizon.
+        // `OrgMemory.citedCount` is deliberately left alone: it records that the memory WAS used,
+        // and decrementing it as evidence ages would make a well-used memory decay into an
+        // apparently-unused one — a number that gets quietly less true the longer it survives.
+        if (!budgetStopped) {
+          memoryCitationsDeleted = await pruneAgedLedger(
+            (take) =>
+              prisma.orgMemoryCitation.findMany({
+                where: { orgId: org.id, createdAt: { lt: cutoff } },
+                orderBy: { createdAt: "asc" },
+                take,
+                select: { id: true },
+              }),
+            async (ids) =>
+              (
+                await withRetry(() => prisma.orgMemoryCitation.deleteMany({ where: { id: { in: ids } } }), {
+                  label: "retention.prune-memory-citations",
+                })
+              ).count,
+            policy.batchSize,
+            overBudget,
+          );
+          if (overBudget()) budgetStopped = true;
+        }
       }
 
       // The purge job records its own audit entry (compliance trace of what was removed).
@@ -925,6 +967,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         usageEventsDeleted +
         conformanceReportsDeleted +
         conformanceFindingsDeleted +
+        memoryCitationsDeleted +
         // Digests can age out on a tick where nothing else did (an org that turned compaction off
         // still drains its tail), and a destructive act with no trace is what the gate exists to
         // prevent — so it counts as "something happened". `digestsWritten` deliberately does not:
@@ -943,6 +986,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
             usageEventsDeleted,
             conformanceReportsDeleted,
             conformanceFindingsDeleted,
+            memoryCitationsDeleted,
             digestsWritten,
             scansCompacted,
             digestsDeleted,
@@ -967,6 +1011,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         usageEventsDeleted,
         conformanceReportsDeleted,
         conformanceFindingsDeleted,
+        memoryCitationsDeleted,
         digestsWritten,
         scansCompacted,
         digestsDeleted,
@@ -1003,6 +1048,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         usageEventsDeleted +
         conformanceReportsDeleted +
         conformanceFindingsDeleted +
+        memoryCitationsDeleted +
         // Digests can age out on a tick where nothing else did (an org that turned compaction off
         // still drains its tail), and a destructive act with no trace is what the gate exists to
         // prevent — so it counts as "something happened". `digestsWritten` deliberately does not:
@@ -1021,6 +1067,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           usageEventsDeleted,
           conformanceReportsDeleted,
           conformanceFindingsDeleted,
+          memoryCitationsDeleted,
           digestsWritten,
           scansCompacted,
           digestsDeleted,
@@ -1069,6 +1116,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           usageEventsDeleted: 0,
           conformanceReportsDeleted: 0,
           conformanceFindingsDeleted: 0,
+          memoryCitationsDeleted: 0,
           // A ScanDigest hangs off a Repository, which carries a required org — so, like the three
           // above, these zeros are a fact about the orphan sweep's SCOPE, not an unmeasured value.
           digestsWritten: 0,
@@ -1108,6 +1156,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     usageEventsDeleted: results.reduce((a, r) => a + r.usageEventsDeleted, 0),
     conformanceReportsDeleted: results.reduce((a, r) => a + r.conformanceReportsDeleted, 0),
     conformanceFindingsDeleted: results.reduce((a, r) => a + r.conformanceFindingsDeleted, 0),
+    memoryCitationsDeleted: results.reduce((a, r) => a + r.memoryCitationsDeleted, 0),
     digestsWritten: results.reduce((a, r) => a + r.digestsWritten, 0),
     scansCompacted: results.reduce((a, r) => a + r.scansCompacted, 0),
     digestsDeleted: results.reduce((a, r) => a + r.digestsDeleted, 0),
@@ -1423,7 +1472,10 @@ async function eraseOrgAthena(
 /**
  * Erase the ORG-SCOPED wave-1 ledgers: the outcome ledger (#9), the LLM meter (#11), the repo-memory
  * mirror (#14), the doctor control ledger (#16), the registry knowledge/conformance/signals tables
- * (#18), the skill usage samples (#19) and the lessons / trace / memory-proposal lane (#36).
+ * (#18), the skill usage samples (#19) and the lessons / trace / memory-proposal lane (#36) — plus
+ * the wave-2 ones: the lane verdict ledger and memory-candidate queue (#25) and the practice
+ * adoption / house-pattern ledger (#33). (OrgMemoryCitation is NOT here: it must die before the
+ * OrgMemory rows it points at, so it is swept earlier — see eraseOrgMemoryCitations.)
  *
  * WHY EACH ONE IS TENANT DATA, since an erase that leaves any of them behind is not an erasure:
  * an InterventionOutcome names the repo and the measured lift; a UsageEvent names the repo, the team
@@ -1463,6 +1515,10 @@ async function eraseOrgLedgers(
   skillTraces: number;
   memoryProposals: number;
   registryLedger: number;
+  laneOutcomes: number;
+  memoryCandidates: number;
+  practiceAdoptions: number;
+  housePatterns: number;
 }> {
   const totals = {
     outcomes: 0,
@@ -1474,6 +1530,10 @@ async function eraseOrgLedgers(
     skillTraces: 0,
     memoryProposals: 0,
     registryLedger: 0,
+    laneOutcomes: 0,
+    memoryCandidates: 0,
+    practiceAdoptions: 0,
+    housePatterns: 0,
   };
 
   /** Drain one flat org-scoped table. Counts in a preview; batched deletes otherwise. */
@@ -1592,7 +1652,80 @@ async function eraseOrgLedgers(
     "erase.skill-usage-samples",
   );
 
+  // ── MOONSHOT WAVE 2 ───────────────────────────────────────────────────────────────────────────
+  // #25 — the lane verdict ledger. Tenant data twice over: a LaneItemOutcome names the repo, the
+  // recommendation and the FILES an agent touched, and its `reason` is the agent's prose about this
+  // organization's code. Standalone (denormalized orgId, no FK), so nothing removes it but this.
+  totals.laneOutcomes = await drain(
+    (take) => prisma.laneItemOutcome.findMany(page(take)),
+    () => prisma.laneItemOutcome.count({ where }),
+    async (ids) => (await prisma.laneItemOutcome.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.lane-outcomes",
+  );
+
+  // #25 — the memory-candidate queue. A candidate is a proposed org memory that no human has ruled
+  // on yet; leaving the pending ones behind would let an erased tenant's lessons be promoted into
+  // OrgMemory afterwards, which is the erasure failing in the most visible way possible.
+  totals.memoryCandidates = await drain(
+    (take) => prisma.orgMemoryCandidate.findMany(page(take)),
+    () => prisma.orgMemoryCandidate.count({ where }),
+    async (ids) => (await prisma.orgMemoryCandidate.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.memory-candidates",
+  );
+
+  // #33 — the adoption ledger. Each row names a repo, a file path inside it and the content hashes
+  // of what that file held; the ledger is a durable record of the tenant's repositories.
+  totals.practiceAdoptions = await drain(
+    (take) => prisma.practiceAdoption.findMany(page(take)),
+    () => prisma.practiceAdoption.count({ where }),
+    async (ids) => (await prisma.practiceAdoption.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.practice-adoption",
+  );
+
+  // #33 — the mined house patterns. `linesJson` IS the tenant's own prose (mined out of its repos)
+  // and `exemplarsJson` names the repos that agreed, so this is tenant content, not a catalog.
+  totals.housePatterns = await drain(
+    (take) => prisma.housePatternVersion.findMany(page(take)),
+    () => prisma.housePatternVersion.count({ where }),
+    async (ids) => (await prisma.housePatternVersion.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.house-patterns",
+  );
+
   return totals;
+}
+
+/**
+ * MOONSHOT #17 — erase the org's memory citations, and do it BEFORE anything deletes an OrgMemory
+ * row (spec 17 §Handoffs 5). Order is the whole reason this is its own function rather than another
+ * block inside {@link eraseOrgLedgers}: the ledgers sweep runs after `eraseOrgAthena`, which deletes
+ * the OrgMemory rows Athena wrote — so a citation sweep placed there would, on a budget-stopped run,
+ * leave rows pointing at memories that no longer exist. A citation carries the tenant's session ids,
+ * actor names and the agent's note, so it is tenant data in its own right and never merely a
+ * dependent count.
+ *
+ * `memoryId` has no FK (relationMode = "prisma"), so nothing deletes these implicitly. Org-scoped
+ * and batched like every other loop here; a preview counts over the SAME predicate the delete uses.
+ */
+async function eraseOrgMemoryCitations(
+  prisma: PrismaLike,
+  orgId: string,
+  batchSize: number,
+  overBudget: () => boolean,
+  dryRun: boolean,
+): Promise<number> {
+  if (overBudget()) return 0;
+  if (dryRun) return prisma.orgMemoryCitation.count({ where: { orgId } });
+  return pruneAgedLedger(
+    (take) => prisma.orgMemoryCitation.findMany({ where: { orgId }, orderBy: { id: "asc" }, take, select: { id: true } }),
+    async (ids) =>
+      (
+        await withRetry(() => prisma.orgMemoryCitation.deleteMany({ where: { id: { in: ids } } }), {
+          label: "erase.memory-citations",
+        })
+      ).count,
+    batchSize,
+    overBudget,
+  );
 }
 
 /** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
@@ -1681,6 +1814,19 @@ export interface EraseResult {
    *  RepoConformanceMap + RegistrySignal + RegistrySignalContribution + OrgSkillUsageSample. They are
    *  written by a single index pass and read as one view, so they are reported as one number. */
   registryLedgerDeleted: number;
+  /** LaneItemOutcome rows removed (moonshot #25), org scope only. */
+  laneOutcomesDeleted: number;
+  /** OrgMemoryCandidate rows removed (moonshot #25), org scope only — including the PENDING ones,
+   *  which would otherwise still be promotable into OrgMemory after the tenant was erased. */
+  memoryCandidatesDeleted: number;
+  /** OrgMemoryCitation rows removed (moonshot #17), org scope only. Swept BEFORE any OrgMemory
+   *  delete on this path, so a budget-stopped run never leaves a citation pointing at nothing. */
+  memoryCitationsDeleted: number;
+  /** PracticeAdoption rows removed (moonshot #33). A repo-scoped erase removes only that repo's. */
+  practiceAdoptionsDeleted: number;
+  /** HousePatternVersion rows removed (moonshot #33), org scope only: a pattern is mined ACROSS
+   *  repos, so one repo leaving the org does not un-mine it. */
+  housePatternsDeleted: number;
   /** `ScanDigest` rows removed (moonshot #32). An erase both REFUSES to compact and deletes the
    *  compacted tail: a summary of erased data is still that data's shadow. */
   digestsDeleted: number;
@@ -1784,6 +1930,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let skillTracesDeleted = 0;
   let memoryProposalsDeleted = 0;
   let registryLedgerDeleted = 0;
+  let laneOutcomesDeleted = 0;
+  let memoryCandidatesDeleted = 0;
+  let memoryCitationsDeleted = 0;
+  let practiceAdoptionsDeleted = 0;
+  let housePatternsDeleted = 0;
   let digestsDeleted = 0;
   let stoppedEarly = false;
 
@@ -1844,6 +1995,24 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
           )
         ).count;
       }
+      // MOONSHOT #33 — the repo's adoption ledger, keyed by (orgId, repoFullName) for the same
+      // reason and with the same hazard: a REPO-scoped erase that left these behind would keep a
+      // durable record of which files that repo held and what was in them, addressed by path, after
+      // the repo itself is gone. The org-wide sweep below reaches them on a full erase; this is the
+      // per-repo half. HousePatternVersion is deliberately NOT swept here — it is org-level, mined
+      // across repos, and one repo leaving does not un-mine the org's pattern.
+      if (dryRun) {
+        practiceAdoptionsDeleted += await prisma.practiceAdoption.count({
+          where: { orgId: org.id, repoFullName: repoName },
+        });
+      } else {
+        practiceAdoptionsDeleted += (
+          await withRetry(
+            () => prisma.practiceAdoption.deleteMany({ where: { orgId: org.id, repoFullName: repoName } }),
+            { label: "erase.practice-adoption-by-repo" },
+          )
+        ).count;
+      }
     }
     if (dryRun) return;
     await withRetry(() => prisma.repository.update({ where: { id: repoId }, data: { ...ERASED_REPO_CACHE_RESET } }), {
@@ -1895,6 +2064,15 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       if (overBudget()) stoppedEarly = true;
     }
 
+    // MOONSHOT #17 — the memory citations, swept BEFORE the Athena block below, which is the first
+    // thing on this path that deletes OrgMemory rows. Ordering, not tidiness: a citation left behind
+    // by a budget-stopped run would point at a memory that no longer exists. See
+    // eraseOrgMemoryCitations.
+    if (!stoppedEarly) {
+      memoryCitationsDeleted = await eraseOrgMemoryCitations(prisma, org.id, batchSize, overBudget, dryRun);
+      if (overBudget()) stoppedEarly = true;
+    }
+
     // Athena: org-scoped like the loop history, and tenant data for the same reason — her threads are
     // the operator's words and her self-model is a document about this organization. Includes the
     // OrgMemory rows she wrote (`source: "athena"`) and NOTHING else in that store; see eraseOrgAthena.
@@ -1923,6 +2101,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       skillTracesDeleted = led.skillTraces;
       memoryProposalsDeleted = led.memoryProposals;
       registryLedgerDeleted = led.registryLedger;
+      laneOutcomesDeleted = led.laneOutcomes;
+      memoryCandidatesDeleted = led.memoryCandidates;
+      practiceAdoptionsDeleted += led.practiceAdoptions;
+      housePatternsDeleted = led.housePatterns;
       if (overBudget()) stoppedEarly = true;
     }
 
@@ -1974,6 +2156,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       skillTracesDeleted,
       memoryProposalsDeleted,
       registryLedgerDeleted,
+      laneOutcomesDeleted,
+      memoryCandidatesDeleted,
+      memoryCitationsDeleted,
+      practiceAdoptionsDeleted,
+      housePatternsDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -2018,6 +2205,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       skillTracesDeleted,
       memoryProposalsDeleted,
       registryLedgerDeleted,
+      laneOutcomesDeleted,
+      memoryCandidatesDeleted,
+      memoryCitationsDeleted,
+      practiceAdoptionsDeleted,
+      housePatternsDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -2052,6 +2244,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     skillTracesDeleted,
     memoryProposalsDeleted,
     registryLedgerDeleted,
+    laneOutcomesDeleted,
+    memoryCandidatesDeleted,
+    memoryCitationsDeleted,
+    practiceAdoptionsDeleted,
+    housePatternsDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,

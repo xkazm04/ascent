@@ -69,6 +69,16 @@ const WAVE1_LEDGERS = [
   // set for the same reason the others do: `eraseRepo` now drains it, and a fake that omits the
   // delegate makes the sweep THROW rather than silently skip.
   "scanDigest",
+  // MOONSHOT WAVE 2 — the same contract, five more tables: #25's lane verdict ledger and memory
+  // candidate queue, #33's adoption ledger and mined house patterns, #17's memory citations. They
+  // live in the same array because every fixture in this file must carry every delegate the sweeps
+  // touch; a missing one is a throw, and a throw inside the per-org try is caught and reported as an
+  // ERROR rather than a failure, which is how a whole table quietly stops being erased.
+  "laneItemOutcome",
+  "orgMemoryCandidate",
+  "practiceAdoption",
+  "housePatternVersion",
+  "orgMemoryCitation",
 ] as const;
 type Wave1Ledger = (typeof WAVE1_LEDGERS)[number];
 type LedgerDelegate = {
@@ -2302,6 +2312,9 @@ function fakeWave1PurgePrisma() {
     usageEvent: ["ue_1", "ue_2", "ue_3"],
     conformanceReport: ["cr_1"],
     conformanceFinding: ["cf_1", "cf_2"],
+    // MOONSHOT #17 — citations age like the meter does: this table grows with AGENT TRAFFIC, which
+    // no scan window ever bounds.
+    orgMemoryCitation: ["ct_1", "ct_2"],
   });
   /** Delete calls in issue order, so a test can assert children-before-parent. */
   const order: string[] = [];
@@ -2453,6 +2466,14 @@ function fakeWave1ErasePrisma() {
     // MOONSHOT #32 — the repo's compacted tail. A DSR erase must take it too: a stored monthly
     // summary of the erased scans is still that data's shadow.
     scanDigest: ["dg_1", "dg_2"],
+    // MOONSHOT WAVE 2 — seeded in the SAME fixture on purpose: the "nothing survives" and "a preview
+    // removes nothing" assertions below sweep WAVE1_LEDGERS, so a wave-2 table left unseeded would
+    // pass both while never being erased at all.
+    laneItemOutcome: ["lo_1", "lo_2"],
+    orgMemoryCandidate: ["mc_1"],
+    practiceAdoption: ["pa_1", "pa_2"],
+    housePatternVersion: ["hp_1"],
+    orgMemoryCitation: ["ct_1", "ct_2", "ct_3"],
   });
   const tx = {
     ...ledgers.delegates,
@@ -2580,6 +2601,154 @@ describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
     // the same rows twice — a quiet inflation that only ever shows up in the number a human reads.
     expect(ledgers.rows.repoMemoryMirror).toEqual(["mm_1", "mm_2", "mm_3"]);
     for (const name of WAVE1_LEDGERS) expect(ledgers.rows[name].length).toBeGreaterThan(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOONSHOT WAVE 2 — the erase/purge cascades for the five additive tables of this wave.
+//
+// Same trap as wave 1 and one new one. None of these tables has a foreign key (relationMode =
+// "prisma"), so nothing removes them for us; and OrgMemoryCitation adds an ORDERING requirement that
+// no schema can express — it points at OrgMemory by a plain string, so it has to be swept before
+// anything on the erase path deletes a memory row, or a budget-stopped run leaves citations pointing
+// at nothing. Each assertion below names what fails without its line.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("eraseOrgData — moonshot wave-2 ledger cascades", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  // FAIL-BEFORE: without the four wave-2 drains in eraseOrgLedgers, an "erasure" leaves behind the
+  // agent's verdicts on this org's code (with the file paths it touched), the PENDING memory
+  // candidates — which could still be promoted into OrgMemory after the tenant was erased — the
+  // per-file adoption hashes of its repositories, and the prose mined out of them.
+  it("#25/#33: drains the lane verdicts, the candidate queue and the adoption ledger", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.laneOutcomesDeleted).toBe(2);
+    expect(outcome.memoryCandidatesDeleted).toBe(1);
+    expect(outcome.practiceAdoptionsDeleted).toBe(2);
+    expect(outcome.housePatternsDeleted).toBe(1);
+    for (const name of ["laneItemOutcome", "orgMemoryCandidate", "practiceAdoption", "housePatternVersion"] as const) {
+      expect(ledgers.rows[name]).toEqual([]);
+      // Org-scoped, never a bare deleteMany over the whole table (this is a multi-tenant store).
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1" });
+    }
+  });
+
+  // FAIL-BEFORE: with the citation sweep placed inside eraseOrgLedgers (which runs AFTER the Athena
+  // block, and the Athena block deletes the OrgMemory rows she wrote), a budget-stopped run leaves
+  // citations addressing memories that no longer exist. The order is the assertion.
+  it("#17: citations are swept BEFORE anything deletes an OrgMemory row", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.memoryCitationsDeleted).toBe(3);
+    expect(ledgers.rows.orgMemoryCitation).toEqual([]);
+    expect(prisma.orgMemoryCitation.deleteMany.mock.calls[0]![0].where).toEqual({ id: { in: ["ct_1", "ct_2", "ct_3"] } });
+    // The citation delete is issued before the memory sweep even reads its first page.
+    const citationAt = prisma.orgMemoryCitation.deleteMany.mock.invocationCallOrder[0]!;
+    const memoryReadAt = prisma.orgMemory.findMany.mock.invocationCallOrder[0];
+    if (memoryReadAt !== undefined) expect(citationAt).toBeLessThan(memoryReadAt);
+  });
+
+  // FAIL-BEFORE: without the per-repo PracticeAdoption delete in eraseRepo, a REPO-scoped erase drops
+  // the repo's scans and keeps a durable, path-addressed record of which files that repo held and
+  // what was in them — the same failure the mirror sweep exists to prevent, one table over.
+  it("#33: a repo-scoped erase takes that repo's adoption rows, keyed by (orgId, repoFullName)", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(prisma.practiceAdoption.deleteMany).toHaveBeenCalledWith({
+      where: { orgId: "org_1", repoFullName: "acme/api" },
+    });
+    expect(outcome.practiceAdoptionsDeleted).toBe(2);
+    expect(ledgers.rows.practiceAdoption).toEqual([]);
+    // A house pattern is mined ACROSS repos, so one repo leaving the org does not un-mine it — and
+    // the org-scoped verdict/candidate ledgers are not a repo's rows either.
+    expect(ledgers.rows.housePatternVersion).toEqual(["hp_1"]);
+    expect(ledgers.rows.laneItemOutcome).toEqual(["lo_1", "lo_2"]);
+    expect(ledgers.rows.orgMemoryCandidate).toEqual(["mc_1"]);
+  });
+
+  it("a preview counts the wave-2 tables over the delete's own predicate and removes nothing", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.laneOutcomesDeleted).toBe(2);
+    expect(preview.memoryCandidatesDeleted).toBe(1);
+    expect(preview.housePatternsDeleted).toBe(1);
+    expect(preview.memoryCitationsDeleted).toBe(3);
+    // Like the mirror, the adoption ledger is counted ONCE: the org path leaves the per-repo delete
+    // out, because a real run's second sweep finds nothing while a preview would count it twice.
+    expect(preview.practiceAdoptionsDeleted).toBe(2);
+    expect(ledgers.rows.orgMemoryCitation).toEqual(["ct_1", "ct_2", "ct_3"]);
+    expect(ledgers.rows.practiceAdoption).toEqual(["pa_1", "pa_2"]);
+  });
+});
+
+describe("purgeExpiredData — moonshot wave-2 citation horizon (#17)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  // FAIL-BEFORE: without the citation sweep, this table grows with AGENT TRAFFIC and is bounded by
+  // nothing — a citation is not a scan child, so the scan prune can never reach it, exactly like the
+  // UsageEvent meter beside it.
+  it("ages citations out on the org's audit horizon", async () => {
+    const { prisma, ledgers } = fakeWave1PurgePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(prisma.orgMemoryCitation.findMany).toHaveBeenCalled();
+    const where = prisma.orgMemoryCitation.findMany.mock.calls[0]![0].where;
+    expect(where.orgId).toBe("org_1");
+    expect(where.createdAt.lt).toBeInstanceOf(Date);
+    expect(ledgers.rows.orgMemoryCitation).toEqual([]);
+    expect(summary?.memoryCitationsDeleted).toBe(2);
+  });
+
+  // FAIL-BEFORE: spec 17 asks for the citations in the COUNTED preview specifically — a dry run that
+  // reported 0 while the real run destroyed the org's use-evidence is the number a human reads
+  // before approving the purge.
+  it("counts them in the dry-run preview and deletes nothing", async () => {
+    const { prisma, ledgers } = fakeWave1PurgePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true });
+
+    expect(summary?.memoryCitationsDeleted).toBe(2);
+    expect(ledgers.rows.orgMemoryCitation).toEqual(["ct_1", "ct_2"]);
+    expect(prisma.orgMemoryCitation.deleteMany).not.toHaveBeenCalled();
   });
 });
 
