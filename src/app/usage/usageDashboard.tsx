@@ -7,6 +7,7 @@ import { LanePanels } from "./usageLanePanels";
 import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
+import { costHeadline } from "./costHeadline";
 
 export function UsageDashboard({
   org,
@@ -93,17 +94,12 @@ export function UsageDashboard({
             }
           />
         )}
-        <Stat
-          label="Est. cost"
-          value={usage.estimatedCostUsd != null ? `$${usage.estimatedCostUsd.toFixed(2)}` : "—"}
-          sub={
-            usage.costBasis === "env"
-              ? `last ${usage.periodDays}d · configured rates`
-              : usage.costBasis === "builtin"
-                ? `last ${usage.periodDays}d · built-in rates (approx.)`
-                : "set LLM_*_COST_PER_MTOK to estimate"
-          }
-        />
+        {/* Est. cost prices EVERY lane, not just scans (UAT VICTOR-L1-05): the headline used to fold
+            the Scan rows alone while "Spend by lane" below it summed to 4.5x that — the first number
+            a finance reader sees contradicted the page's own itemization. `costHeadline` also carries
+            the lane scope and the unpriced-call floor into the caption, so the tile can never imply a
+            completeness the lane rows disprove. */}
+        <Stat label="Est. cost" {...costHeadline(usage)} />
         <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
         <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
       </div>
@@ -222,10 +218,13 @@ export function UsageDashboard({
           : "no scans recorded"}
         .
         {usage.costBasis === "env"
-          ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."
+          ? " Scan cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK); the other lanes are priced from built-in per-model list prices at the time of the call."
           : usage.costBasis === "builtin"
-            ? " Cost is an approximate estimate from built-in per-model list prices; set LLM_INPUT/OUTPUT_COST_PER_MTOK to override with your rates."
-            : " No built-in rate matches this period's models: set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
+            ? " Cost is an approximate estimate from built-in per-model list prices; set LLM_INPUT/OUTPUT_COST_PER_MTOK to override the scan lane with your rates."
+            : " No built-in rate matches this period's scan models: set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate scan spend."}{" "}
+        {usage.allLanesUnpricedCalls > 0
+          ? `The headline is the sum of every lane and a FLOOR: ${usage.allLanesUnpricedCalls.toLocaleString()} call${usage.allLanesUnpricedCalls === 1 ? "" : "s"} in this period could not be priced and contribute $0 to it.`
+          : "The headline is the sum of every lane below."}{" "}
         Per-org attribution activates with auth / the GitHub App.
       </p>
     </div>
