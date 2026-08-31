@@ -185,7 +185,7 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // detector moved — the whole point of r12 is that craft became dispatchable work WITHOUT entering
     // any score. (The per-repo CRAFT ALREADY BUILT block is not in this hash by construction: it is
     // rendered into the USER message, never the cacheable SYSTEM prefix this snapshot covers.)
-    const EXPECTED_RUBRIC_HASH = "36692fb1ddbc144e88e7ecd2494f154c9f78f8808432123170568e24ad18df92";
+    const EXPECTED_RUBRIC_HASH = "679410b8fd2f0c9cceb0513497f2ddfbcbea9b7f38c51b679df7130a37118670";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

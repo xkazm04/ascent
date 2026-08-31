@@ -170,7 +170,11 @@ import type {
 // locally, and that is a withheld bonus, not a floor presented as a measurement —
 // `scoreIntegrity.unmeasuredDims` already discloses it. Excluding a measurable dimension would
 // inflate every local score, which is the opposite failure.
-export const SCORING_RUBRIC_VERSION = "r13";
+// r14 (2026-08-31, MC-B8a): the prompt's roadmap contract gained the optional `firstStep` field —
+// one concrete first move per row, additive beside the invitational voice. No weight, band, blend
+// or guardband moved; the bump exists because the model is now ASKED a different question, so a
+// cached r13 answer and a fresh r14 answer are not the same reading.
+export const SCORING_RUBRIC_VERSION = "r14";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
