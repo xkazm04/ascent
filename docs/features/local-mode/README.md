@@ -8,7 +8,9 @@ cloud, and the rail hides the Pairing tab there._
 The premise: a self-hosted Ascent runs on the same machine as the code it scores, so the scan loop
 does not have to lead against GitHub. A paired repo scans from disk; an `Ascent-Resolves:` trailer
 closes its follow-up the moment it is **committed, before any push**; and the war room can dispatch a
-local coding agent at the backlog and verify its work in the same breath.
+local coding agent at the backlog and verify its work in the same breath. (A trailer is a **claim**;
+what closes the row is the rescan agreeing — see
+[the loop's claim-vs-verdict rule](../org-planning/live.md#the-claim-and-the-verdict-are-two-different-numbers).)
 
 ## The declared org (`ASCENT_LOCAL_ORG`, 2026-08-26)
 
@@ -116,7 +118,7 @@ downstream — analyzers, scoring, persistence, the trailer close in `engine.ts`
 scan reads, only pairing decides what may be read). No credit ceremony: behind `selfHostGuard`,
 `isMeteredScan()` is false by construction. The Follow-ups ledger shows a **"Rescan N paired repos
 locally"** button (`LocalRescanButton`) that runs them sequentially and reports how many rows the
-trailers closed.
+rescan closed.
 
 ## Autopilot (`?tab=live`, self-hosted + paired + `ASCENT_AUTOPILOT=1`)
 

@@ -24,7 +24,7 @@ telling the truth about the local loop.
 select ──▶ curate ──▶ run ──▶ rescan ──▶ outcome
   │          │         │        │           │
   │          │         │        │           └─ per-lane before/after diff + closed follow-ups
-  │          │         │        └─ scan the WORKTREE from disk; `Ascent-Resolves:` trailers close rows
+  │          │         │        └─ scan the WORKTREE from disk; the rescan ADJUDICATES the claims
   │          │         └─ N lanes, bounded parallelism. Each lane is one of three KINDS:
   │          │            backlog → worktree → local `claude -p` → LANE commits → rescan
   │          │            foundation / practice → worktree → generated files + commit → rescan
@@ -72,7 +72,7 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `runId` / `repoFullName` / `cycle` | The lane's identity. `upsertLane` is get-or-create on this triple, so a retry re-enters the same row. |
 | `phase` | `queued \| dispatching \| rescanning \| done \| error`. |
 | `branch` | `ascent/loop-<stamp>-<repo>` — **the deliverable**. Survives the run; only the temp worktree dir is removed. |
-| `batchIdsJson` / `closedIdsJson` | JSON `string[]` of `Recommendation` ids dispatched / closed by trailer. |
+| `batchIdsJson` / `closedIdsJson` | JSON `string[]` of `Recommendation` ids dispatched / **closed by the rescan**. `closedIdsJson` is `persistScanReport`'s `closedFollowUpIds` — the ids `decideInProgress` ruled `done` after the movement witness — **not** the commit-trailer set. See *The claim and the verdict* below. |
 | `commits` | `git rev-list --count <before>..HEAD` in the worktree. |
 | `beforeScanId` / `afterScanId` | The two ends of the lane's diff (see [Outcome](#outcome-what-the-lane-moved)). |
 | `stage` | Live rescan sub-stage (`fetch \| tree \| files \| analyze \| score \| compose`), `null` between phases. |
@@ -185,7 +185,8 @@ detached and the cockpit polls `GET /api/org/loop`.
   `scans-persist` only resolves *claimed* rows) → `git rev-parse HEAD` → one headless `claude -p`
   session in the worktree with `buildFixPrompt` + an autopilot context block → **the lane commits
   what the session left** (below) → count commits → rescan the worktree from disk → record what the
-  trailers closed. `runLane` **never throws**: every outcome, including a failed agent or a failed
+  rescan **adjudicated** closed (never what the trailers claimed — see *The claim and the verdict*).
+  `runLane` **never throws**: every outcome, including a failed agent or a failed
   rescan, is lane data.
 - **Bounded parallelism**: `mapPool(activeTargets, run.concurrency, …)` — default 2, hard cap 4.
   Four local `claude -p` sessions already saturate a developer box.
@@ -230,13 +231,47 @@ wider grant.
   writing your own trailers is the whole contract.
 - The lane stages the worktree diff **by path** (never `add -A`; `-z` porcelain, so a quoted path
   cannot be mis-staged) and writes one `Ascent-Resolves:` trailer per claimed id. Named RESOLVED ids
-  win; naming only SKIPPED ones trails the rest; naming nothing trails the whole armed batch. An id
+  win; naming only SKIPPED ones trails the rest; **naming nothing trails nothing**. An id
   the lane never armed is ignored, and a trailer line inside the agent's own prose is stripped — a
   session cannot enlarge its own batch. The trailer is still a **claim**: a row closes only when the
   next scan says its dimension moved.
 - If the agent *did* commit (a future mode with a wider grant), the lane commits only the residue.
 - If the lane's own commit fails, the lane names the uncommitted change count and the branch the work
   is **not** on before the worktree is deleted.
+
+### The claim and the verdict are two different numbers
+
+A user reading the cockpit sees a per-item panel and a per-lane counter, and until 2026-08-31 both
+said **"closed by the rescan"** for work nothing had verified. The mechanism, in one line: the lane
+wrote the `Ascent-Resolves:` trailers *from the agent's own `RESOLVED:` lines*, the rescan parsed
+those same trailers back out of the commit messages, and the lane handed that set on as the verdict.
+The agent was its own verifier. Live, that produced **46** rows labelled "closed by the rescan" on an
+org whose backlog ledger — which applies the real gate — reported `done: 0`.
+
+Three rules now hold, and they are the vocabulary the whole loop answers to:
+
+1. **A lane's `closedIds` is the ADJUDICATED set.** `rescanWorktree` returns
+   `persistScanReport`'s `closedFollowUpIds`: the in-progress rows `decideInProgress` ruled `done`
+   after the restatement read, the dimension's own movement, and `attributeDelta` over the two
+   engines (a mock end, or a move inside the ±noise band, closes nothing). The commit trailers come
+   back separately as `claimedIds` and are never folded into a count.
+2. **Every outcome row carries `verified`.** `true` only when the rescan closed that id in that lane.
+   It is **derived**, not stored: the lane row already persists the adjudicated set, and
+   `listRunOutcomes` joins it lane-by-lane — so an A/B run's two arms, which arm the same batch,
+   cannot verify each other's claims. A row from a payload without the field reads as unverified.
+3. **The panel says which one it means.** A verified close reads *"closed by the rescan"* in the
+   accent tone; an unverified one reads *"claimed resolved — awaiting the rescan"* in a muted italic,
+   with a title explaining that the item is still open. The lane counters and the run band say
+   *"closed by the rescan"* because, after rule 1, that is now what they count.
+
+**Silence claims nothing.** The lane used to trail *every armed id* when the session named none, on
+the reading that "the rescan decides anyway" — which rule 1 shows was not true. A live session killed
+by the 20-minute timeout, having written **zero** item verdicts, had all five of its armed ids
+stamped as resolved trailers in its name. A session that said nothing has made no claim, so the
+commit now carries no trailer and says so in its body. Nothing is lost: a gap still closes on the
+rescan's own *no-longer-raised **and** the dimension moved* rule, which needs no trailer. A **craft**
+rung, which closes on its trailer alone, simply stays in progress — the honest reading of a session
+that never said it built anything.
 
 **A lane that committed nothing rescans nothing.** The loop scans a *worktree* that is about to be
 deleted, so that scan describes the repository only for what the lane committed. In the L2 run it did

@@ -88,7 +88,7 @@ export interface LaneDeps {
     dir: string;
     branch: string;
     onStage: (stage: string) => void;
-  }) => Promise<{ scanId: string | null; closedIds: string[] }>;
+  }) => Promise<{ scanId: string | null; closedIds: string[]; claimedIds?: string[] }>;
   /** The repo's open follow-ups, biggest projected gain first, capped at `limit`. */
   /** The lane's before/after pair, as the ledger will read it — for the deliverable headlines. */
   loadPair: (args: { orgSlug: string; repoFullName: string; beforeScanId: string | null; afterScanId: string | null }) => Promise<{
@@ -377,7 +377,7 @@ export async function rescanWorktree(args: {
   dir: string;
   branch: string;
   onStage: (stage: string) => void;
-}): Promise<{ scanId: string | null; closedIds: string[] }> {
+}): Promise<{ scanId: string | null; closedIds: string[]; claimedIds: string[] }> {
   // THE PLATFORM FOLD, CARRIED. D2/D3/D4 are credited partly for tooling that is installed rather
   // than committed (review/CI/coverage Apps posting check suites, default-branch Actions health —
   // src/lib/analyze/platform-signals.ts), and none of it is visible from a worktree. Scoring those
@@ -404,7 +404,25 @@ export async function rescanWorktree(args: {
     },
   });
   const persisted = await persistScanReport(report, { orgSlug: args.org });
-  return { scanId: persisted?.scanId ?? null, closedIds: report.resolvedFollowUpIds ?? [] };
+  // THE CLAIM AND THE VERDICT ARE TWO SETS (UAT `PRIYA-L1-702`, 2026-08-30).
+  //
+  // `report.resolvedFollowUpIds` is `parseResolvedIds` over the branch's commit messages — and on the
+  // agent lane the lane itself wrote those trailers, from the session's own `RESOLVED:` lines.
+  // `lane-commit.ts`'s header says so outright: "the trailer is a CLAIM, never a verdict". Returning
+  // it as `closedIds` made the loop its own verifier: the cockpit rendered 46 rows as "closed by the
+  // rescan" while `/api/org/backlog` — which reads the ledger the movement witness actually writes —
+  // reported `done: 0`. Same rescan, two meanings of "closed".
+  //
+  // So the two are returned separately, and `closedIds` is now the ADJUDICATED set: the ids
+  // `persistScanReport` ran through `decideInProgress` — restatement, the dimension's own movement,
+  // and `attributeDelta` over the two engines — and ruled `done`. A claim the rescan could not
+  // confirm comes back in `claimedIds` and NOWHERE else, so nothing downstream can print it as a
+  // verdict.
+  return {
+    scanId: persisted?.scanId ?? null,
+    closedIds: persisted?.closedFollowUpIds ?? [],
+    claimedIds: report.resolvedFollowUpIds ?? [],
+  };
 }
 
 /**
@@ -854,6 +872,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     await updateLane(laneId, { phase: "rescanning", commits });
     await appendLaneLog(laneId, "Rescanning the worktree from disk…");
     let closedIds: string[] = [];
+    // Ids a commit trailer NAMED that the rescan did not close. Kept beside the verdict, never folded
+    // into it: this is the number the cockpit used to print as "closed by the rescan".
+    let unverifiedClaimIds: string[] = [];
     let afterScanId: string | null = null;
     try {
       const out = await deps.rescan({
@@ -864,6 +885,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         onStage: (stage) => void updateLane(laneId, { stage }),
       });
       closedIds = out.closedIds;
+      unverifiedClaimIds = (out.claimedIds ?? []).filter((id) => !out.closedIds.includes(id));
       afterScanId = out.scanId;
     } catch (err) {
       await appendLaneLog(laneId, `Rescan failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -876,9 +898,14 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     } else {
       claimedIds = []; // the rescan adjudicated; the claim is now the scan feedback's to settle
     }
+    // The log says which of the two numbers it means. A close here has been through the movement
+    // witness; a claim has not, and saying "closed" for it is the laundering this lane no longer does.
+    const claimNote = unverifiedClaimIds.length > 0 ? ` ${unverifiedClaimIds.length} more were CLAIMED by a commit trailer and the rescan did not confirm them — they stay open.` : "";
     await appendLaneLog(
       laneId,
-      closedIds.length > 0 ? `${closedIds.length} follow-up(s) closed by trailer` : "No follow-ups closed this cycle.",
+      (closedIds.length > 0
+        ? `${closedIds.length} follow-up(s) closed by the rescan — the gap is no longer raised and its dimension moved.`
+        : "No follow-ups closed this cycle.") + claimNote,
     );
     // WHAT THE LANE DELIVERED, as headlines (lane-deliverables.ts): the agent's claims, the install,
     // and the ATTRIBUTABLE part of the diff — under the same verdict the ledger's number answers to.

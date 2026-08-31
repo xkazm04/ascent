@@ -19,9 +19,20 @@
 // WHAT (b) HAD TO SOLVE, and the reason it was not free: the per-item `Ascent-Resolves:` trailers
 // are what the adjudication reads (`parseResolvedIds` → `scans-persist`), and the agent is the only
 // party that knows which items it actually resolved. So the brief now asks the session to END with
-// `RESOLVED: <id>` / `SKIPPED: <id>` lines, and this module turns those into the trailer set. When
-// the session names none, every armed id is trailed — the trailer is a CLAIM, never a verdict, and a
-// row still closes only when the next scan says its dimension moved.
+// `RESOLVED: <id>` / `SKIPPED: <id>` lines, and this module turns those into the trailer set. The
+// trailer is a CLAIM, never a verdict, and a row still closes only when the next scan says its
+// dimension moved.
+//
+// SILENCE CLAIMS NOTHING (UAT `PRIYA-L1-702`, 2026-08-31). This module used to trail EVERY armed id
+// when the session named none, on the reading that "the batch was dispatched as a unit and the rescan
+// is the thing that decides". Both halves turned out to be wrong. A live session was killed by the
+// 20-minute timeout having written 0 item verdicts, and its lane log reads "5 Ascent-Resolves
+// trailer(s) (the session named no ids, so the whole armed batch is claimed)" — a process that was
+// stopped mid-thought had five rows stamped in its name. And the rescan was NOT deciding: the lane
+// handed the raw trailer set straight to `recordLaneOutcomes`, so the claim WAS the verdict, and the
+// cockpit printed it as "closed by the rescan". A silent session is the one case with no evidence of
+// anything, so it now produces no trailer at all. Nothing is lost: a gap still closes on the
+// rescan's own "no longer raised AND the dimension moved" rule, which needs no trailer.
 
 import { runGit } from "@/lib/local/git";
 import { FOLLOWUP_TRAILER } from "@/lib/org/followups";
@@ -39,7 +50,8 @@ export interface LaneCommitInput {
   dir: string;
   branch: string;
   cycle: number;
-  /** Every item this lane ARMED. Their ids are the trailer set the adjudication reads. */
+  /** Every item this lane ARMED. `trailerIds` narrows these to the ones the session actually
+   *  claimed — an armed id is not itself a claim. */
   batch: readonly { id: string }[];
   /** The agent session's own final text — the subject, the body, and the RESOLVED/SKIPPED claims. */
   summary: string;
@@ -112,13 +124,15 @@ export function parseAgentClaims(summary: string, armed: readonly string[]): Age
  * Which armed ids get a trailer.
  *
  * Named RESOLVED ids win. When the session named only SKIPPED ones, the rest are trailed — "I did
- * not do these four" is a statement about the other one. When it named nothing at all, everything
- * armed is trailed: the batch was dispatched as a unit and the rescan is the thing that decides.
+ * not do these four" is a statement about the other one, and the session was alive and accounting
+ * for its batch when it wrote it. When it named NOTHING, nothing is trailed: see the module header —
+ * a session that said nothing (crashed, was killed by the timeout, ran out of turns) has made no
+ * claim, and manufacturing five on its behalf is the one thing this function must not do.
  */
 export function trailerIds(armed: readonly string[], claims: AgentClaims): string[] {
   if (claims.resolved.length > 0) return claims.resolved;
   if (claims.skipped.length > 0) return armed.filter((id) => !claims.skipped.includes(id));
-  return [...armed];
+  return [];
 }
 
 /** Anything shaped like a conventional-commit subject already. */
@@ -164,6 +178,13 @@ export function buildCommitMessage(input: LaneCommitInput, ids: readonly string[
   const lines = [...WHY_THE_LANE_COMMITTED, "", `Lane: cycle ${input.cycle} on ${input.branch}.`];
   if (agentText) lines.push("", "Agent summary:", agentText);
   if (claims.skipped.length > 0) lines.push("", `The session reported these as skipped, so they carry no trailer: ${claims.skipped.join(", ")}.`);
+  if (ids.length === 0 && input.batch.length > 0) {
+    lines.push(
+      "",
+      `The session ended without naming any item as RESOLVED or SKIPPED, so this commit claims none of the ${input.batch.length} item(s) it was armed with.`,
+      "The next scan of this branch judges the work on its own evidence.",
+    );
+  }
   if (ids.length > 0) lines.push("", ...ids.map((id) => `${FOLLOWUP_TRAILER}: ${id}`));
   return { subject, body: lines.join("\n") };
 }
@@ -209,6 +230,6 @@ export async function commitAgentWork(input: LaneCommitInput): Promise<LaneCommi
     resolved: ids,
     summary:
       `The lane committed the agent's ${paths.length} change(s) on ${input.branch} — ` +
-      `${ids.length} ${FOLLOWUP_TRAILER} trailer(s)${named ? " from the session's own RESOLVED/SKIPPED lines" : " (the session named no ids, so the whole armed batch is claimed)"}.`,
+      `${ids.length} ${FOLLOWUP_TRAILER} trailer(s)${named ? " from the session's own RESOLVED/SKIPPED lines" : " (the session named no ids, so it claimed nothing — the rescan judges the batch on its own evidence)"}.`,
   };
 }

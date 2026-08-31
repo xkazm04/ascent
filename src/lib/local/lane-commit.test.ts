@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("commitAgentWork — the residue an agent session leaves behind", () => {
-  it("commits the whole worktree diff and writes one trailer per armed item", async () => {
+  it("commits the whole worktree diff, and a session that named nothing claims nothing", async () => {
     const dir = gitRepo();
     write(dir, "AGENTS.md", "# guidance\n");
     write(dir, "test/basic.test.js", "test('x', () => {});\n");
@@ -66,7 +66,10 @@ describe("commitAgentWork — the residue an agent session leaves behind", () =>
 
     expect(res.committed).toBe(true);
     expect(res.files).toBe(3);
-    expect(res.resolved).toEqual(["rec-1", "rec-2"]);
+    // The summary names no RESOLVED/SKIPPED id, so the commit claims none of the armed batch. The
+    // rescan still judges the work — it just does it on the repository's evidence, not on a
+    // trailer the lane wrote on a silent session's behalf (UAT PRIYA-L1-702).
+    expect(res.resolved).toEqual([]);
     expect(count(dir)).toBe("2");
     expect(dirty(dir), "the lane left work behind").toBe("");
     expect(tracked(dir)).toContain("AGENTS.md");
@@ -76,9 +79,29 @@ describe("commitAgentWork — the residue an agent session leaves behind", () =>
   it("writes trailers the ADJUDICATION can actually read", async () => {
     const dir = gitRepo();
     write(dir, "AGENTS.md", "# guidance\n");
-    await commitAgentWork({ dir, branch: "b", cycle: 1, batch: batch("rec-a", "rec-b"), summary: "did it" });
+    await commitAgentWork({ dir, branch: "b", cycle: 1, batch: batch("rec-a", "rec-b"), summary: "did it\nRESOLVED: rec-a\nRESOLVED: rec-b" });
     // The real parser, not a copy of its regex.
     expect(parseResolvedIds([log(dir)])).toEqual(new Set(["rec-a", "rec-b"]));
+  });
+
+  // THE TIMEOUT CASE, from a live capture (uat/runs/2026-08-30-moonshot-cert, arm C): a session
+  // killed at the 20-minute wall wrote 0 item verdicts and the lane trailed all 5 of its armed ids.
+  // Silence is not a claim.
+  it("trails NOTHING for a session that ended without naming an id, and says so in the message", async () => {
+    const dir = gitRepo();
+    write(dir, "AGENTS.md", "# guidance\n");
+    const res = await commitAgentWork({
+      dir,
+      branch: "b",
+      cycle: 1,
+      batch: batch("rec-a", "rec-b", "rec-c", "rec-d", "rec-e"),
+      summary: "Agent session exceeded 20 min and was stopped.",
+    });
+    expect(res.committed).toBe(true);
+    expect(res.resolved).toEqual([]);
+    expect(parseResolvedIds([log(dir)])).toEqual(new Set());
+    expect(log(dir)).toContain("claims none of the 5 item(s) it was armed with");
+    expect(res.summary).toContain("it claimed nothing");
   });
 
   it("honours the session's own RESOLVED / SKIPPED lines", async () => {
@@ -146,8 +169,8 @@ describe("the pure pieces", () => {
     expect(claims).toEqual({ resolved: ["a"], skipped: ["b"] });
   });
 
-  it("falls back to the whole armed batch, and drops only what was skipped", () => {
-    expect(trailerIds(["a", "b"], { resolved: [], skipped: [] })).toEqual(["a", "b"]);
+  it("claims nothing on silence, and drops only what was skipped", () => {
+    expect(trailerIds(["a", "b"], { resolved: [], skipped: [] })).toEqual([]);
     expect(trailerIds(["a", "b"], { resolved: [], skipped: ["a"] })).toEqual(["b"]);
     expect(trailerIds(["a", "b"], { resolved: ["b"], skipped: [] })).toEqual(["b"]);
   });
