@@ -38,6 +38,10 @@ interface DimData {
   series?: TrendPoint[];
   /** The dimension's score on the prior scan — drives DimensionDetail's "since last scan" delta. */
   prevScore?: number;
+  /** The scan's score-integrity record — the provenance track reads this dimension's REAL guardband
+   *  (doubled when the model flagged the detector) and the realized blend weight from it. Absent on a
+   *  row scored before the field. */
+  scoreIntegrity?: ScanReport["scoreIntegrity"];
 }
 
 /** Below this the dimension is not yet "green" (L4 starts at 65) and a follow-up is owed. Mirrors
@@ -101,7 +105,12 @@ export function RepoDimensionModal({
               <>
                 {/* Reuses the report's DimensionDetail — with `series`/`prevScore` it also renders the
                     score-history sparkline + "since last scan" delta, so the drill-in shows trajectory. */}
-                <DimensionDetail d={data.dimension} series={data.series} prevScore={data.prevScore} />
+                <DimensionDetail
+                  d={data.dimension}
+                  series={data.series}
+                  prevScore={data.prevScore}
+                  integrity={data.scoreIntegrity}
+                />
                 <NextSteps steps={data.nextSteps} score={data.dimension.score} />
               </>
             )}

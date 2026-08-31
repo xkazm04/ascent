@@ -150,9 +150,13 @@ The pre-existing reconstruction still applies to those legacy rows: `ScanDimensi
 band and over-reports contest on a widened dimension. For a loop that treats contested as not-green,
 that error is in the safe direction.
 
-**Still open on this half:** `ProvenanceTrack` (`src/components/report/DimensionCard.tsx:120`) draws
-a fixed `±LLM_GUARDBAND` zone even on a dimension whose band was doubled, so the one picture of the
-blend can still understate the room the model actually had. The data to fix it is now persisted.
+**Closed (MC-B3):** `ProvenanceTrack` (`src/components/report/ProvenanceTrack.tsx`) now reads the
+per-dimension band from `scoreIntegrity` — doubled on a widened dimension, so the picture and the
+header's integrity chip can no longer contradict each other — and draws the realized blend weight as
+a narrower reach inside the clamp. It also stopped drawing a band and a "model judgment" tick on the
+dimensions where judgment is not a lever at all (D1/D4 are cited-claim scored, D9 is the
+deterministic battery); `src/lib/scoring/provenance.ts` is the one classifier both the geometry and
+the accessible text read.
 
 **3f. Dirty-tree scans have no commit identity.** kp scanned `dirty: true` → sha-less. The loop's
 before/after comparison rests on scans that cannot be pinned to a commit, so "the agent improved

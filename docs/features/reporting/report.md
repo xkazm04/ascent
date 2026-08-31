@@ -87,9 +87,25 @@ fresh scan in place.
    previous scan).
 5. **Maturity over time**: `TrendChart` (level-banded background) of persisted scans.
 6. **Strengths / Risks**: two `ListCard`s.
-7. **Radar + dimension breakdown**: `RadarChart` plus a `DimensionCard` per dimension:
-   score bar, expandable summary, **evidence**, **gaps**, a per-dimension sparkline, and a
-   `ProvenanceTrack` (signal vs LLM vs blended, with the ±guardband zone shown).
+7. **Radar + dimension breakdown**: `DimensionExplorer` — `RadarChart` plus a clickable
+   score-bar list, and one switchable `DimensionDetail` below it: summary, **evidence**,
+   **gaps**, a per-dimension sparkline, and a `ProvenanceTrack`.
+
+   `ProvenanceTrack` draws **the mechanism that actually produced that dimension's number**,
+   and only that mechanism (`src/lib/scoring/provenance.ts` classifies it from the dimension id
+   plus the scan's `scoreIntegrity`):
+
+   | Mechanism | Dimensions | What is drawn |
+   | --- | --- | --- |
+   | Blended | everything below | the clamp zone (±`LLM_GUARDBAND`, **doubled** on a dimension in `scoreIntegrity.widenedDims`), the narrower **reach** zone inside it (`round(effectiveBlend × band)` — how far the model can move the *rendered* number once the blend weight applies), plus signal / model-judgment / result ticks |
+   | Cited-claim | D1, D4 | **no band and no model tick** — the model's score field is recorded and ignored; the bar runs signal → score and the caption names the points verified citations awarded |
+   | Signal-only | D9 | **no band and no model tick** — the score *is* the deterministic check battery's, which the model only narrates |
+
+   Every `<title>` and the `aria-label` are generated from the same classification as the
+   geometry, so the accessible text cannot describe a band the picture does not draw. On a
+   legacy row with no `scoreIntegrity` the realized blend weight is reported as *not recorded*
+   rather than assumed. The same track renders in the org heatmap's cell drill-in
+   (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`.
 8. **Contributors**: login + AI-commit ratio bars.
 9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
    merge / first review, revert rate, tools detected) when `report.prStats.analyzed > 0`.

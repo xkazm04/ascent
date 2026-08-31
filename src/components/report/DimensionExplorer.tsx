@@ -67,6 +67,7 @@ export function DimensionExplorer({
             d={selected}
             prevScore={prevDimScores?.get(selectedId)}
             series={dimSeries?.get(selectedId)}
+            integrity={report.scoreIntegrity}
           />
         </div>
       </Surface>
