@@ -24,6 +24,12 @@
 import { createHash } from "node:crypto";
 import { clientIp, tooManyResponse } from "@/lib/rate-limit";
 import { envBool } from "@/lib/env";
+import {
+  PUBLIC_SCAN_WINDOW_DAYS,
+  publicScanMonthlyLimit,
+  signedInScanMonthlyLimit,
+} from "@/lib/public-scan-limit";
+import { PLAN_FEATURES } from "@/lib/plans";
 // The bucket's read-decide-write transaction (isolation selection, retry, upsert) lives in the
 // data layer — transactPublicScanQuota, src/lib/db/scan-quota.ts. This module keeps the POLICY:
 // window math, limits, bucket derivation, and the fail-open stance.
@@ -38,26 +44,13 @@ import { recordQuotaEvent } from "@/lib/db/quota-events";
  *  existing importers. */
 export type QuotaScope = "anon" | "user";
 
-const WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // rolling 30-day "month"
+const WINDOW_MS = PUBLIC_SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000; // rolling 30-day "month"
 
-/** Max free public scans per ANONYMOUS IP per rolling 30-day window — the Free plan's 5 scans/month
- *  applied to the public funnel. Env-overridable; default 5. */
-export function publicScanMonthlyLimit(): number {
-  const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
-}
-
-/**
- * Monthly allowance for a SIGNED-IN viewer, keyed per-user (IP-independent) so a signed-in user gets
- * their OWN bucket (uncoupled from a shared IP). Defaults to the same 5/month Free allowance — under
- * the subscription model the lever for more volume is a paid plan, not merely signing in.
- * Env-overridable; clamped to be no lower than the anonymous limit (never grant *less*).
- */
-export function signedInScanMonthlyLimit(): number {
-  const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN);
-  const configured = Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
-  return Math.max(configured, publicScanMonthlyLimit());
-}
+// The two allowance functions moved to src/lib/public-scan-limit.ts (a pure, dependency-free module)
+// so the COPY that promises the allowance — /pricing's Free card via plans.ts, the landing FAQ, the
+// 429 below — can read the same number this gate charges against without dragging node:crypto and
+// Prisma into a client bundle (MC-B5). Re-exported here so this module stays their canonical import.
+export { publicScanMonthlyLimit, signedInScanMonthlyLimit };
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the monthly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {
@@ -365,8 +358,14 @@ export function monthlyQuotaExceeded(result: QuotaResult): Response {
   const limit = result.signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
   // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
+  //
+  // MC-B5 / id-vs-label: the tier is STORED as `pro` and DISPLAYED as "Starter" (see the TIER ID vs
+  // TIER LABEL note atop plans.ts). This copy said "Upgrade to Pro" — naming a plan that appears
+  // nowhere on /pricing, on the one screen where the upsell has to be trustworthy. Read the LABEL
+  // from the plan model so a future rename reaches this sentence with it; never re-type the name.
+  const upgradeTier = PLAN_FEATURES.pro.label;
   const error =
-    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to Pro for more monthly scans, add scan credits, or try again once the window resets.`;
+    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to ${upgradeTier} for more monthly scans, add scan credits, or try again once the window resets.`;
   // G8-29: shares tooManyResponse's status/content-type construction with rate-limit.ts's
   // tooManyRequests, but is NOT the same response — this body carries `code`/`remaining`/`resetAt`/
   // `scope` for the client meter, and the headers add the `x-ascent-quota-*` fields the per-minute

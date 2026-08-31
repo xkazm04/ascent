@@ -140,7 +140,15 @@ usage count and all classify "allowance"); the credit **debit** itself is the ha
 entitlement **before** paid inference and debits/records **after**, so a cache/dedup hit or a
 degrade-to-mock run is never charged.
 
-- **Public scans**: always free and unmetered, forever; never touch allowance or credits.
+- **Public scans**: never touch the plan allowance or credits — they cost the visitor nothing. They
+  are separately capped at a free monthly allowance (`publicScanMonthlyLimit()`,
+  `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day window, per anonymous IP or
+  per signed-in user), enforced by `src/lib/public-scan-quota.ts` and shown live by the scan
+  dialog's `QuotaMeter`. **Never describe them as "unlimited" or "unmetered"** — a meter is
+  rendered on the same screen. Every surface that states the number derives it from that one
+  function: the Free card and blurb (`PLAN_SPECS.free`), `/pricing`'s metadata and footnote, the
+  landing FAQ's JSON-LD, and the 429 body. `plans.test.ts` fails any plan copy that re-claims
+  "unlimited"/"unmetered" public scans.
 - **Custom**: `unlimited: true`; never debited regardless of usage.
 
 ## Credit packs vs. plan products (Polar catalogs)
@@ -475,6 +483,22 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   (`src/lib/public-scan-quota.ts`) instead. Public and private scans are now separate
   rows, tagged `free` and `credit` respectively, and `CREDIT_RULE` names the private
   scan explicitly. Three tests pin it.
+
+  **…and then advertised as unlimited (fixed 2026-08-31, UAT `MC-B5`).** The correction
+  above fixed the matrix and overshot the copy: the Free card carried
+  "Unlimited free public scans" and `/pricing` + the landing FAQ said public scans were
+  "always free and unmetered", while `/api/quota` reported `limit: 5` and the scan
+  dialog rendered a countdown meter in the same visit. Free and unmetered are different
+  claims; only the first was ever true. The allowance now has ONE source
+  (`src/lib/public-scan-limit.ts`, split out of `public-scan-quota.ts` precisely so
+  client-importable `plans.ts` can read it without pulling in `node:crypto` and Prisma),
+  and every surface that states it derives it. Two further edges went with it: the 429
+  body said "Upgrade to **Pro**" for the tier the UI calls **Starter** — it now reads
+  `PLAN_FEATURES.pro.label`, the id-vs-label split this file's tier note describes — and
+  `/pricing`'s "resets on the 1st of each month (UTC)" footnote now says that of the
+  *private* allowance only, naming the public funnel's rolling 30-day window separately.
+  `.env.example` documented the gate as `PUBLIC_SCAN_WEEKLY_LIMIT` (7 days, default 3);
+  no such variable is read anywhere — the names now match the code.
 
   Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
   all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does
