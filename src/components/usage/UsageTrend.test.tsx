@@ -8,7 +8,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { bucketUsageDays, UsageTrend } from "./UsageTrend";
 import type { UsageDay } from "@/lib/db";
 
-type El = ReactElement<{ className?: string; style?: { backgroundColor?: string; height?: string }; children?: ReactNode }>;
+type El = ReactElement<{ className?: string; href?: string; style?: { backgroundColor?: string; height?: string }; children?: ReactNode }>;
 
 function flatten(node: ReactNode, out: El[] = []): El[] {
   if (Array.isArray(node)) {
@@ -119,5 +119,20 @@ describe("bucketUsageDays — long windows aggregate to weeks (usage-metering 20
     // The MM-DD axis repeats itself across a year; bucketed labels must carry the year.
     const labels = els.map((el) => el.props.children).filter((c) => typeof c === "string" && /'2[0-9]/.test(c));
     expect(labels.length).toBeGreaterThan(0);
+  });
+});
+
+// MC-B19 (VICTOR-L1-02): the showback CSV — cost allocation by lane and by code-owning team — was
+// built, correct, and reachable only by hand-typing `?view=showback`. A finance reader who cannot see
+// the link has, from their side, no artifact at all.
+describe("export links", () => {
+  const hrefs = (): string[] =>
+    flatten(UsageTrend({ daily: [{ date: "2026-08-01", billable: 2, free: 1 }], org: "acme", days: 30 }))
+      .map((el) => el.props.href)
+      .filter((h): h is string => typeof h === "string");
+
+  it("offers per-day CSV, JSON and the showback CSV over the same org + window", () => {
+    const base = "/api/usage?org=acme&days=30";
+    expect(hrefs()).toEqual([`${base}&format=csv`, `${base}&format=json`, `${base}&view=showback`]);
   });
 });
