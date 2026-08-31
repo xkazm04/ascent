@@ -7,6 +7,7 @@
 
 import { Kicker, SectionHeading } from "@/components/ui";
 import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { ControlMatrixGrid } from "./ControlMatrixGrid";
 import { useControlMatrix } from "./useControlMatrix";
 
@@ -39,11 +40,18 @@ export function ControlMatrixPanel({ org }: { org: string }) {
       )}
 
       {!loading && !error && rows && rows.length === 0 && (
+        /* UAT `PRIYA-L1-03`: this empty state described hand-wiring two secrets that the
+           Repositories tab now provisions in one click. "Make the right thing the easy thing" —
+           the thing IS easy; the words weren't. The manual route stays, second. */
         <p className="type-body text-slate-400">
-          No repository in this organization has reported a doctor run yet. Wire{" "}
-          <code>node .ai/doctor.mjs --json</code> into a repo&apos;s CI with{" "}
-          <code>ASCENT_CONFORMANCE_URL</code> and <code>ASCENT_CONFORMANCE_TOKEN</code>, and its controls
-          appear here after the next run.
+          No repository in this organization has reported a doctor run yet. The quickest route is{" "}
+          <a href={`${orgTabHref(org, "repositories")}#foundation-rollout`} className="text-accent underline underline-offset-2">
+            Repositories › Foundation rollout
+          </a>
+          , which installs <code>.ai/</code> and provisions report-back — both secrets, per repo — in one
+          click. By hand: wire <code>node .ai/doctor.mjs --json</code> into a repo&apos;s CI with{" "}
+          <code>ASCENT_CONFORMANCE_URL</code> and <code>ASCENT_CONFORMANCE_TOKEN</code>. Either way, its
+          controls appear here after the next run.
         </p>
       )}
 

@@ -639,4 +639,44 @@ describe("the digest's Controls block", () => {
     expect(m.text).toContain("Controls that failed this week (1):");
     expect(m.text.indexOf("Controls that failed")).toBeLessThan(m.text.indexOf("Top gainers"));
   });
+
+  // The coverage law (control-observations.ts): a control state asserted over a period travels with
+  // its N, or it is not an assurance statement. UAT `DANA-L1-015` — the digest is the surface that law
+  // was written for, because it is read INSTEAD of the page that would otherwise correct it.
+  describe("control coverage travels with the block", () => {
+    const cov = { pairs: 6, observations: 42, maxGapDays: 3.2, truncated: false };
+
+    it("qualifies the all-clear with the evidence behind it", () => {
+      const m = buildFleetDigestMessage({ ...base, controlsFailed: [], controlCoverage: cov });
+      expect(m.text).toContain("Controls: none failed this week.");
+      expect(m.text).toContain("Coverage: 42 observations across 6 repo/control pairs, largest gap 3.2d.");
+    });
+
+    it("says an empty window is not evidence, rather than reporting a clean one", () => {
+      const m = buildFleetDigestMessage({
+        ...base,
+        controlsFailed: [],
+        controlCoverage: { pairs: 0, observations: 0, maxGapDays: null, truncated: false },
+      });
+      expect(m.text).toContain("no control was observed in this window — the all-clear above is not evidence.");
+    });
+
+    it("marks a truncated read as a FLOOR, and names an unmeasurable gap as one", () => {
+      const m = buildFleetDigestMessage({
+        ...base,
+        controlsFailed: [],
+        controlCoverage: { pairs: 1, observations: 2000, maxGapDays: null, truncated: true },
+      });
+      expect(m.text).toContain("2000+ observations");
+      expect(m.text).toContain("no gap measurable");
+    });
+
+    it("is absent when the caller could not compute it — never rendered as zero coverage", () => {
+      expect(buildFleetDigestMessage({ ...base, controlsFailed: [] }).text).not.toContain("Coverage:");
+    });
+
+    it("never appears without the block it qualifies", () => {
+      expect(buildFleetDigestMessage({ ...base, controlCoverage: cov }).text).not.toContain("Coverage:");
+    });
+  });
 });

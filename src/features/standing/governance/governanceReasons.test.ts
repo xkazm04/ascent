@@ -5,7 +5,13 @@
 // forces a key, not a legible one).
 
 import { describe, expect, it } from "vitest";
-import { FLEET_UNJUDGED_REASONS, GOVERNANCE_FAIL_REASONS, unjudgedBarsDeclared } from "./governanceReasons";
+import {
+  FLEET_UNJUDGED_REASONS,
+  GOVERNANCE_FAIL_REASONS,
+  earnedZeroNote,
+  unjudgedBarDeclaration,
+  unjudgedBarsDeclared,
+} from "./governanceReasons";
 
 describe("GOVERNANCE_FAIL_REASONS", () => {
   it("carries the two codes the hand-maintained array had dropped", () => {
@@ -48,5 +54,68 @@ describe("fleet-unjudged conditions", () => {
     expect(unjudgedBarsDeclared({ minOverall: 50 })).toBe(false);
     expect(unjudgedBarsDeclared({ requireChecks: [] })).toBe(false);
     expect(unjudgedBarsDeclared(null)).toBe(false);
+  });
+});
+
+// UAT `RC-N2` (recertify pass 1). `unjudgedBarsDeclared` reached only the all-clear sentence, so the
+// two unjudged ROWS printed the identical em-dash line for an org that had declared nothing and for
+// one that had just set two required controls.
+describe("unjudgedBarDeclaration", () => {
+  it("names the operator's own count on the control row, and pluralizes it", () => {
+    expect(unjudgedBarDeclaration("control", { requireChecks: ["control.prepush.lint", "guardrail.never-commit"] })).toBe(
+      "you have declared 2 required controls; the per-repo gate enforces them",
+    );
+    expect(unjudgedBarDeclaration("control", { requireChecks: ["control.prepush.lint"] })).toBe(
+      "you have declared 1 required control; the per-repo gate enforces it",
+    );
+  });
+
+  it("speaks for the admission row only when the AI-authorship bar is actually declared", () => {
+    expect(unjudgedBarDeclaration("admission", { forbidAiAuthorship: true })).toContain("the per-repo gate enforces it");
+    expect(unjudgedBarDeclaration("admission", { forbidAiAuthorship: false })).toBeNull();
+  });
+
+  it("stays silent when she has declared nothing under the row — an empty escalation is worse than none", () => {
+    expect(unjudgedBarDeclaration("control", { requireChecks: [] })).toBeNull();
+    expect(unjudgedBarDeclaration("control", null)).toBeNull();
+    expect(unjudgedBarDeclaration("admission", null)).toBeNull();
+    // A declared control says nothing about the admission row, and vice versa.
+    expect(unjudgedBarDeclaration("admission", { requireChecks: ["control.prepush.lint"] })).toBeNull();
+    // Never on a judged row: those have a meter, and the meter speaks for itself.
+    expect(unjudgedBarDeclaration("governance", { requireChecks: ["control.prepush.lint"] })).toBeNull();
+  });
+});
+
+// UAT `RC-N3` (recertify pass 1). `provenance` and `governance` zeros ARE measurements; beside two
+// rows that now read "not judged fleet-wide" a bare 0 reads as the placeholder it is not.
+describe("earnedZeroNote", () => {
+  const measuredOn = { governance: 12, provenance: 3 };
+  const barSet = { governance: true, provenance: true };
+
+  it("states the N a measured zero was reached on", () => {
+    expect(earnedZeroNote("governance", 0, 14, measuredOn, barSet)).toBe("measured on 12 of 14 judged repos");
+    expect(earnedZeroNote("provenance", 0, 14, measuredOn, barSet)).toBe("measured on 3 of 14 judged repos");
+  });
+
+  it("says nothing when the meter is non-zero — the number already speaks", () => {
+    expect(earnedZeroNote("governance", 4, 14, measuredOn, barSet)).toBeNull();
+  });
+
+  it("carries no note for a code whose inputs are present on every judged repo", () => {
+    expect(earnedZeroNote("overall", 0, 14, measuredOn, barSet)).toBeNull();
+    expect(earnedZeroNote("control", 0, 14, measuredOn, barSet)).toBeNull();
+  });
+
+  it("distinguishes a bar nobody set from a bar every measured repo cleared", () => {
+    expect(earnedZeroNote("provenance", 0, 14, measuredOn, { ...barSet, provenance: false })).toBe(
+      "not part of this org's bar",
+    );
+  });
+
+  it("refuses to call an unmeasured zero measured", () => {
+    expect(earnedZeroNote("provenance", 0, 14, { ...measuredOn, provenance: 0 }, barSet)).toBe(
+      "no judged repo carried the inputs (0 of 14)",
+    );
+    expect(earnedZeroNote("provenance", 0, 0, { ...measuredOn, provenance: 0 }, barSet)).toBe("nothing judged yet");
   });
 });

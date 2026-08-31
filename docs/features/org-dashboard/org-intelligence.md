@@ -360,6 +360,25 @@ Capability commands are repo content, so they are redacted at read time (any tok
 `secret=`-shaped run becomes `«redacted»`), shown only inside the owning org, and never placed on a
 public or cross-tenant surface.
 
+**Three additions, 2026-08-31 (UAT `PRIYA-L1-04` / `PRIYA-L1-05`), all of them wiring something the
+readout already computed:**
+
+- **A `schema <v> ahead` chip.** Spec #13 promised a manifest on an unknown major version would be
+  *"parsed leniently, flagged honestly"*. `read.ts` computed `schemaAhead`, `readout.ts` persisted it,
+  and nothing under `src/features` read it — so a fleet on a newer schema rendered ordinary cells with
+  no hint the reader was behind. The row now carries the flag and its declared version, with the
+  consequence in the hover: anything the newer schema added is not represented in the row.
+- **A parse-note count.** The reader's `notes[]` — including the **redaction** notes — reached no
+  surface, so an operator could not see that a command shown here is not the command the repo wrote.
+  The row prints `N parse notes` with the notes themselves on hover.
+- **A `Report-back` column** — spec #35 handoff 2's promised one. `getFoundationRollout` had exactly
+  one consumer, on the Repositories tab, so "where is the standard in, and where is it proving
+  itself?" was a three-tab join living in the reader's head. `PassportsTab` now reads it in the same
+  parallel batch (no added round-trip depth) and the column restates the Repositories tab's honest
+  nulls rather than re-deriving them: `—` = not in the rollout read, *"not provisioned"* = Ascent
+  wrote no report-back secrets (not "off"), *"provisioned · never reported"* = wired but no run has
+  reported (**not 0%**), otherwise the reported percentage with its date on hover.
+
 ### Passports → Doctor checks: the fleet matrix from the repos' own CI (#16, 2026-08-29; renamed from "Controls" 2026-08-31, MC-B10)
 
 The fourth Passports switcher view, and a deliberate **sibling** of Capabilities rather than a merge
@@ -536,6 +555,26 @@ actually declares one of them (`unjudgedBarsDeclared`). The set lives in
 in it — the rollup carries the branch-protection fields and `aiGovernedRate` / `aiPrSample`, and
 `evaluateGateLite` evaluates both, so their zeros are earned.
 
+**The unjudged row names what SHE declared under it (2026-08-31, UAT `RC-N2`).** The caveat above was
+true whether or not the reader had any stake in it, so the strongest version of the original finding —
+a lead who had *just* set two required controls — still read a sentence that did not acknowledge her
+bar. `unjudgedBarDeclaration(code, policy)` composes the escalation per row from the stored policy:
+the `control` row appends *"— you have declared 2 required controls; the per-repo gate enforces them"*
+(the count is read from `requireChecks`, never written as a literal), and the `admission` row appends
+its own when `forbidAiAuthorship` is set. An org that has declared nothing under a row sees no
+escalation — an empty one would be worse than none.
+
+**And an earned zero gets a word of its own (2026-08-31, UAT `RC-N3`).** A structural zero now has a
+sentence; a *measured* zero had only the glyph, so the two `provenance` / `governance` rows read as
+placeholders beside the two that had changed. `buildGovernanceOverview` publishes two new fields —
+`measuredOn` (how many ASSESSED repos actually carried the condition's inputs, counted off the same
+snapshot fields `evaluateGateLite` skips on) and `barSet` (whether the org's bar asks for the condition
+at all) — and `earnedZeroNote()` turns them into the qualifier beside a 0 row: *"measured on 12 of 14
+judged repos"*, or *"not part of this org's bar"* when nobody set it, or *"no judged repo carried the
+inputs (0 of 14)"* when the sample is genuinely empty. This **extends** the three-state vocabulary
+(guardrail G15); it does not collapse it — `unmeasurable`, `unchecked` and an earned zero stay three
+different sentences.
+
 ### Delivery's "Required status checks" tile (2026-08-31)
 
 Renamed from **"Require checks"** (UAT `PRIYA-L1-07`). It is `OrgGovernance.requireChecksRate` — the
@@ -652,7 +691,11 @@ manifest additionally embeds both CSV hashes, so the three files verify each oth
 - **Identities are pseudonymous by default.** Pseudonyms are stable within a pack and unlinkable
   across packs (the seed is folded into the hash). `identities=named` is **owner-gated** and returns
   403 for anyone else, never a silent downgrade, because an examiner who believes they hold named
-  evidence and does not would draw a conclusion the artifact cannot support.
+  evidence and does not would draw a conclusion the artifact cannot support. **All three artifacts
+  have a named variant on the card** (since 2026-08-31, UAT `NADIA-L1-10`): it used to offer only the
+  named *manifest*, while its own justification — *"export it when an examiner needs to re-verify
+  specific rows against GitHub"* — is about rows, and the rows live in `sample.csv` and `findings.csv`.
+  The route already supported `identities=named` on all three; only the two CSV links passed `false`.
 - **PR titles are omitted from CSV rows.** Free text routinely carries ticket ids and customer
   names; `repository` + `pr_number` is sufficient to re-verify against GitHub. The column is kept and
   named `title_omitted` so the omission is visible rather than looking like a missing field.
@@ -1527,6 +1570,27 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   proposed read first). The created id is stored on `RepoAdmission.rulesetId` and `DELETE` on the same
   route removes it. Audit rows on every path: `org.admission`, `org.admission_propose` (dry runs
   included), `org.admission_ruleset`, `org.admission_ruleset_revert`.
+- **A decision is withdrawable, and the withdrawal is an act** (since 2026-08-31; UAT `RC2-N4`).
+  `DELETE /api/org/admission { org, repo, rationale }`, same owner + same-origin gate as the POST —
+  unmaking a governance decision is the same authority as making one. The route used to expose GET and
+  POST only, and `upsertRepoAdmission` can only *move* a decision, so the nearest thing to a revoke was
+  granting the derived tier — which still records that an owner decided something. On a surface whose
+  own argument is *"an override with no named author is not a decision"*, the inverse asymmetry was the
+  defect: **a decision made in error was permanent**, and the ledger could not distinguish "decided,
+  then withdrawn" from "decided". The pass that found it hit the wall while cleaning up after its own
+  probe row, which could only be neutralised, not removed.
+
+  **Two stores, two shapes.** The state row is **deleted** — an undecided repository has *no record at
+  all*, and `getRepoAdmission`'s lazy seed re-creates the honest "seeded from the measurement, nobody
+  has decided" state on the next read. A `withdrawn` status flip was rejected deliberately: it would
+  leave a decision-shaped row every reader has to learn to discount. The withdrawal is **appended** to
+  `OrgAudit` as `org.admission_withdrawn` (its own action value, not a second `org.admission` with
+  different fields) carrying the actor, the mode and tier it removed, who had decided it, the derived
+  tier and the reason — once the row is gone, the act is the only place the previous grant exists.
+  Withdrawing an already-undecided repo is an idempotent no-op that writes **no** act: an append-only
+  ledger carries what happened, not what was asked for. The UI affordance is a two-step **Withdraw** →
+  **Confirm** on the perimeter's admission row, rendered only where a person actually decided
+  (`decidedBy !== null`) — offering it on a seed would say the seed was a decision.
 - **Routes are (org, repo), never `[id]`.** Each gates the org and then constrains the caller-supplied
   repo name to it (`repoUnderOrg`), so an authorized owner cannot name another tenant's repository.
   `src/app/api/org/id-routes-gated.test.ts` covers the family structurally.
@@ -1538,6 +1602,12 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   which reads the `Repository` `(orgId, fullName)` key — the actual tenancy fact, so another tenant's
   repo still matches nothing. Deliberately the **tracked** set, not the `watched` subset: `watched` is
   a rescan-cadence preference, and a governance decision must not depend on whether autoscan is on.
+- **The column says which artifacts a decision writes** (since 2026-08-31; UAT `NADIA-L1-09`). It
+  claimed a decision was *"recorded and enforceable"* and named none of the four, so a reader
+  concluded all four had landed. One sentence under the intro now scopes it honestly: a decision
+  writes the **gate-policy overlay** and only that — applied automatically on every gate call,
+  tighten-only, failing closed if the admission read errors — while the CODEOWNERS block, the
+  `controls.oversight` block and the branch ruleset are proposals a person opens deliberately.
 - **The claim door consults the decision.** The MCP `claim_followups` gate resolves the *effective*
   tier from this row (grant beats derived where a tier was assessed) and refuses outright on a `mode`
   below `agents-allowed`. See [org-followups/README.md](../org-followups/README.md) → *Who may claim*.

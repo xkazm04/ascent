@@ -13,41 +13,17 @@
 import { OrgTable, Tile, TILE_LEDGER, MeterRow } from "@/components/org/shared/ui";
 import { Kicker, SectionHeading } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
-import { ABSENT_CELL, CELL_STYLE, buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityAgg";
+import { buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityAgg";
 import { CapabilityMatrixLegend } from "./CapabilityMatrixLegend";
+import { CapabilityMatrixRowView } from "./CapabilityMatrixRowView";
+import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 
-function Cell({ capability, row }: { capability: string; row: ReturnType<typeof buildCapabilityMatrix>["rows"][number] }) {
-  const cell = row.cells[capability] ?? ABSENT_CELL;
-  const style = CELL_STYLE[cell.state];
-  // The two placements are shown as the cell's own underline rather than a second column: control
-  // placement is a property OF the declaration, and splitting it out doubled the table's width.
-  const wire = cell.wiredAt.includes("prePush")
-    ? "border-b border-accent/70"
-    : cell.wiredAt.includes("ciHardPass")
-      ? "border-b border-dotted border-accent/70"
-      : "";
-  const title = [
-    `${capability}: ${cell.failed ? "declared — its last doctor run FAILED" : style.label}`,
-    cell.command ? `command: ${cell.command}` : null,
-    cell.wiredAt.length ? `enforced at: ${cell.wiredAt.join(" + ")}` : "declared as a control nowhere",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <td className="px-3 py-2 text-center">
-      <span
-        title={title}
-        className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 type-caption ${style.className} ${wire}`}
-      >
-        {cell.failed ? "×" : style.mark}
-      </span>
-    </td>
-  );
-}
-
-export function CapabilityMatrix({ repos }: { repos: CapabilityMatrixInput[] }) {
+export function CapabilityMatrix({ repos, rollout = [] }: { repos: CapabilityMatrixInput[]; rollout?: FoundationRolloutRow[] }) {
   const matrix = buildCapabilityMatrix(repos);
   const ratio = verifiedRatio(matrix);
+  // Spec #35 handoff 2's promised column. Keyed lower-case because the audit-derived rollout rows and
+  // the rollup's `fullName` come from two different writes of the same name.
+  const rolloutByRepo = new Map(rollout.map((r) => [r.repo.toLowerCase(), r]));
 
   return (
     <section className="space-y-6">
@@ -82,7 +58,7 @@ export function CapabilityMatrix({ repos }: { repos: CapabilityMatrixInput[] }) 
       ) : (
         <OrgTable
           caption="Repositories by declared capability"
-          minWidth={520 + matrix.capabilities.length * 72}
+          minWidth={660 + matrix.capabilities.length * 72}
           head={
             <tr>
               <th className="px-4 py-3 text-left">Repository</th>
@@ -92,31 +68,20 @@ export function CapabilityMatrix({ repos }: { repos: CapabilityMatrixInput[] }) 
                 </th>
               ))}
               <th className="px-4 py-3 text-right">Proven</th>
+              {/* The cross-link, not a fourth catalogue: what this repo REPORTS BACK, so "where is
+                  the standard in, and where is it proving itself?" stops being a three-tab join. */}
+              <th className="px-4 py-3 text-left">Report-back</th>
               <th className="px-4 py-3 text-left">Declared</th>
             </tr>
           }
         >
           {matrix.rows.map((row) => (
-            <tr key={row.fullName}>
-              <td className="px-4 py-2.5 text-slate-200">
-                {row.name}
-                <span className="ml-2 type-caption text-slate-500">{row.fullName}</span>
-              </td>
-              {matrix.capabilities.map((c) => (
-                <Cell key={c} capability={c} row={row} />
-              ))}
-              <td className="px-4 py-2.5 text-right type-mono-sm text-slate-300">
-                {row.declared === 0 ? "—" : `${row.verified}/${row.declared}`}
-              </td>
-              <td className="px-4 py-2.5 type-body-sm text-slate-500">
-                {row.generatedAt ? `manifest of ${row.generatedAt}` : "no generatedAt declared"}
-                {row.unbacked.length > 0 && (
-                  <span className="ml-2 text-amber-400/80" title={`Controls with no backing capability: ${row.unbacked.join(", ")}`}>
-                    {row.unbacked.length} unbacked control{row.unbacked.length === 1 ? "" : "s"}
-                  </span>
-                )}
-              </td>
-            </tr>
+            <CapabilityMatrixRowView
+              key={row.fullName}
+              row={row}
+              capabilities={matrix.capabilities}
+              rollout={rolloutByRepo.get(row.fullName.toLowerCase())}
+            />
           ))}
         </OrgTable>
       )}

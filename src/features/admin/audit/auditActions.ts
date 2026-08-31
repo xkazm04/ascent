@@ -48,6 +48,10 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // deliberately different colours: an examiner scanning this log should be able to see at a glance
   // which rows changed a record and which changed someone's repository.
   { value: "org.admission", label: "Admission decision", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // …and its withdrawal (UAT `RC2-N4`). A separate row, not a second `org.admission` with different
+  // fields: the whole reason the delete writes an act is that the log must distinguish "decided, then
+  // withdrawn" from "decided", and a shared action value would put that distinction back in the payload.
+  { value: "org.admission_withdrawn", label: "Admission withdrawn", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "org.admission_propose", label: "Admission proposal", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.admission_ruleset", label: "Ruleset applied", cls: "border-rose-500/40 bg-rose-500/10 text-rose-300" },
   { value: "org.admission_ruleset_revert", label: "Ruleset reverted", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },

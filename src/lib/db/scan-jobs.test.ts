@@ -27,6 +27,7 @@ import {
   enqueueScanJob,
   idempotencyKeyFor,
   MAX_JOB_ATTEMPTS,
+  orgQueueDepth,
   queueDepth,
   reapExpiredLeases,
   settleJob,
@@ -198,5 +199,51 @@ describe("queueDepth honest nulls", () => {
     const depth = await queueDepth();
     expect(depth.rescore).toEqual({ queued: 0, oldestAgeMs: null });
     expect(depth.probe).toEqual({ queued: 0, oldestAgeMs: null });
+  });
+});
+
+// UAT `VICTOR-L1-07` shipped this depth to an operator surface, where `queueDepth`'s zero-filled
+// degradation is a lie: a dashboard reader cannot tell "nothing is waiting" from "the queue could not
+// be read". The cron routes keep the zero-filling version; the surface gets one that says null.
+describe("orgQueueDepth refuses to fabricate an empty queue", () => {
+  it("is null without a database", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await orgQueueDepth("acme")).toBeNull();
+  });
+
+  it("is null for an org the read cannot resolve", async () => {
+    mockGetOrgId.mockResolvedValue(null);
+    expect(await orgQueueDepth("acme")).toBeNull();
+  });
+
+  it("is null when the count itself fails — never a zero-filled record", async () => {
+    mockGetPrisma.mockReturnValue({
+      scanJob: {
+        count: vi.fn(async () => {
+          throw new Error("relation \"ScanJob\" does not exist");
+        }),
+        findFirst: vi.fn(async () => null),
+      },
+    });
+    expect(await orgQueueDepth("acme")).toBeNull();
+  });
+
+  it("reports a real depth per lane, and dates it off the oldest queued job", async () => {
+    const createdAt = new Date(Date.now() - 3 * 3_600_000);
+    mockGetPrisma.mockReturnValue({
+      scanJob: {
+        count: vi.fn(async ({ where }: { where: { lane: string; orgId: string } }) => {
+          // Org-scoped by construction: the resolved id, never the caller's slug.
+          expect(where.orgId).toBe("org_1");
+          return where.lane === "rescore" ? 400 : 0;
+        }),
+        findFirst: vi.fn(async () => ({ createdAt })),
+      },
+    });
+    const depth = await orgQueueDepth("acme");
+    expect(depth!.rescore.queued).toBe(400);
+    expect(depth!.rescore.oldestAgeMs).toBeGreaterThan(2.9 * 3_600_000);
+    // An empty lane is never dated — the same never-zero rule `queueDepth` holds.
+    expect(depth!.probe).toEqual({ queued: 0, oldestAgeMs: null });
   });
 });

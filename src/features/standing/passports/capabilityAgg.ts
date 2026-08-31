@@ -34,6 +34,22 @@ export interface CapabilityMatrixRow {
   generatedAt: string | null;
   /** Controls declared with no backing capability — the declared-vs-declared gap. */
   unbacked: string[];
+  /**
+   * The manifest declares a MAJOR schema version this build does not know (UAT `PRIYA-L1-04`).
+   *
+   * Spec #13 promised such a manifest would be *"parsed leniently, flagged honestly"* — and the flag
+   * was computed, persisted, and read by nothing: a fleet on a newer schema rendered ordinary cells
+   * with no hint the reader was behind. Carried here so the row can say so.
+   */
+  schemaAhead: boolean;
+  /** What the manifest declares its schema version to be, or null. Shown beside `schemaAhead`. */
+  schemaVersion: string | null;
+  /**
+   * The reader's own parse notes — including the REDACTION notes, which is the half that mattered:
+   * a capability command containing a secret-shaped run is stored redacted, and an operator could not
+   * see that the command they are reading is not the command the repo wrote.
+   */
+  notes: string[];
 }
 
 export interface CapabilityMatrix {
@@ -104,6 +120,9 @@ export function buildCapabilityMatrix(repos: CapabilityMatrixInput[]): Capabilit
       declared: m.capabilities.length,
       generatedAt: m.generatedAt,
       unbacked: m.unbacked,
+      schemaAhead: m.schemaAhead,
+      schemaVersion: m.schemaVersion,
+      notes: m.notes,
     });
   }
 

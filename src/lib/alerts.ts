@@ -557,6 +557,28 @@ export interface FleetDigestInput {
    */
   controlsFailed?: { repo: string; control: string; detail: string }[];
   /**
+   * THE N THE CONTROLS BLOCK IS STATED WITH (UAT `DANA-L1-015`).
+   *
+   * `control-observations.ts` states the coverage law in as many words: *any surface that prints a
+   * control's state over a period must print its coverage beside it*, because "none failed this week"
+   * read off two observations is a sentence the evidence does not support. The digest is the surface
+   * that law was written for — it is the artifact a leader reads INSTEAD of opening the app, so it is
+   * the one place where an unqualified all-clear is never corrected by the page underneath it.
+   *
+   * Undefined omits the line entirely, on the same three-state terms as `controlsFailed`: a caller
+   * that could not read the ledger says nothing rather than printing a coverage of zero.
+   */
+  controlCoverage?: {
+    /** Distinct (repo, control) pairs observed in the window. */
+    pairs: number;
+    /** Total observations behind the block. */
+    observations: number;
+    /** Largest silent stretch BETWEEN observations across the fleet, or null when no pair had two. */
+    maxGapDays: number | null;
+    /** The read hit the ledger's per-read cap, so `observations` is a FLOOR. Stated, never implied. */
+    truncated: boolean;
+  };
+  /**
    * Dimensions that have held materially below an earlier reading (`detectStandingRegressions`),
    * newest concern per repo. Rendered as OBSERVATIONS, never as attributions — the block header says
    * so in as many words, because the one thing this must not become is the digest guessing at cause.
@@ -600,6 +622,16 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const controlsHeading = d.controlsFailed?.length
     ? `Controls that failed this week (${d.controlsFailed.length}):`
     : "Controls: none failed this week.";
+  // The coverage law (control-observations.ts): a state asserted over a period travels with its N, or
+  // it is not an assurance statement. It matters MOST under the all-clear — "none failed" off three
+  // observations is the sentence this line exists to qualify.
+  const cov = d.controlCoverage;
+  const coverageLine = cov
+    ? cov.observations === 0
+      ? "Coverage: no control was observed in this window — the all-clear above is not evidence."
+      : `Coverage: ${cov.observations}${cov.truncated ? "+" : ""} observation${cov.observations === 1 ? "" : "s"} across ${cov.pairs} repo/control pair${cov.pairs === 1 ? "" : "s"}` +
+        (cov.maxGapDays == null ? " (a single observation per pair — no gap measurable)." : `, largest gap ${cov.maxGapDays}d.`)
+    : null;
 
   // Standing concerns sit beside the Controls block and for the same reason: a dimension that has been
   // down for a month outranks this week's ±3, and a reader who has to scroll past six gainers to find
@@ -613,7 +645,7 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
 
   const lines: string[] = [headline, summary.replace(/\*/g, "")];
   if (d.trajectory) lines.push(d.trajectory);
-  if (d.controlsFailed) lines.push("", controlsHeading, ...d.controlsFailed.map(controlLine));
+  if (d.controlsFailed) lines.push("", controlsHeading, ...d.controlsFailed.map(controlLine), ...(coverageLine ? [coverageLine] : []));
   if (d.standingConcerns) lines.push("", standingHeading, ...d.standingConcerns.map(standingLine));
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
@@ -629,9 +661,9 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.controlsFailed)
     blocks.push(
       mrkdwnSection(
-        d.controlsFailed.length
+        (d.controlsFailed.length
           ? `*${controlsHeading}*\n${d.controlsFailed.map(controlLine).join("\n")}`
-          : `_${controlsHeading}_`,
+          : `_${controlsHeading}_`) + (coverageLine ? `\n_${coverageLine}_` : ""),
       ),
     );
   if (d.standingConcerns)

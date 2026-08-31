@@ -19,6 +19,7 @@ import { PassportsSwitcher } from "./PassportsSwitcher";
 import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
 import type { PassportRow } from "./PassportTable";
 import { getOrgRollup } from "@/lib/db";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -27,9 +28,14 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 
 export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
-  const [rollup, decisions] = await Promise.all([
+  const [rollup, decisions, rollout] = await Promise.all([
     getOrgRollup(slug, undefined, segmentId, techGroupId),
     decisionMap(slug, "passports"),
+    // Spec #35 handoff 2's promised report-back column (UAT `PRIYA-L1-05`). `getFoundationRollout`
+    // had exactly one consumer, on the Repositories tab, so a lead's one fleet-adoption question —
+    // "where is the standard in and not in?" — was answered across three tabs with no cross-link and
+    // the join living in her head. Read in the same parallel batch; it adds no round-trip depth.
+    getFoundationRollout(slug),
   ]);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
@@ -113,7 +119,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
           No passports yet for this view. Passports are produced by scans, so scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
-        <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} org={slug} decisions={decisions} />
+        <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} rollout={rollout} org={slug} decisions={decisions} />
       )}
     </div>
   );

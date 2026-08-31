@@ -51,6 +51,8 @@ const fixture: GovernanceOverview = {
   failing: 3,
   passRate: 70,
   byReason: { level: 2, overall: 0, dimension: 3, posture: 1, governance: 0, provenance: 0, incomplete: 0 },
+  measuredOn: { governance: 10, provenance: 4 },
+  barSet: { governance: true, provenance: true },
   failures: [
     {
       name: "web",
@@ -112,7 +114,17 @@ describe("governanceMarkdown", () => {
 type RepoRow = {
   name: string;
   fullName: string;
-  latest: { level: string; overall: number; posture: string; dims: { dimId: string; score: number }[]; incomplete?: boolean } | null;
+  latest: {
+    level: string;
+    overall: number;
+    posture: string;
+    dims: { dimId: string; score: number }[];
+    incomplete?: boolean;
+    govReadable?: boolean;
+    protected?: boolean;
+    aiGovernedRate?: number | null;
+    aiPrSample?: number | null;
+  } | null;
 };
 
 // Only the fields buildGovernanceOverview reads off the rollup. Cast through unknown so we don't have
@@ -167,6 +179,32 @@ describe("buildGovernanceOverview", () => {
     // Failures sort worst-first: most failing conditions, then lowest overall.
     expect(ov.failures.map((f) => f.name)).toEqual(["multi", "tiny"]);
     expect(ov.failures[0].reasons).toHaveLength(3);
+  });
+
+  // UAT `RC-N3`. `provenance` / `governance` zeros are genuine fleet measurements, and the card had
+  // no way to say off how many repos one was reached: "0 repos" over 12 measured and "0 repos" over
+  // none are the same glyph and different facts.
+  it("publishes the N behind an earned zero, counted off the inputs the evaluator itself skips on", async () => {
+    const fleet: RepoRow[] = [
+      // Readable protection AND an AI-PR sample: measurable on both conditions.
+      { ...PASS("both"), latest: { ...PASS("both").latest!, govReadable: true, protected: true, aiGovernedRate: 100, aiPrSample: 9 } },
+      // Readable protection only — provenance was never due here.
+      { ...PASS("protonly"), latest: { ...PASS("protonly").latest!, govReadable: true, protected: true } },
+      // Neither. A repo the fleet path could not judge on either condition.
+      PASS("neither"),
+    ];
+    mockGetOrgRollup.mockResolvedValue(rollupOf(3, fleet));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    expect(ov.assessed).toBe(3);
+    expect(ov.byReason.governance).toBe(0);
+    expect(ov.byReason.provenance).toBe(0);
+    // The zeros above are earned off DIFFERENT populations, and the overview now says so.
+    expect(ov.measuredOn.governance).toBe(2);
+    expect(ov.measuredOn.provenance).toBe(1);
+    // Neither bar is part of the org archetype default, so both zeros are additionally explained by
+    // a bar nobody set — the distinction the card renders ahead of the sample size.
+    expect(ov.barSet).toEqual({ governance: false, provenance: false });
   });
 
   it("collapses duplicate per-reason gaps so one repo's repeated gap isn't double-counted", async () => {

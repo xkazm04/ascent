@@ -46,6 +46,22 @@ export interface GovernanceOverview {
   /** How many repos fail on each condition (deduped per repo) — where the fleet is weakest. */
   /** Failing-condition tally. Keyed off GateFailure["code"] so a new code cannot be silently dropped. */
   byReason: Record<GateFailure["code"], number>;
+  /**
+   * THE N BEHIND AN EARNED ZERO (UAT `RC-N3`). How many ASSESSED repos actually carried the inputs a
+   * condition needs, for the two conditions whose inputs can be absent per repo: `governance` needs
+   * readable branch protection, `provenance` needs an AI-PR sample. Every other code is measurable on
+   * every judged repo by construction and is deliberately absent here.
+   *
+   * `FLEET_UNJUDGED_REASONS` gave a STRUCTURAL zero its own words; this gives an EARNED one its own
+   * number. "0 repos" off 14 measured repos and "0 repos" off 1 are the same glyph and different
+   * facts, and until now the difference was committed only in a source comment.
+   */
+  measuredOn: Partial<Record<GateFailure["code"], number>>;
+  /**
+   * Does the org's own bar even ask for the condition? A zero under a bar nobody set is not the same
+   * fact as a zero every measured repo cleared, and both render as "0 repos".
+   */
+  barSet: Partial<Record<GateFailure["code"], boolean>>;
   failures: GovernanceFailure[]; // worst first (most failing conditions, then lowest overall)
   /** Query string that reproduces this policy on the gate API/badge. */
   gateQuery: string;
@@ -120,6 +136,10 @@ export async function buildGovernanceOverview(
   };
   const failures: GovernanceFailure[] = [];
   let passing = 0;
+  // RC-N3: the N behind an earned zero. Counted over the same population the reason meters are shown
+  // against (`assessed`), and off the SAME inputs `evaluateGateLite` skips on, so the number can never
+  // describe a different measurement than the one that produced the count beside it.
+  const measuredOn: Partial<Record<GateFailure["code"], number>> = { governance: 0, provenance: 0 };
 
   for (const r of scannedRepos) {
     const s = r.latest!; // safe: filtered to r.latest above
@@ -141,6 +161,11 @@ export async function buildGovernanceOverview(
     // protection fields above — with the org's provenance bar set, a fleet view that silently
     // skipped it would show repos as passing that the CI gate blocks. Null → the rule is skipped
     // (not measurable), never a false-fail.
+    // Measurability is read BEFORE the verdict, and from the snapshot fields rather than from the
+    // result: a repo that passed and a repo that was skipped both contribute zero failures, which is
+    // exactly the ambiguity this count exists to resolve.
+    if (s.govReadable) measuredOn.governance! += 1;
+    if (s.aiGovernedRate != null) measuredOn.provenance! += 1;
     const result = evaluateGateLite(
       {
         level: s.level,
@@ -189,6 +214,11 @@ export async function buildGovernanceOverview(
     failing: failures.length,
     passRate: assessed ? Math.round((passing / assessed) * 100) : 0,
     byReason,
+    measuredOn,
+    barSet: {
+      governance: Boolean(policy.requireProtectedBranch),
+      provenance: typeof policy.minAiGovernedRate === "number",
+    },
     failures: failures.slice(0, 12),
     gateQuery: gateQuery(policy),
     ciWith: ciWith(policy),
