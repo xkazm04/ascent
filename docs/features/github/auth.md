@@ -27,6 +27,14 @@ Three pure predicates, shared by the server gate and the proxy so they can't dri
 | `supabaseAuthConfigured()` | Both `NEXT_PUBLIC_SUPABASE_*` vars are set. |
 | `authBypassEnabled()` | `ASCENT_AUTH_BYPASS` is on **and** `NODE_ENV !== "production"`. Hard-disabled in production, so a stray env var can never drop the wall on a real deployment. |
 | `authGateEnabled()` | `supabaseAuthConfigured() && !authBypassEnabled()`: whether the wall is actually enforced right now. |
+| `publicScanSignInRequired()` | `ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN` is on. Opt-in, **default off**: the anonymous public-scan funnel is exempt from the wall unless an operator deliberately re-walls it. |
+
+A fourth predicate composes the last two and lives with the gate it belongs to:
+`publicScanWallEnabled()` (`src/lib/scan-gates.ts`) = `authGateEnabled() && publicScanSignInRequired()`
+— whether an **anonymous public scan** is walled. Any UI that decides whether to show a sign-in wall
+over a scan must read that one, not `authGateEnabled()`: the landing hero's dialog approximated it
+with the coarser predicate and painted a "Scanning is for signed-in members" panel over a scan the
+endpoint was answering `200`. See [the scan doors table](../scanning/scan.md#the-anonymous-public-scan-is-exempt-from-the-sign-in-wall).
 
 ## The active stack (`src/lib/access.ts`)
 

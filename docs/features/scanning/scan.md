@@ -65,6 +65,33 @@ rate limit  →  sign-in wall  →  monthly quota
    429            401              429 { code: "monthly_quota" }
 ```
 
+### The anonymous public scan is exempt from the sign-in wall
+
+`scanAuthGate` walls a **private / installed-org** scan whenever `authGateEnabled()` is true, but an
+**anonymous public** scan passes by default: the wall applies to it only when an operator opts back in
+with `ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN=1`. That composed predicate is
+`publicScanWallEnabled()` — `authGateEnabled() && publicScanSignInRequired()`, exported from
+`src/lib/scan-gates.ts`.
+
+The cost ceiling for the anonymous funnel does not depend on the flag: the shared burst limiter runs
+before this gate and the rolling monthly free-scan quota runs after it, on this exact path either way.
+
+**Every scan door reads that one predicate.** The three entry points a visitor can reach must agree
+with the endpoint, because a wall painted on a door the server would have opened costs the vendor the
+one visitor who used the front door and nobody else:
+
+| Door | How it stays consistent |
+| --- | --- |
+| The landing hero's scan dialog (`src/app/page.tsx` → `ScanModal`) | The page computes `gated` from `publicScanWallEnabled()` server-side and passes it down. It renders the "Sign in to scan" panel **only** when the endpoint would answer `401`. |
+| `/report?repo=…` (the scan form's destination) | No client-side predicate at all. It starts the scan and renders whatever the server answers — `auth_required` → `SignInNotice`, `monthly_quota` → `QuotaBlocked`. |
+| `/report/{owner}/{repo}` cold permalink (`ColdScanGate`) | No wall; an explicit **Scan now** button so a shared permalink never auto-starts a multi-minute scan nobody asked for. Says "free for public repositories and needs no account". |
+
+Pinned by `src/lib/scan-gates.wall-consistency.test.ts`, which drives the predicate and the gate across
+the whole env matrix and asserts they never disagree. When the dialog is open (the default), the
+`QuotaMeter` and the derived duration sentence render with it — both work signed-out (`/api/quota`
+reports `scope: "anon"`), so an anonymous visitor is told the real allowance and the real wait
+**before** committing a scan.
+
 A caller who trips more than one gate gets the **first** one, so a throttled anonymous caller sees
 `429` with `Retry-After` on **both** routes, not `401` on one and `429` on the other, which is what
 they returned before the orders were unified. Rate limit wins the tie because it is the truthful
