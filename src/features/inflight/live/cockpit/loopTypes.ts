@@ -118,6 +118,30 @@ export interface LoopStatusPayload {
    *  the disabled control is a courtesy rather than the enforcement. Absent = assume it can, which is
    *  what every payload written before this field meant. */
   prAvailable?: boolean;
+  /** A stop has been REQUESTED on `active` and has not taken effect yet. The loop's stop is
+   *  cooperative — in-flight lanes finish the phase they are in — so this is a real, sometimes
+   *  long-lived state and not a spinner on the button's own fetch. Absent = not answered, which the
+   *  cockpit reads as `false` (exactly what every payload before this field meant). */
+  stopping?: boolean;
+  /** The RESOLVED per-session ceiling of the active run, in ms — the outer bound on how long a
+   *  requested stop can take. Server-resolved, because the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS`
+   *  is not a fact a browser can know. `null` when there is no active run. */
+  stopHorizonMs?: number | null;
+}
+
+/**
+ * "Stopping… in-flight lanes finish their session (up to 20 min)". Pure, so the caption is testable
+ * and the two places that could phrase it differently cannot.
+ *
+ * `null` horizon prints the sentence WITHOUT a bound rather than inventing one: "we do not know how
+ * long" is a different statement from "up to 20 minutes", and the second one being wrong is the whole
+ * defect this caption exists to fix (PRIYA-L2-C6 measured 19m43s against a button that said nothing).
+ */
+export function stoppingCaption(horizonMs: number | null | undefined): string {
+  const base = "Stopping — in-flight lanes finish their current session first";
+  if (horizonMs == null || !Number.isFinite(horizonMs) || horizonMs <= 0) return `${base}.`;
+  const mins = Math.max(1, Math.round(horizonMs / 60_000));
+  return `${base}, up to ${mins} min.`;
 }
 
 /** A run is DRIVING something (the poll runs) versus at rest (no timer at all). */

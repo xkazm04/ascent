@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseResolvedIds } from "@/lib/org/followups";
-import { commitAgentWork, laneCommitSubject, parseAgentClaims, porcelainPaths, trailerIds } from "./lane-commit";
+import { INTERRUPTED_SUBJECT, buildCommitMessage, commitAgentWork, laneCommitSubject, parseAgentClaims, porcelainPaths, trailerIds } from "./lane-commit";
 
 const dirs: string[] = [];
 
@@ -182,5 +182,20 @@ describe("the pure pieces", () => {
     expect(laneCommitSubject("ci: add the workflow", 1)).toBe("ci: add the workflow");
     expect(laneCommitSubject("", 2)).toBe("fix: resolve 2 Ascent follow-ups");
     expect(laneCommitSubject("RESOLVED: a - x", 1)).toBe("fix: resolve 1 Ascent follow-up");
+  });
+
+  // PRIYA-L2-C7: a timed-out session's error text titled a 1605-insertion commit.
+  it("never titles a commit with a failed session's error text, and says so in the body", () => {
+    const timedOut = "Agent session exceeded 20 min and was stopped";
+    expect(laneCommitSubject(timedOut, 3)).toBe(`fix: ${timedOut}`);
+    expect(laneCommitSubject(timedOut, 3, true)).toBe(INTERRUPTED_SUBJECT);
+    expect(INTERRUPTED_SUBJECT.length).toBeLessThanOrEqual(72);
+
+    const input = { dir: "/w", branch: "ascent/loop-x", cycle: 1, batch: [{ id: "a" }], summary: timedOut, sessionFailed: true };
+    const msg = buildCommitMessage(input, ["a"], { resolved: ["a"], skipped: [] });
+    expect(msg.subject).toBe(INTERRUPTED_SUBJECT);
+    // The error is not lost — it is evidence, and it rides in the body verbatim.
+    expect(msg.body).toContain(timedOut);
+    expect(msg.body).toContain("THE SESSION ENDED IN ERROR");
   });
 });

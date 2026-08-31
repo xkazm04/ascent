@@ -235,6 +235,15 @@ wider grant.
   the lane never armed is ignored, and a trailer line inside the agent's own prose is stripped — a
   session cannot enlarge its own batch. The trailer is still a **claim**: a row closes only when the
   next scan says its dimension moved.
+- **A session that ended in ERROR never titles the commit.** `runAgent` returning `ok: false` (a
+  timeout, a crash, a non-zero exit) means `summary` is the runner's failure text, not an account of
+  the work — and `laneCommitSubject` used to read a subject line off it. A campaign branch carried
+  **1605 insertions across 15 files** under `fix: Agent session exceeded 20 min and was stopped`
+  (`PRIYA-L2-C7`, 2026-08-30). The lane now passes `sessionFailed` and the subject falls back to
+  `chore: partial work from an interrupted lane session`, with a paragraph in the body saying the
+  changes are the session's unreviewed residue. **The error is not dropped** — it still rides
+  verbatim in the `Agent summary:` block, where a reader looking for it finds it and `git log
+  --oneline` does not lead with it.
 - If the agent *did* commit (a future mode with a wider grant), the lane commits only the residue.
 - If the lane's own commit fails, the lane names the uncommitted change count and the branch the work
   is **not** on before the worktree is deleted.
@@ -296,6 +305,19 @@ removed. The read side refuses the same pair independently; see the `undelivered
   it *between* phases, never mid-agent-session. An in-flight lane finishes its agent session, skips
   its rescan, and the run winds down to `stopped`. Stopping a run this process does not own (already
   finished, or a restart casualty) reconciles the row instead of no-opping.
+- **The wind-down is narrated.** A cooperative stop takes as long as the in-flight session does, and
+  a live capture measured **19 min 43 s** of unchanged `RUNNING` after the operator pressed Stop
+  (`PRIYA-L2-C6`, 2026-08-30) — the button had already sprung back, because it was disabled on the
+  *fetch* rather than on the request. `loopRunStopRequested(id)` now reads the pending flag out of
+  the process-wide registry, and `GET /api/org/loop` carries it as `stopping` beside `stopHorizonMs`
+  (the run's own `agentTimeoutMs`, resolved against `ASCENT_AUTOPILOT_TIMEOUT_MS` **server-side** —
+  a browser cannot know that number). The header then holds *"Stopping…"* and prints
+  *"Stopping — in-flight lanes finish their current session first, up to 20 min."* until the run
+  settles. A `null` horizon prints the sentence **without** a bound rather than inventing one.
+  The flag itself stays in the registry: it is the signal a running driver reads, a run this process
+  is not driving is a restart casualty `markStaleRunsStopped` settles, and a `LoopRun.stopRequested`
+  column would persist a fact that has no meaning across a restart. (`stoppingCaption` is pure and
+  tested; `CockpitHeader.dom.test.tsx` pins the label and the caption.)
 - **Lane error + retry.** A worktree that cannot be created is a lane error, not a run error. `retry`
   re-runs one lane on a **fresh worktree and a fresh branch off HEAD** — by the time anyone retries,
   the run has ended and its worktree is gone, and re-creating a worktree on the old branch would

@@ -858,6 +858,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         cycle,
         batch,
         summary: result.summary,
+        // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
+        // lane still commits the residue — that work is real and the worktree is about to be deleted
+        // — but the subject stops being the failure message.
+        sessionFailed: !result.ok,
       });
       await appendLaneLog(laneId, committed.summary);
     }

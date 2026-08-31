@@ -74,6 +74,10 @@ export function LiveCockpit(props: LiveCockpitProps) {
         wallHref={wallHref}
         onStop={c.stop}
         stopping={loop.busy || drive.busy}
+        // The DRIVE's own flag counts here too: the header's Stop is `c.stop`, which stops whichever
+        // of the two is pulling, so the state it reports has to cover both.
+        stopRequested={loop.stopRequested || drive.drive?.stopRequested === true}
+        stopHorizonMs={loop.stopHorizonMs}
       />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(18rem,1.4fr)]">

@@ -21,7 +21,7 @@ import { getViewer } from "@/lib/access";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
-import { autopilotEnabled } from "@/lib/local/agent";
+import { agentTimeoutMs, autopilotEnabled } from "@/lib/local/agent";
 import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
 import {
@@ -47,7 +47,7 @@ import {
   markStaleRunsStopped,
   reviewDeliverable,
 } from "@/lib/db/loop-runs";
-import { isLoopRunLive, retryLane, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { isLoopRunLive, loopRunStopRequested, retryLane, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
 
 export const runtime = "nodejs";
@@ -82,7 +82,24 @@ export async function GET(request: Request) {
   // delivery dial disables `pr` and says why when it cannot, rather than offering a mode that would be
   // refused on submit — and the refusal below is what makes the disabled control a courtesy rather
   // than the enforcement.
-  return NextResponse.json({ enabled: autopilotEnabled(), active, runs, prices, prAvailable: isAppConfigured() });
+  // STOP IS COOPERATIVE, AND THAT HAS TO BE VISIBLE (PRIYA-L2-C6). A stop request does not end the
+  // run: in-flight lanes finish the phase they are in, and an agent session's phase ends only when
+  // the session does — up to that run's own ceiling. Both facts travel with the status so the header
+  // can say "Stopping…" and name the horizon, instead of reverting to "Stop" the moment the POST
+  // returns and leaving the operator to press it again. `stopHorizonMs` is RESOLVED here because the
+  // deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS` is a server fact — a browser guessing "20 min" would
+  // be wrong on every deployment that raised it.
+  const stopping = active ? loopRunStopRequested(active.id) : false;
+  const stopHorizonMs = active ? agentTimeoutMs(active.agentTimeoutMs) : null;
+  return NextResponse.json({
+    enabled: autopilotEnabled(),
+    active,
+    runs,
+    prices,
+    prAvailable: isAppConfigured(),
+    stopping,
+    stopHorizonMs,
+  });
 }
 
 type Body = {
