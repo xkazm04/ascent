@@ -536,6 +536,26 @@ actually declares one of them (`unjudgedBarsDeclared`). The set lives in
 in it — the rollup carries the branch-protection fields and `aiGovernedRate` / `aiPrSample`, and
 `evaluateGateLite` evaluates both, so their zeros are earned.
 
+**The unjudged row names what SHE declared under it (2026-08-31, UAT `RC-N2`).** The caveat above was
+true whether or not the reader had any stake in it, so the strongest version of the original finding —
+a lead who had *just* set two required controls — still read a sentence that did not acknowledge her
+bar. `unjudgedBarDeclaration(code, policy)` composes the escalation per row from the stored policy:
+the `control` row appends *"— you have declared 2 required controls; the per-repo gate enforces them"*
+(the count is read from `requireChecks`, never written as a literal), and the `admission` row appends
+its own when `forbidAiAuthorship` is set. An org that has declared nothing under a row sees no
+escalation — an empty one would be worse than none.
+
+**And an earned zero gets a word of its own (2026-08-31, UAT `RC-N3`).** A structural zero now has a
+sentence; a *measured* zero had only the glyph, so the two `provenance` / `governance` rows read as
+placeholders beside the two that had changed. `buildGovernanceOverview` publishes two new fields —
+`measuredOn` (how many ASSESSED repos actually carried the condition's inputs, counted off the same
+snapshot fields `evaluateGateLite` skips on) and `barSet` (whether the org's bar asks for the condition
+at all) — and `earnedZeroNote()` turns them into the qualifier beside a 0 row: *"measured on 12 of 14
+judged repos"*, or *"not part of this org's bar"* when nobody set it, or *"no judged repo carried the
+inputs (0 of 14)"* when the sample is genuinely empty. This **extends** the three-state vocabulary
+(guardrail G15); it does not collapse it — `unmeasurable`, `unchecked` and an earned zero stay three
+different sentences.
+
 ### Delivery's "Required status checks" tile (2026-08-31)
 
 Renamed from **"Require checks"** (UAT `PRIYA-L1-07`). It is `OrgGovernance.requireChecksRate` — the

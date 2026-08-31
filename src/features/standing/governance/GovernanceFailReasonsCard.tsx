@@ -2,7 +2,13 @@
 // page.tsx JSX (docs/ORG-TABS-REFACTOR.md JSX-region split).
 
 import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
-import { FLEET_UNJUDGED_NOTE, GOVERNANCE_FAIL_REASONS, unjudgedBarsDeclared } from "./governanceReasons";
+import {
+  FLEET_UNJUDGED_NOTE,
+  GOVERNANCE_FAIL_REASONS,
+  earnedZeroNote,
+  unjudgedBarDeclaration,
+  unjudgedBarsDeclared,
+} from "./governanceReasons";
 import type { GovernanceOverview } from "@/lib/org/governance";
 
 export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
@@ -33,11 +39,20 @@ export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
             // two required controls that zero repos fail them — while the per-repo CI gate blocked
             // PRs on exactly those (UAT PRIYA-L1-02). Same row, same order, honest reading.
             if (!r.fleetJudged) {
+              // RC-N2: and when SHE has declared one of these, the row says so. The escalation was
+              // computed by `unjudgedBarDeclaration`'s predecessor and rendered nowhere, so a lead who
+              // had just set two required controls read the same neutral sentence as an org that had
+              // set none — correct, and silent about the only part she has a stake in.
+              const declared = unjudgedBarDeclaration(r.key, g.savedPolicy);
               return (
                 <div key={r.key} className="flex items-center gap-3 type-body-sm">
                   <span className="w-44 shrink-0 text-slate-500">{r.label}</span>
-                  <span className="flex-1 text-slate-500">{FLEET_UNJUDGED_NOTE}</span>
+                  <span className="flex-1 text-slate-500">
+                    {FLEET_UNJUDGED_NOTE}
+                    {declared ? ` — ${declared}` : ""}
+                  </span>
                   <span className="w-16 shrink-0 text-right font-mono text-slate-600">—</span>
+                  <span aria-hidden className="w-52 shrink-0" />
                 </div>
               );
             }
@@ -49,11 +64,19 @@ export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
             // It is a share of everything scanned; nothing else is.
             const denom = r.key === "incomplete" ? g.scanned : g.assessed;
             const pct = denom ? Math.round((n / denom) * 100) : 0;
+            // RC-N3: an EARNED zero gets a word of its own. Two of these rows are real fleet
+            // measurements whose 0 is a result, and beside two rows that now say "not judged
+            // fleet-wide" a bare 0 reads as the placeholder it is not.
+            const earned = earnedZeroNote(r.key, n, g.assessed, g.measuredOn, g.barSet);
             return (
               <div key={r.key} className="flex items-center gap-3 type-body-sm">
                 <span className="w-44 shrink-0 text-slate-400">{r.label}</span>
                 <Meter className="flex-1" value={pct} color={n ? "#ef4444" : "#334155"} />
                 <span className="w-16 shrink-0 text-right font-mono text-slate-300">{n} repo{n === 1 ? "" : "s"}</span>
+                {/* The column is always reserved so the meters stay aligned whether or not a row
+                    earned a qualifier — a note that reflows the chart it annotates is a worse read
+                    than no note. */}
+                <span className="w-52 shrink-0 text-right text-slate-500">{earned ?? ""}</span>
               </div>
             );
           })}
