@@ -181,3 +181,4 @@ describe("deliverables - the cell rows", () => {
     expect(okRun.groups[0]!.cells["r1"]!.movements).toEqual(["D9 +20 · gained SAST"]);
   });
 });
+

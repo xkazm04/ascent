@@ -2118,6 +2118,11 @@ CREATE TABLE "LaneItemOutcome" (
     "reason" TEXT NOT NULL DEFAULT '',
     "filesJson" TEXT NOT NULL DEFAULT '[]',
     "deferUntil" TIMESTAMP(3),
+    -- When the RESCAN adjudicated this close (persistScanReport's closedFollowUpIds, past
+    -- decideInProgress's movement witness). NULL on every other row — including every row written
+    -- before this column existed, which were stamped from the agent's own commit trailers and are
+    -- therefore un-adjudicated claims. NULL IS NEVER VERIFIED.
+    "verifiedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "LaneItemOutcome_pkey" PRIMARY KEY ("id")

@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
 
-  const repo = repoUnderOrg(org, body.repo);
+  const repo = await repoUnderOrg(org, body.repo);
   if (!repo) return NextResponse.json({ error: 'Provide repo as "owner/name" under this organization.' }, { status: 400 });
   const owners = cleanOwners(body.owners);
   if (owners.length === 0) {

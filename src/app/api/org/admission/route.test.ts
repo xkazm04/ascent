@@ -18,6 +18,7 @@ vi.mock("@/lib/db/org-stance", () => ({ getActiveOrgStance: vi.fn(async () => ({
 vi.mock("@/lib/db/org-admission", () => ({
   listOrgAdmissions: vi.fn(async () => []),
   upsertRepoAdmission: vi.fn(),
+  orgTracksRepo: vi.fn(async () => false),
   MAX_RATIONALE: 500,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null) }));
@@ -26,13 +27,14 @@ vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat"
 
 import { GET, POST, repoUnderOrg } from "./route";
 import { recordOrgAudit } from "@/lib/db";
-import { listOrgAdmissions, upsertRepoAdmission } from "@/lib/db/org-admission";
+import { listOrgAdmissions, upsertRepoAdmission, orgTracksRepo } from "@/lib/db/org-admission";
 import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 
 const mockList = vi.mocked(listOrgAdmissions);
 const mockUpsert = vi.mocked(upsertRepoAdmission);
+const mockTracks = vi.mocked(orgTracksRepo);
 const mockRead = vi.mocked(requireOrgRead);
 const mockOwnerPost = vi.mocked(requireOrgOwnerPost);
 const mockLogin = vi.mocked(resolveViewerLogin);
@@ -64,23 +66,37 @@ beforeEach(() => {
   mockLogin.mockResolvedValue("octocat");
   mockUpsert.mockResolvedValue(ROW);
   mockAudit.mockResolvedValue(true);
+  mockTracks.mockResolvedValue(false);
 });
 
 describe("repoUnderOrg — the gate-then-CONSTRAIN half", () => {
-  it("accepts a repo under the gated org", () => {
-    expect(repoUnderOrg("acme", "acme/billing")).toBe("acme/billing");
-    expect(repoUnderOrg("Acme", "acme/billing")).toBe("acme/billing"); // GitHub slugs are case-insensitive
+  it("accepts a repo under the gated org's own namespace without a read", async () => {
+    expect(await repoUnderOrg("acme", "acme/billing")).toBe("acme/billing");
+    expect(await repoUnderOrg("Acme", "acme/billing")).toBe("acme/billing"); // GitHub slugs are case-insensitive
+    expect(mockTracks).not.toHaveBeenCalled();
+  });
+
+  // UAT PRIYA-L2-C5. The old rule was `owner === org`, so an organization named for its team rather
+  // than for its GitHub account could never admit its OWN repositories — org `kiro` and `xkazm04/kp`
+  // on the real host, which left the whole remote work protocol unreachable for it.
+  it("accepts a repo the org TRACKS even when the owner segment is another namespace", async () => {
+    mockTracks.mockResolvedValue(true);
+    expect(await repoUnderOrg("kiro", "xkazm04/kp")).toBe("xkazm04/kp");
+    expect(mockTracks).toHaveBeenCalledWith("kiro", "xkazm04/kp");
   });
 
   // The IDOR this closes: gating the org is only half the job when the caller also names the repo.
-  it("REFUSES another tenant's repository, even from an authorized owner", () => {
-    expect(repoUnderOrg("acme", "othertenant/secrets")).toBeNull();
+  it("REFUSES a repository the org does not track, even from an authorized owner", async () => {
+    mockTracks.mockResolvedValue(false);
+    expect(await repoUnderOrg("acme", "othertenant/secrets")).toBeNull();
   });
 
-  it("refuses a malformed name rather than passing it to a query", () => {
+  it("refuses a malformed name rather than passing it to a query", async () => {
+    mockTracks.mockResolvedValue(true);
     for (const bad of ["", "acme", "acme/", "/billing", "acme/bil ling", "../../etc", 7, null]) {
-      expect(repoUnderOrg("acme", bad)).toBeNull();
+      expect(await repoUnderOrg("acme", bad)).toBeNull();
     }
+    expect(mockTracks).not.toHaveBeenCalled();
   });
 });
 

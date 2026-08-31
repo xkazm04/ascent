@@ -4,8 +4,8 @@
 // projects, `registry-writes.ts` reports evidence about the agent's own behaviour, and this one
 // operates the org's WORK QUEUE. That is a different kind of write again — it changes which rows are
 // available to everyone else — so it carries an authorization the other two do not need
-// (`claimability` against the repo's derived autonomy tier) and every accepted call is audited by
-// the shared claim path rather than by this module.
+// (`claimability` against the repo's EFFECTIVE autonomy tier and its recorded admission mode) and
+// every accepted call is audited by the shared claim path rather than by this module.
 //
 // WHAT THESE TOOLS ARE FOR. Ascent adjudicates and runs no code. A competitor that remediates only
 // with its own agent cannot copy this without conceding the agent; a scorer that has no queue cannot
@@ -19,6 +19,8 @@
 
 import { claimFollowups, heldFollowups, reportAttempt, type FollowupClaimRow } from "@/lib/db/followup-claims";
 import { getActiveOrgStance, getStanceRepoFacts } from "@/lib/db/org-stance";
+import { getRepoAdmission } from "@/lib/db/org-admission";
+import type { AdmissionMode } from "@/lib/org/admission";
 import { attachRemoteClaim } from "@/lib/db/loop-runs-write";
 import { repoGlobMatches } from "@/lib/org/stance";
 import { openBatch } from "@/lib/local/loop-lane";
@@ -48,18 +50,46 @@ const int = (a: Args, k: string, dflt: number, min: number, max: number): number
   return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : dflt;
 };
 
-/** One repo's facts as the claim gate needs them. Null = the org has no scan of that repo. */
-async function repoGate(org: string, repo: string): Promise<{ tier: AutonomyTierId | null; sealed: boolean; reviewText: string | null } | null> {
-  const [facts, published] = await Promise.all([
+/**
+ * One repo's facts as the claim gate needs them. Null = the org has no scan of that repo.
+ *
+ * THE ADMISSION ROW IS THE AUTHORITY ON THE TIER, NOT THE PASSPORT (UAT `PRIYA-L2-C4`). This read
+ * used to take `row.autonomyTier` — the DERIVED grade — and stop there, so moonshot #8's whole
+ * point, *"the recorded, **overridable** per-repo decision"*, was invisible to the one gate that
+ * would act on it. Live, a correctly-scoped org token was refused *"xkazm04/kp is at autonomy tier
+ * T0"* on a repo whose owner could have recorded T2 and changed nothing.
+ *
+ * The precedence is the compiler's own, not a second rule invented here (`compileStance`):
+ *   • a tier is EFFECTIVE only where one was ASSESSED — `derivedTier === null` compiles nothing, and
+ *     a `grantedTier` sitting beside an unassessed derivation is a seed nobody measured;
+ *   • where it was assessed, the GRANT wins. That is the whole meaning of an overridable decision:
+ *     an owner may raise T0 → T2, and `mode` is what lowers (a T3 repo held `assisted-only` refuses
+ *     an agent outright — `claimability`'s mode rule);
+ *   • no admission row at all leaves the derived tier and a null mode, so an org that has decided
+ *     nothing is gated exactly as it was.
+ *
+ * The admission read is best-effort like its two siblings. A gate that threw on an unreadable
+ * governance table would turn one degraded read into "this org has no queue", which is a different
+ * and much worse sentence than falling back to the derived tier the passport already proved.
+ */
+async function repoGate(
+  org: string,
+  repo: string,
+): Promise<{ tier: AutonomyTierId | null; sealed: boolean; reviewText: string | null; mode: AdmissionMode | null } | null> {
+  const [facts, published, admission] = await Promise.all([
     getStanceRepoFacts(org).catch(() => []),
     getActiveOrgStance(org).catch(() => null),
+    getRepoAdmission(org, repo).catch(() => null),
   ]);
   const row = facts.find((f) => f.fullName.toLowerCase() === repo.toLowerCase());
   if (!row) return null;
   const stance = published?.stance ?? null;
   const sealed = Boolean(stance?.noAiZones.some((z) => z.repoGlobs.some((g) => repoGlobMatches(g, row.fullName))));
-  const reviewText = row.autonomyTier ? (stance?.reviewTiers.find((t) => t.tier === row.autonomyTier)?.review ?? null) : null;
-  return { tier: row.autonomyTier, sealed, reviewText };
+  const tier = admission && admission.derivedTier !== null ? admission.grantedTier : row.autonomyTier;
+  // The review sentence follows the EFFECTIVE tier, so an agent working under a granted T2 is handed
+  // the org's own T2 review text rather than the text for the grade it was promoted from.
+  const reviewText = tier ? (stance?.reviewTiers.find((t) => t.tier === tier)?.review ?? null) : null;
+  return { tier, sealed, reviewText, mode: admission?.mode ?? null };
 }
 
 /**
@@ -80,7 +110,7 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
       `"${repo}" has no scan in this organization, so it has no follow-ups to claim. Absence of a queue is not permission to start work here.`,
     );
   }
-  const verdict = claimability({ autonomyTier: gate.tier, executor: "remote-agent", sealed: gate.sealed });
+  const verdict = claimability({ autonomyTier: gate.tier, executor: "remote-agent", sealed: gate.sealed, admissionMode: gate.mode });
   if (!verdict.allowed) return fail(claimRefusalText(verdict.reason, repo));
 
   const named = ids(args, "ids");

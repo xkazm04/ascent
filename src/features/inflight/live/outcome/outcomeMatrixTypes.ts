@@ -7,6 +7,7 @@
 import type { Attribution } from "@/lib/maturity/attribution";
 import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
 import type { GapRow } from "./outcomeGapRows";
+import type { CellEconomics } from "./outcomeEconomics";
 import type { LoopLaneKind, LoopLanePhase, LoopLaneRecord, LoopRunPhase } from "../cockpit/loopTypes";
 
 export interface OutcomeDim {
@@ -57,6 +58,9 @@ export interface OutcomeCell {
   commits: number;
   gaps: number;
   dims: OutcomeDim[];
+  /** WHAT THIS CELL SPENT, and what it bought (`outcomeEconomics.ts`). NULL when the payload carried
+   *  no lane economics at all — a server older than the ledger renders nothing, never a zero. */
+  economics: CellEconomics | null;
   /** Set when any lane of this (run, repo) recorded `baseline-red`; null otherwise, including for a
    *  lane written before the guard existed — unknown is not a claim. */
   redBaseline: CellRedBaseline | null;

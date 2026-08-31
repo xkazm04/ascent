@@ -2475,6 +2475,12 @@ model LaneItemOutcome {
   reason           String    @default("") // the agent's own words; "" = it gave none, never a guess
   filesJson        String    @default("[]") // TEXT JSON string[] of paths the agent claimed to touch
   deferUntil       DateTime? // null = not deferred. A deferral is per-ITEM, never a schedule.
+  // WHEN THE RESCAN ADJUDICATED THIS CLOSE. Stamped at write time from `persistScanReport`'s
+  // `closedFollowUpIds` (the set that went through `decideInProgress`'s movement witness), null on
+  // every other row. NULL IS THE HONEST DEFAULT for every row written before this column existed:
+  // those were stamped from the commit-TRAILER set, which is the agent's own claim, so they are
+  // un-adjudicated and must read unverified. Never treat null as verified.
+  verifiedAt       DateTime?
   createdAt        DateTime  @default(now())
 
   // One verdict per (lane, item) — the idempotency key, so re-parsing the same report is a no-op.

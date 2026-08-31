@@ -255,10 +255,21 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    after the restatement read, the dimension's own movement, and `attributeDelta` over the two
    engines (a mock end, or a move inside the ±noise band, closes nothing). The commit trailers come
    back separately as `claimedIds` and are never folded into a count.
-2. **Every outcome row carries `verified`.** `true` only when the rescan closed that id in that lane.
-   It is **derived**, not stored: the lane row already persists the adjudicated set, and
-   `listRunOutcomes` joins it lane-by-lane — so an A/B run's two arms, which arm the same batch,
-   cannot verify each other's claims. A row from a payload without the field reads as unverified.
+2. **Every outcome row carries `verified`, read from its own `verifiedAt` stamp.**
+   `LaneItemOutcome.verifiedAt` is written by `recordLaneOutcomes` at the moment the rescan's
+   adjudicated set (rule 1) named the id, and `listRunOutcomes` reads the column. `verified` is
+   `true` only for a `resolved` row with a stamp; **null is never verified**, on any path.
+   *This replaced a read-time join and had to.* `verified` was first derived by joining the lane's
+   `closedIdsJson` — exact for new rows, but every lane written before rule 1 stored the raw
+   commit-trailer set there, which is the agent's own claim. The tautology re-entered through the
+   join: a recertification sweep of the only corpus that exists found **36 of 36** historical rows
+   returning `verified: true` and not one rendering the new label. A stamp is per-row, so an A/B
+   run's two arms — which arm the same batch — cannot verify each other's claims by construction.
+   A row from a payload without the field reads as unverified.
+   **There is no backfill, and that is the fix, not a shortfall.** Every pre-column row has a null
+   stamp and now reads *"claimed resolved — awaiting the rescan"*, which is what those rows are:
+   nothing adjudicated them, and no migration can invent an adjudication that never happened. The
+   next rescan is what earns them a stamp.
 3. **The panel says which one it means.** A verified close reads *"closed by the rescan"* in the
    accent tone; an unverified one reads *"claimed resolved — awaiting the rescan"* in a muted italic,
    with a title explaining that the item is still open. The lane counters and the run band say
@@ -308,6 +319,27 @@ otherwise a single crash would bar the org from ever starting another run.
 The `isLive(id)` predicate is what separates the three. The two request-path callers pass
 `isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
 The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
+
+**The predicate only answers for runs this process could be driving** (since 2026-08-31; UAT
+`PRIYA-L1-701`). The whole inference is *no live handle ⇒ the process that owned it is gone*, and
+that holds only while a live handle is something the run would HAVE. A **remote** run never gets one:
+`startRemoteRun` creates no registry entry by design — its work is done by an agent in someone else's
+harness, reached over MCP — so `isLive` is false for it by *construction*, not by death. With `GET
+/api/org/loop` firing the sweep on every read, reading the cockpit would have stopped a healthy
+remote run and taken its lanes' claims down with it. The sweep now excludes any stale run holding a
+lane whose `executor` is not this process's (`remote-agent`, `human`), asked as *any* such lane
+rather than *all* of them, because the sweep's only verb is stopping the whole run. A local run was
+never at risk **because of its registry entry** — a live local run survived six reads over ~24 s in
+the L2 capture — which is the isolation, not the excuse. *The remote consequence stays a
+**hypothesis**: the missing predicate was fact, but the remote path was not reproducible on this
+host, so the exclusion is pinned by unit tests rather than by a reproduction.*
+
+**A release clears the claim, not only the status.** The rows a dead run's lanes marked
+`in_progress` go back to `open` **and** have `claimActor`, `claimExecutor` and `leaseUntil` cleared;
+the lanes it errors out have their `claimedBy`/`leaseUntil` cleared too. Leaving those standing made
+a released row read as open-and-still-held: the worklist rendered a holder nobody could reach, and
+the claim path's compare-and-set over `(status, leaseUntil)` had a lease to reason about for a claim
+that no longer existed.
 
 **The boot sweep also reconciles the filesystem** (L2-C-02). `removeLoopWorktree` runs in the lane's
 `finally`, which a `taskkill /F` never reaches, so every hard kill stranded a ~15 MB temp checkout in
@@ -1560,10 +1592,30 @@ unless two models are measured at `n >= 3` on **every** dimension the step is ai
 
 **UI** (`?tab=live`): a cost chip on each `LaneRail` (`sonnet · 4 turns · 48.00¢`, or the literal
 `cost unknown`, in the counters' own muted type — a cost is not a verdict, so it gets no colour); a
-`spent · ¢/point` line on each outcome row, reading `cost not measured` or `no measured movement`
-rather than a zero; and `PriceListPanel` under the run-history strip, which prints `n=` beside every
-cell and an explicit "a price needs a lane with both scan ends and a recorded cost" where a zeroed
-table would otherwise be.
+per-cell figure on the **outcome sheet's project-header row**, one per (run × repo); and
+`PriceListPanel` under the run-history strip, which prints `n=` beside every cell and an explicit
+"a price needs a lane with both scan ends and a recorded cost" where a zeroed table would otherwise be.
+
+*This paragraph used to promise a `spent · ¢/point` line on each outcome row and was **wrong for two
+waves** (UAT `PRIYA-L1-704`).* The spec's named home, `CockpitOutcomeLedger.tsx`, was deleted by the
+wave-2 refactor and its replacement rendered attribution, commits, gaps and `agentConfig` — no cost
+figure of any kind. `grep -rn "\.economics" src/features src/app` returned **zero hits** while the
+payload carried `microsPerVerifiedPoint` on every detail read, so the only ¢/point on the page was
+the org-wide average — the figure that *hid* a lane spending **$10.19 for 0 verified points**.
+
+What the cell may say is decided once, in `outcomeEconomics.ts`, and the rules are the fold's own:
+
+| Case | Reads |
+| --- | --- |
+| priced and measured | `1.50¢/pt` |
+| **spent, measured, nothing moved** | `$10.19 · 0 pts`, in the warning tone — spend beside a zero, never "not measured" and never averaged into anyone's rate (**G18**) |
+| spend known, rate not divisible | `3.00¢ · not measured`, with the missing half named in the title |
+| no cost reported | `cost not reported` — a blank cell would read as free |
+| no lane economics on the payload | nothing at all, never a zero |
+
+A cell can hold more than one lane (an A/B run works one repo twice in one cycle), so the rate is
+withheld unless **every** lane in it is both priced and measured: dividing a numerator that omits a
+lane's spend gives a number that is confidently wrong.
 
 **Meter.** Each lane also posts to the unified LLM meter (`meter()`, lane `local`) with the
 caller-owned idempotency key `loop-lane:<laneId>` and the envelope's own cost (converted from

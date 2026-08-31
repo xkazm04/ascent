@@ -147,6 +147,39 @@ export async function getRepoAdmission(orgSlug: string, repoFullName: string): P
   }
 }
 
+/**
+ * Does this organization TRACK this repository? The tenancy question the admission routes ask
+ * before they will record a decision about a repo name a caller supplied.
+ *
+ * WHY THIS EXISTS (UAT `PRIYA-L2-C5`). The check it replaces was `owner === orgSlug` — a string
+ * prefix standing in for ownership. That holds only for an org whose slug happens to equal its
+ * GitHub owner namespace, and it is false for the most ordinary case there is: an org named for the
+ * team, watching repos that live under a personal or differently-named account. On this host, org
+ * `kiro` could therefore never admit its own `xkazm04/*` repositories, which made the entire remote
+ * work protocol permanently unreachable for it.
+ *
+ * The `Repository` row IS the tenancy fact. It exists because the org imported the repo from an
+ * installation listing or scanned it, it is keyed `(orgId, fullName)`, and the read below is that
+ * key — so a repo another tenant tracks is simply not found here.
+ *
+ * DELIBERATELY THE TRACKED SET, NOT THE `watched` SUBSET. `watched` is a rescan-CADENCE preference
+ * (it defaults false and an owner toggles it per repo). Making a governance decision refusable
+ * because autoscan happens to be off would tie the perimeter to a scheduling flag, and the two
+ * answer different questions.
+ *
+ * False without a database or for an unknown org — the callers already refuse both, and a tenancy
+ * check that failed open would be the wrong direction for the one it does reach.
+ */
+export async function orgTracksRepo(orgSlug: string, repoFullName: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const org = await getOrgBySlug(orgSlug).catch(() => null);
+  if (!org) return false;
+  const row = await getPrisma()
+    .repository.findFirst({ where: { orgId: org.id, fullName: repoFullName }, select: { id: true } })
+    .catch(() => null);
+  return Boolean(row);
+}
+
 /** Every admission row for an org, by repo name. Empty (not null) without a DB — a caller asking for
  *  a fleet list wants a list; the per-repo read is where "unavailable" is distinguishable. */
 export async function listOrgAdmissions(orgSlug: string): Promise<RepoAdmissionRow[]> {

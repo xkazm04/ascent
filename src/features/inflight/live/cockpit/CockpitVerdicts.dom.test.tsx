@@ -24,6 +24,7 @@ const row = (over: Partial<LaneOutcomeRow> = {}): LaneOutcomeRow => ({
   verdict: "resolved",
   reason: "",
   verified: false,
+  verifiedAt: null,
   files: [],
   deferUntil: null,
   createdAt: "2026-08-30T00:00:00.000Z",

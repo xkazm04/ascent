@@ -19,10 +19,20 @@
 // …AND `resolved` ALONE NEVER SAID WHICH ONE HAPPENED (UAT `PRIYA-L1-702`, 2026-08-31). The verdict
 // column holds `resolved` for BOTH a row the rescan closed and a row the agent merely claimed
 // resolved, and the cockpit labelled every one of them "closed by the rescan". So each row now
-// carries `verified`: TRUE only when the id was in the rescan's adjudicated close set. It is DERIVED,
-// never stored — the lane row already persists that set (`LoopRunLane.closedIdsJson`, written from
-// `persistScanReport`'s `closedFollowUpIds` since the same fix), so a second column would be a second
-// copy of one fact and could disagree with it. `listRunOutcomes` joins the run's lanes to compute it.
+// carries `verified`: TRUE only when the id was in the rescan's adjudicated close set.
+//
+// …AND DERIVING IT AT READ TIME LET THE TAUTOLOGY BACK IN (UAT `RC-N4`, 2026-08-31). `verified` was
+// first computed by joining the lane's `closedIdsJson` — correct for new rows, but every lane written
+// BEFORE the split stored the raw commit-TRAILER set there, which is the agent's own claim. The
+// recertification swept the only corpus that exists and found 36 of 36 historical rows still reading
+// `verified: true`; not one rendered the new label. A read-time join cannot tell a claim from a
+// verdict when the thing it joins against IS the claim.
+//
+// So the fact is now STAMPED WHERE IT HAPPENS: `LaneItemOutcome.verifiedAt` is written by
+// `recordLaneOutcomes` from the rescan's adjudicated close set, and `listRunOutcomes` reads the
+// column instead of joining. A historical row has no stamp, so it reads unverified — that is not a
+// missing backfill, it IS the backfill: nothing adjudicated those closes and no migration can invent
+// an adjudication that never happened. NULL IS NEVER VERIFIED, on every path.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
@@ -110,8 +120,12 @@ export interface LaneOutcomeRow {
   reason: string;
   /** True when the RESCAN adjudicated this id closed — the gap is no longer raised AND its dimension
    *  measurably moved (`decideInProgress`). False on every other row, including a `resolved` the
-   *  AGENT claimed and the rescan did not confirm. Only a `verified` row may be rendered as closed. */
+   *  AGENT claimed and the rescan did not confirm — and every row written before `verifiedAt`
+   *  existed, whose close nothing adjudicated. Only a `verified` row may be rendered as closed. */
   verified: boolean;
+  /** ISO string of the moment the rescan adjudicated this close, or null when nothing did. The
+   *  STORED fact `verified` is read from; null is never verified. */
+  verifiedAt: string | null;
   files: string[];
   /** ISO string, or null when this outcome parks nothing. */
   deferUntil: string | null;
@@ -129,14 +143,17 @@ type OutcomeRow = {
   reason: string;
   filesJson: string;
   deferUntil: Date | null;
+  /** Optional in the TYPE, not in the schema: a database that has not yet applied the migration
+   *  returns rows without it, and `undefined` must read the same as null — unverified. */
+  verifiedAt?: Date | null;
   createdAt: Date;
 };
 
-/** Lane-scoped key. A `single` run's ids are unique across lanes, but an A/B run arms the SAME batch
- *  in two arms — so arm A's verified close must not mark arm B's unverified claim verified. */
-const verifiedKey = (laneId: string, recommendationId: string) => `${laneId}::${recommendationId}`;
-
-function toRow(row: OutcomeRow, verifiedIds: ReadonlySet<string>): LaneOutcomeRow {
+function toRow(row: OutcomeRow): LaneOutcomeRow {
+  // The stamp is the only source of verification. A missing column, a null, a row from before the
+  // migration — all three are "nothing adjudicated this", which is the safe direction for a trust
+  // flag. The `verdict` guard keeps the pair coherent even if a stamp ever outlived its verdict.
+  const verifiedAt = row.verifiedAt ?? null;
   let files: string[] = [];
   try {
     const v: unknown = JSON.parse(row.filesJson || "[]");
@@ -153,7 +170,8 @@ function toRow(row: OutcomeRow, verifiedIds: ReadonlySet<string>): LaneOutcomeRo
     cycle: row.cycle,
     verdict: row.verdict,
     reason: row.reason,
-    verified: row.verdict === "resolved" && verifiedIds.has(verifiedKey(row.laneId, row.recommendationId)),
+    verified: row.verdict === "resolved" && verifiedAt !== null,
+    verifiedAt: verifiedAt ? verifiedAt.toISOString() : null,
     files,
     deferUntil: row.deferUntil ? row.deferUntil.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -204,7 +222,6 @@ export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<La
   const prisma = getPrisma();
   const now = input.now ?? new Date();
   const closed = new Set(input.closedIds);
-  const verifiedKeys = new Set(input.closedIds.map((id) => verifiedKey(input.laneId, id)));
   const byId = new Map((input.report?.items ?? []).map((i) => [i.recommendationId, i]));
   const written: LaneOutcomeRow[] = [];
 
@@ -236,15 +253,24 @@ export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<La
       reason: claim?.reason ?? "",
       filesJson: JSON.stringify(claim?.files ?? []),
       deferUntil,
+      // THE VERIFICATION STAMP, written at adjudication time. `rescanClosed` is membership in
+      // `input.closedIds` — the set that went through `decideInProgress` — so the stamp records the
+      // one moment a verifier ruled, and can never be re-derived from something the agent wrote.
+      //
+      // It moves with the verdict on an update rather than being sticky, because both are read from
+      // the SAME input on every call: a re-parse that no longer sees the id closed would also stop
+      // writing `resolved`, and a stamp left behind would then contradict its own row. Two facts
+      // from one input stay coherent only if they are written together.
+      verifiedAt: rescanClosed ? now : null,
     };
     const row = await prisma.laneItemOutcome
       .upsert({
         where: { laneId_recommendationId: { laneId: input.laneId, recommendationId: id } },
         create: data,
-        update: { verdict, reason: data.reason, filesJson: data.filesJson, deferUntil },
+        update: { verdict, reason: data.reason, filesJson: data.filesJson, deferUntil, verifiedAt: data.verifiedAt },
       })
       .catch(() => null);
-    if (row) written.push(toRow(row as OutcomeRow, verifiedKeys));
+    if (row) written.push(toRow(row as OutcomeRow));
     // The item's own timeline explains itself: without this a reader of the backlog row sees it go
     // in_progress and come back open with no account of why.
     await prisma.recommendationEvent
@@ -292,32 +318,19 @@ export async function getActiveDeferrals(orgSlug: string, repoFullName: string, 
 /**
  * Every outcome of one run, newest lane first — the per-item ledger the cockpit renders.
  *
- * The `verified` flag is joined here rather than stored: the run's lanes already hold the rescan's
- * adjudicated close set (`closedIdsJson`), so this reads it back and marks the `resolved` rows the
- * rescan actually ruled on. A row whose lane closed nothing — including every row written before the
- * lane's `closedIds` stopped being the raw trailer set — comes back `verified: false`, which is the
- * honest reading of "nothing here witnessed that close".
+ * ONE READ, NO JOIN. `verified` comes from the row's own `verifiedAt` stamp, written when the rescan
+ * adjudicated the close. It used to be joined from the lane's `closedIdsJson`, which was the very set
+ * this whole split exists to distrust on historical lanes — the recertification measured 36 of 36 old
+ * rows coming back verified through that join (UAT `RC-N4`). A row with no stamp is unverified, and
+ * that includes every row written before the column existed: nothing adjudicated those closes.
  */
 export async function listRunOutcomes(runId: string): Promise<LaneOutcomeRow[]> {
   if (!isDbConfigured()) return [];
   return dbReadSafe<LaneOutcomeRow[]>(async () => {
-    const prisma = getPrisma();
-    const [rows, lanes] = await Promise.all([
-      prisma.laneItemOutcome.findMany({
-        where: { runId },
-        orderBy: [{ createdAt: "desc" }, { recommendationId: "asc" }],
-      }),
-      prisma.loopRunLane.findMany({ where: { runId }, select: { id: true, closedIdsJson: true } }).catch(() => [] as { id: string; closedIdsJson: string }[]),
-    ]);
-    const verified = new Set<string>();
-    for (const lane of lanes as { id: string; closedIdsJson: string }[]) {
-      try {
-        const parsed: unknown = JSON.parse(lane.closedIdsJson || "[]");
-        if (Array.isArray(parsed)) for (const id of parsed) if (typeof id === "string") verified.add(verifiedKey(lane.id, id));
-      } catch {
-        // A malformed column marks nothing verified — the safe direction for a trust flag.
-      }
-    }
-    return (rows as OutcomeRow[]).map((r) => toRow(r, verified));
+    const rows = await getPrisma().laneItemOutcome.findMany({
+      where: { runId },
+      orderBy: [{ createdAt: "desc" }, { recommendationId: "asc" }],
+    });
+    return (rows as OutcomeRow[]).map(toRow);
   }, []);
 }

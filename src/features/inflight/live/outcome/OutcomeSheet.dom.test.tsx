@@ -16,6 +16,30 @@ import { fixture } from "./outcome.fixture";
 const sheet = (canReview = true) =>
   render(<OutcomeSheet matrix={fixture} slug="acme" selectedId="run-3" onOpen={vi.fn()} canReview={canReview} onReview={vi.fn()} />);
 
+// UAT PRIYA-L1-704. The per-lane ¢/point was computed, serialized and shipped to the browser, and
+// `grep -rn "\.economics" src/features src/app` returned zero hits — the only ¢/point on the page was
+// the org-wide average, which is exactly what hid a lane spending $10.19 for 0 verified points.
+describe("the sheet says what each run spent on each repo", () => {
+  it("prints the rate on a priced, measured cell", () => {
+    sheet();
+    expect(screen.getByText("1.50¢/pt")).toBeTruthy();
+  });
+
+  it("prints spend beside a ZERO rather than omitting it, and tones it as a warning", () => {
+    sheet();
+    const zero = screen.getByText("$10.19 · 0 pts");
+    expect(zero.className).toContain("text-warn");
+    expect(zero.getAttribute("title")).toMatch(/bought no verified maturity point/);
+  });
+
+  // A cell whose payload carried no economics says nothing at all — a "0" there would be a claim.
+  it("says nothing for a cell with no economics", () => {
+    sheet();
+    const row = screen.getAllByText("acme/web-app")[0]!.closest("tr")!;
+    expect(row.querySelectorAll('[data-testid="cell-economics"]')).toHaveLength(0);
+  });
+});
+
 describe("the outcome sheet's row axis", () => {
   it("names each project ONCE, as a group header row, and gives every gap its own row", () => {
     sheet();

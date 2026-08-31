@@ -9,8 +9,8 @@
 // NO `[id]` SEGMENT. Every route in this family is addressed by (org, repoFullName) and gates the
 // org BEFORE constraining the query by it (gate-then-constrain), so a repo name belonging to another
 // tenant simply matches nothing rather than being authorized against the wrong org. The repo name is
-// additionally required to live UNDER the gated org's owner namespace, so a caller cannot name
-// "othertenant/repo" while presenting their own org.
+// additionally required to be one the gated org actually TRACKS (`repoUnderOrg`), so a caller cannot
+// name "othertenant/repo" while presenting their own org.
 //
 // WHY OWNER AND NOT ADMIN. This is the surface that can move a repo from `assisted-only` to
 // `agents-allowed` — i.e. decide that autonomous agents may open work in a repository. The autonomy
@@ -20,7 +20,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
-import { listOrgAdmissions, upsertRepoAdmission, MAX_RATIONALE } from "@/lib/db/org-admission";
+import { listOrgAdmissions, upsertRepoAdmission, orgTracksRepo, MAX_RATIONALE } from "@/lib/db/org-admission";
 import { isAdmissionMode, isAutonomyTierId } from "@/lib/org/admission";
 import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
@@ -29,17 +29,35 @@ import { resolveViewerLogin } from "@/lib/access";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * The repo name a caller supplied, constrained to the org that was just gated. Returns null when the
- * shape is wrong OR when the owner segment is not this org — the gate-then-constrain half that a
- * structural test cannot check for us.
- */
-export function repoUnderOrg(org: string, raw: unknown): string | null {
+/** `owner/name` or null. Shape only — this makes no claim about who the repo belongs to. */
+export function parseRepoFullName(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const full = raw.trim();
-  if (!/^[\w.-]+\/[\w.-]+$/.test(full)) return null;
+  return /^[\w.-]+\/[\w.-]+$/.test(full) ? full : null;
+}
+
+/**
+ * The repo name a caller supplied, constrained to the org that was just gated. Returns null when the
+ * shape is wrong OR when the repository does not belong to this org — the gate-then-constrain half
+ * that a structural test cannot check for us.
+ *
+ * TENANCY IS THE ORG'S REPO SET, NOT A STRING PREFIX (UAT `PRIYA-L2-C5`). This used to require
+ * `owner === org`, which is true only of an organization whose slug equals its GitHub owner
+ * namespace. Every org named for its team rather than its account failed it: on this host, `kiro`
+ * could never admit its own `xkazm04/*` repositories, so moonshot #3's remote work protocol was
+ * permanently unreachable for the one org actually using it — not a test artifact, the real working
+ * org. The prefix was never the authority anyway; `orgTracksRepo` reads the `(orgId, fullName)` key
+ * that is, so a repo belonging to another tenant still matches nothing.
+ *
+ * The prefix survives as a FAST PATH ahead of the read, and only because it can never be wrong in
+ * the direction that matters: an owner-namespace match is the case the old rule already admitted.
+ */
+export async function repoUnderOrg(org: string, raw: unknown): Promise<string | null> {
+  const full = parseRepoFullName(raw);
+  if (!full) return null;
   const [owner] = full.split("/");
-  return owner?.toLowerCase() === org.toLowerCase() ? full : null;
+  if (owner?.toLowerCase() === org.toLowerCase()) return full;
+  return (await orgTracksRepo(org, full)) ? full : null;
 }
 
 export async function GET(request: Request) {
@@ -64,7 +82,7 @@ export async function POST(request: Request) {
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
 
-  const repo = repoUnderOrg(org, body.repo);
+  const repo = await repoUnderOrg(org, body.repo);
   if (!repo) {
     return NextResponse.json({ error: 'Provide repo as "owner/name" under this organization.' }, { status: 400 });
   }

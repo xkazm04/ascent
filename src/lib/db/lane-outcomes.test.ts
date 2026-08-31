@@ -5,7 +5,9 @@
 //   • the deferral read is org- AND repo-scoped, so one tenant's skip cannot suppress another's item;
 //   • an UNVERIFIED `resolved` whose own reason admits the session could not do the thing is
 //     downgraded to `needs_human` and parked — both directions pinned, on the real sentence;
-//   • `verified` separates the rescan's verdict from the agent's claim, in both directions.
+//   • `verified` separates the rescan's verdict from the agent's claim, in both directions — and it
+//     is read from the row's OWN `verifiedAt` stamp, so a row nothing adjudicated can never borrow
+//     verification from a lane's trailer set (UAT `RC-N4`).
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,15 +23,18 @@ interface Row {
   reason: string;
   filesJson: string;
   deferUntil: Date | null;
+  verifiedAt: Date | null;
   createdAt: Date;
 }
 
 const rows: Row[] = [];
 const events: Record<string, unknown>[] = [];
 const deferralQueries: Record<string, unknown>[] = [];
-/** The run's lanes, as `listRunOutcomes` reads them: the lane row is where the RESCAN's adjudicated
- *  close set lives, and `verified` is joined from it rather than stored a second time. */
+/** Lanes exist in the fixture only to prove `listRunOutcomes` no longer READS them: verification is
+ *  the row's own `verifiedAt` stamp now, and a lane's `closedIdsJson` — the raw trailer set on every
+ *  pre-split lane — must not be able to verify anything. `findMany` throws if the read comes back. */
 const lanes: { id: string; runId: string; closedIdsJson: string }[] = [];
+let laneReads = 0;
 
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: vi.fn(async (slug: string) => (slug === "kiro" ? { id: "org-kiro" } : null)) }));
 vi.mock("@/lib/db/client", () => ({
@@ -61,8 +66,10 @@ vi.mock("@/lib/db/client", () => ({
       },
     },
     loopRunLane: {
-      findMany: async ({ where }: { where: { runId?: string } }) =>
-        lanes.filter((l) => where.runId == null || l.runId === where.runId).map((l) => ({ id: l.id, closedIdsJson: l.closedIdsJson })),
+      findMany: async ({ where }: { where: { runId?: string } }) => {
+        laneReads += 1;
+        return lanes.filter((l) => where.runId == null || l.runId === where.runId).map((l) => ({ id: l.id, closedIdsJson: l.closedIdsJson }));
+      },
     },
     recommendationEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -97,6 +104,7 @@ beforeEach(() => {
   events.length = 0;
   deferralQueries.length = 0;
   lanes.length = 0;
+  laneReads = 0;
 });
 
 describe("recordLaneOutcomes — the rescan outranks the claim", () => {
@@ -309,8 +317,7 @@ describe("listRunOutcomes", () => {
     expect(typeof out[0]!.deferUntil).toBe("string");
   });
 
-  it("joins `verified` from the LANE's adjudicated close set, not from the verdict word", async () => {
-    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: JSON.stringify(["r1"]) });
+  it("stamps `verifiedAt` on the rescan's close and reads `verified` from it, not from the verdict word", async () => {
     await recordLaneOutcomes({
       ...base,
       batchIds: ["r1", "r2"],
@@ -320,18 +327,54 @@ describe("listRunOutcomes", () => {
         { recommendationId: "r2", verdict: "resolved" },
       ]),
     });
+    expect(rows.find((r) => r.recommendationId === "r1")!.verifiedAt).toEqual(NOW);
+    expect(rows.find((r) => r.recommendationId === "r2")!.verifiedAt).toBeNull();
     const out = await listRunOutcomes("run-1");
     expect(out.map((o) => [o.recommendationId, o.verified]).sort()).toEqual([
       ["r1", true],
       ["r2", false],
     ]);
+    expect(out.find((o) => o.recommendationId === "r1")!.verifiedAt).toBe(NOW.toISOString());
+    expect(out.find((o) => o.recommendationId === "r2")!.verifiedAt).toBeNull();
+  });
+
+  // THE REGRESSION THIS COLUMN EXISTS FOR (UAT `RC-N4`). `verified` was joined from the lane's
+  // `closedIdsJson`, and every pre-split lane stored the agent's raw commit-trailer set there — so
+  // 36 of 36 historical rows read `verified: true` and not one rendered "claimed resolved". A lane
+  // saying the id closed must now buy the row NOTHING.
+  it("does not let a lane's `closedIdsJson` verify a row nothing stamped", async () => {
+    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: JSON.stringify(["r1"]) });
+    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
+    const out = await listRunOutcomes("run-1");
+    expect(out[0]!.verdict).toBe("resolved");
+    expect(out[0]!.verified).toBe(false);
+    expect(laneReads).toBe(0);
+  });
+
+  // Every row written before the column existed. Prisma returns them with `verifiedAt: null`; a
+  // database that has not applied the migration yet returns no field at all. Both are un-adjudicated
+  // claims and both must read unverified — no code path may treat the absence as verification.
+  it("reads a historical row — null stamp or no column at all — as UNVERIFIED", async () => {
+    rows.push({
+      id: "legacy-null", orgId: "org-kiro", runId: "run-1", laneId: "lane-1", repoFullName: "o/r",
+      recommendationId: "old-1", cycle: 1, verdict: "resolved", reason: "", filesJson: "[]",
+      deferUntil: null, verifiedAt: null, createdAt: new Date("2026-08-01T00:00:00Z"),
+    });
+    rows.push({
+      id: "legacy-missing", orgId: "org-kiro", runId: "run-1", laneId: "lane-1", repoFullName: "o/r",
+      recommendationId: "old-2", cycle: 1, verdict: "resolved", reason: "", filesJson: "[]",
+      deferUntil: null, createdAt: new Date("2026-08-01T00:00:00Z"),
+    } as unknown as Row);
+    const out = await listRunOutcomes("run-1");
+    expect(out.map((o) => [o.recommendationId, o.verified, o.verifiedAt]).sort()).toEqual([
+      ["old-1", false, null],
+      ["old-2", false, null],
+    ]);
   });
 
   // Two arms of one repo in one cycle arm the SAME batch. Arm A's verified close must not launder
-  // arm B's unconfirmed claim.
-  it("scopes `verified` to the lane, so an A/B sibling's close does not verify this lane's claim", async () => {
-    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: JSON.stringify(["r1"]) });
-    lanes.push({ id: "lane-2", runId: "run-1", closedIdsJson: "[]" });
+  // arm B's unconfirmed claim — the stamp is per ROW, so the isolation is structural now.
+  it("scopes verification to the row, so an A/B sibling's close does not verify this lane's claim", async () => {
     await recordLaneOutcomes({ ...base, laneId: "lane-1", batchIds: ["r1"], closedIds: ["r1"], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
     await recordLaneOutcomes({ ...base, laneId: "lane-2", batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
     const out = await listRunOutcomes("run-1");
@@ -339,9 +382,23 @@ describe("listRunOutcomes", () => {
     expect(out.filter((o) => o.laneId === "lane-2").map((o) => o.verified)).toEqual([false]);
   });
 
-  it("marks nothing verified when the lane's close set is unreadable — the safe direction", async () => {
-    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: "{not json" });
+  // A re-parse of the same report is idempotent; a re-parse where the rescan no longer closes the id
+  // moves the verdict AND the stamp together, so the two can never contradict each other.
+  it("keeps the stamp and the verdict in step across a re-parse", async () => {
     await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: ["r1"], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
+    expect(rows[0]!.verifiedAt).toEqual(NOW);
+    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "skipped" }]) });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.verdict).toBe("skipped");
+    expect(rows[0]!.verifiedAt).toBeNull();
+  });
+
+  it("never marks a non-`resolved` verdict verified, whatever the stamp says", async () => {
+    rows.push({
+      id: "odd", orgId: "org-kiro", runId: "run-1", laneId: "lane-1", repoFullName: "o/r",
+      recommendationId: "r9", cycle: 1, verdict: "needs_human", reason: "", filesJson: "[]",
+      deferUntil: null, verifiedAt: NOW, createdAt: NOW,
+    });
     const out = await listRunOutcomes("run-1");
     expect(out[0]!.verified).toBe(false);
   });

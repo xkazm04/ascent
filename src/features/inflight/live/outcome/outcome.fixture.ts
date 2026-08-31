@@ -39,7 +39,7 @@ const rowsFor = (cell: OutcomeCell): GapRow[] =>
 export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }): OutcomeCell => {
   const base: OutcomeCell = {
     kind: "backlog", installed: null, deliverables: [], rows: [], prNumber: null, prUrl: null, lane: laneOf(o), titles: [],
-    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], redBaseline: null, movements: [],
+    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], redBaseline: null, economics: null, movements: [],
     phase: "done", stage: null, error: null, ...o,
   };
   return o.rows ? base : { ...base, rows: rowsFor(base) };
@@ -62,6 +62,13 @@ const payments = (runId: string) => cell({
   ],
 });
 
+/** A priced, measured cell — the ordinary case: money divided by movement it can point at. */
+const priced = (costMicros: number, verifiedPoints: number) => ({
+  costMicros, verifiedPoints,
+  microsPerVerifiedPoint: verifiedPoints > 0 ? costMicros / verifiedPoints : null,
+  unpricedLanes: 0, unmeasuredLanes: 0, unproductive: verifiedPoints === 0, lanes: 1,
+});
+
 export const fixture: OutcomeMatrix = {
   columns: [
     col({ id: "run-1", startedAt: "2026-08-21T10:00:00Z", lift: null, repoCount: 2, gaps: 0, agentConfig: "sonnet", cycle: 3 }),
@@ -69,15 +76,18 @@ export const fixture: OutcomeMatrix = {
     col({ id: "run-3", startedAt: "2026-08-30T08:00:00Z", lift: 3, repoCount: 4, gaps: 2 }),
   ],
   groups: [
-    { repo: "acme/payments-api", lift: 9, cells: { "run-2": cell({ ...payments("run-2"), verdict: { kind: "attributable", delta: 3 }, deliverables: payments("run-2").deliverables.slice(0, 2), rows: undefined }), "run-3": cell({ ...payments("run-3"), prNumber: 41, prUrl: "https://github.com/acme/payments-api/pull/41", rows: undefined }) } },
+    { repo: "acme/payments-api", lift: 9, cells: { "run-2": cell({ ...payments("run-2"), verdict: { kind: "attributable", delta: 3 }, deliverables: payments("run-2").deliverables.slice(0, 2), rows: undefined }), "run-3": cell({ ...payments("run-3"), prNumber: 41, prUrl: "https://github.com/acme/payments-api/pull/41", economics: priced(9_000_000, 6), rows: undefined }) } },
     {
       repo: "acme/docs-site", lift: -3,
       cells: {
         // A repository whose OWN check was already failing when the lane opened: the guard had no
-        // green baseline, so this cell's −3 was measured with the net off. The sheet says so in one word.
+        // green baseline, so this cell's −3 was measured with the net off. The sheet says so in one
+        // word — and the same cell is the economics finding's own case: real spend, measured, and
+        // nothing moved. `$10.19 · 0 pts`.
         "run-3": cell({
           runId: "run-3", repo: "acme/docs-site", verdict: { kind: "attributable", delta: -3 }, commits: 1,
           redBaseline: { command: "npm run test:unit", note: "Verification BASELINE RED: `npm run test:unit` already failed before the session." },
+          economics: priced(1_019_000_000, 0),
           deliverables: [d("Regressed on documentation", "regressed", "D5", "README lost its setup section")],
         }),
       },

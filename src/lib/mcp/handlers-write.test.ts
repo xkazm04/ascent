@@ -13,6 +13,8 @@ const attempts: Record<string, unknown>[] = [];
 let heldRows: { id: string; repo: string }[] = [];
 let tier: string | null = "T3";
 let sealedGlobs: string[] = [];
+/** The RECORDED admission decision, null when the org has decided nothing for this repo. */
+let admission: { derivedTier: string | null; grantedTier: string; mode: string } | null = null;
 
 const claimRow = (id: string, repo = "acme/api") => ({
   id,
@@ -50,6 +52,7 @@ vi.mock("@/lib/db/org-stance", () => ({
     },
   })),
 }));
+vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => admission) }));
 vi.mock("@/lib/local/loop-lane", () => ({
   openBatch: vi.fn(async () => [
     {
@@ -75,6 +78,7 @@ beforeEach(() => {
   heldRows = [{ id: "rec-1", repo: "acme/api" }];
   tier = "T3";
   sealedGlobs = [];
+  admission = null;
 });
 
 describe("report_attempt — the write path has no verb that closes a row", () => {
@@ -147,6 +151,39 @@ describe("claim_followups — the tier gate runs before any row is touched", () 
     tier = "T3";
     const t3 = await claimFollowupsTool("acme", { repo: "acme/api" }, "agent:ci", null);
     expect(t3.structuredContent).toMatchObject({ requiresHumanReview: false });
+  });
+
+  // UAT PRIYA-L2-C4. Moonshot #8's whole claim is a "recorded, OVERRIDABLE per-repo decision", and
+  // this is the only gate that acts on it — it read the derived tier and never looked at the table.
+  it("lets a RECORDED grant beat the derived tier, so an owner's T2 is not refused as T0", async () => {
+    tier = "T0";
+    admission = { derivedTier: "T0", grantedTier: "T2", mode: "agents-allowed" };
+    const res = await claimFollowupsTool("acme", { repo: "acme/api" }, "agent:ci", "tok_1");
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toMatchObject({ requiresHumanReview: true });
+    expect(claims).toHaveLength(1);
+  });
+
+  // The other direction, and the reason a grant is not simply "the loosest number wins": the mode is
+  // a separate decision from the tier, and it lowers.
+  it("refuses a T3 repo held `assisted-only`, and says the tier is not the obstacle", async () => {
+    tier = "T3";
+    admission = { derivedTier: "T3", grantedTier: "T3", mode: "assisted-only" };
+    const res = await claimFollowupsTool("acme", { repo: "acme/api" }, "agent:ci", "tok_1");
+    expect(res.isError).toBe(true);
+    expect(String(res.text)).toContain("does not permit an agent to open work here");
+    expect(claims).toHaveLength(0);
+  });
+
+  // Rule 2 of the compiler, kept here rather than re-derived: a grant beside an UNASSESSED derivation
+  // is a seed nobody measured, and it must not become the evidence that a repo can be worked.
+  it("ignores a grant on a repo whose tier was never assessed", async () => {
+    tier = null;
+    admission = { derivedTier: null, grantedTier: "T3", mode: "agents-allowed" };
+    const res = await claimFollowupsTool("acme", { repo: "acme/api" }, "agent:ci", "tok_1");
+    expect(res.isError).toBe(true);
+    expect(String(res.text)).toContain("no assessed autonomy tier");
+    expect(claims).toHaveLength(0);
   });
 
   it("refuses a repository this organization has never scanned rather than inventing a queue", async () => {

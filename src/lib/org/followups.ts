@@ -30,6 +30,8 @@ import { normalizeRecTitle } from "@/lib/report/compare";
 import { attributeDelta, SCORE_NOISE_BAND, type EngineEnd } from "@/lib/maturity/attribution";
 import type { CraftAxis } from "@/lib/scoring/craft";
 import type { AiStance, AutonomyTierId } from "@/lib/types";
+// Type-only: the admission compiler is pure and has no db edge, so this stays a leaf import.
+import type { AdmissionMode } from "@/lib/org/admission";
 // TYPE-ONLY, and it has to stay that way: `lane-report.ts` reaches for `node:fs/promises`, and this
 // module is imported by the ledger's client model. The import is erased at compile time, so the two
 // share a vocabulary without the client sharing a filesystem.
@@ -592,9 +594,11 @@ export function clampLeaseMs(ms: number | null | undefined): number {
   return Math.min(AGENT_LEASE_MS_MAX, Math.max(AGENT_LEASE_MS_MIN, Math.round(ms)));
 }
 
+export type ClaimRefusal = "tier-blocked" | "tier-unknown" | "no-ai-zone" | "admission-blocked";
+
 export type ClaimVerdict =
   | { allowed: true; requiresHumanReview: boolean }
-  | { allowed: false; reason: "tier-blocked" | "tier-unknown" | "no-ai-zone" };
+  | { allowed: false; reason: ClaimRefusal };
 
 /**
  * MAY THIS EXECUTOR CLAIM WORK IN THIS REPO? Pure, ONE input struct — and the struct is the whole
@@ -614,6 +618,17 @@ export type ClaimVerdict =
  *     control from a human authorizing the ATTEMPT.
  *   • **T3 allows it plainly.**
  *   • A repo inside a declared no-AI zone is refused outright, whatever its tier.
+ *   • **An admission MODE below `agents-allowed` refuses outright too**, whatever the tier. The tier
+ *     answers "how much supervision has this repository earned"; the mode answers "may an agent open
+ *     work here at all", and the second question is not the first. A repo can sit at T3 and still be
+ *     `assisted-only` — an owner deciding a person drives here — and a gate reading only the tier
+ *     would wave an agent straight through that decision. An ABSENT mode refuses nothing: an org
+ *     that has recorded no decision is governed by its tier exactly as it was.
+ *
+ * The tier this receives is the EFFECTIVE one — the recorded `grantedTier` where a decision exists,
+ * the derived tier otherwise. `repoGate` resolves that, so the seam this header promised is finally
+ * used (UAT `PRIYA-L2-C4`: the claim gate read the DERIVED tier and never consulted the admission
+ * table, so an owner who recorded T2 still got a T0 refusal at the only door that acts on it).
  *
  * `local` and `human` are unaffected by tier: self-hosted consent is the operator's own box, and a
  * person claiming their own organization's row does not need the fleet's permission to do it.
@@ -623,16 +638,23 @@ export function claimability(f: {
   executor: ClaimExecutor;
   /** True when the repo matched a declared no-AI zone's repo globs. */
   sealed?: boolean;
+  /** The recorded admission mode, or null/undefined when this org has decided nothing for the repo.
+   *  ABSENCE IS NOT A REFUSAL — see the mode rule above. */
+  admissionMode?: AdmissionMode | null;
 }): ClaimVerdict {
   if (f.executor !== "remote-agent") return { allowed: true, requiresHumanReview: false };
   if (f.sealed) return { allowed: false, reason: "no-ai-zone" };
+  if (f.admissionMode && f.admissionMode !== "agents-allowed") return { allowed: false, reason: "admission-blocked" };
   if (f.autonomyTier == null) return { allowed: false, reason: "tier-unknown" };
   if (f.autonomyTier === "T0") return { allowed: false, reason: "tier-blocked" };
   return { allowed: true, requiresHumanReview: f.autonomyTier !== "T3" };
 }
 
 /** The refusal in words the agent can act on. Every input is about the caller's own org. */
-export function claimRefusalText(reason: "tier-blocked" | "tier-unknown" | "no-ai-zone", repo: string): string {
+export function claimRefusalText(reason: ClaimRefusal, repo: string): string {
+  if (reason === "admission-blocked") {
+    return `${repo} has a recorded admission decision that does not permit an agent to open work here. The autonomy tier is not the obstacle — an owner decided this repository is worked with a person driving. Moving that is a decision on the Governance tab, not something a claim can route around.`;
+  }
   if (reason === "no-ai-zone") {
     return `${repo} is inside a no-AI zone this organization declared. Nothing here may be claimed by an agent — a person has to do this work.`;
   }
