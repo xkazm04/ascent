@@ -142,6 +142,30 @@ Rules that make this safe to extend:
   background slivers, so it can sit on any panel without an extra element. Claims
   only `background-image`, so a panel's `bg-surface/40` is untouched.
 
+## `/about`: invented data is labelled where it renders
+
+The marketing deck's four diagrams (`FleetGrid`, `RoiSimulator`, `ChampionNetwork`,
+`RiskRadar`) are demonstrations, not customer results. The **ROI simulator** is the
+one a prospective buyer reads as proof — it computes over eight invented repos at a
+`W = 0.16` weighting its own source calls "deliberately NOT the production
+weighting" — and until 2026-08-31 both facts lived only in comments, i.e. only for
+people reading the repository (UAT `MC-B6` / `TOMAS-L1-04`, recurrence 2).
+
+**The rule: a provenance caveat renders, or it does not exist.** `RoiSimulator` now
+closes with `Illustrative · N sample repos, demo weighting — not customer data`, in
+the same `type-label tracking-[0.22em] text-slate-600` chrome `AboutOrgHero`
+("Illustrative fleet · 48 repos") and `AboutOrgLoop` ("Illustrative cycle") already
+use — so the disclosure is one recognizable house form across both decks rather than
+three phrasings. The count comes from `REPOS.length`, so editing the fleet cannot
+leave the caption lying; `RoiSimulator.dom.test.tsx` pins both halves.
+
+The simulator was kept rather than deleted in favour of the landing register of real
+scanned repos: the register is server-fetched on `/` (and absent entirely when no DB
+is configured), while this deck is a client orchestrator whose `roi` section copy in
+`features.ts` describes the what-if simulator specifically. Promoting the register
+here is a structural move, not a caption fix — and a labelled demo beside a real
+register elsewhere is honest, whereas an unlabelled one is not.
+
 ## `/about-org`: the organization edition deck
 
 Seven snap sections: masthead · the five questions · three feature deep-dives
