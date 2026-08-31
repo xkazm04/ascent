@@ -1481,6 +1481,7 @@ CREATE TABLE "LoopRunLane" (
     "verifyVerdict" TEXT,
     "verifyCommand" TEXT,
     "verifyNote" TEXT,
+    "verifyRung" TEXT,
 
     CONSTRAINT "LoopRunLane_pkey" PRIMARY KEY ("id")
 );
@@ -1520,6 +1521,13 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "deliverablesJson" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyVerdict" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyCommand" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyNote" TEXT;
+-- WHICH RUNG of the narrowing ladder `verifyCommand` was: 'primary' | 'typecheck' | 'lint'. A git
+-- worktree is not a runnable environment for a realistic app (no gitignored credentials, service
+-- config or local database), so when the declared command cannot establish a baseline there the guard
+-- degrades to the strongest HERMETIC check that can. A lane verified against `npm run typecheck` has
+-- NOT been verified against the repository's tests. NULL = a lane written before the ladder; never
+-- read as 'primary'.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyRung" TEXT;
 
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");

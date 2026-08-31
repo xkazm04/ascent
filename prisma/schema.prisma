@@ -1885,6 +1885,14 @@ model LoopRunLane {
   // answerable long after the throwaway worktree is gone.
   verifyCommand String?
   verifyNote    String?
+  // WHICH RUNG OF THE NARROWING LADDER `verifyCommand` was — "primary" | "typecheck" | "lint"
+  // (src/lib/local/verify-options.ts). A worktree is not a runnable environment for a realistic app,
+  // so when the repository's declared command cannot establish a baseline there the guard degrades to
+  // the strongest HERMETIC check that can (typecheck, then lint) and verifies against that instead.
+  // A lane verified against `npm run typecheck` has NOT been verified against the repository's tests,
+  // so the rung is stored rather than inferred, and every surface that renders the verdict prints it.
+  // NULL is a lane written before the ladder: unknown, and never silently read as "primary".
+  verifyRung    String?
 
   run LoopRun @relation(fields: [runId], references: [id])
 
