@@ -24,17 +24,24 @@ Ascent is **the maturity index for AI-native engineering**: point it at a GitHub
 | `driver/drive.mjs` | Portable browser driver (L2 only). |
 | `runs/<date-slug>/` | Journals, screenshots, `findings.json`, `report.md`, per-Character feedback, `SUMMARY.md`. |
 
-## Where a drain lands (the per-app half of `/uat drain`)
+## Drain homes
 
-`/uat drain` turns a run into a triaged design backlog. Five runs before 2026-08-10 were never
-drained partly because this file never said where the output goes. It does now:
+`/uat drain` turns a run into a triaged design backlog, and the skill requires this section to exist
+rather than be assumed — five runs before 2026-08-10 were never drained partly because this file
+never said where the output goes.
 
 | Artifact | Home |
 |---|---|
 | Analysis doc (the three sections) | `docs/product/uat-insights/<run-id>.md` |
-| `build` items | [`docs/BACKLOG.md`](../docs/BACKLOG.md), under a per-run section, each citing its finding id |
-| Declines + guardrails | the same backlog section — a decline is recorded so it can't resurface as a fresh idea |
-| `concept-doc` items | the owning `docs/features/<area>/` doc, extended rather than duplicated |
+| `build` items | [`docs/BACKLOG.md`](../docs/BACKLOG.md), under a per-run section, each citing its finding id and carrying a `standard:` line |
+| `method-commitment` items | the same backlog section, as a standing rule **with a trigger** — never a ticket |
+| Declines + guardrails | the same backlog section — a decline is recorded with its reason and a reopen condition so it can't resurface as a fresh idea |
+| `concept-doc` items | [`docs/resolutions/`](../docs/resolutions/) — one file per design question, named for the question, extended rather than duplicated |
+
+> The concept-doc home moved with the 2026-08-29 moonshot round: `docs/resolutions/` is where this
+> repo's design questions live (`gate-as-code.md`, `open-benchmark-corpus.md`, …). A feature doc under
+> `docs/features/<area>/` describes **implemented** product and is governed by the doc-sync hook in
+> `AGENTS.md`; a drain's concept-doc describes something not yet built, so it does not belong there.
 
 ## Run it
 

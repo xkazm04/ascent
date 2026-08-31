@@ -43,17 +43,21 @@ product and report nonsense findings.
 - **Two seeders (both drive the RUNNING dev server's real API path, so start `npm run dev` first):**
   - `node scripts/seed-org.mjs <org> [count]` → **the org dashboard.** Scans a public org's repos via POST `/api/org/import`; the dashboard then lives at **`/org/<org>`** (the slug is just the GitHub org login). Default = mock LLM (fast); `--live` uses the real provider. Example: `node scripts/seed-org.mjs vercel 20` → visit **`/org/vercel`**. This is the seed for the `/org/[slug]` journeys (Dana, Marcus, Priya, Raj, Nadia). `node scripts/seed-org-extras.mjs <org>` adds members/teams/segments for those facets. Defaults to base `http://localhost:3000`.
   - `npm run db:local:seed` (= `node scripts/seed-scans.mjs [baseUrl] [repo…]`) → **individual repo scans + history/trends** (default set: anthropics/claude-code, vercel/swr, prisma/prisma, tailwindlabs/tailwindcss, vercel/turbo). ⚠️ Its default baseUrl is `http://localhost:3001` — pass `http://localhost:3000` explicitly if your dev server is on 3000. Set `LLM_PROVIDER=claude-cli` for subscription-quality (not mock) data; expect 5–10 min/repo on a live provider.
-- **⚠ KNOWN FIXTURE GAP — no seeded org can produce a forecast (found 2026-08-10).** Both seeders
-  scan an org in a **single pass**, so every repo gets one scan on one calendar day.
-  `forecastTrajectory` returns `null` below **2 distinct calendar days**, so `rollup.forecast` is
-  null, so `briefing.ts:283` nulls `forecastHeadline`, so **no trajectory/ETA line renders anywhere** —
-  verified across six generated board PDFs (`vercel`|`acme` × 30d|90d|180d, all HTTP 200, zero
-  `Trajectory:` lines). Consequence: **every finding about trajectory/ETA honesty is untestable at
-  L2** and must resolve `uncertain — not reproducible on this host` (DANA-L1-001, DANA-L1-002 in
-  `runs/2026-08-10-ascent-first/`). To close it, a future run needs an org seeded with **≥3 scans of
-  one repo spread across ≥2 calendar days** — and **≥14 days of span** to exercise `isProjectable`,
-  the presentability gate `/trends` uses and the briefing path does not. Backdating `scannedAt` on
-  seeded rows is the cheapest route.
+- **✅ FORECAST FIXTURE — CLOSED 2026-08-31. Do not seed one; SELECT one.** The 2026-08-10 gap
+  ("no seeded org can produce a forecast") is **stale** and was closed by arm B of
+  `runs/2026-08-30-moonshot-cert/` without writing a single row. What is true on this host:
+  - Org **`public`** already carries **48 repos / 93 scans across four calendar days** —
+    `GET /api/usage?org=public` daily buckets `08-10 ×1 · 08-14 ×2 · 08-22 ×25 · 08-23 ×10`. So
+    `forecastTrajectory` returns non-null and the Briefing tab renders a real trajectory.
+  - The org shell already accepts **`?range=custom&from=&to=`**, so a **low-data** fit is *selected*,
+    not fabricated: `?range=custom&from=2026-08-21&to=2026-08-24` contains exactly the two scan days
+    08-22 and 08-23 ⇒ `points: 2` ⇒ `lowData: true`. **Zero rows written, no backdating.**
+  - Backdating `scannedAt` from the CLI does **not** work here anyway: the CLI `DATABASE_URL` does not
+    reach the embedded PGlite and the dev server holds an exclusive lock. Selection is the only route.
+  - **Method note worth keeping:** look for the fixture before building one. The old gap survived a
+    whole cycle because nobody re-checked a claim inherited from a previous run's preflight.
+  - Still genuinely missing: an org whose **older scans have been purged by retention** (needed to
+    exercise `compactedPoints` / `getCompactionCoverage`, `DANA-L1-014`).
 - Public scan target for journeys: paste a real public repo (e.g. `vercel/next.js`, `facebook/react`). A `GITHUB_TOKEN` raises rate limits and unlocks PR + branch-governance signals; without it, public scans still run (lower rate limit).
 
 ## Auth — RESOLVED: bypassed, but backed by a real local profile
@@ -62,6 +66,39 @@ The active login is **Supabase GitHub OAuth**; org/private features sit behind i
 - **`ASCENT_OPEN_ORG_DASHBOARDS=1`** — open seeded org dashboard (`/org/<slug>`) reads when OAuth is not configured.
 - **Local profile auto-seed (new):** visiting a *populated* `/org/<slug>` under the bypass persists "developer" as a real **owner `Membership`** (+ `User`) in PGlite — see `src/app/org/[slug]/layout.tsx`. So the **production schema** (`prisma/init.sql`, the same models the cloud runs) holds a real profile the Characters act as: the **Members** tab lists them, the role chip shows **owner**, and RBAC-gated surfaces resolve a real role. Idempotent, best-effort, dev-only (can't seed ghost owners in prod). The row appears on the **second** visit (first visit seeds it).
 - Local-credit/dev seams for billing-gated paths: `ASCENT_ALLOW_CREDIT_GRANTS=1` (manual scan-credit grants), `POLAR_SERVER=sandbox` for the Polar buy-credits flow.
+
+### ⛔ Arm construction — the anonymous / free-tier / first-run journeys may NEVER be driven on the shared server
+
+**The bypass above is what makes the authed journeys reachable, and it is exactly what invalidates
+the unauthenticated ones.** Measured on 2026-08-30 (`runs/2026-08-30-moonshot-cert/`, arm A): each of
+the three pinned flags independently **hides a top finding**, and `ASCENT_AUTH_BYPASS=1` alone would
+have *falsely refuted* that run's blocker.
+
+| Flag in `.env.local` | What it does to an anonymous Character | Finding it hides |
+|---|---|---|
+| `ASCENT_AUTH_BYPASS=1` | `authGateEnabled()` → false, and `getViewer()` mints a synthetic **developer** — the Character is not anonymous at all | `TOMAS-L1-01` (the run's blocker) |
+| `PUBLIC_SCAN_QUOTA_DISABLED=1` | `/api/quota` reports `enforced:false`, `QuotaMeter` renders nothing | `TOMAS-L1-02` |
+| `ASCENT_SELF_HOSTED=1` | `/pricing` short-circuits to `SelfHostPricingBlueprint`; the four cloud cards never render | the whole pricing-transparency criterion |
+
+**The recipe that works** (arm A, reproduced verbatim — a second isolated instance, the shared
+`:3000` untouched):
+
+```
+ASCENT_EMPTY=1 PGLITE_DATA_DIR=.pglite/uat-armA ASCENT_AUTH_BYPASS= \
+PUBLIC_SCAN_QUOTA_DISABLED= ASCENT_SELF_HOSTED=0 npx next dev -p 3100
+```
+
+- Export the flags as **empty strings**, not `0` and not merely unset — exported empties stop Next's
+  dotenv loader re-applying `.env.local`'s `1`, and `envBool("") === false`.
+- `ASCENT_EMPTY=1` is **isolation only**: `emptyTenantEnabled()` has zero non-test callers, so the
+  flag is behaviourally inert; it exists because `next.config.ts:47` switches `distDir` to
+  `.next-empty` on it, which keeps this instance's build cache off the shared server's `.next`.
+- Use a **throwaway `PGLITE_DATA_DIR`**; never open `.pglite/ascent` from a second process.
+- **Assert identity, then assert anonymity, before trusting any evidence:** `/api/health` must answer
+  Ascent's shape, *and* the rendered `/` ARIA must carry a bare `Sign in` button with no org name, no
+  avatar and no identity menu. A screenshot of a signed-in header is not an anonymous journey.
+- Anything unreachable under the flags actually set resolves `uncertain — not reproducible on this
+  host`, **never `refuted`**.
 
 All of the above (plus `LLM_PROVIDER=claude-cli` and `SUPPLY_CHAIN_PROVIDER=mock`) are pinned in **`.env.local`** (git-ignored). Full-coverage recipe:
 ```
@@ -103,6 +140,21 @@ score those **"N/A — not an LLM surface"**, never invent a denominator for the
 | Org simulator · forecast | deterministic (OLS) | `src/lib/scoring/orgsim.ts:1-11`; `src/lib/maturity/forecast.ts` |
 
 ### Surface A — Repo scan scoring (and its roadmap field) → **score N/12**
+
+> **⚠ STALE — derived 2026-08-10, and the prompt builder has changed twice since. Deliberately NOT
+> re-derived here (2026-08-31 drain).** The denominator is a *scored instrument*: changing it outside
+> `/uat update` silently invalidates every cross-run grounding trend, so this banner records the drift
+> instead of hiding it. What has moved since the list was written, per the 2026-08-30 walkers (both of
+> whom scored the list **verbatim** and correctly refused to edit it):
+> - **r11** added the guidance-graph block to item 1/8 — D1 stopped summing five instruction-file
+>   *formats* on presence and now pays `22 + round(18 × coherence/100)` off a deterministic itemized
+>   read, and D1 joined `CLAIM_SCORED_DIMENSIONS` (the model's D1 number is recorded and ignored).
+> - **r12** added `craftBuiltBlock` (`prompt.ts:167-176`) — present in the type, and **inert for any
+>   anonymous scan**, because like item 5 it is keyed on `decisionSlug` (`scan-score-input.ts:165-167`).
+> - `LlmScoreInput` has grown to **13 fields**.
+> **`/uat update` owes a re-derivation before the next sweep.** Until then: score N/12 (N/11 with the
+> tech-stack flag off) as written, and record anything new as a **named addition**, never as a
+> denominator change.
 `buildAssessmentPrompt` `src/lib/scoring/prompt.ts:186`; input `buildScanScoreInput` `src/lib/scan-score-input.ts:57,100-119`; the complete input type is `LlmScoreInput` `src/lib/llm/provider.ts:34-64` (nothing else can reach the prompt).
 
 1. Rubric — 5 levels + 9 weighted dimensions + criteria (`prompt.ts:85-94`)
