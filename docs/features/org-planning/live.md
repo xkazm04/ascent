@@ -1477,6 +1477,20 @@ absent verbs directly.
   `laneKindTag` and `laneExecutorTag` follow).
 - **A remote run has no delivery.** `startRemoteRun` records `null`: Ascent opens no worktree and owns
   no checkout for a lane some other harness works, so there is nothing local to land into.
+- **The ledger says what ENGINE produced a run (`MC-B44`).** The column header used to print
+  `agentConfig` ("opus · high effort") and stop — a *model*, never who ran it — so a run Ascent spawned
+  itself and a run some agent elsewhere claimed over MCP read identically, while on the second one the
+  model line is only what Ascent **armed**, not what the claimant used. `runEngineLabel(lanes)`
+  (`cockpit/loopTypes.ts`) now derives it and `OutcomeColumn.engine` carries it: `claude CLI` when every
+  lane is `local` (`src/lib/local/agent.ts` has exactly one way to spawn one — `CLAUDE_CLI_PATH ||
+  "claude"` — and the usage meter stamps that same population `provider: "claude-cli"`), `remote agent`
+  when every lane is `remote-agent` (its engine is not ours to report, so the label names the claimant
+  and stops), `mixed engines` when a run is both. **No new column, no schema change**: `LoopLaneExecutor`
+  already records the fact, and a lane written before it reads `local` by the documented default, which
+  is what it was. A run with **no lanes prints nothing** — an unknown engine must not silently become
+  the common one. Folded over `detail.lanes`, not `detail.outcomes`, so an unclaimed remote lane (no
+  before/after) cannot drop out of the reading. Pinned by `outcomeMatrix.engine.test.ts` +
+  `OutcomeSheet.dom.test.tsx`.
 
 ### Where the dial lives
 

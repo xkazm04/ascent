@@ -83,6 +83,10 @@ export interface OutcomeColumn {
   live: boolean;
   lift: number | null;
   agentConfig: string | null;
+  /** WHO RAN IT — `claude CLI` / `remote agent` / `mixed engines`, derived from the run's lanes by
+   *  `runEngineLabel`. Null on a run with no lanes, and null renders nothing: `agentConfig` names a
+   *  model, which is not the same fact as the engine that drove it (MC-B44). */
+  engine: string | null;
   /** `landed` / `PR`, or null for the branch-only default — a reader of a past run has to be able to
    *  tell whether anything ever merged. */
   delivery: string | null;

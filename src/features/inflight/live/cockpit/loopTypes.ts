@@ -65,6 +65,33 @@ export const laneExecutorTag = (executor: LoopLaneExecutor): string | null =>
   executor === "remote-agent" ? "agent" : null;
 
 /**
+ * WHAT ENGINE PRODUCED A RUN'S WORK — the fact the outcome ledger's column header was missing beside
+ * `agentConfig` (MC-B44). `opus · high effort` names a MODEL; it does not say who ran it, and the two
+ * populations on this board are not comparable in the same way.
+ *
+ * Derived, never stored: the engine is a function of each lane's `executor`, which is recorded today.
+ *   - `local` — Ascent spawned the session itself, and `src/lib/local/agent.ts` has exactly one way to
+ *     do that: `CLAUDE_CLI_PATH || "claude"`, headless. The usage meter stamps the same population
+ *     `provider: "claude-cli"` (`lane-cost.ts`), so this is the ledger's own word, not a new claim. A
+ *     lane written before the column reads `local` by the documented default, which is what it was.
+ *   - `remote-agent` — Ascent started no process and opened no worktree; some agent elsewhere pulled
+ *     the lane over MCP. Its engine is genuinely NOT OURS TO REPORT, so the label says who ran it and
+ *     stops there. The run row's armed `model` is what Ascent asked for, not what the claimant used.
+ *
+ * A run with no lanes returns null and the header renders NOTHING — never a guess, and never
+ * "claude CLI" by default, which is the mistake this label exists to stop being made silently.
+ */
+export function runEngineLabel(lanes: readonly { executor: LoopLaneExecutor }[]): string | null {
+  if (lanes.length === 0) return null;
+  const remote = lanes.filter((l) => l.executor === "remote-agent").length;
+  if (remote === 0) return "claude CLI";
+  if (remote === lanes.length) return "remote agent";
+  // A mixed run is not describable by either word, and picking the majority would print a
+  // half-truth about the other lanes. It says it is mixed and sends the reader to the rails.
+  return "mixed engines";
+}
+
+/**
  * A lease countdown, in the coarsest unit that is still true. Pure so the rail can render it without
  * a clock of its own and a test can pin it.
  *

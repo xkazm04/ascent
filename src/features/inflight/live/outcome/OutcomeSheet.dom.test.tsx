@@ -120,3 +120,20 @@ describe("an unavailable baseline on a run's row", () => {
     expect(screen.queryByText(/degradation guard/i)).toBeNull();
   });
 });
+
+// MC-B44. The column header printed a MODEL and never said who ran it, so a run Ascent spawned in a
+// worktree on this machine and a run some agent elsewhere claimed over MCP read identically.
+describe("the run column names its engine beside its model", () => {
+  it("prints the engine on every column, with the model still beside it", () => {
+    sheet();
+    const header = screen.getAllByRole("columnheader")[1]!;
+    expect(header.textContent).toContain("claude CLI");
+    expect(header.textContent).toContain("sonnet");
+  });
+
+  it("says what the engine MEANS on hover, so the label is not a bare noun", () => {
+    sheet();
+    const engine = screen.getAllByText("claude CLI")[0]!;
+    expect(engine.getAttribute("title")).toMatch(/spawned a headless claude CLI session/i);
+  });
+});
