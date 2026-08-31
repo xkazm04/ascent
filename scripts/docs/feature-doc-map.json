@@ -266,14 +266,12 @@
         "src/lib/scan-stage.ts",
         "src/lib/local/agent.ts",
         "src/lib/local/agent-envelope.ts",
-        "src/lib/local/lane-economics.ts",
-        "src/lib/local/lane-cost.ts",
-        "src/lib/local/lane-report.ts",
+        "src/lib/local/lane-*.ts",
         "src/lib/local/loop-pr.ts",
         "src/lib/local/drive.ts",
         "src/lib/org/lane-brief.ts",
         "src/lib/db/lane-*.ts",
-        "src/lib/db/loop-lessons.ts"
+        "src/lib/db/loop-*.ts"
       ]
     },
     {
