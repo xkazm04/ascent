@@ -40,6 +40,23 @@ so the register declared two behaviours for one state and shipped the other one
 (UAT `RC2-N3`). The worded state is deleted; `scans-gallery.test.ts` pins the
 zero-card `null` return, because if that goes the register needs it back.
 
+**A row scored on an earlier ruler carries a `rubric rNN` chip, and the board says
+so under itself.** `model.ts` states in writing that numbers from two rubric
+versions are not comparable, and a rubric bump invalidates the gallery cache
+*without* re-scanning anything — so an un-rescanned repo keeps its old score and is
+ranked here against fresh ones (UAT `TOMAS-L1-11`). `PublicRepoCard` therefore
+carries `rubricVersion` plus a derived `currentRubric` (`galleryCardFrom` in
+`scans-read.ts`); a non-current row gets a violet `rubric r10` chip — or `rubric
+unknown` when the scan predates the stamp, because unknown is never "the same
+ruler" — and a mixed board prints *"Mixed rubrics on this page"* above the
+growth-loop footer, counted over the rows actually rendered. This is the same
+derivation, chip and wording MC-B18 gave `RegisterEntry` on `/leaderboard`
+(`LeaderboardTable`): two public rankings over one corpus must not invent two
+vocabularies for one fact. **Qualified, never de-ranked** — a stale score is a real
+rating taken on an earlier instrument, unlike a mock score, which is not a rating
+at all; dropping every pre-bump row would empty the register on the day of each
+bump and publish something less true.
+
 Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
 `SelfHostBand` so the copy can't drift apart in spirit:
 
