@@ -310,6 +310,11 @@ export interface ControlCoverage {
   maxGapDays: number | null;
   /** The state of the newest observation in the window, or null when there are none. */
   lastState: ControlState | null;
+  /** True when this pair's coverage was computed from a window that hit `TIMELINE_CAP` — i.e. the
+   *  org has more observations than one read returns, so `observations` is a FLOOR and
+   *  `firstObservedAt` is the edge of what we read, not the edge of what exists. Stated rather than
+   *  implied: a coverage count that silently excludes rows is the thing this ledger exists to stop. */
+  windowTruncated: boolean;
 }
 
 /** Hard ceiling on one timeline read. Stated by the route when it bites — never silently truncated. */
@@ -433,6 +438,14 @@ export async function listControlTimeline(
  * know nothing about the stretch before the first observation, and calling that stretch a gap would
  * be as wrong as calling it covered. The first/last stamps are published beside it so a reader can
  * see the uncovered edges for themselves.
+ *
+ * MC-B13 — THE READ IS ANCHORED ON THE NEWEST ROWS, not the oldest. It used to order ascending and
+ * take `TIMELINE_CAP`, which on an org past the cap handed back coverage over the OLDEST 2000 rows
+ * while `listControlTimeline` derived the state from the NEWEST 400: two windows that do not overlap,
+ * rendered on the same table row as if they described each other. Both reads now start at the newest
+ * end, so the coverage under a state is coverage OF that state's window; the rows are re-sorted
+ * ascending in memory for the gap arithmetic, which needs chronological order and nothing else.
+ * `windowTruncated` says when the cap bit, so a floor is never read as a total.
  */
 export async function controlCoverage(
   orgSlug: string,
@@ -455,14 +468,19 @@ export async function controlCoverage(
         ...(q.controlId ? { controlId: q.controlId } : {}),
         ...(occurredAt.gte || occurredAt.lte ? { occurredAt } : {}),
       },
-      orderBy: { occurredAt: "asc" },
+      orderBy: { occurredAt: "desc" },
       take: TIMELINE_CAP,
       select: { repoFullName: true, controlId: true, occurredAt: true, source: true, state: true },
     })
     .catch(() => [])) as CoverageRow[];
 
+  const windowTruncated = rows.length >= TIMELINE_CAP;
+  // Newest-first off the wire; chronological in memory, because the gap walk below is a difference
+  // between consecutive observations and nothing else.
+  const asc = [...rows].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+
   const byPair = new Map<string, CoverageRow[]>();
-  for (const r of rows) {
+  for (const r of asc) {
     // A space is a safe join here: neither an `owner/name` nor a kebab-case control id contains one.
     const key = `${r.repoFullName} ${r.controlId}`;
     const hit = byPair.get(key);
@@ -487,6 +505,7 @@ export async function controlCoverage(
       sources: [...new Set(group.map((r) => r.source as ObservationSource))].sort(),
       maxGapDays: group.length < 2 ? null : Math.round((maxGapMs / DAY_MS) * 10) / 10,
       lastState: last.state as ControlState,
+      windowTruncated,
     });
   }
   return out.sort((a, b) => a.repoFullName.localeCompare(b.repoFullName) || a.controlId.localeCompare(b.controlId));
@@ -610,9 +629,21 @@ export interface SealChain {
   checks: SealCheck[];
   /** True only when every seal in the range verified AND the day-to-day chain is intact. */
   chainOk: boolean;
-  /** Days that hold rows but no seal yet — today, and anything the lazy sealer has not reached. */
+  /** Days that hold rows but no seal yet — today, and anything the sealer has not reached. Derived
+   *  from a DISTINCT-day aggregate, so it is every such day and not the days visible in a capped
+   *  page of rows. */
   unsealedDays: string[];
+  /** How many CLOSED unsealed days remain BEYOND what one sealing pass can take (`SEAL_PASS_CAP`).
+   *  Zero means the next pass clears the backlog. Non-zero is the number that matters for retention:
+   *  a day purged before it is ever sealed leaves no seal to prove it existed, so a standing backlog
+   *  is a standing hole in the evidence and this is the only place it is countable. */
+  sealBacklogRemaining: number;
 }
+
+/** How many days one sealing pass will seal. A single pass can never walk a year of backlog; the
+ *  next pass takes the next `SEAL_PASS_CAP` days. Exported so the backlog figure and the sealer
+ *  agree about what "remaining" means. */
+export const SEAL_PASS_CAP = 14;
 
 /**
  * Recompute every seal in a window and check the day-to-day chain.
@@ -626,11 +657,11 @@ export interface SealChain {
  */
 export async function verifySeals(
   orgSlug: string,
-  q: { from?: string | null; to?: string | null } = {},
+  q: { from?: string | null; to?: string | null; now?: number } = {},
 ): Promise<SealChain | null> {
   if (!isDbConfigured()) return null;
   const orgId = await getOrgId(orgSlug).catch(() => null);
-  if (!orgId) return { checks: [], chainOk: true, unsealedDays: [] };
+  if (!orgId) return { checks: [], chainOk: true, unsealedDays: [], sealBacklogRemaining: 0 };
   const prisma = getPrisma();
   const day: { gte?: string; lte?: string } = {};
   if (q.from && /^\d{4}-\d{2}-\d{2}$/.test(q.from)) day.gte = q.from;
@@ -669,33 +700,79 @@ export async function verifySeals(
 
   // Days that hold rows but carry no seal. REPORTED, not sealed: `verifySeals` is a read, and a
   // verifier that writes is a verifier checking its own output.
+  //
+  // MC-B14 — a DISTINCT-DAY aggregate, not a capped page of rows. This used to read the newest
+  // `TIMELINE_CAP` observations and derive days from them, so on a busy org the 2000 newest rows
+  // could all fall inside a couple of days and every OLDER unsealed day — precisely the days
+  // approaching the retention horizon — was invisible. "How many days are unsealed" is a question
+  // about days; asking it of a row page answers a different one.
   const sealed = new Set(seals.map((s) => s.day));
-  const rowDays = (await prisma.controlObservation
+  const allDays = await distinctObservationDays(orgId, day.gte ?? null);
+  const unsealedDays = allDays.filter((d) => !sealed.has(d));
+  // Today is unsealable by construction (an open day's root is invalidated by the next append), so
+  // it is excluded from the BACKLOG even though it is correctly listed as unsealed.
+  const closedUnsealed = unsealedDays.filter((d) => isClosedDay(d, q.now ?? Date.now()));
+
+  return {
+    checks,
+    chainOk,
+    unsealedDays,
+    sealBacklogRemaining: Math.max(0, closedUnsealed.length - SEAL_PASS_CAP),
+  };
+}
+
+/**
+ * Every UTC day on which this org holds at least one observation, ascending.
+ *
+ * Raw SQL because this is a DISTINCT over a derived expression, which the Prisma client cannot
+ * express — the same `$queryRaw` + `date_trunc`/`to_char` shape `usage.ts` already uses for its
+ * day axis. Falls back to the old row-page derivation when the raw path is unavailable (a mocked
+ * client in a unit test, or a driver that rejects the cast): a degraded answer beats a thrown read,
+ * and the fallback is a SUBSET, so it can only under-report the backlog, never invent one.
+ */
+async function distinctObservationDays(orgId: string, fromDay: string | null): Promise<string[]> {
+  const prisma = getPrisma();
+  const since = fromDay ? new Date(`${fromDay}T00:00:00.000Z`) : new Date(0);
+  try {
+    const rows = await prisma.$queryRaw<{ day: string }[]>`
+      SELECT DISTINCT to_char(date_trunc('day', o."occurredAt" AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day
+      FROM "ControlObservation" o
+      WHERE o."orgId" = ${orgId} AND o."occurredAt" >= ${since}
+      ORDER BY day ASC
+    `;
+    if (Array.isArray(rows)) return rows.map((r) => r.day).filter((d): d is string => typeof d === "string");
+  } catch {
+    // fall through
+  }
+  const page = (await prisma.controlObservation
     .findMany({
-      where: { orgId, ...(day.gte ? { occurredAt: { gte: new Date(`${day.gte}T00:00:00.000Z`) } } : {}) },
+      where: { orgId, ...(fromDay ? { occurredAt: { gte: since } } : {}) },
       select: { occurredAt: true },
       orderBy: { occurredAt: "desc" },
       take: TIMELINE_CAP,
     })
     .catch(() => [])) as { occurredAt: Date }[];
-  const unsealedDays = [
-    ...new Set(
-      rowDays.map((r) => utcDay(r.occurredAt.toISOString())).filter((d): d is string => d != null && !sealed.has(d)),
-    ),
+  return [
+    ...new Set(page.map((r) => utcDay(r.occurredAt.toISOString())).filter((d): d is string => d != null)),
   ].sort();
-
-  return { checks, chainOk, unsealedDays };
 }
 
 /**
  * Seal every CLOSED day that holds rows and has no seal yet.
  *
- * `/api/audit/verify` runs this before it reports, so the ledger needs no cron of its own and no
- * `vercel.json` entry — the surface that cares about seals is the one that creates them. Capped so a
- * single request can never walk a year of backlog; the next call takes the next `cap` days.
+ * MC-B14 — THIS IS SCHEDULED WORK, not a side effect of a read. It used to run from
+ * `/api/audit/verify`, which meant an org's ledger was sealed exactly as often as somebody curled
+ * the verifier: an org nobody verified accumulated unsealed days indefinitely and then aged them out
+ * under retention, destroying the rows with no seal left behind to show they had existed. It now
+ * runs from the daily rescan cron, whose cadence is a property of the deployment rather than of who
+ * happened to open a URL. `/api/audit/verify` is a pure read again, which is also what a verifier
+ * should be.
+ *
+ * Capped at `SEAL_PASS_CAP` days per pass; the next pass takes the next batch, and `verifySeals`
+ * reports what is still owed as `sealBacklogRemaining`.
  */
-export async function sealPendingDays(orgSlug: string, now: number = Date.now(), cap = 14): Promise<string[]> {
-  const chain = await verifySeals(orgSlug);
+export async function sealPendingDays(orgSlug: string, now: number = Date.now(), cap = SEAL_PASS_CAP): Promise<string[]> {
+  const chain = await verifySeals(orgSlug, { now });
   if (!chain) return [];
   const sealedNow: string[] = [];
   for (const d of chain.unsealedDays) {
@@ -704,4 +781,45 @@ export async function sealPendingDays(orgSlug: string, now: number = Date.now(),
     if (await sealDay(orgSlug, d, now)) sealedNow.push(d);
   }
   return sealedNow;
+}
+
+/** What one fleet-wide sealing pass did. `orgs` is how many orgs hold ledger rows at all — reported
+ *  so a run that sealed nothing is distinguishable from a run that found nothing to seal. */
+export interface SealSweep {
+  orgs: number;
+  daysSealed: number;
+  backlogRemaining: number;
+}
+
+/**
+ * Seal every org that holds ledger rows — the cron entry point.
+ *
+ * Enumerates orgs from the OBSERVATIONS, not from the watched-repo list: a ledger row is the only
+ * thing that makes an org sealable, and an org that stopped being watched still owns the evidence it
+ * already accumulated. Best-effort per org; one org's failure must not stop the sweep, because the
+ * org that fails is exactly the one whose backlog then grows unbounded.
+ */
+export async function sealAllPendingDays(now: number = Date.now()): Promise<SealSweep | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const groups = (await prisma.controlObservation
+    .groupBy({ by: ["orgId"] })
+    .catch(() => [])) as { orgId: string }[];
+  if (groups.length === 0) return { orgs: 0, daysSealed: 0, backlogRemaining: 0 };
+  const orgs = (await prisma.organization
+    .findMany({ where: { id: { in: groups.map((g) => g.orgId) } }, select: { slug: true } })
+    .catch(() => [])) as { slug: string }[];
+
+  let daysSealed = 0;
+  let backlogRemaining = 0;
+  for (const o of orgs) {
+    try {
+      daysSealed += (await sealPendingDays(o.slug, now)).length;
+      const after = await verifySeals(o.slug, { now });
+      backlogRemaining += after?.sealBacklogRemaining ?? 0;
+    } catch (err) {
+      console.error("[controls.seal] sweep failed for org", o.slug, err instanceof Error ? err.message : err);
+    }
+  }
+  return { orgs: orgs.length, daysSealed, backlogRemaining };
 }

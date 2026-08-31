@@ -21,13 +21,15 @@ export function ControlMatrixPanel({ org }: { org: string }) {
     <section className="space-y-6">
       <div>
         <Kicker>proven in your own CI</Kicker>
+        {/* MC-B10: named for its SOURCE, because three tabs carried a catalogue called "controls".
+            The intro cross-links the other two so a reader who wanted one of them can leave. */}
         <SectionHeading
-          title="Controls"
-          intro="Every control each repository declares, as judged by its own doctor in its own pipeline. A clause a run did not judge shows as “not judged” — never as passing."
+          title="Doctor checks"
+          intro="Every control each repository declares, as judged by its own doctor in its own pipeline. A clause a run did not judge shows as “not judged” — never as passing. Two other control catalogues live elsewhere: Security › D9 check battery (our deterministic security grading) and Governance › Governance control ledger (branch-protection observations over time)."
         />
       </div>
 
-      {loading && <p className="type-body text-slate-400">Loading the control matrix…</p>}
+      {loading && <p className="type-body text-slate-400">Loading the doctor-check matrix…</p>}
 
       {error && (
         <p className="rounded-2xl border border-divider bg-surface/40 p-4 type-body text-amber-300">

@@ -76,6 +76,7 @@ describe("groupTimeline", () => {
       sources: ["probe" as const],
       maxGapDays: 2.5,
       lastState: "pass" as const,
+      windowTruncated: false,
     };
     expect(groupTimeline([obs()], [cov])[0]!.coverage).toBe(cov);
     expect(groupTimeline([obs({ controlId: "signed-commits" })], [cov])[0]!.coverage).toBeNull();
@@ -92,6 +93,7 @@ describe("coverageSentence", () => {
     sources: ["probe" as const, "scan" as const],
     maxGapDays: 2.5,
     lastState: "pass" as const,
+    windowTruncated: false,
   };
 
   it("states the N and the largest gap", () => {

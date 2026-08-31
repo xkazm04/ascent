@@ -336,6 +336,34 @@ describe("environmentAsOf", () => {
     expect(csv).toContain("ledger");
   });
 
+  // MC-B14 — the pack's central claim ("these were the settings in force when this merged") rested
+  // on ledger rows the artifact gave the reader no way to check. The root is what turns that from
+  // trust into a check they can run from an export.
+  it("quotes the ledger seal root, with the day it verifies through", () => {
+    const { manifest } = packFiles(
+      build([change()], {
+        ledgerSeal: {
+          throughDay: "2026-07-31",
+          root: "a".repeat(64),
+          daysSealed: 30,
+          daysVerified: 30,
+          chainOk: true,
+          unsealedDays: 1,
+        },
+      }),
+    );
+    expect(manifest).toContain("## Ledger integrity");
+    expect(manifest).toContain("2026-07-31");
+    expect(manifest).toContain("a".repeat(64));
+    expect(manifest).toContain("Chain intact | yes");
+  });
+
+  it("says plainly when there is NO root, rather than omitting the section", () => {
+    const { manifest } = packFiles(build([change()]));
+    expect(manifest).toContain("## Ledger integrity");
+    expect(manifest).toContain("no integrity root");
+  });
+
   it("the manifest states coverage with its denominator", () => {
     const files = packFiles(buildConformancePack(population([change()], [env()], ledger), opts));
     expect(files.manifest).toContain("## Control-environment coverage");

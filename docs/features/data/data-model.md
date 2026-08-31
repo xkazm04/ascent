@@ -107,6 +107,24 @@ inert when no `AUDIT_SIGNING_SECRET` / `AUTH_SECRET` is set.
 A file-level SHA-256 of the CSV bytes also ships in the `x-ascent-content-sha256` response header.
 That proves the *download* wasn't edited; the per-row `_sig` proves the *rows* weren't.
 
+#### `GET /api/audit/verify` — the control ledger's day chain
+
+A separate mechanism from the per-row `_sig` above: `ControlLedgerSeal` holds one sha256 root per
+`(org, closed UTC day)` over that day's observation digests plus the previous day's root. The route
+recomputes every root in the window, checks the day-to-day links, and ships `SEAL_RECIPE` — the exact
+field order and construction — so an examiner repeats the check from an export with no key from us.
+The stored HMAC is never returned.
+
+**It is a pure READ (changed 2026-08-31, MC-B14).** It used to seal lazily as a side effect of being
+called, which made an org's tamper-evidence a function of who curled the URL. Sealing moved to the
+daily `/api/cron/rescan` pass; `sealedOnThisRequest` is gone from the response and
+`sealBacklogRemaining` — closed unsealed days beyond what the next scheduled pass can take — is new.
+`unsealedDays` is now derived from a DISTINCT-day aggregate rather than from a capped page of rows,
+which used to hide exactly the older unsealed days approaching the retention horizon. The rows the
+chain is computed over are exported by `GET /api/org/controls?org=…&format=csv`, columns in
+`DIGEST_FIELD_ORDER`. Full treatment in
+[`org-dashboard/org-intelligence.md`](../org-dashboard/org-intelligence.md).
+
 ### Org knowledge & skills
 
 | Model | Purpose | Notable fields |

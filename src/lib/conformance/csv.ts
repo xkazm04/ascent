@@ -163,6 +163,52 @@ export function packManifestMarkdown(pack: ConformancePack, hashes: { sample: st
   lines.push(`| As-of lookups attempted (ceiling ${cov.cap}) | ${cov.attempted} |`);
   lines.push("");
 
+  // MC-B14 — the seal root the as-of-merge evidence above rests on, quoted in the artifact that is
+  // filed. The recipe is published by /api/audit/verify and the rows by
+  // /api/org/controls?format=csv, so this section is what joins a filed pack to a check an examiner
+  // can run without us.
+  const seal = pack.ledgerSeal;
+  lines.push("## Ledger integrity");
+  lines.push("");
+  if (!seal || !seal.root) {
+    lines.push(
+      "The control-observation rows behind this pack's as-of-merge evidence carry **no integrity root** for " +
+        "this period. Nothing here is contradicted by that — but nothing here is independently checkable " +
+        "against one either.",
+    );
+  } else {
+    lines.push(
+      "The as-of-merge control settings in this pack are read from Ascent's control-observation ledger. That " +
+        "ledger is chained daily: each closed UTC day carries a sha256 root over its rows plus the previous " +
+        "day's root. The root below is the newest one covering this period.",
+    );
+    lines.push("");
+    lines.push("| Measure | Value |");
+    lines.push("| --- | --- |");
+    lines.push(`| Chain verified through | ${seal.throughDay} |`);
+    lines.push(`| Root (sha256) | \`${seal.root}\` |`);
+    lines.push(`| Days chained in period | ${seal.daysSealed} (${seal.daysVerified} recomputed cleanly) |`);
+    lines.push(`| Chain intact | ${seal.chainOk ? "yes" : "**NO — see below**"} |`);
+    lines.push(`| Days holding rows not yet chained | ${seal.unsealedDays} |`);
+    lines.push("");
+    lines.push(
+      seal.chainOk
+        ? "Recompute it yourself: download the rows from `/api/org/controls?org=…&format=csv` (columns are the " +
+            "digest's canonical field order) and follow the recipe published at `/api/audit/verify?org=…`. No key " +
+            "of ours is needed."
+        : "**At least one chained day no longer recomputes to its stored root, or its link to the preceding day " +
+            "does not match.** Rows in this period were altered or removed after they were chained. Treat the " +
+            "as-of-merge evidence in this pack as unverified until that is explained.",
+    );
+    lines.push("");
+    lines.push(
+      "Limit, stated rather than left implied: the roots are produced by Ascent and stored alongside the rows, " +
+        "so they detect alteration by anything WITHOUT database write access. They are not claimed to detect an " +
+        "operator with database access re-chaining a rewritten day.",
+    );
+  }
+  lines.push("");
+
   lines.push("## Sample");
   lines.push("");
   lines.push(pack.attestation.method);

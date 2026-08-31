@@ -175,7 +175,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
-| Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **Control matrix** (`SecurityRiskRegister`); and **Findings to decide** (`SecurityFindings`, see below). |
+| Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **D9 check battery** (`SecurityRiskRegister`; renamed from "Control matrix" 2026-08-31, MC-B10); and **Findings to decide** (`SecurityFindings`, see below). |
 | Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. |
 | Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
 | Shared | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
@@ -360,7 +360,7 @@ Capability commands are repo content, so they are redacted at read time (any tok
 `secret=`-shaped run becomes `«redacted»`), shown only inside the owning org, and never placed on a
 public or cross-tenant surface.
 
-### Passports → Controls: the fleet control matrix, from the repos' own CI (#16, 2026-08-29)
+### Passports → Doctor checks: the fleet matrix from the repos' own CI (#16, 2026-08-29; renamed from "Controls" 2026-08-31, MC-B10)
 
 The fourth Passports switcher view, and a deliberate **sibling** of Capabilities rather than a merge
 with it. Capabilities is what a repo *declares* (read from its manifest at scan time); Controls is
@@ -711,25 +711,86 @@ Rows also carry `evidenceSource` (`scan | webhook`) and `approvalObservedAt` —
 observed the approval, as distinct from `approvedAt` (the review's own submission time). Null
 `approvalObservedAt` means "not observed live", never "not approved".
 
-### Control observations (Governance tab, moonshot #1)
+### Governance control ledger (Governance tab, moonshot #1)
 
-`ControlTimelineCard` sits directly below the evidence pack, because it is the source the pack's
-as-of environments are read from. One row per (repository, control): the current state, the last
-observed change with its actor, and — always beside the state — the **coverage**: the observation
-count and the largest gap between observations. That pairing is the point. "Branch protection held
-all quarter" read off two observations three months apart is a sentence the evidence does not
-support, so the card never prints a state without its N.
+**Named "Governance control ledger" since 2026-08-31** (UAT `NADIA-L1-08` + `PRIYA-L1-07`; it was
+"Control observations"). See *Three catalogues, three names* below.
+
+The card sits directly below the evidence pack, because it is the source the pack's as-of
+environments are read from. One row per (repository, control): the current state, the last observed
+change with its actor, and — always beside the state — the **coverage**: the observation count and
+the largest gap between observations. That pairing is the point. "Branch protection held all
+quarter" read off two observations three months apart is a sentence the evidence does not support,
+so the card never prints a state without its N.
 
 `unmeasurable` renders as an **em dash with a tooltip** — never a zero, never a red — and is counted
 separately from "not operating" in the header. A control we could not read is missing evidence, not
 a finding; colouring it like one would turn every expired token into a fleet-wide governance failure
 on the page a lead screenshots.
 
-Reads: `GET /api/org/controls?org=&repo=&controlId=&from=&to=&transitionsOnly=1`
+#### The catalogue's contracts render (MC-B13, 2026-08-31)
+
+`src/lib/controls/catalog.ts` authored three contracts that were unit-tested and read by **nothing**.
+An AppSec lead's L1 pass measured the cost: *"'Published advisories · not operating.' In red. The
+catalogue's own sentence for that control is 'No coordinated-disclosure advisory was observed. NOT a
+statement that the repo is insecure.' … If I screenshot this table for the CISO, I have just told him
+nine repositories failed a security control. They did not."* All three now have consumers, in
+`ControlStateCell.tsx`:
+
+- **`failMeans`** — a red "not operating" cell renders the catalogue's own sentence for what that
+  control failing does and does not mean, **as text under the state**, not as a tooltip: a screenshot
+  crops tooltips and keeps text. Present only on a `fail`; the sentence describes a fail.
+- **`descriptor`** — `repo-visibility` is a fact, not a bar. Its state is always `pass`, so the cell
+  used to print a green "operating" for a control that cannot operate. A descriptor now renders its
+  **value** ("public") in neutral tone with no verdict word at all.
+- **`stateTone`** — the tone comes from the catalogue's function; the renderer no longer re-types the
+  ternary. `unknown` is deliberately not a colour word (**G15**).
+
+#### One read window, and it says so
+
+The row's state came from the newest 400 observations while its coverage came from the **oldest**
+2000 — past 2000 rows the two windows did not overlap, and they were printed on the same table row as
+if they described each other. `controlCoverage` now reads newest-first and re-sorts in memory for the
+gap arithmetic, so coverage under a state is coverage *of* that state's window; `ControlCoverage.
+windowTruncated` says when the cap bit and `coverageSentence` appends *"at least (read window
+capped)"* so a floor is never read as a total.
+
+`truncated`/`limit` were computed by the route and the card never called the route, so the surface a
+compliance reader actually screenshots carried no completeness disclosure at all. Both now read
+`timelineDisclosure` from `src/lib/controls/window.ts`, and a truncated page renders *"This page
+stops at the newest 400 observations — it is NOT the org's complete ledger."*
+
+Reads: `GET /api/org/controls?org=&repo=&controlId=&from=&to=&transitionsOnly=1&limit=&format=csv`
 (`requireOrgRead`, 503 without a DB), which always returns `coverage` beside `timeline` and flags
 `truncated` rather than presenting a capped page as everything. Coverage is deliberately **not**
 narrowed by `transitionsOnly`: the heartbeat rows that filter hides are exactly the rows that prove
 a control held.
+
+**`?format=csv`** (MC-B14) returns the observation rows with columns in `DIGEST_FIELD_ORDER`,
+verbatim and in order — the digest's own field order, so an examiner rebuilds each row's canonical
+JSON straight off the header line without reading our source. It is gated identically to the JSON
+read, `private, no-store`, and carries the truncation disclosure as `x-ascent-truncated` /
+`x-ascent-limit` headers because a file opened in a spreadsheet has no response body to consult.
+Before this, `?format=csv` returned `200 application/json` and silently ignored the parameter.
+
+### Three catalogues, three names (MC-B10, 2026-08-31)
+
+Three unrelated control catalogues carried the same word on one dashboard, and a fourth surface had
+already taken "SEALED". Two Characters hit the collision from two different tabs. Each now says what
+it is made of, and each cross-links the other two:
+
+| Tab | Heading | What it actually is |
+| --- | --- | --- |
+| Standing › Security | **D9 check battery** | our deterministic Scorecard-style security grading (was "Control matrix") |
+| Standing › Passports | **Doctor checks** | per-check findings each repo's own CI reported (was "Controls") |
+| Standing › Governance | **Governance control ledger** | branch-protection observations over time (was "Control observations") |
+
+**SEALED belongs to the AI-stance perimeter.** On the Governance tab `Sealed` already meant a
+declared no-AI zone, so the control ledger's tamper-evidence says **chained** on screen — "chain
+verified through …", "days not yet chained" — and never "sealed". The `SealedZones` copy states the
+distinction where the collision was. The **wire contract keeps its own names** (`unsealedDays`,
+`sealBacklogRemaining`, `sealDay`, `verifySeals`): an API field is read by an examiner's script, a
+heading is read by a human on a tab where the other word is taken.
 
 ### Ledger integrity (`GET /api/audit/verify`)
 
@@ -742,9 +803,29 @@ What the seal buys: deleting a row changes its day's root; deleting a whole day 
 day's `prevRoot`; editing a row changes both. Writers never contend, because a day is sealed once,
 after it has closed.
 
-- **Sealing is lazy and closed-day-only.** `/api/audit/verify` seals any closed day that holds rows
-  and has no seal, so the ledger needs no cron and no `vercel.json` entry. `verifySeals` itself never
-  writes — a verifier that produced its own input would be checking its own homework.
+- **Sealing is SCHEDULED, closed-day-only** (changed 2026-08-31, MC-B14). It rides the daily
+  `/api/cron/rescan` pass (`sealAllPendingDays`, before the GitHub-App check so a DB-only deployment
+  still seals), capped at `SEAL_PASS_CAP` = 14 days per pass. It used to be a side effect of
+  `/api/audit/verify`, which made an org's tamper-evidence a function of how often somebody curled a
+  URL: an org nobody verified accumulated unsealed days until retention aged the rows out, leaving no
+  seal behind to show they had existed. **`/api/audit/verify` is now a pure read** — which is what a
+  verifier should have been; one that produces its own input is checking its own homework.
+- **`sealBacklogRemaining`** is returned by `/api/audit/verify` and by the cron's JSON body: closed
+  unsealed days *beyond* what the next pass can take. `unsealedDays` is derived from a **DISTINCT-day
+  aggregate** (`$queryRaw` over `date_trunc`, with a row-page fallback that can only under-report),
+  not from a capped page of rows — on a busy org the newest 2000 rows can all fall inside two days,
+  which hid exactly the older days approaching the retention horizon.
+- **It is rendered, and it has a door.** The card's `LedgerIntegrityStrip` prints *"Ledger integrity:
+  chain verified through YYYY-MM-DD · N days not yet chained"* with a **Verify now** button and a
+  **Download observation rows (CSV)** link — in **both** branches of the card, empty ledger included.
+  The only previous reference was a non-interactive `<code>` string naming a URL, inside the non-empty
+  branch, so a new org was never told the ledger was verifiable at all.
+- **The seal root travels in the filed pack.** The conformance pack carries `ledgerSeal`
+  (`throughDay` / `root` / `daysSealed` / `daysVerified` / `chainOk` / `unsealedDays`) and the
+  manifest renders a **"Ledger integrity"** section quoting the root. The root is taken from the
+  newest *cleanly recomputing* day in the period — quoting one off a day that did not verify would
+  prove the opposite of what quoting it implies. With no root the section says so plainly and the
+  pack gains a limitation line. The export audit row records `ledgerSealRoot` / `ledgerSealThrough`.
 - **A purged day is `no-rows`, not `tampered`.** Both tables age out under the org's `auditDays`
   policy and a purged day **keeps its seal** on purpose: the seal still says "1,204 rows were here on
   2026-05-01" long after the rows are gone, which is what makes a deleted window *detectable*.
