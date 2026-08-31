@@ -4,8 +4,10 @@
 // carries the expected-output rundown ("what you'll get"), and then one of two action surfaces:
 //  • open deployments (or signed-in members) get the live repo input (ScanForm) plus a consent-gated
 //    GitHub connect for the private-repo / saved-history path;
-//  • gated deployments with no signed-in viewer get a "sign in to scan" panel instead — the wall is
-//    enforced before any scan can run (first sign in, then scan).
+//  • deployments that have re-walled the anonymous public scan, with no signed-in viewer, get a
+//    "sign in to scan" panel instead — the wall is enforced before any scan can run.
+// `gated` is the SERVER'S predicate for the scan this dialog starts (publicScanWallEnabled), never a
+// local approximation of it: the panel below is only honest while the endpoint would return 401.
 // Replaces the inline hero input so the masthead stays clean and the promise is front-and-centre on open.
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -28,8 +30,12 @@ const SCAN_DURATION = scanDurationClaim();
 interface ScanModalProps {
   examples?: string[];
   auth: AuthMode;
-  /** Whether the login wall is enforced on this deployment. When true, a scan requires a signed-in
-   *  viewer — the dialog locks the scan form behind sign-in until one is present. */
+  /** Whether the sign-in wall is enforced for the ANONYMOUS PUBLIC scan this dialog starts. Computed
+   *  server-side by `publicScanWallEnabled()` (src/lib/scan-gates.ts) — the same predicate
+   *  `scanAuthGate` applies on its `publicScan: true` branch — so the dialog can never wall a scan the
+   *  endpoint would have run. Default `false`: on a deployment that has not opted back in
+   *  (`ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN`), the form, the QuotaMeter and the duration sentence are
+   *  all reachable signed-out. When true, a scan requires a signed-in viewer and the form is locked. */
   gated?: boolean;
 }
 

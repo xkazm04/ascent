@@ -5,7 +5,7 @@ import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
 import { jsonLdScript } from "@/lib/site";
-import { authGateEnabled } from "@/lib/access";
+import { publicScanWallEnabled } from "@/lib/scan-gates";
 import { resolveFirstRun } from "@/lib/first-run";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
 
@@ -99,9 +99,14 @@ export default async function Home() {
   // Supabase OAuth when configured, else the dormant custom OAuth, else none (get-started fallback).
   const auth = supabaseAuthConfigured() ? "supabase" : isAuthConfigured() ? "github" : null;
 
-  // Whether the login wall is actually enforced here (Supabase configured + bypass off). When true the
-  // hero's scan dialog locks scanning behind sign-in — first sign in, then scan.
-  const gated = authGateEnabled();
+  // Whether the hero's scan dialog should lock behind sign-in. This asks the SCAN ENDPOINT'S OWN
+  // predicate for the anonymous public scan the dialog starts (`publicScanWallEnabled` — the
+  // `publicScan: true` branch of `scanAuthGate`), not the coarser `authGateEnabled()` it used to read.
+  // Those two diverged the moment the server exempted the public funnel (UAT TOMAS-L1-01): a
+  // cookie-less POST /api/scan returned 200 while this page went on painting a "Scanning is for
+  // signed-in members" wall over the form — and over the QuotaMeter and the honest duration sentence
+  // that sit with it. The wall is now shown exactly when the server would enforce one.
+  const gated = publicScanWallEnabled();
   // Self-hosted vs cloud decides where the org CTAs point and whether the deck pitches self-hosting at
   // all (src/lib/first-run.ts — the same resolver /onboarding branches on, so the two agree).
   const firstRun = await resolveFirstRun();

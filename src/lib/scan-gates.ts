@@ -95,8 +95,28 @@ export async function scanAuthGate(
   resolveViewer: () => Promise<Viewer | null> | Viewer | null,
   opts: { publicScan: boolean },
 ): Promise<ScanGatePass | ScanAuthRejection> {
-  if (!authGateEnabled()) return PASS;
-  if (opts.publicScan && !publicScanSignInRequired()) return PASS;
+  const walled = opts.publicScan ? publicScanWallEnabled() : authGateEnabled();
+  if (!walled) return PASS;
   if (await resolveViewer()) return PASS;
   return { ok: false, reason: "auth_required" };
+}
+
+/**
+ * Whether an ANONYMOUS PUBLIC scan is actually walled on this deployment — the composed predicate
+ * `scanAuthGate` applies on its `publicScan: true` branch, exported so a UI can ask the same question
+ * the endpoint will answer instead of approximating it.
+ *
+ * UAT TOMAS-L1-01 (recurrence 2). The server exemption above shipped alone: `POST /api/scan` returned
+ * 200 to a cookie-less caller while the hero's scan dialog kept locking on `authGateEnabled()` and
+ * painted a "Scanning is for signed-in members" panel over the form — a wall that was not there, on
+ * the one door a prospective buyer actually uses, taking the QuotaMeter and the honest duration
+ * sentence down with it. Two predicates for one decision is the whole defect, so there is now one:
+ * `src/app/page.tsx` computes the dialog's `gated` from THIS function, and `/report?repo=` (which
+ * starts the scan and renders whatever the server answers, including `auth_required` → SignInNotice)
+ * needs no predicate of its own. Cheap, synchronous, next/headers-free — safe in a server component.
+ *
+ * Not a security boundary: the endpoint gate above is. This exists so the UI cannot disagree with it.
+ */
+export function publicScanWallEnabled(): boolean {
+  return authGateEnabled() && publicScanSignInRequired();
 }
