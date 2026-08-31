@@ -26,6 +26,7 @@ import { clientIp, tooManyResponse } from "@/lib/rate-limit";
 import { envBool } from "@/lib/env";
 import {
   PUBLIC_SCAN_WINDOW_DAYS,
+  publicScanAllowance,
   publicScanMonthlyLimit,
   signedInScanMonthlyLimit,
 } from "@/lib/public-scan-limit";
@@ -50,7 +51,10 @@ const WINDOW_MS = PUBLIC_SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000; // rolling 30-d
 // so the COPY that promises the allowance — /pricing's Free card via plans.ts, the landing FAQ, the
 // 429 below — can read the same number this gate charges against without dragging node:crypto and
 // Prisma into a client bundle (MC-B5). Re-exported here so this module stays their canonical import.
-export { publicScanMonthlyLimit, signedInScanMonthlyLimit };
+// `publicScanAllowance` travels with them: it is the same allowance COMPOSED as the phrase the copy
+// prints ("1 free public scan" / "5 free public scans"), so a call site never appends its own plural
+// "s" to a number that may be 1 (MC-B38).
+export { publicScanAllowance, publicScanMonthlyLimit, signedInScanMonthlyLimit };
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the monthly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {

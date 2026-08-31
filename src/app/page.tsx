@@ -8,7 +8,7 @@ import { jsonLdScript } from "@/lib/site";
 import { publicScanWallEnabled } from "@/lib/scan-gates";
 import { resolveFirstRun } from "@/lib/first-run";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
-import { PUBLIC_SCAN_WINDOW_DAYS, publicScanMonthlyLimit } from "@/lib/public-scan-limit";
+import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
 
 /** "Starter ($5/mo)" — the tier's customer-facing NAME and price, both read from the plan model. */
 const paidTier = (id: PlanId) => `${PLAN_FEATURES[id].label} (${planPriceLabel(id).amount}/mo)`;
@@ -80,7 +80,7 @@ const FAQ_LD = {
         // MC-B5: "public scans are always free and unmetered" was a rich-result answer Google may
         // quote — contradicted by the meter in the scan dialog on the same visit. The allowance is
         // read from the function the quota gate charges against (src/lib/public-scan-limit.ts).
-        text: `Self-hosting is free and unlimited. On the hosted cloud, every plan includes a monthly private-scan allowance: ${PLAN_FEATURES.free.includedCredits} scans a month free, plus ${publicScanMonthlyLimit()} free public scans on a rolling ${PUBLIC_SCAN_WINDOW_DAYS}-day window. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements: hosting, scan volume, support, customization and SSO.`,
+        text: `Self-hosting is free and unlimited. On the hosted cloud, every plan includes a monthly private-scan allowance: ${PLAN_FEATURES.free.includedCredits} scans a month free, plus ${publicScanAllowance().label} on a rolling ${PUBLIC_SCAN_WINDOW_DAYS}-day window. ${paidTier("pro")} and ${paidTier("team")} are subscriptions that bundle more; scans beyond your allowance run on prepaid credits you can top up anytime. The ${PLAN_FEATURES.enterprise.label} plan is scoped to your requirements: hosting, scan volume, support, customization and SSO.`,
       },
     },
   ],

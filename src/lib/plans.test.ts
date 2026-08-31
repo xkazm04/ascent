@@ -21,7 +21,7 @@ import {
   PLAN_ORDER,
   UNLIMITED_PLAN_LABEL,
 } from "./plans";
-import { publicScanMonthlyLimit } from "./public-scan-limit";
+import { publicScanAllowance } from "./public-scan-limit";
 
 const NOW = Date.UTC(2026, 5, 20); // fixed clock so the cutoff math is deterministic
 const DAY = 86_400_000;
@@ -174,8 +174,10 @@ describe("marketing copy matches the metering engine (checkout-plans-polar 07-16
     // MC-B5: the blurb used to promise "public scans are always free" beside an extras bullet reading
     // "Unlimited free public scans" — while the scan dialog metered the same visitor down from 5. Both
     // halves now carry the number the gate actually charges against.
-    expect(PLAN_FEATURES.free.blurb).toContain(`${publicScanMonthlyLimit()} free public scans`);
-    expect(PLAN_FEATURES.free.features).toContain(`${publicScanMonthlyLimit()} free public scans / month`);
+    // MC-B38: the card reads the composed PHRASE, so it pluralizes with the number rather than
+    // hardcoding an "s" beside a value an operator can set to 1.
+    expect(PLAN_FEATURES.free.blurb).toContain(publicScanAllowance().label);
+    expect(PLAN_FEATURES.free.features).toContain(`${publicScanAllowance().label} / month`);
   });
 
   // MC-B5 (recurrence of TOMAS-L1-02 / B8). A meter is rendered inside the scan dialog; any card that

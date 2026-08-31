@@ -13,7 +13,7 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { HairlineGrid, Kicker } from "@/components/ui";
 import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, planScanLine, type PlanId } from "@/lib/plans";
-import { PUBLIC_SCAN_WINDOW_DAYS, publicScanMonthlyLimit } from "@/lib/public-scan-limit";
+import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
 import { ctaFor } from "./pricingCta";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 import { PlanEnquiryCta } from "@/components/pricing/PlanEnquiryCta";
@@ -66,7 +66,9 @@ const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
 // page previously called public scans "always free and unmetered" while /api/quota reported a limit
 // of 5 and the scan dialog rendered a meter — MC-B5. One number, one source, stated the same way on
 // every surface that states it.
-const PUBLIC_ALLOWANCE = publicScanMonthlyLimit();
+// The allowance as a PHRASE, not a digit: the sentences below were written for a constant and read
+// "1 free public scans" the moment an operator set PUBLIC_SCAN_MONTHLY_LIMIT=1 (UAT MC-B38).
+const PUBLIC_ALLOWANCE = publicScanAllowance();
 
 /** "Starter $5/mo" — name and price both from the model, for the SEO/FAQ sentences. */
 const priced = (id: PlanId) => `${PLAN_FEATURES[id].label} ${planPriceLabel(id).amount}/mo`;
@@ -83,7 +85,7 @@ export function generateMetadata() {
   }
   return {
     title: "Plans & credits · Ascent",
-    description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. On the hosted cloud, ${PUBLIC_ALLOWANCE} public scans a month are free and every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
+    description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. The hosted cloud includes ${PUBLIC_ALLOWANCE.label} a month, and every plan carries a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
   };
 }
 
@@ -227,7 +229,7 @@ export default async function PricingPage() {
           Every plan&apos;s <span className="text-slate-300">private</span> scan allowance{" "}
           <span className="text-slate-300">resets on the 1st of each month (UTC)</span>; {PLAN_FEATURES.pro.label} and{" "}
           {PLAN_FEATURES.team.label} are monthly subscriptions that bundle more of it. The{" "}
-          <span className="text-slate-300">{PUBLIC_ALLOWANCE} free public scans</span> run on their own rolling{" "}
+          <span className="text-slate-300">{PUBLIC_ALLOWANCE.label}</span> {PUBLIC_ALLOWANCE.plural ? "run" : "runs"} on their own rolling{" "}
           {PUBLIC_SCAN_WINDOW_DAYS}-day window instead, counted from your first scan. Need more than your plan includes?
           Buy prepaid scan credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span>,
           so you pay only for the overflow you actually use. Cached re-scans of unchanged repos are always free. Manage
