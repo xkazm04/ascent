@@ -776,14 +776,12 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
   Embedding-based matching stays out of scope; it would change the guardband (G5).
 - **No LLM-reasoning drill-down.** `ProvenanceTrack` shows *that* the LLM adjusted a
   score, not the full rationale beyond the dimension summary.
-- **A roadmap row's concrete move still lives inside its rationale prose.** UAT `SAM-L1-05`
-  (recurrence 2, `MC-B8a`): the prompt mandates an invitational voice — titles are observations, not
-  imperatives, and `explore` entries are open questions "not steps" — which is a deliberate decision
-  (guardrail **G2**), so the fix is an **additive** `firstStep` field beside `rationale`/`explore`,
-  never a rewrite of the voice. It is not shipped: the field has to be declared on `LlmRoadmapItem`
-  (`src/lib/types.ts`) and, to survive a re-scan, as a `Recommendation` column
-  (`prisma/schema.prisma`) — both outside this change's write set. Until then a reader extracts the
-  ticket from the paragraph by hand.
+- **A roadmap row's concrete move is the additive `firstStep` field** (UAT `SAM-L1-05`, `MC-B8a`,
+  closed 2026-08-31): `LlmRoadmapItem.firstStep` / `Recommendation.firstStep`, requested by the
+  model schema as one optional sentence and rendered as a "First step:" line above the rationale.
+  The invitational voice is untouched (guardrail **G2**) — titles stay observations, `explore`
+  stays questions; the field is additive and never fabricated: absent on pre-field scans and on
+  rows where the model omitted it, so old reports render exactly as before.
 - **The lift map is not yet mounted on the report page.** `RoadmapSteps`, `RecommendationTracker` and
   `reportLlmMarkdown` all accept the measured `lifts` map and render the basis clause when given one;
   `/api/recommendations` supplies it today. The report page (`ReportPanels`) does not yet call

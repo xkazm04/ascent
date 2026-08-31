@@ -347,6 +347,7 @@ CREATE TABLE "Recommendation" (
     "impact" TEXT NOT NULL,
     "effort" TEXT NOT NULL,
     "rationale" TEXT NOT NULL DEFAULT '',
+    "firstStep" TEXT NOT NULL DEFAULT '',
     "explore" TEXT NOT NULL DEFAULT '[]',
     "levelUnlock" TEXT,
     "status" TEXT NOT NULL DEFAULT 'open',

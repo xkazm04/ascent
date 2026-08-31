@@ -226,6 +226,7 @@ export function toPersistedRec(r: {
   impact: string;
   effort: string;
   rationale: string;
+  firstStep?: string;
   explore?: string;
   levelUnlock: string | null;
   status: string;
@@ -239,6 +240,7 @@ export function toPersistedRec(r: {
     impact: r.impact as Impact,
     effort: r.effort as Effort,
     rationale: r.rationale,
+    ...(r.firstStep ? { firstStep: r.firstStep } : {}),
     explore: parseStringArray(r.explore),
     levelUnlock: r.levelUnlock ?? undefined,
     status: r.status as RecStatus,

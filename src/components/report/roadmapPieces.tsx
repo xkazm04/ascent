@@ -268,6 +268,11 @@ export function RoadmapSteps({
                   <h3 className="font-semibold text-white">{item.title}</h3>
                   {quick && <QuickWinBadge />}
                 </div>
+                {item.firstStep && (
+                  <p className="mt-1.5 type-body leading-relaxed text-slate-300">
+                    <span className="font-semibold text-slate-200">First step:</span> {item.firstStep}
+                  </p>
+                )}
                 {item.rationale && (
                   <p className="mt-1.5 type-body leading-relaxed text-slate-400">{item.rationale}</p>
                 )}

@@ -317,7 +317,7 @@ export async function persistScanReport(
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: {
-        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
+        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, firstStep: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
         // The previous scan's dimension scores — the independent witness for an in-progress row's
         // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
         // rephrasing, not repair.
@@ -529,6 +529,7 @@ export async function persistScanReport(
                   impact: r.impact,
                   effort: r.effort,
                   rationale: r.rationale,
+                  firstStep: r.firstStep ?? "",
                   explore: JSON.stringify(r.explore ?? []),
                   levelUnlock: r.levelUnlock ?? null,
                   kind: r.kind ?? "gap",
@@ -558,6 +559,7 @@ export async function persistScanReport(
               impact: row.impact,
               effort: row.effort,
               rationale: row.rationale,
+              firstStep: row.firstStep,
               explore: row.explore,
               levelUnlock: row.levelUnlock,
               kind: row.kind,
@@ -592,6 +594,7 @@ export async function persistScanReport(
                   impact: row.impact,
                   effort: row.effort,
                   rationale: row.rationale,
+                  firstStep: row.firstStep,
                   explore: row.explore,
                   levelUnlock: row.levelUnlock,
                   kind: row.kind,

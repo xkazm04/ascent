@@ -1120,6 +1120,7 @@ async function loadLatestRecommendations(
           impact: true,
           effort: true,
           rationale: true,
+          firstStep: true,
           explore: true,
           levelUnlock: true,
           kind: true,
@@ -1270,6 +1271,7 @@ async function loadScanReportByCommit(
     impact: r.impact as Impact,
     effort: r.effort as Effort,
     rationale: r.rationale,
+    ...(r.firstStep ? { firstStep: r.firstStep } : {}),
     explore: parseStringArray(r.explore),
     levelUnlock: r.levelUnlock ?? undefined,
     // Only the non-default kind is carried (an absent kind IS "gap"), and the axis rides only with

@@ -63,6 +63,7 @@ export const ASSESSMENT_JSON_SCHEMA = {
           impact: { type: "string", enum: IMPACT_LEVELS },
           effort: { type: "string", enum: IMPACT_LEVELS },
           rationale: { type: "string" },
+          firstStep: { type: "string", description: "The single concrete first move, one sentence. Omit when none is clear." },
           explore: { ...stringArray, description: "2-3 invitational questions." },
           levelUnlock: { type: "string" },
           kind: { type: "string", enum: ["gap", "craft"], description: "gap (default) or craft (for a dimension already at/above the band)." },

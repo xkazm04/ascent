@@ -740,6 +740,7 @@ model Recommendation {
   impact        String // high | medium | low
   effort        String // high | medium | low
   rationale     String    @default("")
+  firstStep     String    @default("") // MC-B8a: the single concrete first move; "" = not recorded
   explore       String    @default("[]") // JSON string[] — invitational questions to explore the gap
   levelUnlock   String?
   status        String    @default("open") // open | in_progress | done | dismissed

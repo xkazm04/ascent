@@ -62,6 +62,8 @@ export interface PersistedRecommendation {
   impact: Impact;
   effort: Effort;
   rationale: string;
+  /** The single concrete first move, when the scan recorded one (MC-B8a). */
+  firstStep?: string;
   /** Invitational questions to explore the gap — inputs, not directives. */
   explore: string[];
   levelUnlock?: string;
@@ -584,6 +586,9 @@ export interface LlmRoadmapItem {
   impact: Impact;
   effort: Effort;
   rationale: string;
+  /** The single concrete first move (one sentence) — rendered above the rationale so the reader's
+   *  next action leaves the prose (MC-B8a). Optional: absent on pre-field scans, never fabricated. */
+  firstStep?: string;
   /** Invitational questions to explore the gap — inputs, not directives. */
   explore?: string[];
   /** e.g. "L3->L4" — the level transition this unlocks. */

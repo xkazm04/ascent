@@ -351,7 +351,7 @@ Respond with JSON only in exactly this shape:
   "headline": "",
   "strengths": [""],
   "risks": [""],
-  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"},{"title":"","dimension":"D2","impact":"medium","effort":"medium","rationale":"","explore":["",""],"kind":"craft","craftAxis":"performance"}],
+  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","firstStep":"","explore":["",""],"levelUnlock":"L2->L3"},{"title":"","dimension":"D2","impact":"medium","effort":"medium","rationale":"","explore":["",""],"kind":"craft","craftAxis":"performance"}],
   "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}],
   "claims": [{"dimension":"D4","facet":"automated_review","path":".github/workflows/review.yml","quote":"on:\\n  pull_request:","note":"A review job runs on every PR and calls the model."},{"dimension":"D1","facet":"commands_agree","path":"AGENTS.md","quote":"Run the suite with npm test before pushing","path2":".cursorrules","quote2":"Tests: npm test","note":"Both guidance files state the same test command."}]
 }`;
