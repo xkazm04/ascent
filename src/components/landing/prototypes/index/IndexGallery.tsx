@@ -3,6 +3,17 @@
 // Live discovery for The Index — a ranked editorial register of the most AI-native repos. Each row
 // breaks the score into five headline dimensions plus the overall average, so the register reads as a
 // rating table rather than a single number. Only rendered when persisted public scans exist.
+//
+// THERE IS NO EMPTY STATE HERE, and that is the decision, not an omission. `loadPublicGalleryCards`
+// returns `null` the moment it has zero cards (`scans-read.ts`), and `IndexVariant` then drops the
+// whole section — so an empty corpus shows no register at all, which is what a truly empty deployment
+// was observed to do (UAT `RC2-N3`). This file used to ALSO carry a worded `board.length === 0` state
+// inviting the reader to be the first on the register; non-null implies at least one card implies a
+// non-empty board, so that branch was dead in the exact case it was written for, and two
+// behaviours were declared for one
+// state. The absent section won: a heading and column labels wrapped around a sentence is the
+// "broken table" the worded state was itself trying to avoid. If the null return ever goes, the
+// register needs the worded state back — `scans-gallery.test.ts` pins that contract.
 
 import Link from "next/link";
 import type { PublicScanGallery } from "@/lib/db";
@@ -82,14 +93,6 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
         ))}
         <span className="text-center text-slate-400">Avg</span>
       </div>
-
-      {/* Explicit empty state: a persisted gallery with zero public scans previously rendered the
-          full header + column labels around a bare zero-row list, which read as a broken table. */}
-      {board.length === 0 && (
-        <p className="py-10 text-center type-body-sm text-slate-500">
-          No public scans yet. Scan a repository below to be the first on the register.
-        </p>
-      )}
 
       <div className="divide-y divide-divider">
         {board.map((c, i) => (

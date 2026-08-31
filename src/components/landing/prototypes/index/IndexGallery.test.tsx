@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // UAT `TOMAS-L1-05` (recurrence 2, downgraded major → polish). On a configured-but-empty database the
-// register's explicit empty state landed — and the counter above it survived, so the section headed
+// register's counter survived, so the section headed
 // "The register" opened by announcing "0 public repos rated" on a page whose whole proposition is
 // "now it has an index". A count is a claim; zero is not one worth making.
 
@@ -34,8 +34,15 @@ describe("IndexGallery — the register's counter", () => {
   it("says nothing about the corpus size when the corpus is empty", () => {
     render(<IndexGallery gallery={gallery()} />);
     expect(screen.queryByText(/repos? rated/i)).toBeNull();
-    // …but the section still explains itself in words, which is the part that was already right.
-    expect(screen.getByText(/No public scans yet/i)).toBeInTheDocument();
+  });
+
+  // UAT `RC2-N3`: the register declared two behaviours for the empty corpus — a worded empty state
+  // here and an absent section upstream — and only the absent one could ever fire, because
+  // `loadPublicGalleryCards` returns null at zero cards so this component is never rendered. The
+  // absent section is now the only behaviour; this fixture is a state the loader cannot produce.
+  it("renders no worded empty state — an empty corpus is an ABSENT section, decided upstream", () => {
+    render(<IndexGallery gallery={gallery()} />);
+    expect(screen.queryByText(/No public scans yet/i)).toBeNull();
   });
 
   it("keeps the count — and the provenance stamp beside it — as soon as there is one repo", () => {
