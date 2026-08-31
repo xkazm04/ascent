@@ -214,14 +214,18 @@ describe("ReportHeader", () => {
       expect(chip()).toHaveTextContent(/what moved this score independently of the repository/i);
     });
 
-    it("reports a coverage-reduced blend as the share of the model's usual weight that was applied", () => {
+    // ONE unit with the per-dimension provenance tracks on the same page (UAT `RC-N1`): the chip
+    // prints the ABSOLUTE weight the tracks print, not the share of the configured weight. At
+    // effectiveBlend 0.3 the old chip read "blend 50%" beside tracks reading "Blend weight 30%".
+    it("reports a coverage-reduced blend in the same unit the provenance tracks use", () => {
       render(
         <ReportHeader
           report={report("acme", undefined, { d9Unmeasurable: false, widenedDims: [], effectiveBlend: 0.3 })}
           isMock={false}
         />,
       );
-      expect(chip()).toHaveTextContent("blend 50%");
+      expect(chip()).toHaveTextContent("blend weight 30% of 60%");
+      expect(chip()).not.toHaveTextContent("blend 50%");
     });
 
     it("says the audit was CAPPED instead of listing widened dims, because none were", () => {

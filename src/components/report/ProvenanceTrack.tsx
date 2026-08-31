@@ -18,7 +18,7 @@
 // cannot disagree.
 
 import type { ScanReport, ScoreIntegrity } from "@/lib/types";
-import { scoreProvenance, type ScoreProvenance } from "@/lib/scoring/provenance";
+import { blendWeightPercent, scoreProvenance, type ScoreProvenance } from "@/lib/scoring/provenance";
 import { scoreHex } from "@/lib/ui";
 import { linScale } from "@/components/report/chartScale";
 
@@ -114,7 +114,7 @@ function clampTitle(p: Extract<ScoreProvenance, { kind: "blended" }>): string {
 function reachTitle(p: Extract<ScoreProvenance, { kind: "blended" }>, signal: number): string {
   return p.blend === null
     ? `This score can sit up to ±${p.reach} from the signal ${signal} (the realized blend weight was not recorded on this scan, so the full clamp is shown)`
-    : `Blend weight ${Math.round(p.blend * 100)}%: after weighting, the model can move this score at most ±${p.reach} from the signal ${signal}`;
+    : `Blend weight ${blendWeightPercent(p.blend)}%: after weighting, the model can move this score at most ±${p.reach} from the signal ${signal}`;
 }
 
 function resultWord(p: ScoreProvenance): string {
@@ -144,7 +144,7 @@ function caption(d: Dim, p: ScoreProvenance): string {
     case "blended":
       return p.blend === null
         ? `Signal ${d.signalScore} · model judgment clamped to ±${p.clampBand}${p.widened ? " (doubled — detector flagged)" : ""}`
-        : `Signal ${d.signalScore} · model judgment clamped to ±${p.clampBand}${p.widened ? " (doubled — detector flagged)" : ""}, weighted ${Math.round(p.blend * 100)}% → can move the score at most ±${p.reach}`;
+        : `Signal ${d.signalScore} · model judgment clamped to ±${p.clampBand}${p.widened ? " (doubled — detector flagged)" : ""}, weighted ${blendWeightPercent(p.blend)}% → can move the score at most ±${p.reach}`;
     case "claim-scored":
       return p.claimPoints === 0
         ? `Cited-claim scored: no guardband and no judgment blend. The model moves this score only by citing evidence the detector missed; nothing was verified, so the score is the detector's ${d.signalScore}.`

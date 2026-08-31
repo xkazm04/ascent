@@ -104,7 +104,12 @@ fresh scan in place.
    Every `<title>` and the `aria-label` are generated from the same classification as the
    geometry, so the accessible text cannot describe a band the picture does not draw. On a
    legacy row with no `scoreIntegrity` the realized blend weight is reported as *not recorded*
-   rather than assumed. The same track renders in the org heatmap's cell drill-in
+   rather than assumed. **The blend weight has ONE unit on this page**: the absolute weight
+   (`blendWeightPercent` / `blendWeightLabel` in `provenance.ts`), which is the number the engine
+   multiplies the band by. The header's `ScoreIntegrityChip` reads it through the same composer —
+   *"blend weight 57% of 60%"*, the configured weight riding along as context — instead of printing
+   the realized *share* of the configured weight ("blend 95%") beside tracks printing 57 % and
+   reconciling the two only inside a tooltip (UAT `RC-N1`). The same track renders in the org heatmap's cell drill-in
    (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`.
 8. **Contributors**: login + AI-commit ratio bars.
 9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
