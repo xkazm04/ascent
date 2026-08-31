@@ -596,6 +596,68 @@ that goes quiet (no PRs) still gets a fresh conformance report instead of the da
 showing a weeks-stale score. The `pull_request` job is unchanged (still the hard-pass merge gate); the
 scheduled job never fails the run.
 
+## The scan checklist names its provider
+
+`ReportClientStatus`' score step — the longest wait in the product — names the provider being queried
+("Asking Claude", "Querying Bedrock in eu-west-1") so a multi-minute step reads as work rather than a
+hung spinner. The mapping is a **total `Record` over `ProviderName`**, not a `switch` with a `default`:
+UAT `SAM-L1-08` recurred and *widened* (4-of-8 covered → 5-of-8) precisely because two providers were
+added to the union and only one got a branch, silently. As a Record, adding a member to `ProviderName`
+is a compile error here. `local` — the self-hosted path, and typically the slowest — says so in its
+copy. The generic "Scoring against the rubric" is reached only before any provider is reported (or if
+an unknown one arrives over the SSE boundary, which is not type-safe at runtime).
+
+## Handing over the permalink (`ReportPermalinkShare`)
+
+The report header's export row opens with a **Permalink** control
+(`src/components/report/ReportPermalinkShare.tsx`). It exists because for three UAT runs
+(`SAM-L1-04`, recurrence 3) the scan flow ended on `/report?repo=…` and never named the durable address
+of the artifact the visitor had waited minutes for, while `/pricing` sold *"Public report permalink"*
+as a Free-tier bullet (`src/lib/plans.ts`) — a feature the product billed at $0 and never handed you.
+That bullet is now true.
+
+**No new route was built.** `/report/{owner}/{repo}` (and `…@{sha}`) already existed and is already
+public: it resolves through `readableOrgForOwner`, which falls back to the public org, so a private
+repo's report stays gated exactly as before. The control names an address a reader could already have
+typed; it widens nothing.
+
+The panel hands over three payloads, each in a selectable readonly field with its own copy control:
+
+| Row | Payload | Why it is separate |
+| --- | --- | --- |
+| **Permalink** | `{origin}/report/{owner}/{repo}` | Tracks the latest scan — the one for a README or a docs page. |
+| **This commit** | `{origin}/report/{owner}/{repo}@{headSha}` | Pinned to the commit this scan read — for a PR or a Slack thread. Omitted when the scan has no head SHA. |
+| **README** | `[Ascent: L3 · Managed · 62]({permalink})` | Markdown, deliberately **unpinned**: a README link pinned to one commit goes stale on the next push. |
+
+The **level line** (`L3 · Managed · 62`) is rendered on screen and carried in the markdown. It is the
+product's answer to the job the retired README badge used to serve — `SAM-L1-12`, resolved as option
+(b) *serve the job*, in the 2026-08-30 drain. **The badge is not coming back** (`/badge` and both SVG
+endpoints were removed on 2026-08-29): a markdown link is embeddable by URL, is a link rather than an
+image, and states the same claim without an SVG endpoint to run.
+
+The origin is read from `window.location` after mount, never from an env var — the correct host is
+whichever one the reader is on, which is also the only answer that is right on a self-hosted
+deployment. SSR renders the relative path (a valid link) and hydration upgrades it to absolute.
+
+## Flagged for review: what each claim DID
+
+`ReportDiscrepancies` (`ReportNotices.tsx`) lists the deterministic signals the LLM auditor believes are
+wrong. Each row now ends in an outcome badge, because listing an objection without its consequence let
+the header integrity chip say a dimension was *widened* while the row three inches below said nothing
+(`SAM-L1-06`).
+
+The outcome is **derived**, never stored — `discrepancyOutcome()` reads the same
+`report.scoreIntegrity` record the chip reads, so the two surfaces cannot disagree about one run. The
+order mirrors the engine's own order of operations:
+
+| Badge | When | Moved the score? |
+| --- | --- | --- |
+| `lost to the budget` | `widenCapped` — the model flagged more dimensions than one scan's discrepancy budget allows, so nothing was widened and the D9 hatch was suppressed too. Outranks everything. | No |
+| `widened` | the dimension is in `widenedDims`: its guardband was doubled. | Yes |
+| `D9 dropped as unmeasurable` | `d9Unmeasurable` on a D9 claim — the visibility escape hatch fired. | Yes |
+| `structurally ineligible` | recorded, but it could not move this score (deterministic dimension, unmeasured, or never reached the blend). | No |
+| `outcome not recorded` | a snapshot written before `scoreIntegrity` existed. An absent record is not evidence the claim was ignored. | Unknown |
+
 ## Share exports (`GET /api/report/llm`, `GET /api/report/share-card`)
 
 Two export routes sit beside the PDF, both keyed the same way (`?repo=owner/name[@sha]`), both
@@ -665,6 +727,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, and a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document. |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
+| `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
+| `src/components/report/discrepancyOutcome.ts` | Derives one outcome word per "Flagged for review" row from `report.scoreIntegrity` (pure; no stored second copy to drift). |
 | `src/components/report/ReportView.tsx` | The full report render (all sections + trackers/panels). |
 | `src/components/report/Charts.tsx` | `ScoreRing`, `RadarChart`, `PostureQuadrant`. |
 | `src/components/report/TrendChart.tsx` | Overall trend + `Sparkline`. |
@@ -712,6 +776,14 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
   Embedding-based matching stays out of scope; it would change the guardband (G5).
 - **No LLM-reasoning drill-down.** `ProvenanceTrack` shows *that* the LLM adjusted a
   score, not the full rationale beyond the dimension summary.
+- **A roadmap row's concrete move still lives inside its rationale prose.** UAT `SAM-L1-05`
+  (recurrence 2, `MC-B8a`): the prompt mandates an invitational voice — titles are observations, not
+  imperatives, and `explore` entries are open questions "not steps" — which is a deliberate decision
+  (guardrail **G2**), so the fix is an **additive** `firstStep` field beside `rationale`/`explore`,
+  never a rewrite of the voice. It is not shipped: the field has to be declared on `LlmRoadmapItem`
+  (`src/lib/types.ts`) and, to survive a re-scan, as a `Recommendation` column
+  (`prisma/schema.prisma`) — both outside this change's write set. Until then a reader extracts the
+  ticket from the paragraph by hand.
 - **The lift map is not yet mounted on the report page.** `RoadmapSteps`, `RecommendationTracker` and
   `reportLlmMarkdown` all accept the measured `lifts` map and render the basis clause when given one;
   `/api/recommendations` supplies it today. The report page (`ReportPanels`) does not yet call

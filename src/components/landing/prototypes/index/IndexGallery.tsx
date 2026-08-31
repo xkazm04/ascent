@@ -50,13 +50,19 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
           <h2 className="deck-h2 mt-2 type-heading font-bold text-white sm:type-display">The register</h2>
         </div>
         <div className="text-right">
-          <span className="block type-label tracking-[0.2em] text-slate-500">
-            {totalRepos} public {totalRepos === 1 ? "repo" : "repos"} rated
-          </span>
+          {/* A count is a claim; zero is not one worth making. UAT `TOMAS-L1-05`: on a configured-but-
+              empty database this read "0 public repos rated" directly above the (good) explicit empty
+              state, so a page whose proposition is "now it has an index" opened by counting nothing.
+              The empty state below says it once, in words. */}
+          {totalRepos > 0 && (
+            <span className="block type-label tracking-[0.2em] text-slate-500">
+              {totalRepos} public {totalRepos === 1 ? "repo" : "repos"} rated
+            </span>
+          )}
           {/* DB-backed provenance: surfaces the live persistence backend (Aurora DSQL in prod) so the
               AWS database in use is visible on the page, with the corpus freshness next to it. */}
           <span
-            className="mt-1 block font-mono type-micro uppercase tracking-[0.2em] text-slate-600"
+            className={`${totalRepos > 0 ? "mt-1 " : ""}block font-mono type-micro uppercase tracking-[0.2em] text-slate-600`}
             title={`This register is served live from ${dbModeLabel(dbMode)}.`}
           >
             Served live from {dbModeLabel(dbMode)}

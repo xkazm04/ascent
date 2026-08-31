@@ -34,22 +34,35 @@ const SCAN_STEPS: { stage: ScanProgress["stage"]; label: string }[] = [
   { stage: "compose", label: "Composing your report" },
 ];
 
-/** Provider-specific copy for the score step — sets honest expectations for the slower paths. */
+/**
+ * Provider-specific copy for the score step — sets honest expectations for the slower paths.
+ *
+ * A total Record over `ProviderName` (Bedrock excepted: its label needs the region), NOT a `switch`
+ * with a `default`. UAT `SAM-L1-08` recurred and WIDENED (4-of-6 uncovered-by-2 → 5-of-8
+ * uncovered-by-3) for exactly the reason a default clause exists: two providers were added to the
+ * union and only one of them got a branch, silently. As a Record, adding a member to `ProviderName`
+ * is a compile error here — the gap cannot widen again without someone deciding it should.
+ */
+const SCORE_STEP_LABEL: Record<Exclude<ProviderName, "bedrock">, string> = {
+  gemini: "Asking Gemini",
+  openai: "Asking OpenAI",
+  openrouter: "Asking the model via OpenRouter",
+  // The self-hosted path, and typically the longest wait in the product — say so, so the operator
+  // reads a slow step as work rather than a hung spinner.
+  local: "Asking your local model — the self-hosted path, usually the slowest step",
+  mock: "Running deterministic rubric",
+  "claude-cli": "Asking Claude",
+  "codex-cli": "Asking Codex",
+};
+
+/** The generic copy, used only when NO provider has been reported yet (or an unknown one arrives over
+ *  the wire — the value crosses an SSE boundary, so it is not type-safe at runtime). */
+const GENERIC_SCORE_LABEL = "Scoring against the rubric";
+
 function scoreLabel(provider?: ProviderName, region?: string): string {
-  switch (provider) {
-    case "gemini":
-      return "Asking Gemini";
-    case "claude-cli":
-      return "Asking Claude";
-    case "codex-cli":
-      return "Asking Codex";
-    case "bedrock":
-      return `Querying Bedrock in ${region ?? "us-east-1"}`;
-    case "mock":
-      return "Running deterministic rubric";
-    default:
-      return "Scoring against the rubric";
-  }
+  if (!provider) return GENERIC_SCORE_LABEL;
+  if (provider === "bedrock") return `Querying Bedrock in ${region ?? "us-east-1"}`;
+  return SCORE_STEP_LABEL[provider] ?? GENERIC_SCORE_LABEL;
 }
 
 /** Label for a scan step — provider-aware (and fallback-aware) on the score step. */

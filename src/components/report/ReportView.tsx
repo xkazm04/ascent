@@ -254,7 +254,7 @@ export function ReportView({
         </div>
       </div>
 
-      <ReportDiscrepancies discrepancies={report.discrepancies} />
+      <ReportDiscrepancies discrepancies={report.discrepancies} integrity={report.scoreIntegrity} />
 
       {/* Activation nudge: the report is the peak-engagement moment — pull a first-timer toward the
           org rollup + an account (or a signed-in viewer toward the fleet view) instead of dead-ending. */}
