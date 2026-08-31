@@ -1,7 +1,10 @@
 // /pricing — public plan comparison, rendered from PLAN_FEATURES (the single source of truth the
 // credit/entitlement layer also reads). The destination for the quota/credit "upgrade" CTAs (QUOTA-1).
 // The metering model shown here mirrors the engine (src/lib/db/credits.ts + decideScanCharge):
-// public scans are always free and unmetered; PRIVATE (org) scans are free while under the plan's
+// PUBLIC scans cost nothing but are capped at a free monthly allowance (publicScanMonthlyLimit,
+// src/lib/public-scan-limit.ts — the same number src/lib/public-scan-quota.ts enforces and the scan
+// dialog's meter counts down; this page used to call them "unmetered", MC-B5); PRIVATE (org) scans
+// are free while under the plan's
 // monthly allowance, then run on prepaid credits, 1 per scan. Credits are bought from the org
 // dashboard (CreditsControl → Polar). The bespoke tier (stored `enterprise`, shown as "Custom") has no
 // checkout — its CTA opens PlanEnquiryCta, which mails the requirement to the operator.
@@ -10,6 +13,7 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { HairlineGrid, Kicker } from "@/components/ui";
 import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, planScanLine, type PlanId } from "@/lib/plans";
+import { PUBLIC_SCAN_WINDOW_DAYS, publicScanMonthlyLimit } from "@/lib/public-scan-limit";
 import { ctaFor } from "./pricingCta";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 import { PlanEnquiryCta } from "@/components/pricing/PlanEnquiryCta";
@@ -58,6 +62,11 @@ export const dynamic = "force-dynamic";
 // Polar product price, so a price change in the Polar dashboard must be mirrored in plans.ts (see the
 // PRICE CONTRACT note there) or this page advertises a number checkout won't charge.
 const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
+// The free PUBLIC-scan allowance, read from the function the quota gate itself charges against. This
+// page previously called public scans "always free and unmetered" while /api/quota reported a limit
+// of 5 and the scan dialog rendered a meter — MC-B5. One number, one source, stated the same way on
+// every surface that states it.
+const PUBLIC_ALLOWANCE = publicScanMonthlyLimit();
 
 /** "Starter $5/mo" — name and price both from the model, for the SEO/FAQ sentences. */
 const priced = (id: PlanId) => `${PLAN_FEATURES[id].label} ${planPriceLabel(id).amount}/mo`;
@@ -74,7 +83,7 @@ export function generateMetadata() {
   }
   return {
     title: "Plans & credits · Ascent",
-    description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. On the hosted cloud, public scans are always free and every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
+    description: `Ascent is open source (AGPL-3.0) and free to self-host with no limits. On the hosted cloud, ${PUBLIC_ALLOWANCE} public scans a month are free and every plan includes a monthly private-scan allowance: ${FREE_ALLOWANCE} free a month, ${priced("pro")}, ${priced("team")}. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
   };
 }
 
@@ -215,11 +224,14 @@ export default async function PricingPage() {
         </div>
 
         <p className="mx-auto mt-8 max-w-2xl text-center type-body-sm text-slate-500">
-          Every plan&apos;s monthly scan allowance <span className="text-slate-300">resets on the 1st of each month (UTC)</span>; Pro and
-          Team are monthly subscriptions that bundle more of it. Need more than your plan includes? Buy prepaid scan
-          credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span>, so you pay
-          only for the overflow you actually use. Cached re-scans of unchanged repos are always free. Manage your plan
-          and credits from the org dashboard.
+          Every plan&apos;s <span className="text-slate-300">private</span> scan allowance{" "}
+          <span className="text-slate-300">resets on the 1st of each month (UTC)</span>; {PLAN_FEATURES.pro.label} and{" "}
+          {PLAN_FEATURES.team.label} are monthly subscriptions that bundle more of it. The{" "}
+          <span className="text-slate-300">{PUBLIC_ALLOWANCE} free public scans</span> run on their own rolling{" "}
+          {PUBLIC_SCAN_WINDOW_DAYS}-day window instead, counted from your first scan. Need more than your plan includes?
+          Buy prepaid scan credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span>,
+          so you pay only for the overflow you actually use. Cached re-scans of unchanged repos are always free. Manage
+          your plan and credits from the org dashboard.
         </p>
       </main>
       <SiteFooter />

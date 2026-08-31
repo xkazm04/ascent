@@ -186,6 +186,41 @@ Every `RateLimitConfig` declares a required `basis`:
   these before a derived one — and promoting one to `derived` means measuring the client and
   rewriting the number, not reverse-engineering arithmetic that lands on the value already there.
 
+### The free public-scan allowance (`src/lib/public-scan-limit.ts` + `public-scan-quota.ts`)
+
+Layered **on top of** the per-minute burst limiter, and a different kind of thing: a persistent,
+per-IP (anonymous) / per-user (signed-in) allowance of **5 free public scans per rolling 30-day
+window**, salted-hashed at rest, deliberately soft and fail-open. It is not billing — a public scan
+never touches the plan allowance or a credit (see `billing.md`) — it is a cost nudge on a free,
+no-signup funnel.
+
+**One number, one source.** The allowance functions live in `src/lib/public-scan-limit.ts`, a pure
+module with no `node:crypto` and no Prisma import, *specifically* so the copy that promises the
+allowance can read the same function the gate charges against. `plans.ts` is imported by client
+components and could never import `public-scan-quota.ts`; before this split it carried a second,
+hand-typed number, and the Free card advertised "Unlimited free public scans" against an enforced
+limit of 5 while `QuotaMeter` counted down in the scan dialog (UAT `MC-B5`). Every surface now
+derives:
+
+| Surface | Reads |
+| --- | --- |
+| `/pricing` Free card + blurb | `PLAN_SPECS.free` → `publicScanMonthlyLimit()` |
+| `/pricing` metadata + the footnote under the credit matrix | `publicScanMonthlyLimit()`, `PUBLIC_SCAN_WINDOW_DAYS` |
+| Landing FAQ JSON-LD (`src/app/page.tsx`) | the same two |
+| `QuotaMeter` in the scan dialog | `GET /api/quota` → `peekPublicScanQuota` |
+| The 429 body (`monthlyQuotaExceeded`) | the limit of the scope that actually tripped |
+
+Never write the allowance as a literal, and never call public scans "unlimited" or "unmetered" — a
+meter is rendered on the same screen. `plans.test.ts` fails any plan copy that does.
+
+**The 429's upsell names a LABEL, not an id.** `monthlyQuotaExceeded` reads `PLAN_FEATURES.pro.label`
+("Starter"); it used to say "Upgrade to Pro", naming a tier that appears nowhere a buyer can see.
+
+**Env.** `PUBLIC_SCAN_MONTHLY_LIMIT`, `PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN` (clamped never below the
+anonymous limit), `PUBLIC_SCAN_QUOTA_SALT`, `PUBLIC_SCAN_QUOTA_DISABLED`. Raising a limit also raises
+what `/pricing` and the FAQ **promise**, since that copy is derived. (`.env.example` documented these
+as `PUBLIC_SCAN_WEEKLY_LIMIT`/7 days for a while — a variable nothing read; corrected 2026-08-31.)
+
 ### Reclaiming limiter memory
 
 The in-process window map is swept on a **declared cadence with a bounded budget**: at most one sweep
@@ -224,6 +259,8 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/app/usage/costHeadline.ts` | The "Est. cost" tile's value + caption: all-lane sum, lane scope, pricing basis, unpriced floor. |
 | `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
+| `src/lib/public-scan-limit.ts` | The free public-scan allowance + window — the ONE source both the gate and the marketing copy read. |
+| `src/lib/public-scan-quota.ts` | The persistent rolling-30-day public-scan gate: window math, bucket derivation, fail-open stance, the 429. |
 | `src/lib/rate-limit-store.ts` | Shared-store adapter: in-memory default, fetch-based Upstash REST driver. |
 | `src/app/usage/page.tsx` | Usage dashboard. |
 | `src/app/api/usage/route.ts` | JSON/CSV usage API with the IDOR guard. |

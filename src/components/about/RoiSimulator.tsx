@@ -120,6 +120,18 @@ export function RoiSimulator() {
           />
         ))}
       </HairlineGrid>
+
+      {/* MC-B6 (executive-reporting/provenance-caveats). The eight repos above are INVENTED and `W`
+          is deliberately NOT the production weighting — both facts were stated honestly in source
+          and nowhere in the render, so a visitor read demo arithmetic as a customer result on the
+          one section a buyer treats as proof. The disclosure now ships WITH the numbers, in the same
+          "Illustrative …" chrome AboutOrgHero and AboutOrgLoop already use, and it names the repo
+          count from REPOS so deleting or adding a row can't leave the caption lying. The real proof
+          on this site is the register of scanned public repos on `/` — the CTA at the end of the
+          deck is the path to it. */}
+      <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
+        Illustrative · {REPOS.length} sample repos, demo weighting — not customer data
+      </p>
     </div>
   );
 }

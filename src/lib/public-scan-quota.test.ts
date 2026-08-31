@@ -57,6 +57,7 @@ import {
   removeHit,
   signedInScanMonthlyLimit,
 } from "./public-scan-quota";
+import { PLAN_FEATURES } from "./plans";
 
 // Captured per-test: the fake `db` withDb hands to the operation, plus the isolation options the
 // code threads into $transaction (so the isolation-selection suite can assert the branch fired).
@@ -303,6 +304,19 @@ describe("monthlyQuotaExceeded — derives the limit from the tripped scope", ()
       const { body } = await errorOf(denied(false));
       expect(body.error).toContain("your 1 free scan this month");
       expect(body.error).not.toContain("free scans");
+    });
+  });
+
+  // MC-B5 / id-vs-label. The upsold tier is STORED as `pro` and SHOWN as "Starter" everywhere a buyer
+  // can look; this copy hardcoded "Upgrade to Pro" and so named a plan that appears nowhere on
+  // /pricing — on the one screen whose whole job is to be believed. The name comes from the plan
+  // model now, so a relabel reaches it too.
+  it("names the upsell tier by its customer-facing LABEL, never the stored id", async () => {
+    await withEnv({}, async () => {
+      const { body } = await errorOf(denied(false));
+      expect(body.error).toContain(`Upgrade to ${PLAN_FEATURES.pro.label}`);
+      expect(PLAN_FEATURES.pro.id).toBe("pro"); // the id did not move; only the name a buyer reads
+      expect(body.error).not.toMatch(/Upgrade to Pro\b/);
     });
   });
 });
