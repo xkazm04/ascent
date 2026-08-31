@@ -84,6 +84,37 @@ window passes `DIGEST_PREVIEW_MAX_SCANS` (5000), because past that an estimate w
 wearing a number's clothes. The **scan** count is unaffected: it still comes from the one shared
 `where`, so "the number you were shown is the number that dies" still holds.
 
+## The control ledger, and the seal that must beat the purge
+
+`ControlObservation` ages out on the org's **`auditDays`** horizon
+(`pruneControlObservations`), with one rule that is the whole design: the **newest** observation of
+every `(repoFullName, controlId)` pair is ALWAYS kept, excluded in the delete predicate rather than
+filtered out of a page. The posture surfaces read the latest row per pair, so a plain date sweep would
+delete the current standing of every control an org had not re-observed inside the window, and the
+read layer — finding no row — would report `unmeasurable`. Retention would have manufactured a
+governance finding. Evidence ages out; the current fact does not.
+
+**Ordering against the ledger seal** (documented 2026-08-31, MC-B14). Each closed UTC day of the
+ledger gets a hash root, and a purged day **keeps its seal** so the deleted window stays visible as a
+gap rather than disappearing (`verdict: "no-rows"`). That only works if the day was sealed *before*
+its rows were purged. Two facts make the current schedule safe, and one condition would break it:
+
+- Sealing runs from `/api/cron/rescan` (06:00 UTC) and the purge from `/api/cron/purge` (04:00 UTC),
+  so on any given day the purge runs **first**. That is fine because the purge deletes on the
+  `auditDays` horizon (floored at `RETENTION_MIN_AUDIT_DAYS`), which is many days wide, while the
+  sealing pass is at most one day behind.
+- The pass is capped at `SEAL_PASS_CAP` (14) days. A **sealing backlog deeper than the retention
+  horizon** is therefore the condition under which a day is purged before it is ever sealed — and
+  such a deletion leaves nothing behind to prove the rows existed.
+- That condition is **observable, not silent**: `sealBacklogRemaining` (closed unsealed days beyond
+  the next pass) is returned by `/api/audit/verify`, by the rescan cron's JSON body, and rendered on
+  the Governance tab's control-ledger card. It is **not** currently an alert, and the purge does not
+  refuse to delete an unsealed day — see Known gaps.
+
+Before 2026-08-31 sealing happened only as a side effect of somebody calling `/api/audit/verify`, so
+an org nobody verified accumulated unsealed days indefinitely and then aged them out unsealed. That
+is the case this ordering closes.
+
 ## Compaction: a pruned scan ages into a digest
 
 Retention used to be a choice between keeping every `Scan` row forever and deleting the timeline that
@@ -318,6 +349,14 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
   Preserving the non-identifying half would need `meta` split into typed columns (or a
   `subjectRef`/`subjectDetail` pair) — a schema migration plus a per-action classification of which
   keys identify a person. Until then the surviving row is deliberately minimal.
+- **The purge does not refuse to delete an UNSEALED ledger day.** `pruneControlObservations` sweeps
+  on age alone; it does not consult the seal table. The schedule makes this safe in practice (the
+  sealer is a day behind, the horizon is many days wide — see above), and the failure condition is
+  reported as `sealBacklogRemaining` rather than hidden, but it is reported, not *prevented*: an org
+  whose backlog ran deeper than its `auditDays` horizon would lose rows that no root ever covered,
+  and the loss would not be detectable afterwards. Closing it properly means either sealing inside
+  the purge pass before it deletes, or excluding unsealed days from the sweep — both change
+  `retention.ts`, which MC-B14 deliberately did not touch.
 - **Erasure keeps the tenant's shell**: `Organization`, `Repository`, `Membership` and
   owner-authored config rows survive an erase; there is no "close the account" endpoint yet.
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this

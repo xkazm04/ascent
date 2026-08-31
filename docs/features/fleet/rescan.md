@@ -43,8 +43,20 @@ accepted query-param auth logs a warning naming the fix.
 
 ## Flow — the rescore lane
 
-`GET /api/cron/rescan` is a **seeder plus a worker**, in three phases:
+`GET /api/cron/rescan` is a **seeder plus a worker**, in three phases — preceded since 2026-08-31
+(MC-B14) by one unrelated piece of scheduled work:
 
+0. **`sealAllPendingDays()`** — the control ledger's daily integrity pass. It seals every closed UTC
+   day that holds observations and has no root yet, for every org that holds ledger rows at all,
+   capped at `SEAL_PASS_CAP` (14) days per org per pass. It runs **before** the `isAppConfigured()`
+   check, because a deployment without the GitHub App still holds a ledger written by scans and its
+   evidence must not stop being sealed; it is best-effort and can never fail the rescan pass. It lives
+   here rather than in `/api/audit/verify` — where it used to be a side effect of the READ — because
+   an org nobody verified accumulated unsealed days until retention aged the rows out, leaving no
+   root behind to prove they existed. See
+   [`data/retention.md`](../data/retention.md#the-control-ledger-and-the-seal-that-must-beat-the-purge)
+   for the ordering against the 04:00 purge, and
+   [`org-dashboard/org-intelligence.md`](../org-dashboard/org-intelligence.md) for what the seal buys.
 1. **`reapExpiredLeases()`** returns any job whose 15-minute lease expired to `queued` (a serverless
    process kill runs no `finally`, so a worker that never came back must not strand its repo). Past
    `MAX_JOB_ATTEMPTS` (5) the row is settled `failed` instead — nothing retries forever.
@@ -244,6 +256,11 @@ later scan re-produces it.
 
 ```ts
 {
+  // The control ledger's sealing pass. null when it threw (best-effort, never fatal).
+  // `backlogRemaining` is closed unsealed days BEYOND what the next pass can take, summed
+  // across orgs — a persistently non-zero value on a short retention horizon is the condition
+  // under which a day can be purged before it is ever sealed.
+  ledgerSeal: { orgs: number, daysSealed: number, backlogRemaining: number } | null,
   reaped: number,              // expired leases returned to the queue (or failed at max attempts)
   seeded: number,              // NEW jobs the seeder enqueued this pass (idempotent, so often 0)
   claimed: number,             // jobs this invocation won
