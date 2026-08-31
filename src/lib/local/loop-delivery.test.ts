@@ -242,9 +242,10 @@ describe("a lane the degradation guard REJECTED", () => {
 // The operator turned verification ON. That is a request that changes be CHECKED before they reach
 // their branch. Three of the four verdicts — and the absent one — mean the check could not be MADE,
 // which is not permission to land. Gating on `rejected` alone is what let three cycles of
-// `baseline-red` work land into a real working branch on 2026-08-30.
+// unverified work land into a real working branch on 2026-08-30.
 describe("verification the operator asked for", () => {
-  const unverifiable = ["baseline-red", "skipped", null] as const;
+  // `baseline-red` is the LEGACY word for `baseline-unavailable`; both must still be refused.
+  const unverifiable = ["baseline-unavailable", "baseline-red", "skipped", null] as const;
 
   it("delivers by LAND only on `verified`", async () => {
     for (const verdict of unverifiable) {
@@ -292,7 +293,11 @@ describe("verification the operator asked for", () => {
       mocks.getLane.mockResolvedValue(lane({ verifyVerdict: verdict, commits: 2 }));
       said[String(verdict)] = (await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps)).reason ?? "";
     }
-    expect(said["baseline-red"]).toContain("already failing");
+    // The reason names the WORKTREE, and must not claim the repository's checks are failing.
+    for (const key of ["baseline-unavailable", "baseline-red"]) {
+      expect(said[key]).toContain("could not establish a baseline in the lane's worktree");
+      expect(said[key]).not.toMatch(/already failing|own checks (are )?fail/i);
+    }
     expect(said["skipped"]).toContain("no command could be resolved");
     expect(said["null"]).toContain("no verification verdict");
   });
@@ -311,7 +316,7 @@ describe("verification the operator asked for", () => {
   });
 
   it("treats an unrecorded dial as ON — the guard is the default posture", async () => {
-    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "baseline-red", commits: 2 }));
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "baseline-unavailable", commits: 2 }));
 
     for (const verifyMode of [null, undefined, "nonsense"]) {
       mocks.land.mockClear();
@@ -321,7 +326,7 @@ describe("verification the operator asked for", () => {
   });
 
   it("stays silent about a lane that committed nothing — there is nothing to hold back", async () => {
-    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "baseline-red", commits: 0 }));
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "baseline-unavailable", commits: 0 }));
 
     const res = await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps);
 

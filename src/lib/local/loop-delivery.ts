@@ -22,10 +22,10 @@
 //
 // VERIFICATION ON MEANS ONLY A VERIFIED LANE IS DELIVERED. `rejected` is one of FOUR verdicts, and
 // gating on it alone reads the guard backwards. In run a97baf88 (2026-08-30, `delivery: land`,
-// `verifyMode: on`) every cycle on both repositories returned `baseline-red` — each repo's own test
+// `verifyMode: on`) every cycle on both repositories returned `baseline-red` (now `baseline-unavailable`) — each repo's own test
 // command was already failing, so nothing the loop produced was ever checked — and every lane landed
 // into the operator's real working branch regardless, because only `rejected` was refused. Turning the
-// guard on is a request that changes be CHECKED before they reach a branch; `baseline-red`, `skipped`
+// guard on is a request that changes be CHECKED before they reach a branch; `baseline-unavailable`, `skipped`
 // and an absent verdict all mean the check could not be MADE, which is not permission to land. So
 // under `verifyMode: on` a lane is delivered by `land` or `pr` only when its verdict is `verified`,
 // the refusal names the verdict on the lane log, and a standing lesson row carries the cause into the

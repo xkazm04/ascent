@@ -19,14 +19,16 @@ export interface OutcomeDim {
 }
 
 /**
- * THE DEGRADATION GUARD SAID THIS REPOSITORY WAS ALREADY RED — the one verdict that changes how every
- * other number in the cell should be read.
+ * THE GUARD COULD NOT ESTABLISH A BASELINE HERE — the one verdict that changes how every other number
+ * in the cell should be read.
  *
- * A red baseline means the repository's OWN check was failing before the agent arrived, so the guard
- * had nothing green to compare against: it could not have caught a regression in this cell's work, and
- * it could not have confirmed a fix. Carried as its own field rather than the raw verdict because it
- * is the only one of the four the sheet surfaces — `verified` on every green row would be a badge
- * saying "normal", and `rejected` never reaches the sheet (a rejected lane commits nothing).
+ * The repository's resolved command did not pass on the lane's pristine worktree, so the guard had
+ * nothing to compare against: it could not have caught a regression in this cell's work, and it could
+ * not have confirmed a fix. It is NOT a statement that the repository's checks are failing — a
+ * worktree carries no gitignored local state — and the badge is worded so it cannot be read as one.
+ * Carried as its own field rather than the raw verdict because it is the only one of the four the
+ * sheet surfaces — `verified` on every green row would be a badge saying "normal", and `rejected`
+ * never reaches the sheet (a rejected lane commits nothing).
  */
 export interface CellRedBaseline {
   command: string | null;
@@ -61,8 +63,9 @@ export interface OutcomeCell {
   /** WHAT THIS CELL SPENT, and what it bought (`outcomeEconomics.ts`). NULL when the payload carried
    *  no lane economics at all — a server older than the ledger renders nothing, never a zero. */
   economics: CellEconomics | null;
-  /** Set when any lane of this (run, repo) recorded `baseline-red`; null otherwise, including for a
-   *  lane written before the guard existed — unknown is not a claim. */
+  /** Set when any lane of this (run, repo) recorded `baseline-unavailable` (or the legacy
+   *  `baseline-red`); null otherwise, including for a lane written before the guard existed — unknown
+   *  is not a claim. */
   redBaseline: CellRedBaseline | null;
   /** Humanised movement lines (`D9 −42 · lost token permissions, SAST…`) — EMPTY unless the cell's
    *  verdict is attributable: the prose answers to the same rule as the number. */

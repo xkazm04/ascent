@@ -165,7 +165,7 @@ describe("the 409 matrix", () => {
 
   // THE ONE-CLICK DOOR HOLDS THE SAME RULE AS THE UNATTENDED ONE (`loop-delivery.ts`). Under
   // `verifyMode: on` — the default posture — only a `verified` lane may be published. Gating on
-  // `rejected` alone is what let `baseline-red` work land in run a97baf88; a human clicking this
+  // `rejected` alone is what let unverified work land in run a97baf88; a human clicking this
   // button is the other half of the same door.
   it("refuses every verdict but `verified` when the run asked for verification", async () => {
     for (const verdict of ["baseline-red", "skipped", null]) {
@@ -184,7 +184,8 @@ describe("the 409 matrix", () => {
       state.lane = { ...lane, verifyVerdict: verdict };
       said[String(verdict)] = (await (await post("run-acme", ok)).json()).error;
     }
-    expect(said["baseline-red"]).toContain("already failing");
+    expect(said["baseline-red"]).toContain("could not establish a baseline in the lane's worktree");
+    expect(said["baseline-red"]).not.toMatch(/already failing/i);
     expect(said["skipped"]).toContain("no command could be resolved");
     expect(said["null"]).toContain("no verification verdict");
   });

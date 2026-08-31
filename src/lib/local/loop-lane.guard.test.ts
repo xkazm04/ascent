@@ -1,9 +1,9 @@
 // THE DEGRADATION GUARD, WIRED INTO A LANE — what a rejected cycle does and, just as importantly,
-// what a baseline-red and an unresolvable one do NOT do.
+// what an unavailable baseline and an unresolvable one do NOT do.
 //
 // The pure verdicts live in lane-guard.test.ts. These cases pin the consequences: a rejected lane
 // commits nothing, rescans nothing, claims nothing and persists `rejected` on its row (which is what
-// `loop-delivery.ts` and the one-click PR door refuse on); a baseline-red lane behaves exactly as it
+// `loop-delivery.ts` and the one-click PR door refuse on); a baseline-unavailable lane behaves exactly as it
 // did before the guard existed; and a run with the guard switched off is byte-identical to today's
 // loop, with `skipped` recorded so silence never reads as a pass.
 
@@ -189,105 +189,115 @@ describe("a REJECTED lane", () => {
   });
 });
 
-describe("a BASELINE-RED repository", () => {
+describe("a repository with no establishable baseline", () => {
   it("is not blamed — the lane commits and rescans exactly as it would without a guard", async () => {
     guard.baseline = { resolved: { command: "npm test", source: "package.json" }, passed: false, note: "FAIL" };
-    guard.outcome = { verdict: "baseline-red", command: "npm test", note: "already failed", reject: false };
+    guard.outcome = { verdict: "baseline-unavailable", command: "npm test", note: "no baseline", reject: false };
 
     const res = await run();
     expect(commitWork).toHaveBeenCalledTimes(1);
     expect(rescan).toHaveBeenCalledTimes(1);
-    expect(lastVerifyPatch()?.verifyVerdict).toBe("baseline-red");
+    expect(lastVerifyPatch()?.verifyVerdict).toBe("baseline-unavailable");
     expect(res.progressed).toBe(true);
-    expect(logs.some((l) => /not blamed|already FAILS/i.test(l))).toBe(true);
+    expect(logs.some((l) => /no baseline could be established|cannot be verified/i.test(l))).toBe(true);
   });
 
   it("does NOT promise the agent a safety net that is not there", async () => {
     guard.baseline = { resolved: { command: "npm test", source: "package.json" }, passed: false, note: "FAIL" };
-    guard.outcome = { verdict: "baseline-red", command: "npm test", note: "already failed", reject: false };
+    guard.outcome = { verdict: "baseline-unavailable", command: "npm test", note: "no baseline", reject: false };
     await run();
     const prompt = (runAgent.mock.calls[0]![0] as unknown as { prompt: string }).prompt;
     expect(prompt).not.toContain("THE SAFETY NET");
   });
 });
 
-// ── THE RED BASELINE BECOMES THE LOOP'S OWN TOP-PRIORITY WORK ────────────────────────────────────
+// ── AN UNVERIFIABLE CYCLE IS REPORTED, NOT TURNED INTO REPAIR WORK ────────────────────────
 //
-// `baseline-red` used to be a lane-log line and nothing else, which meant the guard could be off on a
-// repository forever with no one told. These pin the two things that changed: the BRIEF leads with
-// the repair, and the operator gets a LESSON in the queue they already read. What deliberately does
-// NOT change: nothing is written to the recommendations table — a failing test is not a scan finding,
-// and manufacturing a row there would corrupt the backlog the scan owns.
+// This used to lead the brief with "restore `npm run test:unit` (attempt 14); the armed batch rides
+// along, second". The premise was false — a worktree carries no gitignored local state, and
+// `systedo-case` passes 3744/3744 in the operator's paired checkout — so the loop was ordering agents
+// to repair a green suite. These pin what replaced it: a NEUTRAL note in the brief, a lane log line
+// that claims only what was measured, and an OPERATOR lesson carrying the remedy. What deliberately
+// does NOT change: nothing is written to the recommendations table — manufacturing a row there would
+// corrupt the backlog the scan owns.
 
-describe("a red baseline becomes the lane's LEAD item", () => {
+describe("a cycle the guard could not verify", () => {
   const red = { resolved: { command: "npm run test:unit", source: "package.json" }, passed: false as boolean | null };
   const redNote =
-    "Verification BASELINE RED: `npm run test:unit` (from package.json) already failed on this repository before the " +
-    "session started, so this cycle cannot be judged against it and the agent is not blamed for it. " +
-    "First failure: FAIL test-unit/fault-injection-llm.test.mjs";
+    "Verification NO BASELINE: `npm run test:unit` (from package.json) did not pass on the pristine lane worktree, " +
+    "before the session started. First failure: ✖ test-unit/fault-injection-llm.test.mjs";
 
   const armRed = () => {
     guard.baseline = { ...red, note: redNote };
-    guard.outcome = { verdict: "baseline-red", command: "npm run test:unit", note: redNote, reject: false };
+    guard.outcome = { verdict: "baseline-unavailable", command: "npm run test:unit", note: redNote, reject: false };
   };
   const promptOf = () => (runAgent.mock.calls[0]![0] as unknown as { prompt: string }).prompt;
 
-  it("LEADS the brief with the repair, quoting the failure the guard captured", async () => {
+  it("puts a NEUTRAL note in the brief — no lead, no repair, quoting what the command printed", async () => {
     armRed();
     await run();
     const prompt = promptOf();
-    expect(prompt.startsWith("# TOP PRIORITY — o/r's own checks are failing")).toBe(true);
+    expect(prompt.startsWith("# Ascent follow-ups")).toBe(true);
+    expect(prompt).not.toContain("TOP PRIORITY");
+    expect(prompt).toContain("NO VERIFICATION NET THIS CYCLE:");
+    expect(prompt).toContain("repairing them is NOT your task");
     expect(prompt).toContain("`npm run test:unit`");
-    expect(prompt).toContain("FAIL test-unit/fault-injection-llm.test.mjs");
-    // The armed batch still rides along — the priority changed, not the scope.
-    expect(prompt).toContain("# Ascent follow-ups");
+    expect(prompt).toContain("✖ test-unit/fault-injection-llm.test.mjs");
     expect(commitWork).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT lead when the baseline is green", async () => {
+  it("never counts attempts — in the brief or in the lane log", async () => {
+    armRed();
+    priorLanes.push(
+      priorLane("baseline-unavailable", "2026-08-30T09:00:00.000Z", redNote),
+      priorLane("baseline-unavailable", "2026-08-29T09:00:00.000Z", redNote),
+    );
+    await run();
+    expect(promptOf()).not.toMatch(/THIS IS ATTEMPT|attempt \d/i);
+    expect(logs.some((l) => /attempt/i.test(l))).toBe(false);
+    expect(redLessons[0]).not.toMatch(/attempt|not converging/i);
+  });
+
+  it("logs what was measured and nothing more — the worktree, never the repository", async () => {
+    armRed();
+    await run();
+    const line = logs.find((l) => /No baseline/.test(l))!;
+    expect(line).toContain("did not pass on the pristine worktree");
+    expect(line).toContain("does NOT ask for a repair");
+    expect(line).not.toMatch(/own checks (are )?fail/i);
+  });
+
+  it("is ABSENT when the baseline was established", async () => {
     await run(); // the default fixture: baseline resolved and PASSING
-    expect(promptOf()).not.toContain("TOP PRIORITY");
+    expect(promptOf()).not.toContain("NO VERIFICATION NET");
     expect(redLessons).toEqual([]);
   });
 
-  it("does NOT lead when the repository declares no check and nothing was ever measured", async () => {
+  it("is absent when the repository declares no check and nothing was ever measured", async () => {
     guard.baseline = { resolved: null, passed: null, note: null };
     guard.outcome = { verdict: "skipped", command: null, note: "Verification SKIPPED: …", reject: false };
     await run();
-    expect(promptOf()).not.toContain("TOP PRIORITY");
+    expect(promptOf()).not.toContain("NO VERIFICATION NET");
     expect(redLessons).toEqual([]);
   });
 
-  it("does NOT lead when the previous lane was red but this one measures GREEN — the repo was repaired", async () => {
-    priorLanes.push(priorLane("baseline-red", "2026-08-30T09:00:00.000Z", redNote));
+  it("is absent when a previous lane had none but this one ESTABLISHED a baseline", async () => {
+    priorLanes.push(priorLane("baseline-unavailable", "2026-08-30T09:00:00.000Z", redNote));
     await run(); // default fixture: passing baseline
-    expect(promptOf()).not.toContain("TOP PRIORITY");
+    expect(promptOf()).not.toContain("NO VERIFICATION NET");
   });
 
-  it("COUNTS THE ATTEMPTS across consecutive red lanes and says the repair is not converging", async () => {
-    armRed();
-    priorLanes.push(
-      priorLane("baseline-red", "2026-08-30T09:00:00.000Z", redNote),
-      priorLane("baseline-red", "2026-08-29T09:00:00.000Z", redNote),
-    );
-    await run();
-    const prompt = promptOf();
-    expect(prompt).toContain("THIS IS ATTEMPT 3");
-    expect(prompt).toContain("not converging");
-    expect(prompt).toContain("since 2026-08-29");
-    expect(logs.some((l) => /attempt 3/.test(l))).toBe(true);
-    expect(redLessons[0]).toContain("not converging");
-  });
-
-  it("records the LESSON so the operator can see the loop noticed", async () => {
+  it("records the OPERATOR's lesson, with the remedy that is actually in their hands", async () => {
     armRed();
     await run();
     expect(redLessons).toHaveLength(1);
-    expect(redLessons[0]).toContain("Red baseline on o/r:");
+    expect(redLessons[0]).toContain("Baseline unavailable on o/r:");
     expect(redLessons[0]).toContain("nothing the loop commits here is verified");
+    expect(redLessons[0]).toContain("`controls.ciHardPass`");
+    expect(redLessons[0]).toContain("`verifyMode`");
   });
 
-  it("writes NO recommendation row — a failing test is not a scan finding", async () => {
+  it("writes NO recommendation row — an unestablished baseline is not a scan finding", async () => {
     armRed();
     await run();
     // `updateRecommendation` is the only door this module has onto the recommendations table, and

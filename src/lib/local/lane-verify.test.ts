@@ -6,7 +6,14 @@
 // vacuously — and either way it would be Ascent's opinion masquerading as the repository's.
 
 import { describe, expect, it } from "vitest";
-import { asVerifyVerdict, firstFailureLines, looksUnrunnable, resolveVerifyCommand, verifyVerdictTag } from "@/lib/local/lane-verify";
+import {
+  asVerifyVerdict,
+  firstFailureLines,
+  isCiShapedCommand,
+  looksUnrunnable,
+  resolveVerifyCommand,
+  verifyVerdictTag,
+} from "@/lib/local/lane-verify";
 
 const manifest = (body: string) => `schema: ai-manifest\nschemaVersion: 0.1.0\n${body}`;
 
@@ -72,6 +79,55 @@ describe("the resolution order", () => {
     expect(r?.source).toBe("CLAUDE.md (test)");
   });
 
+  // ── CI-SHAPED FIRST, below the manifest ─────────────────────────────────────────────
+  //
+  // The guard runs in a worktree: tracked files plus linked dependency caches, and none of the
+  // operator's gitignored local state. A command CI runs works from a clean checkout by construction;
+  // a bare `test` script very often does not. Preferring `test` is exactly how `xkazm04/systedo-case`
+  // landed on `npm run test:unit` — 3744/3744 green in the paired checkout, 8 failing in a worktree on
+  // missing Google application-default credentials.
+
+  it("prefers a CI-SHAPED command over a bare `test` quoted in the same guidance file", () => {
+    const r = resolveVerifyCommand({
+      guidance: [{ path: "AGENTS.md", text: "Run `npm run test:unit` for the suite; CI runs `npm run check:ci`." }],
+    });
+    expect(r?.command).toBe("npm run check:ci");
+    expect(r?.source).toBe("AGENTS.md (ci)");
+  });
+
+  it("prefers a CI-shaped SCRIPT over a bare `test` quoted in a guidance file", () => {
+    // Not layered by source: the question is "what runs from a clean checkout", and the script's name
+    // is the only evidence either file carries about that.
+    const r = resolveVerifyCommand({
+      guidance: [{ path: "AGENTS.md", text: "Run `npm run test:unit` before pushing." }],
+      packageJson: JSON.stringify({ scripts: { "check:ci": "tsc && vitest run", "test:unit": "vitest run" } }),
+    });
+    expect(r?.command).toBe("npm run check:ci");
+    expect(r?.source).toBe("package.json (scripts.check:ci)");
+  });
+
+  it("ranks the CI-shaped names: check:ci > ci > verify > check", () => {
+    const pick = (scripts: Record<string, string>) => resolveVerifyCommand({ packageJson: JSON.stringify({ scripts }) })?.command;
+    expect(pick({ ci: "make ci", "check:ci": "npm run check", check: "tsc", verify: "x", test: "vitest" })).toBe("npm run check:ci");
+    expect(pick({ ci: "make ci", check: "tsc", verify: "x", test: "vitest" })).toBe("npm run ci");
+    expect(pick({ check: "tsc", verify: "x", test: "vitest" })).toBe("npm run verify");
+    expect(pick({ check: "tsc", test: "vitest" })).toBe("npm run check");
+    expect(isCiShapedCommand("npm run check:ci")).toBe(true);
+    expect(isCiShapedCommand("make ci")).toBe(true);
+    expect(isCiShapedCommand("npm run test:unit")).toBe(false);
+    expect(isCiShapedCommand("pytest -q")).toBe(false);
+  });
+
+  it("still puts the MANIFEST first — a declared ciHardPass outranks any CI-shaped script", () => {
+    const r = resolveVerifyCommand({
+      manifestYaml: CI_MANIFEST,
+      guidance: [{ path: "AGENTS.md", text: "CI runs `npm run check:ci`." }],
+      packageJson: JSON.stringify({ scripts: { "check:ci": "everything" } }),
+    });
+    expect(r?.command).toBe("npm run typecheck && npm test");
+    expect(r?.source).toContain("ciHardPass");
+  });
+
   it("prefers a test command over a lint one inside the same guidance file", () => {
     const r = resolveVerifyCommand({
       guidance: [{ path: "AGENTS.md", text: "Lint with `npm run lint`, then run `npm run test` before pushing." }],
@@ -119,12 +175,24 @@ describe("the verdict vocabulary", () => {
     expect(asVerifyVerdict("skipped")).toBe("skipped");
     expect(verifyVerdictTag(null)).toBeNull();
     expect(verifyVerdictTag("skipped")).toBe("unverified");
-    expect(verifyVerdictTag("baseline-red")).toBe("baseline red");
+  });
+
+  it("parses the LEGACY word into the corrected one — widen the reader, never rewrite the column", () => {
+    // Every lane run before 2026-08-31 carries `baseline-red`, a name that asserted something the
+    // measurement never supported. The word still parses; what it means is now stated correctly.
+    expect(asVerifyVerdict("baseline-red")).toBe("baseline-unavailable");
+    expect(asVerifyVerdict("baseline-unavailable")).toBe("baseline-unavailable");
+  });
+
+  it("tags it `no baseline` — the badge must not read as a claim about the repository", () => {
+    expect(verifyVerdictTag("baseline-unavailable")).toBe("no baseline");
+    expect(verifyVerdictTag("baseline-red")).toBe("no baseline");
+    expect(verifyVerdictTag("baseline-unavailable")).not.toContain("red");
   });
 });
 
 describe("firstFailureLines", () => {
-  it("pulls the failure-shaped lines out of a long log", () => {
+  it("starts at the runner's failure marker and runs FORWARD into the assertion's detail", () => {
     const out = ["> vitest run", "ok 1", "ok 2", "FAIL src/a.test.ts > adds", "AssertionError: expected 1 to be 2", "ok 3"].join("\n");
     const note = firstFailureLines(out);
     expect(note).toContain("FAIL src/a.test.ts");
@@ -132,9 +200,40 @@ describe("firstFailureLines", () => {
     expect(note).not.toContain("ok 1");
   });
 
-  it("falls back to the TAIL when nothing looks like a failure — never an empty note", () => {
-    const note = firstFailureLines("aaa\nbbb\nccc");
-    expect(note).toContain("ccc");
+  // ── THE EXCERPT THAT SENT THE LOOP AFTER THE WRONG THING ───────────────────────────────
+  //
+  // The captured "First failure" for `xkazm04/systedo-case` was console noise printed by PASSING
+  // tests — `[activity] list failed … fake firestore: unavailable`, each followed by a ✔ — because
+  // the old rule scanned from the HEAD for any line containing "fail" or "error". Application logging
+  // says those words constantly and says them first; a runner states its verdict at the END.
+  it("skips leading console noise from PASSING tests and picks the failing assertion", () => {
+    const out = [
+      "[activity] list failed: fake firestore: unavailable",
+      "✔ activity list degrades to empty",
+      "[billing] error: fake stripe: unavailable",
+      "✔ billing degrades",
+      "✖ auth loads default credentials",
+      "  Error: Could not load the default credentials",
+      "  at GoogleAuth.getApplicationDefaultAsync",
+    ].join("\n");
+    const note = firstFailureLines(out);
+    expect(note).toContain("✖ auth loads default credentials");
+    expect(note).toContain("Could not load the default credentials");
+    expect(note).not.toContain("[activity] list failed");
+    expect(note).not.toContain("[billing] error");
+  });
+
+  it("recognises the markers the common runners print", () => {
+    for (const marker of ["not ok 3 - adds", "✖ adds", "Failed Tests 8", "2 failing", "# fail 8", "error TS2345: nope"]) {
+      const note = firstFailureLines(["[app] error: noise", "ok", marker, "detail"].join("\n"));
+      expect(note.startsWith(marker)).toBe(true);
+    }
+  });
+
+  it("falls back to the TAIL when no marker is present — a runner puts its verdict at the end", () => {
+    const note = firstFailureLines(Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n"));
+    expect(note).toContain("line 19");
+    expect(note).not.toContain("line 0");
     expect(note.trim()).not.toBe("");
   });
 
@@ -144,10 +243,10 @@ describe("firstFailureLines", () => {
 });
 
 describe("looksUnrunnable", () => {
-  // WHAT THE DEPENDENCY LINK CHANGED. A worktree used to arrive with no `node_modules`, so
-  // `baseline-red` meant nothing at all; with the caches linked in (`worktree-deps.ts`) it is a real
-  // claim about the repository — except when the command still could not START, which is a fact
-  // about the checkout. Same verdict, a different sentence, and this is the discriminator.
+  // A worktree arrives with the paired checkout's dependency caches linked in (`worktree-deps.ts`),
+  // but never with the operator's gitignored local state. Neither reading of a failure is a claim
+  // about the repository; this discriminator only decides WHICH sentence the note gets — "could not
+  // start at all" is more specific than "did not pass here", and specificity is worth a branch.
   it("recognises a command that could not START, across ecosystems", () => {
     for (const out of [
       "Error: Cannot find module 'vitest'",

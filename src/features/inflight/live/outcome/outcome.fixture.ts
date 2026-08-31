@@ -86,7 +86,7 @@ export const fixture: OutcomeMatrix = {
         // nothing moved. `$10.19 · 0 pts`.
         "run-3": cell({
           runId: "run-3", repo: "acme/docs-site", verdict: { kind: "attributable", delta: -3 }, commits: 1,
-          redBaseline: { command: "npm run test:unit", note: "Verification BASELINE RED: `npm run test:unit` already failed before the session." },
+          redBaseline: { command: "npm run test:unit", note: "Verification NO BASELINE: `npm run test:unit` did not pass on the pristine lane worktree, before the session started." },
           economics: priced(1_019_000_000, 0),
           deliverables: [d("Regressed on documentation", "regressed", "D5", "README lost its setup section")],
         }),

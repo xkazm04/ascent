@@ -63,7 +63,7 @@ const MAX_OUTPUT = 256 * 1024;
  * it is for the agent session.
  *
  * A TIMEOUT IS A FAILURE, and deliberately so on both sides. On the baseline it means the repository's
- * own gate does not finish inside the budget, which is `baseline-red` — honest, and it stops the guard
+ * own gate does not finish inside the budget, which is `baseline-unavailable` — honest, and it stops the guard
  * silently costing every lane ten minutes for nothing. On the result run it means the session left
  * the repository in a state its own checks cannot get through, which is a degradation.
  */
@@ -232,8 +232,10 @@ export interface GuardOutcome {
  * The four verdicts, and the ONE that changes the lane's course:
  *   • baseline could not be resolved  → `skipped`, and the note says the repository declares no
  *     command. Not a pass.
- *   • baseline failed                 → `baseline-red`. The repository arrived broken; the agent is
- *     not blamed and the lane proceeds untouched.
+ *   • baseline did not pass HERE      → `baseline-unavailable`. No baseline exists to compare the
+ *     session against, so the guard is off for this cycle; the agent is not blamed and the lane
+ *     proceeds untouched. The note says the command did not pass IN THE LANE'S WORKTREE and never
+ *     that the repository's checks are failing — see the long note in `lane-verify.ts`.
  *   • baseline passed, result passed  → `verified`.
  *   • baseline passed, result failed  → `rejected`. The worktree's edits are discarded HERE, so the
  *     lane's own commit step finds a clean tree and there is nothing to commit even if a later caller
@@ -257,22 +259,29 @@ export async function verifyResult(
   }
   const { command, source } = baseline.resolved;
   if (!baseline.passed) {
-    // TWO WAYS TO BE RED, and the note must not conflate them. The lane worktree now arrives with the
-    // paired checkout's dependency caches LINKED in (`worktree-deps.ts`), so a red baseline is once
-    // again a claim about the repository — unless the command could not start at all, which is a fact
-    // about this checkout's environment (no `.venv` to link, an install step the loop cannot run, a
-    // link that failed) and not an accusation. Same verdict either way: not comparable, no blame.
+    // WHAT THIS NOTE MAY AND MAY NOT SAY. It may say the command did not pass on the pristine lane
+    // worktree. It may NOT say the repository's checks are failing — that is a different claim, this
+    // measurement is not evidence for it, and asserting it cost fourteen lanes of manufactured repair
+    // work on a suite that was green for the operator all along (see `lane-verify.ts`). A worktree
+    // carries tracked files plus the dependency caches the loop links; gitignored local state —
+    // credentials, `.env`, service config, a `.venv` — is correctly absent, and a suite that needs it
+    // fails here and passes there. `looksUnrunnable` only sharpens the sentence when the command could
+    // not start at all; both readings are the same verdict: no baseline, no blame.
     const unrunnable = looksUnrunnable(baseline.note ?? "");
     return {
-      verdict: "baseline-red",
+      verdict: "baseline-unavailable",
       command,
       note:
-        `Verification BASELINE RED: \`${command}\` (from ${source}) ` +
+        `Verification NO BASELINE: \`${command}\` (from ${source}) ` +
         (unrunnable
-          ? "could not START on the pristine worktree — its dependencies are not installed here and the loop could not link or provide them, " +
-            "which is a fact about this checkout rather than about the repository. So "
-          : "already failed on this repository before the session started, so ") +
-        `this cycle cannot be judged against it and the agent is not blamed for it. First failure: ${baseline.note ?? "(no output)"}`,
+          ? "could not START on the pristine lane worktree — its dependencies are not installed here and the loop could not link or provide them. "
+          : "did not pass on the pristine lane worktree, before the session started. ") +
+        "That is a fact about this worktree, which carries only tracked files plus linked dependency caches — not the " +
+        "gitignored local state (credentials, `.env` files, service config) a suite may need — and is NOT evidence that " +
+        "the repository's own checks fail elsewhere. So the guard has no baseline to compare this cycle against, and the " +
+        `agent is not blamed for it. To make this cycle verifiable, declare a command that runs from a clean checkout at ` +
+        `\`controls.ciHardPass\` in \`.ai/manifest.yaml\`, or set this repository's \`verifyMode\` to off. ` +
+        `First failure: ${baseline.note ?? "(no output)"}`,
       reject: false,
     };
   }

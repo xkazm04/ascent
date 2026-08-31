@@ -100,12 +100,15 @@ describe("column widths", () => {
   });
 });
 
-describe("a red baseline on a run's row", () => {
+describe("an unavailable baseline on a run's row", () => {
   it("is ONE WORD on the project header row, with the guard's note on hover", () => {
     sheet();
-    const word = screen.getByTestId("cell-baseline-red");
-    expect(word.textContent).toBe("baseline red");
-    expect(word.getAttribute("title")).toContain("BASELINE RED");
+    const word = screen.getByTestId("cell-baseline-unavailable");
+    // `no baseline`, never `baseline red`: the badge is read at a glance and out of context, and
+    // the old word was routinely read as a claim that the repository is failing.
+    expect(word.textContent).toBe("no baseline");
+    expect(word.textContent).not.toContain("red");
+    expect(word.getAttribute("title")).toContain("NO BASELINE");
     // It belongs to the repo whose lane measured it, on that repo's own header row.
     expect(word.closest("tr")!.textContent).toContain("acme/docs-site");
   });
@@ -113,7 +116,7 @@ describe("a red baseline on a run's row", () => {
   it("is a WORD, not a panel — no extra row, no expander, no heading", () => {
     sheet();
     // Exactly one repo in the fixture is red; the other three header rows say nothing.
-    expect(screen.getAllByTestId("cell-baseline-red")).toHaveLength(1);
+    expect(screen.getAllByTestId("cell-baseline-unavailable")).toHaveLength(1);
     expect(screen.queryByText(/degradation guard/i)).toBeNull();
   });
 });

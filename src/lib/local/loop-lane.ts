@@ -53,7 +53,7 @@ import { verifyBaseline, verifyResult, verifyRejectionLesson, type VerifyBaselin
 // unverifiable — so the brief LEADS with the repair and the operator gets a lesson saying the loop
 // noticed. See lane-baseline.ts for why a repaired repo gets no lead and why the attempt counter
 // matters.
-import { leadWithRedBaseline, redBaselineLesson, type BaselineLaneRow } from "@/lib/local/lane-baseline";
+import { unverifiedCycleBrief, unverifiedCycleLesson, type BaselineLaneRow } from "@/lib/local/lane-baseline";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
 import { stampPlaybookApplications } from "@/lib/db/playbooks";
@@ -115,7 +115,7 @@ export interface LaneDeps {
   /** The agent's `.ascent/lane-report.json`, parsed. Never throws; a missing file is `parsed:false`. */
   readReport: typeof readLaneReport;
   /** This repo's PREVIOUS guard verdicts, newest-first — what tells the brief whether a red baseline
-   *  is new or is the fourth lane in a row to meet it (`leadWithRedBaseline`). */
+   *  is new or is the fourth lane in a row to meet it (`unverifiedCycleBrief`). */
   priorBaselines: (org: string, repo: string) => Promise<BaselineLaneRow[]>;
   /** Were the pair's two ends taken on one line of history? Asked of git in the lane's own worktree,
    *  which shares the paired repository's object store (`lane-base.ts`). Injected so the rule is
@@ -554,7 +554,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // WHAT THE WORKTREE WAS GIVEN TO RUN WITH, said once. A git worktree carries tracked files only,
     // so `createLoopWorktree` links the paired checkout's dependency caches in (`worktree-deps.ts`) —
     // without them the repository's own `npm run test:unit` cannot start and the degradation guard
-    // reports `baseline-red` on a pristine tree. `takeDepNotes` DRAINS: the linking happened once, when
+    // reports `baseline-unavailable` on a pristine tree. `takeDepNotes` DRAINS: the linking happened once, when
     // the worktree was made, so the first cycle to open it reports it and cycle 2 does not repeat it.
     for (const note of takeDepNotes(worktree)) await appendLaneLog(laneId, note);
 
@@ -722,36 +722,38 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             ? "Degradation guard: this repository declares no check the loop could resolve, so this cycle will be UNVERIFIED — not verified."
             : baseline.passed
               ? `Degradation guard armed: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) passes on the untouched worktree.`
-              : `Degradation guard: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) already FAILS on this repository before the session — the agent is not blamed for that, and this cycle proceeds.`,
+              : `Degradation guard: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) did not pass on this lane's pristine worktree, so no baseline could be established — that is a fact about the worktree, not about the repository's own checks; this cycle proceeds UNVERIFIED.`,
         );
       }
-      // ── THE RED BASELINE BECOMES THIS LANE'S LEAD ITEM.
+      // ── A CYCLE THE GUARD COULD NOT VERIFY — said plainly, and NOT turned into repair work.
       //
-      // A red baseline is the one condition under which everything else this lane does is
-      // unverifiable: the guard has nothing green to compare against, so a regression committed here
-      // cannot be caught and a fix cannot be confirmed. The most valuable work available is therefore
-      // making the repository's own check pass again, and the brief says so FIRST — above the armed
-      // batch, which still rides along.
+      // With no baseline the guard cannot catch a regression or confirm a fix, so everything this lane
+      // commits ships unchecked. The brief says exactly that and asks the agent to be correspondingly
+      // conservative (`unverifiedCycleNote`).
       //
-      // The measurement above is what decides it, not the history: a repository repaired since the
-      // last lane gets NO lead however red that history is. The history supplies only the ATTEMPT
-      // COUNT, which is what turns a silent retry into "attempt 4, and it is still failing".
+      // IT DOES NOT ASK FOR A REPAIR, and it used to. The lead said "restore `npm run test:unit`
+      // (attempt 14); the armed batch rides along, second" — on a suite that passes 3744/3744 in the
+      // operator's own checkout and fails 8 in a worktree, on missing Google application-default
+      // credentials. The worktree carries no gitignored local state; that is the whole explanation,
+      // and the loop has no cheap way to tell that case from a genuinely broken check. The OPERATOR
+      // gets the actionable version, in the lesson row below.
       const priorLanes = await deps.priorBaselines(org, repo).catch((): BaselineLaneRow[] => []);
-      const redLead = leadWithRedBaseline({
+      const unverified = unverifiedCycleBrief({
         repo,
         prior: priorLanes,
-        current: !guardOn || baseline.resolved == null ? "unmeasured" : baseline.passed === false ? "red" : "green",
+        current: !guardOn || baseline.resolved == null ? "unmeasured" : baseline.passed === false ? "unavailable" : "established",
         command: baseline.resolved?.command ?? null,
         note: baseline.note,
       });
-      if (redLead) {
+      if (unverified) {
         await appendLaneLog(
           laneId,
-          `Red baseline — this brief LEADS with restoring \`${redLead.command ?? "the repository's own check"}\` (attempt ${redLead.attempt}); the armed batch still rides along, second.`,
+          `No baseline — \`${unverified.command ?? "the check Ascent resolved"}\` did not pass on the pristine worktree, so this cycle cannot be verified. The brief asks for conservative work; it does NOT ask for a repair, and this is not a claim that the repository's checks fail.`,
         );
-        // The operator's copy of the same fact, in the review queue they already read. ONE row per
-        // repository, refreshed as the attempt count climbs — see recordRedBaselineLesson.
-        await recordRedBaselineLesson(org, repo, redBaselineLesson(repo, redLead)).catch(() => null);
+        // The operator's copy, in the review queue they already read — and the only surface that can
+        // act on it: declare `controls.ciHardPass`, or turn `verifyMode` off. ONE row per repository,
+        // refreshed as the lane count climbs — see recordRedBaselineLesson.
+        await recordRedBaselineLesson(org, repo, unverifiedCycleLesson(repo, unverified)).catch(() => null);
       }
       // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
       // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
@@ -767,8 +769,8 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           // that declares no check) would invite exactly the bold change nothing is going to catch.
           verifyCommand: guardOn && baseline.passed === true ? baseline.resolved?.command ?? null : null,
           // The opposite case, and mutually exclusive with the line above by construction: no net to
-          // promise, and a repair that outranks everything in the batch.
-          redBaseline: redLead,
+          // promise, so the brief says so and asks for conservative work — never for a repair.
+          unverifiedCycle: unverified,
         }) +
         `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
         // The org's standard, then the report contract. In that order deliberately: the standard is
@@ -815,7 +817,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       //
       // Four verdicts, one of which changes the lane's course (see lane-guard.ts):
       //   verified     → proceed, and the row says so.
-      //   baseline-red → the repository arrived broken. Proceed, and DO NOT blame the agent.
+      //   baseline-unavailable → no baseline could be established here. Proceed, and blame nobody.
       //   skipped      → nothing resolvable, or the guard is off. Proceed, and say the lane is
       //                  UNVERIFIED rather than letting silence read as a pass.
       //   rejected     → a pass became a failure. `verifyResult` has already discarded the edits in

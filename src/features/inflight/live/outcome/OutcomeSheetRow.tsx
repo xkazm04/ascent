@@ -76,18 +76,20 @@ export function OutcomeProjectRow({
                 <span className="type-micro shrink-0 font-mono tabular-nums text-slate-600">{cellFootnote(cell.commits, cell.gaps)}</span>
               </span>
             )}
-            {/* A RED BASELINE, as a WORD beside the verdict and never a panel — the lane rail's own
+            {/* NO BASELINE, as a WORD beside the verdict and never a panel — the lane rail's own
                 rule. It IS coloured, unlike the rail's `unverified`: this is not the neutral fact
                 "we did not check", it is "we could not check, and everything in this column is
-                therefore unverified". The full guard note is on hover, where "why" survives the
-                throwaway worktree it happened in. */}
+                therefore unverified". It says `no baseline` and not `baseline red`, which was read
+                as a claim that the repository's checks fail — they may well pass; the worktree the
+                guard measured in carries none of the local state a check may need. The full guard
+                note is on hover, where "why" survives the throwaway worktree it happened in. */}
             {cell?.redBaseline && (
               <p
-                data-testid="cell-baseline-red"
+                data-testid="cell-baseline-unavailable"
                 className="type-micro mt-1 font-mono text-warn"
                 title={cell.redBaseline.note ?? undefined}
               >
-                baseline red
+                no baseline
               </p>
             )}
             {/* WHAT THIS RUN SPENT ON THIS REPO, per verified point (UAT PRIYA-L1-704). The figure

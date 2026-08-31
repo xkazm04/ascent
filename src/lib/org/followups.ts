@@ -315,66 +315,60 @@ const verificationPromise = (command: string): string[] => [
 ];
 
 /**
- * A RED BASELINE THE BRIEF MUST LEAD WITH — the repository's own check was already failing before the
- * session, so the degradation guard has no green baseline to compare against and is, in effect, OFF
- * on this repository. Everything the loop commits here until it passes is unverified.
+ * THE GUARD COULD NOT VERIFY THIS CYCLE — the note the brief carries instead of the safety net.
  *
- * That makes restoring the command the most valuable thing this lane can do, ahead of every armed
- * follow-up — so it is printed FIRST, above the batch, rather than as a footnote under it. The batch
- * still rides along; what changes is the priority, not the scope.
+ * The repository's resolved command did not pass on the lane's PRISTINE worktree, so there is no
+ * baseline to compare the session against and nothing this cycle produces can be checked. That is
+ * worth telling the agent, for one reason only: it changes how bold the work should be.
  *
- * Derived by `leadWithRedBaseline` (src/lib/local/lane-baseline.ts), which is also what decides that
- * a repaired repository gets NO lead however red its history is.
+ * WHAT THIS REPLACED, AND WHY. This used to be a `# TOP PRIORITY` lead ordering the agent to restore
+ * the command ahead of the whole batch, with an attempt counter that reached 14. The premise was
+ * false. A worktree carries tracked files plus the dependency caches the loop links and none of the
+ * gitignored local state a suite may need — `xkazm04/systedo-case` passes 3744/3744 in the operator's
+ * checkout and fails 8 in a worktree on missing Google application-default credentials. There is no
+ * cheap way to learn whether a given failure reproduces outside the worktree, so the loop no longer
+ * guesses: it states what it could not do, and asks for care rather than for a repair.
+ *
+ * Derived by `unverifiedCycleBrief` (src/lib/local/lane-baseline.ts), which is also what decides that
+ * a cycle whose baseline WAS established gets no note at all.
  */
-export interface RedBaselineBrief {
+export interface UnverifiedCycleBrief {
   repo: string;
   /** The command the guard resolved and ran. `null` only when the lane row lost it. */
   command: string | null;
-  /** The repository's own failing output, ALREADY bounded and neutralized. Re-neutralized here
+  /** What the command printed in the worktree, ALREADY bounded and neutralized. Re-neutralized here
    *  anyway: the fence below is only safe because backtick runs are collapsed, and a boundary that
    *  depends on every caller remembering is not a boundary. */
   failure: readonly string[];
-  /** 1 on the first lane to face it; N when N−1 previous lanes already led with the repair and it is
-   *  still failing. `> 1` is the NON-CONVERGENCE signal, and the brief says so in words. */
-  attempt: number;
-  /** `YYYY-MM-DD` the run of red lanes began — `null` when this is the first lane to record one. */
+  /** Consecutive lanes on which no baseline could be established, this one included. Carried for the
+   *  OPERATOR's lesson row (`unverifiedCycleLesson`); the brief does not print it, and it is NOT an
+   *  attempt count — nothing is being attempted. */
+  lanes: number;
+  /** `YYYY-MM-DD` the run began — `null` when this is the first lane to record one. */
   since: string | null;
 }
 
 /**
- * The lead block. Printed above everything, including the batch's own heading, because "lead with it"
- * is the whole instruction: a priority stated after five follow-ups is not a priority.
+ * The note, printed with the other session-shaping rules rather than above the batch.
  *
- * Three things it must do and one it must not. It must NAME the command, QUOTE what the guard
- * actually captured (so the session does not start by re-running it blind), and say plainly that the
- * repair outranks the batch. It must not invite the cheap pass: a `.skip`, a deleted assertion or a
- * widened threshold would turn the command green while making the guard MORE misleading than a red
- * baseline, which at least tells the truth about itself.
+ * Three things it must do and two it must not. It must say the guard could not verify this cycle,
+ * say what that means for the work (be conservative, prefer small reversible changes, report what
+ * could not be checked), and show what the command printed so the session need not re-run it blind.
+ * It must NOT ask for a repair — the check may well be green in the operator's own checkout — and it
+ * must not invite the cheap pass, because an agent that "fixes" a passing suite by skipping a test
+ * has done strictly negative work.
  */
-const redBaselineLead = (r: RedBaselineBrief): string[] => {
-  const cmd = r.command ? `\`${r.command}\`` : "the check this repository declares for itself";
+const unverifiedCycleNote = (r: UnverifiedCycleBrief): string[] => {
+  const cmd = r.command ? `\`${r.command}\`` : "the check Ascent resolved for this repository";
   const out = [
-    `# TOP PRIORITY — ${r.repo}'s own checks are failing`,
-    "",
-    `${cmd} — this repository's own check — FAILED on the pristine tree before your session started` +
-      `${r.since ? `, and has failed on every loop lane since ${r.since}` : ""}. Restoring it is the FIRST work of this cycle, ahead of every item in the batch below.`,
-    "",
-    "WHY IT OUTRANKS THE BATCH: with no green baseline there is nothing to compare against, so the degradation guard cannot run at all. Every change committed to this repository — including everything you do below — ships unverified, and a regression introduced today would be indistinguishable from the failure that is already there.",
-    "",
-    "- Fix the failure itself. Read the output below, reproduce it, find the cause, repair it.",
-    "- Do NOT make it pass by weakening it: no `.skip`, no removed assertion, no relaxed threshold, no widened timeout, no deleted test file. If the check itself is genuinely wrong, correct or remove it and say so EXPLICITLY in your summary with the reason — a silent weakening is worse than a red baseline, because it makes the guard lie.",
-    "- If you cannot restore it in this session, say so plainly in your summary and name what is blocking it.",
-    "- Then work the batch below with whatever session remains. The batch is still armed; it is simply second.",
+    "NO VERIFICATION NET THIS CYCLE:",
+    `- Ascent could not establish a baseline for this repository: ${cmd} did not pass in the isolated worktree your session runs in, before your session started. A worktree carries the repository's tracked files plus linked dependency caches — not gitignored local state such as credentials, \`.env\` files or service configuration — so this is NOT evidence that the repository's own checks fail, and repairing them is NOT your task.`,
+    "- What it means for you: nothing you do this cycle can be verified by the guard. Be correspondingly conservative — prefer small, self-contained, reversible changes over a large restructuring, and say plainly in your summary anything you could not check.",
+    "- Do NOT try to make that command pass: no `.skip`, no removed assertion, no relaxed threshold, no widened timeout, no deleted test file. It may be passing already where the repository is actually checked, and weakening it there would be strictly negative work.",
     "",
   ];
-  if (r.attempt > 1) {
-    out.push(
-      `THIS IS ATTEMPT ${r.attempt}. ${r.attempt - 1} previous lane${r.attempt === 2 ? "" : "s"} on this repository already led with this same repair and the command is STILL failing — the repair is not converging. Do not simply repeat what those sessions tried: state in your summary what you now believe the real blocker is, even if you cannot clear it.`,
-      "",
-    );
-  }
   if (r.failure.length > 0) {
-    out.push("What the guard captured, verbatim from the repository's own output:", "", "```", ...r.failure.map(neutralize), "```", "");
+    out.push("What the command printed in the worktree, verbatim (it may describe the worktree rather than the code):", "", "```", ...r.failure.map(neutralize), "```", "");
   }
   return out;
 };
@@ -415,11 +409,12 @@ export function buildFixPrompt(
      */
     verifyCommand?: string | null;
     /**
-     * THE REPOSITORY'S OWN CHECKS ARE FAILING, and that outranks this batch. Printed FIRST when
-     * present — see `RedBaselineBrief`. Mutually exclusive with `verifyCommand` by construction: a
-     * baseline cannot be both red and passing, and the lane derives both from the same measurement.
+     * THE GUARD COULD NOT ESTABLISH A BASELINE for this cycle — see `UnverifiedCycleBrief`. Mutually
+     * exclusive with `verifyCommand` by construction: a baseline cannot be both unavailable and
+     * passing, and the lane derives both from the same measurement. Prints the NEUTRAL note, never a
+     * repair instruction.
      */
-    redBaseline?: RedBaselineBrief | null;
+    unverifiedCycle?: UnverifiedCycleBrief | null;
   },
 ): string {
   const byRepo = new Map<string, FollowUpItem[]>();
@@ -432,8 +427,6 @@ export function buildFixPrompt(
   const craftMode = items.length > 0 && items.every((it) => it.kind === "craft");
 
   const lines: string[] = [];
-  // THE LEAD, above the batch's own heading. See `redBaselineLead`.
-  if (ctx.redBaseline) lines.push(...redBaselineLead(ctx.redBaseline));
   lines.push(
     craftMode
       ? `# Ascent craft ladder — ${ctx.org} — ${items.length} rung${items.length === 1 ? "" : "s"} across ${repos.length} repositor${repos.length === 1 ? "y" : "ies"}`
@@ -497,8 +490,12 @@ export function buildFixPrompt(
     );
     lines.push("");
   }
-  // The net, and only when it is real — see `verificationPromise`.
+  // The net, and only when it is real — see `verificationPromise`. Its opposite, and mutually
+  // exclusive with it: when no baseline could be established the brief says so HERE, in the same
+  // place and the same register, rather than as a priority above the batch — see
+  // `unverifiedCycleNote`.
   if (laneCommits && ctx.verifyCommand) lines.push(...verificationPromise(ctx.verifyCommand));
+  if (ctx.unverifiedCycle) lines.push(...unverifiedCycleNote(ctx.unverifiedCycle));
 
   for (const [repo, list] of repos) {
     const sorted = [...list].sort((a, b) => (IMPACT_ORDER[a.impact] ?? 9) - (IMPACT_ORDER[b.impact] ?? 9) || (EFFORT_ORDER[a.effort] ?? 9) - (EFFORT_ORDER[b.effort] ?? 9));

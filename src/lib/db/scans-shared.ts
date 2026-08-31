@@ -121,6 +121,11 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
     orgIdCache.delete(orgSlug);
   }
   const name = orgSlug === DEFAULT_ORG_SLUG ? "Public Scans" : orgSlug;
+  // RC3-N1: the funnel org must carry kind "public" — the meter's skip decision reads the KIND
+  // (usage-events.ts UNMETERED_ORG_KIND), and schema defaults kind to "org", so a stock deployment
+  // whose funnel row was created before this stamp (or by the bare init.sql seed) would meter its
+  // anonymous funnel. Stamped on create AND repaired on the existing path, same one-writer seam.
+  const funnel = orgSlug === DEFAULT_ORG_SLUG;
   const id = await withRetry(
     () =>
       upsertRacing(
@@ -129,9 +134,17 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
             where: { slug: orgSlug },
             select: { id: true },
           });
-          if (existing) return existing.id;
+          if (existing) {
+            if (funnel) {
+              await prisma.organization.updateMany({
+                where: { slug: orgSlug, NOT: { kind: "public" } },
+                data: { kind: "public" },
+              });
+            }
+            return existing.id;
+          }
           const created = await prisma.organization.create({
-            data: { slug: orgSlug, name },
+            data: { slug: orgSlug, name, ...(funnel ? { kind: "public" } : {}) },
             select: { id: true },
           });
           return created.id;

@@ -1,16 +1,21 @@
-// A RED BASELINE AS A STANDING FACT — the read half.
+// A BASELINE THE GUARD COULD NOT ESTABLISH, AS A STANDING FACT — the read half.
 //
 // `LoopRunLane.verifyVerdict` already carries every measurement the degradation guard has ever made.
 // Nothing new is stored here and nothing is recomputed: this module folds that column into the shape
-// the weekly fleet digest's standing-concerns block already renders, so a repository whose own checks
-// have been failing for eleven lanes shows up in the same place, in the same voice, as a dimension
-// that has been twenty-one points down for a month.
+// the weekly fleet digest's standing-concerns block already renders, so a repository the guard has
+// been unable to establish a baseline for over eleven lanes shows up in the same place, in the same
+// voice, as a dimension that has been twenty-one points down for a month.
+//
+// WHAT THE CONCERN MAY CLAIM. That the guard could not establish a baseline IN THE LANE'S WORKTREE,
+// how long that has held, and what would fix it — never that the repository's own checks are failing.
+// A worktree carries no gitignored local state, so the measurement does not support the stronger
+// claim; `lane-baseline.ts` carries the evidence and the wording.
 //
 // WHY THE DIGEST AND NOT A NEW PANEL. Exactly the reasoning `detectStandingRegressions` records: the
 // digest is the surface that goes SILENT in this scenario. Its whole contract is "a flat week stays
-// quiet", and a repository that has been red since before the window looks flat to every
-// movement-shaped input it has. A red baseline is a state, not an event, and the standing-concerns
-// block is the only channel in the product shaped for a state.
+// quiet", and a repository in this state since before the window looks flat to every movement-shaped
+// input it has. It is a state, not an event, and the standing-concerns block is the only channel in
+// the product shaped for a state.
 //
 // Import from the `@/lib/db` barrel.
 
@@ -19,8 +24,8 @@ import { getOrgBySlug } from "@/lib/db/org-shared";
 import { asVerifyVerdict } from "@/lib/local/verify-options";
 import {
   baselineFailureLines,
-  consecutiveRedBaseline,
-  redBaselineObservation,
+  consecutiveUnavailableBaseline,
+  unavailableBaselineObservation,
   type BaselineLaneRow,
 } from "@/lib/local/lane-baseline";
 
@@ -32,15 +37,16 @@ const LANE_LOOKBACK = 240;
  *  of a run it did not see the start of. */
 const PER_REPO_LOOKBACK = 24;
 
-/** A repository whose own check was failing before the loop's session — the standing-concerns row. */
+/** A repository the guard could not establish a baseline for — the standing-concerns row. */
 export interface RepoRedBaseline {
   repoFullName: string;
-  /** The one-line, cause-free rendering (`redBaselineObservation`). */
+  /** The one-line, cause-free rendering, ending with the remedy (`unavailableBaselineObservation`). */
   observation: string;
-  /** Bounded, neutralized lines of the repository's own failing output. A list a reader can check,
-   *  never a stated cause — the same contract the standing concerns' appeared/disappeared lines have. */
+  /** Bounded, neutralized lines of what the command printed IN THE WORKTREE. A list a reader can
+   *  check, never a stated cause — the same contract the standing concerns' appeared/disappeared
+   *  lines have. */
   evidence: string[];
-  /** Consecutive lanes that measured it red. */
+  /** Consecutive lanes on which no baseline could be established. */
   lanes: number;
   command: string | null;
   /** ISO of the oldest lane in that run. */
@@ -90,8 +96,8 @@ async function recentVerdictLanes(orgId: string, take: number): Promise<LaneRow[
 }
 
 /**
- * One repository's guard history, newest-first — what `leadWithRedBaseline` reads when it decides
- * whether the next lane's brief leads with the repair.
+ * One repository's guard history, newest-first — what `unverifiedCycleBrief` reads when it decides
+ * whether this lane's brief carries the "could not verify" note.
  *
  * Only lanes that RECORDED a verdict are returned. A lane still in flight has none yet, and the lane
  * asking this question is itself one of those: its own row must not be able to answer for it.
@@ -124,12 +130,13 @@ export async function getRepoBaselineLanes(
 }
 
 /**
- * Every repository in the org whose MOST RECENT lane measured a red baseline, longest-standing first.
+ * Every repository in the org whose MOST RECENT lane could not establish a baseline, longest-standing
+ * first.
  *
- * "Most recent" is the whole rule and it cuts both ways: a repository that has since been repaired
- * raises nothing (its newest lane is `verified`), and a repository red for one lane is raised
- * immediately rather than after a persistence threshold — unlike a score, a failing check has no
- * noise band to see through, and three lanes of waiting is three lanes of unverifiable commits.
+ * "Most recent" is the whole rule and it cuts both ways: a repository whose baseline came back raises
+ * nothing (its newest lane is `verified`), and one lane is enough to raise it rather than a
+ * persistence threshold — unlike a score, "no baseline" has no noise band to see through, and three
+ * lanes of waiting is three lanes of unverifiable commits.
  */
 export async function getRedBaselines(
   orgSlug: string,
@@ -149,19 +156,19 @@ export async function getRedBaselines(
     }
     const out: RepoRedBaseline[] = [];
     for (const [repoFullName, lanes] of byRepo) {
-      const run = consecutiveRedBaseline(lanes);
+      const run = consecutiveUnavailableBaseline(lanes);
       if (!run) continue;
       out.push({
         repoFullName,
-        observation: redBaselineObservation(run),
+        observation: unavailableBaselineObservation(run),
         evidence: baselineFailureLines(run.note),
         lanes: run.lanes,
         command: run.command,
         since: run.since,
       });
     }
-    // Longest-standing first: a repository red for eleven lanes is a worse fact than one red for one,
-    // and a truncated list must not drop the worse one.
+    // Longest-standing first: eleven lanes without a baseline is a worse fact than one, and a
+    // truncated list must not drop the worse one.
     out.sort((a, b) => b.lanes - a.lanes || a.repoFullName.localeCompare(b.repoFullName));
     return opts.limit != null ? out.slice(0, Math.max(0, opts.limit)) : out;
   }, []);

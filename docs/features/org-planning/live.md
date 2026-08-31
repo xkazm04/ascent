@@ -78,8 +78,8 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `stage` | Live rescan sub-stage (`fetch \| tree \| files \| analyze \| score \| compose`), `null` between phases. |
 | `log` | Newline-joined, **bounded to `LANE_LOG_LINES` = 200**, newest last, each line stamped `HH:MM:SS`. Appended read-modify-write; safe because a lane is single-writer by construction. |
 | `error` / `startedAt` / `endedAt` | A failed lane is lane data, never a run failure. |
-| `verifyVerdict` | `verified \| rejected \| baseline-red \| skipped`. **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd** — and when the run's `verifyMode` is `on`, **only** a `verified` lane is (§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31)). |
-| `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. These three columns are also the ONLY store behind the red-baseline surface and the brief's lead item — §[A red baseline is SURFACED](#a-red-baseline-is-surfaced-and-becomes-the-loops-own-top-priority-work-2026-08-31) adds no parallel state. |
+| `verifyVerdict` | `verified \| rejected \| baseline-unavailable \| skipped` (rows written before 2026-08-31 carry `baseline-red`, which `asVerifyVerdict` still parses into `baseline-unavailable`). **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd** — and when the run's `verifyMode` is `on`, **only** a `verified` lane is (§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31)). |
+| `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. These three columns are also the ONLY store behind the standing-concern surface and the brief's note — §[An unestablished baseline is SURFACED](#an-unestablished-baseline-is-surfaced-and-what-it-does-not-claim-2026-08-31) adds no parallel state. |
 
 Index: `@@index([runId])`.
 
@@ -2069,16 +2069,34 @@ consults, in this fixed order, reusing readers that already exist:
    `&&`. This is the most authoritative source because it is the only one **machine-declared** rather
    than inferred from prose. A command the reader **redacted** (a secret-shaped run) or one carrying a
    `<placeholder>` is refused rather than executed — neither is a command anybody declared.
-2. **The guidance files** — `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` — via `parseCommands`
-   (`src/lib/analyze/guidance-graph.ts`), the **same extraction the scorer's `commands_agree` facet
-   runs**. Key preference `test → typecheck → build → lint`; `dev` (a server that never exits),
-   `install` (proves nothing about the change) and `format` (rewrites rather than judges) are never
-   used.
-3. **`package.json` scripts**, composite names first: `check:ci`, `verify`, `check`, `ci`, `test`
-   (`test` becomes `npm test`, everything else `npm run <name>`). Last, because a script that exists
-   is weaker evidence than a command the repository asked for in words.
-4. **Nothing** → the guard is `skipped` and says so. Never a silent pass: *"we could not check"* and
+2. **A CI-SHAPED command, wherever it is declared** — ranked `check:ci → ci:check → ci → verify:ci →
+   verify → test:ci → check:all → gate → gates → check`, read from the guidance files first and then
+   `package.json`, with rank deciding and declaration order only breaking ties. **The reason is the
+   worktree.** The guard runs on a fresh `git worktree`: tracked files plus the dependency caches the
+   loop links, and none of the operator's gitignored local state. A command CI runs is by construction
+   a command that works from a clean checkout — exactly the guard's situation — while a repository's
+   bare `test` script very often needs a `.env`, a service account or a local database the worktree
+   correctly does not carry. Preferring `test` is how `xkazm04/systedo-case` landed on
+   `npm run test:unit`: 3744/3744 green in the operator's paired checkout, **8 failing in a worktree
+   cut from the same commit**, every one of them a missing Google application-default credential.
+3. **The guidance files by capability** — `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` — via
+   `parseCommands` (`src/lib/analyze/guidance-graph.ts`), the **same extraction the scorer's
+   `commands_agree` facet runs**. Key preference `test → typecheck → build → lint`; `dev` (a server
+   that never exits), `install` (proves nothing about the change) and `format` (rewrites rather than
+   judges) are never used. Accepted here even though such a command may need state a clean checkout
+   does not have.
+4. **`package.json` scripts**, composite names first: `check:ci`, `ci`, `verify`, `check`, `test:ci`,
+   `test` (`test` becomes `npm test`, everything else `npm run <name>`). Last, because a script that
+   exists is weaker evidence than a command the repository asked for in words.
+5. **Nothing** → the guard is `skipped` and says so. Never a silent pass: *"we could not check"* and
    *"we checked and it was fine"* are different facts.
+
+**What the campaign repos resolve to under this order.** Neither declares `controls.ciHardPass`, so
+both fall to the CI-shaped pass: `xkazm04/systedo-case` now resolves to **`npm run check:ci`** (named
+in its `CONTRIBUTING.md`, and a script in its `package.json`) instead of `npm run test:unit`;
+`xkazm04/kp` declares no CI-shaped name anywhere and still resolves to **`npm run test:unit`**
+(`AGENTS.md (test)`) — which is precisely the case the standing concern now hands back to the
+operator with the `controls.ciHardPass` remedy.
 
 A broken declaration **falls through** to the next source rather than failing the resolution — a
 malformed manifest is not evidence that no check exists.
@@ -2089,7 +2107,7 @@ malformed manifest is not evidence that no check exists.
 | --- | --- | --- |
 | **`verified`** | passed before, passes after | Proceeds: commit, rescan, deliver, as always. |
 | **`rejected`** | **passed before, failed (or timed out) after** | `git reset --hard HEAD` + `git clean -fd` **in the throwaway worktree only**; **no commit**, **no rescan**, claims released, a lesson candidate and a `noted` deliverable recorded, and the lane ends honestly with **no claim**. |
-| **`baseline-red`** | already failing before the session | **No blame, no rejection.** The repository arrived broken; the lane proceeds exactly as it would have without a guard, and the note says so. A guard that punished an agent for arriving at a broken repository would be unusable on precisely the repositories that need it most. |
+| **`baseline-unavailable`** | the command did not pass **on the pristine lane worktree** | **No blame, no rejection.** There is no baseline to compare the session against, so the guard is off for this cycle and the lane proceeds exactly as it would have without one. **Read the name literally:** it says the guard could not establish a baseline *here*, **not** that the repository's checks are failing — see §[What a missing baseline does NOT mean](#what-a-missing-baseline-does-not-mean-2026-08-31). Rows written before 2026-08-31 carry the old word `baseline-red`; the reader was widened, the history was not rewritten. |
 | **`skipped`** | nothing resolvable, or `verifyMode: "off"` | Proceeds, and the row records `skipped` **with its reason**. Never `null` — null is what a lane written *before* the guard carries, and "we did not check" must not be able to masquerade as "there was nothing to check". |
 
 The baseline is measured **once per worktree** (cycle 1) and cached for that worktree's later cycles:
@@ -2098,19 +2116,20 @@ The cache is keyed by worktree directory and forgotten by `loop-engine.ts` when 
 removed.
 
 **A timeout is a failure on both sides**, deliberately. On the baseline it means the repository's own
-gate does not finish inside the budget → `baseline-red`, honest, and it stops the guard silently
+gate does not finish inside the budget → `baseline-unavailable`, honest, and it stops the guard silently
 costing every lane ten minutes for nothing. On the result run it means the session left the repository
 unable to get through its own checks → a degradation.
 
 ### A worktree has to be RUNNABLE first (2026-08-31)
 
-**The guard's first live run returned `baseline-red` for both repositories, on the pristine tree,
-before the agent had touched anything.** It resolved each repo's own command correctly
+**The guard's first live run returned `baseline-red` — now `baseline-unavailable` — for both
+repositories, on the pristine tree, before the agent had touched anything.** It resolved each repo's own command correctly
 (`npm run test:unit`) and then measured a failure that was not about either repository: a
 `git worktree` contains **tracked files only**, dependencies are gitignored, so the lane checkout has
-no `node_modules` and `npm run test:unit` there cannot *start*. A red baseline is never compared
+no `node_modules` and `npm run test:unit` there cannot *start*. An unestablished baseline is never compared
 against, so the guard protected nothing — and *every* JavaScript/TypeScript repository would have
-reported `baseline-red` forever, which are exactly the repositories the guard was built for. The same
+reported an unestablished baseline forever, which are exactly the repositories the guard was built
+for. The same
 holds for Python (`.venv`), Go (`vendor/`) and Ruby (`vendor/bundle`).
 
 `createLoopWorktree` therefore **links** the paired checkout's dependency caches into every worktree
@@ -2121,7 +2140,7 @@ it makes (`src/lib/local/worktree-deps.ts`).
 | **What is linked** | `node_modules`, `.venv`, `venv`, `vendor` — dependency **caches** only. Each is derived state a package manager rebuilds from a lockfile, conventionally gitignored, and large enough that copying it per lane would dominate the run. Build *output* (`.next`, `dist`, `build`, `target`) is deliberately absent: a lane is expected to regenerate it, and a link would let one lane's build stomp on another's. Source, config, `.git` and `.env*` are never linked. |
 | **How** | A **junction** on Windows (`fs.symlink(target, path, "junction")` — no elevation, no Developer Mode), an ordinary directory symlink elsewhere. **Never a copy**: a copied `node_modules` is minutes and gigabytes per lane, per arm, per cycle; a link is one syscall. |
 | **When** | Only if the name is a real directory in the source checkout, is **not already present** in the worktree (a committed Go `vendor/` is tracked content and is left alone), and the worktree's own git says it is **ignored** (`git check-ignore -q -- "<name>/"` — the trailing slash is load-bearing, because a `node_modules/` pattern is directory-only and git cannot tell that a not-yet-existing path is a directory). |
-| **Best-effort** | A permission error, a filesystem without symlinks, a target that vanished — each is a **note on the lane** and the next name. A lane that links nothing still runs; it verifies as `baseline-red` or `skipped` exactly as it did before. The notes are drained onto the lane log once (`takeDepNotes`), by the first cycle to open the worktree. |
+| **Best-effort** | A permission error, a filesystem without symlinks, a target that vanished — each is a **note on the lane** and the next name. A lane that links nothing still runs; it verifies as `baseline-unavailable` or `skipped` exactly as it did before. The notes are drained onto the lane log once (`takeDepNotes`), by the first cycle to open the worktree. |
 
 **It is a link, so writes reach the operator's real directory.** That is acceptable for a dependency
 cache — a package manager's install directory is one `npm ci` from repaired — and unacceptable for
@@ -2144,87 +2163,149 @@ its own dependency directory gets no link and a note saying why, instead of a si
 and a score that moved for a reason that was not a change. `git clean -fd` (the rejection discard)
 does not touch an ignored path either, so a rejected cycle leaves the link and the target alone.
 
-**And `baseline-red` means something again.** With the caches linked, a red baseline is a real claim:
-*this repository's own checks were already failing*. It is not the only reason a command can be red —
-a repo whose command needs an install step the loop cannot provide still cannot start — so
-`looksUnrunnable` (`lane-verify.ts`) splits the note in two: *"could not START … a fact about this
-checkout rather than about the repository"* versus *"already failed on this repository before the
-session started"*. **Same four verdicts**; a fifth would be a new column, a new cockpit word and a new
-thing for a reader to learn, for a distinction that belongs in a sentence. Either way: not comparable,
-and the agent is not blamed.
+### What a missing baseline does NOT mean (2026-08-31)
 
-### A red baseline is SURFACED, and becomes the loop's own top-priority work (2026-08-31)
+**Linking the dependency caches did not make a failed baseline a claim about the repository, and for
+one cycle this documentation said it did.** The verdict was called `baseline-red`, its note said the
+command *"already failed on this repository before the session started"*, the weekly digest raised
+*"this repository's own check has failed before the session on every loop lane since ‹date›"*, and the
+next lane's brief **led with repairing it** — *"restore `npm run test:unit` (attempt 14); the armed
+batch rides along, second"*.
 
-**The failure this closes.** The in-cycle guard reported `baseline-red` for `xkazm04/systedo-case`:
-its own `npm run test:unit` fails before an agent touches anything — measured directly at 294 s,
-exit 1, one failing file, `test-unit/fault-injection-llm.test.mjs`. **That test was written by this
-loop**, in an earlier campaign whose deliverable read *"Added fault-injection suites for LLM and Ads
-seams"*. It had been failing ever since and nothing reported it. And because the guard refuses to
-blame an agent for a repository that arrived broken, the consequence compounds: the guard is
-**effectively disabled on that repository for as long as the condition holds**, so the loop can never
-again prove it did not break something there — and it keeps committing into a repository whose own
-checks fail. `baseline-red` was written to a lane log nobody reads.
+**That claim was false, and it is now measured.** For `xkazm04/systedo-case`:
 
-Two things changed, and the second is the valuable one.
+| Where | Result |
+| --- | --- |
+| the operator's paired checkout | **3744 tests, 0 failing** |
+| a `git worktree` cut from the same commit, `node_modules` linked exactly as the lane links it | **8 failing**, every one `Error: Could not load the default credentials … GoogleAuth.getApplicationDefaultAsync`, each burning 10+ s on an auth timeout |
 
-**1. It is surfaced where an operator already looks.** A red baseline rides the **weekly fleet
-digest's standing-concerns block** — the same channel `detectStandingRegressions` uses, chosen for the
-same reason ([alerts.md](../fleet/alerts.md#standing-regressions-a-decline-that-stopped-moving)): that
+The failures are **missing local environment**, not a broken repository. A worktree deliberately
+carries tracked files plus the dependency caches the loop links; credentials, `.env` files, service
+configuration and a local database are gitignored and are **correctly** not linked. So a command that
+does not pass in a worktree supports exactly one claim — **"the guard cannot establish a baseline
+here"** — and says nothing about whether the repository's checks pass for the operator.
+
+**The damage was real.** The loop spent fourteen lanes ordering agents to repair a suite that is green
+for the operator, which burns cycles and invites an agent to "fix" a passing test by weakening it.
+Three things changed:
+
+- **The verdict is `baseline-unavailable`**, and every sentence derived from it names the *worktree*.
+  `baseline-red` still parses (`asVerifyVerdict`, `src/lib/local/verify-options.ts`) so rows already
+  written stay readable — the JSON-in-TEXT widening discipline, applied to an enum column.
+- **The brief no longer manufactures repair work.** No lead, no attempt counter — see
+  §[An unestablished baseline is SURFACED](#an-unestablished-baseline-is-surfaced-and-what-it-does-not-claim-2026-08-31).
+- **The resolution order prefers a CI-shaped command**, because a command CI runs works from a clean
+  checkout by construction — §[Resolving the repository's OWN command](#resolving-the-repositorys-own-command).
+
+`looksUnrunnable` (`lane-verify.ts`) still splits the note in two, but both halves are now facts about
+the checkout: *"could not START on the pristine lane worktree"* (no dependency tree to link) versus
+*"did not pass on the pristine lane worktree"*. **Same four verdicts**; a fifth would be a new column,
+a new cockpit word and a new thing for a reader to learn, for a distinction that belongs in a
+sentence. Either way: not comparable, and nobody is blamed.
+
+**The captured excerpt was wrong too.** The persisted *"First failure"* showed console noise from
+**passing** tests — `[activity] list failed … fake firestore: unavailable`, each followed by a ✔ —
+because the old rule scanned the whole log **from the head** for any line containing "fail" or
+"error". Application logging says those words constantly and says them early; a test runner states its
+verdict at the **end**. `firstFailureLines` now starts at the first **runner** marker (`✖`, `✕`,
+`not ok`, `FAIL`, `Failed Tests`, `N failing`, `# fail`, `AssertionError`, `error TS####`) and runs
+forward into the assertion's detail, and falls back to the **tail** rather than the head when no
+marker is present.
+
+### An unestablished baseline is SURFACED, and what it does NOT claim (2026-08-31)
+
+**The failure this closes.** The in-cycle guard could not establish a baseline for
+`xkazm04/systedo-case` — `npm run test:unit` did not pass in the lane's worktree — and that was
+written to a lane log nobody reads. Meanwhile the guard is **effectively disabled on that repository
+for as long as the condition holds**: it can never prove it did not break something there, and it
+keeps committing into a repository whose work it cannot check. That silence was worth breaking.
+
+**What was over-claimed while breaking it, and is now corrected.** The first version of this surface
+asserted the repository's own checks were failing and made the next lane's brief lead with repairing
+them. The measurement never supported that — the suite is green in the operator's checkout — and the
+evidence is in §[What a missing baseline does NOT mean](#what-a-missing-baseline-does-not-mean-2026-08-31).
+So: **the surfacing stayed, the accusation and the manufactured repair work went.**
+
+**1. It is surfaced where an operator already looks.** It rides the **weekly fleet digest's
+standing-concerns block** — the same channel `detectStandingRegressions` uses, chosen for the same
+reason ([alerts.md](../fleet/alerts.md#standing-regressions-a-decline-that-stopped-moving)): that
 block is the one surface in the product shaped for a **state** rather than an event, and a repository
-red since before the window looks flat to every movement-shaped input the digest has. No new panel and
-no second heading — the heading already says *observed, cause not attributed*, and each line names its
-own subject. Red baselines are listed **first**: a guard that cannot run outranks a score that fell.
+in this condition since before the window looks flat to every movement-shaped input the digest has. No
+new panel and no second heading — the heading already says *observed, cause not attributed*, and each
+line names its own subject. These are listed **first**: a guard that cannot run outranks a score that
+fell.
 
 `getRedBaselines(org, { limit })` (`src/lib/db/loop-baselines.ts`) folds the `verifyVerdict` column
 into one row per repository — nothing new is stored, and there is no parallel state. The wording is an
-OBSERVATION, produced by `redBaselineObservation` (`src/lib/local/lane-baseline.ts`):
+OBSERVATION, produced by `unavailableBaselineObservation` (`src/lib/local/lane-baseline.ts`):
 
-> `npm run test:unit` — this repository's own check — has failed before the session on every loop lane
-> since 2026-08-28 (3 lanes). With no green baseline the degradation guard cannot compare anything, so
-> nothing the loop commits here is verified.
+> `npm run test:unit` has not passed in the loop's isolated worktree on any loop lane since 2026-08-28
+> (3 lanes). A worktree carries tracked files plus linked dependency caches and none of the gitignored
+> local state a check may need, so this is not a reading of the repository's own checks. With no
+> baseline the degradation guard cannot compare anything, so nothing the loop commits here is
+> verified. To make this repository verifiable, declare a command that runs from a clean checkout at
+> `controls.ciHardPass` in `.ai/manifest.yaml` (the guard prefers it over anything it infers), or turn
+> `verifyMode` off for this repository.
 
-Two facts, a date, and the consequence. No cause, no actor, no blame — a line quoted out of the
-message still cannot read as an attribution. Its `evidence` lines are the repository's own captured
-output, bounded and neutralized. **One red lane is enough**, unlike a standing regression's three-scan
-threshold: a score needs persistence to be told from noise, a failing check has no noise band, and
-waiting three lanes buys three more lanes of unverifiable commits. The **most recent** lane decides in
-both directions — a repository since repaired raises nothing.
+What, since when, how long, the consequence — **and the remedy**, which is the half the old line was
+missing. Both halves of the remedy are true, specific and in the **operator's** hands, and the
+resolution chain already prefers a manifest declaration over everything it infers, so wiring
+`controls.ciHardPass` is read on the very next lane. No cause, no actor, no blame — a line quoted out
+of the message still cannot read as an attribution, and it cannot read as *"your repository is
+broken"*. Its `evidence` lines are the command's captured output, bounded and neutralized. **One lane
+is enough**, unlike a standing regression's three-scan threshold: a score needs persistence to be told
+from noise, "no baseline" has no noise band, and waiting three lanes buys three more lanes of
+unverifiable commits. The **most recent** lane decides in both directions — a repository whose
+baseline came back raises nothing.
 
-On the **outcome sheet** it is one word, `baseline red`, on the repo's project-header row beside that
-run's verdict, the guard's full note on hover (`OutcomeSheetRow.tsx`). It is the only one of the four
-verdicts the sheet shows: `verified` on every healthy row would be a badge meaning "normal", and
-`rejected` cannot reach the sheet at all. Unlike the lane rail's `unverified` it **is** coloured —
-this is not the neutral fact *"we did not check"*, it is *"we could not check, and every number in
-this column was produced with the net off"*.
+On the **outcome sheet** it is one word, **`no baseline`**, on the repo's project-header row beside
+that run's verdict, the guard's full note on hover (`OutcomeSheetRow.tsx`). Not `baseline red`: a
+badge is read at a glance and out of context, and that word was routinely read as a claim that the
+repository is failing. It is the only one of the four verdicts the sheet shows: `verified` on every
+healthy row would be a badge meaning "normal", and `rejected` cannot reach the sheet at all. Unlike
+the lane rail's `unverified` it **is** coloured — this is not the neutral fact *"we did not check"*,
+it is *"we could not check, and every number in this column was produced with the net off"*.
 
-**2. The next lane's brief LEADS with the repair.** If the loop's own checks cannot run, making them
-run again is the most valuable thing the loop can do there, so `buildFixPrompt` prints a
-`# TOP PRIORITY` block **above the batch's own heading** (`RedBaselineBrief`, `src/lib/org/followups.ts`).
-A priority stated after five follow-ups is not a priority. It names the command, quotes what the guard
-captured — bounded to 4 lines / 400 chars and run through `neutralize`, which is also what makes it
-safe to fence — and states that restoring the check outranks every armed item this cycle. **The armed
-batch still rides along**; what changes is the priority, not the scope. It forbids the cheap pass in as
-many words: no `.skip`, no removed assertion, no relaxed threshold. *A weakened check is worse than a
-red baseline, because a red baseline at least tells the truth about itself.*
+**2. The next lane's brief carries a NEUTRAL note — and no longer leads with a repair.** Where the
+armed-guard case prints the safety-net promise, an unverifiable cycle prints its opposite, in the same
+place and the same register (`unverifiedCycleNote`, `UnverifiedCycleBrief`, `src/lib/org/followups.ts`):
 
-`leadWithRedBaseline` decides it from **this cycle's own measurement**, with the history supplying only
-the count: a repository measured green today gets no lead however red its history is; a repository red
-today leads at `attempt = 1 + consecutive red lanes behind it`. With the guard off, the last thing
-actually measured stands in, and the count does not grow.
+> **NO VERIFICATION NET THIS CYCLE:** Ascent could not establish a baseline for this repository —
+> `npm run test:unit` did not pass in the isolated worktree your session runs in … A worktree carries
+> the repository's tracked files plus linked dependency caches — not gitignored local state such as
+> credentials, `.env` files or service configuration — so this is **NOT** evidence that the
+> repository's own checks fail, and repairing them is **NOT** your task. … nothing you do this cycle
+> can be verified by the guard. Be correspondingly conservative — prefer small, self-contained,
+> reversible changes over a large restructuring, and say plainly in your summary anything you could
+> not check.
 
-**The non-convergence guard.** `attempt > 1` means a previous lane already led with this same repair
-and the command is still failing, and both surfaces say so: the brief prints *"THIS IS ATTEMPT 3 …
-the repair is not converging"* and asks the session to name the blocker rather than repeat what the
-last two tried; the lesson records it for the operator. **An operator seeing "attempt 3" learns
-something a silent retry never tells them.**
+**What was removed, and why removal was the honest option.** The `# TOP PRIORITY` lead, the *"it
+outranks the batch"* framing and the **attempt counter** are all gone. Restricting the lead to
+failures known to reproduce outside the worktree would have been defensible — but the loop has no
+cheap way to know that, and a guess that ships as an instruction is exactly what cost fourteen lanes.
+The captured output is still quoted (bounded to 4 lines / 400 chars, run through `neutralize`, which
+is what makes it safe to fence) and now labelled *"it may describe the worktree rather than the
+code"*. The prohibition on the cheap pass stays and is sharper: no `.skip`, no removed assertion, no
+relaxed threshold — weakening a check that may be green where the repository is actually checked is
+**strictly negative work**.
 
-**The lesson, and the row that is deliberately NOT written.** `recordRedBaselineLesson`
-(`src/lib/db/loop-lessons.ts`) files it through the same pending-candidate queue every agent lesson
-uses — but **one row per repository, refreshed** as the attempt count climbs, keyed on a prefix
-carrying neither the command, the date nor the count. A red baseline is a standing fact that stays
-true lane after lane, so the event-shaped write `recordLoopLessons` does would have filed twenty-one
-identical candidates in the campaign that exposed this. A `kept` or `discarded` row is left alone: a
-human has ruled on it, and resurrecting their rejection is the noise the idempotence exists to prevent.
+`unverifiedCycleBrief` (`src/lib/local/lane-baseline.ts`) decides it from **this cycle's own
+measurement**: a cycle whose baseline was established gets no note however long the history is; with
+the guard off, the last thing actually measured stands in and the count does not grow. The
+consecutive-lane count survives only as a **measurement for the operator's row** — it is not an
+attempt count, and nothing asks an agent to act on it.
+
+**3. The lesson is the actionable surface, because the operator is who can act.**
+`recordRedBaselineLesson` (`src/lib/db/loop-lessons.ts`) files it through the same pending-candidate
+queue every agent lesson uses — but **one row per repository, refreshed** as the lane count climbs,
+keyed on a prefix carrying neither the command, the date nor the count. It is a standing fact that
+stays true lane after lane, so the event-shaped write `recordLoopLessons` does would have filed
+twenty-one identical candidates in the campaign that exposed this. The row now ends with the
+`controls.ciHardPass` / `verifyMode` remedy, and the lookup **also matches the legacy
+`Red baseline on ‹repo›: ` prefix** so the row carrying the old false claim is *rewritten* rather than
+joined by a second one — a stale claim left pending in a review queue is exactly the damage this
+change undoes. A `kept` or `discarded` row is left alone: a human has ruled on it, and resurrecting
+their rejection is the noise the idempotence exists to prevent.
 
 **No `Recommendation` row is created, and that is a decision rather than an omission.** A failing test
 is not a scan finding. The recommendations table is the SCAN's ledger — every row is scored,
@@ -2241,7 +2322,7 @@ The verdict is persisted on `LoopRunLane.verifyVerdict`, and **both** delivery d
 
 **The rule.** When the run's `verifyMode` is `on` — including a run whose column is NULL, since NULL
 means `on` (`verifyModeOf`) — a lane is delivered by `land` or `pr` **only** when its verdict is
-`verified`. `baseline-red`, `skipped`, `rejected` and an **absent** verdict all keep the work on its
+`verified`. `baseline-unavailable`, `skipped`, `rejected` and an **absent** verdict all keep the work on its
 branch. When `verifyMode` is `off` the behaviour is exactly what it always was: the operator opted out
 of checking, and only `rejected` blocks — which cannot occur with the guard off.
 
@@ -2250,8 +2331,9 @@ reach a branch, and three of the four verdicts mean the check could not be **mad
 permission to land.
 
 **What it cost to learn.** Run `a97baf88` (2026-08-30, `delivery: land`, `verifyMode: on`, 3 cycles):
-every cycle on both repositories returned `baseline-red` — each repo's own test command was already
-failing, so nothing the loop produced was ever verified — and every lane landed into the operator's
+every cycle on both repositories returned `baseline-red` (now `baseline-unavailable`) — no baseline
+could be established for either, so nothing the loop produced was ever verified — and every lane
+landed into the operator's
 real working branch anyway, because `rejected` was the only blocked verdict. That inverted the
 operator's own instruction.
 
@@ -2297,7 +2379,7 @@ checked — and the way past it is a fresh run, or a run started with verificati
   the same way: only an `lstat`-confirmed link is removed, non-recursively, and always before git is
   asked to remove the worktree.
 - **The lane row shows it.** One word beside the cost counters (`verified`, `rejected`,
-  `baseline red`, `unverified`), the full note on hover, and only `rejected` is coloured: `unverified`
+  `no baseline`, `unverified`), the full note on hover, and only `rejected` is coloured: `unverified`
   is a fact, not a fault. A lane written before the guard renders **nothing**.
 - **A rejection leaves a lesson**, through the same pending-candidate queue every agent lesson uses,
   keyed on the standing fact (this repo, this command) rather than the branch.
@@ -2305,24 +2387,29 @@ checked — and the way past it is a fresh run, or a run started with verificati
   printed **only** when a command resolved *and* passed on the pristine tree. Telling an agent its
   mistakes will be caught when they will not is the one lie that would make the invitation dangerous.
 
-Tests: `lane-verify.test.ts` (the resolution chain, the redaction/placeholder refusals, "declares
-nothing → null"), `lane-guard.test.ts` (the four verdicts, the baseline cache, both timeout paths, the
-discard's exact two git commands and their cwd), `lane-baseline.test.ts` (the consecutive-red walk —
-a verdict-less lane is skipped rather than breaking it, `skipped` does break it; the observation's
-wording, its date and its absence of any cause; the failure lines bounded on BOTH axes and neutralized
-in both senses; the lead's four cases — red, green, unmeasured-with-history, unmeasured-without — and
-the attempt counter climbing and resetting), `followups.test.ts` (the lead is FIRST, above the batch's
-heading; it quotes the failure inside exactly two fence lines; "attempt N / not converging" appears
-only past 1; a green baseline prints the safety net and no lead, a red one prints the lead and no
-net), `loop-lane.guard.test.ts` (a rejected lane commits nothing, rescans nothing, releases its claims
-and persists `rejected`; baseline-red is not blamed; the brief leads on red and does not on green or
-skipped; the attempt count reaches the prompt, the lane log and the lesson; and **every recommendation
-id the lane touches is one it armed** — no synthetic row); `outcomeMatrix.baseline.test.ts` +
-`OutcomeSheet.dom.test.tsx` (the cell carries the command and note, a later green cycle clears it, and
-the sheet renders exactly one word with the note on hover);
+Tests: `lane-verify.test.ts` (the resolution chain, **CI-shaped ranking — `check:ci` over a bare
+`test`, in a guidance file or a script, with the manifest still first**, the redaction/placeholder
+refusals, "declares nothing → null", the legacy verdict word still parsing, the tag being
+`no baseline`, and `firstFailureLines` **skipping leading console noise from passing tests to land on
+the failing assertion** and falling back to the tail), `lane-guard.test.ts` (the four verdicts, the
+baseline cache, both timeout paths, the note that **does not accuse the repository and does carry the
+remedy**, the discard's exact two git commands and their cwd), `lane-baseline.test.ts` (the
+consecutive walk — a verdict-less lane is skipped rather than breaking it, `skipped` does break it;
+the observation naming the worktree, ending in the remedy and **not** asserting the repository's
+checks fail; the failure lines bounded on BOTH axes and neutralized in both senses; the brief's four
+cases and its **absence of any `attempt` field**), `followups.test.ts` (the note does **not** lead the
+prompt, carries **no attempt counter**, asks for no repair, asks for conservative work, quotes the
+failure inside exactly two fence lines, and never coexists with the safety-net promise),
+`loop-lane.guard.test.ts` (a rejected lane commits nothing, rescans nothing, releases its claims and
+persists `rejected`; an unavailable baseline is not blamed; the brief carries the neutral note and no
+lead; **neither the prompt nor the lane log ever counts attempts**; the operator's lesson carries the
+`controls.ciHardPass` / `verifyMode` remedy; and **every recommendation id the lane touches is one it
+armed** — no synthetic row); `outcomeMatrix.baseline.test.ts` + `OutcomeSheet.dom.test.tsx` (the cell
+carries the command and note, a later verified cycle clears it, the legacy word still folds, and the
+sheet renders exactly `no baseline` with the note on hover);
 `loop-delivery.test.ts` and `[id]/pr/route.test.ts` (with the guard ON, only `verified` lands and only
-`verified` opens a PR — `baseline-red`, `skipped` and an absent verdict are each refused with their own
-named cause and a standing lesson; with the guard OFF nothing changes and only `rejected` blocks; an
+`verified` opens a PR — `baseline-unavailable` (and its legacy spelling), `skipped` and an absent
+verdict are each refused with their own named cause and a standing lesson; with the guard OFF nothing changes and only `rejected` blocks; an
 unrecorded dial reads as ON; a lane with no commits is passed over silently), `run-limits.test.ts` (the normalizers never guess; the
 defaults are today's values), `lane-reservation.test.ts` (the proportion at 1, 2, 5, 10, 12) and
 `worktree-deps.test.ts` — real git, real filesystem — (a worktree next to a checkout with a

@@ -2,7 +2,7 @@
 // work.
 //
 // The cases here are the contract the lane and the delivery step both lean on: `rejected` is the ONLY
-// verdict that sets `reject`, and `baseline-red` is emphatically not one — a repository that arrives
+// verdict that sets `reject`, and `baseline-unavailable` is emphatically not one — a repository that arrives
 // broken must not cost an agent its cycle, or the loop becomes unusable on precisely the repositories
 // that need it most.
 
@@ -72,7 +72,7 @@ describe("the four verdicts", () => {
     expect(out.note).toContain("AssertionError");
   });
 
-  it("BASELINE-RED — already failing before the session: no blame, no rejection", async () => {
+  it("BASELINE-UNAVAILABLE — no baseline could be established here: no blame, no rejection", async () => {
     const run = vi.fn(async () => fail());
     const discard = vi.fn(async () => true);
     const d = deps({ run: run as unknown as GuardDeps["run"], discard });
@@ -80,30 +80,42 @@ describe("the four verdicts", () => {
     const base = await verifyBaseline(DIR, MS, d);
     const out = await verifyResult(DIR, base, MS, d);
 
-    expect(out.verdict).toBe("baseline-red");
+    expect(out.verdict).toBe("baseline-unavailable");
     expect(out.reject).toBe(false);
     expect(discard).not.toHaveBeenCalled();
-    expect(out.note).toContain("already failed");
-    // AND it does not spend a second run: there is nothing to compare a red baseline against.
+    expect(out.note).toContain("did not pass on the pristine lane worktree");
+    // AND it does not spend a second run: there is nothing to compare against.
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("BASELINE-RED distinguishes 'could not START' from 'the repository is broken'", async () => {
-    // Since the lane worktree gets the paired checkout's dependency caches LINKED in
-    // (`worktree-deps.ts`), a red baseline is a real claim about the repository — so the case where
-    // the command still could not run (no `.venv` to link, an install step the loop cannot perform, a
-    // link that failed) has to be phrased as a fact about the checkout instead. Same verdict, same
-    // no-blame: a fifth verdict would be a new column and a new word for a reader to learn.
+  it("the note does NOT accuse the repository, and DOES tell the operator what would fix it", async () => {
+    // THE CORRECTION. This note used to say the command "already failed on this repository before the
+    // session started", which the measurement never supported: a worktree carries tracked files plus
+    // linked dependency caches and none of the operator's gitignored local state. `systedo-case`
+    // passes 3744/3744 in the paired checkout and fails 8 in a worktree, on missing Google
+    // application-default credentials.
+    const run = vi.fn(async () => fail());
+    const d = deps({ run: run as unknown as GuardDeps["run"] });
+
+    const out = await verifyResult(DIR, await verifyBaseline(DIR, MS, d), MS, d);
+
+    expect(out.note).not.toMatch(/already failed on this repository/i);
+    expect(out.note).toContain("NOT evidence that the repository's own checks fail elsewhere");
+    expect(out.note).toContain("controls.ciHardPass");
+    expect(out.note).toContain("verifyMode");
+  });
+
+  it("distinguishes 'could not START at all' from 'did not pass here' — same verdict, sharper sentence", async () => {
     const run = vi.fn(async (): Promise<VerifyRun> => ({ ok: false, output: "Error: Cannot find module 'vitest'", timedOut: false }));
     const d = deps({ run: run as unknown as GuardDeps["run"] });
 
     const out = await verifyResult(DIR, await verifyBaseline(DIR, MS, d), MS, d);
 
-    expect(out.verdict).toBe("baseline-red");
+    expect(out.verdict).toBe("baseline-unavailable");
     expect(out.reject).toBe(false);
-    expect(out.note).toContain("could not START");
-    expect(out.note).toContain("about this checkout rather than about the repository");
-    expect(out.note).not.toContain("already failed");
+    expect(out.note).toContain("could not START on the pristine lane worktree");
+    expect(out.note).toContain("fact about this worktree");
+    expect(out.note).not.toContain("did not pass on the pristine lane worktree, before");
   });
 
   it("SKIPPED — nothing resolvable, and it SAYS so rather than passing silently", async () => {
@@ -156,11 +168,11 @@ describe("the baseline", () => {
 });
 
 describe("the timeout path", () => {
-  it("counts a baseline timeout as BASELINE-RED — honest, and it stops the guard costing every lane", async () => {
+  it("counts a baseline timeout as BASELINE-UNAVAILABLE — honest, and it stops the guard costing every lane", async () => {
     const run = vi.fn(async () => ({ ok: false, output: "…", timedOut: true }) as VerifyRun);
     const d = deps({ run: run as unknown as GuardDeps["run"] });
     const base = await verifyBaseline(DIR, MS, d);
-    expect((await verifyResult(DIR, base, MS, d)).verdict).toBe("baseline-red");
+    expect((await verifyResult(DIR, base, MS, d)).verdict).toBe("baseline-unavailable");
   });
 
   it("counts a RESULT timeout as a rejection, and says it timed out rather than failed", async () => {

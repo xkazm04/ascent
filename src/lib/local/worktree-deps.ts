@@ -4,10 +4,10 @@
 // exactly the TRACKED files of a commit. Dependencies are gitignored, so a fresh lane worktree has no
 // `node_modules` — and `npm run test:unit` there does not fail, it cannot start. The first live outing
 // of the A/B degradation guard resolved each of two real repositories' own commands correctly and then
-// returned `baseline-red` for BOTH, on the pristine tree, before the agent had touched anything. A red
+// returned `baseline-red` (now `baseline-unavailable`) for BOTH, on the pristine tree, before the agent had touched anything. A red
 // baseline is never compared against, so the guard protected nothing, and the lane brief's promise
 // that "structural changes are safe, the lane verifies them" was hollow for precisely the repositories
-// it was written for. Every JavaScript/TypeScript repo would have reported `baseline-red` forever.
+// it was written for. Every JavaScript/TypeScript repo would have reported `baseline-unavailable` forever.
 //
 // THE FIX IS A LINK, NEVER A COPY. Copying `node_modules` is minutes and gigabytes per lane, per arm,
 // per run; a directory link is one syscall. On Windows the link is a JUNCTION (`fs.symlink(target,
@@ -37,7 +37,7 @@
 //
 // BEST-EFFORT, NEVER FATAL. A permission error, a filesystem with no symlinks, a target that vanished
 // between the stat and the symlink — each is a note on the lane and the next name. A lane that could
-// not link its dependencies still runs; it simply verifies as `baseline-red` or `skipped` the way it
+// not link its dependencies still runs; it simply verifies as `baseline-unavailable` or `skipped` the way it
 // did before this module existed.
 
 import { lstat, rm, stat, symlink } from "node:fs/promises";
@@ -116,7 +116,7 @@ export async function linkDependencyDirs(
     } catch (err) {
       notes.push(
         `Could not link \`${name}\` into this lane's worktree (${err instanceof Error ? err.message : String(err)}). ` +
-          `The lane still runs; its verification may report \`baseline-red\` because the repository's own command cannot start here.`,
+          `The lane still runs; its verification may report \`baseline-unavailable\` — the repository's own command cannot start in this worktree, which is not a claim about the repository.`,
       );
     }
   }

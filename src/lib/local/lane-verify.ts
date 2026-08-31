@@ -20,12 +20,23 @@
 //      `controls.ciHardPass` IS the repository's own statement of its gate; `prePush` is the same
 //      statement one step earlier. This is the most authoritative source because it is the only one
 //      that is machine-declared rather than inferred from prose.
-//   2. The guidance files — `parseCommands` (src/lib/analyze/guidance-graph.ts), the SAME extraction
-//      the scorer's `commands_agree` facet runs over CLAUDE.md / AGENTS.md / CONTRIBUTING.md. If the
-//      repo tells its agents "run `npm run check`", that is the command it means.
-//   3. `package.json` scripts — the conventional names, last, because a script that exists is weaker
+//   2. A CI-SHAPED COMMAND, wherever it is declared — `check:ci`, `ci`, `verify`, `check` — read from
+//      the guidance files first and then `package.json`. THE REASON IS THE WORKTREE. The guard runs on
+//      a fresh `git worktree`: tracked files plus the dependency caches the loop links, and no
+//      gitignored local state. A command CI runs is by construction a command that works from a clean
+//      checkout, which is exactly the situation the guard is in; a repository's bare `test` script
+//      very often is not, because the operator's own checkout carries credentials, `.env` files and
+//      service config the worktree correctly does not. Preferring `test` is how
+//      `xkazm04/systedo-case` landed on `npm run test:unit` — 3744/3744 green in the paired checkout,
+//      8 failing in a worktree cut from the same commit, every one of them a missing Google
+//      application-default credential.
+//   3. The guidance files BY CAPABILITY — `parseCommands` (src/lib/analyze/guidance-graph.ts), the
+//      SAME extraction the scorer's `commands_agree` facet runs over CLAUDE.md / AGENTS.md /
+//      CONTRIBUTING.md. If the repo tells its agents "run `npm run test:unit`", that is the command it
+//      means — accepted here even though it may need state a clean checkout does not have.
+//   4. `package.json` scripts — the conventional names, last, because a script that exists is weaker
 //      evidence than a command the repository asked for in words.
-//   4. Nothing resolvable → the guard is SKIPPED, and it says so on the lane. Never a silent pass:
+//   5. Nothing resolvable → the guard is SKIPPED, and it says so on the lane. Never a silent pass:
 //      "we could not check" and "we checked and it was fine" are different facts and a ledger that
 //      renders them the same way is lying.
 //
@@ -72,7 +83,8 @@ const RUNNABLE = (c: string): boolean => c.trim().length > 0 && !c.includes("«r
 const MAX_CHAINED = 3;
 
 /**
- * The keys `parseCommands` produces, in the order the guard prefers them.
+ * The keys `parseCommands` produces, in the order the guard prefers them — consulted only AFTER the
+ * CI-shaped pass below has found nothing.
  *
  * `test` first because a behavioural regression is the failure a bold refactor actually risks;
  * `typecheck` next because it is the cheapest structural proof; `build` before `lint` because a
@@ -87,9 +99,46 @@ const GUIDANCE_KEY_ORDER: readonly string[] = ["test", "typecheck", "build", "li
  *
  * The composite names come first on purpose: a repo with both `check:ci` and `test` means the former
  * when it says "the checks", and running only its unit tests would be a weaker guard than the one it
- * already wrote for itself.
+ * already wrote for itself. Every CI-shaped name here is also matched a layer EARLIER
+ * (`CI_TARGET_ORDER`), where it can outrank a bare `test` quoted in a guidance file; the list is kept
+ * whole so a name cannot silently drop out of one place while surviving in the other.
  */
-const SCRIPT_ORDER: readonly string[] = ["check:ci", "verify", "check", "ci", "test"];
+const SCRIPT_ORDER: readonly string[] = ["check:ci", "ci", "verify", "check", "test:ci", "test"];
+
+/**
+ * SCRIPT/TARGET NAMES A REPOSITORY USES FOR "WHAT CI RUNS", best first.
+ *
+ * Why they are preferred over anything else the repository declares: CI starts from a clean checkout
+ * with none of the operator's secrets, and so does the lane's worktree. A command that is green in CI
+ * is a command that CAN establish a baseline here. A bare `test` script often cannot — not because
+ * the repository is broken, but because the suite reaches for a `.env`, a service account or a local
+ * database that a worktree correctly does not carry. `check` is the weakest of these (a composite
+ * gate by convention, not necessarily the one CI runs) and is still ahead of `test`.
+ */
+const CI_TARGET_ORDER: readonly string[] = [
+  "check:ci",
+  "ci:check",
+  "ci",
+  "verify:ci",
+  "verify",
+  "test:ci",
+  "check:all",
+  "gate",
+  "gates",
+  "check",
+];
+
+/** The rank of a command's TARGET within `CI_TARGET_ORDER`, or -1. The target is the command's last
+ *  token, which is the script name for every runner shape `parseCommands` produces (`npm run
+ *  check:ci`, `make ci`, `pnpm verify`) and harmlessly not a match for the rest (`pytest -q`). */
+function ciRank(command: string): number {
+  const target = (command.trim().split(/\s+/).pop() ?? "").toLowerCase();
+  return CI_TARGET_ORDER.indexOf(target);
+}
+
+/** Is this the command the repository's CI runs, by the name the repository gave it? Exported so a
+ *  test — and anything explaining a resolution to an operator — uses the same rule the resolver does. */
+export const isCiShapedCommand = (command: string): boolean => ciRank(command) >= 0;
 
 function fromManifest(yaml: string | null | undefined): ResolvedVerify | null {
   if (!yaml || !yaml.trim()) return null;
@@ -116,17 +165,23 @@ function fromGuidance(docs: readonly { path: string; text: string }[] | undefine
   return null;
 }
 
-function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null {
+/** `package.json`'s `scripts` object, or `null`. An unparseable file falls through rather than
+ *  throwing: a broken declaration is not evidence that no check exists. */
+function readScripts(raw: string | null | undefined): Record<string, unknown> | null {
   if (!raw || !raw.trim()) return null;
-  let scripts: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(raw);
     const s = (parsed as { scripts?: unknown } | null)?.scripts;
     if (!s || typeof s !== "object" || Array.isArray(s)) return null;
-    scripts = s as Record<string, unknown>;
+    return s as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null {
+  const scripts = readScripts(raw);
+  if (!scripts) return null;
   for (const name of SCRIPT_ORDER) {
     const body = scripts[name];
     if (typeof body !== "string" || body.trim() === "") continue;
@@ -138,6 +193,43 @@ function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null 
 }
 
 /**
+ * THE CI-SHAPED PASS — the best-named CI command anywhere below the manifest.
+ *
+ * Deliberately NOT layered by source. A `check:ci` script in `package.json` beats a bare `test`
+ * quoted in AGENTS.md, because the question this pass answers is not "what does the repository tell
+ * its agents to run" but "what runs from a clean checkout", and the script's NAME is the only
+ * evidence either file carries about that. Rank decides; declaration order (guidance in precedence
+ * order, then `package.json`) only breaks ties, so a document still outranks a script at equal rank.
+ */
+function fromCiShaped(inputs: VerifyInputs): ResolvedVerify | null {
+  const candidates: ResolvedVerify[] = [];
+  for (const doc of inputs.guidance ?? []) {
+    if (!doc.text || !doc.text.trim()) continue;
+    for (const c of parseCommands(doc.text)) {
+      const command = c.command.trim();
+      if (RUNNABLE(command) && isCiShapedCommand(command)) candidates.push({ command, source: `${doc.path} (ci)` });
+    }
+  }
+  const scripts = readScripts(inputs.packageJson);
+  if (scripts) {
+    for (const name of CI_TARGET_ORDER) {
+      const body = scripts[name];
+      if (typeof body === "string" && body.trim() !== "") candidates.push({ command: `npm run ${name}`, source: `package.json (scripts.${name})` });
+    }
+  }
+  let best: ResolvedVerify | null = null;
+  let bestRank = Number.MAX_SAFE_INTEGER;
+  for (const candidate of candidates) {
+    const rank = ciRank(candidate.command);
+    if (rank >= 0 && rank < bestRank) {
+      best = candidate;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
+/**
  * The repository's own verification command, or `null` when it declares none.
  *
  * Deterministic and total: same inputs, same answer, never a throw. A malformed manifest or an
@@ -145,7 +237,12 @@ function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null 
  * the guard's job is to find a check, and a broken declaration is not evidence that no check exists.
  */
 export function resolveVerifyCommand(inputs: VerifyInputs): ResolvedVerify | null {
-  return fromManifest(inputs.manifestYaml) ?? fromGuidance(inputs.guidance) ?? fromPackageJson(inputs.packageJson);
+  return (
+    fromManifest(inputs.manifestYaml) ??
+    fromCiShaped(inputs) ??
+    fromGuidance(inputs.guidance) ??
+    fromPackageJson(inputs.packageJson)
+  );
 }
 
 /** The paths the guard reads, in the order `resolveVerifyCommand` consults them. Exported so the
@@ -154,57 +251,71 @@ export const VERIFY_MANIFEST_PATH = ".ai/manifest.yaml";
 export const VERIFY_GUIDANCE_PATHS: readonly string[] = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md"];
 export const VERIFY_PACKAGE_PATH = "package.json";
 
-// SUBSTRING, NOT WORD-BOUNDED, and deliberately. Runners concatenate: `AssertionError`, `TSError`,
-// `ERR_MODULE_NOT_FOUND`, `error TS2345` — a `\berror\b` matches the last of those and none of the
-// rest, which is exactly backwards. The cost of a loose match is a line of context in a note that is
-// only ever rendered for a command that has already failed.
-const FAILURE_RE = /(error|fail|✗|✕|×|assert|exception|cannot find|not found|panic|traceback|refus)/i;
+// THE RUNNER'S OWN FAILURE MARKERS — not "any line that contains the word error".
+//
+// WHAT THE LOOSE MATCH ACTUALLY CAPTURED. On `xkazm04/systedo-case` the persisted "First failure"
+// read as three lines of console noise printed by PASSING tests — `[activity] list failed … fake
+// firestore: unavailable`, each followed by a ✔ — because the old rule filtered the WHOLE log from
+// the HEAD for anything containing "fail" or "error". Application logging says those words constantly
+// and says them early; a test runner states its verdict at the END. An excerpt that shows a passing
+// test's log line instead of the failing assertion is worse than no excerpt: it sends the reader (and
+// the next agent) after the wrong thing entirely.
+//
+// So this matches only the shapes a RUNNER prints when it is reporting a failure — node:test's `✖`,
+// TAP's `not ok`, vitest/jest's `FAIL` and `Failed Tests`, mocha's `N failing`, node:test's `# fail`,
+// an `AssertionError`, `tsc`'s `error TS####` — and when it finds none it reads the TAIL.
+const FAILURE_MARKER_RE =
+  /(?:^|\s)(?:✖|✕|×|✗|not ok\b|FAIL\b|FAILED\b|Failed Tests\b|failing tests\b|# fail\b|\d+ failing\b|AssertionError\b|error TS\d+)/;
 
 /**
- * The first MEANINGFUL failure lines of a command's output — what the lane records so the operator
- * can see WHY the guard rejected without opening a worktree that no longer exists.
+ * The MEANINGFUL failure lines of a command's output — what the lane records so the operator can see
+ * WHY the guard could not clear this cycle without opening a worktree that no longer exists.
  *
- * Failure-shaped lines first (a test runner prints its summary at the end, a compiler prints its
- * errors as it goes), and when nothing matches, the TAIL: a command that failed with unrecognisable
- * output still said something last, and an empty note would be indistinguishable from "we did not
- * look". Bounded hard — this ends up in a database column and on a lane row.
+ * From the runner's failure section when there is one: the excerpt starts at the FIRST marker line
+ * and runs forward, because a failing assertion's detail follows its marker rather than preceding it.
+ * With no marker anywhere, the TAIL — a command that failed with unrecognisable output still said
+ * something last, and an empty note would be indistinguishable from "we did not look". Bounded hard:
+ * this ends up in a database column and on a lane row.
  */
 export function firstFailureLines(output: string, maxLines = 6, maxChars = 800): string {
   const lines = output.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim() !== "");
   if (lines.length === 0) return "(the command produced no output)";
-  const hits = lines.filter((l) => FAILURE_RE.test(l)).slice(0, maxLines);
-  const chosen = hits.length > 0 ? hits : lines.slice(-maxLines);
+  const start = lines.findIndex((l) => FAILURE_MARKER_RE.test(l));
+  const chosen = start >= 0 ? lines.slice(start, start + maxLines) : lines.slice(-maxLines);
   return chosen.join("\n").slice(0, maxChars);
 }
 
-// ── "it failed" vs "it could not start" ──────────────────────────────────────────────────────────
+// ── "it did not pass here" is NOT "the repository is failing" ────────────────────────────────
 //
-// WHAT CHANGED THE MEANING OF `baseline-red`. Until the lane worktree got its dependency caches
-// linked in (`worktree-deps.ts`), a red baseline was almost never a fact about the repository: a git
-// worktree holds tracked files only, so `npm run test:unit` there could not START, and every JS/TS
-// repo reported `baseline-red` forever. With the link in place a red baseline is a real signal again —
-// "this repository's own checks were already failing before the agent arrived".
+// THE MISTAKE THIS SECTION EXISTS TO PREVENT. The verdict used to be called `baseline-red` and every
+// sentence derived from it said "this repository's own check has failed" — the digest raised it as a
+// standing concern, the next lane's brief led with repairing it, and a counter climbed to "attempt
+// 14". It was false. `xkazm04/systedo-case` passes 3744/3744 in the operator's paired checkout; in a
+// worktree cut from the same commit, with `node_modules` linked exactly as the lane links it, 8 tests
+// fail and every one of them is `Could not load the default credentials …
+// GoogleAuth.getApplicationDefaultAsync`.
 //
-// It is not the ONLY signal, and pretending otherwise would be the dishonest ending. A repo whose
-// command needs an install step the loop cannot provide — a Python project with no `.venv` on the
-// operator's disk, a Go module whose `vendor/` is neither committed nor present, a link that could
-// not be made — still cannot start its command, and the note must say THAT rather than accuse the
-// repository of being broken. Same four verdicts (a fifth would be a new column, a new UI word and a
-// new thing for a reader to learn, for a distinction that belongs in a sentence): `baseline-red`
-// still means "not comparable, and the agent is not blamed", and the sentence names which of the two
-// reasons it was.
+// A worktree carries TRACKED FILES plus the dependency caches the loop links. Credentials, `.env`
+// files, service configuration and a local database are gitignored and are correctly NOT linked. So a
+// command that does not pass in a worktree tells you the guard cannot establish a baseline HERE, and
+// nothing whatsoever about whether the repository's checks pass for the operator. Everything derived
+// from the verdict must say that, and must not manufacture repair work out of it.
 //
-// Loose on purpose, like FAILURE_RE above: the ONLY consequence of a false positive is one differently
-// worded sentence in a note that is rendered exclusively for a command that has already failed.
+// `looksUnrunnable` still separates the sharpest case — the command could not START at all — because
+// that shortens the sentence to one specific thing (a dependency tree the loop could not provide)
+// instead of the general one. Both are the same verdict: no baseline, no blame.
+//
+// Loose on purpose, like the marker match above: the ONLY consequence of a false positive is one
+// differently worded sentence in a note that is rendered exclusively for a command that failed.
 const UNRUNNABLE_RE =
   /(cannot find module|module_not_found|modulenotfounderror|no module named|is not recognized as|command not found|not found: |missing script|could not determine executable|executable to run not found|is not installed|please run .{0,12}install|\bENOENT\b)/i;
 
 /**
- * Did the command fail because it could not RUN in this checkout, rather than because the repository
- * is broken? Recognises the shapes a missing dependency tree produces across ecosystems: node's
- * `Cannot find module` / `ERR_MODULE_NOT_FOUND`, npm's `missing script` and
- * `could not determine executable to run`, a shell's `command not found` / `is not recognized as`,
- * Python's `ModuleNotFoundError: No module named`, and a bare `ENOENT` from a spawn.
+ * Did the command fail because it could not RUN in this checkout at all, rather than because it ran
+ * and reported failures? Recognises the shapes a missing dependency tree produces across ecosystems:
+ * node's `Cannot find module` / `ERR_MODULE_NOT_FOUND`, npm's `missing script` and `could not
+ * determine executable to run`, a shell's `command not found` / `is not recognized as`, Python's
+ * `ModuleNotFoundError: No module named`, and a bare `ENOENT` from a spawn.
  */
 export function looksUnrunnable(output: string): boolean {
   return UNRUNNABLE_RE.test(output);

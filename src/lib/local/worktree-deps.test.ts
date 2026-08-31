@@ -54,7 +54,7 @@ describe("linkDependencyDirs", () => {
   it("makes the worktree RUNNABLE: the paired checkout's node_modules is reachable inside it", async () => {
     // The defect this exists for: a git worktree holds TRACKED files only, so it arrives with no
     // dependency tree and the repository's own `npm run test:unit` cannot start — which is how the
-    // degradation guard returned `baseline-red` for two pristine repositories on its first live run.
+    // degradation guard returned `baseline-unavailable` for two pristine repositories on its first live run.
     const wt = await createLoopWorktree(repo, "acme/api", "20260831101010");
     made.push(wt);
 
@@ -107,7 +107,7 @@ describe("linkDependencyDirs", () => {
 
     expect(res.linked).toEqual([]);
     expect(res.notes.join(" ")).toContain("Could not link");
-    expect(res.notes.join(" ")).toContain("baseline-red");
+    expect(res.notes.join(" ")).toContain("baseline-unavailable");
   });
 
   it("names only dependency CACHES — never source, config or build output", () => {

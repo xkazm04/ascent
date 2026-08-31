@@ -1,4 +1,4 @@
-// A RED BASELINE ON THE (RUN, REPO) CELL — the one degradation-guard verdict the sheet surfaces.
+// AN UNAVAILABLE BASELINE ON THE (RUN, REPO) CELL — the one degradation-guard verdict the sheet surfaces.
 //
 // It says the repository's OWN check was already failing when the lane opened, so the guard had
 // nothing green to compare against: every other number in the cell was produced with the safety net
@@ -41,16 +41,16 @@ const cellOf = (...lanes: LoopLaneRecord[]) => {
   return buildOutcomeMatrix([detail]).groups[0]!.cells["run-9"]!;
 };
 
-describe("the cell's red baseline", () => {
-  it("carries the command and the note when the lane measured a red baseline", () => {
+describe("the cell's unavailable baseline", () => {
+  it("carries the command and the note when the lane could not establish a baseline", () => {
     const cell = cellOf(
       lane({
-        verifyVerdict: "baseline-red",
+        verifyVerdict: "baseline-unavailable",
         verifyCommand: "npm run test:unit",
-        verifyNote: "Verification BASELINE RED: `npm run test:unit` … First failure: FAIL fault-injection",
+        verifyNote: "Verification NO BASELINE: `npm run test:unit` … First failure: ✖ fault-injection",
       }),
     );
-    expect(cell.redBaseline).toEqual({ command: "npm run test:unit", note: expect.stringContaining("FAIL fault-injection") });
+    expect(cell.redBaseline).toEqual({ command: "npm run test:unit", note: expect.stringContaining("✖ fault-injection") });
   });
 
   it("is null for a verified lane — a badge on every healthy row would mean 'normal'", () => {
@@ -63,7 +63,7 @@ describe("the cell's red baseline", () => {
 
   it("follows the NEWEST lane of the cell: a later green cycle clears it", () => {
     const cell = cellOf(
-      lane({ id: "c1", cycle: 1, verifyVerdict: "baseline-red", verifyCommand: "npm test" }),
+      lane({ id: "c1", cycle: 1, verifyVerdict: "baseline-unavailable", verifyCommand: "npm test" }),
       lane({ id: "c2", cycle: 2, verifyVerdict: "verified", verifyCommand: "npm test" }),
     );
     expect(cell.redBaseline).toBeNull();

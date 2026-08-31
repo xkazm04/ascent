@@ -13,6 +13,7 @@ import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
 import { buildGapRows } from "./outcomeGapRows";
 import { cellEconomics } from "./outcomeEconomics";
 import type { CellRedBaseline, OutcomeCell, OutcomeDim } from "./outcomeMatrixTypes";
+import { asVerifyVerdict } from "@/lib/local/verify-options";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution } from "../cockpit/cockpitDrift";
 import { laneKindTag, type LaneEconomics, type LoopLaneOutcome } from "../cockpit/loopTypes";
@@ -58,13 +59,15 @@ export function foldCell(
   // three more on another, and charging one repo's cell for another's spend is the failure the
   // org-wide average already makes.
   const laneIds = new Set(lanes.map((o) => o.lane.id));
-  // A RED BASELINE OUTLIVES ITS LANE. The newest lane of this (run, repo) that measured one decides:
-  // a later green lane means the repository was repaired, and a stale badge would say otherwise. Only
-  // `baseline-red` is surfaced — `verified` on every healthy row would be a badge meaning "normal",
-  // and `rejected` cannot reach this sheet at all because a rejected lane commits nothing.
+  // AN UNAVAILABLE BASELINE OUTLIVES ITS LANE. The newest lane of this (run, repo) that measured a
+  // verdict decides: a later verified lane means a baseline WAS established, and a stale badge would
+  // say otherwise. Only `baseline-unavailable` is surfaced — `verified` on every healthy row would be
+  // a badge meaning "normal", and `rejected` cannot reach this sheet at all because a rejected lane
+  // commits nothing. Read through `asVerifyVerdict`, which also parses the word rows written before
+  // 2026-08-31 carry (`baseline-red`).
   const red = [...lanes].reverse().find((o) => o.lane.verifyVerdict != null)?.lane ?? null;
   const redBaseline: CellRedBaseline | null =
-    red?.verifyVerdict === "baseline-red" ? { command: red.verifyCommand, note: red.verifyNote } : null;
+    asVerifyVerdict(red?.verifyVerdict) === "baseline-unavailable" ? { command: red?.verifyCommand ?? null, note: red?.verifyNote ?? null } : null;
   return {
     runId,
     repo,

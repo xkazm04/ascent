@@ -15,7 +15,7 @@
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
-import { redBaselineLessonKey } from "@/lib/local/lane-baseline";
+import { legacyUnverifiedCycleLessonKey, unverifiedCycleLessonKey } from "@/lib/local/lane-baseline";
 
 /** Where a candidate came from. One value today; the column is `String` so #36's skill-lessons
  *  channel can reuse this table without a migration. */
@@ -257,20 +257,24 @@ async function standingLesson(orgSlug: string, repoFullName: string, body: strin
 }
 
 /**
- * THE REPOSITORY'S OWN CHECKS ARE FAILING, and the loop noticed.
+ * THE GUARD COULD NOT ESTABLISH A BASELINE, and the OPERATOR is the one who can fix that.
  *
- * A red baseline turns the degradation guard off on that repository: there is no green measurement to
- * compare against, so nothing the loop commits there can be shown not to have regressed. The lane's
- * brief now leads with the repair (`leadWithRedBaseline`), and this is how the OPERATOR finds out —
- * in the same review queue every other lesson lands in, so it is not one more log line nobody reads.
+ * With no baseline the degradation guard is off on that repository: nothing the loop commits there can
+ * be shown not to have regressed. This is how the operator finds out — in the same review queue every
+ * other lesson lands in, so it is not one more log line nobody reads — and the row now ends with the
+ * two things in their hands: declare `controls.ciHardPass`, or turn `verifyMode` off for the repo.
  *
- * ONE ROW PER REPOSITORY, REFRESHED — the sharpest difference from `recordLoopLessons`. A red
- * baseline is a standing fact that stays true lane after lane, so an event-shaped write would have
- * filed twenty-one identical candidates in the campaign that exposed this. But the fact is not
- * *static* either: "attempt 4, still failing" is a materially different thing to know than "attempt
- * 1", and it is exactly what an operator needs to see. So the row is keyed on a prefix that carries
- * NEITHER the command nor the date nor the count (`redBaselineLessonKey`), and its content is rewritten
- * as the attempt count climbs.
+ * ONE ROW PER REPOSITORY, REFRESHED — the sharpest difference from `recordLoopLessons`. It is a
+ * standing fact that stays true lane after lane, so an event-shaped write would have filed twenty-one
+ * identical candidates in the campaign that exposed this. But the fact is not *static* either: how
+ * many lanes it has held is what tells an operator whether to act. So the row is keyed on a prefix
+ * carrying NEITHER the command nor the date nor the count (`unverifiedCycleLessonKey`), and its
+ * content is rewritten as the count climbs.
+ *
+ * THE LEGACY PREFIX IS MATCHED TOO. The row this used to write opened "Red baseline on <repo>: … the
+ * lane brief now leads with restoring it" — a claim that was false. Matching the old prefix means
+ * that row is REWRITTEN with the corrected wording instead of being joined by a second one, so the
+ * false claim does not sit in a review queue forever.
  *
  * A DISCARDED OR KEPT ROW IS LEFT ALONE. A human has already ruled on it; rewriting their reviewed
  * candidate under them — or resurrecting a rejection into the pending queue — is the noise the
@@ -287,10 +291,16 @@ export async function recordRedBaselineLesson(
     if (!org) return null;
     const body = content.slice(0, LESSON_MAX_CHARS);
     const prisma = getPrisma();
-    const key = redBaselineLessonKey(repoFullName);
+    const key = unverifiedCycleLessonKey(repoFullName);
+    const legacyKey = legacyUnverifiedCycleLessonKey(repoFullName);
     const existing = await prisma.orgMemoryCandidate
       .findFirst({
-        where: { orgId: org.id, namespace: repoFullName, source: LOOP_LESSON_SOURCE, content: { startsWith: key } },
+        where: {
+          orgId: org.id,
+          namespace: repoFullName,
+          source: LOOP_LESSON_SOURCE,
+          OR: [{ content: { startsWith: key } }, { content: { startsWith: legacyKey } }],
+        },
         orderBy: { createdAt: "desc" },
       })
       .catch(() => null);

@@ -323,7 +323,8 @@ export interface LoopLaneRecord {
   abPairKey: string | null;
 
   // ── THE A/B DEGRADATION GUARD (src/lib/local/lane-guard.ts).
-  /** `verified` | `rejected` | `baseline-red` | `skipped`, or `null` for a lane written before the
+  /** `verified` | `rejected` | `baseline-unavailable` | `skipped` (legacy rows carry `baseline-red`),
+   *  or `null` for a lane written before the
    *  guard existed. NULL IS NOT `skipped`: one is "we do not know", the other is "we looked and there
    *  was nothing to run", and a ledger that renders them alike is lying about both. A `rejected` lane
    *  committed nothing and is never landed or PR'd. */

@@ -488,11 +488,12 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     );
   });
 
-  it("raises a RED BASELINE in the standing-concerns block — the loop's own guard, switched off", async () => {
-    // `baseline-red` means a repository's OWN check was failing before an agent touched it, so the
-    // degradation guard has nothing green to compare against and everything the loop commits there is
-    // unverified. It is a state, not an event: every windowed, movement-shaped input is silent about
-    // it, which is exactly the silence the standing-concerns block exists to break.
+  it("raises an UNAVAILABLE BASELINE in the standing-concerns block — the loop's own guard, switched off", async () => {
+    // The guard could not establish a baseline in the lane's worktree, so it has nothing to compare
+    // against and everything the loop commits there is unverified. It is a state, not an event: every
+    // windowed, movement-shaped input is silent about it, which is exactly the silence the
+    // standing-concerns block exists to break. The line says WORKTREE and ends with the remedy — it
+    // must not assert the repository's own checks are failing (`lane-baseline.ts` owns the wording).
     mockListOrgs.mockResolvedValue(["orgRed"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
     mockRollup.mockResolvedValue(rollupWith());
@@ -500,10 +501,14 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
       {
         repoFullName: "orgRed/systedo-case",
         observation:
-          "`npm run test:unit` — this repository's own check — has failed before the session on every loop lane since " +
-          "2026-08-28 (3 lanes). With no green baseline the degradation guard cannot compare anything, so nothing the " +
-          "loop commits here is verified.",
-        evidence: ["FAIL test-unit/fault-injection-llm.test.mjs"],
+          "`npm run test:unit` has not passed in the loop's isolated worktree on any loop lane since 2026-08-28 " +
+          "(3 lanes). A worktree carries tracked files plus linked dependency caches and none of the gitignored local " +
+          "state a check may need, so this is not a reading of the repository's own checks. With no baseline the " +
+          "degradation guard cannot compare anything, so nothing the loop commits here is verified. To make this " +
+          "repository verifiable, declare a command that runs from a clean checkout at `controls.ciHardPass` in " +
+          "`.ai/manifest.yaml` (the guard prefers it over anything it infers), or turn `verifyMode` off for this " +
+          "repository.",
+        evidence: ["✖ test-unit/fault-injection-llm.test.mjs"],
         lanes: 3,
         command: "npm run test:unit",
         since: "2026-08-28T09:00:00.000Z",
@@ -519,13 +524,18 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(sent.standingConcerns).toEqual([
       expect.objectContaining({
         repo: "orgRed/systedo-case",
-        observation: expect.stringContaining("has failed before the session on every loop lane since 2026-08-28"),
-        evidence: ["FAIL test-unit/fault-injection-llm.test.mjs"],
+        observation: expect.stringContaining("has not passed in the loop's isolated worktree on any loop lane since 2026-08-28"),
+        evidence: ["✖ test-unit/fault-injection-llm.test.mjs"],
       }),
     ]);
+    // The line a reader may quote out of the message must not accuse the repository, and must carry
+    // the one thing the operator can act on.
+    const line = sent.standingConcerns![0]!.observation;
+    expect(line).not.toMatch(/repository'?s? own check — has failed|own checks are failing/i);
+    expect(line).toContain("`controls.ciHardPass`");
   });
 
-  it("raises NOTHING for a fleet whose baselines are green", async () => {
+  it("raises NOTHING for a fleet whose baselines were established", async () => {
     mockListOrgs.mockResolvedValue(["orgGreen"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/G");
     mockRollup.mockResolvedValue(rollupWith());
@@ -598,12 +608,12 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     });
   });
 
-  it("puts a red baseline ABOVE a standing regression — a guard that cannot run outranks a score that fell", async () => {
+  it("puts an unavailable baseline ABOVE a standing regression — a guard that cannot run outranks a score that fell", async () => {
     mockListOrgs.mockResolvedValue(["orgBoth"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/B");
     mockRollup.mockResolvedValue(rollupWith());
     vi.mocked(getRedBaselines).mockResolvedValue([
-      { repoFullName: "orgBoth/case", observation: "`npm test` — this repository's own check — …", evidence: [], lanes: 1, command: "npm test", since: "2026-08-30T00:00:00.000Z" },
+      { repoFullName: "orgBoth/case", observation: "`npm test` did not pass in the loop's isolated worktree …", evidence: [], lanes: 1, command: "npm test", since: "2026-08-30T00:00:00.000Z" },
     ] as never);
     vi.mocked(getStandingRegressions).mockResolvedValue([
       { repoFullName: "orgBoth/kp", observation: "D9 has held 21 points below …", evidence: [] },
