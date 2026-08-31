@@ -318,6 +318,44 @@ Non-D9 floors render into `policyText` and the PR-comment footer but carry **no*
 persisted policy as its baseline on every call, so the CI snippet does not need to restate
 them and a param could not weaken them anyway.
 
+### The form replaces only what it renders
+
+The Governance editor **round-trips every `GatePolicy` field it does not show**. `buildPolicy()`
+starts from `passthroughPolicyFields(stored)` — the stored policy minus `EDITED_POLICY_FIELDS` — and
+overwrites only the six bars the form actually renders, so `requireChecks`, `minAiGovernedRate` and
+`forbidAiAuthorship` survive a save byte-identical. The carried copy is re-seeded from the server's
+**echo** on every save, never from the request, so it cannot drift from what is stored.
+
+This was live-proven broken (UAT 2026-08-30, `NADIA-L1-07` / `PRIYA-L1-01`): an owner set two
+required controls, changed **Min overall 50 → 55**, and the controls were gone. The payload was
+assembled field by field and the POST replaces wholesale, so every unrendered bar was collateral on
+every save — of a *merge-blocking* control that the Active-policy summary was printing read-only six
+rows above the form.
+
+The fix is round-trip and deliberately **not** a merging POST: a POST that merged the submitted
+subset could never *clear* a field, so unchecking "Require a protected default branch" would silently
+stop working. The form owns exactly what it shows. **When a field gains a control, add it to
+`EDITED_POLICY_FIELDS` in the same change** — otherwise the editor would show it *and* stash a stale
+copy, and the stash would win. Pinned by `GatePolicyEditor.roundtrip.test.tsx`.
+
+### A write that drops a bar says so
+
+`diffGatePolicy` (`src/lib/scoring/gate-diff.ts`) compares the stored policy before and after every
+write, field by field, in `describeGatePolicy`'s own wording, and:
+
+- appends the losses to the audit row's human-readable `status`
+  (`min L3 · min overall 55 — dropped required controls (Reported controls must not be failing: …)`),
+  with the structured list under `changes`;
+- returns the removals to the caller as `dropped`, which the editor surfaces as
+  *"Policy saved — but this save also REMOVED …"*.
+
+Both halves exist because the editor's own reconciliation (`droppedFields`) compares its **request**
+against the echo and is therefore structurally blind to a field it never sent. Only the server holds
+both policies. Before this, the save that deleted two required controls wrote an audit row naming
+them **only** under `previousPolicy` — a field nobody diffs — while `status` read clean. The form is
+no longer a writer that can lose a bar, but it is not the only writer (the admission overlay, the
+API, a future editor), and a control that can vanish without the log saying so is not a control.
+
 ### The audit row
 
 Every save writes an `org.gate_policy` audit row carrying **the bar itself**, not just that it
@@ -359,7 +397,8 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/lib/scoring/gate-comment.ts` | `buildGateComment()`: check title/summary + PR comment markdown. |
 | `src/lib/github/pr-gate.ts` | `runPrGate()`: the shared Check Run + sticky comment writer. |
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
-| `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs. |
+| `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs; diff the write and name what it dropped. |
+| `src/lib/scoring/gate-diff.ts` | Field-level diff of a policy write, in `describeGatePolicy`'s wording — the audit `status` clause and the editor's removal warning. |
 | `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
@@ -376,10 +415,14 @@ all, so the new bar simply applies on each PR's next push or CI run.
   deployment with no persisted org bar (self-hosted, DB-less, and every org that never set one). It is
   now written as an explicit-wins spread over the whole object so the next field cannot repeat it, and
   `gate-policy-sources.test.ts` asserts every field `explicitPolicyFromParams` can parse survives.
-- **`requireChecks` has no editor surface yet.** It is a real `GatePolicy` field with all four places
-  and is enforced whenever it appears in a persisted org policy — but the Governance form does not
-  offer it, so today it can only be set by writing `Organization.gatePolicy` directly. The evaluator
-  half is what #16 needed; the form is not built.
+- **`requireChecks` has no editor CONTROL yet.** It is a real `GatePolicy` field with all four places
+  and is enforced whenever it appears in a persisted org policy — but the Governance form offers no
+  input for it, so today it can only be *set* by writing `Organization.gatePolicy` directly (or by
+  `POST /api/org/gate-policy`). The evaluator half is what #16 needed; the input is not built.
+  Scoped: the *destructive* half of this gap closed 2026-08-31 — a stored `requireChecks` is rendered
+  read-only in the Active-policy summary, round-trips untouched through every save, and any write that
+  does drop it is named in the audit row and in the editor's own message (see "The form replaces only
+  what it renders" and "A write that drops a bar says so").
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
   LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
   rather than a silent floor score).
