@@ -21,8 +21,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** The optgroup order — "Your repos" before the aggregate options, so the concrete answer is first. */
-const AGAINST_GROUPS: ExemplarOption["group"][] = ["Your repos", "Org best", "Cohort"];
+/**
+ * The optgroup order — concrete repos before the aggregate options, so the concrete answer is first.
+ * "Public corpus" / "Corpus best" are the same two slots for a viewer the org gate resolved to the
+ * shared public namespace: same options, honestly named (`exemplarGroups`, UAT `SAM-L1-13`).
+ */
+const AGAINST_GROUPS: ExemplarOption["group"][] = [
+  "Your repos",
+  "Public corpus",
+  "Org best",
+  "Corpus best",
+  "Cohort",
+];
 
 export function ScanComparePicker({
   repo,
@@ -73,8 +83,14 @@ export function ScanComparePicker({
   const selectClass =
     "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 type-body text-slate-200 outline-none focus:border-accent";
 
+  // A repo with ONE stored scan has no time comparison to offer — but it still has an exemplar
+  // comparison, which needs no second scan. The time controls are hidden rather than rendered
+  // inert, so the exemplar field is reachable on the first scan a repo ever gets (UAT `SAM-L1-13`).
+  const timeComparable = scans.length >= 2;
+
   return (
     <Surface radius="2xl" className="p-4">
+      {timeComparable && (
       <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
         <Field label="Baseline (before)">
           <select
@@ -122,8 +138,9 @@ export function ScanComparePicker({
           </select>
         </Field>
       </div>
+      )}
       {exemplarOptions.length > 0 && (
-        <div className="mt-3 border-t border-slate-800 pt-3">
+        <div className={timeComparable ? "mt-3 border-t border-slate-800 pt-3" : ""}>
           <Field label="Against (exemplar)">
             <select
               value={against ?? ""}

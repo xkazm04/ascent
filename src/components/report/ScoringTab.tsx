@@ -91,6 +91,18 @@ export function ScoringTab({
                 What changed →
               </Link>
             )}
+            {/* The OTHER comparison axis, and until now the report linked to it from nowhere: the
+                exemplar diff answers "what does a stronger repo have that this one lacks", which the
+                time diff structurally cannot, and its only inbound link was the two-scan "What changed"
+                one carrying no `?against=` (UAT `SAM-L1-13`). Deliberately NOT gated on two scans —
+                comparing against another repository needs none. */}
+            <Link
+              href={`/report/compare?repo=${encodeURIComponent(`${repo.owner}/${repo.name}`)}&against=org:best`}
+              className="type-mono-sm uppercase tracking-widest text-accent hover:text-accent-soft"
+              title="Compare this repo's evidence against a stronger one, and see which practices transfer"
+            >
+              Compare against a stronger repo →
+            </Link>
             <Link
               href={`/trends?repo=${encodeURIComponent(`${repo.owner}/${repo.name}`)}`}
               className="type-mono-sm uppercase tracking-widest text-accent hover:text-accent-soft"

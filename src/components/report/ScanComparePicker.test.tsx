@@ -123,4 +123,41 @@ describe("ScanComparePicker — Against (exemplar) field", () => {
       "/compare/acme/widget?repo=acme%2Fwidget&a=newer&b=newer&against=cohort%3Alang%3ATypeScript",
     );
   });
+
+  // UAT `SAM-L1-13`: the exemplar axis needs no second scan, but the whole compare surface was gated
+  // on the pair, so the repo with the most to gain from a peer comparison could not reach one.
+  it("keeps the exemplar field on a repo with ONE scan, and drops the time controls", () => {
+    render(
+      <ScanComparePicker
+        repo="acme/widget"
+        scans={[scan("only", "2026-07-20T00:00:00.000Z", 70)]}
+        beforeId="only"
+        afterId="only"
+        exemplarOptions={exemplarOptions}
+      />,
+    );
+    expect(screen.getByLabelText(/exemplar to compare against/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Baseline scan")).toBeNull();
+    expect(screen.queryByLabelText("Compared scan")).toBeNull();
+  });
+
+  it("names the PUBLIC-corpus groups for a viewer the org gate resolved to the public namespace", () => {
+    render(
+      <ScanComparePicker
+        repo="pub/widget"
+        scans={scans}
+        beforeId="older"
+        afterId="newer"
+        exemplarOptions={[
+          { value: "repo:pub/api", label: "pub/api", group: "Public corpus" as const, scannedAt: null },
+          { value: "org:best", label: "best in the public corpus", group: "Corpus best" as const, scannedAt: null },
+        ]}
+      />,
+    );
+    const select = screen.getByLabelText(/exemplar to compare against/i);
+    for (const g of ["Public corpus", "Corpus best"]) {
+      expect(select.querySelector(`optgroup[label="${g}"]`)).not.toBeNull();
+    }
+    expect(select.querySelector('optgroup[label="Your repos"]')).toBeNull();
+  });
 });

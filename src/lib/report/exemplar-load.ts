@@ -35,6 +35,7 @@ import {
   buildCohortProfile,
   COHORT_EXEMPLAR_MIN,
   EXEMPLAR_CANDIDATE_CAP,
+  exemplarGroups,
   exemplarRefLabel,
   formatExemplarRef,
   repoProfile,
@@ -190,10 +191,16 @@ async function resolveRepo(
 async function resolveOrgBest(
   ref: Extract<ExemplarRef, { kind: "org-best" }>,
   orgId: string,
-  ctx: { subjectFullName: string },
+  ctx: { orgSlug: string; subjectFullName: string },
 ): Promise<ExemplarResolution> {
   const candidates = await loadOrgCandidates(orgId);
-  const profile = selectOrgBest(candidates, { dimId: ref.dimId, excludeFullName: ctx.subjectFullName });
+  const profile = selectOrgBest(candidates, {
+    dimId: ref.dimId,
+    excludeFullName: ctx.subjectFullName,
+    // The heading must name the population, and for a viewer resolved to the shared public namespace
+    // that population is the public corpus, not "the org" (UAT `SAM-L1-13`).
+    publicCorpus: ctx.orgSlug === DEFAULT_ORG_SLUG,
+  });
   return profile ? { kind: "ok", profile } : { kind: "not-found" };
 }
 
@@ -279,18 +286,31 @@ export async function listExemplarOptions(
     if (!orgId) return [];
     const candidates = (await loadOrgCandidates(orgId)).filter((c) => c.repoFullName !== ctx.subjectFullName);
 
+    // WHOSE repos these are decides what they are CALLED. `readableOrgForOwner` resolves a viewer who
+    // is not a member of the repo's org to the shared public namespace, and the picker then offered up
+    // to ORG_CANDIDATE_CAP (500) public-corpus repositories under "Your repos", with an "Org best" that
+    // meant "best in the public corpus" (UAT `SAM-L1-13`). Both are true statements about the query and
+    // false ones about the reader.
+    const publicCorpus = ctx.orgSlug === DEFAULT_ORG_SLUG;
+    const groups = exemplarGroups(publicCorpus);
+
     const options: ExemplarOption[] = candidates.map((c) => {
       const [owner = "", name = ""] = c.repoFullName.split("/");
       return {
         value: formatExemplarRef({ kind: "repo", owner, name }),
         label: c.repoFullName,
-        group: "Your repos" as const,
+        group: groups.repos,
         scannedAt: c.scannedAt,
       };
     });
     if (candidates.length > 0) {
       const ref: ExemplarRef = { kind: "org-best", dimId: null };
-      options.push({ value: formatExemplarRef(ref), label: exemplarRefLabel(ref), group: "Org best", scannedAt: null });
+      options.push({
+        value: formatExemplarRef(ref),
+        label: exemplarRefLabel(ref, { publicCorpus }),
+        group: groups.best,
+        scannedAt: null,
+      });
     }
 
     const slices: Extract<ExemplarRef, { kind: "cohort" }>[] = [
