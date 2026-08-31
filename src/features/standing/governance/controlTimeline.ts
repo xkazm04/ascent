@@ -2,8 +2,12 @@
 // the coverage arithmetic are testable on their own and the card stays well under the 200-LOC cap
 // this directory enforces.
 
-import { controlLabel, controlOrder } from "@/lib/controls/catalog";
+import { controlDef, controlLabel, controlOrder, stateTone } from "@/lib/controls/catalog";
 import type { ControlCoverage, ControlObservationRow } from "@/lib/db/control-observations";
+
+// The truncation disclosure is shared verbatim with `/api/org/controls` — see the module docstring
+// there for why it cannot live in either consumer.
+export { timelineDisclosure, truncationSentence } from "@/lib/controls/window";
 
 export interface TimelineRow {
   repoFullName: string;
@@ -24,6 +28,18 @@ export interface TimelineRow {
   /** The coverage row for this pair, when the caller supplied one. Null means the card must NOT
    *  print a coverage figure — an absent N is silence, not zero. */
   coverage: ControlCoverage | null;
+  /** True when the catalogue marks this control a DESCRIPTOR (`repo-visibility`): its state is
+   *  always `pass` and the fact lives in `value`, so a surface renders the VALUE and never the word
+   *  "operating". The catalogue has said so since it was written; MC-B13 gives it its first reader. */
+  descriptor: boolean;
+  /** The catalogue's sentence for what a `fail` on this control MEANS, or null when the row is not
+   *  failing. This is the disclaimer Nadia's screenshot went out without: "Published advisories ·
+   *  not operating" in red, with the catalogue's own "NOT a statement that the repo is insecure"
+   *  sitting unread in a file. A red state is never rendered without it. */
+  failMeans: string | null;
+  /** `stateTone`'s verdict for this row — read from the catalogue, not re-derived. A renderer that
+   *  re-implements the ternary is a renderer that can drift from the three-state vocabulary. */
+  tone: "good" | "bad" | "unknown";
 }
 
 /**
@@ -57,10 +73,16 @@ export function groupTimeline(
       }
       continue;
     }
+    const def = controlDef(r.controlId);
     byPair.set(key, {
       repoFullName: r.repoFullName,
       controlId: r.controlId,
       label: controlLabel(r.controlId),
+      descriptor: def?.descriptor === true,
+      // Only on a fail: the sentence is what a `fail` MEANS, and printing it beside a pass would
+      // read as a warning on a control that is operating.
+      failMeans: r.state === "fail" ? (def?.failMeans ?? null) : null,
+      tone: stateTone(r.state),
       state: r.state,
       value: r.value,
       lastAt: r.occurredAt,
@@ -90,7 +112,10 @@ export function coverageSentence(c: ControlCoverage | null): string | null {
   // The gap is the part that stops a reader over-reading the count. The heartbeat is 24h, so a gap
   // materially above a day means we stopped looking, not that nothing changed.
   const gap = c.maxGapDays === null ? "a single observation, so no continuity is claimed" : `largest gap ${c.maxGapDays}d`;
-  return `${n} · ${gap} · via ${c.sources.join(", ")}`;
+  // MC-B13: when the coverage read hit its cap the count is a FLOOR over the newest rows, not a
+  // total. Said in the same sentence as the number rather than in a footnote a screenshot crops out.
+  const floor = c.windowTruncated ? " · at least (read window capped)" : "";
+  return `${n} · ${gap} · via ${c.sources.join(", ")}${floor}`;
 }
 
 /** How a state should be worded. `unmeasurable` renders as an em dash with this as its tooltip —
